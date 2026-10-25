@@ -14,6 +14,9 @@ use cellar_ltx::{DirectFileSystem, LtxHost};
 use futures_util::TryStreamExt;
 use object_store::ObjectStore;
 
+#[path = "raft_evacuation_verification.rs"]
+mod evacuation_verification;
+
 struct Started {
     f: Fixture,
     nodes: Vec<Running>,

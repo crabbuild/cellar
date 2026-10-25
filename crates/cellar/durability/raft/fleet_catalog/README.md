@@ -289,9 +289,10 @@ cannot issue a proof after expiry. Blocking work retains its inputs until its
 execution owner joins it. The caller owns scratch storage and admission for the
 configured recovery-memory bound.
 
-This is historical archive coverage. Complete inventory, fresh surviving quorum
-and publications, exact permit settlement, physical joins/fences, rooted terminal
-receipts and disruption-slot release remain separate pending lifecycle work.
+This is historical archive coverage. Candidate preparation consumes this proof
+with complete inventory, quorum publications and exact permit settlement as
+described below. Physical joins/fences, fresh terminal survivor checks, rooted
+terminal receipts and disruption-slot release remain pending lifecycle work.
 Business-write acknowledgement calls none of this metadata work.
 
 The opaque response includes the installed node enrollment and whole invocation
@@ -309,6 +310,61 @@ a lease. It is an input to complete-import and terminal-operation verification,
 not a complete inventory, archive-coverage or node-removal certificate. Rooted
 operation sequencing, complete history coverage and physical work joins remain
 separate controller obligations.
+
+## Evacuation candidate preparation
+
+`prepare_evacuation_verification(snapshot, operation, namespaces, timeout)` starts
+only at the current root. It checks the active disruption's canonical operation,
+original journal and exact Draining node record, then internally verifies the
+entire declared namespace/history inventory. An incomplete import, missing
+namespace handle or reserved reference remains an obligation. The returned
+`FleetEvacuationVerification` retains the immutable inventory cut and one pending
+history record; its `next_history` walk consumes every rooted key.
+
+For each live history, `verify_live` owns three authenticated safe-ReadIndex calls
+through the supplied `RaftCells` observer. Endpoint IDs select the calls; the
+responses establish the proof. All three voters must have the same stable RF3
+configuration, current Active enrollment, exact node/disk/process and permanent
+engine identity, birth/schema, and settled latest rooted permit. Joint voters,
+learners, active repairs and unconsumed permits refuse progress. The rooted
+physical-host separation policy applies to all survivors. Three coherent
+publications must cover the fixed first cut. `freeze_live` retains that exact
+historical cut while archive catch-up and ordinary writes continue. Repeated
+calls for the pending history return the same cut; a caller can select its
+immutable archive afterward. `FleetEvacuationArchive` supplies that exact archive
+and owned replay services. `verify_live` reuses the pending cut, or captures it
+first if necessary, and physically verifies the selected material. Each method
+keeps its original deadline across every awaited phase. Retaining a fixed cut
+between calls supplies no freshness lease for terminal completion.
+
+`verify_cancelled` consumes a rooted canonical cancellation already checked
+against the immutable namespace decision. Reserved histories block until their
+birth decision is reconciled into a new root. Each completed entry goes into a
+bounded immutable hash-radix index. Failed, cancelled or expired turns retain
+the pending history; immutable orphan pages grant no progress. The caller owns
+scratch storage and recovery-memory admission, separately from these bounded
+metadata pages and the existing transport/control reservations.
+
+The verifier rechecks Policy, Nodes, Histories, Admissions and the disruption
+slot around storage work. A change invalidates the attempt. Unrelated journal
+or Operations progress can advance without changing that verification basis;
+the original active operation and canonical journal linkage are revalidated at
+each check. Missing or corrupted operation bytes refuse progress. Survivor calls
+are sequenced through the bounded metadata authorization turn, with their
+original deadline and typed observation failures retained.
+After confirming inventory exhaustion with its final bounded page,
+`publish_candidate` creates and confirms a digest-addressed
+manifest binding the index, operation, excluded node/epoch and inventory cut.
+Repeated publication yields the same candidate. It leaves the fleet root, node
+state and disruption slot unchanged.
+
+A candidate records historical verification. Its stored bytes cannot recreate
+the runtime's proofs after a crash, authorize a stop, release reservations or
+establish terminal removal. The remaining terminal path must obtain fresh
+survivor observations, reconcile reachable physical owners or fence unreachable
+authority while retaining occupancy, and atomically root the terminal receipt
+with the node transition and disruption-slot release. Business writes continue
+without calling candidate preparation or coordination storage.
 
 ## Host API and fresh learners
 

@@ -70,6 +70,23 @@ pub struct FleetEvacuationAdmission {
     observed_revision: u64,
 }
 
+/// An active, still-matching disruption at one exact root. Unlike a retained
+/// admission observation, this cannot be obtained from an old Operations entry.
+pub(super) struct ActiveEvacuation {
+    admission: FleetEvacuationAdmission,
+    slot: [u8; 32],
+}
+
+impl ActiveEvacuation {
+    pub(super) fn admission(&self) -> &FleetEvacuationAdmission {
+        &self.admission
+    }
+
+    pub(super) fn slot(&self) -> [u8; 32] {
+        self.slot
+    }
+}
+
 impl FleetEvacuationAdmission {
     pub fn operation(&self) -> ProposalId {
         self.operation
@@ -113,6 +130,30 @@ impl FleetEvacuationAdmission {
 }
 
 impl Record {
+    fn observation(
+        &self,
+        catalog: &FleetCatalog,
+        snapshot: &FleetSnapshot,
+        applied_revision: u64,
+    ) -> Result<FleetEvacuationAdmission> {
+        let host = catalog.host_record(snapshot, self.node.clone())?;
+        Ok(FleetEvacuationAdmission {
+            operation: ProposalId::new(self.request.operation)
+                .map_err(|_| FleetCatalogError::Corrupt("evacuation operation"))?,
+            node: host.node(),
+            disk: host.disk(),
+            storage_instance: host
+                .storage_instance()
+                .ok_or(FleetCatalogError::Corrupt("evacuation engine"))?,
+            enrollment_epoch: host.epoch(),
+            inventory_revision: self.request.expected_revision,
+            namespaces: self.namespaces,
+            histories: self.histories,
+            applied_revision,
+            observed_revision: snapshot.revision(),
+        })
+    }
+
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         validate_request(&self.request)?;
         self.node.validate(&catalog.inner)?;
@@ -383,6 +424,46 @@ impl FleetCatalog {
         Ok(applied)
     }
 
+    /// Called within a catalog turn. The immutable request/journal and slot
+    /// must agree, and the current node must still be the admitted Draining
+    /// record. A historical admission alone cannot start final verification.
+    pub(super) async fn checked_active_evacuation(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+    ) -> Result<ActiveEvacuation> {
+        self.check_snapshot(snapshot)?;
+        let record = self
+            .active_disruption(snapshot)
+            .await?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if record.request.operation != operation.bytes() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let current = self
+            .node_records(snapshot)
+            .await?
+            .into_iter()
+            .find(|node| node.node == record.node.node)
+            .ok_or(FleetCatalogError::Conflict)?;
+        if current != record.node {
+            return Err(FleetCatalogError::Conflict);
+        }
+        // active_disruption already checked this exact original journal link.
+        let applied = record
+            .request
+            .expected_revision
+            .checked_add(1)
+            .ok_or(FleetCatalogError::Limit)?;
+        Ok(ActiveEvacuation {
+            admission: record.observation(self, snapshot, applied)?,
+            slot: snapshot
+                .head
+                .disruption
+                .ok_or(FleetCatalogError::Corrupt("missing active disruption"))?,
+        })
+    }
+
     /// Inspect the retained original admission. Its old checked inventory and
     /// node epoch grant no lease, shutdown permission or removal certificate.
     pub async fn evacuation_admission(
@@ -407,21 +488,7 @@ impl FleetCatalog {
                 return Err(FleetCatalogError::Corrupt("evacuation operation key"));
             }
             let applied_revision = self.confirm_evacuation(snapshot, &record).await?;
-            let host = self.host_record(snapshot, record.node.clone())?;
-            Ok(FleetEvacuationAdmission {
-                operation,
-                node: host.node(),
-                disk: host.disk(),
-                storage_instance: host
-                    .storage_instance()
-                    .ok_or(FleetCatalogError::Corrupt("evacuation engine"))?,
-                enrollment_epoch: host.epoch(),
-                inventory_revision: record.request.expected_revision,
-                namespaces: record.namespaces,
-                histories: record.histories,
-                applied_revision,
-                observed_revision: snapshot.revision(),
-            })
+            record.observation(self, snapshot, applied_revision)
         })
         .await
     }

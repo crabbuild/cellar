@@ -2,6 +2,7 @@
 //! A retained mutation journal resolves ambiguous writes after later revisions.
 
 mod evacuation;
+mod finalization;
 mod histories;
 mod imports;
 mod index;
@@ -12,6 +13,9 @@ mod placement;
 mod records;
 
 pub use evacuation::FleetEvacuationAdmission;
+pub use finalization::{
+    FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
+};
 pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
 };
@@ -58,6 +62,7 @@ pub enum FleetCatalogError {
     Unconfirmed,
     Closed,
     Storage(anyhow::Error),
+    Observation(super::inspection::InspectionError),
 }
 
 impl From<super::catalog::CatalogError> for FleetCatalogError {

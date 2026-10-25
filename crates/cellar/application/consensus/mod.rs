@@ -118,9 +118,10 @@ pub mod verification {
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
-        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission, FleetHistory,
-        FleetHistoryState, FleetImportPhase, FleetInventory, FleetMutation, FleetNamespaceImport,
-        FleetPage, FleetSnapshot, FleetTable,
+        FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission,
+        FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
+        FleetHistory, FleetHistoryState, FleetImportPhase, FleetInventory, FleetMutation,
+        FleetNamespaceImport, FleetPage, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
