@@ -1171,6 +1171,91 @@ readiness, automatic placement/reconciliation, maintenance/operator commands,
 scaling and deployed RustFS/Colima/performance/soak gates remain open. Fleet
 automation stays default-off, with no performance improvement claim.
 
+## FO-03 progress: canonical-empty archives
+
+Source `886f85df887a904b402478b476a0745329761bc1` adds explicit canonical-empty archives for
+cold groups. A cut captures the actual durable configuration, membership/fleet
+guard, scope and birth/schema binding while proving the durable image is absent.
+A missing publication of applied data refuses capture rather than becoming
+empty. Empty captures retain bounded membership data without copying log tails.
+The existing bounded producer scheduler now publishes cold resident groups.
+
+The manifest requires explicit null snapshot-image, snapshot-object and final
+image fields. Empty state forbids tails, dependencies and position divergence;
+half-present state or zero-TXID images refuse. No SQLite image or payload object
+is fabricated. `restore_state` returns `None` only for validated canonical empty
+state and never deletes an existing generation. Image-only `restore` refuses it.
+The first real SQL image establishes a complete snapshot; an older empty cut
+cannot replace newer archived data. Mutable-head reconciliation and immutable
+exact-reference reads retain their existing conditional-write contracts.
+
+Authenticated S3 seeding uses the same live-quorum, learner, process, history,
+engine and fleet-permit checks. An empty seed installs the existing empty snapshot
+representation without an application callback. No archive value supplies voting,
+activation, reservation-release or terminal-removal authority.
+
+The final frozen-source matrix passed **382 native cases across 13 complete
+targets**, including 56 archive, 75 enrollment and 46 snapshot cases. Another
+**147 Raft library tests and four startup-confirmation cases passed**. Five ignored
+process helpers execute through passing parents. Affected-target/lib Clippy with
+warnings denied, formatting/layout over 968 Rust files, native dependencies,
+documentation, source preflight and all 10 plan-validator tests passed. The plan
+retains 189 required cases and 73 reviewed source anchors.
+
+Six new native cases cover lost conditional-head replies, retained empty
+references, first-image transition, refusal to erase live data, two-empty and
+mixed batches, cold S3 seed/first write, actual minority refusal without target
+group or member claim, and a managed cold repair through S3 seed, joint consensus
+and the first native durable SQL command. Two new manifest units enforce strict
+null-field presence and refusal of contradictory/payload-bearing empty states.
+The managed test uses privileged rooted capacity/permit fixture inputs; it does
+not qualify the pending controller or capacity-readiness adapter.
+
+The first fixture compile passed borrowed paths to `GenerationStore::open`,
+which requires owned paths. Both new paths were corrected. Six focused native
+cases then passed before formatting; the cold-minority fixture was strengthened
+before final qualification to inspect the actual peer attempt, physical engine
+and absent member claim. No production guard, assertion, deadline or lint was
+weakened. The first full frozen matrix passed 373 native cases and failed nine
+across six targets. Three fixture assumptions accounted for four case executions:
+producer/close checks observed archive IO before their actual SQL write, and the
+bounded-report fixture assumed cold histories could never archive. All three
+reproduced unchanged. Corrected fixtures require the actual published SQL cut
+before close, or an explicit archive outage while preserving zero callbacks and
+all four lagged histories. Their focused checks passed. Five other timing/readiness
+cases passed unchanged individual replays; their causes remain unexplained. No
+startup, timing or performance fix is claimed.
+
+A second attempt passed 227 native cases and failed two, with six targets never
+executed because their files were absent. All 13 expected native executable paths
+were later confirmed missing while the target directory remained present with
+ample free space. The cause is unknown. The managed cold test also repeated a
+broad-only `NotLeader` result; permanent phase context was added without changing
+source selection, retries or deadlines. A new task-isolated build retained both
+executables before a passing full 75-case enrollment target and exact host-parity
+case. Neither failure is claimed fixed by changing the build directory.
+
+Fourteen changed Rust files stayed byte-identical through qualification and match
+the committed source. The **partial** record
+`implementation/fo03/empty-archive-boundary.json` under ignored
+`.cellar/raft-perf/fleet-operations/` retains source/log/executable hashes and the
+initial fixture failure and both broad attempts. The final run retains actual
+executable bytes copied before execution, with verified hashes and build inputs,
+outside the mutable target directory. Earlier attempts retain their stated
+artifact limitations. No raw files are tracked under `plans/multi-raft/evidence/`.
+
+The protocol ends in `/fleet-cuts-1/empty-archives-1`; use fresh experimental
+fleet/data prefixes, namespaces and matching binaries. Numeric markers stay at
+1 with no compatibility reader or migration.
+
+FO-03 remains **IN_PROGRESS**. Next bind exact selected archive references and
+physical verification into an owned terminal verifier alongside fresh survivor
+cuts, complete inventory, settled permits and physical-work joins/fences. The
+mandatory `fleet_enrollment_incomplete_import` removal-certification case remains
+absent. Capacity readiness, placement/reconciliation, maintenance/operator APIs,
+scaling and deployed RustFS/Colima/performance/soak qualification remain required.
+Fleet automation stays default-off.
+
 ## Prioritized remaining delivery
 
 The append-only namespace registry, complete inventory read, native retired-binding
@@ -1184,7 +1269,7 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 | Priority | Boundary | Required result before advancing |
 | --- | --- | --- |
-| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume the coherent fixed data/configuration cuts in the terminal verifier; fully verify archive payloads and replay, including an explicit canonical-empty archive contract. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
+| P0 | FO-03 capacity and terminal lifecycle integration | Complete inventory now gates typed evacuation exclusion under one exact root CAS; rooted physical-host policy is enforced on birth and fresh repair. Finish capacity activation/readiness and inventory-consuming terminal proof with fresh quorum/archive coverage, settled permits and physical-work joins/fences. Consume the coherent fixed data/configuration cuts in the terminal verifier; fully verify archive payloads and replay, including the new canonical-empty archive path. Exclusion is not node absence. Close `fleet_enrollment_incomplete_import` at the actual removal-certification boundary. |
 | P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Implement bounded staged feasibility for retained/temporary costs and one-node-loss headroom, fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
 | P2 | FO-07 maintenance and FO-08 operator API/CLI | Deliver exact-operation/epoch/process stop fencing, shared disruption-slot integration for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Cover add/remove and rolling restart. |
 | P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
@@ -1192,9 +1277,10 @@ placement or maintenance. The manifest dependencies remain unchanged.
 
 The next implementation slice is **FO-03 terminal verification**, in this order:
 
-1. Define and verify archive coverage for both populated and canonical-empty
-   histories. A published head alone is insufficient: validate referenced payload
-   hashes and physical restore/replay through the chosen fixed applied cut.
+1. Bind exact selected archive references to owned physical-verification proofs
+   for both populated and canonical-empty histories. The archive layer supports
+   both states; a published head alone still cannot certify removal. Compare
+   verified state/configuration coverage against the chosen fixed applied cut.
 2. Collect complete rooted inventory, settled exact permits and fresh stable
    quorum configurations excluding the departing node. Require three surviving
    coherent publications covering the fixed cut, then recheck the root,
