@@ -34,3 +34,8 @@ console-audit.sqlite*
 
 # Keep new local multi-Raft benchmark evidence out of commits.
 /plans/multi-raft/evidence/
+
+# Reproducible streaming example builds.
+/examples/streaming/app.bundle.js*
+/examples/streaming/dist/
+!/examples/streaming/package-lock.json

@@ -1,0 +1,32 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-javascript",
+  "binary": "cellar-streaming-node",
+  "profile": "dev",
+  "features": [
+    "node"
+  ],
+  "primary": {
+    "script_name": "streaming-example",
+    "application_version": "v1",
+    "cells": [
+      "Room"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "ROOMS",
+        "class_name": "Room"
+      }
+    ],
+    "assets": {
+      "directory": "assets",
+      "binding": "ASSETS",
+      "run_worker_first": [
+        "/events",
+        "/ws",
+        "/rooms/*"
+      ]
+    }
+  }
+}

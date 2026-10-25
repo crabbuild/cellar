@@ -53,3 +53,13 @@ required-features = ["node"]
 name = "cellar-javascript-perf"
 path = "../../tools/perf/javascript/host.rs"
 required-features = ["embed", "node"]
+
+[[bin]]
+name = "cellar-streaming-javascript"
+path = "../../examples/streaming/javascript.rs"
+required-features = ["embed"]
+
+[[bin]]
+name = "cellar-streaming-node"
+path = "../../examples/streaming/node.rs"
+required-features = ["node"]

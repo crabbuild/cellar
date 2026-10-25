@@ -8,6 +8,7 @@ on:
       - 'packages/cellar-sdk/**'
       - 'examples/javascript/**'
       - 'examples/node/**'
+      - 'examples/streaming/**'
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
@@ -42,11 +43,13 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
+          npm ci --prefix examples/streaming --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
+          npm run --prefix examples/streaming build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
           npm run --prefix examples/vercel-agent build
@@ -135,6 +138,10 @@ jobs:
           python3 tools/docs/check.py
       - name: Native package
         run: cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
+      - name: Runnable streaming examples and restart
+        run: |
+          python3 examples/streaming/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
+            --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example

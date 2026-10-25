@@ -1,0 +1,156 @@
+<!doctype html>
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cellar · Live messages</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/client.js"></script>
+  </head>
+  <body>
+    <main>
+      <header class="intro">
+        <p class="brand">CELLAR <span>/ transport examples</span></p>
+        <h1>Live messages</h1>
+        <p>Send a message over WebSocket, or watch events arrive over SSE.</p>
+      </header>
+
+      <div class="transports">
+        <section class="transport websocket" aria-labelledby="socket-title">
+          <header class="transport-heading">
+            <div>
+              <p class="direction">BROWSER ↔ SERVER</p>
+              <h2 id="socket-title">WebSocket</h2>
+            </div>
+            <span id="socket-status" class="status" role="status"
+              >Disconnected</span
+            >
+          </header>
+          <div class="controls">
+            <label for="endpoint">Connection</label>
+            <div class="connection-row">
+              <select id="endpoint">
+                <option value="/rooms/demo/ws">Cell · /rooms/demo/ws</option>
+                <option value="/ws">Worker · /ws</option>
+              </select>
+              <button id="connect" type="button">Connect</button>
+              <button id="disconnect" class="secondary" type="button" disabled>
+                Disconnect
+              </button>
+            </div>
+            <form id="message-form">
+              <label for="message">Message</label>
+              <div class="message-row">
+                <input
+                  id="message"
+                  name="message"
+                  value="Hello from the browser"
+                  maxlength="4096"
+                  required
+                />
+                <button id="send" type="submit" disabled>Send</button>
+              </div>
+            </form>
+            <button id="binary" class="secondary" type="button" disabled>
+              Send binary sample [0, 128, 255]
+            </button>
+            <p class="hint">
+              Each socket echoes its own messages. Cell messages also increase
+              the stored room total.
+            </p>
+          </div>
+          <div class="log-heading">
+            <h3>Messages <span>sent &amp; received</span></h3>
+            <button id="clear-socket" class="text-button" type="button">
+              Clear messages
+            </button>
+          </div>
+          <div
+            class="log-area"
+            role="log"
+            aria-label="WebSocket messages"
+            aria-live="polite"
+            aria-relevant="additions"
+            tabindex="0"
+          >
+            <p id="socket-empty" class="empty">
+              Connect, then send a message.<br />Its echo will appear here
+              immediately.
+            </p>
+            <ol id="socket-log" class="log"></ol>
+          </div>
+          <footer class="room-state">
+            <div>
+              <span class="caption">STORED ROOM MESSAGES</span
+              ><strong id="room-count" aria-live="polite">—</strong>
+            </div>
+            <button id="refresh-count" class="text-button" type="button">
+              Refresh count
+            </button>
+          </footer>
+          <p id="count-error" class="hint count-error" role="status" hidden></p>
+        </section>
+
+        <section class="transport sse" aria-labelledby="sse-title">
+          <header class="transport-heading">
+            <div>
+              <p class="direction">SERVER → BROWSER</p>
+              <h2 id="sse-title">Server-sent events</h2>
+            </div>
+            <span id="sse-status" class="status" role="status"
+              >Not started</span
+            >
+          </header>
+          <div class="controls">
+            <p class="endpoint">GET /events</p>
+            <div class="sse-buttons">
+              <button id="start-feed" type="button">Start SSE feed</button>
+              <button id="stop-feed" class="secondary" type="button" disabled>
+                Stop feed
+              </button>
+            </div>
+            <p class="hint">
+              This sample sends three progress events quickly, then a done
+              event. Times below are actual browser arrival times.
+            </p>
+          </div>
+          <div class="log-heading">
+            <h3>Events <span>received</span></h3>
+            <button id="clear-sse" class="text-button" type="button">
+              Clear events
+            </button>
+          </div>
+          <div
+            class="log-area"
+            role="log"
+            aria-label="SSE events"
+            aria-live="polite"
+            aria-relevant="additions"
+            tabindex="0"
+          >
+            <p id="sse-empty" class="empty">
+              Start the feed to receive events.<br />Each event appears as it
+              arrives.
+            </p>
+            <ol id="sse-log" class="log"></ol>
+          </div>
+          <footer class="feed-note">
+            The feed finishes after <code>done</code>. Start it again to run
+            another response.
+          </footer>
+        </section>
+      </div>
+
+      <footer class="page-footer">
+        <p>
+          Logs show the latest 100 entries. Reloading clears the logs; the
+          cell’s stored count persists.
+        </p>
+        <a href="/rooms/demo/state" target="_blank" rel="noopener"
+          >View room JSON ↗</a
+        >
+      </footer>
+    </main>
+  </body>
+</html>

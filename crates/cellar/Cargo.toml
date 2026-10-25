@@ -180,3 +180,7 @@ harness = false
 [[test]]
 name = "native_raft_daemon"
 harness = false
+
+[[bin]]
+name = "cellar-streaming-example"
+path = "../../examples/streaming/main.rs"

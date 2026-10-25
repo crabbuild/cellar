@@ -100,3 +100,8 @@ name = "streaming"
 path = "tests/streaming.rs"
 harness = false
 required-features = ["embed"]
+
+[[bin]]
+name = "cellar-streaming-python"
+path = "../../examples/streaming/python.rs"
+required-features = ["embed"]
