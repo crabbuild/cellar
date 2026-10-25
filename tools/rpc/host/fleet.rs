@@ -186,7 +186,7 @@ pub async fn stop(node: Node, mode: ShutdownMode) -> Result<()> {
             && proof.application_work_drained
             && proof.cells_drained
             && !proof.drain_timed_out,
-        "fleet RPC node did not drain"
+        "fleet RPC node did not drain: {proof:?}"
     );
     Ok(())
 }

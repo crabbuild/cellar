@@ -28,6 +28,7 @@ mod proof;
 mod provenance;
 mod qualify;
 mod remote;
+mod worker;
 
 #[derive(Clone, Copy)]
 enum Suite {
@@ -45,6 +46,10 @@ enum Suite {
     Cancellation,
     Cycles,
     Provenance,
+    WorkerFailure,
+    WorkerFailureSmoke,
+    WorkerShutdown,
+    WorkerShutdownSmoke,
     All,
 }
 
@@ -79,8 +84,12 @@ fn main() -> Result<()> {
                     Some("cancellation") => Suite::Cancellation,
                     Some("cycles") => Suite::Cycles,
                     Some("provenance") => Suite::Provenance,
+                    Some("worker-failure") => Suite::WorkerFailure,
+                    Some("worker-failure-smoke") => Suite::WorkerFailureSmoke,
+                    Some("worker-shutdown") => Suite::WorkerShutdown,
+                    Some("worker-shutdown-smoke") => Suite::WorkerShutdownSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, crash, proof, proof-wait, proof-wait-smoke, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--serve-name" => server_name = Some(arguments.next().context("missing server node name")?),
@@ -88,7 +97,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|crash|proof|proof-wait|proof-wait-smoke|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -223,6 +232,10 @@ fn main() -> Result<()> {
                                 Suite::Cancellation => deadline::cancellation::run(app).await,
                                 Suite::Cycles => cycles::run(app).await,
                                 Suite::Provenance => provenance::run(app).await,
+                                Suite::WorkerFailure => worker::run(app).await,
+                                Suite::WorkerFailureSmoke => worker::smoke(app).await,
+                                Suite::WorkerShutdown => worker::shutdown(app).await,
+                                Suite::WorkerShutdownSmoke => worker::shutdown_smoke(app).await,
                                 Suite::All => {
                                     let local = qualify::local(app.clone()).await?;
                                     let remote = remote::run(app.clone()).await?;
@@ -233,8 +246,10 @@ fn main() -> Result<()> {
                                     let proof_wait = proof::waits(app.clone()).await?;
                                     let recovery = admission::run(app.clone()).await?;
                                     let crash = crash::run(app.clone()).await?;
-                                    let proof = proof::run(app).await?;
-                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"provenance":provenance,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof}))
+                                    let proof = proof::run(app.clone()).await?;
+                                    let worker_failure = worker::run(app.clone()).await?;
+                                    let worker_shutdown = worker::shutdown(app).await?;
+                                    Ok(serde_json::json!({"format":1,"suite":"all","local":local,"remote":remote,"deadline":deadline,"cancellation":cancellation,"cycles":cycles,"provenance":provenance,"proof_wait":proof_wait,"recovery":recovery,"crash":crash,"proof":proof,"worker_failure":worker_failure,"worker_shutdown":worker_shutdown}))
                                 }
                             }
                         })?;

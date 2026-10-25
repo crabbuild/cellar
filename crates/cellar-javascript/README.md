@@ -461,6 +461,21 @@ watchdog; Node bootstrap kills the owned Unix process group and waits for its
 child. Process restart belongs to the external supervisor. Do not detach Node
 children from the owned group without separate supervision.
 
+`application.bridge_usage()` returns a small `BridgeUsage` snapshot for host
+diagnostics. It reads native reservation counters and requires no guest call:
+
+| Field | Observation |
+| --- | --- |
+| `stopped` | Admission has been revoked and native waiters notified. |
+| `active_invocations` | Native invocation permits still held. |
+| `retained_bytes` | Owned invocation, operation and reply payload reservations. |
+
+The fields are sampled independently. They do not measure heap, RSS or cached
+cell objects, and `stopped` alone does not prove cleanup. Join callers and the
+host before checking that native reservations returned to zero. The
+[owned-worker qualification](../../tools/rpc/README.md#owned-node-worker-loss-and-active-call-shutdown)
+uses these counters during real typed calls, process loss and shutdown.
+
 JSON values must use finite numbers, safe integers, and nesting depth at most
 64. Encode larger integers as strings. A missing storage key and a stored JSON
 `null` have different snapshots.

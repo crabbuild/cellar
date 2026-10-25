@@ -220,6 +220,13 @@ impl JavaScriptApplication {
         }
     }
 
+    /// Observe native invocation and payload reservations. A stopped engine
+    /// can still have native work retiring; check cleanup after callers and
+    /// the host have joined, rather than interpreting `stopped` as a drain.
+    pub fn bridge_usage(&self) -> crate::BridgeUsage {
+        self.runtime.usage()
+    }
+
     async fn run(
         self: &Arc<Self>,
         context: Context,

@@ -111,7 +111,7 @@ impl Owner {
 
 /// Success requires every owned process group to report ESRCH. This helper
 /// never sends a signal and never treats permission denial as proof of exit.
-async fn wait_groups_gone(groups: &[(&str, libc::pid_t)]) -> Result<()> {
+pub(crate) async fn wait_groups_gone(groups: &[(&str, libc::pid_t)]) -> Result<()> {
     ensure!(
         !groups.is_empty() && groups.len() <= 2 && groups.iter().all(|(_, group)| *group > 1),
         "invalid owned process groups"
@@ -156,7 +156,7 @@ async fn wait_groups_gone(groups: &[(&str, libc::pid_t)]) -> Result<()> {
     })
     .await
     .with_context(|| {
-        format!("owned process groups did not disappear after host process loss: {last:?}")
+        format!("owned process groups did not disappear after termination: {last:?}")
     })?
 }
 

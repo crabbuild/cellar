@@ -71,6 +71,19 @@ impl Default for Options {
     }
 }
 
+/// Native bridge reservations observed at one point in time. Fields are read
+/// independently; this is diagnostic data, not an atomic admission decision.
+/// Engine heap, process RSS and cell-object counts are outside these gauges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct BridgeUsage {
+    /// Whether the engine has revoked admission and notified native waiters.
+    pub stopped: bool,
+    /// Native invocations still holding an admission permit.
+    pub active_invocations: usize,
+    /// Invocation, operation and reply payload bytes with an owned reservation.
+    pub retained_bytes: usize,
+}
+
 /// Revocable authority shared by the native invocation and the engine thread.
 pub(crate) type Life = Arc<AtomicBool>;
 
@@ -126,6 +139,14 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
+    pub fn usage(&self) -> BridgeUsage {
+        BridgeUsage {
+            stopped: self.closed.load(Ordering::Acquire),
+            active_invocations: self.options.max_invocations - self.permits.available_permits(),
+            retained_bytes: self.options.max_bridge_bytes - self.bytes.available_permits(),
+        }
+    }
+
     pub fn id(&self) -> Result<u64> {
         // IDs cross JSON and JavaScript Number; never allocate an inexact integer.
         self.next

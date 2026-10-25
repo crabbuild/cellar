@@ -700,6 +700,60 @@ This qualifies the described Counter dependency waits with GIL CPython. It does
 not establish arbitrary CPU interruption, all Python modes, resource saturation
 or every T14/T17 lifecycle boundary. Full-qualification flags remain false.
 
+## Owned Node worker loss and active-call shutdown
+
+These suites keep the caller runtimes separate from the disposable Node
+provider. They use the fleet harness, signed peers and generated named methods:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite worker-failure --report .cellar/rpc/worker-failure.json
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite worker-shutdown --report .cellar/rpc/worker-shutdown.json
+```
+
+For one Rust/local/post-sync diagnostic, use `worker-failure-smoke` or
+`worker-shutdown-smoke`. The shutdown smoke exercises the deadline cut.
+
+```text
+surviving Rust / Python / V8 / Node caller
+                 |
+          local or signed peer
+                 |
+       disposable Node Counter
+       before write OR after synced count + receipt
+                 |
+       typed Rust child held in its native turn
+                 |
+      SIGKILL worker / preserve owner shutdown
+                 |
+      native frames retire + budget sources expire
+      invocation / byte reservations return to zero
+                 |
+      fresh worker + owner -> read -> two explicit retries
+```
+
+| Trigger | Cases | Required evidence |
+| --- | ---: | --- |
+| Worker `SIGKILL` | 16 | `Unavailable/unknown`, native owner still serves a fresh method, worker group disappears after join. |
+| Graceful owner shutdown | 16 | Health and new-root admission close before factory entry; accepted work remains live and completes after gate release; the normal drain proof succeeds. |
+| Forced owner deadline cut | 16 | The held call never receives a test release; the report retains timeout/unclean flags, followed by physical cleanup and recovery. A local lost HTTP reply remains unknown; a surviving peer caller receives a typed failure. |
+
+Each group covers four caller backends, both routes and both write checkpoints.
+Native storage observations run only inside the provider's original executing
+turn, with a closed transaction and matching exact-i64 receipt. They freeze
+before termination and cannot complete or cancel the business future. Weak
+budget sources prove distinct, initially live authority and later refusal;
+the fixture retains no native `Context` for those probes.
+
+`BridgeUsage` must show exactly one held provider invocation and positive bytes
+before injection, then zero native invocation and byte reservations. The native
+child must physically retire. A fresh runtime and owner read the prior state
+before two explicit same-ID retries, preserving `9_007_199_254_740_993` exactly.
+No mutation is automatically replayed. The aggregate `all` run includes both
+suites and publishes only after all runtime joins. These fixtures do not close
+V8 termination, Python cancellation suppression, saturation/RSS or all T17 work.
+
 ## Abrupt owner process loss
 
 On Unix, after building the fixtures and Python environment above:
