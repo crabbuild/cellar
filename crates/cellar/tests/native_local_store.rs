@@ -6,6 +6,7 @@
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ExecutionDomain};
+use std::io::Read as _;
 
 /// This checks the library actually linked into native applications, not the
 /// SQLite CLI or Python interpreter installed on the development machine.
@@ -59,7 +60,7 @@ async fn operation_connections_leave_commits_in_wal_and_reopen_with_etags() -> R
                 .put_cas("nodes/owner.json", b"first".to_vec(), None)
                 .await?
                 .context("initial lease CAS did not apply")?;
-            // The FULL commit is in the WAL. No connection remains checked out;
+            // The FULL commit is in the WAL. No operation connection remains;
             // closing an operation must leave checkpoint work to the normal
             // automatic checkpoint rather than acquiring an exclusive close lock.
             let committed =
@@ -115,6 +116,90 @@ async fn operation_connections_leave_commits_in_wal_and_reopen_with_etags() -> R
             ensure!(
                 body.as_ref() == b"second" && etag == next,
                 "stale CAS changed the lease"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn small_writes_recycle_checkpointed_wal_between_operations() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("objects.sqlite");
+    let wal = directory.path().join("objects.sqlite-wal");
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let bucket = Bucket::open_dev(&database)?;
+            // More than SQLite's default 1,000-page automatic checkpoint threshold.
+            // No explicit checkpoint or connection outside the public store may
+            // preserve the WAL index on behalf of the implementation under test.
+            let body = vec![0x5a; 8 << 20];
+            let token = bucket
+                .put_cas("large", body.clone(), None)
+                .await?
+                .context("initial large object CAS did not apply")?;
+            let header = || -> Result<[u8; 32]> {
+                let mut bytes = [0; 32];
+                std::fs::File::open(&wal)?.read_exact(&mut bytes)?;
+                Ok(bytes)
+            };
+            let before = header()?;
+            let initial_size = std::fs::metadata(&wal)?.len();
+            // The WAL-index lifetime must follow surviving clones, rather than
+            // just the handle that created the store.
+            let cloned = bucket.clone();
+            drop(bucket);
+            for index in 0..16 {
+                cloned
+                    .put(&format!("small-{index}"), vec![index as u8])
+                    .await?;
+            }
+            let after = header()?;
+            // SQLite changes the WAL header salts on recycling after a checkpoint.
+            // File existence alone cannot detect repeated WAL-index recovery.
+            ensure!(
+                before[16..24] != after[16..24],
+                "small writes did not recycle the checkpointed WAL"
+            );
+            ensure!(
+                std::fs::metadata(&wal)?.len() <= initial_size,
+                "small writes appended to the old large WAL"
+            );
+            drop(cloned);
+
+            let reopened = Bucket::open_dev(&database)?;
+            let (saved, etag) = reopened
+                .get("large")
+                .await?
+                .context("large object disappeared after WAL recycling/reopen")?;
+            ensure!(
+                saved.as_ref() == body && etag == token,
+                "WAL recycling changed the large object or ETag"
+            );
+            for index in 0..16 {
+                let (saved, _) = reopened
+                    .get(&format!("small-{index}"))
+                    .await?
+                    .context("small object disappeared after reopen")?;
+                ensure!(saved.as_ref() == [index as u8], "small object changed");
+            }
+            ensure!(
+                reopened
+                    .put_cas("large", b"next".to_vec(), Some(&token))
+                    .await?
+                    .is_some(),
+                "recycled/reopened store lost conditional-write identity"
+            );
+            ensure!(
+                reopened
+                    .put_cas("large", b"stale".to_vec(), Some(&token))
+                    .await?
+                    .is_none(),
+                "stale CAS applied after WAL recycling"
             );
             Ok::<_, anyhow::Error>(())
         })

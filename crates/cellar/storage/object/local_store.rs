@@ -16,6 +16,9 @@
 //! another worker is trying to renew a lease. FULL commits and SQLite's normal
 //! automatic checkpoints remain enabled; preserve the database and its WAL
 //! together when moving local development state.
+//! One idle connection keeps the WAL index alive between operations. Without
+//! it, reopening recovers the index and loses checkpoint progress, repeatedly
+//! scanning and checkpointing a large WAL for even a one-byte write.
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -44,6 +47,11 @@ const READ_CHUNK_BYTES: usize = 128 << 10;
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
+    // No statements or transactions remain on this connection after open.
+    // Clones share its lifetime so operation connections can recycle the WAL
+    // after automatic checkpoints. Mutex provides Sync for the idle handle;
+    // operations still own separate connections and never lock this mutex.
+    _wal_index: Arc<Mutex<Connection>>,
     // Serialize writers from clones before SQLite's busy-handler backoff can
     // let a stream of new transactions starve an older lease renewal. Other
     // instances/processes still arbitrate through SQLite's transaction lock.
@@ -78,19 +86,8 @@ struct StoredAttribute {
 impl LocalStore {
     pub(crate) fn open(database: impl AsRef<FsPath>) -> object_store::Result<Self> {
         let database = database.as_ref().to_path_buf();
-        let store = Self {
-            database,
-            writer: Arc::new(parking_lot::FairMutex::new(())),
-            #[cfg(test)]
-            read_gate: None,
-            #[cfg(test)]
-            metadata_gate: None,
-            #[cfg(test)]
-            list_gate: None,
-            #[cfg(test)]
-            put_gate: None,
-        };
-        let connection = store.connect()?;
+        let connection = Connection::open(&database).map_err(db_error)?;
+        configure_connection(&connection)?;
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
@@ -112,7 +109,19 @@ impl LocalStore {
                  INSERT OR IGNORE INTO __sys_local_sequence(singleton, next_etag) VALUES (1, 1);",
             )
             .map_err(db_error)?;
-        Ok(store)
+        Ok(Self {
+            database,
+            _wal_index: Arc::new(Mutex::new(connection)),
+            writer: Arc::new(parking_lot::FairMutex::new(())),
+            #[cfg(test)]
+            read_gate: None,
+            #[cfg(test)]
+            metadata_gate: None,
+            #[cfg(test)]
+            list_gate: None,
+            #[cfg(test)]
+            put_gate: None,
+        })
     }
 
     fn connect(&self) -> object_store::Result<Connection> {
