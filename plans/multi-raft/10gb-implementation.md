@@ -35,7 +35,7 @@ work. The architecture and product policy are in
   recovery-time objective or production capacity from configuration-only tests.
 - [ ] R8: Pass owning unit/native/crash suites, affected feature-mode checks,
   Clippy, formatting/layout, native dependencies and documentation checks.
-- [ ] R9: Open a follow-up PR from updated `main` after merged PR #119, and retain a
+- [x] R9: Open a follow-up PR from updated `main` after merged PR #119, and retain a
   reproducible validation record with explicit scope and remaining limitations.
 
 ## Work in progress
@@ -779,5 +779,18 @@ avoids full copies on supported filesystems, but full-image SHA-256 scans and
 portable materialized copies remain on important paths; no
 large-cell recovery-time objective is claimed yet. PR #119 has merged; follow-up
 [PR #120](https://github.com/crabbuild/cellar/pull/120) merged the bounded
-snapshot foundation. Subsequent implementation must start from updated main and
-use a follow-up PR; the full goal remains active.
+snapshot foundation. Draft [PR #124](https://github.com/crabbuild/cellar/pull/124)
+carries the extent execution follow-up from updated main `d3206c92`, including
+its RPC fixes. The storage source bytes match checkpoint `00f73019`; only main's
+ten RPC files differ. At combined revision `d62ac0f1`, all nine host/native
+suites pass: 627 library, 68 archive, 16 effect, 21 execution, 32 host, 27 native
+LTX, 22 read, six rooted-owner and 44 snapshot cases (863 passes). The 114 LTX
+unit/integration results carry over unchanged source and dependency inputs,
+for 977 checked ordinary Rust cases. Ten child/full-size entry points remain
+ignored directly; applicable crash parents ran. Native/LTX all-target Clippy
+with warnings denied, LTX all-target checking without default features, the CI
+native-only/no-Python library check, formatting/layout (1,084 Rust files), native
+dependencies, docs and planning checks pass. The source manifest and hashed logs
+are retained in the checkout's external `evidence-workspace` directory. GitHub
+CI remains a separate gate. Public extent recovery and full-size qualification
+remain unfinished.
