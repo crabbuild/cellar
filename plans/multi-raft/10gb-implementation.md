@@ -811,3 +811,40 @@ dependencies, docs and planning checks pass. The source manifest and hashed logs
 are retained in the checkout's external `evidence-workspace` directory. GitHub
 CI remains a separate gate. Public extent recovery and full-size qualification
 remain unfinished.
+
+## Latest full-size RustFS restoration result
+
+The frozen `b8ed3d03` executable passed the actual 272 MiB RustFS preflight in
+100.72 seconds, including replacement-local payload verification, promotion,
+new writes, retained receipts and restart. Maximum resident set was 96,911,360
+bytes. The subsequent 9,999,998,976-byte run **failed** after 5,169.56 seconds
+with `VersionUnavailable`; maximum resident set was 87,818,240 bytes.
+
+The full-size run completed warm takeover, owner-local-state erasure, retained
+receipt retries and quota cleanup/reuse. The required archive head at index/term
+9/4 was independently confirmed after an 890.910-second archive wait. The empty
+replacement served its first local read after 945.186 seconds, verified separated
+payload hashes, promoted, and completed its first new command in 676.010 seconds.
+After another restart it reconciled the old receipt and completed a second new
+command in 186.390 seconds. It then failed before the final payload/read/retry
+checks completed. The recorded error does not yet distinguish the version-bound
+payload read from the following receipt retry. This is progress beyond the
+earlier refusal, not a passing end-to-end qualification or an RTO.
+
+The executable and raw-log hashes match the terminal failure record. The raw log
+contains a 1,219-byte null region in earlier progress output and is retained
+unchanged with that limitation recorded; the terminal failure and later stages
+are readable. The external evidence directory retains the result JSON, source
+manifest, fixture digest and a preserved copy of the failed run's files.
+
+The next diagnostic adds separate context around final payload verification and
+receipt retry, and captures bounded member status and SQL performance before
+teardown on a read refusal. Read deadlines, consistency requirements, assertions
+and publication proofs remain unchanged. Public extent transport and actual
+OS-process crash qualification remain open.
+
+Both ordinary 12 MiB peer/object-store recovery cases pass with the diagnostic
+changes, including final payload verification and receipt retries after restart.
+Targeted native integration-test Clippy with warnings denied, formatting (1,084
+Rust files), documentation and whitespace checks pass. These are diagnostic
+checks on the follow-up source, not a repaired or repeated full-size result.

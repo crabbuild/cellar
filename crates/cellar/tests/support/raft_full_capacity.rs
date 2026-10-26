@@ -387,6 +387,41 @@ async fn verify_payloads(
     Ok(())
 }
 
+async fn record_read_refusal(
+    phase: &str,
+    error: &anyhow::Error,
+    cluster: &cluster::Cluster,
+    handles: &[RaftCellHandle],
+    required: Option<&CommittedVersion>,
+) {
+    // Sample before fixture teardown joins background image work. These are
+    // observations, never an alternative read proof or a retry of the failure.
+    // A stopped/unresponsive member cannot hold failure reporting indefinitely.
+    for (index, (handle, service)) in handles.iter().zip(&cluster.services).enumerate() {
+        let status = tokio::time::timeout(Duration::from_secs(2), handle.status()).await;
+        let resources = service.resource_usage();
+        let performance = service.performance();
+        let operations = performance
+            .operations
+            .iter()
+            .filter(|operation| {
+                operation.name.starts_with("sql_") || operation.name == "snapshot_encode"
+            })
+            .map(|operation| {
+                (
+                    operation.name,
+                    operation.started,
+                    operation.succeeded,
+                    operation.failed,
+                    operation.abandoned,
+                    operation.sum_us,
+                )
+            })
+            .collect::<Vec<_>>();
+        eprintln!("full-native query-refused phase={phase} worker={index} error={error:#} required={required:?} status={status:?} groups={:?} sql={:?} performance_available={} performance_saturated={} operation_fields=(name,started,succeeded,failed,abandoned,sum_us) operations={operations:?}", resources.groups, resources.sql, performance.available, performance.saturated);
+    }
+}
+
 async fn drill(
     source: PathBuf,
     workdir: PathBuf,
@@ -491,30 +526,9 @@ async fn drill(
     )
     .await;
     if let Err(error) = &first_read_result {
-        // Preserve the state before failure unwinds the cluster and joins slow
-        // archive work. A shutdown stack alone cannot identify why a read failed.
-        for (index, (handle, service)) in handles.iter().zip(&cluster.services).enumerate() {
-            let status = handle.status().await;
-            let resources = service.resource_usage();
-            let performance = service.performance();
-            let operations = performance
-                .operations
-                .iter()
-                .filter(|operation| {
-                    matches!(
-                        operation.name,
-                        "sql_queue"
-                            | "sql_query"
-                            | "sql_other"
-                            | "sql_archive_capture"
-                            | "snapshot_encode"
-                    )
-                })
-                .collect::<Vec<_>>();
-            eprintln!("full-native first-read-refused worker={index} error={error:#} status={status:?} groups={:?} sql={:?} operations={operations:?}", resources.groups, resources.sql);
-        }
+        record_read_refusal("first-read", error, &cluster, &handles, None).await;
     }
-    first_read_result?;
+    first_read_result.context("initial full-size linearizable read")?;
     eprintln!(
         "full-native stage=first-read duration_s={:.3}",
         first_read.elapsed().as_secs_f64()
@@ -988,7 +1002,11 @@ async fn drill(
         "full-native stage=restart-first-write duration_s={:.3}",
         restart_write.elapsed().as_secs_f64()
     );
-    verify_payloads(
+    eprintln!(
+        "full-native stage=restart-payload-verification-start required={:?}",
+        written.version
+    );
+    let verified = verify_payloads(
         restored,
         definitions[3].get.clone(),
         13,
@@ -997,14 +1015,27 @@ async fn drill(
         QueryConsistency::AtLeast(written.version_token),
         target.member,
     )
-    .await?;
+    .await;
+    if let Err(error) = &verified {
+        record_read_refusal(
+            "restart-payload-verification",
+            error,
+            &cluster,
+            &restarted_handles,
+            Some(&written.version),
+        )
+        .await;
+    }
+    verified.context("verify replacement-local payloads at the new restart write version")?;
+    eprintln!("full-native stage=restart-payloads-verified");
     let retried = restored
         .command(
             definitions[3].increment.clone(),
             0_u64.to_be_bytes().to_vec(),
             restarted_options,
         )
-        .await?;
+        .await
+        .context("reconcile new receipt after replacement restart write")?;
     ensure!(retried.result == written.result && retried.version == written.version);
     ensure!(retried.id == written.id && retried.durability == written.durability);
     ensure!(calls[3].load(Ordering::SeqCst) == 2);
