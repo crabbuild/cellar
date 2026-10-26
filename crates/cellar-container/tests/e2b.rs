@@ -32,6 +32,19 @@ impl Cell for Root {
             let route = request.url.rsplit('/').next().unwrap();
             let start = json!({"options":{"env":[["HELLO","world"]]}});
             let value = match route {
+                "reconcile" => {
+                    session
+                        .execute(&context, Operation::Reconcile, json!({}), &limits)
+                        .await?
+                }
+                "unknown-reconcile" => {
+                    let error = session
+                        .execute(&context, Operation::Reconcile, json!({}), &limits)
+                        .await
+                        .unwrap_err();
+                    ensure!(!error.is::<Validation>());
+                    json!(true)
+                }
                 "start" => {
                     session
                         .execute(&context, Operation::Start, start, &limits)
@@ -105,6 +118,10 @@ impl Cell for Root {
                     json!(true)
                 }
                 "mismatch" => {
+                    ensure!(session
+                        .execute(&context, Operation::Reconcile, json!({}), &limits)
+                        .await
+                        .is_err());
                     ensure!(session
                         .execute(
                             &context,
@@ -291,7 +308,7 @@ fn e2b_protocol_reconciles_lost_creates_and_preserves_files_across_native_recove
         let caps=root.adapter.capabilities(&Limits {max_body_bytes:65536});
         ensure!(caps.provider=="e2b" && caps.fencing==cellar_container::Fencing::LocalChecksAndExpiry && !caps.queued_lifecycle && !caps.synchronous_running);
         let client=reqwest::Client::builder().timeout(Duration::from_secs(10)).build()?;
-        for round in 0..2 {
+        for round in 0..3 {
             let (node,address)=native::start_configured(directory.path(),Arc::new(App(root.clone())),|config,_,_| {
                 // This new fixture includes multiple vendor HTTP/RPC exchanges;
                 // the E2B client has its own explicit two-second operation limit.
@@ -299,19 +316,24 @@ fn e2b_protocol_reconciles_lost_creates_and_preserves_files_across_native_recove
             }).await?;
             let result=async {
                 if round==0 {
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"unbound","generation":null}));
                     ensure!(call(&client,&address,"refuse").await?==true);
                     ensure!(peer.state.requests.lock().unwrap().is_empty());
                     peer.state.lost_create.store(true,Ordering::SeqCst);
                     ensure!(call(&client,&address,"unknown-start").await?==true);
                     ensure!(peer.state.creates.load(Ordering::SeqCst)==1);
                     peer.state.hide_list.store(true,Ordering::SeqCst);
+                    ensure!(call(&client,&address,"unknown-reconcile").await?==true);
                     ensure!(call(&client,&address,"unknown-start").await?==true);
                     ensure!(peer.state.creates.load(Ordering::SeqCst)==1);
-                } else {
+                } else if round == 1 {
                     peer.state.hide_list.store(false,Ordering::SeqCst);
-                    ensure!(call(&client,&address,"start").await?=="1");
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"running","generation":"1"}));
                     ensure!(peer.state.creates.load(Ordering::SeqCst)==1,"lost create was replayed");
                     ensure!(call(&client,&address,"running").await?==true);
+                    peer.state.set_running(false);
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"stopped","generation":"1"}));
+                    peer.state.set_running(true);
                     ensure!(call(&client,&address,"files").await?==true);
                     ensure!(call(&client,&address,"read-later").await?==true);
                     ensure!(call(&client,&address,"large-files").await?==true);
@@ -338,10 +360,25 @@ fn e2b_protocol_reconciles_lost_creates_and_preserves_files_across_native_recove
                     peer.state.lost_delete.store(true,Ordering::SeqCst);
                     ensure!(call(&client,&address,"unknown-destroy").await?==true);
                     ensure!(peer.state.deletes.load(Ordering::SeqCst)==1);
-                    ensure!(call(&client,&address,"destroy").await?.is_null());
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"deleted","generation":"1"}));
                     ensure!(peer.state.deletes.load(Ordering::SeqCst)==1,"lost deletion was blindly replayed");
                     ensure!(call(&client,&address,"running").await?==false);
                     ensure!(call(&client,&address,"start").await?=="2");
+                    peer.state.expire();
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"deleted","generation":"2"}));
+                    ensure!(peer.state.deletes.load(Ordering::SeqCst)==1,"expiry submitted a delete");
+                    ensure!(call(&client,&address,"start").await?=="3");
+                    peer.state.defer_delete.store(true,Ordering::SeqCst);
+                    ensure!(call(&client,&address,"unknown-destroy").await?==true);
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"deleting","generation":"3"}));
+                } else {
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"deleting","generation":"3"}));
+                    ensure!(peer.state.creates.load(Ordering::SeqCst)==3 && peer.state.deletes.load(Ordering::SeqCst)==2,"reconciliation submitted a mutation");
+                    peer.state.expire();
+                    peer.state.defer_delete.store(false,Ordering::SeqCst);
+                    ensure!(call(&client,&address,"reconcile").await?==json!({"state":"deleted","generation":"3"}));
+                    ensure!(peer.state.deletes.load(Ordering::SeqCst)==2,"pending deletion was replayed");
+                    ensure!(call(&client,&address,"start").await?=="4");
                     ensure!(call(&client,&address,"destroy").await?.is_null());
                 }
                 Ok::<_,anyhow::Error>(())
@@ -350,7 +387,7 @@ fn e2b_protocol_reconciles_lost_creates_and_preserves_files_across_native_recove
             ensure!(matches!(stopped,NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out));
             if let Err(error)=result {peer.stop().await?;return Err(error);}
         }
-        ensure!(peer.state.creates.load(Ordering::SeqCst)==2 && peer.state.deletes.load(Ordering::SeqCst)==2);
+        ensure!(peer.state.creates.load(Ordering::SeqCst)==4 && peer.state.deletes.load(Ordering::SeqCst)==3);
         peer.stop().await?;Ok(())
     })
 }

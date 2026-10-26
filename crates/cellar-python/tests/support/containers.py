@@ -39,6 +39,9 @@ class Counter:
         assert capabilities.synchronous_running
         assert capabilities.queued_lifecycle
         assert isinstance(capabilities.operations, tuple)
+        reconciled = await container.reconcile()
+        assert reconciled.generation is None
+        assert reconciled.state == ("running" if await container.running() else "stopped")
         if not await container.running():
             await container.start(env=[("HELLO", "world")], labels=[("app", "adapter")])
         port = container.port(int(await ctx.var("HTTP_PORT")))

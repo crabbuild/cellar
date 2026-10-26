@@ -22,10 +22,19 @@ Applications normally use the language facade. Provider implementers use
 | Operations | Input | Result |
 | --- | --- | --- |
 | `container.capabilities` | `{}` | Versioned capability descriptor |
+| `container.reconcile` | `{}` only | `{state,generation}`; lifecycle evidence and nullable decimal generation |
 | `container.running` / `.monitor` / `.destroy` | `{}` | Boolean / integer exit code / `null` |
 | `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | Run token |
 | `container.signal` | `{signal}` | `null` |
 | `container.set_inactivity_timeout` | `{timeout_ms}` | `null` |
+
+Reconciliation states are `unbound`, `running`, `stopped`, `deleting` and
+`deleted`. The native provider reports `running`/`stopped` and a null generation.
+Remote providers retain unresolved creates as errors; absence cannot authorize
+replaying them. Reconciliation may durably checkpoint recovery or retirement,
+so it is serialized as a control with the mutation output gate. It sends no
+provider create, resume or delete request. See the
+[state and recovery rules](bindings.md#reconcile-from-a-later-invocation).
 
 ## Process I/O
 

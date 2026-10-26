@@ -1458,9 +1458,9 @@ then passes unchanged. A passing timing probe measured about 135 ms between
 the Worker's native routed call and entry into the first DO's JS handler, versus
 about 10 ms for later cell admissions. This narrows the investigation boundary
 without establishing a cause or a fix; the temporary timing probes were removed.
-Named provider bindings and durable reconnect/expiry/orphan
-reconciliation are the next feature milestone; live E2B/Vercel tests still await
-configuration.
+Named provider bindings and supervised expiry/orphan cleanup remain feature
+milestones; the explicit reconciliation slice below advances event-driven
+reconnect and cleanup observation. Live E2B/Vercel tests still await configuration.
 
 | Callback/hook campaign | Result |
 | --- | --- |
@@ -1482,3 +1482,56 @@ the timestamp. The constructor assertion now runs at admission; a separate
 published idle-handler scenario requires a cleared alarm and a successful later
 request. This corrects the fixture's lifecycle invariant without changing the
 SDK, native alarm behavior or deadlines.
+
+### Explicit provider reconciliation and observed retirement
+
+The portable `container.reconcile` operation gives Rust, Python, JavaScript and
+TypeScript an event-owned recovery boundary. It returns only a bounded lifecycle
+state and nullable decimal generation; provider IDs and credentials stay native.
+It can checkpoint verified evidence but sends no create, resume or delete request.
+Because journal writes are possible, the shared session serializes it as a
+control under the native mutation/output gate.
+
+| Boundary | Delivered behavior / local evidence |
+| --- | --- |
+| No reservation | Return `unbound` without calling the provider |
+| Lost create reply | Recover the original E2B resource or exact Vercel session after host restart; retain generation 1 and issue exactly one create |
+| Unresolved/foreign evidence | Hidden results, metadata mismatch and changed Vercel sessions refuse; no replacement, deletion or command replay |
+| Fixed expiry | An exact-resource absent observation retires a confirmed generation; the next explicit start advances its generation |
+| Pending deletion | A successful acknowledgement while the resource remains visible retains pending intent; reconciliation returns `deleting`, including after restart |
+| Lost delete reply | Observed absence confirms retirement without another DELETE |
+| Native engine | Report running/stopped with no remote-journal generation; preserve native engine authority |
+| Language facades | Frozen Python/JS values and TS readonly types; saved facades cannot borrow a later event's authority |
+
+E2B destruction now checks absence before confirming retirement, matching the
+existing Vercel cleanup boundary. Protocol fixtures exercise provider expiry and
+delayed removal; they do not execute cloud VMs or prove live provider behavior.
+
+The serial module campaign also exposed an invalid zero-byte assertion while
+the Node engine/transport was still live: zero active invocations coexisted with
+90 retained bridge bytes. An isolated unchanged rerun passed. The lifecycle
+fixture now retains its native-invocation drain assertion, then requires stopped
+admission, zero invocations and zero retained bytes **after NodeRuntime joins**.
+Live transport reservations are part of `BridgeUsage`; a native host drain alone
+does not end that transport. No delay, relaxed deadline or byte allowance was
+added. All five module cases pass with the joined assertion.
+
+Named guest binding selection, supervised orphan sweeps, ownership-transfer and
+late-completion faults remain open. The cold 250 ms dispatch failure is still
+unresolved; serial module passes do not erase the earlier cold-process failures.
+SP-02–SP-06 remain partial, Sandbox 1.x/additional providers remain separate
+profiles, and E2B/Vercel live-account testing still awaits configuration.
+
+| Reconciliation campaign (macOS host) | Result |
+| --- | --- |
+| Shared provider library / native integrations | 22 + 4 passed, including paused/stopped state, unknown-state refusal and three native-host rounds |
+| JS runtime library / selected integrations | 76 + 11 passed across Node 24.13.1 and embedded V8; all five module cases pass with the joined cleanup check |
+| CPython 3.14.6 | Both provider fixtures and the native-container fixture pass |
+| JS/tool/type checks | 95 passed with Node 24.13.1 |
+| Strict Clippy | All targets in cellar-container, cellar-guest, cellar-javascript (Node/V8) and cellar-python (embed) pass |
+| Format / layout / docs / native graph | 1,188 Rust files, 94 JS sources, documentation references and the 466-package native-only guard pass |
+
+The initial machine-default Homebrew Node 26.5.0 run failed two package-copy
+launch tests. Both pass under Node 24.13.1; this campaign does not qualify the
+Homebrew Node 26 packaging path. Exact Sandbox image tests were not rerun for
+this portable API slice. Earlier native/image evidence retains its own limits.

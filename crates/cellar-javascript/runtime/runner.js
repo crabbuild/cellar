@@ -661,6 +661,7 @@
         const value = await call("container.capabilities");
         return freeze({ ...value, operations: freeze(value.operations) });
       },
+      reconcile: async () => freeze(await call("container.reconcile")),
       running: () => call("container.running"),
       start: (options = {}) => call("container.start", { options }),
       monitor: () => call("container.monitor"),

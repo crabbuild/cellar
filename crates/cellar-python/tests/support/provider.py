@@ -25,13 +25,21 @@ class Counter:
         if request.path.endswith("/destroy"):
             await container.destroy()
             assert not await container.running()
+            retired = await container.reconcile()
+            assert (retired.state, retired.generation) == ("deleted", "1")
             return Response("ok")
         if request.path.endswith("/second"):
             await refuses(lambda: self.old.running())
+            await refuses(lambda: self.old.reconcile())
+            current = await container.reconcile()
+            assert (current.state, current.generation) == ("running", "1")
             assert await container.running()
             assert await container.read_file(path, max_bytes=3) == b"\x00\xff*"
             return Response("ok")
 
+        assert "container.reconcile" in capabilities.operations
+        empty = await container.reconcile()
+        assert (empty.state, empty.generation) == ("unbound", None)
         await refuses(lambda: container.signal(9))
         assert await container.start(env=[("HELLO", "world")]) == "1"
         self.old = container

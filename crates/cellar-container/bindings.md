@@ -12,6 +12,47 @@ SQLite tables. It is a host API; guest KV/SQL cannot forge or erase its records.
 This is the persistence contract for remote providers. It does not install a
 cloud backend, schedule orphan cleanup or supply remote fencing by itself.
 
+## Reconcile from a later invocation
+
+`container.reconcile()` observes the host-selected binding and checkpoints
+verified recovery or expiry. It never creates, resumes or deletes compute.
+Reacquire the current event's container/session before calling it.
+
+```javascript
+const observed = await ctx.container.reconcile();
+if (observed.state === "running") {
+  // Fresh event authority, same durable resource generation.
+  const output = await ctx.container.execOutput({ cmd: ["/app/check"] });
+}
+```
+
+| Result `state` | Meaning | `generation` |
+| --- | --- | --- |
+| `unbound` | No durable provider reservation exists; no provider request is sent | `null` |
+| `running` | Verified resource is running; a matching pending create can now be confirmed | Original decimal generation |
+| `stopped` | Verified resource exists but is paused, stopped or transitioning; no automatic resume | Original decimal generation |
+| `deleting` | Deletion intent is durable, but the resource is still visible | Original decimal generation |
+| `deleted` | Retirement was already confirmed, or verified absence now confirms deletion/expiry | Retired decimal generation |
+| Error | Unresolved create, ambiguous identity, mismatched metadata, timeout or provider failure | Reservation retained |
+
+The native Docker/Podman provider returns `running` or `stopped` with a `null`
+generation: its lifecycle belongs to the native engine rather than this remote
+journal. A stopped remote resource remains allocated; explicitly destroy it
+before replacement.
+
+| Language | Call |
+| --- | --- |
+| Rust shared adapter | `session.execute(ctx, Operation::Reconcile, json!({}), limits).await?`; deserialize as `Reconciliation` |
+| Python | `observed = await ctx.container.reconcile()`; frozen `ContainerReconciliation` |
+| JavaScript / TypeScript | `const observed = await ctx.container.reconcile()`; readonly result |
+
+An empty listing or a 404 for an unconfirmed create cannot authorize a new
+allocation. Pending deletion stays pending while the resource is visible, even
+after a successful DELETE acknowledgement. Reconciliation checks that evidence
+without repeating the DELETE. Use `destroy()` explicitly to request cleanup.
+This event-driven API does not install a background orphan sweeper or strengthen
+the configured provider's fencing guarantee.
+
 ## Record and checkpoint
 
 | Field | Meaning |

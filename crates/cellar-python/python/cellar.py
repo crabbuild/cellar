@@ -7,7 +7,7 @@ import base64
 import json as _json
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, TypeAlias, TypedDict
+from typing import Any, Iterable, Literal, Mapping, TypeAlias, TypedDict
 from types import MappingProxyType
 from urllib.parse import urlsplit
 
@@ -515,6 +515,13 @@ class ContainerFileMetadata:
                    value.get("modified_ms"), value.get("link_target"))
 
 
+@dataclass(frozen=True)
+class ContainerReconciliation:
+    """Current lifecycle evidence; native execution has no remote generation."""
+    state: Literal["unbound", "running", "stopped", "deleting", "deleted"]
+    generation: str | None
+
+
 class Container:
     """Control a root cell's configured provider through native ownership gates."""
     def __init__(self, context: Context) -> None:
@@ -525,6 +532,11 @@ class Container:
         return ContainerCapabilities(value["format"], value["provider"], value["environment"],
             tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
             value["synchronous_running"], value["queued_lifecycle"], value["fencing"])
+
+    async def reconcile(self) -> ContainerReconciliation:
+        """Observe recovery/expiry without creating, resuming or deleting compute."""
+        value = await self._context._call("container.reconcile")
+        return ContainerReconciliation(value["state"], value["generation"])
 
     async def running(self) -> bool:
         return await self._context._call("container.running")

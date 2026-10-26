@@ -55,10 +55,22 @@ export class Counter {
     if (request.url.endsWith("/destroy")) {
       await container.destroy();
       check(!(await container.running()), "destroyed");
+      const retired = await container.reconcile();
+      check(
+        retired.state === "deleted" && retired.generation === "1",
+        "retired binding",
+      );
       return ok();
     }
     if (request.url.endsWith("/second")) {
       await refuses(() => this.old.running());
+      await refuses(() => this.old.reconcile());
+      const current = await container.reconcile();
+      check(
+        current.state === "running" && current.generation === "1",
+        "reconnected binding",
+      );
+      check(Object.isFrozen(current), "immutable reconciliation");
       check(await container.running(), "same sandbox in next event");
       check(
         (await container.readFile(path, 3)).join(",") === "0,255,42",
@@ -67,6 +79,15 @@ export class Counter {
       return ok();
     }
 
+    check(
+      capabilities.operations.includes("container.reconcile"),
+      "reconciliation capability",
+    );
+    const empty = await container.reconcile();
+    check(
+      empty.state === "unbound" && empty.generation === null,
+      "unbound before create",
+    );
     await refuses(() => container.signal(9));
     check(
       (await container.start({ env: [["HELLO", "world"]] })) === "1",

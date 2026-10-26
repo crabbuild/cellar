@@ -6,6 +6,7 @@ import {
   type Container,
   type ContainerFileMetadata,
   type ContainerExecOutput,
+  type ContainerReconciliation,
 } from "../../packages/cellar-sdk/index.js";
 
 async function control(ctx: Context) {
@@ -21,6 +22,11 @@ async function control(ctx: Context) {
   void synchronous;
   const queued: boolean = (await container.capabilities()).queued_lifecycle;
   void queued;
+  const reconciliation: ContainerReconciliation = await container.reconcile();
+  const generation: string | null = reconciliation.generation;
+  void generation;
+  // @ts-expect-error Lifecycle evidence cannot be changed by the application.
+  reconciliation.state = "running";
   const running: boolean = await container.running();
   if (!running) {
     const run: string = await container.start({

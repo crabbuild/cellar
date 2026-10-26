@@ -9,6 +9,7 @@ pub mod e2b;
 mod files;
 mod native;
 mod queued;
+mod reconciliation;
 mod remote_http;
 mod response;
 mod results;
@@ -18,6 +19,7 @@ pub mod vercel;
 use anyhow::{ensure, Context as _, Result};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
+pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;
 use std::{
     future::Future,
@@ -68,6 +70,7 @@ impl std::error::Error for Cancelled {}
 pub enum Operation {
     Capabilities,
     Running,
+    Reconcile,
     Start,
     Monitor,
     Destroy,
@@ -107,6 +110,7 @@ impl Operation {
     pub const ALL: &'static [Self] = &[
         Self::Capabilities,
         Self::Running,
+        Self::Reconcile,
         Self::Start,
         Self::Monitor,
         Self::Destroy,
@@ -146,6 +150,7 @@ impl Operation {
         match name {
             "container.capabilities" => Ok(Self::Capabilities),
             "container.running" => Ok(Self::Running),
+            "container.reconcile" => Ok(Self::Reconcile),
             "container.start" => Ok(Self::Start),
             "container.monitor" => Ok(Self::Monitor),
             "container.destroy" => Ok(Self::Destroy),
@@ -187,6 +192,7 @@ impl Operation {
         match self {
             Self::Capabilities => "container.capabilities",
             Self::Running => "container.running",
+            Self::Reconcile => "container.reconcile",
             Self::Start => "container.start",
             Self::Monitor => "container.monitor",
             Self::Destroy => "container.destroy",

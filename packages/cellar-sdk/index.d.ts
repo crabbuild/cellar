@@ -189,8 +189,18 @@ export interface ContainerResponse {
   cancel(): Promise<void>;
 }
 
+/** Observation of the configured binding; no remote resource IDs or credentials.
+ * A native engine has no remote journal and returns a null generation. */
+export interface ContainerReconciliation {
+  readonly state: "unbound" | "running" | "stopped" | "deleting" | "deleted";
+  readonly generation: string | null;
+}
+
 export interface Container {
   capabilities(): Promise<Readonly<ContainerCapabilities>>;
+  /** Observe and checkpoint recovery/expiry without creating, resuming or
+   * deleting resources. An unresolved create rejects and retains its intent. */
+  reconcile(): Promise<Readonly<ContainerReconciliation>>;
   running(): Promise<boolean>;
   /** Opaque run identity, represented as a string to avoid integer rounding. */
   start(options?: ContainerStartOptions): Promise<string>;
