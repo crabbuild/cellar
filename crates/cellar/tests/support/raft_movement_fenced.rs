@@ -83,6 +83,7 @@ async fn fleet_fenced_movement_settles_and_reconciles_lost_reply() -> Result<()>
     let current = s.f.catalog.read(TIMEOUT).await?;
     ensure!(current.revision() == cut.revision() + 1);
     let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+    let current = catalog.read(TIMEOUT).await?;
     let receipt = catalog
         .settle_fenced_movement(&current, &request, &s.nodes[p].host, TIMEOUT)
         .await?;
