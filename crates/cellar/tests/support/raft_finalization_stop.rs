@@ -89,17 +89,24 @@ async fn finalizing(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_incomplete_import() -> Result<()> {
     let (s, _gate) = Box::pin(guarded()).await?;
-    let (operation, admission) = finalizing(&s).await?;
+    let (operation, admission) = finalizing(&s)
+        .await
+        .context("incomplete import: initial Finalizing")?;
     let stop_id = ProposalId::new([238; 16])?;
     s.observer_node
         .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
         .await?;
-    finished(s.observer_node, &s.f).await?;
-    let (namespace, _) = initial_birth(&s.f).await?;
+    finished(s.observer_node, &s.f)
+        .await
+        .context("incomplete import: physical join")?;
+    let (namespace, _) = initial_birth(&s.f)
+        .await
+        .context("incomplete import: namespace")?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     s.f.catalog
         .verify_physical_closure(&root, operation, stop_id, TIMEOUT)
-        .await?;
+        .await
+        .context("incomplete import: signed closure")?;
     let observer = &s.nodes[0].host;
     let peers = [
         s.nodes[0].spec.node,
@@ -122,8 +129,12 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
                 std::slice::from_ref(&namespace),
                 TIMEOUT,
             )
-            .await?;
-    let cut = verification.freeze_live(observer, peers, TIMEOUT).await?;
+            .await
+            .context("incomplete import: prepare verifier")?;
+    let cut = verification
+        .freeze_live(observer, peers, TIMEOUT)
+        .await
+        .context("incomplete import: renewed quorum")?;
     let reference =
         s.f.domain
             .run(s.archive.recovery_metadata())
@@ -141,7 +152,8 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
             },
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("incomplete import: verify or declare")?;
     ensure!(cut.image().is_none());
     let mut config = namespace.config().clone();
     config.namespace = NamespaceId::new([87; 16])?;
@@ -154,7 +166,8 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
         },
     )?
     .open_namespace(config)
-    .await?;
+    .await
+    .context("incomplete import: extra namespace")?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     s.f.catalog
         .declare_namespace(
@@ -164,7 +177,8 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
             "Counter",
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("incomplete import: verify or declare")?;
     let current = s.f.catalog.read(TIMEOUT).await?;
     let removal = cellar::application::consensus::verification::FleetRemovalRequest {
         identity: FleetRequestIdentity {
@@ -196,13 +210,24 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
     ));
     let after = s.f.catalog.read(TIMEOUT).await?;
     ensure!(after.revision() == current.revision());
-    ensure!(
+    ensure!(matches!(
         s.f.catalog
             .authorize_host(&after, NodeId::new([7; 16])?, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let bytes =
+        s.f.catalog
+            .get(
+                &after,
+                cellar::application::consensus::verification::FleetTable::Nodes,
+                &hex::encode([7; 16]),
+                TIMEOUT,
+            )
             .await?
-            .state()
-            == FleetNodeState::Finalizing
-    );
+            .context("Finalizing node row")?;
+    let node: serde_json::Value = serde_json::from_slice(&bytes[13..bytes.len() - 32])?;
+    ensure!(node["state"] == "Finalizing");
     ensure!(matches!(
         s.f.catalog
             .begin_evacuation(
@@ -220,7 +245,7 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
             .await,
         Err(FleetCatalogError::DisruptionInProgress { .. })
     ));
-    write_read(&s.f, &s.cells, 10, 4, 4).await?;
+    write_read(&s.f, &s.cells, 1, 4, 4).await?;
     stop(s.nodes).await?;
     s.f.domain.shutdown().await;
     Ok(())

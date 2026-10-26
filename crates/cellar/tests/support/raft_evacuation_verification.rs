@@ -588,7 +588,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
             std::slice::from_ref(&namespace),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("replacement terminal: prepare, verify or complete")?;
     for node in &s.nodes {
         let peer = if node.spec.node == peers[0] {
             peers[1]
@@ -598,14 +599,18 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
         s.f.remote(&node.host, peer, root.revision()).await?;
     }
     s.f.remote(&s.observer, peers[0], root.revision()).await?;
-    let recovered_cut = terminal.freeze_live(&s.observer, peers, TIMEOUT).await?;
+    let recovered_cut = terminal
+        .freeze_live(&s.observer, peers, TIMEOUT)
+        .await
+        .context("replacement terminal: recover fixed cut")?;
     ensure!(
         recovered_cut.applied() == fixed.applied(),
         "restart moved the fixed business cut"
     );
     terminal
         .verify_live(&s.observer, peers, archive(&s, &reference), TIMEOUT)
-        .await?;
+        .await
+        .context("replacement terminal: prepare, verify or complete")?;
     let removal = cellar::application::consensus::verification::FleetRemovalRequest {
         identity: FleetRequestIdentity {
             id: [240; 16],
@@ -623,7 +628,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
             std::slice::from_ref(&namespace),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("replacement terminal: prepare, verify or complete")?;
     ensure!(
         completed.node() == departed.spec.node.bytes()
             && completed.closure_digest() == closure.digest()
@@ -631,19 +637,30 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
     let applied = completed.applied_revision();
     let retry = controller
         .complete_evacuation(&root, &removal, None, &[], TIMEOUT)
-        .await?;
+        .await
+        .context("replacement terminal: prepare, verify or complete")?;
     ensure!(
         retry.applied_revision() == applied
             && retry.candidate_digest() == completed.candidate_digest()
     );
     let current = controller.read(TIMEOUT).await?;
-    ensure!(
+    ensure!(matches!(
         controller
             .authorize_host(&current, departed.spec.node, TIMEOUT)
-            .await?
-            .state()
-            == FleetNodeState::Removed
-    );
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    let bytes = controller
+        .get(
+            &current,
+            cellar::application::consensus::verification::FleetTable::Nodes,
+            &hex::encode(departed.spec.node.bytes()),
+            TIMEOUT,
+        )
+        .await?
+        .context("removed node row")?;
+    let node: serde_json::Value = serde_json::from_slice(&bytes[13..bytes.len() - 32])?;
+    ensure!(node["state"] == "Removed");
     let next = FleetRequestIdentity {
         id: [241; 16],
         operation: [242; 16],
@@ -658,7 +675,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
             std::slice::from_ref(&namespace),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("replacement terminal: prepare, verify or complete")?;
     ensure!(admitted_next.applied_revision > applied);
     write_read(&s.f, &active, 4, 3, 21).await?;
     // This fixture promoted the original empty observer into the replacement
