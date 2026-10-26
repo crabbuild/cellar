@@ -6,21 +6,32 @@ use serde_json::json;
 use std::time::Instant;
 
 fn start(runtime: &Runtime, id: u64, active: Life) -> channel::Receiver<Event> {
+    let (start, receive) = invocation(runtime, id, active).unwrap();
+    runtime.start(start).unwrap();
+    receive
+}
+
+fn invocation(
+    runtime: &Runtime,
+    id: u64,
+    active: Life,
+) -> Result<(Start, channel::Receiver<Event>)> {
     let (sender, receiver) = channel::channel(runtime.options.max_pending_operations + 1);
     let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
-    runtime
-        .start(Start {
+    Ok((
+        Start {
+            _completion: Default::default(),
             budget_source: None,
             id,
-            _bytes: runtime.reserve(payload.len()).unwrap(),
+            _bytes: runtime.reserve(payload.len())?,
             payload,
             body: None,
             active,
             owner: Arc::new(AtomicBool::new(true)),
             sender,
-        })
-        .unwrap();
-    receiver
+        },
+        receiver,
+    ))
 }
 
 fn event(receiver: &mut channel::Receiver<Event>) -> Event {
@@ -41,6 +52,142 @@ fn source(body: &str) -> Source {
         "test.js",
     )
     .events([EventKind::Fetch])
+}
+
+#[test]
+fn v8_completion_reservation_requires_startup_headroom() {
+    let mut entered = false;
+    let error = JavaScriptRuntime::run(
+        Options {
+            max_value_bytes: 128,
+            max_bridge_bytes: 128,
+            ..Options::default()
+        },
+        Source::new("var CellarApp = {};", "completion-headroom.js"),
+        |_| {
+            entered = true;
+            Ok(())
+        },
+    )
+    .expect_err("V8 accepted a bridge with no completion headroom");
+    assert!(!entered);
+    assert!(error.to_string().contains("completion"), "{error:#}");
+}
+
+#[test]
+fn v8_completion_reservation_releases_on_admission_refusal_and_queue_drop() -> Result<()> {
+    for byte_exhaustion in [false, true] {
+        let options = Options {
+            max_invocations: 1,
+            max_value_bytes: 1024,
+            // After the 1 KiB hold and 128-byte input, only 127 bytes remain.
+            max_bridge_bytes: if byte_exhaustion { 1279 } else { 4096 },
+            ..Options::default()
+        };
+        // Hold the real native start queue without consuming it. This tests
+        // admission ownership, not language execution or durability.
+        let runtime = run_with(
+            options,
+            source("return null;"),
+            EngineBackend::Embedded,
+            |app| {
+                let runtime = &app.runtime;
+                let held = if byte_exhaustion {
+                    Some(runtime.reserve(1024)?)
+                } else {
+                    let _receive = start(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)));
+                    None
+                };
+                let before = runtime.usage().retained_bytes;
+                let (start, _receive) =
+                    invocation(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)))?;
+                if byte_exhaustion {
+                    ensure!(runtime.bytes.available_permits() < COMPLETION_BYTES);
+                }
+                let error = runtime
+                    .start(start)
+                    .expect_err("saturated admission accepted work");
+                if !byte_exhaustion {
+                    ensure!(error.to_string().contains("admission exhausted"));
+                }
+                ensure!(
+                    runtime.usage().retained_bytes == before,
+                    "refused start leaked bytes"
+                );
+                drop(held);
+                Ok(runtime.clone())
+            },
+            move |runtime, _source, starts, _replies, ready| {
+                ready
+                    .send(Ok(()))
+                    .map_err(|_| anyhow::anyhow!("host left before startup"))?;
+                while !runtime.closed.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                let queued = starts.try_iter().count();
+                ensure!(
+                    queued == usize::from(!byte_exhaustion),
+                    "unexpected queued admission"
+                );
+                Ok(())
+            },
+        )?;
+        ensure!(
+            runtime.usage().stopped && runtime.usage().retained_bytes == 0,
+            "queued completion reservations survived joined shutdown"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn v8_completion_reservation_enforces_utf8_limit_without_stopping_engine() -> Result<()> {
+    let code = r#"
+      globalThis.calls = (globalThis.calls ?? 0) + 1;
+      return {value:'é'.repeat(506) + (globalThis.calls === 1 ? 'a' : '')};
+    "#;
+    JavaScriptRuntime::run(
+        Options {
+            max_value_bytes: 1024,
+            ..Options::default()
+        },
+        source(code),
+        |app| {
+            let runtime = &app.runtime;
+            for oversize in [true, false] {
+                let mut receive = start(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)));
+                let Event::Complete {
+                    payload,
+                    body,
+                    failed,
+                    ..
+                } = event(&mut receive)
+                else {
+                    anyhow::bail!("UTF-8 reply fixture unexpectedly submitted SDK work");
+                };
+                ensure!(body.is_none());
+                if oversize {
+                    ensure!(failed);
+                    let failure = cellar_guest::rpc_failure::failure(&payload);
+                    ensure!(failure.code() == cellar::sdk::rpc::Code::InvalidResponse);
+                    ensure!(failure.outcome() == cellar::sdk::rpc::EffectOutcome::Unknown);
+                } else {
+                    ensure!(!failed && payload.len() == 1024);
+                    ensure!(
+                        serde_json::from_str::<serde_json::Value>(&payload)?
+                            == json!({"value":"é".repeat(506)})
+                    );
+                }
+                ensure!(!runtime.usage().stopped);
+            }
+            let until = Instant::now() + Duration::from_secs(2);
+            while runtime.usage().retained_bytes != 0 {
+                ensure!(Instant::now() < until, "UTF-8 completion retained bytes");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            Ok(())
+        },
+    )
 }
 
 #[test]
@@ -286,6 +433,7 @@ fn cancellation_settles_pending_operations_before_cleanup_loses_authority() -> R
                 let (sender, mut receiver) = channel::channel(2);
                 let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
                 runtime.start(Start {
+                    _completion: Default::default(),
                     budget_source: None,
                     id,
                     _bytes: runtime.reserve(payload.len())?,
@@ -489,7 +637,7 @@ fn activation_objects_are_bounded_and_retired() {
         let invoke = |object, owner: Life| -> Result<(bool, serde_json::Value)> {
             let payload = json!({"kind":"fetch","event":{"url":"http://test/","method":"GET","headers":[],"body":""},"identity":null,"object":object,"class":"Counter"}).to_string();
             let (sender, mut receiver) = channel::channel(2);
-            runtime.start(Start { budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner, sender})?;
+            runtime.start(Start { _completion: Default::default(), budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner, sender})?;
             let Event::Complete {payload, failed, ..} = event(&mut receiver) else {panic!()};
             Ok((failed, serde_json::from_str(&payload)?))
         };
@@ -535,7 +683,7 @@ fn unsafe_queue_integer_is_rejected_before_native_effects() {
         let runtime = &app.runtime;
         let payload = json!({"kind":"queue","event":{"queue":"jobs","messages":[{"body":9_007_199_254_740_992_u64}]},"identity":null,"object":null,"class":null}).to_string();
         let (sender, mut receiver) = channel::channel(2);
-        runtime.start(Start { budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner:Arc::new(AtomicBool::new(true)), sender})?;
+        runtime.start(Start { _completion: Default::default(), budget_source: None,id:runtime.id()?, _bytes:runtime.reserve(payload.len())?, payload, body:None, active:Arc::new(AtomicBool::new(true)), owner:Arc::new(AtomicBool::new(true)), sender})?;
         let Event::Complete {failed,..} = event(&mut receiver) else {panic!("unsafe queue value entered native operation")};
         assert!(failed);
         Ok(())

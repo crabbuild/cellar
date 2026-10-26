@@ -97,6 +97,7 @@ impl NodeRuntime {
         run_with(
             options,
             registrations,
+            EngineBackend::Node,
             host,
             move |runtime, source, starts, replies, ready| {
                 run(runtime, node, source, starts, replies, ready)

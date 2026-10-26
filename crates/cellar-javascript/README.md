@@ -505,7 +505,7 @@ Defaults come from [Options](runtime/mod.rs) and [NodeOptions](runtime/node/mod.
 | `max_pending_operations` / `max_operations` | 16 / 1,024 | Outstanding / total SDK operations per invocation. |
 | `max_body_bytes` / `max_value_bytes` | 1 MiB / 2 MiB | Buffered HTTP body / encoded bridge value. |
 | `max_batch_operations` | 128 | Checks, mutations, and optional alarm change per storage batch. |
-| `max_bridge_bytes` | 32 MiB | Shared native payload, Node frame and decoded-attachment reservations. |
+| `max_bridge_bytes` | 32 MiB | Shared native payload, V8 completion, Node frame and decoded-attachment reservations. |
 | `heap_bytes` | 128 MiB | Embedded V8 heap or Node old-space limit; not process RSS. |
 | `startup_timeout` | 5 seconds | Application initialization. |
 | `turn_timeout` | 100 ms | Entire V8 pump pass, including its calls and microtasks. |
@@ -538,6 +538,36 @@ Queued heartbeats must still be examined within that finite pass; only a valid
 heartbeat renews liveness. Slices yield without adding a new heartbeat grace
 period. These work quotas do not change request deadlines or byte capacities,
 and are not a hard bound on decoder CPU time or process RSS.
+
+V8 reserves 128 bytes from the native pool when admitting each invocation, so
+other work cannot consume the capacity needed for its terminal failure. Startup
+requires `max_bridge_bytes >= max_value_bytes + 128`. Larger results must reserve
+their remaining bytes before copying either UTF-8 text or binary attachments.
+
+```text
+admit invocation -> reserve input + 128 completion bytes -> run handler
+                                                              |
+                                   inspect reply size/type ----+
+                                            |
+                              reserve remaining reply bytes
+                                  /                   \
+                             available              exhausted
+                                |                       |
+                          copy and complete    fixed ResourceExhausted
+                                |               with unknown effects
+                                +-----------+-----------+
+                                            |
+                               native receiver drops result
+                                            |
+                                  release reservation
+```
+
+An invalid or oversized result becomes `InvalidResponse` with unknown effects.
+One refused result leaves the engine available for later calls. Neither failure
+proves rollback: the handler may already have committed writes. Queue refusal,
+invocation retirement and joined shutdown also release the reserved allowance.
+This accounts for native bridge ownership; guest heap and process RSS remain
+separate limits.
 
 Node uses one native byte pool for overlapping payload and transport ownership:
 
@@ -582,7 +612,7 @@ diagnostics. It reads native reservation counters and requires no guest call:
 | --- | --- |
 | `stopped` | Admission has been revoked and native waiters notified. |
 | `active_invocations` | Native invocation permits still held. |
-| `retained_bytes` | Native payload reservations, including queued/partial Node frames and decoded frame payloads. |
+| `retained_bytes` | Native payload reservations, including V8 completion allowances, queued/partial Node frames and decoded frame payloads. |
 
 The fields are sampled independently. They do not measure heap, RSS or cached
 cell objects, and `stopped` alone does not prove cleanup. Join callers and the
