@@ -7,6 +7,57 @@ redistribution, operator commands, managed maintenance and resize are not
 delivered. The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Automatic assignment generation delivery
+
+`raft_fleet::balance_topology` now generates a complete equal-copy RF3 assignment
+for an explicit final keep-set. Kept nodes receive the floor or ceiling of the
+average live-copy count; departing nodes receive zero. Remainder allocations
+prefer existing serving copies, with deterministic node-ID ties and alternate
+allocations when blocked. Direct surplus-to-deficit moves preserve retained
+source occupancy, reject occupied targets and respect current receiving
+eligibility. The existing topology verifier checks the entire staged path and a
+complete direct RF3 restoration witness for every kept-node loss before any
+result is returned. The result pins input/policy revisions and exact capacity
+scopes; it grants no catalog or membership authority.
+
+One budget covers generation, forward checks, alternate assignments, staged
+paths and recovery searches. Candidate storage is capped at one million actions;
+iterative search frames are bounded by the number of serving copies. The first
+contraction attempt exhausted the unchanged 50-million-unit budget by exploring
+equivalent move orders. Distinct-history availability checks and constrained
+destination selection fix that case without increasing the budget. Domain
+constraints that may become legal after a different replacement are not used to
+prune the availability upper bound. `BalanceUnproven` remains a constrained-search
+refusal, not a global infeasibility proof. Neutral reshuffles, intermediate
+storage, weighted assignments, workload scoring and leader balancing are outside
+this API.
+
+Rust source `57f988ed332be48cc866cdbfad081e5a1faa6e5f` passes all **76 ordinary
+decision-core integration cases**, including 25 topology cases. Automatic
+five-to-six expansion generates 250 replacements and 250 live copies per node;
+five-to-four contraction generates 300 replacements and 375 live copies per
+survivor. Each includes every final-node loss scenario under retained physical
+charges. New cases also cover alternate remainder allocations, domain/recovery
+refusal, occupied/excluded/capacity refusal, fresh complete stable input,
+deterministic reordered input, exact shared-budget exhaustion, empty inventory,
+no recovery spare and a 400-layout two-group matrix. The prior 400-pair explicit
+topology matrix remains passing.
+
+All-target decision-core Clippy with warnings denied, doc-test command,
+format/layout/dependency/docs checks, ten plan tests, plan validation and source
+anchor preflight pass. The doc-test command selects zero examples. All 1,616
+frozen inputs remain unchanged through verification. Immutable binaries,
+source manifests, logs and failed attempts are outside runtime data in
+checkout-private `qualification/fleet-operations/balance-v4/` (earlier attempts
+are retained alongside it). The ordinary test-target manifest disables internal
+library tests; no external internal-test harness was enabled.
+
+This delivers automatic candidate generation in FO-04. Authenticated fleet-view
+collection, durable topology intent and admission of its staged moves remain
+unfinished. FO-04 stays in progress; optional FO-05 workload policy and FO-09
+operator scaling are not completed by this pure planner. No deployed movement,
+TPS/p99 or Colima resource qualification is claimed.
+
 ## Aborted-movement settlement delivery
 
 `settle_aborted_movement` adds a distinct terminal receipt for the exact consumed
@@ -548,16 +599,22 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Recover changed/unavailable boots with verified physical closure or trusted
+1. Collect a complete authenticated fleet view at pinned root, history, policy,
+   boot and profile cuts. Include physical floors, retained bindings, unsettled
+   permits and genesis debt. Feed the generated planner with actual observations;
+   caller-supplied counts or metadata alone cannot establish a complete view.
+2. Persist canonical topology intent and connect the generated assignment to
+   guarded staged admission and the existing owned executor. Exclude the full
+   departing keep-set, reconcile ambiguous outcomes, require terminal dependencies
+   and replan after relevant inventory/capacity changes. Deliver a live add/drain
+   vertical workflow before adding optional workload policy.
+3. Recover changed/unavailable boots with verified physical closure or trusted
    platform evidence and exact durable ownership continuity. A new process,
    current catalog boot or synced lifecycle guard alone is not joined-owner
-   proof. Preserve uncertain debt and make maintenance/rejoin resumable.
-2. Collect complete authenticated fleet inputs, generate candidate assignments
-   and connect the existing topology verifier to staged admission/execution under
-   retained occupancy, failure domains and single-failure restoration headroom.
-3. Deliver operator add/drain/remove, rolling maintenance/restart/resize and
-   scaling, with idempotent status/cancellation and verified physical outcomes.
-4. Complete deployed RustFS/Colima correctness and resource qualification, resolve
+   proof. Deliver resumable restart/rejoin, then resize and rolling maintenance.
+4. Expose authenticated operator add/drain/remove, status/cancellation and
+   scaling commands over the verified backend transitions.
+5. Complete deployed RustFS/Colima correctness and resource qualification, resolve
    remaining real-node CI failures, then measure foreground TPS/p99 and controller
    overhead with fault and soak runs. Performance changes require measured gains.
 
