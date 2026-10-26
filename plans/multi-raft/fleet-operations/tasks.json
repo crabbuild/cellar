@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "57f988ed332be48cc866cdbfad081e5a1faa6e5f",
+  "baseline_revision": "795d4a355e51ed23ce7f3be7bce938a79560684d",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2703,6 +2703,18 @@
             "F05",
             "F06",
             "F07"
+          ]
+        },
+        {
+          "name": "fleet_topology_long_walk_refreshes_nodes_and_seeds_latest_sql",
+          "oracle": "An incremental topology walk retains one group observation beyond five seconds while both histories accept S3-durable SQL writes without a catalog-root mutation. Fresh final node inputs still produce a proposal; guarded admission and owned seeding include the newer acknowledged SQL, then recollection and subsequent writes verify both values at 21.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F06",
+            "F07",
+            "F09"
           ]
         }
       ],

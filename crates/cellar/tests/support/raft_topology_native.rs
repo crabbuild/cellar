@@ -4,7 +4,6 @@
 //! are explicit fixture attestations, not measured deployment qualification.
 use super::super::retirement::discover;
 use super::*;
-use anyhow::Context as _;
 use cellar::application::consensus::verification::{FleetChange, FleetMutation, FleetTable};
 use std::{future::Future, pin::Pin};
 
@@ -161,8 +160,7 @@ impl Scenario {
         request: &FleetTopologyRequest,
     ) -> Result<FleetTopologyVerification> {
         let cut = self.s.f.catalog.read(TIMEOUT).await?;
-        Ok(self
-            .s
+        self.s
             .f
             .catalog
             .prepare_topology_verification(
@@ -173,7 +171,7 @@ impl Scenario {
                 TIMEOUT,
             )
             .await
-            .context("topology prepare collection")?)
+            .context("topology prepare collection")
     }
 
     async fn close(self) -> Result<()> {
@@ -221,10 +219,15 @@ impl FleetMovementEvidence for Evidence {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_topology_generated_moves_execute_and_recollect_retained_bindings() -> Result<()> {
-    Box::pin(delivery()).await
+    Box::pin(delivery(false)).await
 }
 
-async fn delivery() -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_topology_long_walk_refreshes_nodes_and_seeds_latest_sql() -> Result<()> {
+    Box::pin(delivery(true)).await
+}
+
+async fn delivery(long_walk: bool) -> Result<()> {
     let mut f = Box::pin(Scenario::new(true)).await?;
     for round in 0..2 {
         discover(&f.s.f, &f.hosts()).await?;
@@ -237,6 +240,28 @@ async fn delivery() -> Result<()> {
             collection.preview(TIMEOUT).await,
             Err(FleetCatalogError::InventoryIncomplete)
         ));
+        ensure!(collection.verify_next(TIMEOUT).await?);
+        if long_walk && round == 0 {
+            let revision = f.s.f.catalog.read(TIMEOUT).await?.revision();
+            for live in &f.live {
+                write_read(
+                    &f.s.f,
+                    &live.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(),
+                    2,
+                    5,
+                    12,
+                )
+                .await?;
+            }
+            // The first group's historical ReadIndex is older than the final
+            // node-capacity freshness window. Data writes must not change the
+            // rooted topology, and real admission/seed must include those writes.
+            f.s.f
+                .domain
+                .run(cellar::asyncrt::sleep(Duration::from_millis(5100)))
+                .await?;
+            ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
+        }
         while collection.verify_next(TIMEOUT).await? {}
         ensure!(collection.histories_checked() == 2);
         let preview = collection.preview(TIMEOUT).await?;
@@ -340,9 +365,9 @@ async fn delivery() -> Result<()> {
                 .iter()
                 .map(|(_, h)| h.clone())
                 .collect::<Vec<_>>(),
-            2,
-            5,
-            12,
+            if long_walk { 3 } else { 2 },
+            if long_walk { 9 } else { 5 },
+            if long_walk { 21 } else { 12 },
         )
         .await?;
     }
@@ -359,8 +384,8 @@ async fn delivery() -> Result<()> {
         write_read(
             &f.s.f,
             &live.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(),
-            3,
-            9,
+            if long_walk { 4 } else { 3 },
+            if long_walk { 0 } else { 9 },
             21,
         )
         .await?;
