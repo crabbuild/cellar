@@ -321,7 +321,7 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         movement: Authority,
     ) -> Result<()> {
-        if !matches!(mutation.changes.len(), 2 | 4) {
+        if !matches!(mutation.changes.len(), 2 | 4 | 5) {
             return Err(FleetCatalogError::Invalid("resource mutation"));
         }
         let row = &mutation.changes[0];
@@ -340,7 +340,10 @@ impl FleetCatalog {
         let record = Record::decode(self, row_bytes)?;
         match &record.permit {
             None if mutation.changes.len() == 2 => (),
-            Some(permit) if movement == Authority::Admission && mutation.changes.len() == 4 => {
+            Some(permit)
+                if movement == Authority::Admission && mutation.changes.len() == 4
+                    || movement == Authority::TopologyAdmission && mutation.changes.len() == 5 =>
+            {
                 let change = &mutation.changes[2];
                 if change.table != FleetTable::Admissions
                     || change.key != record.request.group
@@ -477,7 +480,11 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != if request.movement.is_some() { 4 } else { 2 }
+            || if request.movement.is_some() {
+                !matches!(mutation.changes.len(), 4 | 5)
+            } else {
+                mutation.changes.len() != 2
+            }
             || mutation.changes[0].table != FleetTable::Operations
             || mutation.changes[0].key != row_key(request.identity.id)
             || mutation.changes[1].table != FleetTable::Policy
@@ -509,6 +516,9 @@ impl FleetCatalog {
             }
             if mutation.changes[3] != super::bindings::change(&record)? {
                 return Err(FleetCatalogError::Corrupt("resource request binding"));
+            }
+            if mutation.changes.len() == 5 {
+                Box::pin(self.check_topology_resource_projection(&mutation, &record)).await?;
             }
         }
         let book = Book::decode(

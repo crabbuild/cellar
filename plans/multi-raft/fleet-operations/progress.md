@@ -2,10 +2,56 @@
 
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
 complete at their documented local adapter boundaries.** FO-04, FO-06 and FO-07 are in
-progress; FO-05 and FO-08 through FO-10 remain pending. Automatic
-redistribution, operator commands, managed maintenance and resize are not
-delivered. The task manifest is the package-status source of truth. Historical
+progress; FO-05 and FO-08 through FO-10 remain pending. Healthy desired
+placement now has an explicit owned convergence service. Operator commands,
+failure-driven recovery, managed maintenance and resize remain unfinished.
+The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Durable desired placement and owned convergence
+
+The current feature adds canonical topology operations, a persistent keep-set
+placement fence and per-operation indexed movement admission. One root CAS
+excludes departing nodes from new birth/member/resource references. Previously
+admitted births and permits can finish; node states, epochs and physical guards
+are preserved. Topology and evacuation admission serialize at the same root.
+Generic edits cannot mint or erase the active operation, policy or progress.
+
+Owned admission appends an exact movement reference in the same CAS as its
+debit, book, permit and retained-binding index. Rooted status validates canonical
+origin and current-transition journals. Completion consumes a current complete
+no-move preview with renewed node freshness; cancellation first prevents new
+admissions, settles prior effects and restores the earlier allowed policy while
+recording partial moves. An old retry cannot clear a newer active operation.
+Successful convergence retains its keep policy. None of these transitions
+authorizes node closure, storage release or infrastructure deletion.
+
+The explicit topology service shares the existing node-owned movement worker.
+Admitted work has priority; an empty-book round collects at most one history,
+refreshes deployment evidence at planning, then admits one generated move or
+verified terminal transition. Root changes and settled moves cause recollection.
+Conservative memory admission covers retained inputs and solver/output work;
+physical blocking work retains its reservation even after waiter expiry.
+This is count-based admission, not measured RSS or enforced platform capacity.
+
+Child IDs bind the operation and exact root. A prospective immutable request
+remains unresolved data. After a bounded competing-turn window, a distinct
+superseding root CAS can resolve an unconfirmed old admission while the book is
+empty. That CAS and the original old-root admission cannot both win. No Raft
+permit is fenced or settled by this metadata transition. Actual admitted work
+retains its original debt and must finish through the existing proof boundaries.
+
+The feature hard-cuts to `/topology-intent-1` after `/topology-bindings-1`, retaining
+numeric markers at 1 and requiring fresh matching coordination/data roots and
+engines. Startup stays explicit and default-off. The eight new native scenarios
+and four existing topology scenarios pass in focused verification; full current
+regression, lint and repository qualification follow before publication.
+
+Next operator delivery should expose these real start/status/cancel/progress
+transitions, then integrate failure/old-boot recovery and maintenance/rejoin,
+resize and rolling workflows. Workload/leader balancing, live-cell retirement,
+full SDK CI and deployed RustFS/Colima faults, TPS/p99, overhead and soak remain
+required. The current healthy service does not complete FO-04 through FO-10.
 
 ## Owned topology collection and generated-move delivery
 
@@ -36,11 +82,10 @@ later permit sequence on the same disk/engine; generic index edits refuse. This
 schema hard-cuts to `/topology-bindings-1`, retaining numeric markers at 1 and
 requiring fresh matching coordination/data roots and engines.
 
-The next connected delivery is a durable desired-topology operation with a
-placement fence and paced admission rounds. It must preserve already admitted
-seeding/joint work, reconcile unknown CAS outcomes and finish only from a fresh
-complete no-move preview. Operator add/drain/status/cancel should drive that
-same operation. Changed/unavailable-boot recovery, maintenance/rejoin, workload
+The later durable-operation section above connects this path to a persistent
+placement fence and paced admission rounds, preserving admitted work and
+reconciling uncertain outcomes. Operator add/drain/status/cancel should drive
+that same operation. Changed/unavailable-boot recovery, maintenance/rejoin, workload
 leader balancing and deployed fault/performance qualification remain required.
 Healthy per-move execution does not complete FO-04 or enable automatic fleet
 management.

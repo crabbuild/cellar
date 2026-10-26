@@ -175,11 +175,24 @@ impl FleetCatalog {
         namespaces: &[crate::raft::catalog::NamespaceCatalog],
         timeout: Duration,
     ) -> Result<FleetMovementAdmission> {
+        self.reserve_movement_inner(snapshot, request, observer, namespaces, false, timeout)
+            .await
+    }
+
+    pub(super) async fn reserve_movement_inner(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetMovementRequest,
+        observer: &RaftCells,
+        namespaces: &[crate::raft::catalog::NamespaceCatalog],
+        topology: bool,
+        timeout: Duration,
+    ) -> Result<FleetMovementAdmission> {
         let mut canonical = Request::new(self, &request.resources)?;
         canonical.movement = Some(Movement::new(request)?);
         canonical.validate(self)?;
         let resources = self
-            .reserve_resource_request(snapshot, canonical, observer, namespaces, timeout)
+            .reserve_resource_request(snapshot, canonical, observer, namespaces, topology, timeout)
             .await?;
         let permit = resources
             .record

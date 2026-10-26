@@ -18,6 +18,7 @@ pub(crate) struct MovementServiceWork {
     admitted: bool,
     memory: Option<Permit>,
     node_stop: Option<watch::Receiver<bool>>,
+    topology: Option<super::topology::TopologyService>,
 }
 
 impl MovementServiceWork {
@@ -42,7 +43,12 @@ impl MovementServiceWork {
             admitted: false,
             memory: None,
             node_stop: None,
+            topology: None,
         }
+    }
+
+    pub(super) fn set_topology(&mut self, evidence: Option<Arc<dyn FleetTopologyEvidence>>) {
+        self.topology = evidence.map(super::topology::TopologyService::new);
     }
 
     pub(crate) fn admit(&mut self, host: &FleetHostAuthorization) -> Result<()> {
@@ -178,6 +184,11 @@ impl MovementServiceWork {
             .pending_movements(&cut, deadline.remaining()?)
             .await?;
         self.schedule.refresh(pending);
+        if !self.schedule.entries.is_empty() {
+            if let Some(topology) = &mut self.topology {
+                topology.interrupt();
+            }
+        }
         self.publish_work();
         self.status
             .send_modify(|status| status.last_revision = Some(cut.revision()));
@@ -239,6 +250,19 @@ impl MovementServiceWork {
                         crate::asyncrt::rng("fleet-service-move-backoff").next_u32(),
                     ));
                 }
+            }
+        } else if self.schedule.entries.is_empty() {
+            if let Some(topology) = &mut self.topology {
+                topology
+                    .round(
+                        &self.catalog,
+                        &self.observer,
+                        &cut,
+                        &self.options,
+                        &deadline,
+                        &self.status,
+                    )
+                    .await?;
             }
         }
         self.publish_work();

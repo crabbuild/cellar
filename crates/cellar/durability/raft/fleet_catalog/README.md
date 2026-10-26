@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1/topology-intent-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -1153,13 +1153,99 @@ catalog mutations cannot edit or delete the index. A later admission may replace
 an index entry only after the exact previous unused proposal is journal-confirmed
 Fenced, at a higher permit sequence on the same disk/engine. Such a proposal did
 not consume its prospective member ID. Consumed bindings cannot be rebound.
-This schema hard-cuts to `/topology-bindings-1` with numeric markers still 1;
+This schema now hard-cuts to `/topology-bindings-1/topology-intent-1` with numeric markers still 1;
 use fresh matching coordination/data roots and engines.
 
-This API connects healthy-fleet collection, generation and guarded per-move
-execution. It does not persist a fleet-wide desired keep-set, exclude departing
-nodes, schedule new admissions automatically, or authorize node removal. Durable
-topology intent, placement fencing, failure-driven repair, maintenance/rejoin and
-operator scaling workflows remain separate required delivery. The native fixture
+This read-only API connects healthy-fleet collection, generation and guarded
+per-move execution. Use the durable operation and explicit service below for a
+persistent keep-set and automatic admission. Failure-driven repair,
+maintenance/rejoin and operator scaling workflows remain separate required
+delivery. The native fixture
 executes two generated moves, recollects retained bindings and verifies SQL
 values 7 to 12 to 21; it is not RustFS/Colima or TPS/p99 qualification.
+
+## Durable topology operations and owned convergence
+
+`begin_topology` roots a canonical `FleetTopologyIntentRequest`, explicit keep-set,
+placement policy and active-operation pointer in one CAS. Its initial profile
+requires four to sixty-four kept nodes, current qualified receiving capacity,
+complete namespace inventory and a settled movement book. Admission records
+desired work; it does not certify resource fit or balanced placement. A node
+evacuation and a topology operation cannot acquire their lifecycle admission
+concurrently. The topology record does not reuse the evacuation-specific
+disruption record.
+
+The same CAS guard excludes other nodes from new history member references,
+resource debits and membership replacement targets. Existing birth references
+and already admitted permits can finish after exclusion. Node state, enrollment
+epochs and capacity profiles are preserved, so the fence cannot strand their
+physical work. During an active operation, unrelated fresh movement admission
+refuses. Generic mutations cannot edit or delete the keep-set, active pointer,
+operation progress or terminal records. Successful placement completion retains
+the keep policy until an explicit later topology operation changes it.
+
+`reserve_topology_movement` consumes a current opaque preview for the exact
+active keep-set/policy. Existing source-quorum and target-resource checks still
+run. Its fifth mutation change appends the admitted resource reference to this
+operation's own bounded hash-radix index and advances its count in the same CAS
+as the debit, book, permit and binding index. `topology_operation`,
+`active_topology_operation` and paginated `topology_movements` reconstruct
+canonical requests and permanent admission/transition journals. Entries include
+their original admission revision; an index cursor is bound to that exact index.
+As with the shared index, a full page may require a final empty page to prove
+exhaustion. These observations do not grant current health or release authority.
+
+`cancel_topology` first roots a no-new-movement state. The existing worker may
+finish every already admitted seed/joint operation and its verified settlement.
+`complete_topology_cancellation` requires an empty settled book, records partial
+admitted effects, releases only this active operation and restores the previous
+allowed placement policy. It never rolls back committed membership or resets
+physical guards. `complete_topology` instead requires a complete current
+no-move preview, matching desired policy, settled permits and fresh final node
+evidence checked again before the terminal CAS. Its result means checked
+placement convergence, not node closure, removal or storage reclamation.
+Historical retries resolve the original journals before current live inputs;
+an old terminal retry cannot release a newer active operation.
+
+`start_topology_service` explicitly enables automatic convergence on one enrolled
+node. It shares the existing movement worker slot, bounded polling/backoff and
+joined node lifetime; `start_movement_service` remains admitted-work-only.
+`FleetTopologyEvidence` supplies conservative deployment resource bounds and
+complete namespace handles for the exact desired operation. The worker gives
+admitted work priority, then walks at most one rooted history per paced round.
+After the walk it refreshes deployment evidence and authenticated node samples,
+runs the bounded solver and admits only the first move or the verified terminal
+transition. Refreshed copy bounds can only grow within a walk. A relevant root
+change or settled move causes new collection. Cancellation settles existing
+effects before automatic terminal cancellation. No application request advances
+these phases.
+
+Move request identities are deterministic for the operation and exact root.
+The worker treats a prospective immutable request with no confirmed admission as
+unresolved, not as permission to execute. It allows a competing bounded turn time
+to finish, then may root a distinct superseding metadata CAS while the book is
+empty. That CAS and the old expected-root admission cannot both win. If the old
+admission won, its debit must be reconstructed and settled. If the superseding
+CAS won, the old request cannot later admit and collection restarts at the new
+root. `last_superseded_admission` is diagnostic metadata; it is neither a Raft
+permit fence nor a movement settlement. Lost responses still require exact
+journal reconciliation. Normal moves have no prospective root write and seed
+chunks do not write controller progress.
+
+The node admits collection and solver memory before retaining their inputs.
+Reservations account conservatively for compact physical inventories, complete
+input/group records, solver actions and path/recovery output. Blocking solver
+work retains its reservation independently if a response deadline drops its
+waiter. Shutdown joins that physical work and evidence callbacks. Planning can
+return `Overloaded` when the installed control-byte budget cannot cover the
+fleet; operators must configure and qualify that budget within the node's actual
+memory limit. These reservations are not RSS measurements. Local service status
+is diagnostic; use rooted operation status for authoritative admitted effects.
+
+This delivers healthy-fleet desired placement and owned convergence. It does not
+detect a failed boot and manufacture its physical closure, revive retired member
+bindings, balance workload/leadership, retire live cell histories, execute a
+maintenance restart, provision infrastructure or expose the proposed operator
+CLI. Those remaining fleet features and deployed RustFS/Colima fault, overhead,
+throughput, latency and soak qualification remain required before general fleet
+automation can be enabled. Startup remains explicit and default-off.

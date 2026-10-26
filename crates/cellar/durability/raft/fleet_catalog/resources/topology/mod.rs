@@ -19,7 +19,8 @@ pub use cellar_logic::raft_fleet::TopologyPreview as FleetTopologyPlan;
 
 /// Explicit topology constraints, independent of optional workload policy.
 /// Host separation is always taken from the rooted fleet contract.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct FleetTopologyPolicy {
     pub revision: u64,
     pub distinct_zones: bool,
@@ -96,6 +97,10 @@ pub struct FleetTopologyPreview {
     plan: FleetTopologyPlan,
     revision: u64,
     first: Option<(GroupInput, FleetResourceAttestation)>,
+    pub(super) snapshot: FleetSnapshot,
+    pub(super) keep: BTreeSet<NodeId>,
+    pub(super) policy: FleetTopologyPolicy,
+    pub(super) oldest: u64,
 }
 
 impl FleetTopologyPreview {
@@ -299,6 +304,74 @@ impl FleetTopologyVerification {
         self.seen
     }
 
+    /// Refresh deployment evidence after a long walk without replaying stable
+    /// membership observations. Copy bounds may only grow within this walk.
+    pub(super) async fn refresh_resources(
+        &mut self,
+        request: &FleetTopologyRequest,
+        timeout: Duration,
+    ) -> Result<()> {
+        self.current(timeout).await?;
+        let (policy, keep, mut bounds) = inputs::validate(&self.catalog, &self.snapshot, request)?;
+        if keep != self.keep
+            || policy.revision != self.policy.revision
+            || policy.distinct_hosts != self.policy.distinct_hosts
+            || policy.distinct_zones != self.policy.distinct_zones
+            || policy.distinct_regions != self.policy.distinct_regions
+            || policy.max_work != self.policy.max_work
+            || request.nodes.len() != self.nodes.len()
+            || bounds.keys().ne(self.bounds.keys())
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        for node in &self.nodes {
+            let fresh = request
+                .nodes
+                .iter()
+                .find(|n| n.attestation.boot.node == node.host.node().bytes())
+                .ok_or(FleetCatalogError::InventoryIncomplete)?;
+            if fresh.attestation.boot != node.resources.attestation.boot
+                || fresh.attestation.profile_revision != node.resources.attestation.profile_revision
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
+        for (key, bound) in &mut bounds {
+            let original = self
+                .bounds
+                .get(key)
+                .ok_or(FleetCatalogError::InventoryIncomplete)?;
+            bound.resident = bound.resident.high_water(original.resident);
+            bound.peak = bound
+                .peak
+                .high_water(original.peak)
+                .high_water(bound.resident);
+        }
+        // Commit no partial update if validation above fails. These are trusted
+        // deployment inputs; final authenticated node probes remain mandatory.
+        for node in &mut self.nodes {
+            node.resources = request
+                .nodes
+                .iter()
+                .find(|n| n.attestation.boot.node == node.host.node().bytes())
+                .ok_or(FleetCatalogError::InventoryIncomplete)?
+                .clone();
+        }
+        for group in &mut self.groups {
+            let key = self
+                .catalog
+                .binding(&group.resources.group)?
+                .key()
+                .map_err(|_| FleetCatalogError::Corrupt("topology history key"))?;
+            group.resources = bounds
+                .get(&key)
+                .ok_or(FleetCatalogError::InventoryIncomplete)?
+                .clone();
+        }
+        self.bounds = bounds;
+        Ok(())
+    }
+
     async fn current(&self, timeout: Duration) -> Result<()> {
         self.catalog
             .run(timeout, async {
@@ -394,6 +467,16 @@ impl FleetTopologyVerification {
     /// No cross-cell five-second ReadIndex lease is required: the immutable root
     /// and settled permits pin configuration, and real admission rechecks quorum.
     pub async fn preview(&self, timeout: Duration) -> Result<FleetTopologyPreview> {
+        self.preview_with_memory(timeout, None).await
+    }
+
+    /// A node-owned controller retains its planning reservation inside physical
+    /// blocking work too, including when a response deadline drops the waiter.
+    pub(super) async fn preview_with_memory(
+        &self,
+        timeout: Duration,
+        memory: Option<Arc<Vec<crate::raft::budget::Permit>>>,
+    ) -> Result<FleetTopologyPreview> {
         let catalog = self.catalog.clone();
         let deadline = super::super::deadline::Deadline::new(&catalog, timeout)?;
         self.current(deadline.remaining()?).await?;
@@ -450,7 +533,10 @@ impl FleetTopologyVerification {
         let task = catalog
             .inner
             .domain
-            .blocking(move || balance_topology(&view, policy, now))
+            .blocking(move || {
+                let _memory = memory;
+                balance_topology(&view, policy, now)
+            })
             .map_err(|_| FleetCatalogError::Closed)?;
         let plan = catalog
             .inner
@@ -484,6 +570,15 @@ impl FleetTopologyVerification {
             plan,
             revision: self.snapshot.revision(),
             first,
+            snapshot: self.snapshot.clone(),
+            keep: self.keep.clone(),
+            policy: FleetTopologyPolicy {
+                revision: self.policy.revision,
+                distinct_zones: self.policy.distinct_zones,
+                distinct_regions: self.policy.distinct_regions,
+                max_work: self.policy.max_work,
+            },
+            oldest,
         })
     }
 }

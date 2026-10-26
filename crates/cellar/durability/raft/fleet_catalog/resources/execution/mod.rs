@@ -17,6 +17,7 @@ pub(crate) use service::MovementServiceWork;
 pub use service::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetTopologyEvidence, FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub(crate) use work::{MovementAction, MovementCommand};
 

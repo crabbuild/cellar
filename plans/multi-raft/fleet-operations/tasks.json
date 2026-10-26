@@ -2245,7 +2245,14 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/topology/inputs.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/topology/membership.rs",
         "crates/cellar/tests/support/raft_topology_native.rs",
-        "crates/cellar/durability/raft/fleet_catalog/resources/bindings.rs"
+        "crates/cellar/durability/raft/fleet_catalog/resources/bindings.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/admission.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/guard.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/lifecycle.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/intent/progress.rs",
+        "crates/cellar/tests/support/raft_topology_intent_native.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2265,7 +2272,9 @@
         "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary.",
         "Generate equal-copy final assignments for the explicit keep-set in the pure core, with alternate remainder allocations, constrained direct surplus-to-deficit search, retained occupancy and one shared generation/staging/recovery budget. Return only complete verified witnesses; BalanceUnproven and SearchExhausted grant no partial authority or global infeasibility claim. Connect owned authenticated fleet collection and current guarded admission separately; weighted/load policy remains optional.",
         "Connect the pure balanced planner to owned complete namespace, current capacity, physical binding and three-voter ReadIndex collection. Walk histories incrementally, retain genesis/retired/floor debt, refresh node inputs before planning, and describe only the first exact move for existing guarded admission and owned execution. Require terminal settlement and recollection for successors; durable fleet intent/exclusions and automatic new admission remain separate work.",
-        "Root an exact group/member/node provenance index atomically with each resource-linked permit. Resolve pruned dynamic physical bindings through the original admitted row and verified retained terminal receipt, without scans or release credit. Protect generic edits; allow lookup replacement only after a journal-confirmed unused Fenced proposal at a higher sequence on the same disk/engine."
+        "Root an exact group/member/node provenance index atomically with each resource-linked permit. Resolve pruned dynamic physical bindings through the original admitted row and verified retained terminal receipt, without scans or release credit. Protect generic edits; allow lookup replacement only after a journal-confirmed unused Fenced proposal at a higher sequence on the same disk/engine.",
+        "Persist canonical desired topology, keep-set and active operation in one root CAS. Gate newly referenced birth members, resource debits and membership targets against that policy at the same CAS; preserve pre-admitted birth/permit authority and node epochs. Serialize new topology intent with node evacuation without reusing its record shape. Generic policy, operation and active-pointer edits refuse.",
+        "Consume a current opaque preview for exact operation-owned first-move admission; append its per-operation hash-radix progress index in the same CAS as debit, book, permit and binding. Resolve status and bounded pagination through canonical origin/current journals; historical retries cannot clear newer work. Complete only from a fresh exhaustive no-move preview. Cancellation first fences new admissions, settles prior effects and restores prior allowed placement without rolling back membership."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2732,6 +2741,66 @@
             "F07",
             "F09"
           ]
+        },
+        {
+          "name": "fleet_topology_intent_executes_indexed_moves_and_completes",
+          "oracle": "Two independent catalog adapters race identical topology admission, then exact retry recovers one operation. Refuse generic edits and premature completion; execute two indexed archive-seeded generated replacements, verify paginated EOF, complete from fresh no-move proof, and prevent an old terminal retry from clearing a newer operation. Cancellation restores the previous policy bytes and SQL reaches 21.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_intent_cancel_settles_admitted_work_and_restores_policy",
+          "oracle": "Exclude a departing node without changing boot/epoch bindings; refuse new birth there. Cancel with one admitted move, retain its debit until actual owned execution/settlement, record one partial move and restore prior placement policy. Later birth and exact historical retries succeed without rollback or counter resets.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_intent_fence_races_birth_and_preserves_prior_admission",
+          "oracle": "Hold a competing birth at the actual root CAS; topology exclusion wins and the delayed birth cannot admit. An earlier birth reference still resolves, confirms and materializes on its original voters after exclusion and SQL reaches 12. Evacuation and topology intent refuse competing lifecycle admission in both directions.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_intent_lost_replies_reconcile_after_later_operation",
+          "oracle": "Lose confirming reads after committed begin, cancel and terminal cancellation CASes. Recreate the catalog adapter, recover each exact outcome, refuse changed canonical payload and preserve a later active operation during old retries. Original RF3 writes remain durable.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F09",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3033,7 +3102,9 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/worker.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/schedule.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/tests.rs",
-        "crates/cellar/tests/support/raft_movement_service.rs"
+        "crates/cellar/tests/support/raft_movement_service.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/topology.rs",
+        "crates/cellar/tests/support/raft_topology_service_native.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -3043,7 +3114,9 @@
         "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority.",
         "Expose bounded exact pending-movement discovery and one-turn reconciliation. Authenticate purpose/channel/nonce/body/boot-bound remote controls, independently resolve the active canonical resource row and rooted permit at the receiver, and use ordinary guarded begin, learner activation and joint completion. Derive progress from fresh quorum state; resolve permanent settlement by reservation before live probes after caller recreation. The owned service schedules admitted work; new placement/admission generation and aborted/changed-boot cleanup remain.",
         "Start one explicit node-owned admitted-movement polling service with deployment evidence integration, original round deadlines, bounded positive-jitter backoff, at most two retained reservations and fair joint/terminal priority. Node drain/closure and handle shutdown cancel and join the worker; missing resource rows require permanent-receipt resolution. Keep new admission/assignment policy and aborted/changed-boot cleanup as separate remaining work.",
-        "Drive verified Aborted terminal settlement from explicit reconciliation and the owned service. Settlement counts are terminal outcomes, not successful replacement counts; do not decide to abort a move from timeout or queue state."
+        "Drive verified Aborted terminal settlement from explicit reconciliation and the owned service. Settlement counts are terminal outcomes, not successful replacement counts; do not decide to abort a move from timeout or queue state.",
+        "Extend the existing one-per-node owned worker with explicit default-off topology mode. Give admitted work priority, collect at most one rooted history per paced round, refresh deployment evidence at planning, admit one generated move and recollect after settlement/root changes. Drive verified convergence and cancellation automatically. Admit conservative metadata/solver memory before retaining inputs and retain its reservation inside blocking work after waiter expiry.",
+        "Derive child request IDs from the operation and exact root. Treat prospective immutable requests as unresolved data; allow a competing bounded turn to finish, then use an empty-book superseding root CAS to resolve an old unconfirmed admission before replanning. The original admission and superseding CAS cannot both win. Preserve original journals, counts and physical debt; never infer rollback or settlement from timeout or missing work."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3270,6 +3343,66 @@
             "F04",
             "F06",
             "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_service_converges_after_starter_close_and_lost_admission",
+          "oracle": "The explicit node-owned topology service survives closure of the starter execution domain and a lost admitted-move response. With no caller-driven collection, admission or repair phases, generate and settle two archive-seeded replacements, persist Complete and verify SQL 7 to 12 to 21. The shared worker slot refuses a second admitted-only service.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_service_supersedes_delayed_cas_before_replanning",
+          "oracle": "Hold the first controller at an actual prospective move CAS. A second node controller observes the unresolved request, waits its bounded turn and commits a superseding metadata CAS. Release the first writer and prove Conflict, zero debits, zero target engines and no admitted movement. Stop/join its blocked callback, then let the surviving controller recollect and converge with two real moves and durable SQL.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_service_node_shutdown_joins_collection_callback",
+          "oracle": "Shut down an empty observer node while its owned topology worker is blocked in the deployment callback. Physical shutdown joins the worker and callback; no movement is admitted, the durable operation stays Running and original RF3 writes continue. Closing the node does not fabricate convergence or cancel the operation.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F09",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_service_rejects_changed_intent_then_recovers",
+          "oracle": "A callback supplies a different keep-set. Report typed rejection with no root progress or target initialization. After evidence is corrected, bounded worker retries perform real convergence and preserve SQL; callback data cannot replace the canonical operation intent.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F09",
             "F10"
           ]
         }

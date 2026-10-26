@@ -7,6 +7,7 @@ mod admission;
 mod bindings;
 mod completion;
 mod execution;
+mod intent;
 pub use completion::{
     FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
     FleetMovementCompletionRequest,
@@ -15,11 +16,16 @@ pub(crate) use execution::MovementServiceWork;
 pub use execution::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetTopologyEvidence, FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use execution::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
 };
 pub(crate) use execution::{MovementAction, MovementCommand};
+pub use intent::{
+    FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
+    FleetTopologyOperation, FleetTopologyPhase,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Authority {
@@ -27,6 +33,8 @@ pub(super) enum Authority {
     Admission,
     Completion,
     Isolation,
+    Topology,
+    TopologyAdmission,
 }
 mod movement;
 mod records;

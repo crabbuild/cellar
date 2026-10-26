@@ -33,6 +33,7 @@ impl FleetCatalog {
             Request::new(self, request)?,
             observer,
             namespaces,
+            false,
             timeout,
         )
         .await
@@ -44,6 +45,7 @@ impl FleetCatalog {
         canonical: Request,
         observer: &RaftCells,
         namespaces: &[NamespaceCatalog],
+        topology: bool,
         timeout: Duration,
     ) -> Result<FleetResourceAdmission> {
         self.check_snapshot(snapshot)?;
@@ -173,13 +175,19 @@ impl FleetCatalog {
                 digest: hash(&row_bytes),
             });
             book.rows.sort_by_key(|row| row.id);
-            let mutation = self.resource_mutation(&record, row_bytes, &book)?;
+            let mut mutation = self.resource_mutation(&record, row_bytes, &book)?;
+            if topology {
+                self.append_topology_movement(snapshot, &record, &mut mutation)
+                    .await?;
+            }
             let committed = self
                 .commit_with_disruption(
                     snapshot,
                     &mutation,
                     None,
-                    if canonical.movement.is_some() {
+                    if topology {
+                        Authority::TopologyAdmission
+                    } else if canonical.movement.is_some() {
                         Authority::Admission
                     } else {
                         Authority::None

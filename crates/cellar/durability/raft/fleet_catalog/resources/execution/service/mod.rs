@@ -1,8 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! One node-owned worker resumes admitted work. It never creates placement or
-//! releases a reservation from a timeout, missing inventory row or local hint.
+//! One node-owned worker resumes admitted work. Explicit topology mode also
+//! collects and admits rooted desired placement. No timeout or local hint can
+//! release a reservation or establish convergence.
 mod schedule;
+mod topology;
 mod worker;
 use super::*;
 use std::pin::Pin;
@@ -19,6 +21,34 @@ pub trait FleetMovementEvidence: Send + Sync {
         movement: &'a FleetPendingMovement,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = Result<FleetMovementExecutionRequest>> + Send + 'a>>;
+}
+
+/// Supply current conservative deployment bounds and complete namespace
+/// handles for the exact rooted desired topology. Called at collection start
+/// and before planning. The node owns and cancels/joins each callback future.
+pub trait FleetTopologyEvidence: Send + Sync {
+    fn refresh<'a>(
+        &'a self,
+        operation: &'a FleetTopologyOperation,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<FleetTopologyServiceInputs>> + Send + 'a>>;
+}
+
+pub struct FleetTopologyServiceInputs {
+    pub request: FleetTopologyRequest,
+    pub namespaces: Vec<crate::raft::catalog::NamespaceCatalog>,
+}
+
+/// Local diagnostics, not a convergence, membership or physical-release proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FleetTopologyServiceStatus {
+    pub operation: [u8; 16],
+    pub phase: FleetTopologyPhase,
+    pub observed_revision: u64,
+    pub histories_checked: u64,
+    pub planned_movements: Option<u64>,
+    pub admitted_movements: u64,
+    pub last_superseded_admission: Option<[u8; 16]>,
 }
 
 #[derive(Clone, Debug)]
@@ -87,6 +117,7 @@ pub struct FleetMovementServiceStatus {
     pub last_round_failure: Option<FleetMovementServiceFailure>,
     /// At most two tracked reservations. Unconfirmed work retains its slot.
     pub work: Vec<FleetMovementServiceEntry>,
+    pub topology: Option<FleetTopologyServiceStatus>,
 }
 
 /// Explicitly started, default-off service. The node job set owns its worker.
@@ -134,6 +165,36 @@ impl FleetCatalog {
         evidence: Arc<dyn FleetMovementEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
+        self.start_fleet_service(observer, evidence, None, options)
+            .await
+    }
+
+    /// Explicit default-off controller for rooted topology operations. Existing
+    /// admitted work has priority. New collection, one move admission and
+    /// terminal completion/cancellation are paced by the same owned worker.
+    pub async fn start_topology_service(
+        &self,
+        observer: RaftCells,
+        movement_evidence: Arc<dyn FleetMovementEvidence>,
+        topology_evidence: Arc<dyn FleetTopologyEvidence>,
+        options: FleetMovementServiceOptions,
+    ) -> Result<FleetMovementService> {
+        self.start_fleet_service(
+            observer,
+            movement_evidence,
+            Some(topology_evidence),
+            options,
+        )
+        .await
+    }
+
+    async fn start_fleet_service(
+        &self,
+        observer: RaftCells,
+        evidence: Arc<dyn FleetMovementEvidence>,
+        topology: Option<Arc<dyn FleetTopologyEvidence>>,
+        options: FleetMovementServiceOptions,
+    ) -> Result<FleetMovementService> {
         options.validate()?;
         // A retained capability cannot start new work after its original owner
         // closes. The receiving node independently selects its installed fleet
@@ -151,7 +212,7 @@ impl FleetCatalog {
             done: finished,
             status: view,
         };
-        let work = MovementServiceWork::new(
+        let mut work = MovementServiceWork::new(
             self.clone(),
             observer.clone(),
             evidence,
@@ -160,6 +221,7 @@ impl FleetCatalog {
             done,
             status,
         );
+        work.set_topology(topology);
         observer.start_movement_worker(work, timeout).await?;
         Ok(service)
     }

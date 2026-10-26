@@ -184,6 +184,14 @@ impl FleetTopologyVerification {
             let view = &observed.view;
             let limits = &view.startup_bounds;
             let qualified = &node.capacity;
+            transcript.update(
+                serde_json::to_vec(&node.resources.attestation)
+                    .map_err(|_| FleetCatalogError::Limit)?,
+            );
+            transcript.update(
+                serde_json::to_vec(&node.resources.reserve)
+                    .map_err(|_| FleetCatalogError::Limit)?,
+            );
             transcript.update(serde_json::to_vec(&physical).map_err(|_| FleetCatalogError::Limit)?);
             result.push(TopologyNode {
                 ledger: LedgerSnapshot {
@@ -228,6 +236,16 @@ impl FleetTopologyVerification {
                 keep: self.keep.contains(&node.host.node()),
                 receives_replicas: node.host.eligibility().receive_replicas,
             });
+        }
+        transcript.update(b"cellar-topology-final-history-bounds-1");
+        for group in &self.groups {
+            transcript.update(
+                serde_json::to_vec(&group.resources.resident)
+                    .map_err(|_| FleetCatalogError::Limit)?,
+            );
+            transcript.update(
+                serde_json::to_vec(&group.resources.peak).map_err(|_| FleetCatalogError::Limit)?,
+            );
         }
         Ok((result, oldest, transcript.finalize().into()))
     }

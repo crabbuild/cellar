@@ -7,6 +7,9 @@ use super::*;
 use cellar::application::consensus::verification::{FleetChange, FleetMutation, FleetTable};
 use std::{future::Future, pin::Pin};
 
+#[path = "raft_topology_intent_native.rs"]
+mod intents;
+
 struct Scenario {
     s: Setup,
     _spare_root: tempfile::TempDir,

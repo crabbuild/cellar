@@ -49,6 +49,7 @@ pub use resources::{
 pub use resources::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetTopologyEvidence, FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
@@ -56,6 +57,10 @@ pub use resources::{
 pub use resources::{
     FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,
     FleetTopologyPolicy, FleetTopologyPreview, FleetTopologyRequest, FleetTopologyVerification,
+};
+pub use resources::{
+    FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
+    FleetTopologyOperation, FleetTopologyPhase,
 };
 pub(crate) use resources::{MovementAction, MovementCommand};
 
@@ -381,6 +386,8 @@ impl FleetCatalog {
         self.check_isolation_mutation(snapshot, mutation, movement)
             .await?;
         self.check_resource_mutation(snapshot, mutation, movement)
+            .await?;
+        self.check_topology_mutation(snapshot, mutation, movement)
             .await?;
         self.inner
             .create_exact(&format!("requests/{key}"), &bytes, REQUEST_LIMIT)
