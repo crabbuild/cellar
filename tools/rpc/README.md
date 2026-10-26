@@ -228,6 +228,12 @@ without an installed execution domain. The V8/Node budget evidence is described
 above; the signed two-node deadline suite below also exercises Python callers
 and nested providers alongside V8 and Node.
 
+The decode probe first activates its provider through a separate read-only
+invocation, so cold startup cannot consume its 100 ms child budget before the
+decoder runs. The test also runs in a fresh process with 120 ms Python
+constructors. Both profiles retain the 250 ms host handler budget, exact
+receipt checks and original expiry outcomes.
+
 ## Portable Protobuf profile
 
 The [profile fixture](fixtures/profile.proto) covers all scalar wire types,
@@ -389,6 +395,44 @@ no mutation is automatically replayed. Reports publish after native/guest drains
 This covers a locally proven child refusal and forged exception metadata through
 real local/peer parent calls with GIL CPython. Broader peer/admission provenance,
 interpreter modes and resource/lifecycle qualification remain open.
+
+## Deadlines and cancellation during native construction
+
+```sh
+cargo test --locked -p cellar --test native_typed_rpc cold_factory:: -- --test-threads=1
+```
+
+The [cold-factory tests](../../crates/cellar/tests/support/rpc_cold_factory.rs)
+hold a real synchronous native factory until its caller has observed either
+`DeadlineExceeded/unknown` or `Cancelled/unknown`:
+
+```text
+generated caller ------> cold native factory (held)
+       |                           |
+ deadline / signal                 |
+       |                           |
+ caller receives unknown           |
+       |                     release factory
+       |                           |
+       |              new/cached SDK operations refused
+       |              generated business handler not entered
+       |                           |
+ fresh call -----------> read count 0; no late writes
+ explicit retry -------> count 1 + receipt
+ same-ID retry --------> count 1
+```
+
+The factory verifies storage works before the hold, then checks new storage,
+new child bindings, a cached write and a synchronous transaction after release.
+Both tests join the node and require exactly two explicit increment-handler
+entries. Construction has already entered, so the caller's failure cannot
+promise rollback. The deadline case uses a 200 ms child budget under a separate
+three-second parent policy; existing language-adapter tests keep their 250 ms
+host budget.
+
+These two public-node tests qualify the native construction boundary. They are
+separate from the cross-language matrices below and do not establish the cause
+of the intermittent streaming cold-start timeout.
 
 ## Peer deadlines and nested calls
 
@@ -805,6 +849,40 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 For a Rust/local/post-sync diagnostic, use `v8-termination-smoke` or
 `v8-shutdown-smoke`. The shutdown smoke keeps native work held until the owner
 cuts its drain.
+
+The Node/V8 forced-owner fixtures use a 250 ms no-progress window while keeping
+the full eight-second shutdown budget for durability cleanup. Both original
+native call budgets must have more than 1,250 ms remaining at injection. Their
+physical frames must retire before their original RPC deadlines; a natural
+deadline response cannot qualify as a forced cutoff. RPC/handler budgets, lease
+TTLs, the execution watchdog and the normal graceful-drain policy are unchanged.
+
+```text
+original provider + child still live (3,500 ms remaining)
+                    |
+      forced drain stalls for 250 ms
+                    |
+      unclean cutoff proof, then native retirement
+                    |
+   retire before original RPC expiry -> joined engine -> receipt recovery
+```
+
+The Node-caller/V8-provider/peer/before-sync case deliberately waits until that
+near-deadline window in the normal matrix. With the old five-second stall
+window, the call could expire first and legitimately produce a clean drain.
+Bounded `shutdown_observation` fields retain original/current budget headroom,
+frame retirement ages, shutdown duration and guest reservation gauges.
+
+Run the same peer topology 16 times, or just its near-deadline regression:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-forced-peer-repro --report .cellar/rpc/v8-forced-peer.json
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite v8-forced-peer-deadline-repro --report .cellar/rpc/v8-forced-peer-deadline.json
+```
+
+These diagnostic reports keep `qualified: false` and do not replace the matrix.
 
 ```text
 surviving Rust / Python / V8 / Node caller

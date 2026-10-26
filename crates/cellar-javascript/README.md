@@ -503,7 +503,7 @@ Defaults come from [Options](runtime/mod.rs) and [NodeOptions](runtime/node/mod.
 | `max_pending_operations` / `max_operations` | 16 / 1,024 | Outstanding / total SDK operations per invocation. |
 | `max_body_bytes` / `max_value_bytes` | 1 MiB / 2 MiB | Buffered HTTP body / encoded bridge value. |
 | `max_batch_operations` | 128 | Checks, mutations, and optional alarm change per storage batch. |
-| `max_bridge_bytes` | 32 MiB | Shared payload budget; also bounds Node transport queues. |
+| `max_bridge_bytes` | 32 MiB | Shared native payload, Node frame and decoded-attachment reservations. |
 | `heap_bytes` | 128 MiB | Embedded V8 heap or Node old-space limit; not process RSS. |
 | `startup_timeout` | 5 seconds | Application initialization. |
 | `turn_timeout` | 100 ms | Entire V8 pump pass, including its calls and microtasks. |
@@ -514,8 +514,46 @@ heartbeat instead; slow asynchronous I/O can continue while its event loop
 remains responsive. A runaway V8 turn terminates the isolate, while a blocked
 or crashed Node worker stops the application. V8 bootstrap joins its engine and
 watchdog; Node bootstrap kills the owned Unix process group and waits for its
-child. Process restart belongs to the external supervisor. Do not detach Node
-children from the owned group without separate supervision.
+child. Node processes one bounded IPC receive pass before its heartbeat decision,
+so queued valid heartbeats are observed after a native observer delay. New guest
+starts wait while heartbeats are overdue; invocation deadlines and retired SDK
+authority retain their original checks.
+
+Node uses one native byte pool for overlapping payload and transport ownership:
+
+```text
+native invocation / operation / reply buffers --+
+queued output frames, including 8-byte header --+
+partial input allocations ---------------------+--> max_bridge_bytes
+decoded control strings + raw attachments -----+
+```
+
+Capacity is reserved before frame allocation or decoding copies. A partial
+write keeps the entire frame charged until its allocation is freed. Decoded
+frames retain their reservation through native admission; completed inputs
+release their backing capacity. Once a queued frame owns an invocation's bytes,
+Node keeps the invocation's authority without retaining another request buffer.
+
+Before allocating a decoded control object, Node checks its flat wire shape:
+at most 16 scalar fields, distinct literal ASCII keys of at most 64 bytes, and
+numeric tokens of at most 32 bytes. Application JSON stays inside the encoded
+`payload` string; RPC bytes use the raw attachment. Nested control arrays or
+objects and escaped key spellings are refused. An allocation-free scan counts
+decoded UTF-8 bytes, including Unicode escapes and surrogate pairs. Parser
+scratch is reserved separately and released after decoding; the decoded strings
+and attachment keep their reservations until native handoff or refusal.
+
+Startup checks a conservative isolated-transfer floor. With `V = max_value_bytes`
+and `F = 6 * V + 4096` (JSON escaping and protocol overhead), Node requires
+`max_bridge_bytes >= V + 2 * F + 8`. The defaults satisfy this bound. Concurrent
+work shares the remaining capacity and can exhaust it. Node worker JavaScript
+buffers, guest aliases, codec objects, allocator overhead, the fixed control
+layout and OS socket buffers require separate accounting and qualification.
+The native gauge is not a process RSS measurement; the control field limit
+bounds its object layout independently of payload byte reservations.
+
+Process restart belongs to the external supervisor. Do not detach Node children
+from the owned group without separate supervision.
 
 `application.bridge_usage()` returns a small `BridgeUsage` snapshot for host
 diagnostics. It reads native reservation counters and requires no guest call:
@@ -524,7 +562,7 @@ diagnostics. It reads native reservation counters and requires no guest call:
 | --- | --- |
 | `stopped` | Admission has been revoked and native waiters notified. |
 | `active_invocations` | Native invocation permits still held. |
-| `retained_bytes` | Owned invocation, operation and reply payload reservations. |
+| `retained_bytes` | Native payload reservations, including queued/partial Node frames and decoded frame payloads. |
 
 The fields are sampled independently. They do not measure heap, RSS or cached
 cell objects, and `stopped` alone does not prove cleanup. Join callers and the

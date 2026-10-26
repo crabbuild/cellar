@@ -790,12 +790,19 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
     }
 }
 
+// These private callers use connections opened by this module. Hook changes
+// can fail only on a borrowed, unowned handle; ownership cannot change while
+// this connection is borrowed. Initial installation remains fallible in open.
 fn without_sql_authorizer<T>(connection: &Connection, callback: impl FnOnce() -> T) -> T {
     use rusqlite::hooks::{AuthContext, Authorization};
 
-    connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+    connection
+        .authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
+        .expect("framework connection owns its SQLite handle");
     let result = callback();
-    connection.authorizer(Some(authorize_sql));
+    connection
+        .authorizer(Some(authorize_sql))
+        .expect("framework connection owns its SQLite handle");
     result
 }
 
@@ -806,9 +813,13 @@ fn without_sql_authorizer_mut<T>(
 ) -> T {
     use rusqlite::hooks::{AuthContext, Authorization};
 
-    connection.authorizer(None::<fn(AuthContext<'_>) -> Authorization>);
+    connection
+        .authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
+        .expect("framework connection owns its SQLite handle");
     let result = callback(connection);
-    connection.authorizer(Some(authorize_sql));
+    connection
+        .authorizer(Some(authorize_sql))
+        .expect("framework connection owns its SQLite handle");
     result
 }
 
@@ -963,7 +974,7 @@ fn finish_open(
         rusqlite::ffi::sqlite3_limit(database, rusqlite::ffi::SQLITE_LIMIT_ATTACHED, 0);
         rusqlite::ffi::sqlite3_limit(database, rusqlite::ffi::SQLITE_LIMIT_WORKER_THREADS, 0);
     }
-    c.authorizer(Some(authorize_sql));
+    c.authorizer(Some(authorize_sql))?;
     // rusqlite's default holds 16 statements; the KV texts plus a cell's
     // few hot user statements fit in 64 without evicting each other.
     c.set_prepared_statement_cache_capacity(64);

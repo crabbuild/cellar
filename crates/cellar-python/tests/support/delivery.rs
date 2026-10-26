@@ -69,18 +69,52 @@ async fn drained(client: &reqwest::Client, url: &str) -> Result<Value> {
     }
 }
 
-pub(super) fn child() -> Result<()> {
+async fn held(
+    client: &reqwest::Client,
+    url: &str,
+    application: &PythonApplication,
+    data: &Path,
+) -> Result<()> {
+    match tokio::time::timeout(Duration::from_secs(1), value(client, url, "/holding")).await {
+        Ok(result) => {
+            ensure!(result.context("delivery held consumer observation")? == true);
+            Ok(())
+        }
+        Err(error) => {
+            // This failure snapshot must not call into Python or enqueue SQL.
+            // Keep the original deadline error even if the observer fails.
+            let bridge = application.bridge_report();
+            let interpreter = application.interpreter_snapshot();
+            let data = data.to_owned();
+            let queues =
+                tokio::task::spawn_blocking(move || super::queue_observation::capture(&data))
+                    .await
+                    .unwrap_or_else(|error| json!({"observer_error": error.to_string()}));
+            anyhow::bail!(
+                "delivery held consumer admission deadline: {error}; observations={}",
+                json!({"bridge": bridge, "interpreter": interpreter, "queues": queues})
+            )
+        }
+    }
+}
+
+pub(super) fn child(slow_state: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
+    let source = format!(
+        "{}\nstate_delay = {}\n",
+        include_str!("delivery.py"),
+        if slow_state { "1.1" } else { "0.0" }
+    );
     let report = run(
         Options::default(),
-        Source::new(include_str!("delivery.py"), "delivery.py")
-            .events([EventKind::Fetch, EventKind::Queue]),
+        Source::new(source, "delivery.py").events([EventKind::Fetch, EventKind::Queue]),
         move |application, monitor| {
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(4)
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
+            let observed = application.clone();
             let application: Arc<dyn Application> = Arc::new(Observed(application));
             let configure = |config: &mut NodeConfig, _: &mut NodeServices, graph: &mut DeploymentGraph| {
                 config.runtime.handler_budget = Duration::from_secs(2);
@@ -113,12 +147,7 @@ pub(super) fn child() -> Result<()> {
                     client.post(format!("{url}/send")).json(&json!({"kind":kind})).send().await?.error_for_status()?;
                 }
                 if kind == "hold" {
-                    tokio::time::timeout(Duration::from_secs(1), async {
-                        loop {
-                            if value(&client, &url, "/state").await?["holding"] == true { return Ok::<_, anyhow::Error>(()); }
-                            tokio::task::yield_now().await;
-                        }
-                    }).await.context("delivery held consumer admission deadline")??;
+                    held(&client, &url, &observed, &data).await?;
                     ensure!(value(&client, &url, "/cross").await? == true);
                     ensure!(value(&client, &url, "/release").await? == true);
                 }

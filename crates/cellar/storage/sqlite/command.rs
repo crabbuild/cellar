@@ -4,7 +4,7 @@
 
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-use rusqlite::{ffi, Connection, DatabaseName, OpenFlags, Params, Row};
+use rusqlite::{ffi, Connection, OpenFlags, Params, Row};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -100,7 +100,7 @@ impl CommandDatabase {
                 "cannot enable defensive command SQLite"
             );
         }
-        connection.authorizer(Some(authorize_command));
+        connection.authorizer(Some(authorize_command))?;
         Ok(Self { connection })
     }
 
@@ -156,7 +156,7 @@ impl CommandDatabase {
             length > 0 && length <= max_image_bytes,
             "private image exceeds its bound"
         );
-        let image = self.connection.serialize(DatabaseName::Main)?;
+        let image = self.connection.serialize(rusqlite::MAIN_DB)?;
         ensure!(
             image.len() as u64 == length,
             "frozen SQLite image length changed"

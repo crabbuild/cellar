@@ -23,6 +23,9 @@ pub async fn start_with(
     start_with_configuration(path, application, classes, bindings, |_, _, _| {}).await
 }
 
+/// Select a host policy, services and deployment for a focused boundary test
+/// while preserving defaults for existing language-adapter tests.
+#[allow(dead_code)]
 pub async fn start_configured(
     path: &Path,
     application: Arc<dyn Application>,

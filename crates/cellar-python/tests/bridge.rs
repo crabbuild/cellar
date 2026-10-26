@@ -300,8 +300,11 @@ fn main() -> Result<()> {
     if mode == "--runtime-watchdog" {
         return watchdog::qualify();
     }
-    if mode == "--runtime-delivery" {
-        return delivery::child();
+    if matches!(
+        mode.as_str(),
+        "--runtime-delivery" | "--runtime-delivery-slow-state"
+    ) {
+        return delivery::child(mode.ends_with("-slow-state"));
     }
     if mode == "--runtime-schedules" {
         return schedules::child();
@@ -480,6 +483,7 @@ fn main() -> Result<()> {
         "--runtime-durability",
         "--runtime-bindings",
         "--runtime-delivery",
+        "--runtime-delivery-slow-state",
         "--runtime-schedules",
         "--runtime-schedule-recovery",
         "--runtime-binding-faults",
@@ -874,6 +878,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-routing"
                 | "--runtime-bindings"
                 | "--runtime-delivery"
+                | "--runtime-delivery-slow-state"
                 | "--runtime-queue-lost-ack"
                 | "--runtime-schedules"
                 | "--runtime-lifetimes"

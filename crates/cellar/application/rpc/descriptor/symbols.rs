@@ -1,6 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{imports::Imports, valid_identifier, MAX_NAME_BYTES, MAX_SYMBOLS, MAX_SYMBOL_BYTES};
+use super::{
+    imports::Imports, valid_identifier, MAX_MESSAGE_DEPTH, MAX_NAME_BYTES, MAX_SYMBOLS,
+    MAX_SYMBOL_BYTES,
+};
 use anyhow::{ensure, Context, Result};
 use prost_types::{
     field_descriptor_proto::Type, DescriptorProto, EnumDescriptorProto, FileDescriptorProto,
@@ -92,7 +95,10 @@ impl<'a> Symbols<'a> {
         file: usize,
         depth: usize,
     ) -> Result<()> {
-        ensure!(depth <= 64, "RPC descriptor nesting exceeds limit");
+        ensure!(
+            depth <= MAX_MESSAGE_DEPTH,
+            "RPC descriptor nesting exceeds limit"
+        );
         ensure!(
             message.extension.is_empty() && message.extension_range.is_empty(),
             "RPC extensions are unsupported"
