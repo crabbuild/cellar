@@ -43,3 +43,8 @@ console-audit.sqlite*
 
 # Optional published sandbox runtime conformance bundles.
 /tools/sandbox/compat/dist/
+
+# Reproducible binding example builds.
+/examples/bindings/app.bundle.js*
+/examples/bindings/dist/
+!/examples/bindings/package-lock.json

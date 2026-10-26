@@ -1206,3 +1206,11 @@ work and substantial disk traffic were observed, but causality is unproven;
 passing isolated reruns do not close these failures. No deadline or assertion was
 relaxed. Reproduction and resolution remain a qualification gate before full
 profile or release claims.
+
+The follow-up merge of `main` at `ce687427` preserves both sandbox bundle ignores
+and binding-example build ignores, plus both the feature-gated Python Vercel test
+and binding-example binary. The new JS/TS binding examples build, Cargo metadata
+validates both Python targets, adapter all-target Clippy passes, and format/layout
+(1,156 Rust sources), docs (808 local references) and the native dependency guard
+pass. This merge adds examples/manifests; it does not resolve the runtime failures
+recorded above.

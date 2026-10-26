@@ -10,6 +10,7 @@ on:
       - 'examples/javascript/**'
       - 'examples/node/**'
       - 'examples/streaming/**'
+      - 'examples/bindings/**'
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
@@ -47,12 +48,14 @@ jobs:
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
           npm ci --prefix examples/streaming --ignore-scripts
+          npm ci --prefix examples/bindings --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/streaming build
+          npm run --prefix examples/bindings build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
           npm run --prefix examples/vercel-agent build
@@ -155,6 +158,10 @@ jobs:
       - name: Runnable streaming examples and restart
         run: |
           python3 examples/streaming/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
+            --backend rust --backend node-js --backend node-ts --backend v8
+      - name: Runnable binding examples, restart and rebinding
+        run: |
+          python3 examples/bindings/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
             --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
         run: |

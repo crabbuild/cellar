@@ -122,3 +122,8 @@ name = "vercel"
 path = "tests/vercel.rs"
 harness = false
 required-features = ["embed"]
+
+[[bin]]
+name = "cellar-bindings-python"
+path = "../../examples/bindings/python.rs"
+required-features = ["embed"]
