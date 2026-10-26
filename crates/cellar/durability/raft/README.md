@@ -698,6 +698,13 @@ head advances only after referenced bytes are read back, validated and replayed.
 Lost object/head responses are reconciled by exact reads. The supplied
 `Bucket::raft_store` binds the bucket prefix and its conditional-write client.
 
+Each admitted publication batch runs on an execution-domain blocking worker
+that drives its asynchronous object I/O. Snapshot file disposal during retry,
+failure and completion stays on that worker, keeping the host driver available
+for request admission and Raft work. The existing producer limit bounds worker
+count; capture reservations remain charged through physical cleanup, and the
+driver joins publication workers before releasing their slots during shutdown.
+
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is
 persisted in the receipt; stronger retries wait without executing or proposing

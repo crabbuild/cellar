@@ -916,3 +916,26 @@ result and a cold RPC fixture call using the old helper signature. Test-only
 fixes propagate the first error and preserve the RPC fixture's existing bindings
 and handler budget with the current helper. The all-target owning-crate Clippy
 check then passed with warnings denied before the new probe expansion.
+
+### Retry cleanup ownership
+
+A second native regression injects a failed archive-head write after a real
+prior head exists, then holds the candidate snapshot's close. The initial
+`f0e22e86` fix still fails this case with `VersionUnavailable` (1.64 and 1.68
+seconds): final-result disposal had moved off the driver, but attempt-local
+disposal inside the publication retry loop had not. The frozen regression
+source is `eebf2743`; its binary and logs have external hash records.
+
+The correction gives each admitted publication batch one execution-domain
+blocking worker which drives the complete asynchronous publication future.
+Success, failure and retry cleanup therefore share the physical owner. Existing
+producer limits bound workers, capture reservations survive physical cleanup,
+and the host joins publication before releasing its slot. Archive proofs and
+request deadlines stay unchanged. This revision still requires regression and
+full-size qualification.
+
+Before this correction, frozen `4a53283d` passes 642 library cases, all three
+typed RPC cases and all four ordinary large-image cases. Both post-write read
+probes run in the ordinary peer/object-store cases; four environment-dependent
+entries remain ignored by that invocation. These validate the fixture/CI fixes
+and diagnostic coverage, not the subsequent producer-owner correction.

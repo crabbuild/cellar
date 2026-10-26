@@ -130,62 +130,20 @@ pub(super) fn next_scope<'a, T>(
 }
 
 pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
-    let mut identities = Vec::with_capacity(captured.len());
-    let mut reservations = Vec::with_capacity(captured.len());
-    let inputs = captured
-        .into_iter()
-        .map(|capture| {
-            identities.push((capture.scope, capture.cut.position()));
-            reservations.push(capture.reservation);
-            (capture.archive, capture.cut)
-        })
+    let expected: Vec<_> = captured
+        .iter()
+        .map(|capture| (capture.scope.clone(), capture.cut.position()))
         .collect();
-    let result = CellArchive::publish_batch(inputs, &verifier).await;
-    let expected = identities.clone();
-    // The final recovery-set owner closes an anonymous, potentially 10 GB
-    // snapshot file. Its disposal is filesystem work too: never run that close
-    // on the driver's poll stack, where it can strand unrelated reads/ticks.
-    // Keep the capture reservations until every physical owner has closed.
-    // The driver joins this job during shutdown before releasing its producer.
-    let cleanup = crate::asyncrt::try_blocking(move || {
-        let results = match result {
-            Ok(results) if results.len() == identities.len() => results,
-            Ok(_) => (0..identities.len())
-                .map(|_| Err(ArchiveError::Unconfirmed))
-                .collect(),
-            Err(error) => {
-                let mut error = Some(error);
-                (0..identities.len())
-                    .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
-                    .collect()
-            }
-        };
-        let completed = identities
-            .into_iter()
-            .zip(results)
-            .map(|((scope, position), result)| {
-                let result = result.and_then(|set| {
-                    if set.scope() != &scope
-                        || set.position().index < position.index
-                        || set.position().index == position.index
-                            && set.position().term != position.term
-                    {
-                        return Err(ArchiveError::Corrupt("archive output coverage"));
-                    }
-                    Ok(())
-                });
-                Completed {
-                    scope,
-                    position,
-                    result,
-                }
-            })
-            .collect();
-        drop(reservations);
-        completed
+    // One execution-domain worker drives each admitted batch, bounded by the
+    // existing producer limit. Attempt-local snapshot files may close during a
+    // retry, an error or final completion. Drive object I/O on this owner too,
+    // so none of those synchronous closes can occupy the driver's poll stack.
+    // The driver joins the worker before releasing its producer slot.
+    let producer = crate::asyncrt::try_blocking(move || {
+        crate::asyncrt::block_on(publish_owned(captured, verifier))
     });
-    let result = match cleanup {
-        Ok(cleanup) => cleanup.await.map_err(|error| {
+    let result = match producer {
+        Ok(producer) => producer.await.map_err(|error| {
             ArchiveError::Worker(cellar_ltx::host::HostTaskError::new(error.to_string()))
         }),
         Err(_) => Err(ArchiveError::Stopped),
@@ -204,6 +162,56 @@ pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) 
                 .collect()
         }
     }
+}
+
+async fn publish_owned(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
+    let mut identities = Vec::with_capacity(captured.len());
+    let mut reservations = Vec::with_capacity(captured.len());
+    let inputs = captured
+        .into_iter()
+        .map(|capture| {
+            identities.push((capture.scope, capture.cut.position()));
+            reservations.push(capture.reservation);
+            (capture.archive, capture.cut)
+        })
+        .collect();
+    let result = CellArchive::publish_batch(inputs, &verifier).await;
+    let results = match result {
+        Ok(results) if results.len() == identities.len() => results,
+        Ok(_) => (0..identities.len())
+            .map(|_| Err(ArchiveError::Unconfirmed))
+            .collect(),
+        Err(error) => {
+            let mut error = Some(error);
+            (0..identities.len())
+                .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
+                .collect()
+        }
+    };
+    let completed = identities
+        .into_iter()
+        .zip(results)
+        .map(|((scope, position), result)| {
+            let result = result.and_then(|set| {
+                if set.scope() != &scope
+                    || set.position().index < position.index
+                    || set.position().index == position.index
+                        && set.position().term != position.term
+                {
+                    return Err(ArchiveError::Corrupt("archive output coverage"));
+                }
+                Ok(())
+            });
+            Completed {
+                scope,
+                position,
+                result,
+            }
+        })
+        .collect();
+    // Physical cleanup precedes capture refund, on this same blocking owner.
+    drop(reservations);
+    completed
 }
 
 impl Owner {
