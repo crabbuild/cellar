@@ -411,6 +411,30 @@ struct DirectFile {
     file: std::fs::File,
 }
 
+struct DirectFileLock {
+    file: std::fs::File,
+    process: u32,
+}
+
+// This filesystem-provider check must observe the actual post-fork PID; a
+// captured execution-domain process tag would still identify the parent.
+#[allow(clippy::disallowed_methods)]
+fn lock_process() -> u32 {
+    std::process::id()
+}
+
+impl Drop for DirectFileLock {
+    fn drop(&mut self) {
+        // Closing only this descriptor can leave the lock held by a forked
+        // child's inherited descriptor until exec/exit. The last actual owner
+        // explicitly releases the shared lock before closing its file.
+        // An inherited copy must not unlock a still-live parent owner.
+        if self.process == lock_process() {
+            let _ = self.file.unlock();
+        }
+    }
+}
+
 #[allow(clippy::disallowed_methods)]
 impl HostFileIo for DirectFile {
     fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
@@ -652,7 +676,10 @@ impl FileSystem for DirectFileSystem {
             .truncate(false)
             .open(path)?;
         file.try_lock().map_err(io::Error::from)?;
-        Ok(Box::new(file))
+        Ok(Box::new(DirectFileLock {
+            file,
+            process: lock_process(),
+        }))
     }
 
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
