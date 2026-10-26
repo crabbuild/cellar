@@ -939,3 +939,16 @@ typed RPC cases and all four ordinary large-image cases. Both post-write read
 probes run in the ordinary peer/object-store cases; four environment-dependent
 entries remain ignored by that invocation. These validate the fixture/CI fixes
 and diagnostic coverage, not the subsequent producer-owner correction.
+
+The complete-producer revision `00a362b8` passes both held-close regressions in
+1.44 seconds, all 70 archive cases in 33.10 seconds, 642 library cases in 41.03
+seconds and all three typed RPC cases in 2.18 seconds. All-target/all-feature
+owning-crate Clippy passes with warnings denied. Its frozen release binaries and
+1,265 tracked build-input hashes are retained externally. Full-size correctness
+is still unqualified.
+
+The read-refusal observer now resolves handles from each current service. Owner
+cancellation removes the original service from the cluster vector; pairing its
+old handles with the shorter service list could mislabel status and miss the
+replacement. The observer follows the current scope/service binding, records
+binding failures explicitly and preserves the original read error.

@@ -420,14 +420,23 @@ async fn record_read_refusal(
     phase: &str,
     error: &anyhow::Error,
     cluster: &cluster::Cluster,
-    handles: &[RaftCellHandle],
+    scope: &GroupScope,
     required: Option<&CommittedVersion>,
 ) {
     // Sample before fixture teardown joins background image work. These are
     // observations, never an alternative read proof or a retry of the failure.
     // A stopped/unresponsive member cannot hold failure reporting indefinitely.
-    for (index, (handle, service)) in handles.iter().zip(&cluster.services).enumerate() {
-        let status = tokio::time::timeout(Duration::from_secs(2), handle.status()).await;
+    for (index, service) in cluster.services.iter().enumerate() {
+        // Owner cancellation removes its service from the cluster layout.
+        // Resolve each observer from its current service rather than zipping
+        // the original handle order with a shortened/replacement inventory.
+        let status = match service.cell(scope.namespace, &scope.cell) {
+            Ok(handle) => Some(tokio::time::timeout(Duration::from_secs(2), handle.status()).await),
+            Err(binding) => {
+                eprintln!("full-native query-probe-binding-failed phase={phase} worker={index} error={binding:?}");
+                None
+            }
+        };
         let resources = service.resource_usage();
         let performance = service.performance();
         let operations = performance
@@ -555,7 +564,14 @@ async fn drill(
     )
     .await;
     if let Err(error) = &first_read_result {
-        record_read_refusal("first-read", error, &cluster, &handles, None).await;
+        record_read_refusal(
+            "first-read",
+            error,
+            &cluster,
+            &registration.birth.scope,
+            None,
+        )
+        .await;
     }
     first_read_result.context("initial full-size linearizable read")?;
     eprintln!(
@@ -912,13 +928,11 @@ async fn drill(
         local.is_ok(), local_started.elapsed().as_secs_f64()
     );
     if let Err(error) = &local {
-        let mut observed_handles = handles.clone();
-        observed_handles.push(learner.clone());
         record_read_refusal(
             "cold-owner-after-write",
             error,
             &cluster,
-            &observed_handles,
+            &resumed.version.scope,
             Some(&resumed.version),
         )
         .await;
@@ -1080,7 +1094,7 @@ async fn drill(
             "restart-payload-verification",
             error,
             &cluster,
-            &restarted_handles,
+            &written.version.scope,
             Some(&written.version),
         )
         .await;
