@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "dde489871416e41bca0fb21b4859d2f62695eb03",
+  "revision": "f180adede52266ea30543386c6f83868eaef82c2",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -36,7 +36,7 @@
     },
     {
       "path": "crates/cellar-logic/README.md",
-      "sha256": "a2fea6fbac781eaae60ccb32b271d268917d776d8cb8a2d1267bd9ea21e0381c"
+      "sha256": "fad5bf773bcf88228ebf3f7de152d8d2e846e2d80e2edd51eb9ac83086dfe180"
     },
     {
       "path": "crates/cellar-logic/lib.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Reviewed merged main d3206c92 with streamed snapshots, shared dynamic-history scratch and RPC scope/pump fixes. Successful movement admission and terminal completion preserve retained physical floors. Source 7863043e passes 569 core/Raft cases, nine storage/limit cases, 20 streamed LTX cases, all-target Clippy and repository checks. One directory deadline timeout is separately retained; unchanged binary passes 20 focused repeats and the full directory suite. FO-01 through FO-03 remain complete at local adapter boundaries; FO-04 planner and FO-05 through FO-10 remain unfinished. No deployed RustFS, enforced Colima resources, TPS/p99 or soak qualification."
+  "review_note": "Reviewed main d3206c92 integration and additive explicit topology verification. Source 3af38b41 passes 66 public core cases including 15 topology cases and the 400-pair matrix, core Clippy, downstream host-library build and repository checks. Parent 82221ec0 retains ten native movement and host all-target Clippy passes. Broad source 7863043e retains 569 core/Raft, nine storage/limit and 20 streamed LTX passes; its one directory timeout remains separately retained alongside unchanged-binary repeats. FO-01 through FO-03 complete at local adapter boundaries; FO-04 remains in progress. Next healing prerequisite: isolation/fencing-backed completion of unreachable original owners without freeing uncertain physical footprint. Automatic assignment, controller and operator workflows and FO-05 through FO-10 remain unfinished. No deployed RustFS, enforced Colima resources, TPS/p99 or soak qualification."
 }
