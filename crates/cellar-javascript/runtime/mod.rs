@@ -256,6 +256,7 @@ impl Runtime {
         self.stopped.send_replace(true);
     }
 
+    #[cfg(feature = "embed")]
     fn close(&self) {
         self.stop(StopReason::Failure);
     }

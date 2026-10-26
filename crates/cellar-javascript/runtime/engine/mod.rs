@@ -606,6 +606,7 @@ fn run_engine(
     let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
     let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
     let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
+    let rpc_requests = script(scope, include_str!("../rpc_requests.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -625,6 +626,7 @@ fn run_engine(
                 rpc_writables,
                 rpc_inputs,
                 rpc_messages,
+                rpc_requests,
             ],
         )
         .context("JavaScript facade initialization failed")?;

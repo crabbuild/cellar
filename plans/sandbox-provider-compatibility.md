@@ -65,7 +65,7 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Docker/compatible Podman | Existing Cellar container facades | Existing local native engine | Implemented |
 | Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
 | Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
-| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream and RPC binary SDK upload pass; message transfers, previews and complete lifetime/fault qualification pending |
+| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream and RPC binary SDK upload pass; previews and complete lifetime/fault qualification pending |
 | Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Planned next profile |
 | Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Experimental bounded exec/files; live-account qualification pending |
 | Daytona / Modal | Same portable operations plus declared extensions | Provider adapters and durable remote bindings | Planned |
@@ -189,16 +189,17 @@ Fixture passes are not live cloud qualification or full Workers compatibility.
 
 The [current ledger](sandbox-provider-progress.md#requirement-audit) separates
 implemented slices from full-profile acceptance. Streaming SDK upload/download
-and returned RPC responses now have pinned-image/native evidence. The latest
-broader run also exposed deadline and drainage failures; reproducing and resolving
-those is the current qualification gate before claiming these profiles complete.
+and returned RPC responses now have pinned-image/native evidence. The follow-up
+fixes requested V8 shutdown classification, and the selected native/image campaign
+passes without changing existing budgets. Request results and HTTP-message
+arguments now pass their Node/native slice; broader fault qualification remains
+open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 | Request transfer and HTTP-message RPC arguments | Complete the bidirectional HTTP transfer surface needed by published applications |
-| 2 | Containers sleep/wake/hooks, upgraded Worker/DO routing and Sandbox previews | Finish the local application lifecycle and service-access path |
-| 3 | Named provider bindings, reconnect/expiry and orphan reconciliation | Make the common framework useful across events and ownership changes |
-| 4 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
+| 1 | Containers sleep/wake/hooks, upgraded Worker/DO routing and Sandbox previews | Finish the local application lifecycle and service-access path |
+| 2 | Named provider bindings, reconnect/expiry and orphan reconciliation | Make the common framework useful across events and ownership changes |
+| 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06

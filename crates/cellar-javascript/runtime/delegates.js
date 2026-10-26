@@ -98,12 +98,12 @@
     try {
       const copied = transform(value, (value) => {
         let invoke, kind, metadata;
-        if (messages?.isResponse(value)) {
+        if (messages?.isResponse(value) || messages?.isRequest(value)) {
           const sender = messages.send(value, context);
           senders.push(sender);
           invoke = sender.invoke;
           metadata = sender.metadata;
-          kind = "response";
+          kind = messages.isRequest(value) ? "request" : "response";
         } else if (readables.isReadable(value)) {
           const sender = readables.sendReturned(value, context);
           senders.push(sender);
@@ -236,7 +236,9 @@
       value[2].length !== handles.length ||
       value[2].some(
         (kind) =>
-          !["function", "readable", "writable", "response"].includes(kind),
+          !["function", "readable", "writable", "response", "request"].includes(
+            kind,
+          ),
       )
     )
       throw new ErrorClass("Invalid callable RPC result");
@@ -247,12 +249,13 @@
       const check = () => {
         if (released) throw new ErrorClass("RPC stub disposed");
       };
-      const callable = async (...args) => {
+      const invoke = async (args, untracked, signal) => {
         check();
-        if (!soft && inputs) return inputs.call({ handle: id }, args, context);
+        if (!untracked && inputs)
+          return inputs.call({ handle: id }, args, context);
         const input = { id, args: context._serialize(args) };
-        const frame = soft
-          ? await context._rpcSoftCall("workers.rpc.invoke", input, callSignal)
+        const frame = untracked
+          ? await context._rpcSoftCall("workers.rpc.invoke", input, signal)
           : await context._call("workers.rpc.invoke", input);
         const value = reply(frame, context);
         if (frame.error) {
@@ -272,6 +275,8 @@
         }
         return value;
       };
+      const callable = (...args) => invoke(args, soft, callSignal);
+      const watch = (signal) => invoke(["signal"], true, signal);
       const release = async () => {
         if (released) return;
         released = true;
@@ -288,21 +293,21 @@
           return stub(context._sync("workers.rpc.dup", { id }).id).callable;
         },
       });
-      return { callable, release };
+      return { callable, release, watch };
     }
     let copied;
     try {
       for (let index = 0; index < handles.length; index++) {
-        const { callable, release } = stub(
+        const { callable, release, watch } = stub(
           handles[index],
           index === 0 ? signal : undefined,
         );
         let replacement = callable;
         if (value[2][index] !== "function") {
-          const response = value[2][index] === "response";
-          const readable = response || value[2][index] === "readable";
+          const message = ["response", "request"].includes(value[2][index]);
+          const readable = message || value[2][index] === "readable";
           const transfer = readable ? readables : writables;
-          const receive = response
+          const receive = message
             ? (...args) => messages.receive(value[1][index], ...args)
             : transfer.receive;
           const received = receive(
@@ -327,6 +332,7 @@
               return context._deserialize(encoded)[1];
             },
             frame.max_body_bytes,
+            { watch, cleanup: (close) => context._rpcCleanup(close) },
           );
           const close = () => {
             received.dispose().catch(() => {});
@@ -358,6 +364,7 @@
     reply,
     readables,
     writables,
+    messages,
   });
   return { result, reply, ...inputs };
 }

@@ -103,7 +103,7 @@ fn stream_publications_require_one_known_kind_per_live_marker() {
 }
 
 #[test]
-fn input_sessions_require_argument_arrays_and_stream_only_markers() {
+fn input_sessions_require_argument_arrays_and_supported_transfer_markers() {
     let mut graph = value();
     assert!(inputs(&encode(&graph), 1, 4096).is_err());
     graph.objects[1] = Object::DenseArray {
@@ -133,12 +133,14 @@ fn response_publications_validate_metadata_with_the_native_lease() {
         encode(&StructuredValue::from_json(serde_json::json!([[], [head], ["response"]])).unwrap())
     };
     assert!(markers(&encoded(head.clone()), 1, 4096).is_ok());
-    assert!(inputs(&encoded(head.clone()), 1, 4096).is_err());
+    assert!(inputs(&encoded(head.clone()), 1, 4096).is_ok());
     for (key, invalid) in [
         ("status", serde_json::json!(101)),
         ("status", serde_json::json!(204)),
         ("status", serde_json::json!(200.5)),
         ("statusText", serde_json::json!("invalid\r\nstatus")),
+        ("statusText", serde_json::json!("invalid\u{0}status")),
+        ("statusText", serde_json::json!("invalid\u{7f}status")),
         ("body", serde_json::json!("yes")),
         ("type", serde_json::json!("opaque")),
         ("headers", serde_json::json!([["invalid header", "value"]])),
@@ -159,4 +161,45 @@ fn response_publications_validate_metadata_with_the_native_lease() {
     }
     let error = serde_json::json!({"status":0,"statusText":"","headers":[],"body":false,"url":"","redirected":false,"type":"error"});
     assert!(markers(&encoded(error), 1, 4096).is_ok());
+}
+
+#[test]
+fn http_request_metadata_is_admitted_before_routing_and_callbacks_still_refuse() {
+    let head = serde_json::json!({"method":"POST","url":"https://example.test/upload","headers":[["x-input","bytes"]],"body":true,"redirect":"manual","cache":"no-store","credentials":"omit","integrity":"","keepalive":false,"mode":"cors","referrer":"about:client","referrerPolicy":"","destination":""});
+    let encoded = |head: serde_json::Value| {
+        encode(&StructuredValue::from_json(serde_json::json!([[], [head], ["request"]])).unwrap())
+    };
+    assert!(markers(&encoded(head.clone()), 1, 4096).is_ok());
+    assert!(inputs(&encoded(head.clone()), 1, 4096).is_ok());
+    for (field, invalid) in [
+        ("method", serde_json::json!("GET")),
+        ("method", serde_json::json!("CONNECT")),
+        ("method", serde_json::json!("bad method")),
+        ("url", serde_json::json!("https://user:pass@example.test/")),
+        ("url", serde_json::json!("data:text/plain,no")),
+        ("url", serde_json::json!("relative")),
+        ("mode", serde_json::json!("navigate")),
+        ("redirect", serde_json::json!("invalid")),
+        ("cache", serde_json::json!("only-if-cached")),
+        ("credentials", serde_json::json!("invalid")),
+        ("referrer", serde_json::json!("not a URL")),
+        ("referrerPolicy", serde_json::json!("invalid")),
+        ("keepalive", serde_json::json!(true)),
+        ("headers", serde_json::json!([["bad header", "value"]])),
+        ("headers", serde_json::json!([["x-value", "bad\r\nvalue"]])),
+        ("integrity", serde_json::json!("x".repeat(8193))),
+        ("body", serde_json::json!("yes")),
+        ("cf", serde_json::json!({})),
+    ] {
+        let mut value = head.clone();
+        value[field] = invalid;
+        assert!(
+            inputs(&encoded(value), 1, 65536).is_err(),
+            "invalid field {field}"
+        );
+    }
+    assert!(
+        inputs(&encode(&value()), 1, 4096).is_err(),
+        "function arguments remain unsupported"
+    );
 }

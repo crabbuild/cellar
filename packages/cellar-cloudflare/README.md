@@ -97,11 +97,11 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, container-port WebSocket upgrades/local pairs, Set-Cookie fields, manual redirects and aborts | Worker/DO WebSocket upgrade forwarding, RPC Request transfers/HTTP-message arguments and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, container-port WebSocket upgrades/local pairs, Set-Cookie fields, manual redirects and aborts | Worker/DO WebSocket upgrade forwarding and embedded web bootstrap |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
-| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable/writable byte streams, including stream arguments, preserve graph identity through native leases | Callback arguments, Request transfers/HTTP-message arguments and returned `RpcTarget` |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions, byte streams and HTTP messages in results/arguments preserve graph identity through native leases | Callback arguments and returned `RpcTarget` |
 | Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
 | Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
 | Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()`, readable/writable byte streams and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
@@ -214,12 +214,50 @@ return new Response(file.content, {
 | Body ownership | Sender remains locked; aliases share one imported response; unconsumed bodies can be cancelled or disposed |
 | Bodyless/error responses | Preserve null body, status and type; release the native lease immediately |
 | Refusal | Used/locked bodies, opaque responses and WebSocket upgrades |
-| Still pending | `Request` transfers, HTTP-message arguments, Workers-specific HTTP extensions and full profile conformance |
+| Still pending | Workers-specific HTTP extensions and full profile conformance |
 
 The real pinned image round-trips 2 MiB + 17 binary bytes through unchanged
 `writeFile` and `readFile` SDK methods. A separate native fixture tests response
 metadata, delivery before source release, failure after a prefix, client
 disconnect and unconsumed-body disposal.
+
+### RPC Requests and HTTP-message arguments
+
+DO methods and returned RPC functions accept `Request` and `Response` arguments;
+methods can also return a `Request`. Each imported message has its standard web
+API and `Symbol.dispose`. Forwarding an imported Request into another RPC keeps
+the original body producer's authority.
+
+```js
+// Durable Object method
+async upload(request, reply) {
+  await this.ctx.storage.put("content", await request.arrayBuffer());
+  return new Response(await reply.text(), { status: reply.status });
+}
+
+// Worker
+const request = new Request("https://upload.internal/data", {
+  method: "POST",
+  body: Uint8Array.of(0, 255, 42),
+});
+return env.UPLOADS.getByName("alice").upload(request, new Response("stored"));
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Request metadata | Method, HTTP(S) URL, headers, redirect/cache/credentials, integrity, keepalive, mode, referrer/policy and destination |
+| Bounds | 128 header pairs / 32 KiB; URL, referrer and integrity each 8 KiB; native clone/bridge limits also apply |
+| Body | Pull on demand; total length may exceed one bridge frame. A default-reader chunk must fit the producer's body limit; use bounded chunks for large streams |
+| Abort | Propagates the bounded cloneable reason, including default DOMException. EOF leaves the signal live until disposal or event cleanup |
+| Proof and scope | A later-event abort waits for that event's storage proof. Body reads and cancellation still execute in the original producer event |
+| Cleanup | Idle signal watchers do not retain an event. Disposal cancels the body, closes the watcher and joins/relinquishes native leases |
+| Refusal before dispatch | Used/locked bodies, already aborted Requests, non-HTTP(S) URLs, streamed keepalive and `Request.cf`; unsupported metadata and HTTP callback arguments fail explicitly |
+
+The Node native fixture transfers a gated binary body, waits for an abort after
+EOF, checks aliases and Response arguments, forwards a returned Request into another
+RPC, and disposes an unused returned Request. Pure protocol checks separately hold the later caller's storage proof
+and verify original-scope cancellation. Embedded V8 still needs its own web
+bootstrap; these HTTP-message APIs require the Node profile.
 
 ### Returned RPC writable streams
 
@@ -263,7 +301,7 @@ unconsumed-handle cleanup and later-event refusal. Idle remote-loss notification
 and the complete cross-event/disconnect profile remain under fault qualification.
 
 Returned writable controls and the input sessions below run in the optional
-Node profile. HTTP-message arguments and Request transfer remain incomplete. The pinned
+Node profile. The pinned
 SDK's HTTP client refuses `writeFileStream`; SDK uploads use its actual Cap'n Web
 RPC transport, qualified separately below.
 
@@ -318,7 +356,7 @@ sequenceDiagram
 | Errors | Preserve bounded source/sink errors and accepted prefixes; native validation strips producer error stacks. Oversized/uncloneable completions or lost acknowledgements fail with an unknown outcome; never replay mutations. Cleanup refusals cannot replace an already observed source error |
 
 Only byte-readable sources and Uint8Array writes qualify. Callback arguments,
-HTTP-message arguments, Request transfer, arbitrary RpcTarget objects, complete abrupt-disconnect
+arbitrary RpcTarget objects, complete abrupt-disconnect
 and cross-event fault semantics remain incomplete. This common runtime path does
 not by itself qualify the published Sandbox SDK's separate Cap'n Web upload
 transport; its actual image acceptance is described below.
@@ -374,7 +412,7 @@ byte count and every final byte. The pinned server uses an atomic temporary-file
 rename; this test preserves that behavior. SDK destroy and native shutdown must
 join all work and release bridge reservations.
 
-Worker/DO upgrade forwarding, Request transfer/HTTP-message arguments, hibernation,
+Worker/DO upgrade forwarding, hibernation,
 complete idle/reconnect and disconnect/fault semantics remain incomplete. This
 facade does not implement the global network WebSocket constructor.
 
@@ -417,9 +455,8 @@ sequenceDiagram
 
 Uploads remain buffered and bounded before submission. Cancelling a response
 cannot prove that a submitted sandbox command stopped or rolled back. RPC
-byte-stream arguments use the caller-owned sessions above. Returning HTTP
-messages as RPC values and forwarding Worker/DO WebSocket upgrades remain
-incomplete profiles.
+byte-stream and HTTP-message arguments use the caller-owned sessions above.
+Forwarding Worker/DO WebSocket upgrades remains an incomplete profile.
 
 ### Container API
 

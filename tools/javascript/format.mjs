@@ -34,6 +34,7 @@ const factories = new Set(
     "crates/cellar-javascript/runtime/rpc_writable.js",
     "crates/cellar-javascript/runtime/rpc_inputs.js",
     "crates/cellar-javascript/runtime/rpc_messages.js",
+    "crates/cellar-javascript/runtime/rpc_requests.js",
     "crates/cellar-javascript/runtime/encoding.js",
     "crates/cellar-javascript/runtime/node/budget.js",
   ].map((path) => resolve(root, path)),
