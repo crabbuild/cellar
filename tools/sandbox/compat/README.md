@@ -218,6 +218,6 @@ The image keeps its pinned digest; the host declares additional port 8080 with
 `exposed_ports`. No external domain or hosted account is contacted.
 
 See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
-wiring and the [open callback/alarm qualification gap](../../../plans/sandbox-provider-progress.md#open-callbackalarm-qualification-failure)
-for the extra overlapping-barrier probe. HTTP preview acceptance does not qualify
-that gap, Worker/DO upgraded routing or complete SDK conformance.
+wiring and the [resolved callback/alarm failure](../../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+for the restored overlapping-barrier regression. HTTP preview acceptance does
+not qualify Worker/DO upgraded routing or complete SDK conformance.

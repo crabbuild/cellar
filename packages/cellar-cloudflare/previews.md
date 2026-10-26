@@ -93,8 +93,9 @@ The published Containers idle alarm also uses the native lifecycle: `sleepAfter`
 expires, `onActivityExpired` signals the process, its monitor records exit and
 `onStop` completes before a later wake. Start/stop hooks may persist DO state.
 Queued container controls inside transaction/block callbacks remain unsupported.
-Overlapping callback gates and local alarm continuations have a recorded
-[qualification failure](../../plans/sandbox-provider-progress.md#open-callbackalarm-qualification-failure); the complete callback profile remains open.
+Asynchronous alarm controls yield while native callback admission is held. The
+[overlapping callback/alarm regression](../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+passes with the original stop barrier; the complete callback profile remains open.
 
 HTTP previews are a selected local profile. Worker/DO WebSocket upgrade
 forwarding, tunnels, bucket mounts, complete abrupt-disconnect/ownership fault

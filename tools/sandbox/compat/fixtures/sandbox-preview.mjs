@@ -7,9 +7,14 @@ class PreviewProbe extends Sandbox {
   // Stop the runtime without revoking durable preview authorization. Published
   // monitor/state/onStop code must invalidate its current-runtime activation.
   async stopForPreview() {
-    // Exercise the real runtime stop. The SDK's own monitor and subsequent
-    // alarm/start path synchronize hooks; no extra harness input gate is added.
+    const monitor = this.monitor;
     await this.ctx.container.destroy();
+    await monitor;
+    // Regression: the SDK's prior alarm can resume while this extra gate is
+    // active. Its asynchronous alarm update must yield instead of blocking the
+    // language thread that needs to finish the native callback.
+    await this.ctx.blockConcurrencyWhile(async () => {});
+    await this.syncPendingStoppedEvents();
   }
 }
 

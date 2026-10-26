@@ -542,13 +542,16 @@ quotas and unknown-outcome reporting still apply.
 | Native container WebSocket fixture | Actual native socket I/O through an engine peer, handshake headers, ordered cross-event text/binary sends, foreign-activation refusal, close and unused-upgrade cleanup |
 | SDK RPC image files | Published SDK/Cap'n Web over the native port and local pair proxy, gated 2 MiB binary upload, atomic publication, exact binary download through `readFile`, SDK destroy and drained bridge resources |
 | Native returned-response fixture | HTTP metadata/aliases, incremental default-source byte bodies, prefix before error, client disconnect and unused-body disposal |
+| Native HTTP-message RPC fixture | Request results and Request/Response arguments, alias preservation, incremental binary bodies and live abort after EOF |
+| Published idle lifecycle fixture | Sleep/wake across runtime/host recreation, persisted hook counts, graceful SIGTERM exit and joined cleanup |
+| SDK HTTP preview image fixture | Binary forwarding, token and routing-header checks, stopped/replaced-runtime refusal, re-exposure, revocation and overlapping callback/alarm regression |
 | Native returned-stream fixtures | Bounded BYOB pulls and writable frames, mixed transform pairs, delayed sink/close acknowledgements, failures preserving accepted prefixes, held background jobs, abandoned imports and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, RPC Request transfers/HTTP-message arguments,
-Worker/DO upgrade forwarding, Sandbox previews and the remaining SDK/image fault
-qualification remain required, along with hosted providers.
+Complete hooks/timeouts and callback-owned controls, Worker/DO upgrade forwarding,
+upgraded previews and the remaining SDK/image fault qualification remain required,
+along with hosted providers.
 
 ```sh
 node tools/sandbox/compat/build.mjs

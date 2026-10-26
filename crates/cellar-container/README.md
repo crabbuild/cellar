@@ -63,7 +63,10 @@ binary upload now passes through Cap'n Web and native container WebSockets,
 including a prefix observed before EOF and exact final bytes. The unchanged
 SDK `readFile({ encoding: "none" })` returns those bytes through native RPC;
 returned HTTP responses also preserve metadata and streamed body ownership.
-HTTP-message arguments, previews and full fault qualification remain open.
+Node Request/Response RPC arguments and Request results also pass their native
+slice. The published HTTP preview helper now passes binary forwarding, token
+checks, stale-runtime refusal and explicit re-exposure against the pinned image.
+Full lifetime/fault and upgraded-preview qualification remain open.
 See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start

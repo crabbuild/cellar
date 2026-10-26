@@ -192,12 +192,13 @@ implemented slices from full-profile acceptance. Streaming SDK upload/download
 and returned RPC responses now have pinned-image/native evidence. The follow-up
 fixes requested V8 shutdown classification, and the selected native/image campaign
 passes without changing existing budgets. Request results and HTTP-message
-arguments now pass their Node/native slice; broader fault qualification remains
-open.
+arguments now pass their Node/native slice. Async alarm controls also resolve the
+reproduced overlapping callback deadlock at the original deadlines; broader fault
+qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 | Overlapping callback/alarm resumes, remaining Containers hooks and upgraded Worker/DO routing | Idle lifecycle and local HTTP previews now have selected-path evidence; finish continuation/fault qualification |
+| 1 | First-call latency, callback-owned queued controls, remaining Containers hooks and upgraded Worker/DO routing | Idle lifecycle, local HTTP previews and the overlapping alarm regression have selected-path evidence; the 250 ms first module request remains intermittent, and full continuation/fault qualification is pending |
 | 2 | Named provider bindings, reconnect/expiry and orphan reconciliation | Make the common framework useful across events and ownership changes |
 | 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
 
