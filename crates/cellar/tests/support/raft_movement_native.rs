@@ -384,3 +384,5 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
 
 #[path = "raft_movement_completion.rs"]
 mod completion_tests;
+#[path = "raft_movement_execution.rs"]
+mod execution_tests;

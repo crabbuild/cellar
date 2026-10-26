@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -649,6 +649,50 @@ unreachable or changed owners, isolation and uncertain physical work retain
 their debt through this path. Aborted/rebooted cleanup, complete assignment
 planning and automatic reconciliation remain subsequent implementation work.
 Neither settlement grants deletion or a capacity lease.
+
+### Resumable execution of admitted moves
+
+`pending_movements` reconstructs the bounded active membership work from the
+resource book and canonical admission journals. At most two rows are returned;
+resource-only reservations have no executable membership intent and are omitted.
+The descriptors grant no authority and do not replace complete fleet inventory.
+
+`reconcile_movement` executes an exact admitted reservation through a managed
+origin, including an origin with no business groups. Each invocation obtains
+fresh safe-ReadIndex progress from a current leader and performs at most one
+learner activation and one configuration action, or one terminal settlement CAS.
+Leader discovery has at most four pinned candidates and a 500-ms budget per
+probe under the original operation deadline. Missing or changed boots never
+supply a replacement identity. A minority remains unconfirmed.
+
+The receiving process independently resolves the current active reservation,
+resource digest, live history and exact rooted membership permit. It validates
+both origin and target boots and invokes the existing guarded begin, seed or
+joint-consensus API. New learner metadata is registered lazily under the
+receiver's declared class. TLS-exporter and purpose-bound authentication bind
+the route, nonce, command body and reply; the receiver deadline includes time
+spent connected before decoding the body. Dropping a transport/SDK waiter can
+cancel its observation, but cannot roll back committed membership or release
+physical initialization ownership.
+
+The resource journal identifies the move, committed Raft membership supplies its
+phase, and the verified terminal receipt supplies settlement. These are the
+durable cursor; the executor has no independent local phase to trust after a
+restart. The returned phase is the fresh observation *before* this turn's action,
+not a prediction from the acknowledgement. Only `settled` denotes the terminal
+receipt boundary. Lost replies require a new snapshot and reconciliation. A
+recreated adapter discovers pending work or finds the permanent settlement by
+reservation, even after later operations or destination shutdown.
+
+The caller supplies retained deployment occupancy evidence for terminal
+settlement; physical probes add independent lower bounds. The executor performs
+one settlement attempt per turn, and callers must pace retries instead of
+spinning. An ambiguous attempt cannot erase a different reservation: every CAS
+removes only the exact original book reference and retains the physical floor.
+Seeding/joint work resumes; an Aborted result remains unsettled until its separate
+physical cleanup boundary is delivered. This explicit API does not yet provide
+an automatic polling service, admission/assignment generation, workload policy
+or operator maintenance orchestration. Automatic management remains default-off.
 
 ### Isolated obsolete owners
 

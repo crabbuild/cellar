@@ -46,10 +46,11 @@ pub use crate::raft::fleet_catalog::{
     FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
     FleetFencedMovementCompletion, FleetGroupAuthorization, FleetHostAuthorization,
     FleetIsolationAttestation, FleetMovementAdmission, FleetMovementCompletion,
-    FleetMovementCompletionRequest, FleetMovementRequest, FleetNodeEligibility, FleetNodeIsolation,
-    FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState, FleetPermitAuthorization,
-    FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation,
-    FleetResourceBounds, FleetResourceRequest,
+    FleetMovementCompletionRequest, FleetMovementExecutionRequest, FleetMovementPhase,
+    FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility, FleetNodeIsolation,
+    FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState, FleetPendingMovement,
+    FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission,
+    FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,

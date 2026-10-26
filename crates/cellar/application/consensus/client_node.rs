@@ -3,6 +3,8 @@
 use super::*;
 
 pub(crate) enum NodeKind {
+    PeerMovement(Box<super::PeerMovementCall>),
+    LocalMovement(Box<super::LocalMovementCall>),
     Drain,
     Observe,
     ObservePhysical,

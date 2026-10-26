@@ -45,6 +45,10 @@ pub use resources::{
     FleetMovementCompletionRequest, FleetMovementRequest, FleetResourceAdmission,
     FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
+pub use resources::{
+    FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
+};
+pub(crate) use resources::{MovementAction, MovementCommand};
 
 use records::{CommitRecord, Head, Pin};
 pub use records::{FleetChange, FleetMutation, FleetTable};

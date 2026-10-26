@@ -13,7 +13,7 @@ use records::{Completion, Floor};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Settlement {
+pub(super) enum Settlement {
     Complete,
     Fenced,
 }

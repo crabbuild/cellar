@@ -170,6 +170,14 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         row: &Record,
     ) -> Result<bool> {
+        Ok(self.resource_settlement(snapshot, row).await?.is_some())
+    }
+
+    pub(in super::super) async fn resource_settlement(
+        &self,
+        snapshot: &FleetSnapshot,
+        row: &Record,
+    ) -> Result<Option<(Settlement, u64)>> {
         let Some(bytes) = self
             .inner
             .lookup(
@@ -178,7 +186,7 @@ impl FleetCatalog {
             )
             .await?
         else {
-            return Ok(false);
+            return Ok(None);
         };
         let completion = Completion::decode(&bytes)?;
         completion.matches(row)?;
@@ -186,12 +194,11 @@ impl FleetCatalog {
             .completion_request(&completion.request, completion.settlement)
             .await?
             .ok_or(FleetCatalogError::Unconfirmed)?;
-        if original.encode()? != bytes
-            || self.resource_applied(snapshot, &mutation).await?.is_none()
-        {
+        let applied = self.resource_applied(snapshot, &mutation).await?;
+        if original.encode()? != bytes || applied.is_none() {
             return Err(FleetCatalogError::Corrupt("unadmitted completion"));
         }
-        Ok(true)
+        Ok(applied.map(|revision| (completion.settlement, revision)))
     }
 
     pub(super) async fn completion_request(

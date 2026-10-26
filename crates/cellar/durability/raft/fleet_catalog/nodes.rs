@@ -555,7 +555,7 @@ impl FleetHostAuthorization {
         Ok(())
     }
 
-    fn require_running_successor(&self, current: &Self) -> Result<()> {
+    pub(super) fn require_running_successor(&self, current: &Self) -> Result<()> {
         self.require_successor(current)?;
         if current.record.isolation.is_some() {
             return Err(FleetCatalogError::Conflict);
