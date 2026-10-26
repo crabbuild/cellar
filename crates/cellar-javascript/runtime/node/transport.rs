@@ -15,6 +15,10 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 const HEADER_BYTES: usize = 8;
 
+// A turn always returns to authority retirement and native replies after this
+// much socket work per direction. Capacity and maximum frame sizes are separate.
+const TURN_IO_BYTES: usize = 1 << 20;
+
 pub(super) fn frame_limit(value: usize) -> Result<usize> {
     // JSON string escaping can expand one native payload byte to six bytes.
     value
@@ -94,6 +98,10 @@ pub(super) struct Transport {
     // invocation/operation/reply admission's aggregate byte semaphore.
     maximum: usize,
     budget: Arc<Semaphore>,
+    read_remaining: usize,
+    write_remaining: usize,
+    decode_remaining: usize,
+    receive_yielded: bool,
 }
 
 impl Transport {
@@ -109,7 +117,27 @@ impl Transport {
             queued: 0,
             maximum,
             budget,
+            read_remaining: TURN_IO_BYTES,
+            write_remaining: TURN_IO_BYTES,
+            decode_remaining: TURN_IO_BYTES,
+            receive_yielded: false,
         })
+    }
+
+    /// Rearm work quotas without releasing any retained frame reservations.
+    /// Reads and writes have independent quotas so neither direction can starve
+    /// the other. A logical receive pass may span several of these turns.
+    pub fn begin_turn(&mut self) {
+        self.read_remaining = TURN_IO_BYTES;
+        self.write_remaining = TURN_IO_BYTES;
+        self.decode_remaining = TURN_IO_BYTES;
+        self.receive_yielded = false;
+    }
+
+    /// Distinguish a work-quota yield from an observed empty socket. A yield
+    /// alone supplies no evidence about the worker's heartbeat/liveness.
+    pub fn receive_yielded(&self) -> bool {
+        self.receive_yielded
     }
 
     pub fn send(&mut self, value: Value) -> Result<()> {
@@ -173,10 +201,15 @@ impl Transport {
 
     pub fn flush(&mut self) -> Result<()> {
         while let Some(frame) = self.output.front() {
-            match self.socket.write(&frame.bytes[self.offset..]) {
+            if self.write_remaining == 0 {
+                break;
+            }
+            let end = self.offset + self.write_remaining.min(frame.bytes.len() - self.offset);
+            match self.socket.write(&frame.bytes[self.offset..end]) {
                 Ok(0) => anyhow::bail!("Node transport closed"),
                 Ok(n) => {
                     self.offset += n;
+                    self.write_remaining -= n;
                 }
                 Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(error.into()),
@@ -203,8 +236,13 @@ impl Transport {
     }
 
     pub fn receive(&mut self) -> Result<Option<Frame>> {
+        self.receive_yielded = false;
         // At most one bounded frame is buffered; never accumulate a peer's flood.
         loop {
+            if self.decode_remaining == 0 {
+                self.receive_yielded = true;
+                return Ok(None);
+            }
             let target = if self.input.len() < HEADER_BYTES {
                 HEADER_BYTES
             } else {
@@ -222,6 +260,14 @@ impl Transport {
                     .ok_or_else(|| anyhow::anyhow!("Node frame size overflow"))?
             };
             if target > HEADER_BYTES && self.input.len() == target {
+                // Decode at most one frame larger than the turn quota, and do
+                // it in a fresh turn. Preflight/decoding remain bounded by the
+                // validated maximum frame; a large frame must still progress.
+                if target > self.decode_remaining && self.decode_remaining != TURN_IO_BYTES {
+                    self.receive_yielded = true;
+                    return Ok(None);
+                }
+                self.decode_remaining = self.decode_remaining.saturating_sub(target);
                 let metadata = u32::from_be_bytes(self.input[..4].try_into()?) as usize;
                 let end = HEADER_BYTES + metadata;
                 // Flat shape, decoded UTF-8 sizes and parser scratch are checked
@@ -261,11 +307,19 @@ impl Transport {
                 self.input = input;
                 self.input_bytes = Some(bytes);
             }
+            if self.read_remaining == 0 {
+                self.receive_yielded = true;
+                return Ok(None);
+            }
             let mut chunk = [0; 8192];
-            let capacity = chunk.len().min(target - self.input.len());
+            let capacity = chunk
+                .len()
+                .min(target - self.input.len())
+                .min(self.read_remaining);
             match self.socket.read(&mut chunk[..capacity]) {
                 Ok(0) => anyhow::bail!("Node transport disconnected"),
                 Ok(n) => {
+                    self.read_remaining -= n;
                     if self.input_bytes.is_none() {
                         self.input_bytes = Some(self.reserve(HEADER_BYTES)?);
                         self.input = Vec::with_capacity(HEADER_BYTES);
