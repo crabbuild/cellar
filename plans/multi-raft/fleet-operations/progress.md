@@ -1,11 +1,68 @@
 # Fleet operations implementation progress
 
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
-complete at their documented local adapter boundaries.** FO-04 and FO-07 are in
-progress; FO-05, FO-06 and FO-08 through FO-10 remain pending. Automatic
+complete at their documented local adapter boundaries.** FO-04, FO-06 and FO-07 are in
+progress; FO-05 and FO-08 through FO-10 remain pending. Automatic
 redistribution, operator commands, managed maintenance and resize are not
 delivered. The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Explicit resumable movement execution delivery
+
+`pending_movements` reconstructs the bounded active membership work from the
+canonical resource book and journals. `reconcile_movement` uses fresh quorum
+progress to drive guarded begin, actual learner activation, joint completion and
+verified terminal settlement. An enrolled origin with zero business groups can
+coordinate all remote effects. The receiving process independently resolves the
+exact active reservation, resource digest, history, rooted permit and both boots.
+Purpose/channel/nonce/body-bound controls never accept caller-supplied Raft
+configuration. Local fallback supports the destination as the controller origin.
+
+Each invocation tries at most four pinned leader candidates with a 500-ms probe
+budget each, then performs at most one seed and one configuration action or one
+terminal settlement CAS. The reservation, committed Raft phase and permanent
+receipt are the durable cursor. Returned phase is observed before the action;
+`settled` requires the terminal proof. Recreated adapters recover pending work or
+find its admitted receipt before live prerequisites, including after a later
+reservation and destination shutdown. Aborted progress remains unsettled.
+
+Rust source `c115b4a1591dd63a91fdd14943005b19ee89827d` passes **454 selected native cases**:
+enrollment 135, Raft units 179, catalog 12, permits 25, directory 16, host 32,
+execution 21, reads 22, six targeted archive/seed cases and six rooted-execution
+cases. All 141 required FO-03 cases and six new FO-06 cases are covered. The new
+composed cases verify remote S3 restoration, adapter recreation each turn,
+duplicate controllers consuming one permit, uncertainty after terminal CAS,
+later capacity admission, retained later work, and a coordination-read outage.
+The restored target serves an S3-acknowledged value 12 through an AtLeast token;
+a fresh majority write reaches 21 after that target stops. Wire tests cover
+purpose/channel/body/reply binding, exact boot scope and original deadlines.
+All-target host Clippy with warnings denied, format, layout, dependency and docs
+checks pass. Two pre-existing ignored execution cases are outside the count.
+
+SDK successor `ceb3e5c15e040d88ec54379b33bd16e3ec3a8484` preserves every frozen Rust/configuration input.
+It fixes inherited non-DOM cancellation declarations and supplies the real
+runtime stream/delegate factories to outdated test fixtures. All 3 streaming,
+74 JavaScript-tooling and 65 RPC-fixture cases pass, as do SDK/RPC type checks and
+closed guest builds. Primary immutable binaries, frozen inputs and logs remain
+outside runtime data in `qualification/fleet-operations/movement-execution-v6/`
+and `execution-sdk-integration-v5/`.
+
+Initial failed attempts are retained. A composed test exhausted the standard
+stack during fixture startup before execution; diagnostic future sizes were
+113,616 bytes for the composed case and 26,808 for reconciliation. Heap-owning
+the composed fixture fixes startup without changing production. The caller now
+re-reads after typed uncertain storage responses. A separate next-admission
+StalePeer correctly required actual discovery acknowledgement of the settlement
+cut. All safety/value assertions and operation/cohort deadlines remain. Temporary
+diagnostic probes were removed. Old-head CI failures are preserved separately;
+local successes do not claim completion of the new GitHub CI run.
+
+FO-06 is now in progress for this explicit execution boundary. An owned paced
+polling service, required/optional scheduling, new assignment/admission generation
+and terminal cleanup for aborted/changed boots remain. Automatic fleet
+management stays default-off. No deployed RustFS/Colima or performance/fault/soak
+qualification is claimed. The protocol hard cut ends in `/fleet-execution-1`;
+use matching binaries and fresh coordination/data roots and engine directories.
 
 ## Fenced unused-movement settlement delivery
 
@@ -389,27 +446,25 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Deliver an owned resumable move executor around resource-backed admission,
-   learner seeding, joint completion and terminal settlement. Persist effect
-   identity/cursor, reconcile ambiguous replies and revalidate each next permit.
-   Start with explicit verified layouts; optional workload balancing need not
-   delay this execution path. Use the delivered fenced-unused settlement path;
-   add distinct cleanup for aborted work and reconciliation of changed boots
-   without freeing uncertain resources.
-2. Collect complete authenticated fleet inputs and generate final assignments
-   from topology intent and measured role costs. Preserve retained bindings,
-   physical headroom, keep-sets, failure domains and bounded recovery witnesses.
-   Add load-aware leader balancing and cooldown as an optional policy layer.
-3. Deliver rolling maintenance/restart/resize and expose add/drain/remove plus
-   capacity scaling through the operator API/CLI. Reconcile cancellation with
-   committed moves and physical worker ownership before reporting completion.
-4. Qualify RustFS/Colima at enforced resources with foreground TPS/p99, repeated
-   node failures and soak. Automatic redistribution remains default-off.
+1. Own a paced, cancellable controller service around the delivered reconciliation
+   turn. Recover pending work before admitting more, prioritize joint completion
+   and redundancy repair, and join all work at shutdown. Use fresh observations
+   after uncertain action/storage responses; optional load policy remains separate.
+2. Complete terminal cleanup for aborted work and changed or unavailable boots
+   without freeing uncertain physical resources. Use the delivered fenced-unused
+   settlement path where its exact prerequisites hold.
+3. Collect complete authenticated fleet inputs and generate feasible assignments
+   and staged moves under retained occupancy, failure domains and recovery headroom.
+4. Deliver operator add/drain/remove, rolling maintenance/restart/resize and
+   capacity scaling, including cancellation/status reconciliation with committed
+   moves and actual worker ownership.
+5. Qualify deployed RustFS/Colima with enforced resources, foreground TPS/p99,
+   repeated failures and soak. Automatic fleet management remains default-off.
 
-FO-04 and FO-07 remain in progress. FO-05, FO-06 and FO-08 through FO-10 retain
-their load policy, controller, operator, capacity-scaling and deployed qualification
-scope. Repeated isolated-owner repair settlement and terminal node removal now
-have explicit adapter paths; automatic fleet orchestration remains unfinished.
+FO-04, FO-06 and FO-07 remain in progress. FO-05 and FO-08 through FO-10 retain
+their load-policy, operator, capacity-scaling and deployment qualification scope.
+Explicit admitted moves now have a resumable execution path; autonomous fleet
+orchestration remains unfinished.
 
 ## Historical implementation checkpoints
 

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f4ef708d5f808650374d2bfb88949d4652a3b62f",
+  "baseline_revision": "ceb3e5c15e040d88ec54379b33bd16e3ec3a8484",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2167,7 +2167,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/execution-regression.json"
       ]
     },
     {
@@ -2881,7 +2882,7 @@
     {
       "id": "FO-06",
       "title": "Reconcile repair and balancing with bounded owned work",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-04"
       ],
@@ -2890,17 +2891,39 @@
         "crates/cellar/durability/raft/controller_probe.rs",
         "crates/cellar/durability/raft/controller_action.rs",
         "crates/cellar/durability/raft/placement.rs",
-        "crates/cellar/durability/raft/fleet_catalog/mod.rs"
+        "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/client_node.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/durability/raft/fleet_catalog/README.md",
+        "crates/cellar/durability/raft/fleet_catalog/nodes.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/completion/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/completion/records.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_node.rs",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/tests/support/raft_movement_native.rs"
       ],
       "creates": [
-        "crates/cellar/tests/native_raft_fleet_reconciliation.rs"
+        "crates/cellar/tests/native_raft_fleet_reconciliation.rs",
+        "crates/cellar/application/consensus/client_movement.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/work.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/receive.rs",
+        "crates/cellar/durability/raft/fleet_move_transport.rs",
+        "crates/cellar/durability/raft/fleet_move_transport_tests.rs",
+        "crates/cellar/durability/raft/host_fleet_execution.rs",
+        "crates/cellar/tests/support/raft_movement_execution.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
         "Reconcile existing permits before admitting new ones; keep health failure classification conservative.",
         "Prioritize joint completion and redundancy repair, then evacuation and optional balance.",
         "Enforce physical seed throttles, per-node slots, retry deadlines and telemetry-based pause of optional work.",
-        "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority."
+        "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority.",
+        "Expose bounded exact pending-movement discovery and one-turn reconciliation. Authenticate purpose/channel/nonce/body/boot-bound remote controls, independently resolve the active canonical resource row and rooted permit at the receiver, and use ordinary guarded begin, learner activation and joint completion. Derive progress from fresh quorum state; resolve permanent settlement by reservation before live probes after caller recreation. Keep autonomous scheduling, new placement generation and aborted/changed-boot cleanup as remaining work."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -2971,6 +2994,81 @@
             "F03",
             "F06"
           ]
+        },
+        {
+          "name": "fleet_executor_remote_s3_move_recovers_lost_settlement",
+          "oracle": "From a zero-group observer, reconstruct the exact pending reservation and drive lazy remote registration, actual S3 learner activation, promotion and joint completion without application requests driving progress. Recreate the catalog adapter before every turn, lose terminal CAS confirmation and resolve its permanent receipt. Admit later capacity, stop the destination and reconcile the old outcome without advancing or erasing later work, then continue majority writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_executor_duplicate_turns_consume_one_permit",
+          "oracle": "Two independent catalog adapters reconcile the same admitted move concurrently. Only one permit sequence is consumed; the exact resource row remains active until verified settlement. Resume using the destination as origin, finish the replacement and continue durable writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_executor_catalog_outage_retains_intent",
+          "oracle": "Hold conditional coordination-root reads during reconciliation. The bounded invocation refuses without changing the root, consuming a permit or creating a destination engine. After release, pending work and original RF3 writes remain intact. This does not claim a deployed full-object-store outage.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_move_wire_binds_channel_purpose_body_and_response",
+          "oracle": "Movement RPC authentication binds its TLS exporter, purpose, route, nonce, canonical body digest and response request tag. Cross-purpose, cross-channel, body mutation and mismatched replies refuse.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_move_wire_refuses_wrong_boot_scope_and_invalid_action",
+          "oracle": "Refuse target catalog/fleet/node/disk/process/engine substitutions, origin process substitution and an invalid zero configuration revision before executing a movement action.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_move_deadline_includes_connection_and_body_time",
+          "oracle": "The receiver deadline starts at connection acceptance, refuses work at expiry, zero/oversized timeouts, reversed clock samples and addition overflow; decoding never grants a fresh full timeout.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F08"
+          ]
         }
       ],
       "verification": [
@@ -2995,9 +3093,34 @@
           "--locked",
           "--",
           "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_executor_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "--",
+          "fleet_moves::tests::",
+          "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo06/explicit-execution.json"
+      ]
     },
     {
       "id": "FO-07",
