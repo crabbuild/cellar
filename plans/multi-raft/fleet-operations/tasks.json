@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88",
+  "baseline_revision": "f4ef708d5f808650374d2bfb88949d4652a3b62f",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2166,7 +2166,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json"
       ]
     },
     {
@@ -2233,7 +2234,8 @@
         "crates/cellar-logic/raft_fleet/topology/recovery.rs",
         "crates/cellar-logic/tests/raft_fleet_topology.rs",
         "crates/cellar/durability/raft/fleet_catalog/isolation.rs",
-        "crates/cellar/tests/support/raft_movement_isolation.rs"
+        "crates/cellar/tests/support/raft_movement_isolation.rs",
+        "crates/cellar/tests/support/raft_movement_fenced.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2246,9 +2248,10 @@
         "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution.",
         "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation.",
         "Atomically link exact membership intent to its target debit and active book, using owned fresh source ReadIndex and target physical inventory. Reconcile the canonical combined intent before live prerequisites; protect linked permits against generic replacement. Actual group consumption and target initialization remain mandatory.",
-        "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Unstarted, aborted, unreachable and rebooted owners remain charged until their distinct terminal boundary is implemented.",
+        "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Aborted, unreachable and rebooted owners remain charged. Unused reservations require the distinct quorum-fenced settlement boundary; admission or timeout never releases them.",
         "Verify explicit complete RF3 topology proposals in the pure core. Search legal direct serial move orders under seed peaks and retained source occupancy, then complete direct restoration witnesses for each kept-node loss. Share one bounded search budget; distinguish search exhaustion, direct-path refusal and unproven restoration. Stable groups and unsettled-free fresh complete inputs are prerequisites. Automatic final assignment and owned adapter collection/execution remain separate work.",
-        "Accept distinct trusted deployment isolation for an exact boot after rooted exclusion; permanently deny restart/transport and preserve retained storage. Successful movement completion may substitute this admitted proof only for the obsolete original voter absent from fresh stable RF3. Keep full durable membership for placement/quorum while omitting quarantined endpoints from routes; retain provenance across lost replies. External platform integration and terminal isolated-node removal remain separate work."
+        "Accept distinct trusted deployment isolation for an exact boot after rooted exclusion; permanently deny restart/transport and preserve retained storage. Successful movement completion may substitute this admitted proof only for the obsolete original voter absent from fresh stable RF3. Keep full durable membership for placement/quorum while omitting quarantined endpoints from routes; retain provenance across lost replies. External platform integration remains separate work; terminal isolated-node removal is delivered under FO-07.",
+        "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2578,6 +2581,45 @@
             "F06",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_fenced_movement_settles_and_reconciles_lost_reply",
+          "oracle": "Refuse an unused but unfenced move, commit its cancellation fence and reject delayed begin/activation, then settle with an empty physical target. Lose CAS confirmation, recreate the adapter and reconcile the original typed receipt. Refuse success-method or payload rebinding, admit another history, preserve its reservation on historical retry after target shutdown, retain resource/floor records and continue business writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_fenced_movement_refuses_seeding_and_aborted_work",
+          "oracle": "A consumed Seeding move and its later committed Aborted result cannot use the unused-fence path. Keep the original root and last target debit, refuse another reservation and continue durable RF3 business writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_fenced_movement_unreachable_owner_retains_debt",
+          "oracle": "After the exact unused permit is fenced, physically stop one original nonleader. A surviving majority cannot replace that physical owner proof: no settlement root advance occurs, the last target slot remains charged and majority business writes continue.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -2695,6 +2737,18 @@
           "--",
           "fleet_movement_",
           "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_fenced_movement_",
+          "--",
+          "--test-threads=1"
         ]
       ],
       "evidence": [
@@ -2702,7 +2756,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion-merged.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-preview.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-eligibility.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo04/node-isolation.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/node-isolation.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/fenced-movement.json"
       ]
     },
     {
@@ -2828,7 +2883,7 @@
       "title": "Reconcile repair and balancing with bounded owned work",
       "status": "TODO",
       "depends_on": [
-        "FO-05"
+        "FO-04"
       ],
       "modifies": [
         "crates/cellar/durability/raft/host_controller.rs",
@@ -2841,6 +2896,7 @@
         "crates/cellar/tests/native_raft_fleet_reconciliation.rs"
       ],
       "steps": [
+        "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
         "Reconcile existing permits before admitting new ones; keep health failure classification conservative.",
         "Prioritize joint completion and redundancy repair, then evacuation and optional balance.",
         "Enforce physical seed throttles, per-node slots, retry deadlines and telemetry-based pause of optional work.",
@@ -3181,7 +3237,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo07/isolated-removal.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo07/isolated-removal.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo07/fenced-movement-regression.json"
       ]
     },
     {

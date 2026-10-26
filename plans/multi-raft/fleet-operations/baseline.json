@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88",
+  "revision": "f4ef708d5f808650374d2bfb88949d4652a3b62f",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -52,15 +52,15 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "1bae55a20bcadcc627c1f8ad031a16c864cff904e792db6ee9493c713ae59608"
+      "sha256": "93bae7192d5b53aaa0f1ebcc211a28ae051027e71d8a1f8a46c32f635dd859b8"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "819a2f514c88d6a14313bb003935b3f2726fc2a01e5944a9834864e8f93694b0"
+      "sha256": "548d05b1c585632e4693712d63919018ae8e7e6f7197b700e17a2edafccb2156"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "9e8df2b10dcb349420373656af1195448fbba7e3b20fb3b5b92366bb651af3cf"
+      "sha256": "22256793e716a13ea2ac7812da60594de18c822cc3a56e3449b8263bc9c323d8"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "188e3086c8bb6dd5308cd10cfc8298e569cd3a32456bf9eedc1830bc9b65a835"
+      "sha256": "4445c5137b60fd97e5179bddf8391e1b76239f8b2d546d75b9da3efb993af8a2"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -80,7 +80,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
-      "sha256": "4b360990f540e8414304fc567bf04d80dcba212d0b70407d5714e2081dcb2c3a"
+      "sha256": "b3fa5e637019c3df7153238fb543e7a5c06ff548a673ef247208748ba4080e8c"
     },
     {
       "path": "crates/cellar/durability/raft/archive/replay.rs",
@@ -88,7 +88,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/cache.rs",
-      "sha256": "d09752948847506e1beebccf55de5b22c9f11a1e2263776b29b4b1235b272b48"
+      "sha256": "c10a9c6eb84c3b7ba3866de68ca331456a926ad219bc276b6d767a4d7b27f770"
     },
     {
       "path": "crates/cellar/durability/raft/catalog.rs",
@@ -112,7 +112,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "8a77ede8fb86e7316e42ec6c57dc8211a5fdaa6842cf26ef50a071b22dcb6c7d"
+      "sha256": "30403c03c3106fd3fec0e43c4e2ee4c835b141d20d05e40635b60d8a87a948f4"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -180,7 +180,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/mod.rs",
-      "sha256": "a48c73fa1196904ae95c206fd7c657088008a5ea30103a940995247ba66bf75d"
+      "sha256": "2e041ddc1d577323e963768ce770a3b43d92f78d38611370b5f6ce2f16f3d538"
     },
     {
       "path": "crates/cellar/durability/raft/node_directory.rs",
@@ -216,7 +216,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/snapshot.rs",
-      "sha256": "317bba760b7a750bb6ba55446a32329148faeb5cd7f76a2da773d95a6091f58a"
+      "sha256": "eee72a0435d13c83303531eae4fd98d2fd526e0ef8c7978717b8d225c25e9871"
     },
     {
       "path": "crates/cellar/durability/raft/snapshot_seed.rs",
@@ -288,7 +288,7 @@
     },
     {
       "path": "crates/cellar/tests/native_raft_archive.rs",
-      "sha256": "06b982b12879a6d8205b8691ddcea22af475af523832556b11cbfdeb21769090"
+      "sha256": "69d96eb09d6f9020f69a29c3f5617c0076963de8786843b092551186759eb329"
     },
     {
       "path": "crates/cellar/tests/native_raft_directory.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Reviewed main 80026d16 and typed terminal isolated-node removal. Behavioral merge 7ca741d46894a8744a54efe3410eb0b44a5898f0 completes 429 core/host cases across retained initial/resumed runs on unchanged binaries. Test-only successors d5705f39249fbf7bc312460daa2b33dc67df56b7 and c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88 preserve production/configuration hashes and pass six required archive cases, four SQLite binding tests, three native typed-RPC cases, all-target Clippy and repository checks. Combined 435 fleet/core cases cover all 141 FO-03 requirements. Initial permit failures remain unestablished after 20 differential repetitions and a passing full-suite rerun; no assertion, deadline or stack was relaxed. Broad regression was not repeated for unrelated fixture corrections. Primary artifacts remain outside runtime data. FO-01 through FO-03 are complete at local adapter boundaries; FO-04 and FO-07 remain in progress. Resumable execution, assignment generation, rolling maintenance, operator/capacity workflows and deployed RustFS/Colima performance, faults and soak remain unfinished. Automatic fleet management stays default-off."
+  "review_note": "Reviewed main 9f1e7df19d77bb7cc77a44fbb02c9f7bcbc0b491 and fenced unused-movement settlement through source f4ef708d5f808650374d2bfb88949d4652a3b62f. Current integrated source passes 442 fleet/core cases covering all 141 FO-03 requirements, plus 6 native rooted-execution cases. All-target host Clippy with warnings denied and repository format/layout/dependency/docs checks pass. Includes all three new fenced-settlement and all three isolated-removal cases plus explicit extent-root/full-image refusal. Initial merge-format/compiler and fixture snapshot-owner failures remain retained; no production check, assertion, deadline or stack was relaxed. FO-01 through FO-03 are complete at local adapter boundaries; FO-04 and FO-07 remain in progress. FO-06 depends directly on FO-04; explicit execution need not wait for optional workload policy. Owned execution, aborted/changed-boot cleanup, assignment generation, operator/capacity workflows and deployed RustFS/Colima performance, faults and soak remain unfinished. Automatic fleet management stays default-off."
 }

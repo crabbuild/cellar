@@ -4,7 +4,54 @@ The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
 complete at their documented local adapter boundaries.** FO-04 and FO-07 are in
 progress; FO-05, FO-06 and FO-08 through FO-10 remain pending. Automatic
 redistribution, operator commands, managed maintenance and resize are not
-delivered. The task manifest is the package-status source of truth. Historical sections below record earlier states.
+delivered. The task manifest is the package-status source of truth. Historical
+sections below record earlier states.
+
+## Fenced unused-movement settlement delivery
+
+`settle_fenced_movement` adds terminal cleanup for an admitted move that never
+started. Each original voter must independently apply the exact committed
+cancellation fence before physical samples are collected. Every admitted boot
+must still match, seed workers and initializers must have exited, and complete
+destination inventory must prove no physical history binding. The common
+settlement CAS retains the permit/resource journals and monotonic physical floor,
+records a distinct fenced outcome and removes only the exact active book row.
+A successful-replacement call cannot reinterpret a fenced receipt.
+
+Three new native cases pass at source
+`f4ef708d5f808650374d2bfb88949d4652a3b62f`: lost CAS confirmation, adapter recreation,
+rejection of delayed begin/activation and proof/payload rebinding, later capacity
+admission, historical retry after destination shutdown, retained floor/resource
+records and continued business writes; separate cases refuse seeding/aborted work
+and an unavailable original owner. The integrated source passes **442 fleet/core
+cases**, including all 141 required FO-03 cases, plus **6 native rooted-execution cases**.
+The cohort comprises enrollment 132, Raft units 176, catalog 12, permits 25,
+directory 16, host 32, execution 21, reads 22 and six targeted archive cases.
+All-target host Clippy with warnings denied, formatting, layout, dependency and
+documentation checks pass. Frozen inputs, immutable binaries, logs and the
+source-specific audit remain outside runtime data in the checkout-private
+`qualification/fleet-operations/fenced-movement-v2/` and the unchanged-source
+`fenced-movement-snapshot-v3/`. The two seed cases run in the snapshot harness;
+the earlier zero-match archive filter is retained and excluded from the count.
+The first focused attempt is retained: its lost-reply fixture passed a snapshot from the
+old adapter to its replacement and correctly received a snapshot-owner refusal.
+The test now obtains its replacement adapter's own snapshot. No production
+check, deadline or assertion was relaxed.
+
+This source integrates main `9f1e7df19d77bb7cc77a44fbb02c9f7bcbc0b491`, including
+extent-backed execution. Dynamic managed registration explicitly retains the
+public materialized-image selector. Fleet publication proof refuses an extent
+root where replay requires a full-file SHA-256; a focused regression covers that
+hash-domain boundary. The protocol hard cut now ends in
+`/isolated-removal-1/images-1/fenced-movement-1`; use fresh matching roots/engines.
+The merge-format failure and the subsequent compiler failures from old image
+fields/storage initialization remain retained separately. The new hash-domain
+regression passes in the 176-case Raft unit cohort.
+
+FO-06 now depends directly on FO-04. Explicit resumable execution precedes the
+optional FO-05 workload policy. Successful moves and fenced unused reservations
+have terminal adapter paths; aborted/changed-boot cleanup, owned execution,
+assignment generation, operator workflows and deployed qualification remain.
 
 ## Terminal isolated-node removal delivery
 
@@ -346,8 +393,9 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
    learner seeding, joint completion and terminal settlement. Persist effect
    identity/cursor, reconcile ambiguous replies and revalidate each next permit.
    Start with explicit verified layouts; optional workload balancing need not
-   delay this execution path. Include distinct cleanup for unstarted/aborted
-   work and reconciliation of changed boots without freeing uncertain resources.
+   delay this execution path. Use the delivered fenced-unused settlement path;
+   add distinct cleanup for aborted work and reconciliation of changed boots
+   without freeing uncertain resources.
 2. Collect complete authenticated fleet inputs and generate final assignments
    from topology intent and measured role costs. Preserve retained bindings,
    physical headroom, keep-sets, failure domains and bounded recovery witnesses.
