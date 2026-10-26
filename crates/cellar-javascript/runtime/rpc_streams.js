@@ -177,10 +177,12 @@
     });
     return {
       stream,
-      async dispose() {
+      async dispose(reason) {
         if (ended) return;
-        controller.error(new Error("RPC stream disposed"));
-        await close();
+        controller.error(
+          reason === undefined ? new Error("RPC stream disposed") : reason,
+        );
+        await close(reason);
       },
     };
   }

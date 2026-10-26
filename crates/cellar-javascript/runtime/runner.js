@@ -16,13 +16,14 @@
   makeRpcWritables,
   makeRpcInputs,
   makeRpcMessages,
+  makeRpcRequests,
 ) => {
   "use strict";
   const delegates = makeDelegates(
     makeRpcStreams(),
     makeRpcWritables(),
     makeRpcInputs,
-    makeRpcMessages,
+    (readables) => makeRpcMessages(readables, makeRpcRequests),
   );
 
   // Capture these builtins before importing/evaluating application code.

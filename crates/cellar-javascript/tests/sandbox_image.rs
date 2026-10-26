@@ -198,11 +198,54 @@ fn published_sandbox_rpc_files_use_the_pinned_image() -> Result<()> {
     )
 }
 
+#[test]
+#[ignore = "requires isolated CELLAR_SANDBOX_ENGINE_SOCKET and preloaded CELLAR_SANDBOX_FENCE_IMAGE"]
+fn published_sandbox_preview_authorization_tracks_the_active_runtime() -> Result<()> {
+    let images = Images::configured()?;
+    let directory = tempfile::tempdir()?;
+    let entry = fixture()?.with_file_name("sandbox-preview.mjs");
+    let source = Source::module()
+        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .workers_lifetimes()
+        .events([EventKind::Fetch])
+        .cell_events(
+            "Sandbox",
+            [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
+        );
+    NodeRuntime::run(
+        Options::default(),
+        NodeOptions::new(entry),
+        source,
+        |application| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(async {
+                    let result = run(
+                        directory.path(),
+                        application.clone(),
+                        &images,
+                        Scenario::Preview,
+                    )
+                    .await;
+                    let usage = application.bridge_usage();
+                    result.with_context(|| format!("preview bridge={usage:?}"))?;
+                    ensure!(
+                        usage.active_invocations == 0 && usage.retained_bytes == 0,
+                        "preview resources leaked: {usage:?}"
+                    );
+                    Ok(())
+                })
+        },
+    )
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Scenario {
     Published,
     Portable,
     Rpc,
+    Preview,
 }
 
 async fn run(
@@ -238,6 +281,11 @@ async fn run(
             instance_type: Some("basic".into()),
             max_instances: Some(1),
             runtime: None,
+            exposed_ports: if scenario == Scenario::Preview {
+                vec![8080]
+            } else {
+                Vec::new()
+            },
         }];
         graph.primary.fence_image = Some(images.fence.clone());
         if scenario == Scenario::Rpc {
@@ -251,6 +299,8 @@ async fn run(
     .await?;
     let result = if scenario == Scenario::Rpc {
         exercise_rpc(&address, &docker, &host).await
+    } else if scenario == Scenario::Preview {
+        exercise_preview(&address, &docker, &host).await
     } else if scenario == Scenario::Portable {
         async {
             let client = reqwest::Client::builder()
@@ -767,5 +817,145 @@ async fn remove_owned_networks(docker: &cellar::docker::Docker, host: &str) -> R
             removed.message()
         );
     }
+    Ok(())
+}
+
+async fn exercise_preview(
+    address: &str,
+    docker: &cellar::docker::Docker,
+    host: &str,
+) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(125))
+        .build()?;
+    let result = async {
+        let response = client.get(format!("{address}/setup")).send().await?;
+        let status = response.status();
+        let body = response.text().await?;
+        ensure!(status.is_success(), "preview setup {status}: {body}");
+        let exposed: Value = serde_json::from_str(&body)?;
+        ensure!(exposed["port"] == 8080, "SDK exposed a different service");
+        let original_url = exposed["url"].as_str().context("preview URL missing")?;
+        let mut preview = url::Url::parse(original_url)?;
+        let hostname = preview
+            .host_str()
+            .context("preview host missing")?
+            .to_string();
+        let local: std::net::SocketAddr = address.trim_start_matches("http://").parse()?;
+        // Route the generated hostname through the isolated local ingress. No
+        // DNS publication, external gateway or hosted account is involved.
+        preview
+            .set_scheme("http")
+            .map_err(|_| anyhow::anyhow!("preview scheme"))?;
+        preview
+            .set_port(Some(local.port()))
+            .map_err(|_| anyhow::anyhow!("preview port"))?;
+        preview.set_path("/echo");
+        preview.set_query(Some("binary=yes"));
+        let mut wrong = preview.clone();
+        let wrong_host = "8080-preview-invalidtoken0000.preview.test";
+        ensure!(
+            hostname != wrong_host,
+            "test invalid token matched authorization"
+        );
+        wrong.set_host(Some(wrong_host))?;
+        let routed = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve(&hostname, local)
+            .resolve(wrong_host, local)
+            .timeout(Duration::from_secs(125))
+            .build()?;
+        let response = routed
+            .post(preview.clone())
+            .header("x-sandbox-preview-proxy", "1")
+            .header("x-sandbox-preview-port", "3000")
+            .header("x-sandbox-preview-token", "forged")
+            .header("x-sandbox-preview-sandbox-id", "other")
+            .body(vec![0_u8, 255, 42])
+            .send()
+            .await?;
+        if response.status().as_u16() != 207 {
+            let status = response.status();
+            anyhow::bail!("preview forward {status}: {}", response.text().await?);
+        }
+        ensure!(
+            response.headers()["x-preview-method"] == "POST"
+                && response.headers()["x-preview-path"] == "/echo?binary=yes",
+            "preview changed method or path"
+        );
+        ensure!(
+            response.headers()["x-preview-host"] == hostname
+                && response.headers()["x-preview-internal"] == "clean",
+            "preview forwarded forged routing headers"
+        );
+        ensure!(
+            response.bytes().await?.as_ref() == [0_u8, 255, 42],
+            "preview changed binary bytes"
+        );
+        ensure!(
+            routed.get(wrong).send().await?.status().as_u16() == 404,
+            "invalid preview token reached the service"
+        );
+        client
+            .get(format!("{address}/stop"))
+            .send()
+            .await?
+            .error_for_status()?;
+        ensure!(
+            routed.get(preview.clone()).send().await?.status().as_u16() == 410,
+            "stopped runtime accepted an old preview"
+        );
+        assert_no_owned_containers(docker, host).await?;
+        let ports: Value = client
+            .get(format!("{address}/ports"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            ports == json!([]),
+            "stopped runtime advertised active previews"
+        );
+        client
+            .get(format!("{address}/wake"))
+            .send()
+            .await?
+            .error_for_status()?;
+        ensure!(
+            routed.get(preview.clone()).send().await?.status().as_u16() == 410,
+            "runtime replacement silently reactivated preview authorization"
+        );
+        let reactivated: Value = client
+            .get(format!("{address}/setup"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            reactivated["url"] == original_url,
+            "explicit re-exposure lost durable preview authorization"
+        );
+        ensure!(
+            routed.get(preview.clone()).send().await?.status().as_u16() == 207,
+            "explicit re-exposure did not activate the new runtime"
+        );
+        client
+            .get(format!("{address}/unexpose"))
+            .send()
+            .await?
+            .error_for_status()?;
+        ensure!(
+            routed.get(preview).send().await?.status().as_u16() == 404,
+            "revoked preview reached the service"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let destroyed = client.get(format!("{address}/destroy")).send().await;
+    result?;
+    destroyed?.error_for_status()?;
     Ok(())
 }

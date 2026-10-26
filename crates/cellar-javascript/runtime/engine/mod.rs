@@ -17,6 +17,7 @@ use std::{
 enum Interruption {
     RequestedShutdown,
     ExecutionBudget,
+    RuntimeFailure,
 }
 
 #[derive(Default)]
@@ -49,6 +50,9 @@ fn v8_failure(
             Some(Interruption::RequestedShutdown) => return RequestedShutdown.into(),
             Some(Interruption::ExecutionBudget) => {
                 return anyhow::anyhow!("JavaScript engine turn exceeded execution budget")
+            }
+            Some(Interruption::RuntimeFailure) => {
+                return anyhow::anyhow!("JavaScript interrupted by runtime failure")
             }
             None => {}
         }
@@ -587,11 +591,20 @@ pub(super) fn run(
             let cause = if Instant::now() >= end {
                 Interruption::ExecutionBudget
             } else if watchdog_runtime.closed.load(Ordering::Acquire) {
-                Interruption::RequestedShutdown
+                if watchdog_runtime.shutdown_requested() {
+                    Interruption::RequestedShutdown
+                } else {
+                    Interruption::RuntimeFailure
+                }
             } else {
                 continue;
             };
             state.interruption.get_or_insert(cause);
+            if cause == Interruption::ExecutionBudget {
+                // Record failure before V8 unwinds; a later host return cannot
+                // relabel an observed budget expiry as requested shutdown.
+                watchdog_runtime.record_stop(StopReason::Failure);
+            }
             handle.terminate_execution();
             watchdog_runtime.close();
         }
@@ -647,6 +660,7 @@ pub(super) fn run(
     let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
     let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
     let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
+    let rpc_requests = script(scope, include_str!("../rpc_requests.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -666,6 +680,7 @@ pub(super) fn run(
                 rpc_writables,
                 rpc_inputs,
                 rpc_messages,
+                rpc_requests,
             ],
         )
         .context("JavaScript facade initialization failed")?;

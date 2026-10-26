@@ -53,17 +53,19 @@ async fn run(
     })
     .await?;
     let result = exercise(&address).await;
-    let shutdown = node.shutdown(ShutdownMode::Preserve).await?;
+    let shutdown = node.shutdown(ShutdownMode::Preserve).await;
+    let usage = application.bridge_usage();
+    result.with_context(|| format!("workers_writable: bridge={usage:?}, shutdown={shutdown:?}"))?;
+    let shutdown = shutdown?;
     ensure!(
         matches!(shutdown, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
         "writer work did not drain"
     );
-    let usage = application.bridge_usage();
     ensure!(
         usage.active_invocations == 0 && usage.retained_bytes == 0,
         "writer resources leaked: {usage:?}"
     );
-    result
+    Ok(())
 }
 
 async fn state(client: &reqwest::Client, address: &str, token: &str) -> Result<Value> {

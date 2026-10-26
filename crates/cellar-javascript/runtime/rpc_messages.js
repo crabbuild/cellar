@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-// Returned HTTP responses reuse the native stream lease. Metadata is validated
+// HTTP messages reuse the native stream lease. Metadata is validated
 // by Rust alongside that lease; persisted marker data never recreates a body.
-(readables) => {
+(readables, makeRequests) => {
   const ResponseClass = globalThis.Response;
   const HeadersClass = globalThis.Headers;
   const define = Object.defineProperties;
@@ -11,7 +11,26 @@
   const errorResponse = ResponseClass?.error;
   const encoder = globalThis.TextEncoder && new TextEncoder();
 
+  function headerEntries(message) {
+    const headers = [];
+    let bytes = 0;
+    const append = (key, value) => {
+      bytes += encoder.encode(key + value).byteLength;
+      if (headers.length >= 128 || bytes > 32768)
+        throw new RangeError("RPC HTTP headers exceed limit");
+      headers.push([key, value]);
+    };
+    for (const [key, value] of message.headers)
+      if (key !== "set-cookie" || !getSetCookie) append(key, value);
+    if (getSetCookie)
+      for (const value of apply(getSetCookie, message.headers, []))
+        append("set-cookie", value);
+    return headers;
+  }
+  const requests = makeRequests?.(readables, headerEntries);
+
   function send(response, context) {
+    if (requests?.isRequest(response)) return requests.send(response, context);
     if (response.webSocket || response.status === 101)
       throw new TypeError("RPC cannot transfer a WebSocket response");
     const body = response.body;
@@ -19,19 +38,7 @@
       throw new TypeError("RPC response body has already been used");
     if (!["default", "basic", "cors", "error"].includes(response.type))
       throw new TypeError("RPC cannot transfer an opaque response");
-    const headers = [];
-    let bytes = 0;
-    const append = (key, value) => {
-      bytes += encoder.encode(key + value).byteLength;
-      if (headers.length >= 128 || bytes > 32768)
-        throw new RangeError("RPC response headers exceed limit");
-      headers.push([key, value]);
-    };
-    for (const [key, value] of response.headers)
-      if (key !== "set-cookie" || !getSetCookie) append(key, value);
-    if (getSetCookie)
-      for (const value of apply(getSetCookie, response.headers, []))
-        append("set-cookie", value);
+    const headers = headerEntries(response);
     const metadata = {
       status: response.status,
       statusText: response.statusText,
@@ -46,6 +53,12 @@
       encoder.encode(metadata.url).byteLength > 8192
     )
       throw new RangeError("RPC response metadata exceeds limit");
+    if (metadata.type !== "error")
+      new ResponseClass(null, {
+        status: metadata.status,
+        statusText: metadata.statusText,
+        headers,
+      });
     const sender = body
       ? readables.sendReturned(body, context)
       : {
@@ -60,7 +73,16 @@
     return { ...sender, metadata };
   }
 
-  function receive(metadata, call, release, reason, maximum) {
+  function receive(metadata, call, release, reason, maximum, options) {
+    if (metadata.method !== undefined)
+      return requests.receive(
+        metadata,
+        call,
+        release,
+        reason,
+        maximum,
+        options,
+      );
     if (!ResponseClass)
       throw new TypeError("RPC responses require web globals");
     const received = metadata.body
@@ -88,6 +110,7 @@
     }
   }
   return {
+    isRequest: (value) => requests?.isRequest(value),
     isResponse: (value) => ResponseClass && value instanceof ResponseClass,
     send,
     receive,

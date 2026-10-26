@@ -13,6 +13,7 @@
     "./storage": { "types": "./storage.d.ts", "default": "./storage.js" }
   },
   "files": [
+    "previews.md",
     "index.js",
     "workers.js",
     "storage.js",

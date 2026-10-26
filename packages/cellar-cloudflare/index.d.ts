@@ -181,27 +181,29 @@ export type RpcFunction<A extends unknown[], R> = ((
   [Symbol.dispose](): void;
 };
 
-type RpcValue<T> = T extends Response
-  ? Response & { [Symbol.dispose](): void }
-  : T extends ReadableStream<infer B>
-    ? B extends Uint8Array
-      ? ReadableStream<B> & { [Symbol.dispose](): void }
-      : never
-    : T extends WritableStream<infer B>
+type RpcValue<T> = T extends Request
+  ? Request & { [Symbol.dispose](): void }
+  : T extends Response
+    ? Response & { [Symbol.dispose](): void }
+    : T extends ReadableStream<infer B>
       ? B extends Uint8Array
-        ? WritableStream<B> & { [Symbol.dispose](): void }
+        ? ReadableStream<B> & { [Symbol.dispose](): void }
         : never
-      : T extends (...args: infer A) => infer R
-        ? RpcFunction<A, R>
-        : T extends Date | RegExp | ArrayBuffer | ArrayBufferView | Error
-          ? T
-          : T extends Map<infer K, infer V>
-            ? Map<RpcValue<K>, RpcValue<V>>
-            : T extends Set<infer V>
-              ? Set<RpcValue<V>>
-              : T extends object
-                ? { [K in keyof T]: RpcValue<T[K]> }
-                : T;
+      : T extends WritableStream<infer B>
+        ? B extends Uint8Array
+          ? WritableStream<B> & { [Symbol.dispose](): void }
+          : never
+        : T extends (...args: infer A) => infer R
+          ? RpcFunction<A, R>
+          : T extends Date | RegExp | ArrayBuffer | ArrayBufferView | Error
+            ? T
+            : T extends Map<infer K, infer V>
+              ? Map<RpcValue<K>, RpcValue<V>>
+              : T extends Set<infer V>
+                ? Set<RpcValue<V>>
+                : T extends object
+                  ? { [K in keyof T]: RpcValue<T[K]> }
+                  : T;
 
 /** Returned functions and byte streams retain native event ownership.
  * Callback arguments and RpcTarget/property transport remain incomplete. */

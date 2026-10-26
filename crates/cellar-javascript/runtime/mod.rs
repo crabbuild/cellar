@@ -5,7 +5,7 @@
 use crate::{JavaScriptApplication, Source};
 use anyhow::{ensure, Result};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     mpsc, Arc,
 };
 use std::time::Duration;
@@ -135,11 +135,19 @@ pub(crate) struct Reply {
     pub _bytes: OwnedSemaphorePermit,
 }
 
+#[derive(Clone, Copy)]
+enum StopReason {
+    Shutdown = 1,
+    Failure = 2,
+}
+
 pub(crate) struct Runtime {
     pub options: Options,
     pub permits: Arc<Semaphore>,
     pub bytes: Arc<Semaphore>,
     pub closed: AtomicBool,
+    // The first stop wins. A later host return cannot relabel a fatal timeout.
+    stop_reason: AtomicU8,
     pub stopped: watch::Sender<bool>,
     // Observe the actual native attachment-copy boundary in saturation tests.
     #[cfg(all(test, feature = "embed"))]
@@ -239,9 +247,26 @@ impl Runtime {
             .map_err(|_| anyhow::anyhow!("JavaScript reply capacity exhausted"))
     }
 
-    fn close(&self) {
+    fn record_stop(&self, reason: StopReason) {
+        let _ =
+            self.stop_reason
+                .compare_exchange(0, reason as u8, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    fn stop(&self, reason: StopReason) {
+        self.record_stop(reason);
         self.closed.store(true, Ordering::Release);
         self.stopped.send_replace(true);
+    }
+
+    #[cfg(feature = "embed")]
+    fn close(&self) {
+        self.stop(StopReason::Failure);
+    }
+
+    #[cfg(feature = "embed")]
+    fn shutdown_requested(&self) -> bool {
+        self.stop_reason.load(Ordering::Acquire) == StopReason::Shutdown as u8
     }
 }
 
@@ -335,11 +360,11 @@ impl JavaScriptRuntime {
     }
 }
 
-struct Close(Arc<Runtime>);
+struct Close(Arc<Runtime>, StopReason);
 
 impl Drop for Close {
     fn drop(&mut self) {
-        self.0.close();
+        self.0.stop(self.1);
     }
 }
 
@@ -393,6 +418,7 @@ fn run_with<T>(
         bytes: Arc::new(Semaphore::new(options.max_bridge_bytes)),
         options,
         closed: AtomicBool::new(false),
+        stop_reason: AtomicU8::new(0),
         stopped: watch::channel(false).0,
         #[cfg(all(test, feature = "embed"))]
         attachment_copied: AtomicU64::new(0),
@@ -405,7 +431,7 @@ fn run_with<T>(
     let worker_source = source.clone();
     std::thread::scope(|threads| {
         let worker = threads.spawn(move || {
-            let _close = Close(worker_runtime.clone());
+            let _close = Close(worker_runtime.clone(), StopReason::Failure);
             engine(
                 worker_runtime.clone(),
                 worker_source,
@@ -415,7 +441,7 @@ fn run_with<T>(
             )
         });
 
-        let close = Close(runtime.clone());
+        let close = Close(runtime.clone(), StopReason::Shutdown);
         let result = match startup.recv() {
             Ok(Ok(())) => host(Arc::new(JavaScriptApplication::new(runtime, source))),
             _ => Err(anyhow::anyhow!(

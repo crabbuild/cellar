@@ -21,11 +21,14 @@ pub struct ContainerProject {
     pub max_instances: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exposed_ports: Vec<u16>,
 }
 
 pub(super) fn validate_projects(config: &ApplicationConfig) -> Result<()> {
     let mut classes = std::collections::BTreeSet::new();
     for container in &config.containers {
+        crate::container::validate_exposed_ports(&container.exposed_ports)?;
         anyhow::ensure!(
             config.cells.contains(&container.class_name) && classes.insert(&container.class_name),
             "container class must name one declared cell class exactly once"
@@ -202,6 +205,7 @@ pub(super) fn stage(
             instance_type: container.instance_type.clone(),
             max_instances: container.max_instances,
             runtime: container.runtime.clone(),
+            exposed_ports: container.exposed_ports.clone(),
         });
     }
     let fence = crate::deploy::resolve_fence_image(platform.as_deref())?;
@@ -212,6 +216,15 @@ pub(super) fn stage(
         crate::protocol::FEATURE_CONTAINERS_V1.into(),
         crate::protocol::FEATURE_CONTAINER_IMAGES_V1.into(),
     ]);
+    if config
+        .containers
+        .iter()
+        .any(|container| !container.exposed_ports.is_empty())
+    {
+        manifest
+            .required_features
+            .push(crate::protocol::FEATURE_CONTAINER_PORTS_V1.into());
+    }
     manifest.required_features.sort();
     crate::protocol::validate_execution_manifest(manifest)?;
     Ok(())

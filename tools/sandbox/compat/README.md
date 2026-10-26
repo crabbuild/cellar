@@ -103,7 +103,7 @@ It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline. Generic stream inputs
 have a separate native fixture; SDK RPC uploads now have their own real-image
-scenario. SP-04 HTTP-message arguments, previews, restart/fencing and live-cloud
+scenario. SP-04 previews, restart/fencing and live-cloud
 requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
@@ -177,8 +177,8 @@ leave no native bridge reservations.
 This exercises the published Containers local WebSocketPair proxy and Cap'n Web
 session over Cellar's native port socket. It does not replace SDK transport code.
 New stream/WS tests retain explicit handshake budgets; existing image deadlines
-and assertions remain unchanged. Complete reconnect, abandoned-stream,
-Request transfer, HTTP-message arguments and fault qualification remain required.
+and assertions remain unchanged. Complete reconnect, abandoned-stream and
+fault qualification remain required.
 
 ## Returned RPC response fixture
 
@@ -186,5 +186,38 @@ Request transfer, HTTP-message arguments and fault qualification remain required
 responses returned from DO methods: metadata and aliases, a 3 KiB body through a
 2 KiB bridge budget, delivery before source release, errors after an accepted
 prefix, client cancellation and unconsumed-body disposal. Shutdown must drain
-application work and bridge reservations. Request/Response arguments and full
-HTTP-message compatibility remain pending.
+application work and bridge reservations. Full HTTP-message compatibility remains
+pending; the Request/argument slice below has separate evidence.
+
+## RPC Request and HTTP-message argument fixture
+
+`http-rpc.mjs` and `workers_messages` use real Node Request/Response classes over
+native CellRpc routing. The test sends 32 KiB + 17 binary bytes through an 8 KiB
+bridge limit, observes a prefix before releasing the source, then checks that EOF
+does not discard the live abort signal. It also checks HTTP argument aliases,
+Response metadata/body, pre-abort refusal before target mutation, a returned
+Request's later-event abort after storage proof, result-to-argument forwarding
+and unused-message cleanup.
+
+The owned protocol tests separately prove that a later abort waits for that
+caller's storage proof while source cancellation runs in its original scope.
+This is a bounded Node profile, not full Workers conformance or an embedded web
+bootstrap.
+
+
+## Published idle lifecycle and HTTP previews
+
+`container-lifecycle.mjs` observes the actual Containers idle alarm and hooks
+against the native engine peer. The peer models graceful SIGTERM exit; state
+and counters must survive sleep/wake, and explicit teardown must drain resources.
+
+`sandbox-preview.mjs` uses the unchanged Sandbox preview helper and matching
+image. It verifies binary HTTP forwarding, forged-header removal, invalid-token
+refusal, stale URLs after stop/replacement, explicit re-exposure and revocation.
+The image keeps its pinned digest; the host declares additional port 8080 with
+`exposed_ports`. No external domain or hosted account is contacted.
+
+See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
+wiring and the [resolved callback/alarm failure](../../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+for the restored overlapping-barrier regression. HTTP preview acceptance does
+not qualify Worker/DO upgraded routing or complete SDK conformance.

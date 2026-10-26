@@ -37,7 +37,9 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 mod files;
+mod ports;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
+pub use ports::validate_exposed_ports;
 
 /// One `containers[]` entry of a deployment, as the node sees it.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -58,6 +60,10 @@ pub struct ContainerSpec {
     /// Cloudflare config here, which has no per-class runtime.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<String>,
+    /// Additional TCP ports declared independently of image EXPOSE metadata.
+    /// Off Linux these publish on loopback with daemon-assigned host ports.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exposed_ports: Vec<u16>,
 }
 
 /// An immutable image archive carried by a native package. The image names
@@ -1200,6 +1206,7 @@ impl ContainerEngine {
             .find(|spec| spec.class_name == class)
             .cloned()
             .ok_or_else(|| anyhow!("class {class} has no container"))?;
+        validate_exposed_ports(&spec.exposed_ports)?;
         let previous = self.cell(scope);
         let _previous_control = match &previous {
             Some(cell) => Some(cell.sdk_control.lock().await),
@@ -1543,6 +1550,11 @@ impl ContainerEngine {
             "Labels": labels,
             "HostConfig": host_config,
         });
+        ports::configure(
+            &mut body,
+            &cell.spec.exposed_ports,
+            !cfg!(target_os = "linux"),
+        )?;
         if let Some(entrypoint) = params.entrypoint {
             body["Cmd"] = json!(entrypoint);
         }
@@ -2280,6 +2292,7 @@ mod exit_tests {
                 instance_type: None,
                 max_instances: None,
                 runtime: None,
+                exposed_ports: Vec::new(),
             }),
             state: Mutex::new(CellState::default()),
             processes: Mutex::new(Vec::new()),

@@ -57,12 +57,15 @@ async fn run(
         })
         .await?;
     let result = exercise(&address).await;
-    let shutdown = node.shutdown(ShutdownMode::Preserve).await?;
+    let shutdown = node.shutdown(ShutdownMode::Preserve).await;
+    let usage = application.bridge_usage();
+    result
+        .with_context(|| format!("workers_websocket: bridge={usage:?}, shutdown={shutdown:?}"))?;
+    let shutdown = shutdown?;
     ensure!(
         matches!(shutdown, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
         "input work did not drain"
     );
-    let usage = application.bridge_usage();
     ensure!(
         usage.active_invocations == 0 && usage.retained_bytes == 0,
         "input resources leaked: {usage:?}"
@@ -71,7 +74,7 @@ async fn run(
         peer.websockets.load(std::sync::atomic::Ordering::SeqCst) == 0,
         "socket transport leaked"
     );
-    result
+    Ok(())
 }
 
 async fn call(client: &reqwest::Client, address: &str, route: &str) -> Result<Value> {

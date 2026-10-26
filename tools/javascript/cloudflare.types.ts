@@ -149,3 +149,27 @@ async function socketTypes(portContainer: DurableObjectContainer) {
   return new Response(null, { status: 101, webSocket: pair[0] });
 }
 void socketTypes;
+
+interface HttpRpcMethods {
+  exchange(request: Request, response: Response): Promise<Request>;
+}
+async function httpMessageTypes(
+  httpRpc: import("../../packages/cellar-cloudflare/index.js").DurableObjectStub<HttpRpcMethods>,
+) {
+  const result = await httpRpc.exchange(
+    new Request("https://example.test/input"),
+    new Response("input"),
+  );
+  const method: string = result.method;
+  result.signal.throwIfAborted();
+  const body: ArrayBuffer = await result.arrayBuffer();
+  result[Symbol.dispose]();
+  return { method, body };
+}
+void httpMessageTypes;
+
+const equalPreviewTokens: boolean = crypto.subtle.timingSafeEqual(
+  new Uint8Array([1]),
+  new Uint8Array([1]),
+);
+void equalPreviewTokens;

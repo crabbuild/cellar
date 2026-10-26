@@ -232,7 +232,8 @@ network fence before starting managed containers. Container declarations can
 select an OCI `runtime` such as `runsc`; the daemon must have it configured.
 
 Linux hosts reach container ports through their bridge addresses. On macOS,
-Cellar uses published ports; the image must declare them with `EXPOSE`, and
+Cellar uses published ports; declare them with image `EXPOSE` metadata or the
+class's bounded `exposed_ports` deployment setting, and
 `enable_internet=false` cannot enforce the same internal-network behavior.
 Use Linux when testing that isolation guarantee. The engine/fence remains a
 host-level prerequisite regardless of the handler language.
