@@ -68,7 +68,8 @@ remain separate fleet implementation work.
 `raft_fleet::preview_topology` verifies an explicit complete RF3 assignment. It
 constructs a serial schedule with per-step domain/quorum and seed-peak checks,
 retains every source's physical footprint, and searches for a complete direct
-RF3 restoration witness after each kept-node loss. It pins exact capacity scopes
+RF3 restoration witness after each kept-node loss. The final keep-set is separate from current replica-receiving eligibility. It
+pins exact capacity scopes
 and input/policy revisions. One shared work limit covers all searches; exhaustion
 returns no partial preview. `RecoveryUnproven` means no direct restoration witness,
 not proof that every possible reshuffle is infeasible.

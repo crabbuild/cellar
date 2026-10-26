@@ -68,6 +68,7 @@ fn fixture(count: usize, triples: &[[usize; 3]]) -> (TopologyView, Vec<TopologyT
                 region: "region".into(),
                 zone: format!("zone-{n}"),
                 keep: true,
+                receives_replicas: true,
             }
         })
         .collect();
@@ -467,5 +468,20 @@ fn overflow_cannot_be_reported_as_spare_capacity() {
     assert_eq!(
         preview_topology(&view, policy(), &targets, 100),
         Err(TopologyError::Ledger(LedgerError::ArithmeticOverflow))
+    );
+}
+
+#[test]
+fn kept_nodes_need_separate_current_receiving_eligibility() {
+    let (mut view, mut targets) = fixture(4, &[[0, 1, 2]]);
+    view.nodes[3].receives_replicas = false;
+    assert_eq!(
+        preview_topology(&view, policy(), &targets, 100),
+        Err(TopologyError::RecoveryUnproven(node(0)))
+    );
+    targets[0].voters[2] = node(3);
+    assert_eq!(
+        preview_topology(&view, policy(), &targets, 100),
+        Err(TopologyError::ExcludedTarget)
     );
 }

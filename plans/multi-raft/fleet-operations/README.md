@@ -6,7 +6,10 @@ successor for source preflight. The [implementation progress](progress.md) recor
 the catalog, durable membership guard, trusted enrollment and terminal removal,
 with local verification. FO-01 through FO-03 are complete; FO-04 is in progress. Complete fleet
 management APIs and operator commands remain delivery targets. `tasks.json` retains
-exact package status.
+exact package status. Successful movement completion and a pure staged-topology
+verifier are delivered; automatic assignment and the resumable controller remain
+unfinished. The next healing prerequisite is isolation-backed completion for
+unreachable original voters, whose movement debt currently remains charged.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware
 leadership balancing, and operator-controlled node addition, maintenance and

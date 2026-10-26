@@ -20,6 +20,9 @@ pub struct TopologyNode {
     pub zone: String,
     /// The explicit final keep-set. Departing nodes cannot receive new copies.
     pub keep: bool,
+    /// Current authenticated placement eligibility, independent of final intent.
+    /// Kept but draining, incompatible or unqualified nodes cannot receive work.
+    pub receives_replicas: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -320,6 +323,9 @@ impl<'a> Model<'a> {
             }
             for n in desired {
                 if !view.nodes[n].keep {
+                    return Err(TopologyError::ExcludedTarget);
+                }
+                if !initial.contains(&n) && !view.nodes[n].receives_replicas {
                     return Err(TopologyError::ExcludedTarget);
                 }
                 if !initial.contains(&n) && occupied.contains(&n) {

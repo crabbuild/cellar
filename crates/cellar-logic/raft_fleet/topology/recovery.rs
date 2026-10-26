@@ -20,7 +20,11 @@ pub(super) fn find(
         let mut candidates = Vec::new();
         for (node, profile) in model.view.nodes.iter().enumerate() {
             work.step()?;
-            if node == failed || !profile.keep || occupied[group].contains(&node) {
+            if node == failed
+                || !profile.keep
+                || !profile.receives_replicas
+                || occupied[group].contains(&node)
+            {
                 continue;
             }
             let mut trial = *voters;

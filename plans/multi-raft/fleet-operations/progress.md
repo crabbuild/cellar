@@ -6,7 +6,7 @@ FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
 managed maintenance and resize are not delivered. The task manifest is the
 package-status source of truth. Historical sections below record earlier states.
 
-## Current merged-main qualification
+## Merged-main host qualification
 
 Source `7863043eb3f91c35e8e1e4b1d82099363af6d1bc` integrates main
 `d3206c924031a3f2ca3387b542c02877bb91423d`, including file-backed streamed
@@ -198,11 +198,21 @@ above; these cases do not complete planner qualification.
 
 ## FO-04 explicit topology verifier
 
+Source `82221ec049e0da835363e14ab143d2585cc0212c` passes all seven ordinary
+public core suites, **65 cases**, including 14 topology cases and the 400-pair
+matrix. All ten native movement cases, core and host all-target Clippy with
+warnings denied, formatting, layout, dependency and docs checks also pass.
+Generation `topology-v1/` retains frozen inputs, logs and immutable executables
+outside runtime data. This is additional targeted verification; the broader
+host cohort remains pinned to its merged-main source above.
+
 The pure `raft_fleet::preview_topology` API accepts a complete proposed RF3
 assignment and final keep-set, then searches for a legal serial sequence of
 direct replacements. It checks every intermediate stable triple and target seed
 peak. Completion adds retained target occupancy; no source slot, byte or memory
-is credited. Exact boot/process/profile scopes and the rooted input/policy
+is credited. The final keep-set and current replica-receiving eligibility are separate inputs;
+a kept maintenance node cannot receive new copies. Exact boot/process/profile
+scopes and the rooted input/policy
 revisions remain in the witness. Serial dependencies require actual terminal
 movement completion before the next real permit.
 
@@ -225,23 +235,31 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Generate complete final assignments from topology intent and measured role
-   costs, then consume the verifier through owned authenticated fleet inputs.
+1. Close unreachable-owner movement completion before enabling automatic
+   healing. Successful completion currently requires all three original voters'
+   physical observations and locally durable completed sequence. A permanently
+   lost voter therefore retains movement debt; the two-move fleet limit would
+   eventually block further repairs. Add a distinct authenticated isolation and
+   authority-fencing proof, retain uncertain source bytes/slots, and qualify
+   repeated repairs without restart or falsely inferred worker exit. Unstarted
+   and aborted moves need their own terminal cleanup rules.
+2. Generate complete final assignments from topology intent and measured role
+   costs, then consume this verifier through owned authenticated fleet inputs.
    Respect retired bindings, pressure deadband/cooldown and explicit keep-sets;
    do not interpret an unproven direct recovery as universal infeasibility.
-2. Build the resumable controller around resource-backed admission and terminal
+3. Build the resumable controller around resource-backed admission and terminal
    completion. Persist cursor/effect identity, reconcile ambiguous replies, and
    revalidate each group and capacity scope before admitting its next permit.
-3. Deliver operator add/drain/maintenance/remove workflows on that controller.
-   Add aborted/unstarted cleanup and unreachable/rebooted-owner isolation; those
-   cases currently retain debt and cannot be silently released.
-4. Qualify the integrated workflows on RustFS/Colima at enforced resources, then
-   measure foreground TPS/p99 and fault recovery. Automatic redistribution stays
-   default-off until its acceptance gates pass.
+4. Deliver operator add/drain/maintenance/remove workflows on that controller,
+   then qualify RustFS/Colima at enforced resources and measure foreground
+   TPS/p99 and fault recovery. Automatic redistribution stays default-off until
+   its acceptance gates pass.
 
 FO-04 remains in progress. FO-05 through FO-10 retain their load policy,
 controller, maintenance, operator, capacity-scaling and deployed qualification
-scope. Passing the pure verifier does not complete those features.
+scope. Passing the pure verifier proves capacity/staging witnesses under its
+model; it does not close the failed-owner runtime execution gap or complete
+those fleet features.
 
 ## Historical implementation checkpoints
 
