@@ -115,10 +115,13 @@ work. The architecture and product policy are in
   images above 256 MiB retain exact identity and integrity across cache policies
   and buffer profiles. Rust 1.98.1 library/test Clippy, no-default-feature LTX
   all-target checks, native-only/no-Python libraries, formatting/layout (1,059
-  files), native dependencies and documentation checks pass. The added actual
-  272 MiB RustFS recovery/write/restart preflight still requires explicit
-  execution, followed by a new source-bound full-size run. Ordinary tests and
-  smaller geometry do not qualify production 10 GB recovery or an RTO.
+  files), native dependencies and documentation checks pass. The source-bound
+  `d5f12630` release passes its 12 MiB preflight in 9.39 seconds (47,595,520-byte
+  maximum RSS) and the actual 272 MiB RustFS recovery/write/restart preflight
+  in 48.54 seconds (89,866,240-byte maximum RSS). Its independently authenticated
+  selected archive head reaches index/term 9/4. A fresh full-size rerun is live
+  under the frozen `d5f12630` binary. Ordinary tests and smaller geometry do not
+  qualify production 10 GB recovery or an RTO.
 - The frozen `bbdc6b2a` production RustFS drill at 9,999,998,976 SQLite bytes
   failed its unchanged deadline after 2,567.14 seconds (59,375,616-byte maximum
   RSS). Owner-state erasure, warm takeover/read/write, retained-receipt retry
@@ -589,6 +592,39 @@ committed reader and explicitly flushes dirty pages while keeping the write
 transaction uncommitted. Its original growth, refusal and rollback-digest
 assertions remain intact; the corrected case passes 20 additional fresh
 processes. This changes the fixture setup, not production WAL inspection.
+
+## Buffered archive preflight
+
+The actual 272 MiB SQLite image (285,212,672 bytes) exercises the native buffered
+profile, including archive confirmation/replay, owner-state loss, replacement
+promotion, a new command and receipt reconciliation after restarting the
+replacement. It creates an incompressible fixture on the supplied worker volume;
+`CELLAR_LARGE_IMAGE_FIXTURE` cannot substitute a different image in this case.
+The release run at `d5f12630` produced 142 objects / 505,543,090 stored bytes in
+its isolated RustFS prefix. An exact bounded GET independently verified the
+selected head envelope and its SHA-256 at position 9/4. This is a native/backend
+preflight, not evidence of full-size recovery or a recovery-time guarantee.
+
+Supply the ordinary AWS environment and a disposable S3-compatible endpoint,
+bucket and writable worker volume through `CELLAR_LARGE_IMAGE_ENDPOINT`,
+`CELLAR_LARGE_IMAGE_BUCKET` and `CELLAR_LARGE_IMAGE_WORKDIR`. Use the
+checkout-specific workspace target directory required by the contributor guide.
+The owning fixture can be invoked explicitly with:
+
+```sh
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_PANIC=unwind \
+  cargo test --locked -p cellar --release \
+  --test native_raft_large_images \
+  full_capacity::buffered_archive_rustfs_recovers_after_owner_and_local_state_loss \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+The subsequent 9,999,998,976-byte run uses the preflight's source-bound
+`d5f12630` release, retains the prior full-size input hash and uses a fresh RustFS
+prefix with unchanged requests, deadlines and proof checks. Read-only process disk-I/O
+counters supplement phase/RSS observations; they do not alter the target binary
+or establish transferred bytes or a controlled performance comparison. Its
+outcome remains pending.
 
 ## Remaining work
 
