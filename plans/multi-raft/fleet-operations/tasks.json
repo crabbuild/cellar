@@ -4150,7 +4150,7 @@
     {
       "id": "FO-10",
       "title": "Qualify five-node fleet operations under traffic and faults",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-09"
       ],
@@ -4165,6 +4165,7 @@
         "crates/cellar/tests/native_raft_fleet_qualification.rs"
       ],
       "steps": [
+        "Start large-inventory qualification with explicit native stress probes and retained failed outcomes. The first five-node/500-history debug fixture at 20 ms ticks failed during warm-up before collection; it does not establish default-profile capacity. Narrow the failing registration path and compare omitted initial SQL/archive work before changing production scheduling. Deployed traffic/fault/soak and the supported envelope remain unqualified.",
         "Extend existing native harness to five nodes/500 RF3 groups, sixth-node addition and four-node evacuation.",
         "Implement fault schedule and exact ledger/replica/archive/configuration verification with resource samples.",
         "Run paired performance tests, physical RustFS CAS probes and a 24-hour soak; publish the bounded supported envelope.",

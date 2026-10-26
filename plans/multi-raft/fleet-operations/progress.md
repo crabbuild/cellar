@@ -1,13 +1,46 @@
 # Fleet operations implementation progress
 
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
-complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07 and
-FO-08 are in progress; FO-05, FO-09 and FO-10 remain pending. Healthy desired
+complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07,
+FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
 placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. Complete node lifecycle commands, failure-driven recovery,
 managed maintenance and resize remain unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Large-inventory stress probe
+
+FO-10 qualification has started; none of its release gates is complete.
+The first manual five-node/500-history native attempt committed all 500 managed
+births but failed during materialization with `Unavailable`, after the progress
+marker for 350 completed histories. It exited after 827.85 seconds, before the
+collection measurement. The exact failing history and stage were not retained
+in that first error context. This is an unresolved stress failure, not a
+500-history collection or fleet-throughput result. The smaller regression with
+an added post-measurement archive catch-up check passed on the same binary.
+
+This debug native fixture uses 20 ms Raft ticks and two ticks per heartbeat,
+five times the production default heartbeat rate at 100 ms ticks. Its five nodes
+share one runtime process on the shared host; the explicit 64 MiB control pools
+and 1,024-group limits are fixture configuration, not enforced 1-vCPU/3-GiB
+capacity or independent physical failure domains. Failure at this setting does
+not determine the production-default capacity limit. No proof, command or turn
+deadline was increased, and no 500-history result is claimed.
+
+The follow-up prototype adds exact registration/activation/initial-write
+context and a smaller 400-history resident-group probe that omits initial SQL
+writes. That probe passed and joined shutdown in 762.80 seconds, with exactly
+240 serving copies per node. It is not a matched control for the 500-history
+failure: registered inventory size also differs, and shared-host timing is
+uncontrolled. It neither reproduces the error nor establishes a cause. Expensive
+empty-state startup remains an observation, not a diagnosed scheduler defect.
+The prototype, source hashes, immutable binary and outcomes are retained outside
+the repository; this inconclusive experiment adds no production change. The intended default configuration and complete convergence
+still require separate verification. Controller-driven repair of an already
+isolated failed node is the next feature slice; scale qualification stays open. Preserve the failing run and immutable
+binary in external `qualification/fleet-operations/scale-v1/`; the unsuccessful
+OS stack sampling probe yielded no output and establishes no bottleneck.
 
 ## Explicit active-collection pacing delivery
 
@@ -179,11 +212,24 @@ all target checks.
 
 ## Next feature delivery order
 
+The next feature commit targets controller-driven repair of an already isolated
+failed node, using the existing quarantine and settlement primitives. Complete
+scale qualification remains a release gate; the inconclusive stress probe does
+not justify changing production scheduling or holding all feature work.
+
 Keep-set operator access is delivered at the boundary above. Extend the same
 catalog-pinned audit and permission surface as lifecycle features become usable;
 add/activate/drain/stop/remove/resize and dry-run commands remain unfinished.
 
-1. **Scalable convergence (FO-04/FO-06), next implementation priority:** avoid a
+1. **Failure recovery (FO-06/FO-07):** automate failure classification, spare
+   selection and repair admission using the existing exact-boot isolation and
+   movement-settlement APIs. Trusted isolation already allows verified obsolete
+   seed-owner closure; the three-history native test exercises it beyond the
+   active movement-book limit. The remaining gap is the controller-driven
+   recovery workflow and its trusted deployment isolation provider. Exercise a
+   dead voter, changed process and lost reply under continued writes. A timeout
+   cannot substitute for isolation evidence; unavailable quorum remains blocked.
+2. **Scalable convergence (FO-04/FO-06):** avoid a
    complete fleet walk after every settled move. At the default 500 ms interval, a 500-history walk alone
    takes about 250 seconds before I/O; this is a pacing lower bound, not a
    deployed timing measurement. The explicit collection API above removes that
@@ -198,14 +244,6 @@ add/activate/drain/stop/remove/resize and dry-run commands remain unfinished.
    large-group host configuration must account for it. Measure retained/probe
    memory and resident-group limits, and provide an explicit fit/refusal before
    qualifying 1-vCPU/3-GiB use.
-2. **Failure recovery (FO-06/FO-07):** automate failure classification, spare
-   selection and repair admission using the existing exact-boot isolation and
-   movement-settlement APIs. Trusted isolation already allows verified obsolete
-   seed-owner closure; the three-history native test exercises it beyond the
-   active movement-book limit. The remaining gap is the controller-driven
-   recovery workflow and its trusted deployment isolation provider. Exercise a
-   dead voter, changed process and lost reply under continued writes. A timeout
-   cannot substitute for isolation evidence; unavailable quorum remains blocked.
 3. **Lifecycle operator workflows (FO-07/FO-08):** connect node registration,
    capacity activation and evacuation/removal to their real node-owned adapters.
    Finish readiness, guarded stop, verified rejoin and one-at-a-time rolling

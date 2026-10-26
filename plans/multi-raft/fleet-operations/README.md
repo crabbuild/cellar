@@ -4,8 +4,8 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07
-and FO-08 are in progress. Healthy assignment and the explicit resumable topology
+with local verification. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
+FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Complete node lifecycle
 commands remain delivery targets. `tasks.json` retains exact package status.
