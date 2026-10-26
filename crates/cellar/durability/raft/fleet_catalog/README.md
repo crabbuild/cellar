@@ -479,9 +479,13 @@ preserves the original stop request and stopped boot.
 
 `complete_evacuation` requires that runtime verifier and a `FleetRemovalRequest`
 identifying the exact signed stop closure. It refuses incomplete or changed
-inventory and proofs older than 60 seconds, including queue, archive and caller
-residence. It reprobes every surviving process, validates current exact boot
-bindings and checks the age again immediately before CAS. An attempt that cannot
+inventory. After archive work, a bounded pass renews safe-ReadIndex proofs from
+all three replicas of every live history at the same fixed business cut. It
+rechecks configuration, exact boots and settled permits without repeating image
+replay. Only a complete successful pass refreshes the health clock. It then
+reprobes every surviving process and checks proof age again immediately before
+CAS. Health proofs older than 60 seconds, including queue and caller residence,
+refuse. An attempt that cannot
 finish within this freshness bound must repeat verification. Supported density
 and convergence rates remain qualification work.
 

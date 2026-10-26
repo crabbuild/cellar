@@ -41,6 +41,140 @@ fn settled(status: &FleetMembershipStatus, latest: Option<&FleetMembershipPermit
     }
 }
 
+/// Archive replay is historical work. Renew every live group's quorum proof
+/// afterward without repeating image replay or moving its fixed business cut.
+pub(super) async fn refresh_terminal(
+    verification: &FleetEvacuationVerification,
+    candidate: &Candidate,
+    deadline: &Deadline<'_>,
+) -> Result<Option<u64>> {
+    let catalog = &verification.catalog;
+    let mut cursor = None;
+    let mut seen = 0u64;
+    let mut oldest = None;
+    loop {
+        let page = catalog
+            .run(deadline.remaining()?, async {
+                verification.book.basis.check_current(catalog).await?;
+                catalog
+                    .inner
+                    .scan(candidate.index, cursor.as_ref(), 1)
+                    .await
+            })
+            .await?;
+        if page.entries.len() > 1 || page.entries.is_empty() && page.next.is_some() {
+            return Err(FleetCatalogError::Corrupt("terminal verification page"));
+        }
+        for row in page.entries {
+            let (entry, history) = catalog
+                .run(deadline.remaining()?, async {
+                    verification.book.basis.check_current(catalog).await?;
+                    let entry = candidate
+                        .entry(catalog, &row.key)
+                        .await?
+                        .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                    let bytes = catalog
+                        .inner
+                        .lookup(
+                            verification.snapshot.head.tables[FleetTable::Histories.slot()],
+                            &row.key,
+                        )
+                        .await?
+                        .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                    if hash(&bytes) != entry.record {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    Ok((entry, FleetHistory::decode(&bytes)?))
+                })
+                .await?;
+            match entry.evidence {
+                Evidence::Cancelled { operation } => {
+                    if *history.state() != (FleetHistoryState::Cancelled { operation }) {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                }
+                Evidence::Live(live) => {
+                    let observer = verification
+                        .observer
+                        .as_ref()
+                        .ok_or(FleetCatalogError::Unconfirmed)?;
+                    let scope = history
+                        .binding
+                        .scope()
+                        .map_err(|_| FleetCatalogError::Corrupt("terminal group scope"))?;
+                    let authorization = catalog
+                        .authorize_group(&verification.snapshot, &scope, deadline.remaining()?)
+                        .await?;
+                    let mut sampled = catalog
+                        .inner
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| FleetCatalogError::Closed)?;
+                    let mut observations = Vec::with_capacity(3);
+                    for survivor in &live.survivors {
+                        let node = NodeId::new(survivor.node)
+                            .map_err(|_| FleetCatalogError::Corrupt("terminal survivor"))?;
+                        let observed = observer
+                            .observe_peer_fleet_membership(
+                                node,
+                                authorization.clone(),
+                                verification.book.basis.revision,
+                                deadline.remaining()?,
+                            )
+                            .await
+                            .map_err(FleetCatalogError::Observation)?;
+                        let now = catalog
+                            .inner
+                            .domain
+                            .mono_ms()
+                            .map_err(|_| FleetCatalogError::Closed)?;
+                        sampled = sampled.min(
+                            now.checked_sub(observed.sample_age_ms())
+                                .ok_or(FleetCatalogError::Unconfirmed)?,
+                        );
+                        observations.push(observed);
+                    }
+                    let observations: [RaftPeerFleetMembershipObservation; 3] = observations
+                        .try_into()
+                        .map_err(|_| FleetCatalogError::Corrupt("terminal survivor count"))?;
+                    let current = observations[0]
+                        .published_cut()
+                        .ok_or(FleetCatalogError::Unconfirmed)?;
+                    let fixed = live.fixed.restore(current)?;
+                    catalog
+                        .run(deadline.remaining()?, async {
+                            verification.book.basis.check_current(catalog).await?;
+                            verify(
+                                catalog,
+                                &verification.snapshot,
+                                &history,
+                                &observations,
+                                &fixed,
+                            )
+                            .await?;
+                            verification.book.basis.check_current(catalog).await
+                        })
+                        .await?;
+                    oldest = Some(oldest.map_or(sampled, |old: u64| old.min(sampled)));
+                }
+            }
+            seen = seen
+                .checked_add(1)
+                .filter(|seen| *seen <= candidate.count)
+                .ok_or(FleetCatalogError::Limit)?;
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    if seen != candidate.count {
+        return Err(FleetCatalogError::InventoryIncomplete);
+    }
+    deadline.remaining()?;
+    Ok(oldest)
+}
+
 pub(super) async fn verify(
     catalog: &FleetCatalog,
     snapshot: &FleetSnapshot,

@@ -252,12 +252,15 @@ impl FleetCatalog {
         let verification = verification.ok_or(FleetCatalogError::InventoryIncomplete)?;
         if !Arc::ptr_eq(&self.inner, &verification.catalog.inner)
             || verification.book.basis.operation != request.identity.operation
+            || verification.book.basis.finalization.is_none()
         {
             return Err(FleetCatalogError::Conflict);
         }
         let candidate = verification
             .publish_candidate(deadline.remaining()?)
             .await?;
+        verification.oldest_sample =
+            survivors::refresh_terminal(verification, &candidate.candidate, &deadline).await?;
         // Archive work can outlast a health sample. Reprobe every survivor
         // process immediately before the terminal turn, including a controller
         // that also owns one of the surviving replicas.
