@@ -58,6 +58,7 @@ struct WireRecord {
     input_root: [u8; 32],
     capacity_epoch: u64,
     physical: FleetResourceBounds,
+    inventory_digest: [u8; 32],
 }
 
 #[derive(Clone)]
@@ -66,6 +67,7 @@ pub(super) struct Record {
     pub input_root: [u8; 32],
     pub capacity_epoch: u64,
     pub physical: FleetResourceBounds,
+    pub inventory_digest: [u8; 32],
     pub node: NodeId,
 }
 
@@ -76,6 +78,7 @@ impl Record {
         snapshot: &FleetSnapshot,
         capacity_epoch: u64,
         physical: FleetResourceBounds,
+        inventory_digest: [u8; 32],
     ) -> Result<Self> {
         let node = NodeId::new(request.attestation.boot.node)
             .map_err(|_| FleetCatalogError::Invalid("resource node"))?;
@@ -84,6 +87,7 @@ impl Record {
             input_root: hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?),
             capacity_epoch,
             physical,
+            inventory_digest,
             node,
         };
         record.validate(catalog)?;
@@ -93,6 +97,7 @@ impl Record {
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         self.request.validate(catalog)?;
         if self.input_root == [0; 32]
+            || self.inventory_digest == [0; 32]
             || self.node.bytes() != self.request.attestation.boot.node
             || self.capacity_epoch <= self.request.attestation.boot.epoch
             || self.capacity_epoch >= u64::MAX - 2
@@ -112,6 +117,7 @@ impl Record {
                 input_root: self.input_root,
                 capacity_epoch: self.capacity_epoch,
                 physical: self.physical,
+                inventory_digest: self.inventory_digest,
             },
             4096,
         )
@@ -129,6 +135,7 @@ impl Record {
             input_root: wire.input_root,
             capacity_epoch: wire.capacity_epoch,
             physical: wire.physical,
+            inventory_digest: wire.inventory_digest,
             node,
         };
         record.validate(catalog)?;

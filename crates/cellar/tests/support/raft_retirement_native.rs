@@ -282,6 +282,27 @@ async fn fleet_enrollment_retired_binding() -> Result<()> {
     )
     .await
     .context("discover reopened retired host")?;
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let physical = nodes[0]
+        .host
+        .inspect_peer_physical_inventory(old_spec.node, cut.revision(), TIMEOUT)
+        .await?;
+    let inventory = physical
+        .inventory
+        .as_ref()
+        .context("missing retained physical inventory")?;
+    let occupied = inventory
+        .history(&proposal.scope)?
+        .context("unregistered retired history was omitted")?;
+    let (namespace, _) = initial_birth(&f).await?;
+    let expected_birth = namespace
+        .birth(&proposal.scope.cell)
+        .await?
+        .context("retained canonical birth")?;
+    ensure!(
+        occupied.member() == obsolete_member && occupied.birth_digest() == expected_birth.digest()
+    );
+    ensure!(physical.view.unattached_engine_histories == 1 && inventory.histories().len() == 1);
     let (plan, stale_target) = reserve(
         &f,
         &source,

@@ -31,6 +31,7 @@ pub use crate::raft::effects::{
     RaftEffectVerificationKey, RaftInbox, RaftNativeEffectSink, RaftOutbox, RaftOutboxLimits,
     RaftOutboxProgress,
 };
+pub use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory};
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{

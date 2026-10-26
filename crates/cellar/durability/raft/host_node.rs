@@ -62,6 +62,9 @@ pub struct RaftHostObservation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RaftPeerNodeObservation {
     pub view: RaftHostObservation,
+    /// Complete immutable engine occupancy when explicitly requested. A normal
+    /// node probe omits it; omission is never an empty physical inventory.
+    pub inventory: Option<Box<super::super::physical_inventory::RaftPhysicalInventory>>,
     /// Complete origin duration through SDK delivery, including control queue
     /// residence and retention by an unpolled caller.
     pub sample_age_ms: u64,
@@ -94,13 +97,27 @@ impl Driver {
             NodeKind::InspectPeer {
                 node,
                 minimum_revision,
-            } => self.start_node_inspection(request, node, minimum_revision),
+                physical,
+            } => self.start_node_inspection(request, node, minimum_revision, physical),
             NodeKind::RegisterHistory(authorization) => {
                 self.start_history_registration(request, *authorization)
             }
             NodeKind::Observe => {
                 let result = self.node_observation().map(|o| Response::Node(Box::new(o)));
                 reply_node(&mut request, result);
+            }
+            NodeKind::ObservePhysical => {
+                let Some(bytes) = self
+                    .control_budget
+                    .acquire(super::super::physical_inventory::RESPONSE_BYTES)
+                else {
+                    reply_node(&mut request, Err(CommandFailure::Overloaded));
+                    return;
+                };
+                let result = self
+                    .physical_node_observation()
+                    .map(|(node, inventory)| Response::PhysicalNode(Box::new((node, inventory))));
+                reply_node_charged(&mut request, result, Some(bytes));
             }
             NodeKind::ControllerStatus => self.controller_control(request, None),
             NodeKind::SetControllerEnabled(enabled) => {
@@ -159,6 +176,28 @@ impl Driver {
             pending_history_registrations: u32::from(self.history_registration.is_some()),
             unattached_engine_histories: bounded(unattached)?,
         })
+    }
+
+    fn physical_node_observation(
+        &self,
+    ) -> Result<
+        (
+            RaftHostObservation,
+            super::super::physical_inventory::RaftPhysicalInventory,
+        ),
+        CommandFailure,
+    > {
+        let inventory = self
+            .log
+            .physical_inventory(self.activating.as_ref())
+            .map_err(|_| CommandFailure::Unavailable)?;
+        let node = self.node_observation()?;
+        // Engine sync can insert a group between the two lock acquisitions.
+        // Refuse a mixed cut rather than silently omitting an occupied slot.
+        inventory
+            .validate(&node)
+            .map_err(|_| CommandFailure::Overloaded)?;
+        Ok((node, inventory))
     }
 
     fn startup_bounds(&self) -> Result<RaftHostStartupBounds, CommandFailure> {

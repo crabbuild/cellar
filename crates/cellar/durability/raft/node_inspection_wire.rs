@@ -16,7 +16,7 @@ pub(crate) const MAX_BODY: usize = 16 * 1024;
 
 #[cfg(test)]
 #[path = "node_inspection_wire_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

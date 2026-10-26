@@ -1,6 +1,6 @@
 use super::*;
 
-fn view() -> RaftHostObservation {
+pub(crate) fn view() -> RaftHostObservation {
     let startup = RaftHostEnrollmentObservation {
         fleet: [80; 16],
         revision: 2,

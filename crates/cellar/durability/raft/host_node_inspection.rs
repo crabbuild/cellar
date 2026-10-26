@@ -7,6 +7,7 @@ pub(super) struct Completed {
     request: Box<NodeRequest>,
     started: u64,
     minimum_revision: u64,
+    physical: bool,
     bytes: Permit,
     result: Result<Received, InspectionError>,
 }
@@ -17,6 +18,7 @@ impl Driver {
         mut request: NodeRequest,
         node: NodeId,
         minimum_revision: u64,
+        physical: bool,
     ) {
         let admitted = (|| {
             if self.options.managed.is_none() {
@@ -24,13 +26,18 @@ impl Driver {
             }
             let bytes = self
                 .control_budget
-                .acquire(RESPONSE_RESERVATION)
+                .acquire(if physical {
+                    crate::raft::physical_inventory::RESPONSE_BYTES
+                } else {
+                    RESPONSE_RESERVATION
+                })
                 .ok_or(InspectionError::Overloaded)?;
             let started = request.started;
             let delivery = self.transport.inspect_fleet_node(
                 node,
                 minimum_revision,
                 request.control.deadline(),
+                physical,
             )?;
             Ok((bytes, started, delivery))
         })();
@@ -46,7 +53,7 @@ impl Driver {
                 _ = request.control.cancellation() => Err(InspectionError::Unavailable),
                 result = delivery.receive() => result,
             };
-            Job::NodeInspection(Box::new(Completed { request:Box::new(request), started, minimum_revision, bytes, result }))
+            Job::NodeInspection(Box::new(Completed { request:Box::new(request), started, minimum_revision, physical, bytes, result }))
         }));
     }
 
@@ -55,6 +62,7 @@ impl Driver {
             mut request,
             started,
             minimum_revision,
+            physical,
             bytes,
             result,
         } = completed;
@@ -62,6 +70,9 @@ impl Driver {
             return;
         }
         let result = result.and_then(|received| {
+            if received.inventory.is_some() != physical {
+                return Err(InspectionError::Refused);
+            }
             self.transport
                 .validate_fleet_node_observation(&received.view, minimum_revision)?;
             let sample_age_ms = self
@@ -73,6 +84,7 @@ impl Driver {
                 .ok_or(InspectionError::Unavailable)?;
             Ok(Box::new(RaftPeerNodeObservation {
                 view: *received.view,
+                inventory: received.inventory,
                 sample_age_ms,
             }))
         });

@@ -27,6 +27,7 @@ struct RequestHead {
     route: NodeRoute,
     nonce: String,
     timeout_ms: u64,
+    physical: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -40,6 +41,7 @@ struct ReplyHead {
 
 pub(crate) struct Received {
     pub view: Box<RaftHostObservation>,
+    pub inventory: Option<Box<crate::raft::physical_inventory::RaftPhysicalInventory>>,
     _node: Permit,
     _peer: Permit,
 }
@@ -50,8 +52,9 @@ impl RaftTransport {
         node: NodeId,
         minimum_revision: u64,
         deadline: u64,
+        physical: bool,
     ) -> Result<Delivery<Received>, InspectionError> {
-        self.begin_node_inspection(node, minimum_revision, deadline)
+        self.begin_node_inspection(node, minimum_revision, deadline, physical)
             .map_err(|error| classify(error, 0))
     }
 
@@ -71,6 +74,7 @@ impl RaftTransport {
         node: NodeId,
         minimum_revision: u64,
         deadline: u64,
+        physical: bool,
     ) -> Result<Delivery<Received>, TransportError> {
         let state = self.handle.0.clone();
         let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
@@ -102,6 +106,7 @@ impl RaftTransport {
                 nonce,
                 deadline,
                 stage.clone(),
+                physical,
             ));
             let result = if *cancelled.borrow() {
                 Err(TransportError::Closed)
@@ -114,13 +119,14 @@ impl RaftTransport {
                 }).await
             };
             let result = result
-                .and_then(|view| {
+                .and_then(|(view, inventory)| {
                     operation.validate_node_observation(&view, minimum_revision)?;
                     if *epoch.borrow() || *cancelled.borrow() {
                         return Err(TransportError::StalePeer);
                     }
                     Ok(Received {
                         view,
+                        inventory,
                         _node: node,
                         _peer: peer_bytes,
                     })
@@ -251,7 +257,14 @@ impl State {
         nonce: u64,
         deadline: u64,
         stage: Arc<AtomicU8>,
-    ) -> Result<Box<RaftHostObservation>, TransportError> {
+        physical: bool,
+    ) -> Result<
+        (
+            Box<RaftHostObservation>,
+            Option<Box<crate::raft::physical_inventory::RaftPhysicalInventory>>,
+        ),
+        TransportError,
+    > {
         stage.store(1, Ordering::Release);
         let _connection = self.outgoing_connections.acquire(Lane::Control);
         let tcp = TcpStream::connect(peer.control_address).await?;
@@ -277,12 +290,17 @@ impl State {
             auth: &self.auth,
             exporter: &exporter,
             options: &self.options,
-            max_body: body::MAX_BODY,
+            max_body: if physical {
+                crate::raft::physical_inventory::MAX_BODY
+            } else {
+                body::MAX_BODY
+            },
         };
         let request = RequestHead {
             route: route.clone(),
             nonce: nonce.to_string(),
             timeout_ms: remaining,
+            physical,
         };
         let head = wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
         write_head(&mut stream, &head).await?;
@@ -290,7 +308,11 @@ impl State {
             &mut stream,
             None,
             RESPONSE_MAGIC,
-            body::MAX_BODY,
+            if physical {
+                crate::raft::physical_inventory::MAX_BODY
+            } else {
+                body::MAX_BODY
+            },
             &self.options,
         )
         .await?;
@@ -311,7 +333,12 @@ impl State {
             3 if bytes.is_empty() => return Err(TransportError::StalePeer),
             _ => return Err(TransportError::Protocol),
         }
-        let view = body::decode(&bytes)?;
+        let (view, inventory) = if physical {
+            let (view, inventory) = crate::raft::physical_inventory::decode(&bytes)?;
+            (view, Some(inventory))
+        } else {
+            (body::decode(&bytes)?, None)
+        };
         let (_, target) = route.identities()?;
         if view.node.identity != target.identity
             || view.node.storage_instance != target.storage_instance
@@ -319,7 +346,7 @@ impl State {
             return Err(TransportError::Identity);
         }
         self.validate_node_observation(&view, route.minimum_revision()?)?;
-        Ok(view)
+        Ok((view, inventory))
     }
 
     pub(super) fn authorize_node_inspection(
@@ -375,6 +402,7 @@ impl State {
         exporter: &[u8; 32],
         prefix: [u8; frame::PREFIX],
     ) -> Result<(), TransportError> {
+        let admitted = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let _node = self
             .inspection_metadata
             .acquire(META_BYTES)
@@ -389,7 +417,7 @@ impl State {
             auth: &self.auth,
             exporter,
             options: &self.options,
-            max_body: body::MAX_BODY,
+            max_body: crate::raft::physical_inventory::MAX_BODY,
         };
         let request: RequestHead = wire.decode(REQUEST_MAGIC, REQUEST_PURPOSE, &head, None)?;
         if frame::decimal(&request.nonce)? == 0 || !(1..=60_000).contains(&request.timeout_ms) {
@@ -423,10 +451,7 @@ impl State {
             .acquire(META_BYTES)
             .ok_or(TransportError::Overloaded)?;
         let epoch = self.seed_peer_epoch(&peer)?;
-        let deadline = self
-            .domain
-            .mono_ms()
-            .map_err(|_| TransportError::Closed)?
+        let deadline = admitted
             .checked_add(request.timeout_ms)
             .ok_or(TransportError::Limit)?;
         let handle = self
@@ -441,14 +466,31 @@ impl State {
                 .checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                 .filter(|ms| *ms > 0)
                 .ok_or(TransportError::Timeout)?;
-            let result = RaftCells { handle }
-                .observe_node(std::time::Duration::from_millis(remaining))
-                .await;
-            let (status, bytes) = match result {
-                Ok(view) => {
-                    self.validate_node_observation(&view, request.route.minimum_revision()?)?;
-                    (0, body::encode(&view)?)
+            let result = if request.physical {
+                match (RaftCells { handle })
+                    .observe_physical_node(std::time::Duration::from_millis(remaining))
+                    .await
+                {
+                    Ok((node, inventory)) => {
+                        self.validate_node_observation(&node, request.route.minimum_revision()?)?;
+                        Ok(crate::raft::physical_inventory::encode(&node, &inventory)?)
+                    }
+                    Err(error) => Err(error),
                 }
+            } else {
+                match (RaftCells { handle })
+                    .observe_node(std::time::Duration::from_millis(remaining))
+                    .await
+                {
+                    Ok(node) => {
+                        self.validate_node_observation(&node, request.route.minimum_revision()?)?;
+                        Ok(body::encode(&node)?)
+                    }
+                    Err(error) => Err(error),
+                }
+            };
+            let (status, bytes) = match result {
+                Ok(bytes) => (0, bytes),
                 Err(CommandFailure::Overloaded) => (1, vec![]),
                 _ => (2, vec![]),
             };

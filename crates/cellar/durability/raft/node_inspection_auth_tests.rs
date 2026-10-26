@@ -11,6 +11,7 @@ fn request() -> RequestHead {
         route,
         nonce: "12".into(),
         timeout_ms: 1000,
+        physical: false,
     }
 }
 
@@ -24,6 +25,8 @@ fn node_metadata_mac_is_bound_to_purpose_channel_and_request() {
         options: &options,
         max_body: body::MAX_BODY,
     };
+    let mut physical_request = request();
+    physical_request.physical = true;
     let request = request();
     let head = wire
         .encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])
@@ -58,6 +61,18 @@ fn node_metadata_mac_is_bound_to_purpose_channel_and_request() {
     let response = wire
         .encode(RESPONSE_MAGIC, RESPONSE_PURPOSE, &head.tag, &reply, &[])
         .unwrap();
+    let physical_head = wire
+        .encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &physical_request, &[])
+        .unwrap();
+    assert!(matches!(
+        wire.decode::<ReplyHead>(
+            RESPONSE_MAGIC,
+            RESPONSE_PURPOSE,
+            &response,
+            Some(&physical_head.tag)
+        ),
+        Err(TransportError::Authentication)
+    ));
     assert!(wire
         .decode::<ReplyHead>(RESPONSE_MAGIC, RESPONSE_PURPOSE, &response, Some(&head.tag))
         .is_ok());

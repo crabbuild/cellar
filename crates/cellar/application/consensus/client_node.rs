@@ -5,9 +5,11 @@ use super::*;
 pub(crate) enum NodeKind {
     Drain,
     Observe,
+    ObservePhysical,
     InspectPeer {
         node: cellar_logic::consensus::NodeId,
         minimum_revision: u64,
+        physical: bool,
     },
     InspectPeerFleet(Box<PeerFleetRequest>),
     PeerFleetStop(Box<PeerStopRequest>),
@@ -221,6 +223,46 @@ impl RaftCells {
                 > + Send,
         >,
     > {
+        self.inspect_peer_node_mode(node, minimum_revision, timeout, false)
+    }
+
+    /// Obtain complete physical engine occupancy over authenticated node
+    /// control, including unregistered and retired histories. No business cell
+    /// or Raft quorum is required. The response retains no health/absence lease.
+    pub fn inspect_peer_physical_inventory(
+        &self,
+        node: cellar_logic::consensus::NodeId,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        super::super::RaftPeerNodeObservation,
+                        super::super::InspectionError,
+                    >,
+                > + Send,
+        >,
+    > {
+        self.inspect_peer_node_mode(node, minimum_revision, timeout, true)
+    }
+
+    fn inspect_peer_node_mode(
+        &self,
+        node: cellar_logic::consensus::NodeId,
+        minimum_revision: u64,
+        timeout: Duration,
+        physical: bool,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        super::super::RaftPeerNodeObservation,
+                        super::super::InspectionError,
+                    >,
+                > + Send,
+        >,
+    > {
         use super::super::InspectionError;
         if minimum_revision == 0
             || minimum_revision >= u64::MAX - 2
@@ -238,6 +280,7 @@ impl RaftCells {
             NodeKind::InspectPeer {
                 node,
                 minimum_revision,
+                physical,
             },
             timeout,
         );
@@ -258,6 +301,31 @@ impl RaftCells {
                     Ok(*observed)
                 }
                 _ => Err(InspectionError::Unavailable),
+            }
+        })
+    }
+
+    pub(crate) fn observe_physical_node(
+        &self,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        (
+                            super::super::RaftHostObservation,
+                            crate::raft::physical_inventory::RaftPhysicalInventory,
+                        ),
+                        CommandFailure,
+                    >,
+                > + Send,
+        >,
+    > {
+        let response = self.node_call(NodeKind::ObservePhysical, timeout);
+        Box::pin(async move {
+            match response.await? {
+                Response::PhysicalNode(observation) => Ok(*observation),
+                _ => Err(CommandFailure::CorruptState),
             }
         })
     }

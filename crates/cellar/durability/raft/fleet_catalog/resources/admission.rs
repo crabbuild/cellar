@@ -79,7 +79,11 @@ impl FleetCatalog {
             }
         };
         let observation = observer
-            .inspect_peer_node(target.node(), snapshot.revision(), deadline.remaining()?)
+            .inspect_peer_physical_inventory(
+                target.node(),
+                snapshot.revision(),
+                deadline.remaining()?,
+            )
             .await
             .map_err(FleetCatalogError::Observation)?;
         deadline.remaining()?;
@@ -99,8 +103,19 @@ impl FleetCatalog {
             if snapshot.head.tables[FleetTable::Admissions.slot()].is_some() {
                 return Err(resource_error(LedgerError::Incomplete));
             }
-            self.check_resource_birth_debt(snapshot, target.node())
+            self.check_resource_birth_debt(snapshot, target.node(), &observation)
                 .await?;
+            let inventory = observation
+                .inventory
+                .as_ref()
+                .ok_or(resource_error(LedgerError::Incomplete))?;
+            if inventory
+                .history(&request.group)
+                .map_err(|_| FleetCatalogError::Corrupt("resource destination scope"))?
+                .is_some()
+            {
+                return Err(FleetCatalogError::Invalid("occupied resource destination"));
+            }
             let history = self.history_inner(snapshot, &canonical.group).await?;
             if *history.state() != FleetHistoryState::Live {
                 return Err(FleetCatalogError::Conflict);
@@ -116,7 +131,14 @@ impl FleetCatalog {
             let physical = self
                 .check_resource_fit(snapshot, &canonical, &capacity, &observation, &rows)
                 .await?;
-            let record = Record::new(self, canonical.clone(), snapshot, target.epoch(), physical)?;
+            let record = Record::new(
+                self,
+                canonical.clone(),
+                snapshot,
+                target.epoch(),
+                physical,
+                inventory.digest(),
+            )?;
             let row_bytes = record.encode()?;
             if let Some((_, old)) = &previous {
                 if old.encode()? != row_bytes {
@@ -301,7 +323,15 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         target: NodeId,
+        observation: &RaftPeerNodeObservation,
     ) -> Result<()> {
+        let inventory = observation
+            .inventory
+            .as_ref()
+            .ok_or(resource_error(LedgerError::Incomplete))?;
+        if inventory.initializing().is_some() {
+            return Err(resource_error(LedgerError::Incomplete));
+        }
         let mut cursor = None;
         let mut count = 0u64;
         loop {
@@ -326,12 +356,24 @@ impl FleetCatalog {
                         .chain(&history.learners)
                         .any(|m| m.node == target.bytes())
                 {
-                    // A Live birth need not have initialized its original
-                    // voters yet. Aggregate occupancy cannot attribute slots
-                    // to those exact histories. Until the physical inventory
-                    // producer does so, keep this genesis obligation unknown
-                    // rather than authorizing overlapping new work.
-                    return Err(resource_error(LedgerError::Incomplete));
+                    if !matches!(history.state(), FleetHistoryState::Live) {
+                        return Err(resource_error(LedgerError::Incomplete));
+                    }
+                    let scope = history
+                        .binding()
+                        .scope()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource genesis scope"))?;
+                    let occupied = inventory
+                        .history(&scope)
+                        .map_err(|_| FleetCatalogError::Corrupt("resource genesis scope"))?
+                        .ok_or(resource_error(LedgerError::Incomplete))?;
+                    if occupied.birth_digest() != history.birth_digest()
+                        || !history.voters.iter().chain(&history.learners).any(|m| {
+                            m.node == target.bytes() && m.member == occupied.member().get()
+                        })
+                    {
+                        return Err(FleetCatalogError::Corrupt("resource genesis binding"));
+                    }
                 }
             }
             cursor = page.next;

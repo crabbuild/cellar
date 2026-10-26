@@ -130,7 +130,7 @@ impl Driver {
                     let remaining = deadline.checked_sub(now).filter(|ms| *ms > 0).ok_or(InspectionError::Unavailable)?;
                     // This operation requires both this exact source process
                     // and the target process to have installed the minimum cut.
-                    let observed = match transport.inspect_fleet_node(plan.replacement.node, minimum, deadline) {
+                    let observed = match transport.inspect_fleet_node(plan.replacement.node, minimum, deadline, false) {
                         Ok(delivery) => delivery.receive().await,
                         Err(error) => Err(error),
                     };

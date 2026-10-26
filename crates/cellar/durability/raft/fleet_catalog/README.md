@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -528,11 +528,15 @@ this resource-only boundary does not establish either.
 
 Missing permit resource attribution refuses instead of inventing zero debt.
 An initial voter reference may still initialize after its birth becomes Live.
-Until exact physical history attribution is implemented, a target with a
-noncancelled genesis obligation refuses new resource work. This includes a
-Reserved birth and a Live birth with no materialized engine group. The complete
-physical inventory producer and typed permit consumer must close these gates
-before general redistribution is enabled.
+Admission now owns a complete physical inventory probe and matches every target
+genesis reference against its exact scope, birth digest and original member.
+A Reserved birth or a Live birth without its durable voter still blocks new
+work. A materialized voter remains charged while unused capacity can admit
+another history. Any occupied binding for the prospective learner's exact
+history refuses, including a retired or unregistered engine history.
+An in-progress initializer also refuses. The accepted resource row retains the
+canonical inventory digest alongside its exact boot/profile and input-root cut.
+Typed membership-permit integration remains required before general movement.
 
 Exact committed retries reconcile from the permanent request journal before
 live probes, including after exclusion, target shutdown and adapter recreation.
@@ -544,6 +548,31 @@ mutations cannot delete or replace earlier resource rows or reset their book.
 membership permit or learner-initialization capability. No release API is
 provided: terminal group proof, physical joins and atomic permit/resource release
 remain controller work. No business acknowledgement calls this component.
+
+## Complete physical history observation
+
+`RaftCells::inspect_peer_physical_inventory` uses the authenticated node-control
+route and an explicit MAC-bound request mode. It does not need a business-cell
+registration, Actor lease, SQL image or live Raft quorum. Its compact sorted
+entries contain the full-scope digest, immutable birth digest and physical member
+ID from the append-only engine catalog. Retired and unattached histories remain
+present. Unknown local histories still consume the reported physical slots.
+
+The snapshot is bounded to 4,096 durable histories. Its maximum binary body is
+311,341 bytes and fits the existing 1-MiB node/peer metadata reservation. Host
+response ownership also reserves 1 MiB before capture and retains that charge
+through SDK delivery or cancellation. Ordinary node observations retain their
+smaller response reservation and omit inventory explicitly. Omission is not an
+empty inventory. The inventory codec checks counts, exact length, ordering,
+duplicate/zero identities and pending-initializer accounting before admission.
+
+The driver captures immutable entries under one engine-catalog lock and checks
+the accompanying node counts. A racing sync that produces a mixed count cut
+refuses. The pending initializer is explicit even after its slot becomes durable;
+it cannot disappear as apparently unused capacity. No lock crosses asynchronous
+work. The receiver's original budget includes header residence. Retained SDK
+responses keep their original age; observations grant no membership, absence,
+health lease, reservation release or data-deletion proof.
 
 ## Host API and fresh learners
 
@@ -745,7 +774,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

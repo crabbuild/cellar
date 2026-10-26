@@ -449,6 +449,17 @@ impl ReplicaLog {
             .collect())
     }
 
+    /// Read only immutable occupied identities under one catalog lock. This
+    /// catalog is append-only for an engine instance; retired bindings remain.
+    pub(crate) fn physical_inventory(
+        &self,
+        pending: Option<&GroupScope>,
+    ) -> Result<super::physical_inventory::RaftPhysicalInventory, LogError> {
+        self.admit()?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        super::physical_inventory::capture(&groups, pending)
+    }
+
     pub fn group(&self, scope: &GroupScope) -> Result<GroupLog, LogError> {
         self.admit()?;
         self.inner

@@ -18,6 +18,10 @@ struct Setup {
 
 impl Setup {
     async fn new(qualified: bool) -> Result<Self> {
+        Self::with_capacity(qualified, 1).await
+    }
+
+    async fn with_capacity(qualified: bool, capacity: u32) -> Result<Self> {
         let f = Fixture::with_managed_births(true).await?;
         let nodes = fleet(&f).await?;
         let (namespace, _) = initial_birth(&f).await?;
@@ -68,8 +72,8 @@ impl Setup {
         .await?;
         let (mut config, services) = f.config_for(&target_node, authorization, &spec).await?;
         let profile = config.host.node_profile.as_mut().unwrap();
-        profile.group_capacity = 1;
-        profile.leader_capacity = 1;
+        profile.group_capacity = capacity;
+        profile.leader_capacity = capacity;
         let target = target_node.start_raft_cells(config, services).await?;
         if qualified {
             let evidence = attestation(&f, &nodes[0].host, &target).await?;
@@ -450,11 +454,12 @@ async fn fleet_resource_expired_cas_has_no_detached_writer() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_resource_unmaterialized_genesis_is_not_free() -> Result<()> {
-    let s = Box::pin(Setup::new(true)).await?;
+    let s = Box::pin(Setup::with_capacity(true, 2)).await?;
     let mut proposal = s.proposals[0].clone();
     proposal.scope.cell = "Counter:pending-resource".into();
     proposal.scope.group = GroupId::new([84; 16])?;
     proposal.voters[2].node = NodeId::new([7; 16])?;
+    let genesis_scope = proposal.scope.clone();
     let cut = s.f.catalog.read(TIMEOUT).await?;
     let birth =
         s.f.catalog
@@ -515,5 +520,126 @@ async fn fleet_resource_unmaterialized_genesis_is_not_free() -> Result<()> {
     ));
     ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
     ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+    let authorization =
+        s.f.catalog
+            .authorize_group(&cut, &genesis_scope, TIMEOUT)
+            .await?;
+    let cell = s
+        .target
+        .register_managed_history(authorization.clone(), TIMEOUT)
+        .await?;
+    cell.activate_managed_initial_member(authorization, TIMEOUT)
+        .await?;
+    let observed = s.nodes[0]
+        .host
+        .inspect_peer_physical_inventory(NodeId::new([7; 16])?, cut.revision(), TIMEOUT)
+        .await?;
+    let inventory = observed.inventory.as_ref().unwrap();
+    ensure!(inventory.histories().len() == 1 && inventory.initializing().is_none());
+    ensure!(inventory.history(&genesis_scope)?.unwrap().member() == MemberId::new(3)?);
+    // One actual durable voter with no initialized peers needs no live quorum
+    // to prove occupancy. It still leaves one genuinely unused profile slot.
+    ensure!(observed.view.node.groups == 1);
+    let mut occupied = s.request(0, 224, cut.revision()).await?;
+    occupied.group = genesis_scope;
+    ensure!(matches!(
+        s.f.catalog
+            .reserve_resources(
+                &cut,
+                &occupied,
+                &s.nodes[0].host,
+                std::slice::from_ref(&s.namespace),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Invalid("occupied resource destination"))
+    ));
+    let warm = s.request(0, 225, cut.revision()).await?;
+    let admitted =
+        s.f.catalog
+            .reserve_resources(
+                &cut,
+                &warm,
+                &s.nodes[0].host,
+                std::slice::from_ref(&s.namespace),
+                TIMEOUT,
+            )
+            .await?;
+    ensure!(admitted.applied_revision() == cut.revision() + 1);
+    s.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_physical_inventory_retained_reply_and_cancellation() -> Result<()> {
+    let s = Box::pin(Setup::new(true)).await?;
+    let revision = s.f.catalog.read(TIMEOUT).await?.revision();
+    let origin = &s.nodes[0].host;
+    let target = NodeId::new([7; 16])?;
+    ensure!(origin
+        .inspect_peer_node(target, revision, TIMEOUT)
+        .await?
+        .inventory
+        .is_none());
+    s.f.store.hold_fleet_reads.store(true, Ordering::Release);
+    s.f.store.fleet_read_hang.store(true, Ordering::Release);
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while s.f.store.active_fleet_reads.load(Ordering::Acquire) < 4 {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    let baseline = origin.resource_usage().control.bytes;
+    ensure!(baseline == 4 * 1024 * 1024);
+    for deliver in [true, false] {
+        let pending = origin.inspect_peer_physical_inventory(target, revision, TIMEOUT);
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    let usage = origin.resource_usage();
+                    if usage.control.bytes >= baseline + 1024 * 1024
+                        && usage.transport.is_some_and(|t| {
+                            t.inspection_metadata.items == 0 && t.outgoing_connections.control == 0
+                        })
+                    {
+                        break;
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+                }
+            }))
+            .await??;
+        if deliver {
+            s.f.domain
+                .run(async { cellar::asyncrt::sleep(Duration::from_millis(100)).await })
+                .await?;
+            let observed = pending.await?;
+            ensure!(observed.sample_age_ms >= 100 && observed.view.node.groups == 0);
+            let inventory = observed
+                .inventory
+                .context("missing complete empty inventory")?;
+            ensure!(inventory.histories().is_empty() && inventory.initializing().is_none());
+        } else {
+            drop(pending);
+        }
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                loop {
+                    let usage = origin.resource_usage();
+                    if usage.control.bytes == baseline
+                        && usage
+                            .transport
+                            .is_some_and(|t| t.inspection_metadata.items == 0)
+                    {
+                        break;
+                    }
+                    cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+                }
+            }))
+            .await??;
+    }
+    ensure!(s.f.calls.load(Ordering::Acquire) == 0);
+    s.f.store.hold_fleet_reads.store(false, Ordering::Release);
+    s.f.store.fleet_read_hang.store(false, Ordering::Release);
+    s.f.store.fleet_read_resume.notify_waiters();
     s.close().await
 }

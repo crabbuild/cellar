@@ -31,6 +31,7 @@ pub(crate) mod object_metrics;
 pub(crate) mod operations;
 pub(crate) mod options;
 pub(crate) mod performance;
+pub(crate) mod physical_inventory;
 mod query;
 mod query_identity;
 mod query_route;

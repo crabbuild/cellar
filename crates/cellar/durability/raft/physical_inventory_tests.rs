@@ -1,0 +1,138 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+use super::*;
+use crate::raft::node_inspection_wire::tests::view;
+use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
+
+fn scope() -> GroupScope {
+    GroupScope {
+        cluster: ClusterId::new([1; 16]).unwrap(),
+        namespace: NamespaceId::new([2; 16]).unwrap(),
+        group: GroupId::new([3; 16]).unwrap(),
+        incarnation: IncarnationId::new([4; 16]).unwrap(),
+        cell: "Counter:physical".into(),
+    }
+}
+
+fn occupied(count: usize) -> (RaftHostObservation, RaftPhysicalInventory) {
+    let mut node = view();
+    node.node.groups = count as u32;
+    node.node.reserved_bytes = count as u64 * node.node.profile.bytes_per_group;
+    node.unattached_engine_histories = count as u32;
+    let histories = (1..=count)
+        .map(|i| {
+            let mut digest = [0; 32];
+            digest[24..].copy_from_slice(&(i as u64).to_be_bytes());
+            RaftPhysicalHistory {
+                scope: digest,
+                birth: [8; 32],
+                member: MemberId::new(i as u64).unwrap(),
+            }
+        })
+        .collect();
+    (
+        node,
+        RaftPhysicalInventory {
+            histories,
+            initializing: None,
+        },
+    )
+}
+
+#[test]
+fn physical_inventory_maximum_is_bounded_and_roundtrips() {
+    for count in [0, 1, 1500, MAX_GROUPS] {
+        let (node, inventory) = occupied(count);
+        let bytes = encode(&node, &inventory).unwrap();
+        assert!(bytes.len() <= MAX_BODY);
+        let (decoded_node, decoded) = decode(&bytes).unwrap();
+        assert_eq!(*decoded_node, node);
+        assert_eq!(*decoded, inventory);
+        assert_eq!(decoded.digest(), inventory.digest());
+    }
+    // Two bounded wire copies plus decoded identities and node metadata fit
+    // the existing per-node/per-peer and new host-response reservations.
+    assert!(
+        2 * MAX_BODY + std::mem::size_of::<RaftPhysicalHistory>() * MAX_GROUPS + 32 * 1024
+            < RESPONSE_BYTES
+    );
+}
+
+#[test]
+fn physical_inventory_refuses_truncation_duplicates_and_invalid_counts() {
+    let (node, inventory) = occupied(2);
+    let original = encode(&node, &inventory).unwrap();
+    for len in [0, PREFIX - 1, PREFIX, original.len() - 1] {
+        assert!(decode(&original[..len]).is_err());
+    }
+    let mut extra = original.clone();
+    extra.push(0);
+    assert!(decode(&extra).is_err());
+    let mut oversized = original.clone();
+    oversized[8..12].copy_from_slice(&u32::MAX.to_be_bytes());
+    assert!(decode(&oversized).is_err());
+    let mut unknown = original.clone();
+    unknown[..4].copy_from_slice(&2u32.to_be_bytes());
+    assert!(decode(&unknown).is_err());
+    let mut duplicate = inventory.clone();
+    duplicate.histories[1] = duplicate.histories[0];
+    assert!(encode(&node, &duplicate).is_err());
+    let mut reverse = inventory.clone();
+    reverse.histories.reverse();
+    assert!(encode(&node, &reverse).is_err());
+    let mut zero = original.clone();
+    let n = zero.len();
+    zero[n - 8..].fill(0);
+    assert!(decode(&zero).is_err());
+    assert!(decode(&vec![0; MAX_BODY + 1]).is_err());
+    let mut missing = node;
+    missing.node.groups += 1;
+    missing.node.reserved_bytes += missing.node.profile.bytes_per_group;
+    assert!(encode(&missing, &inventory).is_err());
+}
+
+#[test]
+fn physical_inventory_pending_slot_is_counted_once_and_never_hidden() {
+    let (mut node, mut inventory) = occupied(1);
+    inventory.initializing = Some(inventory.histories[0].scope);
+    assert!(encode(&node, &inventory).is_ok());
+    inventory.initializing = Some([9; 32]);
+    assert!(encode(&node, &inventory).is_err());
+    node.node.groups += 1;
+    node.node.reserved_bytes += node.node.profile.bytes_per_group;
+    let bytes = encode(&node, &inventory).unwrap();
+    assert_eq!(decode(&bytes).unwrap().1.initializing(), Some([9; 32]));
+    let mut bad_flag = bytes.clone();
+    bad_flag[12] = 2;
+    assert!(decode(&bad_flag).is_err());
+    let mut absent = bytes;
+    absent[12] = 0;
+    assert!(decode(&absent).is_err());
+}
+
+#[test]
+fn physical_inventory_scope_matching_binds_the_full_history() {
+    let first = scope();
+    let digest = scope_digest(&first).unwrap();
+    let inventory = RaftPhysicalInventory {
+        histories: vec![RaftPhysicalHistory {
+            scope: digest,
+            birth: [8; 32],
+            member: MemberId::new(3).unwrap(),
+        }],
+        initializing: None,
+    };
+    assert_eq!(
+        inventory.history(&first).unwrap().unwrap().birth_digest(),
+        [8; 32]
+    );
+    let mut changed = first.clone();
+    changed.cell.push('x');
+    assert!(inventory.history(&changed).unwrap().is_none());
+    let mut changed = first.clone();
+    changed.incarnation = IncarnationId::new([5; 16]).unwrap();
+    assert!(inventory.history(&changed).unwrap().is_none());
+    let mut changed = first;
+    changed.cell.clear();
+    assert!(inventory.history(&changed).is_err());
+}
