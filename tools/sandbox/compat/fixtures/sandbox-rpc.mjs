@@ -43,6 +43,15 @@ const app = workersApplication(
               ...JSON.parse(result.stdout),
             });
           }
+          if (url.pathname === "/download") {
+            const file = await sandbox.readFile(path, { encoding: "none" });
+            return new Response(file.content, {
+              headers: {
+                "content-type": file.mimeType,
+                "content-length": String(file.size),
+              },
+            });
+          }
           if (url.pathname === "/upload") {
             const gate = Promise.withResolvers();
             gates.set("upload", gate);

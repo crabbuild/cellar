@@ -181,8 +181,9 @@ export type RpcFunction<A extends unknown[], R> = ((
   [Symbol.dispose](): void;
 };
 
-type RpcValue<T> =
-  T extends ReadableStream<infer B>
+type RpcValue<T> = T extends Response
+  ? Response & { [Symbol.dispose](): void }
+  : T extends ReadableStream<infer B>
     ? B extends Uint8Array
       ? ReadableStream<B> & { [Symbol.dispose](): void }
       : never

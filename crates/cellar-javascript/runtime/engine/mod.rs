@@ -575,6 +575,7 @@ pub(super) fn run(
     let rpc_streams = script(scope, include_str!("../rpc_streams.js"))?;
     let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
     let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
+    let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -593,6 +594,7 @@ pub(super) fn run(
                 rpc_streams,
                 rpc_writables,
                 rpc_inputs,
+                rpc_messages,
             ],
         )
         .context("JavaScript facade initialization failed")?;

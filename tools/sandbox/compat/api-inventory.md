@@ -56,8 +56,11 @@ including returned-function arguments and cross-DO forwarding; this does not
 alone qualify the SDK's separate Cap'n Web transport. A dedicated RPC-image test
 now runs actual SDK `writeFile` with a 2 MiB + 17 byte readable input, observing
 the server's atomic temporary-file prefix before release and verifying exact
-final bytes through an independent SDK execution session. Message transfers and
-complete reconnect/fault semantics remain unqualified.
+final bytes through an independent SDK execution session. The same scenario
+round-trips those bytes through the unchanged binary `readFile` method and its
+returned content stream. A separate native fixture covers returned HTTP response
+metadata, streaming, cancellation and cleanup. HTTP-message arguments and complete
+reconnect/fault semantics remain unqualified.
 
 The baseline additionally needs preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,

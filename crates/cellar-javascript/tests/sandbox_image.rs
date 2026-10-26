@@ -159,7 +159,7 @@ fn portable_files_use_daemon_archives_across_events() -> Result<()> {
 
 #[test]
 #[ignore = "requires isolated CELLAR_SANDBOX_ENGINE_SOCKET and preloaded CELLAR_SANDBOX_FENCE_IMAGE"]
-fn published_sandbox_rpc_upload_uses_the_pinned_image() -> Result<()> {
+fn published_sandbox_rpc_files_use_the_pinned_image() -> Result<()> {
     let images = Images::configured()?;
     let directory = tempfile::tempdir()?;
     let entry = fixture()?.with_file_name("sandbox-rpc.mjs");
@@ -385,6 +385,22 @@ async fn exercise_rpc(address: &str, docker: &cellar::docker::Docker, host: &str
         ensure!(
             result["exit"] == 0 && result["size"] == size && result["valid"] == true,
             "SDK file bytes: {result}"
+        );
+        let response = client.get(format!("{address}/download")).send().await?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        ensure!(
+            status.is_success(),
+            "SDK binary download: {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        ensure!(
+            bytes.len() == size as usize
+                && bytes
+                    .iter()
+                    .enumerate()
+                    .all(|(i, byte)| *byte == (i % 256) as u8),
+            "SDK binary download changed file bytes"
         );
         Ok::<_, anyhow::Error>(())
     }

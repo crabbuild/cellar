@@ -122,3 +122,41 @@ fn input_sessions_require_argument_arrays_and_stream_only_markers() {
     graph.objects[1] = Object::Object(vec![]);
     assert!(inputs(&encode(&graph), 1, 4096).is_err());
 }
+
+#[test]
+fn response_publications_validate_metadata_with_the_native_lease() {
+    let head = serde_json::json!({
+        "status": 206, "statusText": "Partial Content", "headers": [["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+        "body": true, "url": "https://example.test/file", "redirected": false, "type": "default"
+    });
+    let encoded = |head: serde_json::Value| {
+        encode(&StructuredValue::from_json(serde_json::json!([[], [head], ["response"]])).unwrap())
+    };
+    assert!(markers(&encoded(head.clone()), 1, 4096).is_ok());
+    assert!(inputs(&encoded(head.clone()), 1, 4096).is_err());
+    for (key, invalid) in [
+        ("status", serde_json::json!(101)),
+        ("status", serde_json::json!(204)),
+        ("status", serde_json::json!(200.5)),
+        ("statusText", serde_json::json!("invalid\r\nstatus")),
+        ("body", serde_json::json!("yes")),
+        ("type", serde_json::json!("opaque")),
+        ("headers", serde_json::json!([["invalid header", "value"]])),
+        ("headers", serde_json::json!([["x-value", "bad\r\nvalue"]])),
+        (
+            "headers",
+            serde_json::json!([["x-value", "x".repeat(32769)]]),
+        ),
+        ("url", serde_json::json!("x".repeat(8193))),
+        ("unexpected", serde_json::json!(true)),
+    ] {
+        let mut value = head.clone();
+        value[key] = invalid;
+        assert!(
+            markers(&encoded(value), 1, 65536).is_err(),
+            "invalid field: {key}"
+        );
+    }
+    let error = serde_json::json!({"status":0,"statusText":"","headers":[],"body":false,"url":"","redirected":false,"type":"error"});
+    assert!(markers(&encoded(error), 1, 4096).is_ok());
+}

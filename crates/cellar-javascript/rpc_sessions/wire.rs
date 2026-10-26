@@ -59,20 +59,25 @@ pub(super) fn markers(encoded: &str, count: usize, maximum: usize) -> Result<()>
         ensure!(
             *kind == CloneValue::from("function")
                 || *kind == CloneValue::from("readable")
-                || *kind == CloneValue::from("writable"),
+                || *kind == CloneValue::from("writable")
+                || *kind == CloneValue::from("response"),
             "invalid RPC delegate kind"
         );
     }
     let mut seen = HashSet::new();
-    for reference in references {
+    for (reference, kind) in references.iter().zip(kinds) {
         let CloneValue::Reference(id) = reference else {
             anyhow::bail!("invalid RPC marker")
         };
         ensure!(seen.insert(*id), "duplicate RPC marker");
-        ensure!(
-            matches!(graph.objects.get(*id as usize), Some(Object::Object(properties)) if properties.is_empty()),
-            "invalid RPC marker"
-        );
+        if *kind == CloneValue::from("response") {
+            super::response::validate(&graph, reference)?;
+        } else {
+            ensure!(
+                matches!(graph.objects.get(*id as usize), Some(Object::Object(properties)) if properties.is_empty()),
+                "invalid RPC marker"
+            );
+        }
     }
     Ok(())
 }

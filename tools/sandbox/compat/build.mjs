@@ -24,6 +24,7 @@ for (const [fixture, platform] of [
   ["web-writable", "node"],
   ["web-inputs", "node"],
   ["web-websocket", "node"],
+  ["web-messages", "node"],
 ]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {
     const result = await build({

@@ -364,3 +364,65 @@ fn output_barriers_overlap_writes_without_admitting_another_mutation() -> Result
     }
     Ok(())
 }
+
+#[test]
+fn pending_socket_output_allows_storage_but_not_overlapping_mutations() -> Result<()> {
+    let body = r#"
+      const output = [
+        ctx._call('container.websocket.send_text', {id:'text',text:'held'}),
+        ctx._call('container.websocket.send_binary', {id:'binary',data:'AA=='}),
+        ctx._call('container.websocket.close', {id:'close',code:1000,reason:''})
+      ];
+      const write = ctx.storage.apply({puts:{received:1}});
+      const refused = ctx.storage.apply({puts:{received:2}}).then(
+        () => false,
+        error => error.code === 'ConcurrentMutation' && error.outcome === 'not_committed'
+      );
+      return Promise.all([...output, write, refused]).then(values => ({refused:values[4]}));
+    "#;
+    for backend in modes() {
+        run(backend, Options::default(), body, |app| {
+            let (invocation, mut receive) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            let mut pending = Vec::new();
+            for expected in [
+                "container.websocket.send_text",
+                "container.websocket.send_binary",
+                "container.websocket.close",
+                "storage.apply",
+            ] {
+                let Event::Operation {
+                    id,
+                    name,
+                    synchronous,
+                    ..
+                } = event(&mut receive)
+                else {
+                    anyhow::bail!("storage refused while socket output was pending");
+                };
+                assert_eq!(name, expected);
+                pending.push((id, synchronous));
+            }
+            for (id, synchronous) in pending {
+                app.runtime.respond(
+                    invocation,
+                    id,
+                    r#"{"ok":true,"value":null}"#.into(),
+                    synchronous,
+                )?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receive)
+            else {
+                anyhow::bail!("overlapping storage mutation was admitted");
+            };
+            assert!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!({"refused":true})
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}

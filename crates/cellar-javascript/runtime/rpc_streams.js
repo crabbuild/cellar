@@ -5,36 +5,56 @@
 () => {
   const Stream = globalThis.ReadableStream;
   const Reader = globalThis.ReadableStreamBYOBReader;
+  const DefaultReader = globalThis.ReadableStreamDefaultReader;
   const Bytes = Uint8Array;
   const apply = Reflect.apply;
   const getReader = Stream?.prototype.getReader;
   const read = Reader?.prototype.read;
   const cancelReader = Reader?.prototype.cancel;
   const unlock = Reader?.prototype.releaseLock;
+  const defaultRead = DefaultReader?.prototype.read;
+  const defaultCancel = DefaultReader?.prototype.cancel;
+  const defaultUnlock = DefaultReader?.prototype.releaseLock;
 
-  function send(stream, context) {
+  function send(stream, context, allowDefault = false) {
     const maximum = context._sync("workers.http.limits").max_body_bytes;
     // Reserve space for the clone envelope and read-result fields. Native clone
     // and bridge budgets independently validate every completed delegate reply.
     if (!Number.isSafeInteger(maximum) || maximum <= 128)
       throw new RangeError("RPC stream byte budget is too small");
     const size = Math.min(64 * 1024, maximum - 128);
-    // A BYOB reader refuses object streams and locked streams before any pull.
-    const reader = apply(getReader, stream, [{ mode: "byob" }]);
+    // Input streams require a byte source before invoking the target. Returned
+    // streams and Response bodies can use a default reader (e.g. Cap'n Web
+    // pipes); validate each chunk before forwarding and retain at most one
+    // chunk within the host body budget. Never coerce arbitrary objects.
+    let reader,
+      byob = true;
+    try {
+      reader = apply(getReader, stream, [{ mode: "byob" }]);
+    } catch (error) {
+      if (!allowDefault || stream.locked) throw error;
+      byob = false;
+      reader = apply(getReader, stream, []);
+    }
+    const readChunk = byob ? read : defaultRead;
+    const cancelChunk = byob ? cancelReader : defaultCancel;
+    const release = byob ? unlock : defaultUnlock;
+    let buffered;
     let ended = false;
     let reading = false;
     let closing;
     const close = (reason) => {
       if (!closing) {
         ended = true;
-        closing = apply(cancelReader, reader, [reason]);
+        buffered = undefined;
+        closing = apply(cancelChunk, reader, [reason]);
       }
       return closing;
     };
     return {
       restore() {
         // Publication failed before transferring ownership or issuing a read.
-        apply(unlock, reader, []);
+        apply(release, reader, []);
       },
       close,
       async invoke(operation, argument) {
@@ -49,14 +69,27 @@
         if (ended) return { done: true };
         reading = true;
         try {
-          const chunk = await apply(read, reader, [
-            new Bytes(Math.min(size, argument)),
-          ]);
+          const grant = Math.min(size, argument);
+          const chunk = buffered
+            ? { done: false, value: buffered }
+            : await apply(readChunk, reader, byob ? [new Bytes(grant)] : []);
           if (chunk.done) {
             ended = true;
             return { done: true };
           }
-          return { done: false, value: chunk.value };
+          if (
+            !(chunk.value instanceof Bytes) ||
+            chunk.value.byteLength > maximum
+          )
+            throw new TypeError("RPC stream requires bounded byte chunks");
+          // Own the unread suffix: a small view may otherwise retain a much
+          // larger backing buffer supplied by a default source.
+          const value = chunk.value.slice(0, grant);
+          buffered =
+            chunk.value.byteLength > grant
+              ? chunk.value.slice(grant)
+              : undefined;
+          return { done: false, value };
         } catch (error) {
           ended = true;
           throw error;
@@ -113,18 +146,27 @@
       async pull() {
         if (ended) return;
         try {
-          const chunk = await call("read", size);
-          if (ended) return;
-          if (chunk.done === true) {
-            await release();
+          while (!ended) {
+            const chunk = await call("read", size);
             if (ended) return;
-            ended = true;
-            const pending = controller.byobRequest;
-            controller.close();
-            pending?.respond(0);
-          } else if (chunk.done === false && chunk.value instanceof Bytes) {
-            controller.enqueue(chunk.value);
-          } else throw new TypeError("Invalid RPC byte stream frame");
+            if (chunk.done === true) {
+              await release();
+              if (ended) return;
+              ended = true;
+              const pending = controller.byobRequest;
+              controller.close();
+              pending?.respond(0);
+              return;
+            }
+            if (chunk.done !== false || !(chunk.value instanceof Bytes))
+              throw new TypeError("Invalid RPC byte stream frame");
+            if (chunk.value.byteLength) {
+              controller.enqueue(chunk.value);
+              return;
+            }
+            // Empty default-stream chunks do not satisfy a pending byte read.
+            // Each retry still consumes a native operation and its byte budget.
+          }
         } catch (error) {
           if (ended) return;
           controller.error(error);
@@ -145,6 +187,7 @@
   return {
     isReadable: (value) => Stream && value instanceof Stream,
     send,
+    sendReturned: (stream, context) => send(stream, context, true),
     receive,
   };
 }

@@ -185,6 +185,25 @@ SP-07 must not replace the celld baseline without a distinct migration profile.
 Hosted deployment and live-account qualification are explicit delivery steps.
 Fixture passes are not live cloud qualification or full Workers compatibility.
 
+## Next feature priorities
+
+The [current ledger](sandbox-provider-progress.md#requirement-audit) separates
+implemented slices from full-profile acceptance. Streaming SDK upload/download
+and returned RPC responses now have pinned-image/native evidence. The latest
+broader run also exposed deadline and drainage failures; reproducing and resolving
+those is the current qualification gate before claiming these profiles complete.
+
+| Order | Remaining delivery | Why next |
+| --- | --- | --- |
+| 1 | Request transfer and HTTP-message RPC arguments | Complete the bidirectional HTTP transfer surface needed by published applications |
+| 2 | Containers sleep/wake/hooks, upgraded Worker/DO routing and Sandbox previews | Finish the local application lifecycle and service-access path |
+| 3 | Named provider bindings, reconnect/expiry and orphan reconciliation | Make the common framework useful across events and ownership changes |
+| 4 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
+
+Live E2B/Vercel qualification waits for the user's configuration. Local
+Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06
+remain partial; SP-07–SP-09 and full SP-10 release qualification remain open.
+
 ## Sources and implementation entry points
 
 Reviewed against upstream documentation and examples on 2026-10-24. Pin exact

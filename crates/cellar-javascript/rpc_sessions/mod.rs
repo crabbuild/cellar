@@ -2,6 +2,7 @@
 
 //! Invocation-owned callable results over the existing native CellRpc route.
 mod registry;
+mod response;
 mod session;
 mod wire;
 

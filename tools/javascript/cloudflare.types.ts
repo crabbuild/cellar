@@ -19,6 +19,9 @@ class Counter extends DurableObject {
   output(): ReadableStream<Uint8Array> {
     return new ReadableStream<Uint8Array>({ type: "bytes" });
   }
+  download(): Response {
+    return new Response(this.output());
+  }
   sink(): WritableStream<Uint8Array> {
     return new WritableStream<Uint8Array>();
   }
@@ -66,6 +69,13 @@ const tools = stub.tools().then((tools) => {
 });
 void tools;
 const streamed: Promise<ReadableStream<Uint8Array>> = stub.output();
+const downloaded = stub.download().then(async (response) => {
+  const status: number = response.status;
+  const bytes: ArrayBuffer = await response.arrayBuffer();
+  response[Symbol.dispose]();
+  return [status, bytes];
+});
+void downloaded;
 const consumed = stub.nestedOutput().then(({ body }) => {
   const bytes: Promise<ReadableStreamReadResult<Uint8Array>> = body
     .getReader()

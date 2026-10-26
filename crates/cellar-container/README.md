@@ -60,8 +60,10 @@ probe also forwards output through Worker/DO HTTP responses before command
 completion. Direct RPC `execStream()` also passes. Generic RPC byte-stream inputs
 run through native sessions. With `SANDBOX_TRANSPORT=rpc`, a real 2 MiB SDK
 binary upload now passes through Cap'n Web and native container WebSockets,
-including a prefix observed before EOF and exact final bytes. HTTP-message RPC
-transfers, previews and full fault qualification remain open.
+including a prefix observed before EOF and exact final bytes. The unchanged
+SDK `readFile({ encoding: "none" })` returns those bytes through native RPC;
+returned HTTP responses also preserve metadata and streamed body ownership.
+HTTP-message arguments, previews and full fault qualification remain open.
 See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start

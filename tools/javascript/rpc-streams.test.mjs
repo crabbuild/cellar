@@ -247,3 +247,45 @@ test("RPC pulls respect the smaller producer and consumer byte budgets", async (
     await sent.close();
   }
 });
+
+test("returned default streams split byte chunks, preserve empty chunks and reject objects or oversized chunks", async () => {
+  for (const bad of [{ object: true }, new Uint8Array(257)]) {
+    const codec = make();
+    let phase = 0,
+      cancelled = false,
+      released = false;
+    const source = new ReadableStream(
+      {
+        pull(controller) {
+          const chunks = [new Uint8Array(0), new Uint8Array(250).fill(42), bad];
+          controller.enqueue(chunks[phase++]);
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const sent = codec.sendReturned(source, context);
+    assert.equal(phase, 0);
+    const received = codec.receive(
+      sent.invoke,
+      async () => {
+        released = true;
+      },
+      undefined,
+      256,
+    );
+    const reader = received.stream.getReader();
+    const first = await reader.read();
+    const second = await reader.read();
+    assert.equal(first.value.byteLength, 128);
+    assert.equal(second.value.byteLength, 122);
+    assert.ok([...first.value, ...second.value].every((byte) => byte === 42));
+    await assert.rejects(reader.read(), /bounded byte chunks/);
+    await received.dispose();
+    assert.equal(cancelled, true);
+    assert.equal(released, true);
+    assert.equal(source.locked, true);
+  }
+});

@@ -2,7 +2,8 @@
 
 // Factory captured before application initialization. Native session handles,
 // rather than serializable marker data, authorize every delegated operation.
-(readables, writables, makeInputs) => {
+(readables, writables, makeInputs, makeMessages) => {
+  const messages = makeMessages?.(readables);
   const apply = Reflect.apply;
   const keys = Object.keys;
   const prototype = Object.getPrototypeOf;
@@ -96,9 +97,15 @@
     };
     try {
       const copied = transform(value, (value) => {
-        let invoke, kind;
-        if (readables.isReadable(value)) {
-          const sender = readables.send(value, context);
+        let invoke, kind, metadata;
+        if (messages?.isResponse(value)) {
+          const sender = messages.send(value, context);
+          senders.push(sender);
+          invoke = sender.invoke;
+          metadata = sender.metadata;
+          kind = "response";
+        } else if (readables.isReadable(value)) {
+          const sender = readables.sendReturned(value, context);
           senders.push(sender);
           invoke = sender.invoke;
           kind = "readable";
@@ -113,7 +120,7 @@
         } else return value;
         functions.push(invoke);
         kinds.push(kind);
-        const marker = Object.create(null);
+        const marker = metadata ?? Object.create(null);
         markers.push(marker);
         return marker;
       });
@@ -228,7 +235,8 @@
       !ArrayClass.isArray(value[2]) ||
       value[2].length !== handles.length ||
       value[2].some(
-        (kind) => !["function", "readable", "writable"].includes(kind),
+        (kind) =>
+          !["function", "readable", "writable", "response"].includes(kind),
       )
     )
       throw new ErrorClass("Invalid callable RPC result");
@@ -291,9 +299,13 @@
         );
         let replacement = callable;
         if (value[2][index] !== "function") {
-          const readable = value[2][index] === "readable";
+          const response = value[2][index] === "response";
+          const readable = response || value[2][index] === "readable";
           const transfer = readable ? readables : writables;
-          const received = transfer.receive(
+          const receive = response
+            ? (...args) => messages.receive(value[1][index], ...args)
+            : transfer.receive;
+          const received = receive(
             callable,
             release,
             (reason) => {

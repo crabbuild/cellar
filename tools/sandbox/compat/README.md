@@ -103,7 +103,7 @@ It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline. Generic stream inputs
 have a separate native fixture; SDK RPC uploads now have their own real-image
-scenario. SP-04 message transfers, previews, restart/fencing and live-cloud
+scenario. SP-04 HTTP-message arguments, previews, restart/fencing and live-cloud
 requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
@@ -163,17 +163,28 @@ accepted prefixes after source failure, cancellation, local quota/encoding
 refusal and unused-session cleanup. Shutdown must drain both application work
 and native bridge reservations. It does not run SDK uploads or a container.
 
-## Actual SDK RPC upload
+## Actual SDK RPC files
 
-The `published_sandbox_rpc_upload_uses_the_pinned_image` image test selects the
+The `published_sandbox_rpc_files_use_the_pinned_image` image test selects the
 declared `SANDBOX_TRANSPORT=rpc` binding and calls unchanged `getSandbox`,
-`writeFile` with a byte stream, `exec` and `destroy`. A separate execution session
+`writeFile` with a byte stream, binary `readFile`, `exec` and `destroy`. A separate execution session
 observes an actual temporary-file prefix before source release; the destination
 must remain unpublished until EOF. The final 2 MiB + 17 bytes and SDK byte count
-must match exactly, and shutdown must leave no native bridge reservations.
+must match exactly. Binary `readFile({ encoding: "none" })` then returns a file
+result whose streamed content must match every uploaded byte. Shutdown must
+leave no native bridge reservations.
 
 This exercises the published Containers local WebSocketPair proxy and Cap'n Web
 session over Cellar's native port socket. It does not replace SDK transport code.
 New stream/WS tests retain explicit handshake budgets; existing image deadlines
 and assertions remain unchanged. Complete reconnect, abandoned-stream,
-Request/Response transfer and fault qualification remain required.
+Request transfer, HTTP-message arguments and fault qualification remain required.
+
+## Returned RPC response fixture
+
+`web-messages.mjs` and the native `workers_messages` test exercise real HTTP
+responses returned from DO methods: metadata and aliases, a 3 KiB body through a
+2 KiB bridge budget, delivery before source release, errors after an accepted
+prefix, client cancellation and unconsumed-body disposal. Shutdown must drain
+application work and bridge reservations. Request/Response arguments and full
+HTTP-message compatibility remain pending.
