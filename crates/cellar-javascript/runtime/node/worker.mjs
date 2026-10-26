@@ -400,6 +400,7 @@ const factory = makeRunner(
   makeRpcInputs,
   makeRpcMessages,
   makeRpcRequests,
+  () => scope.getStore()?.callback_scope ?? null,
 );
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

@@ -74,6 +74,7 @@ export function durableObjectContainer(nativeContext) {
         } catch {}
       },
     );
+    context._containerControl(pending);
     return pending;
   }
 
@@ -169,6 +170,7 @@ export function durableObjectContainer(nativeContext) {
         }
       });
       if (observed) observed.stop = { work, hasError, error };
+      context._containerControl(work);
       event(context).tail = work;
       return work;
     },
