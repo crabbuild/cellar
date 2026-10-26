@@ -848,3 +848,10 @@ changes, including final payload verification and receipt retries after restart.
 Targeted native integration-test Clippy with warnings denied, formatting (1,084
 Rust files), documentation and whitespace checks pass. These are diagnostic
 checks on the follow-up source, not a repaired or repeated full-size result.
+
+PR #124 has merged. On updated main `9f1e7df1`, the diagnostic follow-up
+`9c411750` again passes both ordinary recovery cases, formatting/layout for
+1,172 Rust files, targeted native integration-test Clippy with warnings denied,
+and documentation checking for 808 local references. The
+underlying Raft/LTX production source is unchanged by the intervening main
+updates; the failed full-size executable remains frozen at `b8ed3d03`.
