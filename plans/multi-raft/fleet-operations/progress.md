@@ -1,11 +1,69 @@
 # Fleet operations implementation progress
 
-The full fleet operations goal is active. FO-01 implements the catalog adapter
-and FO-02 implements the durable membership guard, with local native verification.
-FO-03 and FO-04 are in progress; FO-05 through FO-10 remain pending. The operator commands,
-automatic redistribution, managed maintenance and resize workflows are not yet
-available. The task manifest is authoritative for package status and retained
-completion records.
+The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
+complete at their documented local adapter boundaries.** FO-04 is in progress;
+FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
+managed maintenance and resize are not delivered. The task manifest is the
+package-status source of truth. Historical sections below record earlier states.
+
+## Current qualification and artifact retention
+
+Frozen source `45d3c1630d9545ad273574a36e3c90d0c6c5ff1b` passes all 141 required
+FO-03 cases and the full seven-suite cohort: enrollment 113, catalog 12, permits
+25, archive 57, snapshot 46, directory 16 and Raft units 166, **435 passed** total.
+Two snapshot subprocess fixtures remain ignored in direct execution and are
+invoked by passing parent crash matrices. All-target Clippy with warnings denied,
+formatting, layout, native dependencies, documentation checks and ten plan
+validator tests pass. Exact source inputs, executable copies, commands and log
+hashes are retained in `qualification/fleet-operations/terminal-v6/` under this
+checkout's unique target directory, outside runtime data. Completion records and
+small required logs are mirrored into ignored `.cellar/raft-perf` paths.
+
+The operator confirmed cleaning local artifacts while an earlier qualification
+was running. Earlier `.cellar/raft-perf` logs and binaries are unavailable;
+historical descriptions do not substitute for them. The current run is fresh
+verification, with primary artifacts outside `.cellar` and an explicit source
+and scope audit. FO-01/FO-02 completion records also reference fresh passing
+commands. No raw files under `plans/multi-raft/evidence/` are added to this PR.
+
+## Completed FO-03 lifecycle
+
+Trusted enrollment, complete managed-history inventory, guarded initial voters,
+dynamic registration and evacuation candidates now extend through terminal
+removal. A recreated adapter resumes a rooted Finalizing operation without
+changing its accepted stop authority. It owns current RF3 quorum observations
+and physical archive replay at the fixed publication prefix. After replay it
+renews every live group's quorum proof and probes survivor processes again.
+
+Only complete current inventory and exact boot-pinned signed closure after
+physical owners join authorize one CAS that records the terminal receipt,
+changes the node to Removed and releases the shared disruption slot. Physical
+history, disk/engine identity and resource reservations remain. Exact retries
+reconcile the permanent request journal even after lost terminal replies.
+Incomplete import, a later failed survivor or unknown physical closure refuses
+completion and retains the slot.
+
+The native composed case performs an actual S3-seeded voter replacement, joint
+completion, scoped stop during survivor writes, physical joins, Finalizing
+resumption, terminal removal, admission of the next disruption and another
+business write. These local tests qualify the adapter, not the future automatic
+controller or unreachable-owner isolation workflow. Deployed RustFS, enforced
+resource limits, density, throughput/latency and soak remain FO-10 gates.
+
+## Next implementation milestone
+
+FO-04 must link each capacity debit to its exact membership permit in one CAS,
+execute a real learner seed/joint transition, and release active movement debt
+only after terminal quorum proof and physical work joins. Retain physical high
+water independently of active rows before allowing release. Then implement the
+complete bounded final assignment and legal staged moves with one-node-loss
+restoration headroom. The pure ledger and resource-only admission are existing
+infrastructure; they do not complete automatic redistribution.
+
+## Historical implementation checkpoints
+
+The sections below preserve earlier source-specific results and then-current
+status. Current package status and retained qualification are stated above.
 
 ## Implemented catalog foundation
 
@@ -1733,72 +1791,73 @@ so earlier writers cannot bypass the new append-only resource-book rules. Marker
 stay at 1; use fresh coordination/data prefixes, namespaces, engine directories
 and matching binaries. No compatibility reader or migration is added.
 
+## FO-04 progress: authenticated physical history attribution
+
+The resource consumer now owns a complete authenticated engine-history snapshot.
+It matches original-voter references against full-scope digest, immutable birth
+and physical member ID. A Reserved or unmaterialized Live birth remains blocked;
+a durable voter is charged while another history can reserve unused capacity.
+The prospective learner's occupied history refuses even when aggregate capacity
+is available. Retired/unregistered engine histories remain visible after intact
+restart, without a business registration or live quorum for that history.
+
+The compact binary snapshot is bounded to 4,096 histories and 311,341 wire bytes,
+within a 1-MiB response/metadata reservation. Capture validates the engine/node
+count cut and preserves pending initialization. The request mode is MAC-bound;
+ordinary node probes explicitly omit inventory. Response charges and original
+age survive unpolled delivery and cancellation. Resource rows retain a canonical
+inventory input digest scoped by their exact boot/profile and fleet root.
+
+The physical-inventory source at `8b57107d55996763a6e9bdb2e80d1af8848189e6`
+passed all-target Clippy and 138 native cases (enrollment 110, catalog 12 and
+directory 16). Its Raft unit cohort passed 165 and failed one startup test with
+temporary transport overload. The retained executable reproduced that failure
+and also passed a subsequent focused run. The test now retries only explicit
+heartbeat overload under its original bounded wait and still requires success;
+this source change remains in qualification with the terminal-removal work.
+The failed cohort is retained and is not reported as a passing unit run.
+
+Earlier failed attempts remain retained: the
+retention fixture constructed its timer outside the execution domain; a raw
+unrooted-node frame lacked the new required request field; Clippy required a
+shared observation type and fixed-size chunk API. All-target Clippy additionally
+found the filesystem fault adapter loaded three times in library tests; these
+consumers now share one owning test module. Assertions and fault behavior were
+preserved. The strengthened warm-node case also refuses an extra debit against
+an actual occupied slot plus an existing reservation despite a zero caller slot
+attestation. No failed attempt is treated as a pass.
+
+Typed membership-permit integration and terminal resource release remain open.
+Keep retained physical high water independently of completed debit rows before
+releasing movement slots. Complete staged assignment, one-node-loss restoration
+feasibility, owned reconciliation and operator workflows remain required.
+FO-03 and FO-04 stay `IN_PROGRESS`; this snapshot grants no membership, removal,
+resource release, deletion or health lease. Platform occupancy remains separately
+deployment-attested; RustFS/Colima performance and resource enforcement are not
+qualified. The managed fleet remains default-off.
+
+The experimental protocol ends in `/resource-reservations-1/physical-inventory-1`.
+Resource records require the inventory digest and node requests require explicit
+mode. Keep markers at 1 and use fresh coordination/data prefixes, namespaces,
+engine directories and matching binaries; no compatibility reader or migration.
+
 ## Prioritized remaining delivery
 
-The append-only namespace registry, complete inventory read, native retired-binding
-refusal, unrooted ingress refusal, catalog-scoped move trust admission,
-physical route/process revocation, rooted replica separation and typed evacuation
-exclusion, remote quorum observations, coherent publication cuts and complete-inventory
-candidate preparation with physical archive replay and a rooted no-new-boot
-Finalizing boundary, exact-boot stop/fence admission through local and standalone
-Raft control, and signed post-join closure are implemented at their documented
-boundaries. Native coverage now composes real voter replacement and survivor
-writes with Raft-control stop and joined closure of retained physical history.
-The evacuation adapter consumes complete inventory inside its exact root CAS.
-Typed attested capacity activation is now implemented. Placement must still
-combine its current authorization with fresh occupancy and reservations; terminal
-lifecycle proof remains pending. A saved count cannot authorize maintenance. The manifest dependencies remain unchanged.
-
-| Priority | Boundary | Required result before advancing |
+| Priority | Boundary | Required result |
 | --- | --- | --- |
-| P0 | FO-03 terminal completion | Resume or refresh candidates while Finalizing without rebinding accepted stop authority; retain uncertain occupancy for unreachable owners. Obtain fresh terminal survivor/inventory/archive checks and atomically root the terminal receipt/node transition/disruption-slot release. Close `fleet_enrollment_incomplete_import` at removal certification. Attested capacity readiness is implemented at its local boundary; deployed measurements remain a qualification gate. |
-| P1 | FO-04 placement, FO-05 load, FO-06 reconciliation | Resource-only admission now consumes current typed capacity through one CAS. Add complete physical attribution and exact permit linkage, bounded staged feasibility for retained/temporary costs and one-node-loss headroom, then fresh load observations and a domain-owned reconciler. Restart/cancellation/lost replies must converge; release reservations only with fresh terminal quorum proof and physical-work joins. |
-| P2 | FO-07 maintenance and FO-08 operator API/CLI | Integrate local stop/fence admission and verified closure with the shared disruption slot for restart/resize, complete evacuation/removal receipts and authenticated idempotent workflows with revision guards and typed outcomes. Deliver typed remote overload/unknown outcomes, add/remove, rolling restart and cancellation/resume. |
-| P3 | FO-09 scaling and fewer-cell shrink | Reconcile desired, effective and observed resources for horizontal and vertical changes. Require observed platform-limit checks and complete retained-state fit before shrinking; fewer cells do not establish removability. |
-| Release gate | FO-10 deployed qualification and performance | Qualify actual five/six/four-node RustFS/Colima operations and faults with enforced 1-vCPU/3-GiB limits and a 24-hour soak. Measure successful TPS, p50/p95/p99, archive catch-up and controller idle/movement overhead. Prefer p99 below 200 ms; 500 ms is the hard ceiling. Keep optional performance changes only with matched evidence of higher throughput or lower latency. |
+| P0 | FO-04 placement | Atomically link resource debits and exact membership permits; execute and release real moves under fresh terminal proof while retaining physical high water. Complete staged feasibility and single-failure restoration headroom. |
+| P1 | FO-05 load and FO-06 reconciliation | Fresh scoped load observations and a domain-owned resumable reconciler. Restart, cancellation and ambiguous replies converge on one exact operation. |
+| P2 | FO-07 maintenance and FO-08 operator workflows | Shared-slot restart/resize/rejoin/cancel/remove, explicit unreachable-owner isolation, authenticated idempotent SDK/admin/CLI and typed outcomes. |
+| P3 | FO-09 scaling | Desired/effective/observed horizontal and vertical capacity; fewer cells alone cannot establish retained-state shrink fit. |
+| Release gate | FO-10 deployed qualification | Actual RustFS and five/six/four-node operations, original three-node/1,500-group density, enforced 1-vCPU/3-GiB limits, faults and 24-hour soak. Successful TPS, bytes/sec and p50/p95/p99; prefer p99 below 200 ms, hard ceiling 500 ms. |
 
-Implementation now advances to **FO-04's placement and reservation consumer**
-using the readiness boundary above. FO-03's remaining terminal finalization work
-still gates removal and maintenance, in this order:
-
-1. Support restart-safe resumption and candidate refresh while Finalizing without
-   rebinding accepted stop authority. Keep uncertain occupancy charged for
-   unreachable owners and failed closure publication. Obtain owned fresh survivor observations
-   immediately before terminal CAS, preserving the fixed business cut while
-   rechecking exact history, configuration, settled permits, policy and operation.
-2. Extend the real voter-replacement/stop/closure case through terminal removal.
-   Atomically root the terminal receipt, transition the exact node epoch and
-   release the disruption slot. Reconcile lost replies through the permanent
-   journal; cover crashes at each boundary, orphan candidates and replanning.
-3. Close `fleet_enrollment_incomplete_import` at removal certification. Capacity
-   readiness now provides current attested boot/profile authorization; FO-04
-   must consume it with fresh physical occupancy and reservations. Concurrent
-   managed boot conflicts still need owned controller reconciliation; startup
-   fails cleanly rather than hiding a CAS retry.
-
-These steps unblock the planner and reconciler. They do not require an optional
-leader-scheduling change or a new business-write acknowledgement dependency.
-
-The first complete lifecycle deliverable must extend the existing real
-voter-replacement test through fresh terminal verification and one atomic
-removal receipt/node transition/slot release, then admit the next disruption.
-Repeat across controller restart and lost terminal-CAS replies. An incomplete
-import or lost positive survivor proof must retain the slot and refuse removal;
-the same operation must remain discoverable for resumption.
-
-The local implementation has no measured TPS or latency improvement claim. Keep
-fleet management default-off until its release gates pass. Optional throughput
-or latency changes must meet the existing qualification gates; additional code
-alone is not evidence of an improvement.
-
-For optional performance work, preserve the investigation order: classify failed
-archive-head publications and repeated replica work; measure control queueing by
-traffic class; separate SQLite copying, validation and synchronization; identify
-archive batch flush reasons; then measure idle-group scheduling cost. Workspace
-contention was negligible in the earlier measurements, and the sixteen-frame
-control window is already implemented. Further changes need fresh matched
-profiles and a demonstrated successful-TPS or latency gain under the resource
-and error-rate gates before inclusion.
+Fleet management remains default-off. No local feature test establishes a TPS
+or latency improvement. Optional performance changes require matched throughput
+or latency gains. Preserve the investigation order: archive-head failures and
+repeated replica work, control queueing by traffic class, SQLite copying versus
+validation versus synchronization, archive batch flush reasons, then idle-group
+scheduling cost. Earlier workspace contention was negligible; the sixteen-frame
+control window is already implemented.
 
 ## Expanded operating design
 

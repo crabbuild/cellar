@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c8e6815e50c70bd582619c5a63dbbf7a0820b67b",
+  "baseline_revision": "45d3c1630d9545ad273574a36e3c90d0c6c5ff1b",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -282,7 +282,7 @@
     {
       "id": "FO-03",
       "title": "Enroll trusted nodes and every managed cell history",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "FO-02"
       ],
@@ -436,7 +436,8 @@
         "crates/cellar/tests/support/raft_fleet_stop_rpc.rs",
         "crates/cellar/durability/raft/fleet_catalog/capacity.rs",
         "crates/cellar/durability/raft/fleet_catalog/deadline.rs",
-        "crates/cellar/tests/support/raft_capacity_native.rs"
+        "crates/cellar/tests/support/raft_capacity_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/terminal.rs"
       ],
       "steps": [
         "Add CAS-authorized node-set revisions with bounded route and permission refresh.",
@@ -460,10 +461,11 @@
         "Persist explicit Nodes or PhysicalHosts replica separation in the fleet head and initial genesis pin. Default to PhysicalHosts. Fresh managed births and actual fresh repair admission enforce the selected rooted contract; exact committed repairs remain continuable after exclusion. Node-only colocation grants no physical failure independence. Hard-cut prior protocol/records with marker 1 and no compatibility reader.",
         "Admit Active-to-Draining evacuation intent through one exact root CAS after an internal complete-inventory scan. Atomically persist its canonical operation, excluded node epoch and the single disruption slot, with a retained root digest that refuses generic deletion/reset. Reconcile admitted exact retries through the journal, including after later incomplete namespace additions. This is exclusion admission only, with no shutdown, node-absence, terminal evacuation/removal, reservation release or completed-controller claim. Permanently bind each evacuation operation ID to its exact canonical request through conditional create before root CAS, even if that candidate loses. Admitted reads and retry reconciliation verify that immutable binding; missing request bytes refuse.",
         "Prepare bounded digest-addressed evacuation candidates by consuming complete rooted inventory and owning actual authenticated RF3 observations plus exact physical archive replay. Retain one fixed publication cut per pending history across writes and replay retries; check stable membership, exact settled latest permits, current rooted node/disk/process/engine bindings and failure-domain separation. Reserved births block; canonical cancellations remain explicit. Recheck rooted inputs around immutable paged receipt work. Candidates leave the root and disruption slot unchanged; fresh terminal health, physical joins/fences and the atomic terminal receipt remain required.",
-        "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Finalizing resumption and physical/terminal integration remain pending.",
-        "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Finalizing resumption, fresh terminal health, atomic completion and capacity readiness remain pending.",
-        "Expose exact stop/fence work over authenticated, purpose-separated Raft control with rooted node routes, both boot/process/engine identities and body-digest binding. Recheck current origin boot for new receiver admissions. Preserve the original origin budget and the TLS-admission receiver deadline through header/body reading, bounded queueing and engine sync. Lost callers/transport replies remain unconfirmed and do not cancel receiver-owned admitted work. Both endpoints may be empty; no Actor lease or dummy cell is required. Compose a real voter replacement, concurrent survivor writes, scoped stop and signed joined closure; terminal CAS and slot release remain pending.",
-        "Admit Ready/Active capacity through an owned complete-inventory scan, authenticated exact-boot probe and one request-journaled root CAS. Record explicit deployment attestation separately from installed startup bounds; refuse profile-version rebinding, stale boots, unfit limits and concurrent exclusion. Current opaque capacity authorization requires the exact rooted epoch/boot and journal; historical acceptance and raw Active metadata supply no new placement reservation. Fresh occupancy and resource/movement reservations remain the planner boundary; measured platform probes and operator workflows remain pending."
+        "Order every managed boot, including intact restart, against Finalizing through a permanent exact boot request and root CAS before endpoint publication. Bind trust and running-host authorization to the original boot process. Consume a complete historical candidate through fresh inventory and an owned process probe, then atomically root the Finalizing projection and higher node epoch while retaining the disruption slot. Reconcile exact committed retries without live inputs; preserve deadline checks at CAS. This boot fence grants no physical stop, terminal removal or resource release; Terminal integration is completed by the verification and removal step below.",
+        "Pin the closure verification key at rooted boot and fsync an exact boot/process/engine lifecycle guard before endpoint publication. Admit scoped stop/fence work through the Node-owned bounded task and real engine worker with original deadlines. Sign immutable bounded closure only after actual Node/engine owners join; reconcile lost publication replies. Keep local acceptance, physical closure and future terminal removal/slot release distinct. Physical closure alone retains the disruption slot; terminal completion is a separate verified CAS.",
+        "Expose exact stop/fence work over authenticated, purpose-separated Raft control with rooted node routes, both boot/process/engine identities and body-digest binding. Recheck current origin boot for new receiver admissions. Preserve the original origin budget and the TLS-admission receiver deadline through header/body reading, bounded queueing and engine sync. Lost callers/transport replies remain unconfirmed and do not cancel receiver-owned admitted work. Both endpoints may be empty; no Actor lease or dummy cell is required. Compose a real voter replacement, concurrent survivor writes, scoped stop and signed joined closure; Terminal CAS and slot release require the separate runtime verification step below.",
+        "Admit Ready/Active capacity through an owned complete-inventory scan, authenticated exact-boot probe and one request-journaled root CAS. Record explicit deployment attestation separately from installed startup bounds; refuse profile-version rebinding, stale boots, unfit limits and concurrent exclusion. Current opaque capacity authorization requires the exact rooted epoch/boot and journal; historical acceptance and raw Active metadata supply no new placement reservation. Fresh occupancy and resource/movement reservations remain the planner boundary; measured platform probes and operator workflows remain pending.",
+        "Resume verification from rooted Finalizing without rebinding stop authority. Own fresh quorum/archive proofs, renew every live group after replay and recheck survivor processes, inventory, settled permits and bounded proof age. Verify exact joined-owner signed closure, then atomically publish the receipt, tombstone the node and release its disruption slot. Reconcile exact retries through the permanent journal; incomplete imports, failed survivors and unconfirmed closure retain the slot. Resource release, unreachable-owner isolation and the owned fleet controller belong to later packages."
       ],
       "acceptance": [
         "Inventory includes pending births and all managed namespaces.",
@@ -1627,7 +1629,7 @@
         },
         {
           "name": "fleet_evacuation_candidate_after_voter_replacement",
-          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors. Consume the candidate through rooted Finalizing and stop the actual retired voter over authenticated Raft control while survivor S3 writes continue. Join its Node without another shutdown command, require retained physical group history in the close report, verify its signed closure, and perform another survivor write. This does not release the disruption slot or certify terminal removal.",
+          "oracle": "Perform real guarded S3 learner seeding, joint promotion/removal and stable RF3 completion. Evacuation candidate verification consumes the new dynamically joined member binding and latest completed permit while the departed original voter retains physical history. Subsequent S3 writes and queries succeed on the three survivors. Consume the candidate through rooted Finalizing and stop the actual retired voter over authenticated Raft control while survivor S3 writes continue. Join its Node without another shutdown command, require retained physical group history in the close report, verify its signed closure, and perform another survivor write. Recreate the controller in Finalizing, re-establish the same fixed business cut from fresh quorum responses, physically replay its archive, atomically certify removal and release the slot, reconcile the retained receipt, admit the next disruption and verify another successful business write.",
           "invariants": [
             "F01",
             "F02",
@@ -2014,6 +2016,34 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_removal_joined_closure_and_lost_reply",
+          "oracle": "Actual joined-owner closure is required even after fresh quorum/archive verification. Generic metadata cannot release the disruption slot. Inject loss of the successful terminal CAS response and confirmation; adapter recreation reconciles the exact historical removal without live verification or namespace handles. A changed stop request conflicts without another root revision.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_removal_failed_survivor_keeps_slot",
+          "oracle": "After actual quorum/archive verification and joined closure of the departing process, stop a survivor. Terminal per-group quorum renewal must refuse, preserve Finalizing and the disruption slot, and leave the remaining majority able to write. A historical positive observation cannot certify removal.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -2128,7 +2158,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json"
+      ]
     },
     {
       "id": "FO-04",
@@ -2148,7 +2180,22 @@
         "crates/cellar/application/consensus/protocol.rs",
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/tests/support/raft_capacity_native.rs",
-        "crates/cellar/tests/support/raft_initial_native.rs"
+        "crates/cellar/tests/support/raft_initial_native.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/client_node.rs",
+        "crates/cellar/durability/raft/host_node.rs",
+        "crates/cellar/durability/raft/host_node_inspection.rs",
+        "crates/cellar/durability/raft/host_fleet_admission.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/node_inspection_transport.rs",
+        "crates/cellar/durability/raft/node_inspection_wire.rs",
+        "crates/cellar/durability/raft/node_inspection_wire_tests.rs",
+        "crates/cellar/durability/raft/node_inspection_auth_tests.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/tests/support/raft_retirement_native.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/storage_genesis_tests.rs",
+        "crates/cellar/durability/raft/storage_lifecycle_tests.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_placement.rs",
@@ -2158,7 +2205,9 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/admission.rs",
-        "crates/cellar/tests/support/raft_resource_native.rs"
+        "crates/cellar/tests/support/raft_resource_native.rs",
+        "crates/cellar/durability/raft/physical_inventory.rs",
+        "crates/cellar/durability/raft/physical_inventory_tests.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2168,7 +2217,8 @@
         "Use source-target gap and lexicographic pressure improvement for performance-triggered moves; explicit topology requests reduce feasible live-assignment distance while retained physical state remains charged.",
         "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources.",
         "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority.",
-        "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution."
+        "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution.",
+        "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2323,9 +2373,20 @@
         },
         {
           "name": "fleet_resource_unmaterialized_genesis_is_not_free",
-          "oracle": "A Reserved birth targeting an empty node blocks overlapping resource admission. Confirming it Live without materializing its original voter still supplies no free-slot proof; exact physical history attribution remains required.",
+          "oracle": "A Reserved birth and an unmaterialized Live original voter block overlapping resource admission. After actual durable initialization, authenticated inventory matches full scope/birth/member without quorum, refuses occupied-history reuse, admits another history into unused capacity, then refuses an additional debit against the actual occupied slot plus the existing reservation even when caller-attested occupied slots are zero.",
           "invariants": [
             "F03",
+            "F05",
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "fleet_physical_inventory_retained_reply_and_cancellation",
+          "oracle": "An actual empty origin and target return explicit complete occupancy without a dummy cell or application callback while trust refresh reads are held. A completed unpolled reply retains its physical response charge and original age; delivery or cancellation releases that charge and transport ownership.",
+          "invariants": [
+            "F02",
             "F05",
             "F06",
             "F07",
@@ -2399,6 +2460,41 @@
           "native_raft_fleet_enrollment",
           "--locked",
           "fleet_placement_concurrent_targets",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_physical_inventory_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_enrollment_retired_binding",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "physical_inventory::tests",
           "--",
           "--test-threads=1"
         ]

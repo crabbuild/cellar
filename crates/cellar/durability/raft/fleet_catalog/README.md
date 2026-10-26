@@ -292,8 +292,8 @@ configured recovery-memory bound.
 
 This is historical archive coverage. Candidate preparation consumes this proof
 with complete inventory, quorum publications and exact permit settlement as
-described below. Physical joins/fences, fresh terminal survivor checks, rooted
-terminal receipts and disruption-slot release remain pending lifecycle work.
+described below. The terminal removal API combines that coverage with renewed
+survivor proofs and exact signed closure before its atomic receipt/node/slot CAS.
 Business-write acknowledgement calls none of this metadata work.
 
 The opaque response includes the installed node enrollment and whole invocation
