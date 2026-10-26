@@ -324,7 +324,11 @@ async fn empty_service_case() -> Result<()> {
                 .await?
                 .is_empty()
     );
-    ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
+    let target = s.target.observe_node(TIMEOUT).await?;
+    ensure!(
+        target.node.groups == 0,
+        "before late activation: {target:?}"
+    );
     ensure!(started
         .target
         .activate_managed_learner(
@@ -333,7 +337,36 @@ async fn empty_service_case() -> Result<()> {
         )
         .await
         .is_err());
-    ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
+    // A failed waiter may return while its node-owned initializer is exiting.
+    // The charged pending slot is not a durable engine history. Check physical
+    // absence throughout that interval, then require joined initialization and
+    // the same zero-slot assertion before permitting subsequent admission.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let sample = s
+                    .target
+                    .inspect_peer_physical_inventory(
+                        NodeId::new([7; 16])?,
+                        current.revision(),
+                        TIMEOUT,
+                    )
+                    .await?;
+                let inventory = sample
+                    .inventory
+                    .as_ref()
+                    .context("physical target inventory")?;
+                ensure!(inventory
+                    .history(&started.movement.resources.group)?
+                    .is_none());
+                if inventory.initializing().is_none() {
+                    ensure!(sample.view.node.groups == 0);
+                    return Ok::<_, anyhow::Error>(());
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await???;
     let progress =
         s.f.catalog
             .reconcile_movement(&current, &execution, &s.nodes[0].host, TIMEOUT)

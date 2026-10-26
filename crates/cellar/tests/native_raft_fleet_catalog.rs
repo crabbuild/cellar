@@ -633,3 +633,41 @@ async fn fleet_root_replica_separation() -> Result<()> {
     f.close().await;
     Ok(())
 }
+
+// A node's background trust reads must not consume another caller's lost reply.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_catalog_confirmation_fault_follows_mutating_task() -> Result<()> {
+    use object_store::{PutMode, PutOptions, UpdateVersion};
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let store = Arc::new(fault::Store::default());
+    let path = Path::from("confirmation/fleet/head");
+    let initial = store
+        .put_opts(&path, "before".into(), PutMode::Create.into())
+        .await?;
+    store.fail_fleet_confirmation.store(true, Ordering::Release);
+    ensure!(store
+        .put_opts(
+            &path,
+            "after".into(),
+            PutOptions::from(PutMode::Update(UpdateVersion {
+                e_tag: initial.e_tag,
+                version: initial.version,
+            })),
+        )
+        .await
+        .is_err());
+    let background = store.clone();
+    let background_path = path.clone();
+    let read = domain.spawn(async move { background.get(&background_path).await })?;
+    ensure!(
+        read.await?.is_ok(),
+        "background read stole confirmation fault"
+    );
+    ensure!(
+        store.get(&path).await.is_err(),
+        "mutator must lose confirmation"
+    );
+    ensure!(store.get(&path).await?.bytes().await?.as_ref() == b"after");
+    domain.shutdown().await;
+    Ok(())
+}

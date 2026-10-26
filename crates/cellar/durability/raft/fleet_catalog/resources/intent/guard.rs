@@ -63,6 +63,13 @@ impl FleetCatalog {
             }
         }
         let policy = self.placement_policy(snapshot).await?;
+        // With topology management unused, preserve the generic catalog's
+        // opaque table contract. Typed placement validation applies only when
+        // a rooted policy/operation governs admission. The protected-key and
+        // private-authority checks above still apply to every mutation.
+        if active.is_none() && policy.is_none() && authority != Authority::TopologyAdmission {
+            return Ok(());
+        }
         let keep = policy.as_ref().map(|p| p.definition.nodes()).transpose()?;
         let mut resource = None;
         for proposed in &change.changes {

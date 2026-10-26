@@ -99,141 +99,152 @@ impl FleetCatalog {
     /// Recreated callers discover the same work from pending_movements. A lost
     /// action reply requires another fresh observation; it never releases debt.
     /// No internal retry loop or application traffic is needed for progress.
-    pub async fn reconcile_movement(
-        &self,
-        snapshot: &FleetSnapshot,
-        request: &FleetMovementExecutionRequest,
-        observer: &RaftCells,
+    pub fn reconcile_movement<'a>(
+        &'a self,
+        snapshot: &'a FleetSnapshot,
+        request: &'a FleetMovementExecutionRequest,
+        observer: &'a RaftCells,
         timeout: Duration,
-    ) -> Result<FleetMovementProgress> {
-        self.check_snapshot(snapshot)?;
-        ProposalId::new(request.reservation).map_err(|_| invalid())?;
-        request.attestation.validate()?;
-        let deadline = super::super::deadline::Deadline::new(self, timeout)?;
-        let (row, terminal) = self
-            .run(deadline.remaining()?, async {
-                if self.inner.current().await?.token != snapshot.token {
-                    return Err(FleetCatalogError::Conflict);
-                }
-                let row = self
-                    .admitted_resource(snapshot, request.reservation)
-                    .await?;
-                let terminal = self.resource_settlement(snapshot, &row).await?;
-                if terminal.is_none() {
-                    self.check_executable_movement(snapshot, &row).await?;
-                }
-                Ok((row, terminal))
-            })
-            .await?;
-        let progress = |phase, settled, observed_revision| FleetMovementProgress {
-            reservation: request.reservation,
-            phase,
-            settled,
-            observed_revision,
-        };
-        if let Some((kind, _)) = terminal {
-            return Ok(progress(
-                match kind {
-                    Settlement::Complete => FleetMovementPhase::Complete,
-                    Settlement::Fenced => FleetMovementPhase::Fenced,
-                    Settlement::Aborted => FleetMovementPhase::Aborted,
-                },
-                true,
-                snapshot.revision(),
-            ));
-        }
-        if request.attestation.boot != row.request.attestation.boot
-            || request.attestation.profile_revision != row.request.attestation.profile_revision
-        {
-            return Err(FleetCatalogError::Conflict);
-        }
-        let proof = self
-            .movement_leader(snapshot, &row, observer, &deadline)
-            .await?;
-        let permit = row.permit.as_ref().ok_or_else(invalid)?;
-        let status = proof.membership().status();
-        let phase = if status.consumed_sequence.checked_add(1) == Some(permit.sequence())
-            && status.phase.is_none_or(|phase| !phase.active())
-            && proof.membership().membership_revision() == permit.expected_revision()
-        {
-            FleetMovementPhase::Reserved
-        } else if status.permit.as_ref() == Some(permit)
-            && status.consumed_sequence == permit.sequence()
-        {
-            match status.phase {
-                Some(FleetPermitPhase::Seeding) => FleetMovementPhase::Seeding,
-                Some(FleetPermitPhase::Joint) => FleetMovementPhase::Joint,
-                Some(FleetPermitPhase::Complete) => FleetMovementPhase::Complete,
-                Some(FleetPermitPhase::Fenced) => FleetMovementPhase::Fenced,
-                Some(FleetPermitPhase::Aborted) => FleetMovementPhase::Aborted,
-                None => return Err(FleetCatalogError::Conflict),
-            }
-        } else {
-            return Err(FleetCatalogError::Conflict);
-        };
-        let leader = proof.membership().replica().node;
-        let revision = proof.membership().membership_revision().get();
-        let action = match phase {
-            FleetMovementPhase::Reserved => MovementAction::Begin,
-            FleetMovementPhase::Seeding => {
-                self.send_movement_action(
-                    snapshot,
-                    &row,
-                    row.node,
-                    MovementAction::Activate {
-                        source: proof.membership().replica().member.get(),
-                        source_node: leader.bytes(),
-                        from_s3: request.from_s3,
-                    },
-                    observer,
-                    &deadline,
-                )
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<FleetMovementProgress>> + Send + 'a>> {
+        // Keep the multi-phase control future out of callers' inline state.
+        // Concurrent reconcilers otherwise multiply large debug-build poll
+        // frames even while those callers are awaiting unrelated startup work.
+        Box::pin(async move {
+            self.check_snapshot(snapshot)?;
+            ProposalId::new(request.reservation).map_err(|_| invalid())?;
+            request.attestation.validate()?;
+            let deadline = super::super::deadline::Deadline::new(self, timeout)?;
+            let (row, terminal) = self
+                .run(deadline.remaining()?, async {
+                    if self.inner.current().await?.token != snapshot.token {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    let row = self
+                        .admitted_resource(snapshot, request.reservation)
+                        .await?;
+                    let terminal = self.resource_settlement(snapshot, &row).await?;
+                    if terminal.is_none() {
+                        self.check_executable_movement(snapshot, &row).await?;
+                    }
+                    Ok((row, terminal))
+                })
                 .await?;
-                MovementAction::Promote { revision }
+            let progress = |phase, settled, observed_revision| FleetMovementProgress {
+                reservation: request.reservation,
+                phase,
+                settled,
+                observed_revision,
+            };
+            if let Some((kind, _)) = terminal {
+                return Ok(progress(
+                    match kind {
+                        Settlement::Complete => FleetMovementPhase::Complete,
+                        Settlement::Fenced => FleetMovementPhase::Fenced,
+                        Settlement::Aborted => FleetMovementPhase::Aborted,
+                    },
+                    true,
+                    snapshot.revision(),
+                ));
             }
-            FleetMovementPhase::Joint => MovementAction::Finish { revision },
-            FleetMovementPhase::Complete
-            | FleetMovementPhase::Fenced
-            | FleetMovementPhase::Aborted => {
-                // Every attempt removes the same exact active row. On an
-                // ambiguous reply the next turn first reads its permanent
-                // receipt, including after all caller-local state was lost.
-                let identity = self
-                    .run(deadline.remaining()?, async {
-                        let mut id = [0; 16];
-                        crate::asyncrt::rng("fleet-movement-settlement").fill_bytes(&mut id);
-                        ProposalId::new(id).map_err(|_| FleetCatalogError::Limit)?;
-                        Ok(FleetRequestIdentity {
-                            id,
-                            operation: row.request.identity.operation,
-                            principal: "fleet-movement-executor".into(),
-                            expected_revision: snapshot.revision(),
-                        })
-                    })
+            if request.attestation.boot != row.request.attestation.boot
+                || request.attestation.profile_revision != row.request.attestation.profile_revision
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let proof = self
+                .movement_leader(snapshot, &row, observer, &deadline)
+                .await?;
+            let permit = row.permit.as_ref().ok_or_else(invalid)?;
+            let status = proof.membership().status();
+            let phase = if status.consumed_sequence.checked_add(1) == Some(permit.sequence())
+                && status.phase.is_none_or(|phase| !phase.active())
+                && proof.membership().membership_revision() == permit.expected_revision()
+            {
+                FleetMovementPhase::Reserved
+            } else if status.permit.as_ref() == Some(permit)
+                && status.consumed_sequence == permit.sequence()
+            {
+                match status.phase {
+                    Some(FleetPermitPhase::Seeding) => FleetMovementPhase::Seeding,
+                    Some(FleetPermitPhase::Joint) => FleetMovementPhase::Joint,
+                    Some(FleetPermitPhase::Complete) => FleetMovementPhase::Complete,
+                    Some(FleetPermitPhase::Fenced) => FleetMovementPhase::Fenced,
+                    Some(FleetPermitPhase::Aborted) => FleetMovementPhase::Aborted,
+                    None => return Err(FleetCatalogError::Conflict),
+                }
+            } else {
+                return Err(FleetCatalogError::Conflict);
+            };
+            let leader = proof.membership().replica().node;
+            let revision = proof.membership().membership_revision().get();
+            let action = match phase {
+                FleetMovementPhase::Reserved => MovementAction::Begin,
+                FleetMovementPhase::Seeding => {
+                    self.send_movement_action(
+                        snapshot,
+                        &row,
+                        row.node,
+                        MovementAction::Activate {
+                            source: proof.membership().replica().member.get(),
+                            source_node: leader.bytes(),
+                            from_s3: request.from_s3,
+                        },
+                        observer,
+                        &deadline,
+                    )
                     .await?;
-                let settlement = FleetMovementCompletionRequest {
-                    identity,
-                    reservation: request.reservation,
-                    attestation: request.attestation.clone(),
-                };
-                let kind = match phase {
-                    FleetMovementPhase::Complete => Settlement::Complete,
-                    FleetMovementPhase::Fenced => Settlement::Fenced,
-                    FleetMovementPhase::Aborted => Settlement::Aborted,
-                    _ => return Err(invalid()),
-                };
-                // Use one guarded settlement future rather than composing the
-                // public typed wrappers in the orchestration frame.
-                let observed = self
-                    .settle_movement(snapshot, &settlement, observer, deadline.remaining()?, kind)
-                    .await?
-                    .observed_revision();
-                return Ok(progress(phase, true, observed));
-            }
-        };
-        self.send_movement_action(snapshot, &row, leader, action, observer, &deadline)
-            .await?;
-        Ok(progress(phase, false, snapshot.revision()))
+                    MovementAction::Promote { revision }
+                }
+                FleetMovementPhase::Joint => MovementAction::Finish { revision },
+                FleetMovementPhase::Complete
+                | FleetMovementPhase::Fenced
+                | FleetMovementPhase::Aborted => {
+                    // Every attempt removes the same exact active row. On an
+                    // ambiguous reply the next turn first reads its permanent
+                    // receipt, including after all caller-local state was lost.
+                    let identity = self
+                        .run(deadline.remaining()?, async {
+                            let mut id = [0; 16];
+                            crate::asyncrt::rng("fleet-movement-settlement").fill_bytes(&mut id);
+                            ProposalId::new(id).map_err(|_| FleetCatalogError::Limit)?;
+                            Ok(FleetRequestIdentity {
+                                id,
+                                operation: row.request.identity.operation,
+                                principal: "fleet-movement-executor".into(),
+                                expected_revision: snapshot.revision(),
+                            })
+                        })
+                        .await?;
+                    let settlement = FleetMovementCompletionRequest {
+                        identity,
+                        reservation: request.reservation,
+                        attestation: request.attestation.clone(),
+                    };
+                    let kind = match phase {
+                        FleetMovementPhase::Complete => Settlement::Complete,
+                        FleetMovementPhase::Fenced => Settlement::Fenced,
+                        FleetMovementPhase::Aborted => Settlement::Aborted,
+                        _ => return Err(invalid()),
+                    };
+                    // Use one guarded settlement future rather than composing the
+                    // public typed wrappers in the orchestration frame.
+                    let observed = self
+                        .settle_movement(
+                            snapshot,
+                            &settlement,
+                            observer,
+                            deadline.remaining()?,
+                            kind,
+                        )
+                        .await?
+                        .observed_revision();
+                    return Ok(progress(phase, true, observed));
+                }
+            };
+            self.send_movement_action(snapshot, &row, leader, action, observer, &deadline)
+                .await?;
+            Ok(progress(phase, false, snapshot.revision()))
+        })
     }
 }
 

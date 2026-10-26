@@ -21,6 +21,8 @@ pub struct Store {
     pub fail_fleet_after: AtomicBool,
     pub fail_fleet_confirmation: AtomicBool,
     pub fail_fleet_read: AtomicBool,
+    // Background trust refresh must not steal the mutator's confirmation loss.
+    fleet_confirmation_task: std::sync::Mutex<Option<tokio::task::Id>>,
     pub hold_next_fleet_cas: AtomicBool,
     pub fleet_cas_hang: AtomicBool,
     pub fleet_cas_waiting: AtomicBool,
@@ -311,6 +313,7 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         if fleet_cas && self.fail_fleet_confirmation.swap(false, Ordering::AcqRel) {
+            *self.fleet_confirmation_task.lock().unwrap() = tokio::task::try_id();
             self.fail_fleet_read.store(true, Ordering::Release);
             return Err(failure());
         }
@@ -400,6 +403,7 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         if path.as_ref().ends_with("/fleet/head")
+            && *self.fleet_confirmation_task.lock().unwrap() == tokio::task::try_id()
             && self.fail_fleet_read.swap(false, Ordering::AcqRel)
         {
             return Err(failure());
