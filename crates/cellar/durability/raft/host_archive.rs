@@ -130,6 +130,41 @@ pub(super) fn next_scope<'a, T>(
 }
 
 pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
+    let expected: Vec<_> = captured
+        .iter()
+        .map(|capture| (capture.scope.clone(), capture.cut.position()))
+        .collect();
+    // One execution-domain worker drives each admitted batch, bounded by the
+    // existing producer limit. Attempt-local snapshot files may close during a
+    // retry, an error or final completion. Drive object I/O on this owner too,
+    // so none of those synchronous closes can occupy the driver's poll stack.
+    // The driver joins the worker before releasing its producer slot.
+    let producer = crate::asyncrt::try_blocking(move || {
+        crate::asyncrt::block_on(publish_owned(captured, verifier))
+    });
+    let result = match producer {
+        Ok(producer) => producer.await.map_err(|error| {
+            ArchiveError::Worker(cellar_ltx::host::HostTaskError::new(error.to_string()))
+        }),
+        Err(_) => Err(ArchiveError::Stopped),
+    };
+    match result {
+        Ok(completed) => completed,
+        Err(error) => {
+            let mut error = Some(error);
+            expected
+                .into_iter()
+                .map(|(scope, position)| Completed {
+                    scope,
+                    position,
+                    result: Err(error.take().unwrap_or(ArchiveError::Unconfirmed)),
+                })
+                .collect()
+        }
+    }
+}
+
+async fn publish_owned(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
     let mut identities = Vec::with_capacity(captured.len());
     let mut reservations = Vec::with_capacity(captured.len());
     let inputs = captured
@@ -153,7 +188,6 @@ pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) 
                 .collect()
         }
     };
-    // The reservations remain owned through physical replay and every head CAS.
     let completed = identities
         .into_iter()
         .zip(results)
@@ -175,6 +209,7 @@ pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) 
             }
         })
         .collect();
+    // Physical cleanup precedes capture refund, on this same blocking owner.
     drop(reservations);
     completed
 }

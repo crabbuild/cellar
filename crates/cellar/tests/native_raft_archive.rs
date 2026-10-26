@@ -1754,6 +1754,96 @@ impl Native {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn snapshot_close_does_not_block_version_bound_reads() -> Result<()> {
+    check_snapshot_close(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_head_snapshot_close_keeps_reads_live() -> Result<()> {
+    check_snapshot_close(true).await
+}
+
+async fn check_snapshot_close(fail_head: bool) -> Result<()> {
+    let trace = image_fault::Faults::new(std::path::PathBuf::from("unused"), None);
+    let store = Arc::new(faults::Store::default());
+    let native = Native::start_with_filesystem(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+        1,
+        false,
+        Arc::new(image_fault::FaultFileSystem {
+            faults: trace.clone(),
+        }),
+    )
+    .await?;
+    let (sequence, expected) = if fail_head {
+        // Establish a real prior head. The next failed conditional write leaves
+        // that head selected and disposes its unconfirmed candidate on retry.
+        native.retry(1, Durability::S3).await?;
+        (2, 2_i64)
+    } else {
+        (1, 1_i64)
+    };
+    let (gate, mut entered) = public_node::Gate::new();
+    let release = public_node::Release(gate.clone());
+    *trace.before_snapshot_close.lock().unwrap() = Some(Box::new(move || {
+        gate.wait().unwrap();
+    }));
+    store.fail_head_before.store(fail_head, Ordering::Release);
+    let result = async {
+        let receipt = native.retry(sequence, Durability::Quorum).await?;
+        tokio::time::timeout(std::time::Duration::from_secs(5), entered.recv())
+            .await
+            .context("snapshot file close was not reached")?
+            .context("snapshot file close signal ended")?;
+        ensure!(
+            !store.fail_head_before.load(Ordering::Acquire),
+            "snapshot closed before the injected head failure"
+        );
+        // The file is really retained until release. A slow physical close
+        // must not occupy the host loop that admits already-committed reads.
+        let value = native
+            .cell()?
+            .query(
+                native.definition.get.clone(),
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(receipt.version_token),
+                    timeout: std::time::Duration::from_secs(1),
+                    ..Default::default()
+                },
+            )
+            .await
+            .context("version-bound read stalled behind snapshot file close")?;
+        ensure!(value.result == expected.to_be_bytes());
+        let retained = native.service.resource_usage().archive_capture;
+        ensure!(retained.items == 1 && retained.bytes > 0);
+        // Cleanup is independently scheduled, but remains owned and joined.
+        // Closing the service cannot refund admission while the file is held.
+        let close = native.service.close();
+        tokio::pin!(close);
+        ensure!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut close,)
+                .await
+                .is_err(),
+            "shutdown completed before snapshot file close"
+        );
+        ensure!(native.service.resource_usage().archive_capture == retained);
+        release.0.release();
+        ensure!(close.await?.unfinished.is_empty());
+        let released = native.service.resource_usage().archive_capture;
+        ensure!(released.items == 0 && released.bytes == 0);
+        Ok(())
+    }
+    .await;
+    drop(release);
+    let closed = native.close().await;
+    result?;
+    closed
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn s3_ack_complete_restore_set() -> Result<()> {
     let native = Native::start(
         Arc::new(faults::Store::default()),

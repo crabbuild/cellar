@@ -7,6 +7,26 @@ per-cell storage limit. The preceding 256 MiB extension is not completion of thi
 work. The architecture and product policy are in
 [large-cell recovery](large-cell-recovery.md).
 
+## Current qualification
+
+Both native materialized recovery paths pass at 9,999,998,976 SQLite bytes on
+frozen `106a961f`, without an external SQL reader or stack sampler. They preserve
+the 60-second read deadlines and verify owner/local-state loss, payloads, new
+writes, restart, receipts and joined shutdown.
+
+| Path | Complete drill | Empty-worker join and first local read |
+| --- | --- | --- |
+| RustFS | 1,873.19 s | 125.56 s after archive confirmation |
+| Direct peer | 2,434.59 s | 1,383.78 s including source preparation and transfer |
+
+See the [clean RustFS record](#clean-full-size-rustfs-repeat) and
+[peer record](#clean-full-size-peer-recovery) for evidence and scope. These use
+the documented two-volume layout and establish no RTO or backend speed ranking.
+The checklist below also covers both storage representations and a broader
+fault/capacity matrix; these materialized passes do not complete that matrix.
+The remaining entries are a source-pinned validation history; their progress
+statements describe each run at that point in time.
+
 ## Completion requirements
 
 - [ ] R1: Admit logical SQLite images through 10,000,000,000 bytes, with exact
@@ -42,11 +62,10 @@ work. The architecture and product policy are in
 
 ### Restoration priorities
 
-1. Close the failing public-host recovery path first. Reproduce the preserved
-   full-size `VersionUnavailable` with operation-specific context, fix its
-   owning boundary, and verify replacement-local payloads, promotion, a new
-   committed write, retained receipts and another restart. Keep request
-   deadlines and publication proofs unchanged while diagnosing the refusal.
+1. Preserve the now-passing materialized peer/RustFS paths with the native
+   regressions and actual full-size acceptance cases. Retain replacement-local
+   payload, new-write, restart and receipt assertions; keep request deadlines
+   and publication proofs unchanged.
 2. Bring extent snapshots, peer seeds and object-store recovery through the
    same acceptance path before enabling public extent selection. Metadata-only
    roots and locally passing command tests do not establish remote recovery.
@@ -638,6 +657,34 @@ CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_PANIC=unwind \
   -- --ignored --exact --nocapture --test-threads=1
 ```
 
+For the actual page-rounded decimal 10 GB materialized drill, select
+`full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss`
+instead. The complete invocation is:
+
+```sh
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_PANIC=unwind \
+  cargo +1.98.1 test --locked -p cellar --release \
+  --test native_raft_large_images \
+  full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+Create the disposable worker directory before invoking the test. Optionally set
+`CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR` to an existing directory on an independent
+volume; odd-numbered workers use it, including the empty replacement. This
+separates their local I/O from the other workers and the object-store volume in
+the recorded two-volume layout. The test removes its temporary worker directories
+after completion; its isolated object-store prefix is printed in the log.
+`CELLAR_LARGE_IMAGE_FIXTURE` may name an existing quota-filled source fixture in
+the fixture's schema, which is cloned/copied before modification. Without that
+variable, the test builds an actual full-size incompressible SQLite fixture.
+Provision space for the source, replicas, verification images and snapshot
+spools; the logical per-cell quota does not cover these additional local files.
+The corresponding full-size peer-transfer case is
+`full_capacity::decimal_ten_gb_peer_restores_native_serving_after_owner_and_local_state_loss`.
+It still requires the real object store for bounded background archival; its
+empty replacement receives the physical image from the surviving peer.
+
 The subsequent 9,999,998,976-byte run uses the preflight's source-bound
 `d5f12630` release, retains the prior full-size input hash and uses a fresh RustFS
 prefix with unchanged requests, deadlines and proof checks. Read-only process disk-I/O
@@ -811,3 +858,266 @@ dependencies, docs and planning checks pass. The source manifest and hashed logs
 are retained in the checkout's external `evidence-workspace` directory. GitHub
 CI remains a separate gate. Public extent recovery and full-size qualification
 remain unfinished.
+
+## Latest full-size RustFS restoration result
+
+The frozen `b8ed3d03` executable passed the actual 272 MiB RustFS preflight in
+100.72 seconds, including replacement-local payload verification, promotion,
+new writes, retained receipts and restart. Maximum resident set was 96,911,360
+bytes. The subsequent 9,999,998,976-byte run **failed** after 5,169.56 seconds
+with `VersionUnavailable`; maximum resident set was 87,818,240 bytes.
+
+The full-size run completed warm takeover, owner-local-state erasure, retained
+receipt retries and quota cleanup/reuse. The required archive head at index/term
+9/4 was independently confirmed after an 890.910-second archive wait. The empty
+replacement served its first local read after 945.186 seconds, verified separated
+payload hashes, promoted, and completed its first new command in 676.010 seconds.
+After another restart it reconciled the old receipt and completed a second new
+command in 186.390 seconds. It then failed before the final payload/read/retry
+checks completed. The recorded error does not yet distinguish the version-bound
+payload read from the following receipt retry. This is progress beyond the
+earlier refusal, not a passing end-to-end qualification or an RTO.
+
+The executable and raw-log hashes match the terminal failure record. The raw log
+contains a 1,219-byte null region in earlier progress output and is retained
+unchanged with that limitation recorded; the terminal failure and later stages
+are readable. The external evidence directory retains the result JSON, source
+manifest, fixture digest and a preserved copy of the failed run's files.
+
+The next diagnostic adds separate context around final payload verification and
+receipt retry, and captures bounded member status and SQL performance before
+teardown on a read refusal. Read deadlines, consistency requirements, assertions
+and publication proofs remain unchanged. Public extent transport and actual
+OS-process crash qualification remain open.
+
+Both ordinary 12 MiB peer/object-store recovery cases pass with the diagnostic
+changes, including final payload verification and receipt retries after restart.
+Targeted native integration-test Clippy with warnings denied, formatting (1,084
+Rust files), documentation and whitespace checks pass. These are diagnostic
+checks on the follow-up source, not a repaired or repeated full-size result.
+
+PR #124 has merged. On updated main `9f1e7df1`, the diagnostic follow-up
+`9c411750` again passes both ordinary recovery cases, formatting/layout for
+1,172 Rust files, targeted native integration-test Clippy with warnings denied,
+and documentation checking for 808 local references. The
+underlying Raft/LTX production source is unchanged by the intervening main
+updates; the failed full-size executable remains frozen at `b8ed3d03`.
+
+### Snapshot disposal liveness investigation
+
+The `0e234925` diagnostic executable is running the full-size RustFS case with
+the unchanged production storage code. Its final-read checkpoint also observes
+the exact supplied token and read duration; a separate sampler captures the
+native process if that read remains outstanding. This run is not yet a pass.
+
+A focused native regression injects a held close into an actual encoded
+snapshot file after the real archive work. On the original implementation,
+an `AtLeast` read of an acknowledged command fails with `VersionUnavailable`
+while that close is held (1.59 and 6.88 seconds for two complete cases). The publication
+future is polled within the host driver: consuming its final recovery set closes
+the snapshot on that driver's poll stack and can prevent request admission.
+Another direct-binary repeat instead failed during node-authority startup,
+before reaching the injected close; it is not a reproduction of the read fault.
+
+The fix moves completion validation and recovery-set disposal into
+execution-domain-owned blocking work. The producer and capture reservation stay
+owned until physical cleanup completes, and shutdown joins the work. Coverage
+checks and read deadlines remain unchanged. The same version-bound read passes
+with the fix while the close remains held (9.97 seconds for the complete case).
+On frozen `f0e22e86`, the expanded release regression also passes (0.58 seconds):
+shutdown waits for the held close and admission remains charged until physical
+cleanup finishes. All 69 native archive cases pass in release mode in 23.40
+seconds, including fault, producer-admission and shutdown coverage. Formatting
+and layout cover 1,172 Rust files; native dependency, documentation and whitespace
+checks pass. The build manifest verifies 1,265 tracked Rust/Cargo inputs and the
+frozen executable hashes; raw evidence stays outside the repository.
+
+This establishes a concrete liveness defect, but does not yet prove that a slow
+close caused the preserved 10 GB failure. Full-size qualification of the fix
+remains pending.
+
+### Second full-size diagnostic result
+
+The unchanged-production `0e234925` RustFS diagnostic run failed after 4,275.42
+seconds with `VersionUnavailable` and maximum resident set of 85,524,480 bytes.
+It confirmed the index/term 9/4 archive after a 1,174.917-second wait, restored
+the replacement, completed its first local read in 683.267 seconds, verified
+payload hashes, and promoted it. It acknowledged the recovered owner's next
+command, then failed in the following version-bound read before the combined
+`cold-owner-first-write` completion marker. The later restart checkpoint was
+never reached. This identifies the failing operation from the source/control
+flow; the cold read did not yet have its own diagnostic context.
+
+Both the raw-log and executable hashes match the terminal record. This log has
+no null bytes and is preserved read-only with its source/fixture manifests. The
+original sampler watched only the later restart read, so it captured no stacks.
+The next test revision observes both post-write reads, including token, start,
+finish, acknowledged-write timing and bounded status before failure teardown.
+It keeps the existing 60-second read deadlines, assertions and consistency.
+
+The fixed `f0e22e86` executable separately passes the actual 272 MiB RustFS
+preflight in 122.59 seconds, including restored-owner writes and restart/read/
+receipt verification. That smaller pass does not qualify the full-size fix.
+Broader Clippy exposed two inherited test issues: an ignored authorizer setup
+result and a cold RPC fixture call using the old helper signature. Test-only
+fixes propagate the first error and preserve the RPC fixture's existing bindings
+and handler budget with the current helper. The all-target owning-crate Clippy
+check then passed with warnings denied before the new probe expansion.
+
+### Retry cleanup ownership
+
+A second native regression injects a failed archive-head write after a real
+prior head exists, then holds the candidate snapshot's close. The initial
+`f0e22e86` fix still fails this case with `VersionUnavailable` (1.64 and 1.68
+seconds): final-result disposal had moved off the driver, but attempt-local
+disposal inside the publication retry loop had not. The frozen regression
+source is `eebf2743`; its binary and logs have external hash records.
+
+The correction gives each admitted publication batch one execution-domain
+blocking worker which drives the complete asynchronous publication future.
+Success, failure and retry cleanup therefore share the physical owner. Existing
+producer limits bound workers, capture reservations survive physical cleanup,
+and the host joins publication before releasing its slot. Archive proofs and
+request deadlines stay unchanged. This revision still requires regression and
+full-size qualification.
+
+Before this correction, frozen `4a53283d` passes 642 library cases, all three
+typed RPC cases and all four ordinary large-image cases. Both post-write read
+probes run in the ordinary peer/object-store cases; four environment-dependent
+entries remain ignored by that invocation. These validate the fixture/CI fixes
+and diagnostic coverage, not the subsequent producer-owner correction.
+
+The complete-producer revision `00a362b8` passes both held-close regressions in
+1.44 seconds, all 70 archive cases in 33.10 seconds, 642 library cases in 41.03
+seconds and all three typed RPC cases in 2.18 seconds. All-target/all-feature
+owning-crate Clippy passes with warnings denied. Its frozen release binaries and
+1,265 tracked build-input hashes are retained externally. Full-size correctness
+is still unqualified.
+
+The read-refusal observer now resolves handles from each current service. Owner
+cancellation removes the original service from the cluster vector; pairing its
+old handles with the shorter service list could mislabel status and miss the
+replacement. The observer follows the current scope/service binding, records
+binding failures explicitly and preserves the original read error.
+
+### Query boundary after the producer correction
+
+Frozen `106a961f` passes the actual 272 MiB RustFS drill in 45.78 seconds and
+the four ordinary large-image cases, but its full-size RustFS run still fails
+after 3,194.82 seconds (94,765,056 bytes maximum resident set). It verifies the
+9,999,998,976-byte payload, promotes the empty replacement and acknowledges a
+new command after 425.045 seconds. The following 60-second read fails with
+`VersionUnavailable`. The version token is valid and the leader has applied
+index 13/term 5. SQL telemetry records four queries started and three completed;
+the read remains inside its SQL action. Thus the proven archive cleanup defect
+is insufficient to explain or fix full-size qualification.
+
+The log contains no null bytes and matches its recorded hash. Native sampling
+timed out without producing stack files. The next probes distinguish image
+selection, immutable open, callback execution and connection close. A dedicated
+ignored test of the same immutable opener and SQL after a write to the real
+10 GB fixture passes in 42.85 seconds overall; open/query/close takes 0.010
+seconds. This isolates a working physical query boundary, not the concurrent
+fleet failure. Optional retained worker directories permit direct inspection
+after a diagnostic failure; read deadlines and all recovery assertions remain
+unchanged. All four workers and RustFS used one external USB SSD in the failed
+run, so independent worker volumes are a separate contention experiment, not a
+proven cause or recovery-time improvement.
+
+### First complete full-size RustFS pass
+
+Frozen `faad0f58` completes the actual 9,999,998,976-byte RustFS drill with exit
+zero in 1,711.06 seconds. It verifies owner-state erasure, warm takeover, quota
+rejection/cleanup/reuse, object-store restoration onto an empty worker, payload
+hashes, promotion, new writes, version-bound reads, restart, receipt identity and
+joined shutdown. The node test process peaks at 110,968,832 resident bytes; this
+excludes the separate RustFS process and operating-system file cache.
+
+The empty-worker join and first local read take 134.63 seconds after archive
+confirmation. Its new write takes 27.75 seconds, followed by the required read
+in 8.009 seconds. The restarted owner acknowledges another new write in 27.12
+seconds and verifies its payloads at that exact version in 1.386 seconds. Both
+read deadlines remain 60 seconds. Odd-numbered workers use a separate local
+volume; the other workers and RustFS retain the original workspace volume.
+
+The query opens in under a millisecond; the observed delay is within SQL
+execution. An independent read-only query of the same physical image during the
+first read also takes seconds, consistent with storage pressure. This does not
+establish the specific cause of every historical failure. That diagnostic query
+can warm the file cache, so it is disabled before the restart/new-write checks.
+The raw log, result, executable/source hashes and probe history are preserved.
+
+Temporary query-phase instrumentation and the isolated diagnostic test are now
+removed. All 1,265 tracked Rust/Cargo build inputs exactly match `106a961f`.
+The clean repeat uses that already-frozen executable, identical to the failed
+single-volume run's executable, on the separate worker volumes with no external
+SQL reader or native sampler. Its result was pending at this checkpoint and is
+recorded below. This remains an embedded
+node/domain recovery drill; hard OS-process kills, public extent recovery,
+fleet-capacity limits and recovery-time guarantees remain unqualified.
+
+### Clean full-size RustFS repeat
+
+The clean `106a961f` executable passes the actual 9,999,998,976-byte RustFS
+drill in 1,873.19 seconds, without an external SQL reader, native sampler or the
+temporary query instrumentation. Its SHA-256 is
+`88bc4cd072e254504044ed63b64839041939af3cdf476ab14bc1b559f47b67d1`;
+the log SHA-256 is
+`bc3b47d2d91f32d67a3d22d8ea50746bc5be6d322f935d21ffd254814a704481`.
+All 1,265 tracked Rust/Cargo inputs after probe cleanup match this executable's
+source. The result exits zero, contains the final restart/receipt/shutdown pass,
+and has no null bytes. Raw evidence and the input/executable manifests are
+preserved read-only outside the repository.
+
+The required archive head confirms at index 9/term 4 after a 1,112.36-second
+catch-up wait. Empty-worker join and first local read then take 125.56 seconds.
+The restored owner's new write takes 27.40 seconds and its exact-version read
+0.006 seconds. After restart, another new write takes 27.31 seconds and its
+version-bound payload check takes 0.010 seconds. Receipt identity and callback
+counts remain unchanged by retries. The node test process peaks at 98,713,600
+resident bytes, excluding RustFS and the operating-system file cache.
+
+This uses the same frozen executable as the failed single-volume run. The
+successful layout puts odd-numbered workers on a separate local volume, while
+RustFS and the other workers use the workspace volume. Profiling/cache-warming
+probes are absent. These differences and the observed SQL execution delay
+support a storage-contention explanation; they do not prove the exact cause of
+every historical refusal or establish a controlled performance comparison. The
+archive cleanup liveness defect remains independently reproduced and fixed.
+
+The peer-transfer case below uses the same clean executable and two-volume
+layout. It does not wait for the latest object-store head before seeding the
+empty worker. Hard OS-process crashes, public extent recovery, fleet capacity
+and recovery-time guarantees remain outside these successful RustFS assertions.
+
+### Clean full-size peer recovery
+
+The actual 9,999,998,976-byte direct-peer drill also passes on frozen `106a961f`
+in 2,434.59 seconds. The executable SHA-256 is unchanged from the clean RustFS
+case. Its log SHA-256 is
+`4900773a114693081acaecdb0c23e812e46b4f49436090d16ef2facd261cf2c1`.
+The result exits zero and verifies the final restart, new write, version-bound
+payloads, receipt identity/callback counts and joined shutdown. The raw log has
+no null bytes and is preserved read-only with the result and source manifest.
+
+Empty-worker join and first local read take 1,383.78 seconds, including source
+snapshot preparation, authenticated peer transfer and physical verification.
+The restored owner's next write takes 30.94 seconds and its exact-version read
+0.051 seconds. After restart, another new write takes 28.25 seconds and its
+version-bound payload read takes 0.390 seconds. All 60-second read deadlines and
+recovery assertions are unchanged. The node process peaks at 95,698,944 resident
+bytes, excluding the separate RustFS process and operating-system file cache.
+
+Read-only process I/O counters and file-descriptor sizes observed progress
+without opening the database or sampling native stacks. They are not network
+transfer measurements or admission proofs. Two source snapshot spools were
+observed growing concurrently; both reached complete encoded length before the
+replacement's receive/verification finished. Full-image source preparation,
+transfer and verification remain substantial work and R7 remains open.
+
+Together these qualify the configured native materialized peer and RustFS paths
+at the page-rounded decimal quota, including quota refusal/cleanup/reuse and
+new writes after recovery and restart. They do not qualify hard OS-process
+kills, public extent activation, a controlled RTO, compressible full-size data
+or a production fleet-capacity envelope. The broader completion checklist stays
+open for those remaining gates.
