@@ -1471,8 +1471,8 @@ configuration.
 | Static checks | Strict adapter all-target and core-library Clippy, Rust/JS formatting, layout, docs and native-only dependency guard pass |
 | Cold dispatch repetitions | One of three further default probes times out. An alternating eight-run-per-configuration comparison reproduces the timeout with both default and eager Node compilation; no flag change is justified or applied |
 
-These results retain the original budgets and assertions. The initial combined
-module campaign has two failures; the later passing full run does not erase
+Timing budgets remain unchanged. The initial combined module campaign has two
+failures; the later passing full run does not erase
 that unresolved intermittent qualification failure.
 
 A later repetition also exposed a fixture assertion that incorrectly required
