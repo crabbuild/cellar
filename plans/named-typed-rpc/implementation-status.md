@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | The preceding peer-cache/IPC head `9ff2af7e` passes hosted SDK (GIL and free-threaded), typed-RPC lifecycle, JS/Node and Python examples. The new shutdown-cause, boxed-dispatch and generated-client peer-fault changes pass all 744 combined cases locally with independent audits; require their own hosted results. |
+| P0 — hosted verification | New-head hosted verification | Merged baseline `b3c276bd` passes hosted typed-RPC lifecycle. Follow-up `8fa1acb0` fixes stale SDK/native test bootstrap signatures; its Python examples pass, while JS/Node CI now reaches a ten-second published-container module timeout. SDK and lifecycle rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -73,6 +73,35 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **V8 admission now precedes native request allocation.** A real-isolate
+  saturation regression first fails because an RPC refused by the aggregate
+  bridge limit nevertheless copies its entire 8 KiB attachment. The engine now
+  inspects the fixed private view and UTF-8 metadata length, checks authority and
+  operation admission, and retains the byte reservation before making either
+  owned request copy. It rechecks host revocation before native publication.
+  The same saturated invocation returns its refusal and releases all charges;
+  its attachment-copy probe must stay at zero. Another live regression accepts
+  exactly 1,024 UTF-8 payload bytes and refuses 1,025 before native work.
+  The initial fix passes 68 runtime tests, all five streaming/Node compatibility/
+  typed-RPC integration tests, all-target JS Clippy and Node-only library checking.
+  Logs: `/tmp/cellar-rpc-v8-admission-copy-red.log` and the
+  `/tmp/cellar-rpc-v8-admission-*` rechecks. Completion-copy accounting, effective
+  host/peer minima and full saturation/flood/RSS qualification remain open.
+
+- **Merged baseline and CI fixture follow-ups.** At `b3c276bd`, all 66 runtime
+  tests, 35 qualifier guards and 48 generated-client peer-fault cases pass.
+  Independent auditing rejects six corrupted peer reports; source hashes remain
+  unchanged across the checks. Evidence: `.cellar/rpc/pr126-merged-peer-faults.json`
+  and `pr126-merged-head-source-hashes.json`; report SHA-256:
+  `6ed5e8a10a73a3bb7892b499a8e0e0b5a4e330db301a8a835dcd88ff7fe3393e`.
+  Hosted typed-RPC lifecycle also passes. The broader CI failures exposed a stale
+  SDK runner bootstrap and a native cold-factory helper signature. `8fa1acb0`
+  shares the production delegate bootstrap between SDK/RPC tests and adapts that
+  helper without changing assertions or budgets. All 68 JavaScript tests and all
+  three native typed-RPC integration tests pass, including cold-factory deadline/
+  cancellation and receipt recovery. JS/Node CI subsequently reaches a distinct
+  `/container/alice` timeout in `workers_module`; its cause remains unresolved.
 
 - **2026-10-26 PR #126 integration with main.** Main is integrated through
   `9f1e7df1`, including the new runtime delegates and extent-backed storage.

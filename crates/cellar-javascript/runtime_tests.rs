@@ -44,6 +44,110 @@ fn source(body: &str) -> Source {
 }
 
 #[test]
+fn operation_value_limit_counts_utf8_bytes_at_the_exact_boundary() -> Result<()> {
+    for extra in [1, 2] {
+        let options = Options {
+            max_value_bytes: 1024,
+            ..Options::default()
+        };
+        // JSON's {"name":""} costs 11 bytes; each é costs two UTF-8 bytes.
+        let code = format!(
+            r#"
+          try {{ return {{value:await ctx.variable('é'.repeat(506) + 'a'.repeat({extra}))}}; }}
+          catch (error) {{ return {{code:error.code, outcome:error.outcome}}; }}
+        "#
+        );
+        JavaScriptRuntime::run(options, source(&code), |app| {
+            let runtime = &app.runtime;
+            let id = runtime.id()?;
+            let mut receive = start(runtime, id, Arc::new(AtomicBool::new(true)));
+            if extra == 1 {
+                let Event::Operation {
+                    id: operation,
+                    name,
+                    payload,
+                    ..
+                } = event(&mut receive)
+                else {
+                    anyhow::bail!("exact-limit UTF-8 value was refused");
+                };
+                assert_eq!(name, "var");
+                assert_eq!(payload.len(), 1024);
+                runtime.reply(
+                    id,
+                    operation,
+                    json!({"ok":true,"value":"accepted"}).to_string(),
+                )?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receive)
+            else {
+                anyhow::bail!("oversize UTF-8 value reached native work");
+            };
+            assert!(!failed);
+            let expected = if extra == 1 {
+                json!({"value":"accepted"})
+            } else {
+                json!({"code":"ValueLimit", "outcome":"not_committed"})
+            };
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&payload)?,
+                expected
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
+fn exhausted_bridge_refuses_rpc_before_copying_its_attachment() -> Result<()> {
+    let options = Options {
+        max_bridge_bytes: 4 * 1024 * 1024,
+        ..Options::default()
+    };
+    let code = r#"
+      try {
+        await ctx[Symbol.for('cellar.rpc')].call({binding:'COUNTERS', name:'alice',
+          method:'example.counter.v1.Counter/GetCount', contract_digest:'a'.repeat(64)},
+          new Uint8Array(8192));
+        return {unexpected:true};
+      } catch (error) {
+        return {code:error.code, outcome:error.outcome};
+      }
+    "#;
+    JavaScriptRuntime::run(options, source(code), |app| {
+        let runtime = &app.runtime;
+        // Keep room for the small invocation and its refusal, but not the 8 KiB
+        // attachment. Saturation must not prevent completion or host shutdown.
+        let first = runtime.reserve(runtime.options.max_value_bytes)?;
+        let second = runtime
+            .reserve(runtime.options.max_bridge_bytes - runtime.options.max_value_bytes - 512)?;
+        let mut receive = start(runtime, runtime.id()?, Arc::new(AtomicBool::new(true)));
+        let Event::Complete {
+            payload, failed, ..
+        } = event(&mut receive)
+        else {
+            anyhow::bail!("exhausted bridge submitted native RPC work");
+        };
+        assert!(!failed);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&payload)?,
+            json!({"code":"BridgeLimit", "outcome":"not_committed"})
+        );
+        assert_eq!(runtime.attachment_copied.load(Ordering::Relaxed), 0);
+        drop((first, second));
+        let until = Instant::now() + Duration::from_secs(2);
+        while runtime.usage().retained_bytes != 0 {
+            assert!(Instant::now() < until, "refused RPC retained a reservation");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
+    })
+}
+
+#[test]
 fn interleaved_awaits_keep_scope_and_reject_saved_context() {
     let code = r#"
       if (!globalThis.saved) globalThis.saved = ctx;

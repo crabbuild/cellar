@@ -319,16 +319,16 @@ fn dispatch_operation(
         return refuse(scope, "ValidationError");
     };
     let limit = state.borrow().runtime.options.max_value_bytes;
-    if name.length() > 64 || payload.length() > limit {
+    let payload_bytes = payload.utf8_length(scope);
+    if name.length() > 64 || payload_bytes > limit {
         return refuse(scope, "ValueLimit");
     }
     let name = name.to_rust_string_lossy(scope);
-    let payload = payload.to_rust_string_lossy(scope);
     if synchronous && !supports_synchronous(&name) {
         return refuse(scope, "UnsupportedOperation");
     }
     let shared = state.clone();
-    let body = match super::binary::copy(scope, args.get(3), limit) {
+    let body = match super::binary::view(scope, args.get(3), limit) {
         Ok(body) => body,
         Err(_) => return refuse(scope, "ValidationError"),
     };
@@ -386,12 +386,27 @@ fn dispatch_operation(
         return refuse(scope, "ConcurrentMutation");
     }
 
-    let Ok(size) = value_size(&payload, body.as_deref()) else {
+    let Some(size) = payload_bytes.checked_add(body.as_ref().map_or(0, |view| view.byte_length()))
+    else {
         return refuse(scope, "ValueLimit");
     };
+    if size > limit {
+        return refuse(scope, "ValueLimit");
+    }
     let Ok(bytes) = runtime.reserve(size) else {
         return refuse(scope, "BridgeLimit");
     };
+    // Check liveness, operation admission and byte capacity before materializing
+    // either owned payload. The view is private/fixed and no JS runs here.
+    let payload = payload.to_rust_string_lossy(scope);
+    let body = match super::binary::copy_view(body) {
+        Ok(body) => body,
+        Err(_) => return refuse(scope, "ValidationError"),
+    };
+    #[cfg(test)]
+    runtime
+        .attachment_copied
+        .fetch_add(body.as_ref().map_or(0, Vec::len) as u64, Ordering::Relaxed);
     let Ok(id) = runtime.id() else {
         return refuse(scope, "OperationLimit");
     };
@@ -418,6 +433,14 @@ fn dispatch_operation(
     } else {
         None
     };
+    // The host can revoke these atomics while copies or resolver allocation run.
+    // Retain the post-copy authority check before publishing any native work.
+    if runtime.closed.load(Ordering::Acquire)
+        || !active.start.active.load(Ordering::Acquire)
+        || !active.start.owner.load(Ordering::Acquire)
+    {
+        return refuse(scope, "ContextExpired");
+    }
     if active
         .start
         .sender
