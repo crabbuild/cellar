@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "3de1ed9586280ac98b3967d4426284bf0261190c",
+  "baseline_revision": "dde489871416e41bca0fb21b4859d2f62695eb03",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
