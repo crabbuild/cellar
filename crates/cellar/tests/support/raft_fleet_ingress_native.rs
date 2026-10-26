@@ -214,15 +214,17 @@ async fn fleet_enrollment_unknown_node() -> Result<()> {
                     label: &str| {
         serde_json::json!({"node":node.bytes(), "disk":disk.bytes(), "process":process.bytes(), "storage_instance":instance.bytes(), "label":label})
     };
-    let response = exchange(&f, own.control_address, &NODE, serde_json::json!({
+    for with_inventory in [false, true] {
+        let response = exchange(&f, own.control_address, &NODE, serde_json::json!({
         "route":{"fleet":vec![80;16], "catalog":f.catalog.group_binding(dormant.scope())?.catalog(), "cluster":f.declaration.namespace.cluster.bytes(), "protocol":protocol,
             "minimum_revision":revision.to_string(), "source":endpoint(rogue.node, rogue.disk, peer.process, view.storage_instance(), &rogue.label),
             "target":endpoint(own.node, own.disk, own.process, physical.node.storage_instance, &own.label)},
-        "nonce":"1", "timeout_ms":1000 }), &[]).await.context("unrooted node metadata probe")?;
-    ensure!(
-        response["status"] == 2,
-        "unrooted native metadata request was not refused: {response}"
-    );
+        "nonce":"1", "timeout_ms":1000, "physical":with_inventory }), &[]).await.context("unrooted node metadata probe")?;
+        ensure!(
+            response["status"] == 2,
+            "unrooted native metadata request was not refused: {response}"
+        );
+    }
     for known in [false, true] {
         let mut scope = dormant.scope().clone();
         if !known {

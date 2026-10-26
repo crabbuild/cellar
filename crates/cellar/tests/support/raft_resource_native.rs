@@ -566,6 +566,25 @@ async fn fleet_resource_unmaterialized_genesis_is_not_free() -> Result<()> {
             )
             .await?;
     ensure!(admitted.applied_revision() == cut.revision() + 1);
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    s.f.remote(&s.nodes[0].host, NodeId::new([7; 16])?, cut.revision())
+        .await?;
+    let extra = s.request(1, 226, cut.revision()).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .reserve_resources(
+                &cut,
+                &extra,
+                &s.nodes[0].host,
+                std::slice::from_ref(&s.namespace),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Resource(LedgerError::CapacityExceeded(
+            ResourceKind::EngineSlots
+        )))
+    ));
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
     s.close().await
 }
 
