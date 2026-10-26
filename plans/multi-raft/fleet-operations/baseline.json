@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "5fdd7b0a8fc7494b9ca8d4d58d8e4cd91eceb92e",
+  "revision": "94eb26c01b4cf2c1ad9ef953dd3cad5c4a04501d",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -300,7 +300,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "97b35f205359ed25e3b7e1dc8fcfc551a05c63dbb2c94dee67e7ab4cf74d822e"
+      "sha256": "ede598576d36fcc5af9816fdcda11c71f362e732b57fba05804d1c71b2fc50e3"
     },
     {
       "path": "crates/cellar/tests/support/raft_controller_native.rs",

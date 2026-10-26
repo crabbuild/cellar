@@ -43,15 +43,76 @@ retains its original debt and must finish through the existing proof boundaries.
 
 The feature hard-cuts to `/topology-intent-1` after `/topology-bindings-1`, retaining
 numeric markers at 1 and requiring fresh matching coordination/data roots and
-engines. Startup stays explicit and default-off. The eight new native scenarios
-and four existing topology scenarios pass in focused verification; full current
-regression, lint and repository qualification follow before publication.
+engines. Startup stays explicit and default-off. Rust source
+`94eb26c01b4cf2c1ad9ef953dd3cad5c4a04501d`, including the latest `main` integration,
+passes **479 selected native cases**, including all 12 topology scenarios and
+all 141 required FO-03 cases. All-target host Clippy with warnings denied,
+format/layout/dependency/docs checks, ten plan tests, validation and source-anchor
+preflight pass. All 1,421 frozen Rust/Cargo/configuration inputs and the immutable
+binary/output hashes were audited against that committed source. Two existing
+process-test child entrypoints remain ignored for direct execution. Artifacts
+and failed attempts are outside runtime data in checkout-private
+`qualification/fleet-operations/topology-intent-v8/`.
 
-Next operator delivery should expose these real start/status/cancel/progress
-transitions, then integrate failure/old-boot recovery and maintenance/rejoin,
-resize and rolling workflows. Workload/leader balancing, live-cell retirement,
-full SDK CI and deployed RustFS/Colima faults, TPS/p99, overhead and soak remain
-required. The current healthy service does not complete FO-04 through FO-10.
+The cohort is enrollment 155, Raft units 183, catalog 13, permits 25, directory 16,
+host 32, execution 21, reads 22, six targeted archive/seed cases and six rooted
+cases. Main integration also passes the 21 affected JavaScript fixture cases
+and RPC TypeScript checking. Full SDK CI and deployed RustFS/Colima resource,
+fault, TPS/p99, controller-overhead and soak qualification remain open.
+
+The Linux concurrent reconciler case reproduced a standard-stack overflow during
+setup. Caller-only boxing isolated the cause; boxing at the production API
+boundary then passed the unchanged concurrent test. Original failure, phase
+probes and both successful experiments are retained outside runtime data. No
+stack, deadline, concurrency assertion or durability check was relaxed. This
+isolated Linux result does not qualify the full SDK or new topology protocol.
+
+A late failed activation can still own a pending initializer. Its charged slot
+is not a durable history: the native test now checks complete physical absence
+throughout initializer exit and requires zero slots before later admission.
+Lost-confirmation faults are bound to the mutating task so background trust
+refreshes cannot consume them. The existing generic catalog pagination case
+caught placement validation running without an enabled policy; the inactive
+path preserves its opaque-table contract, while rooted topology policy retains
+all target checks.
+
+## Next feature delivery order
+
+1. **Operator access (FO-08):** expose the implemented begin/status/paginated
+   progress/cancel transitions through authenticated SDK management, admin and
+   CLI entry points. Preserve exact request identity, revision conflicts and
+   unknown outcomes. Deliver a runnable add-capacity and keep-set contraction
+   workflow; do not advertise commands backed only by this design.
+2. **Scalable convergence (FO-04/FO-06):** avoid a complete fleet walk after
+   every settled move. At the default 500 ms interval, a 500-history walk alone
+   takes about 250 seconds before I/O; this is a pacing lower bound, not a
+   deployed timing measurement. Reuse verified configuration only across an
+   exact journal-confirmed controller-owned transition; invalidate it on external
+   birth, membership, boot or policy changes. Renew node capacity and the moved
+   group's quorum observations. Verify 500-group collection/convergence cost
+   before enabling automation; do not trade away proof freshness.
+3. **Failure recovery (FO-06/FO-07):** integrate trusted exact-boot isolation or
+   joined old-domain closure with survivor quorum and repair. Exercise a dead
+   voter, changed process and lost reply. A timeout never authorizes replacement
+   or releases retained storage; unavailable quorum remains explicitly blocked.
+4. **Maintenance (FO-07/FO-08):** finish readiness, guarded stop, verified rejoin
+   and one-at-a-time rolling maintenance on the same operation/audit surface.
+   Add cancellation with partial effects before resize workflows.
+5. **Capacity lifecycle (FO-09):** add effective profile reconciliation, retained
+   state fit, safe resize and committed cell retirement. Placement completion
+   alone cannot authorize deleting a node, volume or retained replica.
+6. **Scale and performance (FO-05/FO-10):** measure 500/1,500-group convergence,
+   scheduling cost and foreground TPS/p99 at enforced limits, then improve the
+   measured bottleneck. The present collector recollects all histories after
+   every move and paces each history by the service interval; large-fleet
+   convergence and controller overhead are not yet qualified. Leader/load
+   balancing and deployed RustFS faults/soak remain required.
+
+These are feature slices across the existing package boundaries. FO-03 is
+complete at its documented enrollment/admission boundary; it is not the next
+implementation target. FO-04, FO-06 and FO-07 stay in progress until their full
+acceptance conditions pass. Full SDK CI remains a release gate. Healthy desired
+placement does not yet deliver failure-driven auto-healing or node removal.
 
 ## Owned topology collection and generated-move delivery
 
