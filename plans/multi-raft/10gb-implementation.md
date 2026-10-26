@@ -7,6 +7,26 @@ per-cell storage limit. The preceding 256 MiB extension is not completion of thi
 work. The architecture and product policy are in
 [large-cell recovery](large-cell-recovery.md).
 
+## Current qualification
+
+Both native materialized recovery paths pass at 9,999,998,976 SQLite bytes on
+frozen `106a961f`, without an external SQL reader or stack sampler. They preserve
+the 60-second read deadlines and verify owner/local-state loss, payloads, new
+writes, restart, receipts and joined shutdown.
+
+| Path | Complete drill | Empty-worker join and first local read |
+| --- | --- | --- |
+| RustFS | 1,873.19 s | 125.56 s after archive confirmation |
+| Direct peer | 2,434.59 s | 1,383.78 s including source preparation and transfer |
+
+See the [clean RustFS record](#clean-full-size-rustfs-repeat) and
+[peer record](#clean-full-size-peer-recovery) for evidence and scope. These use
+the documented two-volume layout and establish no RTO or backend speed ranking.
+The checklist below also covers both storage representations and a broader
+fault/capacity matrix; these materialized passes do not complete that matrix.
+The remaining entries are a source-pinned validation history; their progress
+statements describe each run at that point in time.
+
 ## Completion requirements
 
 - [ ] R1: Admit logical SQLite images through 10,000,000,000 bytes, with exact
@@ -42,11 +62,10 @@ work. The architecture and product policy are in
 
 ### Restoration priorities
 
-1. Close the failing public-host recovery path first. Reproduce the preserved
-   full-size `VersionUnavailable` with operation-specific context, fix its
-   owning boundary, and verify replacement-local payloads, promotion, a new
-   committed write, retained receipts and another restart. Keep request
-   deadlines and publication proofs unchanged while diagnosing the refusal.
+1. Preserve the now-passing materialized peer/RustFS paths with the native
+   regressions and actual full-size acceptance cases. Retain replacement-local
+   payload, new-write, restart and receipt assertions; keep request deadlines
+   and publication proofs unchanged.
 2. Bring extent snapshots, peer seeds and object-store recovery through the
    same acceptance path before enabling public extent selection. Metadata-only
    roots and locally passing command tests do not establish remote recovery.
@@ -638,6 +657,34 @@ CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_PANIC=unwind \
   -- --ignored --exact --nocapture --test-threads=1
 ```
 
+For the actual page-rounded decimal 10 GB materialized drill, select
+`full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss`
+instead. The complete invocation is:
+
+```sh
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_PANIC=unwind \
+  cargo +1.98.1 test --locked -p cellar --release \
+  --test native_raft_large_images \
+  full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+Create the disposable worker directory before invoking the test. Optionally set
+`CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR` to an existing directory on an independent
+volume; odd-numbered workers use it, including the empty replacement. This
+separates their local I/O from the other workers and the object-store volume in
+the recorded two-volume layout. The test removes its temporary worker directories
+after completion; its isolated object-store prefix is printed in the log.
+`CELLAR_LARGE_IMAGE_FIXTURE` may name an existing quota-filled source fixture in
+the fixture's schema, which is cloned/copied before modification. Without that
+variable, the test builds an actual full-size incompressible SQLite fixture.
+Provision space for the source, replicas, verification images and snapshot
+spools; the logical per-cell quota does not cover these additional local files.
+The corresponding full-size peer-transfer case is
+`full_capacity::decimal_ten_gb_peer_restores_native_serving_after_owner_and_local_state_loss`.
+It still requires the real object store for bounded background archival; its
+empty replacement receives the physical image from the surviving peer.
+
 The subsequent 9,999,998,976-byte run uses the preflight's source-bound
 `d5f12630` release, retains the prior full-size input hash and uses a fresh RustFS
 prefix with unchanged requests, deadlines and proof checks. Read-only process disk-I/O
@@ -1004,6 +1051,73 @@ Temporary query-phase instrumentation and the isolated diagnostic test are now
 removed. All 1,265 tracked Rust/Cargo build inputs exactly match `106a961f`.
 The clean repeat uses that already-frozen executable, identical to the failed
 single-volume run's executable, on the separate worker volumes with no external
-SQL reader or native sampler. Its result is pending. This remains an embedded
+SQL reader or native sampler. Its result was pending at this checkpoint and is
+recorded below. This remains an embedded
 node/domain recovery drill; hard OS-process kills, public extent recovery,
 fleet-capacity limits and recovery-time guarantees remain unqualified.
+
+### Clean full-size RustFS repeat
+
+The clean `106a961f` executable passes the actual 9,999,998,976-byte RustFS
+drill in 1,873.19 seconds, without an external SQL reader, native sampler or the
+temporary query instrumentation. Its SHA-256 is
+`88bc4cd072e254504044ed63b64839041939af3cdf476ab14bc1b559f47b67d1`;
+the log SHA-256 is
+`bc3b47d2d91f32d67a3d22d8ea50746bc5be6d322f935d21ffd254814a704481`.
+All 1,265 tracked Rust/Cargo inputs after probe cleanup match this executable's
+source. The result exits zero, contains the final restart/receipt/shutdown pass,
+and has no null bytes. Raw evidence and the input/executable manifests are
+preserved read-only outside the repository.
+
+The required archive head confirms at index 9/term 4 after a 1,112.36-second
+catch-up wait. Empty-worker join and first local read then take 125.56 seconds.
+The restored owner's new write takes 27.40 seconds and its exact-version read
+0.006 seconds. After restart, another new write takes 27.31 seconds and its
+version-bound payload check takes 0.010 seconds. Receipt identity and callback
+counts remain unchanged by retries. The node test process peaks at 98,713,600
+resident bytes, excluding RustFS and the operating-system file cache.
+
+This uses the same frozen executable as the failed single-volume run. The
+successful layout puts odd-numbered workers on a separate local volume, while
+RustFS and the other workers use the workspace volume. Profiling/cache-warming
+probes are absent. These differences and the observed SQL execution delay
+support a storage-contention explanation; they do not prove the exact cause of
+every historical refusal or establish a controlled performance comparison. The
+archive cleanup liveness defect remains independently reproduced and fixed.
+
+The peer-transfer case below uses the same clean executable and two-volume
+layout. It does not wait for the latest object-store head before seeding the
+empty worker. Hard OS-process crashes, public extent recovery, fleet capacity
+and recovery-time guarantees remain outside these successful RustFS assertions.
+
+### Clean full-size peer recovery
+
+The actual 9,999,998,976-byte direct-peer drill also passes on frozen `106a961f`
+in 2,434.59 seconds. The executable SHA-256 is unchanged from the clean RustFS
+case. Its log SHA-256 is
+`4900773a114693081acaecdb0c23e812e46b4f49436090d16ef2facd261cf2c1`.
+The result exits zero and verifies the final restart, new write, version-bound
+payloads, receipt identity/callback counts and joined shutdown. The raw log has
+no null bytes and is preserved read-only with the result and source manifest.
+
+Empty-worker join and first local read take 1,383.78 seconds, including source
+snapshot preparation, authenticated peer transfer and physical verification.
+The restored owner's next write takes 30.94 seconds and its exact-version read
+0.051 seconds. After restart, another new write takes 28.25 seconds and its
+version-bound payload read takes 0.390 seconds. All 60-second read deadlines and
+recovery assertions are unchanged. The node process peaks at 95,698,944 resident
+bytes, excluding the separate RustFS process and operating-system file cache.
+
+Read-only process I/O counters and file-descriptor sizes observed progress
+without opening the database or sampling native stacks. They are not network
+transfer measurements or admission proofs. Two source snapshot spools were
+observed growing concurrently; both reached complete encoded length before the
+replacement's receive/verification finished. Full-image source preparation,
+transfer and verification remain substantial work and R7 remains open.
+
+Together these qualify the configured native materialized peer and RustFS paths
+at the page-rounded decimal quota, including quota refusal/cleanup/reuse and
+new writes after recovery and restart. They do not qualify hard OS-process
+kills, public extent activation, a controlled RTO, compressible full-size data
+or a production fleet-capacity envelope. The broader completion checklist stays
+open for those remaining gates.

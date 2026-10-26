@@ -874,8 +874,13 @@ recovery also checks `max_seed_recovery_bytes` before reading its complete set.
 Defaults retain the previous memory and disk bounds.
 
 This materialized path still copies and hashes complete images. Snapshot files
-and object parts use bounded I/O and explicit scratch admission; full-size
-recovery remains unqualified. The
+and object parts use bounded I/O and explicit scratch admission. The native
+materialized RustFS and direct-peer drills pass at 9,999,998,976 SQLite bytes
+with owner/local state loss, replacement-local new writes, restart and receipt
+verification on the documented two-volume layout. The
+[qualification record](../../../../plans/multi-raft/10gb-implementation.md#current-qualification)
+states its scope, timings and remaining fault/capacity checks; it establishes no
+recovery-time guarantee. The
 [large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
 verified demand loading for fast cold activation, targeting Cloudflare's
