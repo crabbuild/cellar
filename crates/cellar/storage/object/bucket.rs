@@ -695,7 +695,9 @@ impl Bucket {
     /// applications. Fleet flags still resolve exclusively through the cloud
     /// backend parser; this is not shared-filesystem production storage.
     /// Committed writes may remain in the `-wal` sidecar after every request
-    /// connection closes. Preserve the database and its WAL together.
+    /// connection closes. An idle connection shared by store clones keeps the
+    /// WAL index alive without holding a read transaction. Preserve the
+    /// database and its WAL together, including after the last handle closes.
     pub fn open_dev(database: &std::path::Path) -> anyhow::Result<Bucket> {
         let store = Arc::new(crate::local_store::LocalStore::open(database)?);
         Ok(Bucket {
