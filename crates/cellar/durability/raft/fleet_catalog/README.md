@@ -1078,3 +1078,71 @@ also drive this terminal boundary; they do not decide to abort a move themselves
 Changed-boot/unavailable-owner settlement and deployment isolation integration
 remain separate work. The receipt schema hard-cuts to `/aborted-movement-1` with
 numeric markers still 1; use fresh matching coordination/data roots and engines.
+
+## Collect and execute a generated topology move
+
+`prepare_topology_verification` connects the pure balanced-assignment planner to
+owned runtime inputs. The caller supplies an explicit final keep-set, topology
+constraints, trusted deployment occupancy/reserve evidence for each participating
+node and conservative resident/seed bounds for every live history. Copy bounds
+must cover each node's persistent per-group byte reservation. These inputs do
+not substitute for measured kernel limits, RSS or a workload model.
+
+Preparation checks complete rooted namespace inventory, quantified current
+boot/profile capacity, an empty unresolved movement book and permanent settlement
+for every previous permit. It owns authenticated complete physical inventories,
+including retired and unattached engine histories. Removed or permanently
+isolated registrations are not candidate capacity; any still-serving reference
+to an omitted node refuses collection. Missing capacity or occupancy is never
+treated as zero.
+
+Use the returned `FleetTopologyVerification` as follows:
+
+1. Call `verify_next` until it returns false. Each call consumes at most one
+   rooted history. Reserved births block; canonical cancellations consume no live
+   capacity. For each live history, three fresh safe-ReadIndex responses must
+   agree on stable RF3, settled permits and the rooted birth/schema. The adapter
+   validates current and retained physical bindings against genesis and committed
+   joined-member identities. Missing initial voter materialization remains debt.
+2. Call `preview`. The adapter refreshes authenticated node inventories and
+   profiles, requires the same physical binding identities and retains rooted
+   physical floors. Completed/apply progress may advance without invalidating
+   those identities. Complete capacity ledgers include explicit reserves and
+   installed runtime bounds. The pure generator and full staged/recovery verifier
+   run in the owning domain's bounded blocking task. Caller cancellation cannot
+   detach that physical work from domain shutdown.
+3. Call `first_movement` with a new request identity at the preview's inventory
+   revision. It describes only the first serial replacement, selecting the exact
+   obsolete binding, a fresh member above the observed high water, target boot
+   evidence and declared seed peak. An empty result means no move is needed for
+   this checked proposal.
+4. Submit that exact request through `reserve_movement`, retaining it to resolve
+   unknown replies. Its existing guard independently checks the current root,
+   fresh source quorum, target physical occupancy and capacity, then atomically
+   admits the debit and membership permit. The owned movement service can seed,
+   finish joint consensus and settle that admitted move.
+5. After terminal settlement, collect again before selecting a successor. A
+   saved preview cannot grant a second move at a changed root. Recreated callers
+   retry the exact admitted request and reconcile through permanent journals.
+
+Group verification is incremental and historical. The immutable root and settled
+permit frontier pin configuration; collecting 500 groups does not require all
+their ReadIndex responses to fit one five-second lease. Node capacity samples
+are refreshed at the end and checked for receiver-local freshness. Actual
+admission always reacquires quorum and capacity inputs. A relevant root change,
+new physical binding or stale peer/profile refuses rather than completing a
+partial proposal. Retry transient observations after bounded current discovery.
+
+Collector retention is bounded to 64 compact physical inventories and 10,000
+group/resource records. No complete membership ledger is retained per business
+cell. Unknown local histories, unmaterialized births, active debits and missing
+evidence block the operation. Ordinary archive/publication work can continue;
+the collector grants no physical reservation release.
+
+This API connects healthy-fleet collection, generation and guarded per-move
+execution. It does not persist a fleet-wide desired keep-set, exclude departing
+nodes, schedule new admissions automatically, or authorize node removal. Durable
+topology intent, placement fencing, failure-driven repair, maintenance/rejoin and
+operator scaling workflows remain separate required delivery. The native fixture
+executes two generated moves, recollects retained bindings and verifies SQL
+values 7 to 12 to 21; it is not RustFS/Colima or TPS/p99 qualification.

@@ -29,6 +29,12 @@ pub(super) enum Authority {
 }
 mod movement;
 mod records;
+mod topology;
+
+pub use topology::{
+    FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,
+    FleetTopologyPolicy, FleetTopologyPreview, FleetTopologyRequest, FleetTopologyVerification,
+};
 
 pub use movement::{FleetMovementAdmission, FleetMovementRequest};
 

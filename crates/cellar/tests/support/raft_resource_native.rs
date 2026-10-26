@@ -8,6 +8,8 @@ use cellar_logic::raft_fleet::{LedgerError, ResourceKind};
 
 #[path = "raft_movement_native.rs"]
 mod movement_tests;
+#[path = "raft_topology_native.rs"]
+mod topology_tests;
 
 struct Setup {
     f: Fixture,

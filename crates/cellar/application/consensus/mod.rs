@@ -56,6 +56,10 @@ pub use crate::raft::fleet_catalog::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
 };
+pub use crate::raft::fleet_catalog::{
+    FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,
+    FleetTopologyPolicy, FleetTopologyPreview, FleetTopologyRequest, FleetTopologyVerification,
+};
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };

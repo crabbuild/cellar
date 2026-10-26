@@ -436,7 +436,7 @@ impl FleetCatalog {
     }
 }
 
-fn capacity_scope(
+pub(super) fn capacity_scope(
     catalog: &FleetCatalog,
     attestation: &FleetResourceAttestation,
 ) -> Result<CapacityScope> {

@@ -1,0 +1,440 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Owned inputs -> generated movement -> native seed/joint/settlement. Bounds
+//! are explicit fixture attestations, not measured deployment qualification.
+use super::super::retirement::discover;
+use super::*;
+use anyhow::Context as _;
+use cellar::application::consensus::verification::{FleetChange, FleetMutation, FleetTable};
+use std::{future::Future, pin::Pin};
+
+struct Scenario {
+    s: Setup,
+    _spare_root: tempfile::TempDir,
+    spare_node: cellar::sdk::Node,
+    spare: RaftCells,
+    live: Vec<Vec<(NodeId, RaftCellHandle)>>,
+}
+
+impl Scenario {
+    async fn new(materialize: bool) -> Result<Self> {
+        let s = Box::pin(Setup::with_capacity(true, 8))
+            .await
+            .context("topology base setup")?;
+        let (root, node, host) = s.f.peer_host(8).await.context("topology spare setup")?;
+        let mut live = Vec::new();
+        if materialize {
+            for proposal in &s.proposals {
+                let cut = s.f.catalog.read(TIMEOUT).await?;
+                let authorization =
+                    s.f.catalog
+                        .authorize_group(&cut, &proposal.scope, TIMEOUT)
+                        .await?;
+                let cells = registered(&s.nodes, &authorization)
+                    .await
+                    .context("topology register history")?;
+                activate(&cells, &authorization)
+                    .await
+                    .context("topology activate history")?;
+                write_read(&s.f, &cells, 1, 7, 7)
+                    .await
+                    .context("topology initial write")?;
+                live.push(s.nodes.iter().map(|n| n.spec.node).zip(cells).collect());
+            }
+        }
+        for (index, target) in s
+            .nodes
+            .iter()
+            .map(|n| &n.host)
+            .chain(std::iter::once(&host))
+            .enumerate()
+        {
+            let origin = if index == 0 {
+                &s.nodes[1].host
+            } else {
+                &s.nodes[0].host
+            };
+            let evidence = attestation(&s.f, origin, target)
+                .await
+                .context("topology qualification evidence")?;
+            let cut = s.f.catalog.read(TIMEOUT).await?;
+            s.f.catalog
+                .admit_node_capacity(
+                    &cut,
+                    &FleetCapacityRequest {
+                        identity: Fixture::request(225 + index as u8, cut.revision()),
+                        attestation: evidence,
+                        action: FleetCapacityAction::Activate,
+                    },
+                    origin,
+                    std::slice::from_ref(&s.namespace),
+                    TIMEOUT,
+                )
+                .await
+                .context("topology capacity admission")?;
+        }
+        discover(
+            &s.f,
+            &[
+                &s.nodes[0].host,
+                &s.nodes[1].host,
+                &s.nodes[2].host,
+                &s.target,
+                &host,
+            ],
+        )
+        .await
+        .context("topology discovery")?;
+        Ok(Self {
+            s,
+            _spare_root: root,
+            spare_node: node,
+            spare: host,
+            live,
+        })
+    }
+
+    fn hosts(&self) -> Vec<&RaftCells> {
+        self.s
+            .nodes
+            .iter()
+            .map(|n| &n.host)
+            .chain([&self.s.target, &self.spare])
+            .collect()
+    }
+
+    async fn request(&self) -> Result<FleetTopologyRequest> {
+        let mut nodes = Vec::new();
+        let mut keep = Vec::new();
+        let mut bytes = 0;
+        for host in self.hosts() {
+            let sample = host.observe_node(TIMEOUT).await?;
+            keep.push(sample.node.identity.node);
+            bytes = bytes.max(sample.node.profile.bytes_per_group);
+            nodes.push(FleetTopologyNodeResources {
+                attestation: FleetResourceAttestation {
+                    boot: sample.fleet_boot.unwrap(),
+                    profile_revision: 1,
+                    used: FleetResourceBounds {
+                        engine_slots: sample.node.groups,
+                        durable_bytes: 1024 * 1024,
+                        memory_bytes: 64 * 1024 * 1024,
+                    },
+                    evidence_digest: [71; 32],
+                    evidence_reference: "fixture-only/topology-occupancy".into(),
+                },
+                reserve: FleetResourceBounds::default(),
+            });
+        }
+        Ok(FleetTopologyRequest {
+            keep,
+            policy: FleetTopologyPolicy {
+                revision: 1,
+                distinct_zones: false,
+                distinct_regions: false,
+                max_work: 1_000_000,
+            },
+            nodes,
+            histories: self
+                .s
+                .proposals
+                .iter()
+                .map(|p| FleetTopologyHistoryResources {
+                    group: p.scope.clone(),
+                    resident: FleetResourceBounds {
+                        engine_slots: 1,
+                        durable_bytes: bytes,
+                        memory_bytes: 8 * 1024 * 1024,
+                    },
+                    peak: FleetResourceBounds {
+                        engine_slots: 1,
+                        durable_bytes: bytes * 2,
+                        memory_bytes: 16 * 1024 * 1024,
+                    },
+                })
+                .collect(),
+        })
+    }
+
+    async fn collection(
+        &self,
+        request: &FleetTopologyRequest,
+    ) -> Result<FleetTopologyVerification> {
+        let cut = self.s.f.catalog.read(TIMEOUT).await?;
+        Ok(self
+            .s
+            .f
+            .catalog
+            .prepare_topology_verification(
+                &cut,
+                request,
+                &self.s.nodes[0].host,
+                std::slice::from_ref(&self.s.namespace),
+                TIMEOUT,
+            )
+            .await
+            .context("topology prepare collection")?)
+    }
+
+    async fn close(self) -> Result<()> {
+        joined(self.spare_node).await?;
+        self.s.close().await
+    }
+}
+
+struct Evidence {
+    target: RaftCells,
+    request: FleetMovementExecutionRequest,
+}
+
+impl FleetMovementEvidence for Evidence {
+    fn refresh<'a>(
+        &'a self,
+        movement: &'a FleetPendingMovement,
+        timeout: Duration,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = std::result::Result<FleetMovementExecutionRequest, FleetCatalogError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            if movement.reservation != self.request.reservation {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let sample = self
+                .target
+                .observe_node(timeout)
+                .await
+                .map_err(|_| FleetCatalogError::Unconfirmed)?;
+            if sample.fleet_boot.as_ref() != Some(&self.request.attestation.boot) {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let mut request = self.request.clone();
+            request.attestation.used.engine_slots = sample.node.groups;
+            Ok(request)
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_topology_generated_moves_execute_and_recollect_retained_bindings() -> Result<()> {
+    Box::pin(delivery()).await
+}
+
+async fn delivery() -> Result<()> {
+    let mut f = Box::pin(Scenario::new(true)).await?;
+    for round in 0..2 {
+        discover(&f.s.f, &f.hosts()).await?;
+        let request = f.request().await?;
+        let mut collection = f
+            .collection(&request)
+            .await
+            .with_context(|| format!("topology collection round {round}"))?;
+        ensure!(matches!(
+            collection.preview(TIMEOUT).await,
+            Err(FleetCatalogError::InventoryIncomplete)
+        ));
+        while collection.verify_next(TIMEOUT).await? {}
+        ensure!(collection.histories_checked() == 2);
+        let preview = collection.preview(TIMEOUT).await?;
+        ensure!(preview.plan().moves.len() == 2 - round);
+        ensure!(preview.plan().recovery.len() == 5);
+        let movement = preview
+            .first_movement(Fixture::request(
+                210 + round as u8 * 2,
+                preview.inventory_revision(),
+            ))?
+            .unwrap();
+        let cut = f.s.f.catalog.read(TIMEOUT).await?;
+        ensure!(cut.revision() == preview.inventory_revision());
+        let admission =
+            f.s.f
+                .catalog
+                .reserve_movement(
+                    &cut,
+                    &movement,
+                    &f.s.nodes[0].host,
+                    std::slice::from_ref(&f.s.namespace),
+                    TIMEOUT,
+                )
+                .await?;
+        let other = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
+        let other_cut = other.read(TIMEOUT).await?;
+        let retry = other
+            .reserve_movement(
+                &other_cut,
+                &movement,
+                &f.s.nodes[0].host,
+                std::slice::from_ref(&f.s.namespace),
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(retry.resources().applied_revision() == admission.resources().applied_revision());
+        ensure!(matches!(
+            collection.preview(TIMEOUT).await,
+            Err(FleetCatalogError::Conflict)
+        ));
+        let blocked = f
+            .collection(&request)
+            .await
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("active movement was not blocked"))?;
+        ensure!(matches!(
+            blocked.downcast_ref::<FleetCatalogError>(),
+            Some(FleetCatalogError::Resource(LedgerError::MovementLimit))
+        ));
+        let target = if movement.plan.replacement.node == NodeId::new([7; 16])? {
+            f.s.target.clone()
+        } else {
+            ensure!(movement.plan.replacement.node == NodeId::new([8; 16])?);
+            f.spare.clone()
+        };
+        let evidence = Arc::new(Evidence {
+            target: target.clone(),
+            request: FleetMovementExecutionRequest {
+                reservation: movement.resources.identity.id,
+                attestation: movement.resources.attestation.clone(),
+                from_s3: true,
+            },
+        });
+        let service = other
+            .start_movement_service(
+                f.s.nodes[0].host.clone(),
+                evidence,
+                FleetMovementServiceOptions {
+                    interval: Duration::from_millis(50),
+                    retry_max_interval: Duration::from_millis(500),
+                    turn_timeout: TIMEOUT,
+                },
+            )
+            .await?;
+        f.s.f
+            .domain
+            .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
+                while service.status().settled_movements != 1 {
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+            }))
+            .await??;
+        service.shutdown().await;
+        let index =
+            f.s.proposals
+                .iter()
+                .position(|p| p.scope == movement.resources.group)
+                .unwrap();
+        let handle = target.cell(
+            movement.resources.group.namespace,
+            &movement.resources.group.cell,
+        )?;
+        let binding = f.live[index]
+            .iter_mut()
+            .find(|(node, _)| *node == movement.source)
+            .unwrap();
+        *binding = (movement.plan.replacement.node, handle);
+        write_read(
+            &f.s.f,
+            &f.live[index]
+                .iter()
+                .map(|(_, h)| h.clone())
+                .collect::<Vec<_>>(),
+            2,
+            5,
+            12,
+        )
+        .await?;
+    }
+    discover(&f.s.f, &f.hosts()).await?;
+    let request = f.request().await?;
+    let mut collection = f.collection(&request).await?;
+    while collection.verify_next(TIMEOUT).await? {}
+    let preview = collection.preview(TIMEOUT).await?;
+    ensure!(preview.plan().moves.is_empty() && preview.plan().recovery.len() == 5);
+    ensure!(preview
+        .first_movement(Fixture::request(214, preview.inventory_revision()))?
+        .is_none());
+    for live in &f.live {
+        write_read(
+            &f.s.f,
+            &live.iter().map(|(_, h)| h.clone()).collect::<Vec<_>>(),
+            3,
+            9,
+            21,
+        )
+        .await?;
+    }
+    f.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_topology_incomplete_unqualified_and_changed_inputs_refuse() -> Result<()> {
+    Box::pin(refusal()).await
+}
+
+async fn refusal() -> Result<()> {
+    let f = Box::pin(Scenario::new(true)).await?;
+    let request = f.request().await?;
+    let mut missing = request.clone();
+    missing.nodes.pop();
+    ensure!(f.collection(&missing).await.is_err());
+    let mut rebound = request.clone();
+    rebound.nodes[0].attestation.boot.process = [44; 16];
+    ensure!(f.collection(&rebound).await.is_err());
+    let mut incomplete = request.clone();
+    incomplete.histories.pop();
+    let mut collector = f.collection(&incomplete).await?;
+    let mut refused = false;
+    loop {
+        match collector.verify_next(TIMEOUT).await {
+            Ok(true) => (),
+            Ok(false) => break,
+            Err(FleetCatalogError::InventoryIncomplete) => {
+                refused = true;
+                break;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    ensure!(refused && collector.preview(TIMEOUT).await.is_err());
+    let mut collection = f.collection(&request).await?;
+    ensure!(collection.verify_next(TIMEOUT).await?);
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    f.s.f
+        .catalog
+        .commit(
+            &cut,
+            &FleetMutation {
+                id: [240; 16],
+                operation: [241; 16],
+                principal: "topology-root-change".into(),
+                expected_revision: cut.revision(),
+                changes: vec![FleetChange {
+                    table: FleetTable::Policy,
+                    key: "fixture-topology-input-change".into(),
+                    value: Some(vec![1]),
+                }],
+            },
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(matches!(
+        collection.verify_next(TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    ensure!(matches!(
+        collection.preview(TIMEOUT).await,
+        Err(FleetCatalogError::Conflict)
+    ));
+    f.close().await?;
+    let f = Box::pin(Scenario::new(false)).await?;
+    let request = f.request().await?;
+    let mut collection = f.collection(&request).await?;
+    ensure!(matches!(
+        collection.verify_next(TIMEOUT).await,
+        Err(FleetCatalogError::InventoryIncomplete)
+    ));
+    ensure!(collection.histories_checked() == 0);
+    f.close().await
+}

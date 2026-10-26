@@ -2240,7 +2240,11 @@
         "crates/cellar/tests/support/raft_movement_isolation.rs",
         "crates/cellar/tests/support/raft_movement_fenced.rs",
         "crates/cellar/tests/support/raft_movement_aborted.rs",
-        "crates/cellar-logic/raft_fleet/topology/balance.rs"
+        "crates/cellar-logic/raft_fleet/topology/balance.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/topology/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/topology/inputs.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/topology/membership.rs",
+        "crates/cellar/tests/support/raft_topology_native.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2258,7 +2262,8 @@
         "Accept distinct trusted deployment isolation for an exact boot after rooted exclusion; permanently deny restart/transport and preserve retained storage. Successful movement completion may substitute this admitted proof only for the obsolete original voter absent from fresh stable RF3. Keep full durable membership for placement/quorum while omitting quarantined endpoints from routes; retain provenance across lost replies. External platform integration remains separate work; terminal isolated-node removal is delivered under FO-07.",
         "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path.",
         "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary.",
-        "Generate equal-copy final assignments for the explicit keep-set in the pure core, with alternate remainder allocations, constrained direct surplus-to-deficit search, retained occupancy and one shared generation/staging/recovery budget. Return only complete verified witnesses; BalanceUnproven and SearchExhausted grant no partial authority or global infeasibility claim. Connect owned authenticated fleet collection and current guarded admission separately; weighted/load policy remains optional."
+        "Generate equal-copy final assignments for the explicit keep-set in the pure core, with alternate remainder allocations, constrained direct surplus-to-deficit search, retained occupancy and one shared generation/staging/recovery budget. Return only complete verified witnesses; BalanceUnproven and SearchExhausted grant no partial authority or global infeasibility claim. Connect owned authenticated fleet collection and current guarded admission separately; weighted/load policy remains optional.",
+        "Connect the pure balanced planner to owned complete namespace, current capacity, physical binding and three-voter ReadIndex collection. Walk histories incrementally, retain genesis/retired/floor debt, refresh node inputs before planning, and describe only the first exact move for existing guarded admission and owned execution. Require terminal settlement and recollection for successors; durable fleet intent/exclusions and automatic new admission remain separate work."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2675,6 +2680,29 @@
             "F06",
             "F07",
             "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_generated_moves_execute_and_recollect_retained_bindings",
+          "oracle": "Five real native nodes execute two automatically generated moves through guarded reservation, S3 seeding, joint consensus and owned settlement. Recollection retains old bindings, reaches a balanced layout with all single-node-loss witnesses, and verifies SQL 7 to 12 to 21. Independent-adapter retries preserve admission; stale previews and active movement debt refuse.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F06",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_topology_incomplete_unqualified_and_changed_inputs_refuse",
+          "oracle": "Missing node/history inputs, rebound capacity evidence, unmaterialized genesis and a root change during the incremental walk prevent a generated preview. No incomplete history advances the cursor or creates placement authority.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F05",
+            "F06",
+            "F07"
           ]
         }
       ],

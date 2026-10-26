@@ -53,6 +53,10 @@ pub use resources::{
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
 };
+pub use resources::{
+    FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,
+    FleetTopologyPolicy, FleetTopologyPreview, FleetTopologyRequest, FleetTopologyVerification,
+};
 pub(crate) use resources::{MovementAction, MovementCommand};
 
 use records::{CommitRecord, Head, Pin};
@@ -90,6 +94,7 @@ pub enum FleetCatalogError {
     Storage(anyhow::Error),
     Observation(super::inspection::InspectionError),
     Resource(cellar_logic::raft_fleet::LedgerError),
+    Topology(cellar_logic::raft_fleet::TopologyError),
 }
 
 impl From<super::catalog::CatalogError> for FleetCatalogError {
