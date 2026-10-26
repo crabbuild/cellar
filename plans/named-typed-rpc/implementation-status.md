@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — next | Native lease expiry in the combined qualifier | The expanded 696-case run fails in proof-wait cases. Exact V8/local and Node-to-Rust/peer diagnostics both reproduced `NodeLeaseExpired`. The Node trace shows timely renewals with about 665 ms of validity, then ambiguous storage completion about 333 ms later and fencing at expiry. Locate the stalled storage/readback phase, add a regression at its owning boundary and rerun the focused diagnostic and original combined matrix. Passing retries do not establish a causal fix. Preserve TTLs, fencing, proof gates and unknown outcomes; never replay the failed mutation automatically. |
-| P0 | Python streaming/RPC handler deadlines | The latest full Python regression command passes bridge/watchdog/recovery and startup, then fails `/cell/sse` with `handler exceeded 250ms budget`; the standalone typed-RPC test hits the same budget. Both use the shared native test host and finish with zero native admissions/bytes/operations. Trace handler admission, pump and sync timing at those fixtures and establish a cause before changing policy. Do not infer the same cause as native lease expiry or earlier Node watchdog failures. |
+| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle CI, both durable Python agent modes and free-threaded FastAPI pass. JS/Node reaches adapter/real-node tests. The GIL SDK job passes packaging but fails the native large-binding test's 60-second deadline; free-threaded SDK remains queued. The frame-accounting change passes a fresh 696-case recheck; the following control-decoder change still needs broader runtime qualification. |
+| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Global symbol/import validation and bounded expanded-name inventories are delivered. Close remaining option/schema semantics; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -36,7 +36,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | --- | --- | --- |
 | RPC-01: Contracts/toolchain | In progress | Counter and portable-profile outputs reproduce byte-for-byte in all four authoring modes; global symbols/import visibility and expanded inventory budgets are validated before output/compiler work; generated APIs pass TS/Python static checks; remaining options/schema/conformance qualification stays open |
 | RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; 96 provenance cases preserve committed parent writes and fixed categories; broader peer/admission/lifecycle/resource qualification remains |
-| RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; runtime attachment/cleanup tests pass; aggregate copy accounting and full cancellation/flood qualification remain |
+| RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; native Node framing now shares payload reservations with partial-input/output and decoded-frame lifetimes under test; worker/control/decoder allocations, other adapters' retained copies and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
 | RPC-05: Python services | In progress | Generated async APIs, live codec checks and dispatch work with receipts/restart; stale providers/clients are refused; task cancellation reaches native/peer calls and joins cleanup; native-owned budgets cover validation, encoding, transport and decoding; packaging and free-threaded qualification remain |
 | RPC-06: Fleet/durability | In progress | Local/remote/handoff, 32 failed-recovery admission, 48 SIGKILL and 64 proof cases pass together; further interpreter modes and broader qualification remain |
@@ -48,7 +48,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | --- | --- |
 | Typed APIs and runnable examples in Rust, JS, TS and Python | Generated APIs and runnable qualification fixtures implemented; strict TS/Python API checks pass; published example packaging remains |
 | Descriptor/profile validation and exact artifact identity | Implementation under test |
-| Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations and field reservations/packing have adversarial tests; remaining option/schema semantics stay open |
+| Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations, field reservations/packing and both JSON-name namespaces have adversarial tests; remaining option/schema semantics stay open |
 | Explicit registration, full method validation and RPC-only cells | Implementation under test |
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
 | Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
@@ -65,7 +65,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
 | Existing HTTP/lifecycle/untyped RPC regressions | V8/Node real-host HTTP restart and runtime lifecycle tests pass; full T19 remains open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Guard and targeted checks pass; combined, regression and hosted lifecycle gates remain open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | The JSON-name follow-up passes core/codegen, selected native and V8/Node/Python typed-RPC tests, affected Clippy and standard checks. The earlier 696-case report and concurrent diagnostic rounds remain historical evidence; hosted and broader regression qualification remain open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,583 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Node control decoding now has allocation-free shape and string admission.**
+  The private protocol admits at most 16 scalar fields with distinct literal
+  ASCII keys of at most 64 bytes and numeric tokens of at most 32 bytes.
+  Application values remain encoded payload strings or raw attachments.
+  Borrowed input scanning rejects collections and ambiguous keys before
+  serde_json allocates, counts exact decoded UTF-8 string bytes (including
+  surrogate pairs), and reserves parser scratch separately from retained
+  strings/attachments. Scratch returns after decoding; retained bytes follow
+  the frame through native admission. The fixed field cap bounds control
+  object layout separately; allocator overhead and RSS remain unqualified.
+- Four new transport regressions fail on `720ae5c4` and pass after the control
+  guard. All **49 combined-feature library tests**, **35 Node-only library
+  tests**, two Node real-host HTTP/streaming tests and both combined-feature
+  typed-RPC/codec-readiness tests pass, alongside all-target JavaScript Clippy.
+  Standard format/layout (1,025 Rust files), docs and dependency checks pass.
+  The parser tests include malformed escapes, Unicode boundaries, a generated
+  1,024-step Unicode corpus, field/key/scalar limits and scratch cleanup.
+  Initial red compilation and a mistyped 33-digit positive boundary fixture
+  are retained separately from the corrected behavioral runs; production
+  limits and refusal assertions are unchanged.
+- The same isolated allocator probe/inputs now refuse the array-valued frame
+  before building a JSON collection. Peak Rust allocation above baseline falls
+  from **8,789,387 to 400,193 bytes** under the unchanged **4 MiB** byte pool.
+  Both the original scalar input and an escaped 400,123-byte scalar control
+  remain accepted with unchanged measured allocation peaks; all permits
+  return on drop. Old/new source, binary and linked-library hashes are retained
+  in `.cellar/rpc/node-frame-budget/control-allocation-differential.json`.
+  This finite allocation experiment is not a process RSS or flood qualification.
+  The 696-case report below predates this control guard and is not its full
+  runtime qualification. Stage results use
+  `.cellar/rpc/node-control-preflight-status.json` and logs use
+  `/tmp/cellar-rpc-node-control-preflight-`.
+- Hosted GIL SDK job **121299416265** on `38bfbb96` now fails
+  `lifted_bindings_persist_large_values_batches_and_pages` at its original
+  **60-second** deadline, after embedded Python packaging succeeds. The same
+  all-feature native integration command passes all five tests locally in
+  **46.94 seconds**. There is no phase evidence in the hosted failure and no
+  proven cause or fix. Preserve its workload/limits and add bounded phase
+  observations before changing the implementation or fixture.
+- **Native Node framing now uses the runtime's payload byte pool.** Three
+  controlled transport regressions fail against the old implementation:
+  incoming input bypasses aggregate admission, input coexists with queued
+  output beyond the aggregate limit, and decoding creates an uncharged
+  overlapping copy. The new implementation reserves before frame allocation
+  or decoding copies, retains the full allocation across partial writes,
+  transfers decoded-frame reservations through native admission, and frees
+  completed input capacity. It counts metadata serialization without a
+  temporary encoded buffer. Delivered invocation buffers are dropped while
+  their native authority remains live. Startup refuses a configuration that
+  cannot fit one maximum value and its conservatively framed copies.
+- All **12 transport tests**, including real socket partial writes, shared
+  native owners, partial inputs and disconnect cleanup, pass. Two real Node
+  tests verify release of a delivered 64 KiB request while nested native work
+  remains held, exact reply slices and zero final reservations, plus refusal
+  before process start for insufficient capacity. The combined-feature
+  library passes **41 tests**; the Node-only command passes **27 library and
+  two HTTP/restart/streaming integration tests**. Its typed-RPC target has no
+  enabled tests in that feature mode; the separate combined-feature command
+  passes both real typed-RPC/codec-readiness tests. All-target combined-feature
+  JavaScript Clippy and formatting pass.
+- This accounting change does **not** establish allocator/RSS bounds. Control
+  JSON layout and parser scratch, Node worker JavaScript buffers, codec/guest
+  objects and other adapters' retained copies require further audit. Effective
+  method/runtime/host/peer minima, saturation and control progress under full
+  byte admission remain open. No default value, body, heap, deadline or lease
+  budget was increased.
+- The initial broader combined-feature command fails both streaming tests:
+  V8 reports a 250 ms handler budget failure plus engine-turn termination;
+  Node reports a `/reset` HTTP 500 without a retained body. A subsequent
+  diagnostic command passes the 41 library tests, then fails the V8 HTTP
+  fixture's first increment with a **250 ms handler timeout**, startup 1,405 ms,
+  client construction 127 ms and a fully drained `Stopped` outcome. Later
+  targets in that command are not run. The focused typed-RPC and Node-only
+  passes do not close those failures. Streaming diagnostics now retain reset
+  phase/status/body/timing and JavaScript native reservation/shutdown state.
+  Logs use `/tmp/cellar-rpc-node-frame-budget-`; stage results are in ignored
+  `.cellar/rpc/node-frame-budget-validation-status.json` and
+  `.cellar/rpc/node-frame-budget-diagnostic-status.json`. The fresh full
+  qualifier's first full run fails its first Rust-to-Rust private-method
+  preflight with the same 250 ms handler timeout, before the guest matrix.
+  Three unchanged standalone local runs pass all 16 pairs in 1.6–1.9 seconds.
+  Those passes establish neither a timing fix nor the failing path's cause.
+- The unchanged full executable then passes **all 696 cases** in **1,788.685
+  seconds**. A source-hash audit confirms its tracked inputs stay unchanged.
+  The independent raw-report audit verifies every suite count, all **96
+  Node/V8 lifecycle cases**, live nonzero reservations, zero drained native
+  reservations, exact receipt recovery and all **32 forced retirements before
+  original expiry**. Three negative audit mutations (missing backend pair,
+  missing live charge and retirement at expiry) are refused. The report is
+  `.cellar/rpc/node-frame-budget-full-recheck.json`: **2,744,037 bytes**, SHA-256
+  `ec8764dd469840a69ac96dec41f5ffc9e8aa6be9880dc4578fedbf032ae85442`.
+  Its binary hash is
+  `5b959011ec8d1ba4243575f0b2192c29b7c1c78d414103ada305a5627cb47089`.
+  All broader qualification flags remain false; this passing recheck does not
+  erase the initial timeout or the V8 turn-watchdog/streaming failures.
+- The corrected embedded-Python streaming and Clippy commands pass, as do
+  format/layout, docs and native dependency checks. The initial Python commands
+  omitted required `--features embed` and did not run; their errors remain in
+  the diagnostic status. The final JavaScript streaming command passes Node
+  but fails V8 with watchdog termination and an unexpected response EOF. Its
+  snapshot has zero native reservations and a fully drained host. Final stage
+  results are in `.cellar/rpc/node-frame-budget-final-status.json`.
+- An offline packed-consumer smoke passes outside the checkout's module tree.
+  The `@cellar/sdk@0.1.0` tarball contains **16 files** and is **28,707 bytes**.
+  A fresh directory installs it and pinned Protobuf-ES 2.16.0 from local cache,
+  imports Counter/Profile code, verifies all eight registered methods against
+  their artifacts, preserves tested 64-bit/bytes/presence/empty values, refuses
+  the wrong contract and passes strict TypeScript checks with negative cases.
+  `.cellar/rpc/node-frame-budget/package-smoke-status.json` records the commands.
+  This is package-content/static-API evidence, not a clean-machine CI run,
+  live profile RPC matrix or frozen host/package identity qualification.
+- **A separate allocator probe proves the next native control-decoder gap.**
+  Under a valid 256 KiB value / 4 MiB bridge configuration, a 400,049-byte
+  array-valued control frame is accepted while retaining **8,389,330 bytes**
+  above baseline and reaching **8,789,387 bytes** of peak Rust allocations.
+  Its returned reservation is only 400,049 bytes. A scalar-control comparison
+  stays below the bridge budget; both release their reservations on drop.
+  The probe counts Rust allocator sizes and excludes allocator-internal
+  realloc overlap and OS/RSS overhead. This demonstrates structured metadata
+  amplification, not a framing-buffer leak. The reproducer intentionally
+  fails its refusal assertion; source, linked artifact hashes and results are
+  in `.cellar/rpc/node-frame-budget/control-allocation-probe-result.json`.
+  Bound control shape and parser scratch before decoding next.
+- **Shared descriptor admission now validates Protobuf JSON field names.**
+  A 116-case comparison against pinned `protoc` 34.0 finds 23 invalid schemas
+  accepted by the previous native validator. The new validator agrees on all
+  116 cases: 93 accepted, 23 refused, zero mismatches. It checks default names
+  and effective custom names independently within each message; custom
+  overrides cannot conceal a default-name conflict. Embedded NUL characters
+  and extension-like bracketed names are refused. Case-sensitive, empty,
+  Unicode and space-containing custom names remain valid metadata. Native
+  wire behavior and canonical artifact identity remain intact.
+- The corrected controlled baseline passes the legal-name test and fails all
+  three refusal tests; all four pass after the implementation. The initial
+  positive identity fixture compared raw dependency-first file ordering with
+  canonical sorted ordering; the fixture now starts in canonical order and
+  retains strict byte equality. Both red logs are preserved. Six old-generator
+  absent/existing-output probes create or overwrite output before compiler
+  failure; all six now refuse without changing output. The public generator
+  suite additionally covers four JSON-name refusal variants across absent
+  and existing output with no compilers on PATH.
+- All **57 core RPC unit tests**, nine codegen unit tests, three generator
+  integration tests, 14 selected native integration tests, both V8/Node typed
+  tests and Python typed-RPC normal/slow-constructor profiles pass. Core
+  library/test Clippy, codegen all-target Clippy and standard format/layout,
+  documentation and engine-free dependency checks pass. All 24 Counter/profile
+  artifacts reproduce byte-for-byte. Exact compiler/input/binary hashes,
+  differential and output-preservation results and validation-log hashes are
+  retained under ignored `.cellar/rpc/json-name-baseline/`; stage commands and
+  results are in `.cellar/rpc/json-names-validation-status.json`. This finite
+  naming corpus does not close other descriptor semantics, full-profile
+  business calls across all pairs, effective limit/copy accounting, saturation,
+  packaging or the historical intermittent startup/connection failures.
+
+- **Descriptor admission now precedes allocating decoder collections.**
+  Six new tests fail on the old implementation: file/field/source-metadata
+  bounds are checked only after decoding, unknown attributes disappear during
+  normalization, unresolved options remain, and invalid MessageSet/lazy
+  settings are accepted. The new borrowed-slice walk checks the pinned schema
+  and bounds before `FileDescriptorSet::decode`: 256 files, 4,096 message/enum
+  types, 65,536 fields, 200,000 descriptor/option/metadata records and 1,000,000
+  wire-field occurrences. The independent symbol/name budgets remain intact.
+  Poisoned later records prove resource refusal occurs before decoding the
+  remainder. Malformed keys, lengths, fixed-width bodies and groups fail
+  recoverably. Unknown attributes and unresolved options at all eight option
+  scopes are refused rather than erased or reinterpreted by a later compiler.
+- Pinned `protoc` 34.0 rejects proto3 MessageSet, scalar lazy hints and unknown
+  uninterpreted options. It accepts 31 declaration levels and rejects 32;
+  the shared validator now enforces that boundary. The business-message
+  recursion budget remains 64. Metadata and valid message lazy hints retain
+  their descriptor identity and eager native wire validation. Compiler
+  comparisons retain legal/default metadata instead of inferring restrictions
+  from option names. The old build tool accepts all four tested invalid inputs
+  (MessageSet, scalar lazy, unresolved options and 32 levels), creates output
+  directories and overwrites existing contract metadata before a missing-tool
+  failure. The new build tool refuses all eight absent/existing-output cases
+  without changing output. The codegen integration suite covers these and
+  unknown future attributes with no compilers on PATH.
+- Native message definitions now borrow the single decoded tree; the old
+  validator cloned each enclosing subtree. A pinned-compiler-valid 171,007-byte
+  descriptor with 16 message levels and 8,192 leaf fields measures
+  48,939,008 / 49,545,216 / 48,955,392 bytes peak RSS before the change versus
+  21,102,592 / 19,382,272 / 19,349,504 afterward. Each observation is a fresh
+  macOS arm64 process measured with `/usr/bin/time -l`; the intentionally
+  unsupported language is checked only after validation/name checks, so no
+  output or language compiler runs. This is an isolated descriptor-validation
+  diagnostic, not an RPC throughput result or a global RSS qualification.
+  Exact input/binary hashes and raw results are under ignored
+  `.cellar/rpc/descriptor-admission/`, including `baseline.json`, `final.json`,
+  `old-output-refusals.json`, `new-output-refusals.json` and compiler comparisons.
+- All **53 core RPC unit tests**, nine codegen unit tests, three generator
+  filesystem/admission tests and all 14 selected native typed-RPC, offline-check
+  and portable-profile integration tests pass. All 24 Counter/profile artifacts
+  reproduce byte-for-byte across Rust, Python, TypeScript and JavaScript.
+  V8/Node and Python library/typed-RPC/streaming checks pass, including Node
+  runtime lifecycle and existing HTTP/restart cases. Core/codegen Clippy and
+  both adapters' all-target Clippy pass. Format, module layout (1,023 Rust files),
+  documentation (749 local references) and the native dependency guard
+  (465 packages, no JavaScript engine) pass. Stage reports use
+  `.cellar/rpc/descriptor-admission-{validation,adapters}-status.json`; logs use
+  `/tmp/cellar-rpc-descriptor-admission-`. These changes do not close remaining
+  semantic conformance, runtime saturation/copy accounting, supported runtime
+  modes, packaging, observability or performance requirements. The earlier
+  intermittent startup and connection failures remain unexplained.
+
+- **Native cold construction is now qualified for deadline and cancellation.**
+  Two public-node tests hold a real native factory after proving its storage
+  handle works. One generated caller observes its 200 ms deadline; the other
+  is explicitly cancelled only after the factory enters. Both callers receive
+  a fixed failure category with `unknown` effects while construction remains
+  held. After release, new storage, new child bindings, a cached write and a
+  synchronous transaction are all refused. Generated business handlers have
+  zero entries for the ended call. Fresh admission reads count zero and no
+  late marker writes; two explicit same-ID increments both return count one.
+  Exactly those two increment-handler entries remain after the node joins,
+  with ingress, application work and cells drained. The native integration
+  helper accepts an explicit policy callback for this test's three-second
+  parent; existing language-adapter defaults remain 250 ms.
+  The initial two-case run passes in 0.52 seconds after compilation. This is
+  native constructor-boundary evidence, separate from the 55-case deadline
+  matrix and 696-case cross-language report. Guest cold-constructor matrices
+  and the intermittent native streaming latency remain open.
+- Final affected checks pass: all three native typed-RPC integration tests,
+  Python streaming and typed RPC (including its slow-constructor profile),
+  and all five selected V8/Node HTTP, streaming and typed-RPC tests. Native
+  integration Clippy and all-target Python/JavaScript Clippy pass, as do
+  formatting/layout (1,021 Rust files), docs and the engine-free dependency
+  check. Stage results and raw-log hashes are retained in
+  `.cellar/rpc/cold-factory-validation-audit.json`.
+  These test/fixture changes do not change the production executable behind
+  the previous 696-case report.
+- The first selected JavaScript command fails its V8 HTTP/restart case with
+  connection refused after 2.54 seconds. Its log does not identify the phase,
+  node generation or shutdown outcome. Ten unchanged frozen-binary runs pass
+  in 0.61–0.78 seconds; those retries do not establish a cause. The fixture now
+  joins the node after request errors as well, preserving the primary failure
+  with its exact test phase, expected restart count, startup/client-build
+  timings and typed node outcome. All five selected tests pass in the final
+  retry, without budget changes or mutation retries. This is improved failure
+  evidence and teardown, not a fix for the original connection refusal.
+  `.cellar/rpc/cold-factory-v8-http-baseline-status.json` retains the baseline
+  repetitions; the audit above retains both failed and final logs.
+- **The native I/O probe did not reproduce the slow streaming path.**
+  A temporary process-scoped macOS interposer measures `open`, `mkdir`,
+  `fsync`, `read`, `pread`, `pwrite` and `close`, logging only operation,
+  descriptor, process/thread identity and durations above 5 ms. A controlled
+  delayed read verifies the probe. Ten startup/streaming pairs pass, followed
+  by the full original SDK sequence in 347 seconds; no measured streaming
+  syscall exceeds that threshold. These are passing observations, not a
+  falsification of an I/O cause in the absent failing scenario. Other syscalls,
+  CPU work and native scheduling remain unmeasured. The temporary library is
+  unloaded and removed from `/tmp`; its source/binary provenance remains only
+  in ignored `.cellar/rpc/diagnostics/cold-io/`.
+  `/tmp/cellar-python-sdk-cold-io.log` is 19,895 bytes, SHA-256
+  `3c59fb45e216d7de45adb56084350b762b6d629d25f825e9e58b6591622b0552`.
+  `.cellar/rpc/python-sdk-cold-io-{status,audit}.json` retain metadata for
+  published head `0bf59c34`. No production runtime source changed for this
+  experiment; no cause or performance fix is claimed.
+
+- **The codec decoder probe now isolates decoding from cold activation.**
+  Its original 100 ms child call also had to construct a new provider. With
+  controlled 120 ms Python construction, the native deadline correctly returns
+  `DeadlineExceeded/unknown` before decoding; the old fixture incorrectly fails
+  its decoder-entry assertion. A separate read-only `GetCount` now activates
+  that same provider before the probe. The 100 ms child/250 ms host budgets,
+  120 ms decoder delay, committed count and explicit same-ID receipt retry
+  remain unchanged. The default test launches an owned fresh-process
+  slow-constructor profile with a 60-second kill/join bound before running the
+  normal profile. Both profiles pass. Request failures now identify the fixed
+  fixture path; checkpoint diagnostics contain only synthetic phase/category
+  data. The controlled red log is `/tmp/cellar-python-cold-codec-red.log`,
+  SHA-256 `443b2ca362a3f2730151e2683a493810ae2c561cfd5d41e6fdd75a66814bb517`.
+  This proves a separate fixture assumption, not the historical 250 ms failure.
+- **Streaming remains intermittently slow before native cell dispatch.**
+  The full original SDK command fails again after the bridge/startup tests in
+  `/tmp/cellar-python-sdk-cold-codec-failed-01.log` (371 seconds). The smaller
+  `--test startup --test streaming -- --test-threads=1` command reproduces
+  the same `/cell/sse` 250 ms failure in 14 seconds. A new failure-only snapshot
+  is captured before node shutdown without entering Python or calling SDK
+  storage. Live dispatch handoff peaks at 0.4 ms; a native SDK operation takes
+  259 ms and is abandoned on expiry. No child Python invocation has been
+  admitted in the live bridge counters. The interpreter sample is 167 ms old
+  and reports zero resident objects, so it is not an instantaneous guest stack.
+  The smaller failure log is `/tmp/cellar-python-stream-startup-replay-01.log`,
+  SHA-256 `0af72531997e48149a16bbbe7a86d0d9609e4778038ef642c67c1cb0b3d1c2ed`.
+- Repeated isolated/interleaved tests pass, as do five startup/streaming pairs
+  with temporary native phase tracing. A traced full SDK retry passes in 364
+  seconds (`/tmp/cellar-python-sdk-stream-trace.log`): cold routing takes 85 ms,
+  including 42 ms restore and 40 ms isolate startup, versus about 5 ms routing
+  in an isolated run. Temporary tracing is removed. These passing retries and
+  timing differences do not establish why the failing native path exceeded
+  its original budget. Changing working directory alone does not reproduce
+  the failure consistently. Native cold-start/storage/scheduling diagnosis
+  remains the highest local timing-qualification gap.
+- With temporary tracing removed, the original full SDK command passes in
+  383 seconds, including its 66-second build, the lifecycle/streaming tests
+  and both typed-RPC profiles. All-target Python Clippy, formatting, layout
+  (1,020 Rust files), docs (749 references) and the native-only graph check
+  (465 packages, no JavaScript engine) pass. Production code is unchanged.
+  The SDK log `/tmp/cellar-python-sdk-codec-final.log` is 19,539 bytes,
+  SHA-256 `cc73b2331234433a765bc18acd995e45c66b287b7e46e10cbb2649fb75eae4bc`;
+  `.cellar/rpc/python-sdk-codec-final-{status,audit}.json` retain metadata.
+  This successful retry does not establish the intermittent timeout's cause.
+
+  ```sh
+  RUSTC_WRAPPER= cargo test --locked -p cellar-python --features embed -- --test-threads=1
+  ```
+
+  The per-command wrapper override follows an intentionally stopped build:
+  two owned compiler/cache-client processes stayed asleep with under one CPU
+  second each for 260 seconds, before tests began. Only those owned processes
+  were stopped; the shared compiler-cache server was unchanged. The retry
+  compiles successfully. The aborted build is recorded separately in
+  `.cellar/rpc/python-sdk-cold-codec-build-abort.json`; it is not a runtime
+  test failure or evidence for the earlier streaming timeout.
+- **Linux follow-ups have current-head evidence on `91bd2675`.**
+  Lifecycle run `40221009824` passes its 144-case matrix and JS/Node run
+  `40221009873` passes. SDK run `40221009821` passes embedded-adapter tests,
+  baseline verification, loaded-threading-ABI and packaging checks in both
+  3.14 and 3.14t jobs; broad test/lint checks are still in progress at this
+  observation. All four GIL/free-threaded FastAPI and durable-agent jobs in
+  Python-example run `40221009862` pass. These are results for the published
+  queue/SQLite/observer follow-ups, not the newer local codec-fixture change.
+
+- **Python queue admission now uses a direct condition wait.** Linked SDK
+  job `121210984291` on `27977f2f` fails the one-second held-consumer waiter,
+  with no surviving tasks/objects or bridge reservations in the final report.
+  Twenty fresh-process runs of the unchanged fixture pass locally; those
+  retries do not establish the historical CI cause. The old waiter repeatedly
+  calls `/state`, which performs two native SQL queries before reading the
+  holding flag. A controlled profile adds 1.1 seconds to that reporting route
+  while preserving the consumer and two-second handler budget. The original
+  waiter fails with the same admission-deadline error.
+- The replacement issues one `/holding` request that awaits the existing Python
+  event under the original one-second timeout. It performs no SQL polling.
+  The normal and slow-reporting profiles pass, including the original live
+  cross-context refusal, release, expired-context refusal, exact delivery and
+  business-effect counts, restart and zero-work checks. Both profiles run in
+  the normal bridge executable. Failure-only snapshots retain native bridge
+  counters, interpreter observation age and bounded read-only queue/lease/
+  alarm/wake state without calling Python or submitting SDK SQL. The original
+  hosted trace lacks these observations; its exact cause remains unproven.
+- The exact broader bridge command passes in 333 seconds, alongside all-target
+  Python Clippy, with GIL CPython 3.14.6 and Rust 1.98.1:
+
+  ```sh
+  cargo test --locked -p cellar-python --features embed --test bridge -- --test-threads=1
+  cargo clippy --locked -p cellar-python --features embed --all-targets -- -D warnings
+  ```
+
+  `.cellar/rpc/python-delivery-final-status.json` records the stages; raw logs
+  use `/tmp/cellar-python-delivery-`. The controlled red log has SHA-256
+  `4c5f90f0b0a2e5e26d6121a767da3592ca7c0cf0f1fee875d019f6256e7352f5`; the full
+  bridge log has SHA-256
+  `f031522889142fee1c58804d08592b1b860a1155f8928d42963b27a22eaf6d2e`.
+  This is a queue-test-only follow-up to `6b532bf8`; production bridge/core
+  code and its 696-case report below remain unchanged. Updated Linux SDK
+  results and the earlier streaming/typed-RPC timing failures remain open.
+
+- **The SQLite and Node follow-ups pass the complete local command.** The
+  frozen executable exits 0 for all **696 cases** in 1,747 seconds, after all
+  native nodes and guest runtimes join. A separate unchanged proof run passes
+  all **64 cases** in 333 seconds. This run uses macOS arm64, Rust 1.98.1,
+  Node 24.13.1 and GIL CPython 3.14.6 with Protobuf 7.34.2; it does not qualify
+  free-threaded Python or every supported runtime version.
+- `.cellar/rpc/node-sqlite-final-full.json` is 2,744,182 bytes, SHA-256
+  `04d2eeaa2ee9aa334a7069f24ee7600ca30ec69fc5a95b760c9b7d2176ff8def`.
+  The matching status, environment, binary hash and audit summary use the
+  `node-sqlite-final-` prefix. Raw logs are under
+  `/tmp/cellar-rpc-node-sqlite-final-*.log`. Independent report audits verify
+  all 16 suite counts, all 144 lifecycle Cartesian cases, native authority,
+  process teardown, zero reservations and receipt recovery. All 32 forced
+  Node/V8 cases retire physical native frames before original RPC expiry.
+  Broader qualification flags remain false. Reproduce after the fixture setup
+  in `tools/rpc/README.md`:
+
+  ```sh
+  cargo build --locked -p cellar-rpc-qualification --features full
+  "$CARGO_TARGET_DIR/debug/cellar-rpc-qualification" --suite proof \
+    --report .cellar/rpc/node-sqlite-final-proof.json
+  "$CARGO_TARGET_DIR/debug/cellar-rpc-qualification" --suite all \
+    --report .cellar/rpc/node-sqlite-final-full.json
+  ```
+
+- The first upgraded-SQLite combined run exits 1 in
+  `output proof fail v8->node`: Node watchdog
+  diagnostics show a 5,381 ms heartbeat gap, a 5,378 ms observer gap, readable
+  input and zero active guest invocations. That failed run publishes no success
+  report. A separate unchanged 64-case proof command passes; that retry alone does not
+  close the failure. The actual reason for the native thread's delay is unknown.
+- A controlled real-Node regression pauses native observation for 300 ms with
+  a 100 ms heartbeat threshold. Node keeps its normal heartbeat timer; the
+  fixture requires queued input before native observation resumes. The old
+  ordering stops the healthy worker and the regression fails. Node now drains
+  the existing bounded receive pass before its heartbeat decision, holds new
+  starts while heartbeats are overdue, and retains original SDK authority and
+  call deadlines. Startup policy and watchdog durations are unchanged. A
+  test-only pause gate is absent from production builds. All 14 Node-focused
+  tests pass, including genuine runaway, startup and owned-process cleanup.
+  Both backends together pass all 31 library tests, two typed-RPC tests and
+  both real Node HTTP/npm/restart tests. The unchanged 64-case proof suite also
+  passes on the new executable; the combined command above also passes.
+
+- Linux lifecycle run `40207338997` passes on published storage-fix head
+  `27977f2f`, including qualifier checks and all 144 Node/V8/Python lifecycle
+  cases. JavaScript/Node `40207338923` and Python examples `40207338994` also
+  pass. The broad SDK run `40207338981` fails: normal CPython times out waiting
+  for a held queue consumer in `--runtime-delivery`; free-threaded CPython
+  reaches the native suite and fails restoring an evicted coverage entry.
+  The latter reproduces locally with unchanged assertions. Its fixture moves
+  only the main object-store database, separating it from committed WAL data;
+  moving the whole disposable store directory instead makes both coverage
+  tests pass with every original recovery assertion retained. These hosted
+  results qualify `27977f2f`; the dependency and observer follow-ups require
+  their own hosted results.
+
+- **The SQLite follow-up passes the described local checks.** Workspace
+  `rusqlite` is pinned to 0.40.2 with its native statement cache and checked unsigned SQL
+  conversions explicitly enabled. `libsqlite3-sys 0.38.2` bundles SQLite 3.53.2.
+  The linked-library floor regression first fails on 3.45.0; a header/runtime
+  identity check and unsigned precision/range tests accompany the upgrade.
+  Main-database names and crash-observer C types follow the new binding API.
+  Initial authorizer/interrupt installation errors propagate; scoped restoration
+  asserts the immutable owned-handle invariant. Public APIs and policy remain.
+  The full qualifier/admin metadata check passes. Tests pass for 11 standalone
+  LTX cases, 5 public native SQL/storage cases, 40 SQLite unit cases, 18 local
+  store cases (including bounded large-object reads), 49 Raft capture/storage
+  cases and 31 qualifier cases. Three ignored Raft process fixtures are
+  intentionally launched by their parent tests. The linked engine reports
+  SQLite 3.53.2 and matches its binding headers. Six native replication tests,
+  the real opt-in vector-search example and all affected Clippy targets also
+  pass. Final all-target Clippy also passes for the host, LTX, admin, shared guest,
+  both JS backends and the full qualifier. The 31 JS library tests and four
+  selected JS/Node integration tests pass. The standalone proof report has
+  64 cases, 101,788 bytes and
+  SHA-256 `160293b9d2ea2954795314b1f6c4ce2579f46785ebfa3432b4618f3d2ba0cd38`.
+  The older 696-case report below qualifies `27977f2f`; the new combined
+  report above exercises the upgraded engine and observer fix together.
+
+- The native lease probe reproduces under two concurrent, separate processes:
+  Node completes all 16 rounds, while V8 fences in round 5. Its renewal enters
+  the blocking worker immediately, spends 559 ms connecting/configuring SQLite,
+  then 104 ms waiting for writer admission; commit/close finishes at 715 ms.
+  The actor starts with 665 ms of authority and correctly fences at expiry.
+  Temporary per-write phase traces are removed from production and fixtures;
+  raw diagnostic sources and observations remain only in ignored `.cellar/rpc`.
+- A four-thread, 600-operation probe links the same bundled SQLite and changes
+  only `SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE`. Default-close runs have maximum setup
+  waits of 927/152 ms and complete in 2,286/1,285 ms; no-close-checkpoint runs
+  have 48/16 ms maxima and complete in 828/575 ms. This is a local mechanism
+  comparison, not JS/TS TPS or a worst-case latency guarantee.
+- The public bucket regression first fails with
+  `operation close removed the committed WAL`. Its frozen pre-fix production
+  library is used by the actual integration-test source. The normal Cargo red
+  build is stopped to avoid a redundant feature-graph rebuild. The new behavior
+  retains committed WAL frames across real gets/heads and reopen, while testing
+  new and stale CAS tokens. The source is also selected by hosted RPC checks.
+- Development-store connections disable only last-close checkpoints. FULL WAL
+  commit synchronization, automatic checkpoints, CAS, native I/O reservation
+  ownership, writer serialization and drop order are preserved. Local state
+  documentation now requires preserving the database with its WAL sidecar.
+  The public integration test passes through normal locked Cargo execution;
+  its targeted Clippy check passes. Format/layout cover 1,020 Rust files, docs
+  validate 749 local references and the native dependency graph remains
+  engine-free at 465 packages.
+- The original combined command finishes all **696 cases**, including the full
+  128-case proof wait, 32 failed-recovery, 48 abrupt process-crash, 64 proof/fence,
+  96 Node/V8 lifecycle and 48 Python lifecycle/supervision cases. Its report is
+  published only after every native/guest runtime drains. The tool handle is
+  gone after the conversation interruption, but the complete valid report,
+  terminal log, absence of child processes and publication invariant establish
+  completion. `.cellar/rpc/local-checkpoint-full.json` is 2,744,096 bytes, SHA-256
+  `00e34319fc338d5bc25da97d5ec4f9514d2b4db08d3580151b970ee1c725b20e`.
+- Saved-report audits verify all 16 suite counts total 696 and retain every
+  broader qualification flag as false. Existing independent audits check all
+  144 lifecycle cases, original Cartesian coverage, native authority, process
+  exits, cleanup and receipt recovery. Added checks establish physical native
+  retirement before original RPC expiry in all 32 forced Node/V8 cases.
+  `.cellar/rpc/local-checkpoint-audit-summary.json` records the scope.
+- The exact concurrent reproducer also passes after the fix: Node-to-Rust/peer
+  and V8/local each finish 16 fresh-owner rounds, both process exit codes are 0.
+  Reports `local-checkpoint-stress-node.json` and
+  `local-checkpoint-stress-v8.json` retain `qualified: false`; their SHA-256
+  hashes are `dce1da8daa7954a4e3bc79f0dc98e98532fffde091d47f52105c2331172f17a4`
+  and `02d050e2188861b49bd0416af9b5ad8ca04a84b23e3eed32b90a06edbcd2b35e`.
+  No TTL, handler/RPC budget, watchdog, proof, shutdown or outcome assertion is
+  relaxed. Broader design qualification remains incomplete.
+- Hosted lifecycle run `40179795015` on previous head `c99138ff` completes its
+  checks but fails warming `worker-control` in Python-to-Node graceful shutdown:
+  the HTTP connection closes before the message completes. It has no native
+  storage-phase evidence. Do not assign the last-close mechanism to this hosted
+  occurrence without evidence. The later Linux lifecycle pass on `27977f2f` is
+  recorded above; broader SDK failures remain separately recorded.
+
+- The unchanged V8 shutdown matrix first passes 32 cases, and an exact
+  Node-caller/V8-provider/peer/before-sync diagnostic then passes 16 fresh-owner
+  rounds. Passing retries alone do not resolve the hosted failure.
+- A controlled regression at that same real SDK/fleet seam waits until both
+  original weak native budgets have about 3,500 ms left. The old 5,000 ms drain
+  stall then fails the existing forced-cut assertion. Native observations show
+  both physical frames retiring at about their original 10,000 ms RPC expiry;
+  the engine remains healthy, reservations reach zero and the caller returns
+  `DeadlineExceeded`. Shutdown finishes in 3,539 ms with a legitimate
+  clean drain. This proves a fixture deadline-ordering race without inferring
+  missing work from the report. The archived hosted occurrence has no matching
+  timeline, so a shared cause is not asserted for every historical failure.
+- Only Node/V8 forced-owner fixtures now select a 250 ms no-progress window.
+  The complete eight-second shutdown budget remains available for durability
+  cleanup. Normal graceful drain, RPC/handler budgets, lease TTLs and the V8
+  watchdog stay unchanged. Injection requires over 1,250 ms of original native
+  budget headroom, and both physical frames must retire before their original
+  RPC deadlines. Existing unclean proof, pending-work, scope/epoch, revoked
+  budget, zero-reservation, engine/process join and receipt assertions remain.
+- The Node-to-V8 peer/before-sync case in the ordinary 32-case V8 shutdown
+  matrix deliberately consumes setup time to reach that near-deadline window.
+  Diagnostics also expose `v8-forced-peer-repro` (16 fresh rounds) and
+  `v8-forced-peer-deadline-repro` (one near-deadline case), both explicitly
+  `qualified: false`. Bounded observations store original/current headroom,
+  physical retirement ages, shutdown duration, guest gauges and a fixed reply
+  code; observations never release the held business future.
+- The regression passes after the fix: the final 96-case run cuts in 256 ms
+  with 3,498 ms still available. Both native frames retire before RPC expiry,
+  scope probes refuse `ContextExpired`, the report retains two pending events
+  and one pending dispatch at the forced cut, and cold receipt recovery passes.
+  The earlier standalone green reproduction cuts in 416 ms with 3,500 ms left.
+- Final-source qualification passes all **96 Node/V8 lifecycle cases**, **32
+  Python cancellation/shutdown cases** and **16 Python supervision cases**.
+  Independent saved-report audits retain every original Cartesian case,
+  authority/checkpoint, cleanup, process identity/exit and receipt assertion.
+  An added audit verifies original deadline ordering for all 32 forced Node/V8
+  cases. A separate 32-case V8 shutdown run, 16 exact peer rounds and the single
+  near-deadline regression also pass. These separate commands do not establish
+  a passing full 696-case run or close broader T01-T19 qualification.
+- Final reports and raw execution logs are under `.cellar/rpc/`, with log
+  prefix `cellar-rpc-shutdown-final-`. Report hashes:
+
+  | Report | Cases | Bytes | SHA-256 |
+  | --- | ---: | ---: | --- |
+  | `shutdown-final-lifecycle.json` | 96 | 286,374 | `92ed34a2499032d2e36398874da4b5daa71028019b12cc24fd7470920bad1cb9` |
+  | `shutdown-final-python-cancellation.json` | 32 | 890,939 | `a354f62b76d39f1dd963a640aa7d4027f7fb6ed4c98edd89277def5ec0906d2d` |
+  | `shutdown-final-python-supervision.json` | 16 | 537,451 | `eeffa5eda49b8b114995b5237e9852673ee1b8ec16ad474eb84445ead8ef01aa` |
+  | `shutdown-final-v8.json` | 32 | 96,434 | `228201f19a7c94ae6e3b34138ffb69cb5ca3858de5d983394995413f930598e0` |
+  | `shutdown-final-peer.json` | 16 | 59,701 | `711e49b23ce5023c2d5a1dd86111adbbf5b827bbda49b864efefeceb4f0ce4a2` |
+  | `shutdown-final-near-deadline.json` | 1 | 3,859 | `9300e6628d38fbeec72d46255dc4454ac0c021e69f18a92f6a5778c9ca0b2132` |
+
+- The red log `.cellar/rpc/cellar-rpc-shutdown-v8-peer-deadline-before.log`
+  is 1,441 bytes, SHA-256
+  `58bea7c2e4ec4ebfa485707c865ad5371666f9f8ed869f6e1b3352044a90e3dc`.
+  Final all-target qualifier Clippy, all 31 unit tests and format/layout for
+  1,019 Rust files pass. The native-only dependency graph remains engine-free at
+  465 packages; docs validation covers 749 local references. Temporary debug
+  tags are removed. The new diagnostic returns a boxed future to keep its type
+  out of the main suite's already large native host future.
+
+- PR #110 merges at `906eb36a`, including the named RPC implementation, offline
+  checker and bounded proof-wait lease diagnostics. The generator-read follow-up
+  starts from that updated main (including the Raft image-limit change) at
+  `fb8b5275`. It passes all nine generator unit tests, three descriptor-admission
+  tests, 65 RPC-related native library tests, four CLI checker tests, the native
+  typed-RPC integration and 31 qualifier unit tests. All three affected Clippy
+  commands pass. Format/layout check 1,019 Rust files; the native dependency guard
+  remains engine-free at 465 packages; docs check 749 local references.
+- The updated-main rerun again passes all 16 local and 16 authenticated-peer
+  pairs, including restart, handoff and receipt recovery. Independent audits
+  validate both complete pair sets, digest, topology, epoch/scope and recovery
+  flags. `.cellar/rpc/delivery-main-local.json` and
+  `.cellar/rpc/delivery-main-remote.json` reproduce the earlier local/peer report
+  bytes and SHA-256 values recorded below. All raw command logs are preserved
+  as `.cellar/rpc/cellar-rpc-delivery-main-*.log`.
+- Updated-main generation again reproduces all 24 tracked artifacts exactly.
+  `.cellar/rpc/delivery-main-regeneration.json` records source `fb8b5275`,
+  4,741 bytes and SHA-256
+  `772620875b1677010842fb6ec6182e200ed749f00054fc7012b2d886cfee3841`.
+  The reference files are unchanged. This verifies the bounded reader's valid
+  path; the full 696-case command and failing lifecycle/deadline/regression gates
+  below remain open, with all broader qualification flags false.
 
 - The shipped CLI adds `cellar rpc check --descriptor FILE --inventory FILE`
   with optional `--catalog FILE`. It uses the runtime's portable-profile
@@ -125,6 +702,67 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   successful lifecycle report is published, and the subsequent Python groups
   do not run. Its cause remains unestablished; this is separate evidence from
   the local native lease trace and later executable removal.
+- After the user confirms that the Cargo directory can be recreated, the
+  locked full-runtime build at `3605c5d8` succeeds from the empty target in
+  4m59s. The fresh combined command fails in remote Node-to-Node codec-budget
+  verification: `/node/codec-budget?target=node&phase=verify&...&remote=true`
+  returns HTTP 500 with `JavaScript handler failed`. The separate `deadline`
+  suite then fails `guest deadline target did not attempt late SDK work` /
+  `deadline has elapsed`. Both finish with zero native/managed work and
+  `host_failed=true`; neither publishes a success report. Their cause is not
+  established, and passing earlier cases does not close either failure.
+  `.cellar/rpc/cellar-rpc-delivery-restored-{build,matrix,deadline}.log` retains
+  this evidence. These failures are independent observations from artifact
+  removal and native lease expiry; no shared cause is claimed.
+- The generator follow-up fixes a separate pre-allocation resource gap:
+  `std::fs::read` previously consumed the whole descriptor before the native
+  validator's size check. It now requires a regular file, checks the shared
+  public `Contract::MAX_DESCRIPTOR_BYTES` cap before reserving input and limits
+  the read to that cap plus one byte to detect growth. Output creation and
+  compiler execution still follow native descriptor admission. A real FIFO
+  regression first fails against the old reader after the test kills and joins
+  its own blocked child at five seconds. Oversized sparse input also tests
+  refusal while preserving existing user output. The Linux CLI gate now runs
+  these generator admission tests too. Final follow-up checks are recorded next.
+- Final generator-bound follow-up checks pass: nine generator unit tests and
+  all three executable admission tests (including the previously blocked FIFO),
+  all 65 RPC-related native library tests, four CLI checker tests, the native
+  typed-RPC integration and all 31 qualifier unit tests. Generator, CLI/native
+  integration and full qualifier Clippy pass. Format/layout cover 1,016 Rust
+  files; the native-only dependency graph stays engine-free at 465 packages;
+  documentation validation covers 749 local references.
+- Both fresh ordinary business-call matrices pass on that implementation:
+  all **16 local pairs** and **16 authenticated-peer pairs**, including native
+  restart, handoff and receipt recovery. The peer report records advanced owner
+  epochs and preserved scope identity. An independent report audit checks the
+  exact Cartesian pair set, contract digest, topology, owner transfer and receipt
+  flags. These reports keep their broader fleet/crash qualification flags false;
+  they do not replace the failing deadline/lifecycle or full 696-case commands.
+- `.cellar/rpc/delivery-bounds-local.json`: 734 bytes, SHA-256
+  `c337b1c6f9c997131ed86ad9ff29d266780c7d779d83adf9e2d18328a0d277f9`.
+  `.cellar/rpc/delivery-bounds-remote.json`: 1,075 bytes, SHA-256
+  `e61e43569c94e28d444bb5ae2f796ba6210bf355f8bf990b5220f4a530627a54`.
+  Their raw execution logs are `/tmp/cellar-rpc-delivery-bounds-{local,remote}.log`.
+- Fresh generation of both Counter and portable-profile bundles reproduces all
+  **24 tracked artifacts byte-for-byte** in Rust, Python, TypeScript and plain
+  JavaScript. The first attempt lacked `rustfmt` on the shell PATH; after fixing
+  the tool environment, the comparison uses tracked outputs rather than local
+  Python bytecode caches. Reference artifacts remain unchanged. The manifest
+  `.cellar/rpc/delivery-bounds-regeneration.json` is 4,678 bytes, SHA-256
+  `4ceaa5f41f3982fde768df34445b6c43cdb56f35133a87c050b5202abc2238ed`.
+- At `3605c5d8`, hosted
+  [Python examples](https://github.com/crabbuild/cellar/actions/runs/40173314384)
+  pass, and the offline CLI checks pass inside the
+  [lifecycle workflow](https://github.com/crabbuild/cellar/actions/runs/40173314418).
+  The lifecycle matrix itself fails at Node caller / V8 provider / peer /
+  before-sync forced shutdown: `drain_timed_out=false`, both work/cell drains
+  true and zero pending events/dispatches. The test requires a forced-cut proof.
+  Whether work retired early or accounting missed it remains unestablished;
+  the report is not relabelled as a successful forced cutoff. Managed/native
+  counts finish at zero with `host_failed=true`. No lifecycle success report is
+  published and the following Python groups do not run. The JS/Node and broad
+  native SDK workflows were still running at inspection. This result makes
+  lifecycle proof the next priority alongside the existing timing failures.
 - The unchanged exact V8/local/sync/deadline reproduction passes 16 rounds in
   `.cellar/rpc/delivery-lease-before.json`. Four instrumented runs then pass
   another **64 rounds**, saved as `.cellar/rpc/delivery-lease-trace-{1..4}.json`.
@@ -1285,18 +1923,25 @@ The implementation remains incompletely qualified until the remaining
 correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: resolve native lease expiry in the combined qualifier.** Use the exact
-   `proof-wait-v8-repro` case and bounded native lease traces to distinguish late
-   storage completion, delayed renewal dispatch and actor scheduling. Reproduce
-   the cause at its owning seam, add a regression and rerun the focused case and
-   the original 696-case command. Both native nodes fenced with
-   `NodeLeaseExpired` in the diagnostic; a passing retry alone cannot close this
-   gap. Keep lease TTLs, authority checks and proof gates intact.
-2. **P0: resolve Python streaming/RPC handler deadline failures.** Reproduce the
-   standalone streaming and typed-RPC fixtures, then observe native admission,
-   Python wakeup/pump progress and storage/sync timing under the original 250 ms
-   budget. Add a regression at the demonstrated cause and rerun the original
-   Python command. A successful retry alone does not resolve the failures.
+1. **P0: resolve remaining Python streaming/RPC timing failures.**
+   Preserve Linux's passing direct-admission/slow-reporting adapter checks.
+   The controlled failure proves the old waiter depends on reporting latency;
+   it does not establish the original SDK run's exact cause. Reproduce the
+   remaining streaming/typed-RPC 250 ms handler failures; the decoder probe's
+   independently proven cold-constructor assumption is corrected separately.
+   Observe broker/native admission, Python wakeup/pump progress and storage/sync
+   timing under the original budgets. Add a regression at each demonstrated
+   cause and rerun the original commands; a successful retry alone is not a fix.
+   Native cold-factory deadline/cancellation now has public-node authority,
+   zero-late-handler and receipt-retry evidence. Keep the latency diagnosis
+   distinct from this correctness boundary; guest cold matrices remain open.
+2. **P0: observe the remaining Linux gates.** The SQLite 3.53.2 dependency, Node
+   observer ordering and complete-store outage fixture pass their local
+   regressions, all 696 combined cases and the affected static checks. Require
+   final broad SDK and example results. On `91bd2675`, JS/Node and all 144
+   lifecycle cases pass; both SDK variants pass the embedded-adapter step.
+   The upstream SQLite fix and
+   measured connection-setup stalls are distinct; no corruption was observed.
 3. **P0: close remaining lifecycle and peer/admission provenance gaps.** Preserve
    the 96 parent-write/forged-category cases, 80 self/A-to-B-to-A cleanup cases
    and 128 proof-wait cases. Qualify broader call-local peer/admission evidence.
@@ -1304,9 +1949,10 @@ must preserve the existing recovery, crash, proof and receipt evidence.
    matrices green. Persistent suppression must retain typed incomplete shutdown,
    require observed process teardown and verify cold receipt recovery. Forced
    guest peer retries and broader nested-provider paths remain next.
-   If the unexplained Node watchdog failure recurs, use
-   its observer/heartbeat/input diagnostics to establish the actual cause before
-   changing policy. Trusted pre-admission refusal may establish
+   The Node observer ordering has a controlled real-worker regression; the
+   reason for the original native observer pause remains unknown. Retain its
+   diagnostics when investigating any recurrence. Trusted pre-admission
+   refusal may establish
    `not_committed` for that call; it cannot reclassify the parent's earlier
    writes. A lost response remains unknown. Preserve the 55 deadline cases;
    remaining T14/T17 boundaries and all supported interpreter modes stay open.

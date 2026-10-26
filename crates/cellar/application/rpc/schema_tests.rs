@@ -226,3 +226,94 @@ fn reserved_names_ranges_and_packing_cannot_change_message_meaning() {
             .packed = Some(true);
     });
 }
+
+fn json_message(fields: &[(&str, Option<&str>)]) -> DescriptorProto {
+    DescriptorProto {
+        name: Some("JsonNames".into()),
+        field: fields
+            .iter()
+            .enumerate()
+            .map(|(index, (name, json_name))| FieldDescriptorProto {
+                name: Some((*name).into()),
+                number: Some(i32::try_from(index + 1).unwrap()),
+                label: Some(Label::Optional as i32),
+                r#type: Some(Type::String as i32),
+                json_name: json_name.map(str::to_owned),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+fn reject_json_names(fields: &[(&str, Option<&str>)], expected: &str) {
+    let mut set = fixture();
+    // Nested declarations are checked even if no method references them.
+    message(&mut set).nested_type.push(json_message(fields));
+    let result = Contract::from_descriptor(&set.encode_to_vec(), Limits::default());
+    assert!(result.is_err(), "admitted JSON name conflict: {fields:?}");
+    let error = format!("{:#}", result.unwrap_err());
+    assert!(error.contains(expected), "unexpected refusal: {error}");
+}
+
+#[test]
+fn json_field_names_require_unique_defaults_even_with_custom_overrides() {
+    for fields in [
+        [("foo_bar", None), ("fooBar", None)],
+        [("foo_bar", None), ("foo__bar", None)],
+        [("_", None), ("__", None)],
+        [("foo_bar", Some("first")), ("fooBar", Some("second"))],
+    ] {
+        reject_json_names(&fields, "duplicate default RPC JSON field name");
+    }
+}
+
+#[test]
+fn json_field_names_require_unique_effective_custom_names() {
+    for fields in [
+        [("first", Some("same")), ("second", Some("same"))],
+        [("first", Some("second")), ("second", None)],
+        [("first", None), ("second", Some("first"))],
+        [("first", Some("")), ("second", Some(""))],
+    ] {
+        reject_json_names(&fields, "duplicate effective RPC JSON field name");
+    }
+}
+
+#[test]
+fn json_field_names_refuse_embedded_nulls_and_extension_spellings() {
+    for name in ["\0", "a\0b", "[test.field]", "[]", "[[field]]"] {
+        reject_json_names(&[("first", Some(name))], "invalid RPC JSON field name");
+    }
+}
+
+#[test]
+fn json_field_names_preserve_legal_spelling_identity_and_message_scopes() {
+    for fields in [
+        vec![("first", Some(""))],
+        vec![("first", Some("a b")), ("second", Some("☃"))],
+        vec![("first", Some("[open")), ("second", Some("close]"))],
+        vec![("first", Some("Case")), ("second", Some("case"))],
+        vec![("_leading", None), ("leading", None)],
+        vec![("FooBar", None), ("foo_bar", None)],
+        vec![("foo_1bar", None), ("foo_1_bar", None)],
+        vec![("URL_value", None), ("u_r_l_value", None)],
+    ] {
+        let mut set = fixture();
+        // Artifact identity uses canonical file order, unlike protoc's raw
+        // dependency-first descriptor output used by this fixture.
+        set.file.sort_by(|left, right| left.name.cmp(&right.name));
+        let parent = message(&mut set);
+        let child = json_message(&fields);
+        // The same field spellings in different messages are independent.
+        let mut sibling = child.clone();
+        sibling.name = Some("SiblingJsonNames".into());
+        parent.nested_type.extend([child, sibling]);
+        let original = set.encode_to_vec();
+        let contract = Contract::from_descriptor(&original, Limits::default()).unwrap();
+        assert_eq!(contract.descriptor(), original);
+        contract
+            .validate_message("cellar.rpc.conformance.v1.AllTypes.JsonNames", &[0x0a, 0])
+            .unwrap();
+    }
+}

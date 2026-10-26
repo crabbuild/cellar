@@ -56,8 +56,14 @@ struct Budget<'a>(&'a Connection, bool);
 
 impl Drop for Budget<'_> {
     fn drop(&mut self) {
-        self.0.progress_handler(0, None::<fn() -> bool>);
-        self.0.authorizer(Some(authorize_sql));
+        // Cell connections pass fallible hook installation when opened.
+        // Handle ownership is immutable for the lifetime of this guard.
+        self.0
+            .progress_handler(0, None::<fn() -> bool>)
+            .expect("console connection owns its SQLite handle");
+        self.0
+            .authorizer(Some(authorize_sql))
+            .expect("console connection owns its SQLite handle");
         ACTIVE.with(|active| active.set(self.1));
     }
 }
@@ -87,16 +93,20 @@ pub(crate) fn sql_console(
         let ran = {
             let _budget = Budget(connection, ACTIVE.with(|active| active.replace(true)));
             if readonly {
-                connection.authorizer(Some(authorize_read));
+                connection
+                    .authorizer(Some(authorize_read))
+                    .expect("console connection owns its SQLite handle");
             }
             let mut steps = 0u32;
-            connection.progress_handler(
-                1000,
-                Some(move || {
-                    steps += 1000;
-                    steps >= 1_000_000 || started.elapsed() >= std::time::Duration::from_secs(2)
-                }),
-            );
+            connection
+                .progress_handler(
+                    1000,
+                    Some(move || {
+                        steps += 1000;
+                        steps >= 1_000_000 || started.elapsed() >= std::time::Duration::from_secs(2)
+                    }),
+                )
+                .expect("console connection owns its SQLite handle");
             as_user_sql(|| {
                 // SAFETY: the live connection owns every prepared statement;
                 // sql_run_statements finalizes them on every return path.

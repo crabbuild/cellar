@@ -150,7 +150,8 @@ pub(crate) fn query_registered_controlled(
     if let Some(cancel) = cancel {
         database
             .connection()
-            .progress_handler(1000, Some(cancel.interrupt_check()));
+            .progress_handler(1000, Some(cancel.interrupt_check()))
+            .map_err(storage)?;
     }
     let version = CommittedVersion {
         scope: published.scope().clone(),

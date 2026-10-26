@@ -41,7 +41,9 @@ pub struct Options {
     pub max_body_bytes: usize,
     /// Maximum storage batch operations or live transport capabilities per invocation.
     pub max_batch_operations: usize,
-    /// Shared budget for retained bridge payloads; also bounds Node transport queues.
+    /// Shared budget for retained native bridge payloads. Node framing, partial
+    /// input and decoded attachments use this same pool. Node startup requires
+    /// enough capacity for one maximum value and its overlapping framed copies.
     pub max_bridge_bytes: usize,
     /// V8 heap limit, or Node old-space limit. This does not cap process RSS.
     pub heap_bytes: usize,
@@ -80,7 +82,8 @@ pub struct BridgeUsage {
     pub stopped: bool,
     /// Native invocations still holding an admission permit.
     pub active_invocations: usize,
-    /// Invocation, operation and reply payload bytes with an owned reservation.
+    /// Native invocation, operation and reply payload reservations, including
+    /// Node's queued/partial frames and decoded frame payloads.
     pub retained_bytes: usize,
 }
 

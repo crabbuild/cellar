@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 #![cfg(any(feature = "node", feature = "embed"))]
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use cellar::sdk::{NodeOutcome, ShutdownMode};
 use cellar_javascript::{EventKind, Options, Source};
 use std::sync::{Arc, Mutex};
@@ -39,9 +39,14 @@ fn exercise(application: Arc<cellar_javascript::JavaScriptApplication>) -> Resul
         .build()?
         .block_on(async {
             let directory = tempfile::tempdir()?;
-            let (node, address) = native::start(directory.path(), application).await?;
+            let (node, address) = native::start(directory.path(), application.clone()).await?;
             let result = streaming::check(&address).await;
-            let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+            let usage = application.bridge_usage();
+            // Join after a request failure too, and retain supervision evidence
+            // without replacing the original network or handler failure.
+            let outcome = node.shutdown(ShutdownMode::Preserve).await;
+            result.with_context(|| format!("streaming bridge={usage:?} shutdown={outcome:?}"))?;
+            let outcome = outcome?;
             let NodeOutcome::Stopped(report) = outcome else {
                 anyhow::bail!("node failed")
             };
@@ -49,7 +54,7 @@ fn exercise(application: Arc<cellar_javascript::JavaScriptApplication>) -> Resul
                 report.application_work_drained && !report.drain_timed_out,
                 "streaming work leaked: {report:?}"
             );
-            result
+            Ok(())
         })
 }
 

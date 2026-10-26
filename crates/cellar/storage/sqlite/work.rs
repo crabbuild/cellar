@@ -145,10 +145,12 @@ mod tests {
         let prepares = Arc::new(AtomicU64::new(0));
         let observed = prepares.clone();
         with(SCOPE, |connection| {
-            connection.authorizer(Some(move |context: rusqlite::hooks::AuthContext<'_>| {
-                observed.fetch_add(1, Ordering::Relaxed);
-                authorize_sql(context)
-            }));
+            connection
+                .authorizer(Some(move |context: rusqlite::hooks::AuthContext<'_>| {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    authorize_sql(context)
+                }))
+                .expect("fixture connection owns its SQLite handle");
         });
         let schedule = || -> anyhow::Result<()> {
             set_alarm(SCOPE, 500)?;

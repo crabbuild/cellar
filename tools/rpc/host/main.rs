@@ -56,6 +56,8 @@ enum Suite {
     V8TerminationSmoke,
     V8Shutdown,
     V8ShutdownSmoke,
+    V8ForcedPeerRepro,
+    V8ForcedPeerDeadlineRepro,
     Lifecycle,
     PythonCancellation,
     PythonCancellationSmoke,
@@ -106,13 +108,15 @@ fn main() -> Result<()> {
                     Some("v8-termination-smoke") => Suite::V8TerminationSmoke,
                     Some("v8-shutdown") => Suite::V8Shutdown,
                     Some("v8-shutdown-smoke") => Suite::V8ShutdownSmoke,
+                    Some("v8-forced-peer-repro") => Suite::V8ForcedPeerRepro,
+                    Some("v8-forced-peer-deadline-repro") => Suite::V8ForcedPeerDeadlineRepro,
                     Some("lifecycle") => Suite::Lifecycle,
                     Some("python-cancellation") => Suite::PythonCancellation,
                     Some("python-cancellation-smoke") => Suite::PythonCancellationSmoke,
                     Some("python-supervision") => Suite::PythonSupervision,
                     Some("python-supervision-smoke") => Suite::PythonSupervisionSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be local, remote, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, v8-forced-peer-repro, v8-forced-peer-deadline-repro, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--python-lifecycle-child" => python_child = Some(PathBuf::from(arguments.next().context("missing Python child case file")?)),
@@ -121,7 +125,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite local|remote|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -277,6 +281,8 @@ fn main() -> Result<()> {
                                 Suite::V8TerminationSmoke => worker::v8_termination_smoke(app).await,
                                 Suite::V8Shutdown => worker::v8_shutdown(app).await,
                                 Suite::V8ShutdownSmoke => worker::v8_shutdown_smoke(app).await,
+                                Suite::V8ForcedPeerRepro => worker::v8_forced_peer_repro(app).await,
+                                Suite::V8ForcedPeerDeadlineRepro => worker::v8_forced_peer_deadline_repro(app).await,
                                 Suite::Lifecycle => worker::lifecycle(app).await,
                                 Suite::PythonCancellation => worker::python_cancellation(app, python).await,
                                 Suite::PythonCancellationSmoke => worker::python_cancellation_smoke(app, python).await,

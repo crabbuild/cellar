@@ -6,6 +6,7 @@
 // and output policies; this exception applies only to this build tool.
 #![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 
+mod artifact;
 mod format;
 mod graph;
 mod javascript;
@@ -48,7 +49,7 @@ fn main() -> Result<()> {
             _ => bail!("unknown code generator argument: {argument}"),
         }
     }
-    let bytes = std::fs::read(descriptor.context("--descriptor is required")?)?;
+    let bytes = artifact::read_descriptor(&descriptor.context("--descriptor is required")?)?;
     let contract = Contract::from_descriptor(&bytes, Limits::default())?;
     let descriptor = prost_types::FileDescriptorSet::decode(contract.descriptor())?;
     names::validate(&descriptor)?;
