@@ -353,6 +353,29 @@ impl CellArchive {
         inputs: Vec<(Self, CommittedArchiveCut)>,
         verifier: &ArchiveVerifier,
     ) -> Result<Vec<Result<ArchiveRecoverySet, ArchiveError>>, ArchiveError> {
+        if inputs.len() > MAX_GROUPS {
+            return Err(ArchiveError::Invalid("archive batch namespace/count"));
+        }
+        let mut completed = (0..inputs.len()).map(|_| None).collect::<Vec<_>>();
+        Self::publish_batch_each(inputs, verifier, |number, result| {
+            completed[number] = Some(result);
+        })
+        .await?;
+        completed
+            .into_iter()
+            .map(|result| result.ok_or(ArchiveError::Unconfirmed))
+            .collect()
+    }
+
+    /// Report each verified history independently, using its original input
+    /// index. A later batch error does not revoke an already reported result;
+    /// remaining histories are unconfirmed. The callback runs synchronously and
+    /// must not block publication. The batch retains its bound of two histories.
+    pub async fn publish_batch_each(
+        inputs: Vec<(Self, CommittedArchiveCut)>,
+        verifier: &ArchiveVerifier,
+        mut complete: impl FnMut(usize, Result<ArchiveRecoverySet, ArchiveError>),
+    ) -> Result<(), ArchiveError> {
         let first = inputs.first().ok_or(ArchiveError::Limit)?;
         if inputs.len() > MAX_GROUPS
             || inputs
@@ -364,13 +387,12 @@ impl CellArchive {
         }
         if inputs.len() == 1 {
             let (archive, cut) = inputs.into_iter().next().ok_or(ArchiveError::Limit)?;
-            return Ok(vec![archive.publish(cut, verifier).await]);
+            complete(0, archive.publish(cut, verifier).await);
+            return Ok(());
         }
         let domain = first.0.io_domain.clone().ok_or(ArchiveError::Stopped)?;
         let (sender, mut receiver) = mpsc::channel(MAX_GROUPS);
         let mut jobs = FuturesUnordered::new();
-        let mut completed: Vec<Option<Result<ArchiveRecoverySet, ArchiveError>>> =
-            (0..inputs.len()).map(|_| None).collect();
         for (number, (mut archive, cut)) in inputs.into_iter().enumerate() {
             archive.bundle_client = Some(Client(sender.clone()));
             jobs.push(async move { (number, archive.publish(cut, verifier).await) });
@@ -379,7 +401,7 @@ impl CellArchive {
         while !jobs.is_empty() {
             let request = crate::asyncrt::select! {
                 done = jobs.next() => {
-                    if let Some((number, result)) = done { completed[number] = Some(result); }
+                    if let Some((number, result)) = done { complete(number, result); }
                     continue;
                 }
                 request = receiver.recv() => request.ok_or(ArchiveError::Unconfirmed)?,
@@ -395,16 +417,13 @@ impl CellArchive {
             tokio::pin!(timer);
             while requests.len() < jobs.len() && requests.len() < MAX_GROUPS {
                 crate::asyncrt::select! {
-                    done = jobs.next() => if let Some((number, result)) = done { completed[number] = Some(result); },
+                    done = jobs.next() => if let Some((number, result)) = done { complete(number, result); },
                     request = receiver.recv() => requests.push(request.ok_or(ArchiveError::Unconfirmed)?),
                     _ = &mut timer => break,
                 }
             }
             flush(requests).await;
         }
-        completed
-            .into_iter()
-            .map(|result| result.ok_or(ArchiveError::Unconfirmed))
-            .collect()
+        Ok(())
     }
 }

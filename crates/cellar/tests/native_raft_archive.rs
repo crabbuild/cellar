@@ -2314,6 +2314,78 @@ async fn retention_preserves_only_copy() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let mut first = Fixture::new_group(ArchiveLimits::default(), store.clone(), 7).await?;
+    let mut second = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
+    let inputs = vec![
+        (first.archive.clone(), first.commit(7, vec![]).await?),
+        (second.archive.clone(), second.commit(8, vec![]).await?),
+    ];
+    store.payload_hang.store(true, Ordering::Release);
+    store.hold_next_payload.store(true, Ordering::Release);
+    let (done, mut completed) = tokio::sync::mpsc::channel(2);
+    let mut batch = Box::pin(CellArchive::publish_batch_each(
+        inputs,
+        &first.verifier,
+        |number, result| {
+            done.try_send((number, result))
+                .expect("one result per bounded batch input");
+        },
+    ));
+    let progress = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !store.payload_waiting.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .context("batch did not enter payload gate")?;
+        let (number, result) = tokio::time::timeout(Duration::from_secs(2), completed.recv())
+            .await
+            .context("completed history was withheld behind its stalled batch peer")?
+            .context("missing batch completion")?;
+        let set = result?;
+        ensure!(number < 2 && store.payload_waiting.load(Ordering::Acquire));
+        ensure!(
+            set.scope()
+                == if number == 0 {
+                    first.birth.scope()
+                } else {
+                    second.birth.scope()
+                }
+        );
+        restored(&set, if number == 0 { 7 } else { 8 })?;
+        ensure!(completed.try_recv().is_err());
+        Ok::<_, anyhow::Error>(number)
+    };
+    let (result, already_joined) = tokio::select! {
+        result = progress => (result, None),
+        result = &mut batch => (Err(anyhow::anyhow!("batch finished before the stalled payload released: {result:?}")), Some(result)),
+    };
+    store.release_payload();
+    let joined = match already_joined {
+        Some(result) => Ok(result),
+        None => tokio::time::timeout(Duration::from_secs(5), &mut batch).await,
+    };
+    drop(batch);
+    let cleanup_first = first.close().await;
+    let cleanup_second = second.close().await;
+    let early = result?;
+    joined??;
+    let (number, result) = tokio::time::timeout(Duration::from_secs(2), completed.recv())
+        .await
+        .context("remaining completion timed out")?
+        .context("missing remaining completion")?;
+    ensure!(number != early && number < 2);
+    restored(&result?, if number == 0 { 7 } else { 8 })?;
+    ensure!(completed.try_recv().is_err());
+    cleanup_first?;
+    cleanup_second
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn independent_cell_archives_while_another_publication_is_stalled() -> Result<()> {
     use std::time::Duration;
     let store = Arc::new(faults::Store::default());

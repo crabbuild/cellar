@@ -1223,6 +1223,7 @@ enum Job {
         result: Result<(), RuntimeError>,
     },
     Archived(Vec<super::host_archive::Completed>),
+    ArchiveBatchJoined,
     Routed {
         request: Box<Request>,
         result: Result<super::query_route::RoutedOutput, CommandFailure>,
@@ -3084,19 +3085,39 @@ impl Driver {
                 };
                 pending.push(owner.pending.remove(next));
             }
-            // Each cut remains in inflight, and retains its capture permit,
-            // until this entire publication returns through on_job.
+            // Each cut has one bounded completion channel. The physical batch
+            // remains in jobs through joined completion, while a finished cell
+            // can release its own slot without waiting for another history.
+            let mut senders = Vec::with_capacity(pending.len());
+            for capture in &pending {
+                let scope = capture.scope.clone();
+                let position = capture.cut.position();
+                let (send, receive) = tokio::sync::oneshot::channel();
+                senders.push(Some(send));
+                self.jobs.push(Box::pin(async move {
+                    let completed = receive.await.unwrap_or(super::host_archive::Completed {
+                        scope,
+                        position,
+                        result: Err(super::archive::ArchiveError::Unconfirmed),
+                    });
+                    Job::Archived(vec![completed])
+                }));
+            }
             let verifier = owner.verifier.clone();
             let timer = self
                 .local
                 .performance
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                let completed = super::host_archive::publish(pending, verifier).await;
-                timer.finish(
-                    !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
-                );
-                Job::Archived(completed)
+                let succeeded =
+                    super::host_archive::publish(pending, verifier, |number, completed| {
+                        if let Some(sender) = senders.get_mut(number).and_then(Option::take) {
+                            let _ = sender.send(completed);
+                        }
+                    })
+                    .await;
+                timer.finish(succeeded);
+                Job::ArchiveBatchJoined
             }));
         }
     }
@@ -3142,6 +3163,7 @@ impl Driver {
             | Job::SnapshotAuthorized { .. }
             | Job::SnapshotAbort { .. }
             | Job::Checkpoint { .. }) => self.on_snapshot_job(job),
+            Job::ArchiveBatchJoined => (),
             Job::Archived(completed) => {
                 self.admission_at = 0;
                 if let Some(owner) = self.archive_owner.as_mut() {

@@ -113,54 +113,71 @@ pub(super) fn next_scope<'a, T>(
     next.map(|(scope, _)| scope)
 }
 
-pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
-    let mut identities = Vec::with_capacity(captured.len());
-    let mut reservations = Vec::with_capacity(captured.len());
+/// Release each cut only after its own physical verification and head result.
+/// An unrelated member still doing I/O cannot retain that completed cell's slot.
+pub(crate) async fn publish(
+    captured: Vec<Captured>,
+    verifier: ArchiveVerifier,
+    mut report: impl FnMut(usize, Completed),
+) -> bool {
+    let mut pending = Vec::with_capacity(captured.len());
+    let mut all_succeeded = !captured.is_empty();
     let inputs = captured
         .into_iter()
         .map(|capture| {
-            identities.push((capture.scope, capture.cut.position()));
-            reservations.push(capture.reservation);
+            pending.push(Some((
+                capture.scope,
+                capture.cut.position(),
+                capture.reservation,
+            )));
             (capture.archive, capture.cut)
         })
         .collect();
-    let result = CellArchive::publish_batch(inputs, &verifier).await;
-    let results = match result {
-        Ok(results) if results.len() == identities.len() => results,
-        Ok(_) => (0..identities.len())
-            .map(|_| Err(ArchiveError::Unconfirmed))
-            .collect(),
-        Err(error) => {
-            let mut error = Some(error);
-            (0..identities.len())
-                .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
-                .collect()
-        }
-    };
-    // The reservations remain owned through physical replay and every head CAS.
-    let completed = identities
-        .into_iter()
-        .zip(results)
-        .map(|((scope, position), result)| {
-            let result = result.and_then(|set| {
-                if set.scope() != &scope
-                    || set.position().index < position.index
-                    || set.position().index == position.index
-                        && set.position().term != position.term
-                {
-                    return Err(ArchiveError::Corrupt("archive output coverage"));
-                }
-                Ok(())
-            });
+    let result = CellArchive::publish_batch_each(inputs, &verifier, |number, result| {
+        let Some((scope, position, reservation)) = pending.get_mut(number).and_then(Option::take)
+        else {
+            all_succeeded = false;
+            return;
+        };
+        let result = result.and_then(|set| {
+            if set.scope() != &scope
+                || set.position().index < position.index
+                || set.position().index == position.index && set.position().term != position.term
+            {
+                return Err(ArchiveError::Corrupt("archive output coverage"));
+            }
+            Ok(())
+        });
+        all_succeeded &= result.is_ok();
+        // The recovery set and completed publication future have released their
+        // inputs. Keep the slot charged until then, even for a failed member.
+        drop(reservation);
+        report(
+            number,
             Completed {
                 scope,
                 position,
                 result,
-            }
-        })
-        .collect();
-    drop(reservations);
-    completed
+            },
+        );
+    })
+    .await;
+    let mut error = result.err();
+    for (number, slot) in pending.into_iter().enumerate() {
+        if let Some((scope, position, reservation)) = slot {
+            all_succeeded = false;
+            drop(reservation);
+            report(
+                number,
+                Completed {
+                    scope,
+                    position,
+                    result: Err(error.take().unwrap_or(ArchiveError::Unconfirmed)),
+                },
+            );
+        }
+    }
+    all_succeeded && error.is_none()
 }
 
 impl Owner {
