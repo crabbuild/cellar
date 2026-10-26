@@ -491,3 +491,30 @@ fn ordinary_node_profile_keeps_floating_rejections_fatal() -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(feature = "embed")]
+#[test]
+fn runtime_failure_cannot_be_relabelled_by_later_host_shutdown() -> Result<()> {
+    let result = run(
+        Backend::Embedded,
+        Options {
+            turn_timeout: Duration::from_secs(2),
+            ..Default::default()
+        },
+        "try { ctx._sync('storage.apply', {puts:{x:1}}); } catch {} while (true) {}",
+        |application| {
+            let (_, mut receive) = start(&application.runtime, Arc::new(AtomicBool::new(true)));
+            ensure!(matches!(event(&mut receive), Event::Operation { .. }));
+            // A failed runtime may interrupt a guest just like a requested
+            // stop. Returning from the host afterwards must not hide failure.
+            application.runtime.close();
+            Ok(())
+        },
+    );
+    let failure = result.expect_err("runtime failure became successful shutdown");
+    ensure!(
+        failure.to_string().contains("runtime failure"),
+        "wrong interruption cause: {failure:#}"
+    );
+    Ok(())
+}

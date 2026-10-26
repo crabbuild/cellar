@@ -1271,6 +1271,8 @@ cleanup do.
 The published Containers 0.3.7 alarm loop now has a native sleep/wake fixture.
 It observes readiness, persisted start/stop/expiry hook counts, exactly one
 SIGTERM per idle cycle, alarm removal while stopped and joined resource cleanup.
+Four cycles pass across recreation of both the language runtime and native host
+on the same SQLite state.
 Its deterministic engine peer models a process which exits cleanly on SIGTERM;
 this does not substitute for image-specific shutdown qualification.
 
@@ -1324,3 +1326,27 @@ callback case. Native continuation admission for local promise/alarm resumes
 remains a qualification priority. Do not bypass the gate or increase deadlines
 to claim this case passes. Callback-owned queued controls and complete Workers
 conformance also remain open.
+
+
+### Merged-main delivery verification
+
+The delivery branch incorporates `main` at `73dab42b`. Its V8 startup/admission
+changes and typed shutdown interruption remain intact. A new regression proves
+that an earlier runtime failure cannot be relabelled by later host shutdown.
+The ordinary Node floating-rejection fatality regression also passes.
+
+| Check | Result |
+| --- | --- |
+| Selected Node/V8 adapter library and native integrations | 104 passed |
+| Rust core library, native containers and native image packaging | 643 + 2 + 1 passed |
+| Exact Sandbox 0.12.9 image scenarios | All 4 passed: portable files, published routes/streams, RPC binary files, HTTP previews |
+| JS/tool/type checks | 87 passed |
+| SDK/reference/image input pin checks | 4 passed |
+| Strict Clippy | Affected adapter all-target and core/container/package targets pass |
+| Native-only dependency graph | 466 reachable packages; no JavaScript engine |
+
+These selected checks do not cover the overlapping callback/alarm failure above
+or complete SP-10 qualification. Earlier cold-call latency remains unproven.
+E2B/Vercel real-account qualification still awaits configuration; durable provider
+reconnect/expiry/orphan delivery and separately qualified 1.x/additional-provider
+profiles remain outstanding.

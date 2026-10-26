@@ -66,7 +66,7 @@ fn reserved_records_refuse_guest_sql_and_enforce_binding_capacity() -> anyhow::R
         write(&c, &format!("binding-{n}"), None, 1, pending())?;
     }
     assert!(write(&c, "overflow", None, 1, pending()).is_err());
-    c.authorizer(Some(authorize_sql));
+    c.authorizer(Some(authorize_sql))?;
     for sql in [
         "SELECT record FROM __sys_container_bindings",
         "DELETE FROM __sys_container_bindings",
