@@ -17,6 +17,21 @@ pub(crate) struct LocalMovementCall {
 }
 
 impl RaftCells {
+    pub(crate) async fn start_movement_worker(
+        &self,
+        work: crate::raft::fleet_catalog::MovementServiceWork,
+        timeout: Duration,
+    ) -> Result<(), FleetCatalogError> {
+        match self
+            .node_call(NodeKind::StartMovementService(Box::new(work)), timeout)
+            .await
+        {
+            Ok(Response::FleetMovementAction(result)) => result,
+            Err(CommandFailure::Overloaded) => Err(FleetCatalogError::Overloaded),
+            _ => Err(FleetCatalogError::Unconfirmed),
+        }
+    }
+
     pub(crate) fn request_peer_movement(
         &self,
         command: MovementCommand,

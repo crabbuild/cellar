@@ -9,6 +9,11 @@ mod execution;
 pub use completion::{
     FleetFencedMovementCompletion, FleetMovementCompletion, FleetMovementCompletionRequest,
 };
+pub(crate) use execution::MovementServiceWork;
+pub use execution::{
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+};
 pub use execution::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
 };

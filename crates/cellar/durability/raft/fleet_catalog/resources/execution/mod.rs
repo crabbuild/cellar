@@ -3,6 +3,7 @@
 //! Durable permit/configuration progress is the cursor. Each turn performs at
 //! most one seed and one configuration action, or one terminal settlement CAS.
 mod receive;
+mod service;
 mod work;
 use super::completion::Settlement;
 use super::records::{Record, Reference};
@@ -12,6 +13,11 @@ use crate::raft::host::RaftPeerFleetMembershipObservation;
 use crate::raft::member_state::FleetPermitPhase;
 use cellar_logic::consensus::ProposalId;
 use rand::RngCore;
+pub(crate) use service::MovementServiceWork;
+pub use service::{
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+};
 pub(crate) use work::{MovementAction, MovementCommand};
 
 /// Caller-retained deployment occupancy evidence is required for settlement.

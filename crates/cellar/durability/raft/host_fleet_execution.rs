@@ -14,6 +14,28 @@ pub(super) struct Completed {
 }
 
 impl Driver {
+    pub(super) fn start_movement_service(
+        &mut self,
+        mut request: NodeRequest,
+        mut work: crate::raft::fleet_catalog::MovementServiceWork,
+    ) {
+        let result = self
+            .options
+            .managed
+            .as_ref()
+            .ok_or(FleetCatalogError::Invalid(
+                "no managed movement service origin",
+            ))
+            .and_then(|managed| work.admit(&managed.authorization));
+        if result.is_ok() {
+            self.jobs.push(Box::pin(async move {
+                work.run().await;
+                Job::FleetMovementServiceStopped
+            }));
+        }
+        reply_node(&mut request, Ok(Response::FleetMovementAction(result)));
+    }
+
     pub(super) fn start_peer_movement(
         &mut self,
         mut request: NodeRequest,

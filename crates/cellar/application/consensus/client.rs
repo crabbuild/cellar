@@ -234,6 +234,7 @@ pub(crate) struct Handle {
     pub sql: Option<crate::raft::SqlResourceObserver>,
     pub groups: crate::raft::host::GroupResourceObserver,
     pub controller: Mutex<Option<(u64, super::RaftControllerResources)>>,
+    pub fleet_movement_service: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
     pub bindings: Bindings,
@@ -292,6 +293,15 @@ impl RaftCells {
         // Even a poisoned gate remains sealed. Final physical close reports
         // its failure after joining all owners, rather than inventing proof.
         let _ = self.handle.admission.seal();
+        self.stop_fleet_movement_service();
+    }
+
+    pub(crate) fn stop_fleet_movement_service(&self) {
+        if let Ok(slot) = self.handle.fleet_movement_service.lock() {
+            if let Some(stop) = slot.as_ref() {
+                stop.send_replace(true);
+            }
+        }
     }
 
     pub(crate) async fn drain_node(

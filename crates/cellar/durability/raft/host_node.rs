@@ -91,6 +91,7 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::StartMovementService(work) => self.start_movement_service(request, *work),
             NodeKind::PeerMovement(call) => self.start_peer_movement(request, *call),
             NodeKind::LocalMovement(call) => self.start_local_movement(request, *call),
             NodeKind::PeerFleetStop(call) => self.start_peer_fleet_stop(request, *call),

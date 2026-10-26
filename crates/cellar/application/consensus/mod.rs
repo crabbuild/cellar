@@ -52,6 +52,10 @@ pub use crate::raft::fleet_catalog::{
     FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission,
     FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
+pub use crate::raft::fleet_catalog::{
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+};
 pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };

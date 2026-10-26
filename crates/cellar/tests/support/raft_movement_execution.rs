@@ -4,6 +4,9 @@
 use super::*;
 use anyhow::Context;
 
+#[path = "raft_movement_service.rs"]
+mod service_tests;
+
 async fn reserved(
     s: &Setup,
     cells: &[RaftCellHandle],

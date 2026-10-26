@@ -3,6 +3,7 @@
 use super::*;
 
 pub(crate) enum NodeKind {
+    StartMovementService(Box<crate::raft::fleet_catalog::MovementServiceWork>),
     PeerMovement(Box<super::PeerMovementCall>),
     LocalMovement(Box<super::LocalMovementCall>),
     Drain,

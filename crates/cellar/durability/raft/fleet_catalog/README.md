@@ -998,3 +998,48 @@ peer/archive seed metadata and legacy ingress refusal. Core member-state tests
 check strict decoding, scope and snapshot successor constraints. These tests do
 not qualify full automatic fleet operations, physical RustFS semantics, the
 resource-limited Colima topology, steady-state overhead or production capacity.
+
+
+## Owned admitted-movement service
+
+`start_movement_service` explicitly starts one worker in the enrolled origin's
+host job set. `FleetMovementEvidence` supplies the exact reservation's trusted
+deployment occupancy evidence under the remaining turn deadline. The provider
+must retain evidence needed to resolve a historical settlement; inability to
+measure current occupancy is an error, never evidence of zero use. The origin
+may have zero business groups. A second service on the same origin is refused,
+including through another catalog adapter. The catalog and origin must belong
+to the same execution domain and rooted fleet.
+
+The service first reconstructs active membership reservations. It performs at
+most one reconciliation attempt per round, with one original deadline covering
+catalog reads, the evidence callback and remote execution. Options bound the
+minimum interval, per-turn timeout and maximum exponential retry interval.
+Positive bounded jitter avoids synchronized retries. There is no missed-tick
+catch-up. Joint and terminal work receives priority, with a fairness turn after
+three priority attempts. Every action still obtains fresh authority; saved
+phases only affect scheduling order.
+
+At most two reservations are retained locally. A disappeared resource-book row
+does not prove success: the worker retains it until reconciliation verifies its
+permanent terminal receipt. New work waits for a local slot if an older outcome
+is still uncertain. Aborted work remains unsettled and is reported as needing
+operator attention. Invalid/rebound evidence cannot consume a permit. The
+service never admits another move, invents a placement, frees debt after a
+timeout or repairs a lost quorum.
+
+`FleetMovementService::status` returns bounded local counters and the last
+observed work phases/failures; these are neither current-health nor durability
+proofs. Explicit `shutdown` stops and joins the worker, including a blocked
+evidence callback. Handle drop requests stop. Node drain and shutdown signal the
+same worker; physical shutdown joins it through the existing host job set. A
+submitted configuration or seed keeps its ordinary node owner after the service
+waiter exits, and a restarted service re-reads durable progress. Domain closure
+also drops the owned worker. The service retains a two-MiB metadata reservation
+in the origin's existing control pool; physical/transport work uses its existing
+separate bounded admission.
+
+This is automatic execution of already admitted work. Failure-driven admission,
+complete assignment collection/planning, optional workload policy, aborted or
+changed-boot cleanup, operator commands and deployed qualification remain
+separate delivery boundaries. Startup remains explicit and default-off.
