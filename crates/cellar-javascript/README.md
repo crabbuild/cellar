@@ -467,6 +467,24 @@ so queued valid heartbeats are observed after a native observer delay. New guest
 starts wait while heartbeats are overdue; invocation deadlines and retired SDK
 authority retain their original checks.
 
+The Node pump partitions socket work into turns. Each turn reads at most 1 MiB
+and writes at most 1 MiB, with independent quotas for each direction. Decoding
+also charges wire bytes: up to 1 MiB per turn, or one larger complete frame
+within the existing frame limit. Partial frames keep their full reservations.
+
+```text
+retire authority -> deliver native replies -> bounded IPC work -> yield
+        ^                                                         |
+        +---------------------------------------------------------+
+```
+
+The original 256-frame heartbeat observation pass can span several turns.
+Reaching a work quota does not mean the socket is empty or prove liveness.
+Queued heartbeats must still be examined within that finite pass; only a valid
+heartbeat renews liveness. Slices yield without adding a new heartbeat grace
+period. These work quotas do not change request deadlines or byte capacities,
+and are not a hard bound on decoder CPU time or process RSS.
+
 Node uses one native byte pool for overlapping payload and transport ownership:
 
 ```text

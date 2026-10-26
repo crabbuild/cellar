@@ -128,6 +128,7 @@ pub struct ReplicaLog {
 }
 
 struct LogHandle {
+    snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
     instance: std::sync::OnceLock<cellar_logic::consensus::EngineInstanceId>,
     owner: Arc<()>,
@@ -302,12 +303,23 @@ impl ReplicaLog {
         Self::open_observed(options, filesystem, None).await
     }
 
+    pub(crate) fn snapshot_scratch(&self) -> cellar_ltx::stream_snapshot::ScratchPool {
+        self.inner.snapshot_scratch.clone()
+    }
+
     pub(crate) async fn open_observed(
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
         performance: Option<Arc<Performance>>,
     ) -> Result<Self, LogError> {
         options.validate()?;
+        let snapshot_scratch =
+            cellar_ltx::stream_snapshot::ScratchPool::new(options.snapshot_scratch)
+                .map_err(|e| LogError::Invalid(e.to_string()))?;
+        let files = StorageFiles {
+            filesystem,
+            snapshot_scratch: snapshot_scratch.clone(),
+        };
         let domain = crate::asyncrt::services()
             .domain_token()
             .ok_or(LogError::Closed)?;
@@ -327,6 +339,7 @@ impl ReplicaLog {
         let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
+                snapshot_scratch,
                 performance: performance.clone(),
                 instance: std::sync::OnceLock::new(),
                 owner: owner.clone(),
@@ -371,7 +384,7 @@ impl ReplicaLog {
                 let _guard = ClosedOnDrop(closed.clone(), terminal.clone());
                 let result = Worker::open(
                     options,
-                    filesystem,
+                    files,
                     groups,
                     owner,
                     closed.clone(),
@@ -593,6 +606,8 @@ impl MessageExt for EntryCodec {
 }
 
 struct Worker {
+    filesystem: Arc<dyn FileSystem>,
+    snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     performance: Arc<Performance>,
     engine: Engine<EngineFileSystem>,
     _directory_lock: HostFileLock,
@@ -608,16 +623,25 @@ struct Worker {
     lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
 }
 
+struct StorageFiles {
+    filesystem: Arc<dyn FileSystem>,
+    snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
+}
+
 impl Worker {
     fn open(
         options: ReplicaLogOptions,
-        fs: Arc<dyn FileSystem>,
+        files: StorageFiles,
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
         caches: EngineCaches,
         performance: Arc<Performance>,
     ) -> Result<Self, LogError> {
+        let StorageFiles {
+            filesystem: fs,
+            snapshot_scratch,
+        } = files;
         match options.mode {
             LogOpenMode::Create => create_directory_durably(fs.as_ref(), &options.directory)?,
             LogOpenMode::Resume => match fs.metadata(&options.directory) {
@@ -740,6 +764,8 @@ impl Worker {
         }
         *caches.lifecycle.lock().map_err(|_| LogError::Closed)? = lifecycle.clone();
         let mut worker = Self {
+            filesystem: fs.clone(),
+            snapshot_scratch,
             performance,
             engine,
             _directory_lock: directory_lock,
@@ -883,6 +909,9 @@ impl Worker {
         scope.validate().map_err(records::corrupt)?;
         cache.membership.validate_scope(&scope)?;
         Ok(GroupLog {
+            scratch_directory: self.options.directory.clone(),
+            snapshot_scratch: self.snapshot_scratch.clone(),
+            filesystem: self.filesystem.clone(),
             key: mapping.key,
             birth_digest: mapping.birth_digest,
             identity: ReplicaIdentity {

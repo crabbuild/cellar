@@ -15,9 +15,20 @@ const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
 const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-snapshot-chunk-1";
 
+fn snapshot_error(error: impl Into<crate::raft::snapshot::SnapshotError>) -> TransportError {
+    let error = error.into();
+    if error.scratch_full() {
+        TransportError::Overloaded
+    } else {
+        TransportError::Invalid(error.to_string())
+    }
+}
+
 pub(in crate::raft) fn memory_bound(options: &TransportOptions) -> usize {
-    // Encoded image and conservative room for source/decoder/prepare copies.
-    options.max_snapshot_bytes + 4 * options.max_snapshot_image_bytes as usize
+    // File-backed bodies and indexes do not reserve image-sized memory. Cover
+    // wire framing/copies plus codec/hash/compression and independent sealing
+    // buffers. One transfer retains this reservation through blocking work.
+    4 * options.snapshot_chunk_bytes + 4 * 1024 * 1024
 }
 
 pub(crate) struct SourceReservation {
@@ -204,8 +215,15 @@ impl RaftTransport {
             return Err(TransportError::Identity);
         }
         let (route, peer, pool) = state.snapshot_peer(scope, source)?;
-        let mut download = SnapshotDownload::new(&group, route.schema_digest, snapshot, limits)
-            .map_err(|e| TransportError::Invalid(e.to_string()))?;
+        let schema = route.schema_digest;
+        let download_group = group.clone();
+        let mut download = state
+            .domain
+            .blocking(move || SnapshotDownload::new(&download_group, schema, snapshot, limits))
+            .map_err(|_| TransportError::Closed)?
+            .await
+            .map_err(|_| TransportError::Closed)?
+            .map_err(snapshot_error)?;
         if download.encoded_length() > state.options.max_snapshot_bytes {
             return Err(TransportError::Limit);
         }
@@ -309,13 +327,23 @@ impl RaftTransport {
                     if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
                         return Err(TransportError::Authentication);
                     }
-                    download
-                        .append(offset, &body)
-                        .map_err(|e| TransportError::Invalid(e.to_string()))?;
-                    Ok(body.len())
+                    Ok(body)
                 })
                 .await?;
-            offset += received;
+            let received_length = received.len();
+            // Move the entire scratch owner into registered blocking work. A
+            // cancelled waiter cannot close its file underneath an active write.
+            download = state
+                .domain
+                .blocking(move || {
+                    download.append(offset, &received)?;
+                    Ok::<_, crate::raft::snapshot::SnapshotError>(download)
+                })
+                .map_err(|_| TransportError::Closed)?
+                .await
+                .map_err(|_| TransportError::Closed)?
+                .map_err(snapshot_error)?;
+            offset += received_length;
         }
         if !state.current_route(scope, &route, &peer) {
             return Err(TransportError::StalePeer);
@@ -474,26 +502,33 @@ impl State {
                 source: lease.clone(),
                 pool: pool.clone(),
             });
-            let body = lease
-                .package
-                .chunk(
-                    offset,
-                    request.length.min(self.options.snapshot_chunk_bytes),
-                )
-                .map_err(|_| TransportError::Limit)?;
+            let chunk_source = lease.clone();
+            let length = request.length.min(self.options.snapshot_chunk_bytes);
+            let body = self
+                .domain
+                .blocking(move || chunk_source.package.chunk(offset, length))
+                .map_err(|_| TransportError::Closed)?
+                .await
+                .map_err(|_| TransportError::Closed)?
+                .map_err(snapshot_error)?;
             let response = Chunk {
                 route: request.route.reversed(),
                 request: head.tag,
                 snapshot: request.snapshot,
                 transfer: request.transfer,
                 offset: request.offset,
-                digest: Sha256::digest(body).into(),
+                digest: Sha256::digest(&body).into(),
             };
-            let response_head =
-                wire.encode(RESPONSE_MAGIC, RESPONSE_PURPOSE, &head.tag, &response, body)?;
+            let response_head = wire.encode(
+                RESPONSE_MAGIC,
+                RESPONSE_PURPOSE,
+                &head.tag,
+                &response,
+                &body,
+            )?;
             self.snapshot_io(&pool, lease.expires, async {
                 write_head(stream, &response_head).await?;
-                stream.write_all(body).await?;
+                stream.write_all(&body).await?;
                 stream.flush().await?;
                 Ok(())
             })
@@ -662,8 +697,26 @@ impl RaftTransport {
             &peer.label,
             schema,
         )?;
-        let mut download = crate::raft::snapshot::SeedDownload::new(grant, birth, schema, limits)
-            .map_err(|e| TransportError::Invalid(e.to_string()))?;
+        let scratch_directory = state.runtime.log().limits().directory.clone();
+        let snapshot_scratch = state.runtime.log().snapshot_scratch();
+        let birth = birth.clone();
+        let mut download = state
+            .domain
+            .blocking(move || {
+                crate::raft::snapshot::SeedDownload::new(
+                    grant,
+                    &birth,
+                    schema,
+                    limits,
+                    crate::asyncrt::fs().as_ref(),
+                    &scratch_directory,
+                    &snapshot_scratch,
+                )
+            })
+            .map_err(|_| TransportError::Closed)?
+            .await
+            .map_err(|_| TransportError::Closed)?
+            .map_err(snapshot_error)?;
         let total = download.encoded_length();
         if total > state.options.max_snapshot_bytes || (total == 0) != (lease == 0) {
             return Err(TransportError::Limit);
@@ -751,13 +804,23 @@ impl RaftTransport {
                     if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
                         return Err(TransportError::Authentication);
                     }
-                    download
-                        .append(offset, &body)
-                        .map_err(|e| TransportError::Invalid(e.to_string()))?;
-                    Ok(body.len())
+                    Ok(body)
                 })
                 .await?;
-            offset += received;
+            let received_length = received.len();
+            // Move the entire scratch owner into registered blocking work. A
+            // cancelled waiter cannot close its file underneath an active write.
+            download = state
+                .domain
+                .blocking(move || {
+                    download.append(offset, &received)?;
+                    Ok::<_, crate::raft::snapshot::SnapshotError>(download)
+                })
+                .map_err(|_| TransportError::Closed)?
+                .await
+                .map_err(|_| TransportError::Closed)?
+                .map_err(snapshot_error)?;
+            offset += received_length;
         }
         Ok(ReceivedSeed {
             download,

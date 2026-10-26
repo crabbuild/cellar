@@ -216,11 +216,11 @@ impl Initializer {
         };
         let options = SeedOptions { limits, deadline };
         let action = if activation.from_s3 {
-            let archive = dormant.namespace.cell_archive(
-                &dormant.birth,
-                dormant.storage.host.clone(),
-                archive,
-            )?;
+            let archive = dormant
+                .namespace
+                .cell_archive(&dormant.birth, dormant.storage.host.clone(), archive)?
+                .with_scratch_directory(log.limits().directory.clone())
+                .with_snapshot_scratch(log.snapshot_scratch());
             let received = transport
                 .seed_from_archive_until(
                     target,
@@ -563,7 +563,16 @@ impl Driver {
                     let archive = dormant
                         .namespace
                         .cell_archive(&dormant.birth, ltx_host(), self.options.archive.limits)?
-                        .with_cancellation(owner.cancellation.subscribe());
+                        .with_scratch_directory(self.runtime.log().limits().directory.clone())
+                        .with_snapshot_scratch(self.runtime.log().snapshot_scratch())
+                        .with_cancellation(owner.cancellation.subscribe())
+                        .with_publication_coordination(
+                            crate::raft::host_archive::publication_owner(
+                                group.identity().node_identity(),
+                            ),
+                            self.options.archive.publication_stale_ms,
+                            64 * 1024 * 1024,
+                        )?;
                     let cell = Cell::recovered(
                         group,
                         dormant.birth.clone(),

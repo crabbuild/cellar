@@ -11,6 +11,42 @@ use std::ptr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// The two physical owners share the same bounded, read-only SQLite boundary.
+/// Implementations retain their exact immutable data owner for every reader.
+pub(crate) trait ImmutableImage: Send + Sync {
+    fn length(&self) -> u64;
+
+    fn open_reader(&self) -> std::io::Result<Box<dyn ImmutableReader>>;
+}
+
+pub(crate) trait ImmutableReader: Send {
+    fn length(&self) -> u64;
+
+    fn read_exact_at(&mut self, offset: u64, length: usize) -> std::io::Result<Vec<u8>>;
+}
+
+impl ImmutableImage for GenerationPin {
+    fn length(&self) -> u64 {
+        self.state().length
+    }
+
+    fn open_reader(&self) -> std::io::Result<Box<dyn ImmutableReader>> {
+        GenerationPin::open_reader(self)
+            .map(|reader| Box::new(reader) as Box<dyn ImmutableReader>)
+            .map_err(std::io::Error::other)
+    }
+}
+
+impl ImmutableReader for GenerationReader {
+    fn length(&self) -> u64 {
+        GenerationReader::length(self)
+    }
+
+    fn read_exact_at(&mut self, offset: u64, length: usize) -> std::io::Result<Vec<u8>> {
+        GenerationReader::read_exact_at(self, offset, length).map_err(std::io::Error::other)
+    }
+}
+
 type Clock = dyn Fn() -> i64 + Send + Sync;
 type Random = dyn Fn(&mut [u8]) + Send + Sync;
 
@@ -22,7 +58,7 @@ pub struct ReadServices {
 
 struct ReadContext {
     name: String,
-    pin: GenerationPin,
+    pin: Arc<dyn ImmutableImage>,
     services: ReadServices,
 }
 
@@ -95,7 +131,7 @@ struct ImageFile {
 }
 
 struct FileState {
-    reader: Mutex<GenerationReader>,
+    reader: Mutex<Box<dyn ImmutableReader>>,
     _reference: FileReference,
 }
 
@@ -103,7 +139,14 @@ pub fn open_immutable(
     pin: GenerationPin,
     services: ReadServices,
 ) -> rusqlite::Result<ImmutableDatabase> {
-    if pin.state().length == 0 {
+    open_image(Arc::new(pin), services)
+}
+
+pub(crate) fn open_image(
+    pin: Arc<dyn ImmutableImage>,
+    services: ReadServices,
+) -> rusqlite::Result<ImmutableDatabase> {
+    if pin.length() == 0 {
         return Err(rusqlite::Error::InvalidQuery);
     }
     let sequence = NEXT_NAME
@@ -337,7 +380,8 @@ unsafe extern "C" fn x_read(
         while at < available {
             let length = (available - at).min(64 * 1024);
             let bytes = match reader.read_exact_at(offset as u64 + at as u64, length) {
-                Ok(bytes) => bytes,
+                Ok(bytes) if bytes.len() == length => bytes,
+                Ok(_) => return ffi::SQLITE_IOERR_READ,
                 Err(_) => return ffi::SQLITE_IOERR_READ,
             };
             output[at..at + length].copy_from_slice(&bytes);

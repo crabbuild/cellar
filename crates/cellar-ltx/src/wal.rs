@@ -487,6 +487,21 @@ impl<'a> WalReader<'a> {
         };
         data.copy_from_slice(page);
 
+        self.consume_frame(hdr, data, verify_checksum)
+    }
+
+    /// Consume one externally buffered frame using this reader's cumulative
+    /// header/checksum state. The database image inspector uses bounded file
+    /// reads without constructing a whole WAL byte buffer.
+    pub(crate) fn consume_frame(
+        &mut self,
+        hdr: &[u8],
+        data: &[u8],
+        verify_checksum: bool,
+    ) -> WalResult<(u32, u32)> {
+        if hdr.len() != WAL_FRAME_HEADER_SIZE || data.len() != self.page_size as usize {
+            return Err(WalError::Eof);
+        }
         // Verify salt matches the salt in the header; otherwise end of valid WAL.
         let salt1 = be_u32(&hdr[8..]);
         let salt2 = be_u32(&hdr[12..]);

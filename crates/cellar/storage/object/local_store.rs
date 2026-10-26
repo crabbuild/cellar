@@ -130,8 +130,27 @@ impl LocalStore {
         Ok(connection)
     }
 
+    fn connect_reader(&self) -> object_store::Result<Connection> {
+        // Reads must neither recreate a missing backend nor checkpoint unrelated
+        // object data when their short-lived connection happens to close last.
+        // Writers retain FULL commits and ordinary automatic checkpoints.
+        let connection = Connection::open_with_flags(
+            &self.database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(db_error)?;
+        configure_connection(&connection)?;
+        connection
+            .set_db_config(
+                rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+                true,
+            )
+            .map_err(db_error)?;
+        Ok(connection)
+    }
+
     fn read(&self, key: &str) -> object_store::Result<StoredObject> {
-        self.connect()?
+        self.connect_reader()?
             .query_row(
                 "SELECT key, body, etag, modified_ms, attributes, length(body)
                  FROM __sys_local_objects WHERE key = ?1",
@@ -157,7 +176,7 @@ impl LocalStore {
         key: &str,
         include_small_body: bool,
     ) -> object_store::Result<StoredObject> {
-        self.connect()?
+        self.connect_reader()?
             .query_row(
                 "SELECT key, etag, modified_ms, attributes, length(body),
                         CASE WHEN ?2 AND length(body) <= ?3 THEN body ELSE NULL END
@@ -195,7 +214,7 @@ impl LocalStore {
         offset: u64,
         length: usize,
     ) -> object_store::Result<Bytes> {
-        let mut connection = self.connect()?;
+        let mut connection = self.connect_reader()?;
         let transaction = connection.transaction().map_err(db_error)?;
         let rowid = transaction
             .query_row(
@@ -233,7 +252,7 @@ impl LocalStore {
     }
 
     fn metadata(&self, prefix: &str) -> object_store::Result<Vec<StoredObject>> {
-        let connection = self.connect()?;
+        let connection = self.connect_reader()?;
         #[cfg(test)]
         if let Some(gate) = &self.list_gate {
             gate.wait();
@@ -936,6 +955,104 @@ fn precondition(path: &str) -> Error {
 #[cfg(test)]
 mod schema_tests {
     use super::*;
+
+    #[test]
+    fn failed_reads_do_not_recreate_a_missing_store() -> object_store::Result<()> {
+        use cellar_ltx::{DirectFileSystem, FileSystem as _};
+
+        let directory = tempfile::tempdir().map_err(db_error)?;
+        let path = directory.path().join("store.sqlite");
+        let held = directory.path().join("unavailable.sqlite");
+        let store = LocalStore::open(&path)?;
+        store.put_sync(
+            "key".into(),
+            Bytes::from_static(b"retained"),
+            PutOptions::default(),
+        )?;
+        DirectFileSystem.rename(&path, &held).map_err(db_error)?;
+        assert!(store.read("key").is_err());
+        assert!(store.read_metadata("key", false).is_err());
+        assert!(store.read_chunk("key", 1, 8, 0, 8).is_err());
+        assert!(store.metadata("").is_err());
+        assert_eq!(
+            DirectFileSystem.metadata(&path).unwrap_err().kind(),
+            std::io::ErrorKind::NotFound
+        );
+        DirectFileSystem.rename(&held, &path).map_err(db_error)?;
+        assert_eq!(store.read("key")?.body, b"retained");
+        Ok(())
+    }
+
+    #[test]
+    fn metadata_reads_leave_unrelated_committed_wal_for_checkpointing() -> object_store::Result<()>
+    {
+        use cellar_ltx::{DirectFileSystem, FileSystem as _};
+        use rusqlite::config::DbConfig;
+
+        let directory = tempfile::tempdir().map_err(db_error)?;
+        let path = directory.path().join("store.sqlite");
+        let wal = directory.path().join("store.sqlite-wal");
+        let store = LocalStore::open(&path)?;
+        // Model a committed WAL left by another process. No writer or read
+        // transaction remains active when the metadata request starts.
+        let anchor = store.connect()?;
+        anchor
+            .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+            .map_err(db_error)?;
+        let payload = Bytes::from(vec![0x5a; 1024 * 1024]);
+        let first = store.put_sync("large".into(), payload.clone(), PutOptions::default())?;
+        drop(anchor);
+        let before = DirectFileSystem.metadata(&path).map_err(db_error)?.len;
+        assert!(before < payload.len() as u64);
+        assert!(DirectFileSystem.metadata(&wal).map_err(db_error)?.len > payload.len() as u64);
+
+        let metadata = store.read_metadata("large", false)?;
+        assert_eq!(metadata.size, payload.len() as u64);
+        assert!(metadata.body.is_empty());
+        assert_eq!(
+            DirectFileSystem.metadata(&path).map_err(db_error)?.len,
+            before,
+            "a metadata read checkpointed unrelated object data"
+        );
+        assert!(DirectFileSystem.metadata(&wal).map_err(db_error)?.len > payload.len() as u64);
+        drop(store);
+
+        let reopened = LocalStore::open(&path)?;
+        assert_eq!(reopened.read("large")?.body, payload);
+        let second = reopened.put_sync(
+            "large".into(),
+            Bytes::from_static(b"replacement"),
+            PutOptions {
+                mode: PutMode::Update(object_store::UpdateVersion {
+                    e_tag: first.e_tag,
+                    version: None,
+                }),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(second.e_tag.as_deref(), Some("2"));
+        let connection = reopened.connect()?;
+        assert_eq!(
+            connection
+                .query_row("PRAGMA synchronous", [], |row| row.get::<_, u32>(0))
+                .map_err(db_error)?,
+            2
+        );
+        assert!(
+            connection
+                .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get::<_, u32>(0))
+                .map_err(db_error)?
+                > 0
+        );
+        connection
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+            .map_err(db_error)?;
+        drop(connection);
+        drop(reopened);
+        let final_store = LocalStore::open(&path)?;
+        assert_eq!(final_store.read("large")?.body, b"replacement");
+        Ok(())
+    }
 
     #[test]
     fn system_tables_and_etags_survive_reopen() -> object_store::Result<()> {

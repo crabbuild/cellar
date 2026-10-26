@@ -8,7 +8,7 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 mod images;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
 use cellar::sdk::ExecutionDomain;
@@ -1615,7 +1615,7 @@ async fn submitted_command_recovery() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn command_failure_and_result_limit_roll_back() -> Result<()> {
-    for mode in 0..3 {
+    for mode in 0..4 {
         let root = tempfile::tempdir()?;
         let mut host = Host::open(root.path(), false).await?;
         host.elect().await?;
@@ -1629,6 +1629,15 @@ async fn command_failure_and_result_limit_roll_back() -> Result<()> {
             match mode {
                 0 => bail!("callback failed"),
                 1 => panic!("callback panicked"),
+                3 => {
+                    transaction.execute("CREATE TABLE quota(value BLOB)", [])?;
+                    // Each value stays within ordinary SQL limits. Total
+                    // growth must hit SQLite's independently configured quota.
+                    for _ in 0..128 {
+                        transaction.execute("INSERT INTO quota VALUES(zeroblob(1048576))", [])?;
+                    }
+                    bail!("growth unexpectedly passed the image quota")
+                }
                 _ => Ok(vec![0; 64 * 1024 + 1]),
             }
         });
@@ -1636,6 +1645,11 @@ async fn command_failure_and_result_limit_roll_back() -> Result<()> {
             assert!(matches!(
                 result,
                 Err(ExecutionError::Refused(CommandFailure::Overloaded))
+            ));
+        } else if mode == 3 {
+            assert!(matches!(
+                result,
+                Err(ExecutionError::Refused(CommandFailure::StorageFull))
             ));
         } else {
             assert!(result.is_err());
@@ -1650,6 +1664,133 @@ async fn command_failure_and_result_limit_roll_back() -> Result<()> {
         host.close().await?;
     }
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn receipt_reserve_preserves_cleanup_retry_and_page_reuse_at_application_capacity(
+) -> Result<()> {
+    fn grow(transaction: &cellar::storage::CommandTransaction<'_>) -> Result<Vec<u8>> {
+        transaction.execute("INSERT INTO items VALUES(zeroblob(131072))", [])?;
+        increment(transaction)
+    }
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let limits = ExecutionLimits {
+        max_image_bytes: 4 * 1024 * 1024,
+        receipt_reserve_bytes: 256 * 1024,
+        ..Default::default()
+    };
+    let mut executor = host.private(root.path(), limits).await?;
+    let initial = prepared(executor.stage(attempt(1, 1)?, |transaction| {
+        initialize(transaction)?;
+        transaction.execute_batch(
+            "CREATE TABLE items(value BLOB);
+            CREATE TABLE tiny(id INTEGER PRIMARY KEY, value TEXT);
+            INSERT INTO tiny VALUES(1,'first'),(2,'second');
+            CREATE TABLE dbstat(name TEXT, pgsize INTEGER, aggregate INTEGER);
+            INSERT INTO dbstat VALUES('__sys_raft_receipts',0,1);",
+        )?;
+        assert!(transaction
+            .execute_batch("DROP TABLE temp.__sys_raft_capacity")
+            .is_err());
+        Ok(7_i64.to_be_bytes().to_vec())
+    })?)?;
+    host.commit_private(&mut executor, initial, 1).await?;
+    let mut expected = 7_i64;
+    let mut refused = None;
+    for sequence in 2..=64 {
+        match executor.stage(attempt(sequence, sequence as u8)?, grow) {
+            Ok(outcome) => {
+                host.commit_private(&mut executor, prepared(outcome)?, sequence as u8)
+                    .await?;
+                expected += 1;
+            }
+            Err(ExecutionError::Refused(CommandFailure::StorageFull)) => {
+                refused = Some(sequence);
+                break;
+            }
+            Err(error) => bail!("unexpected quota failure: {error}"),
+        }
+    }
+    let sequence = refused.context("growth never reached the application allowance")?;
+    assert_eq!(host.counter()?, expected);
+    // The application allowance is exhausted before the physical image quota:
+    // receipt/control writes retain their independent, unused space.
+    assert!(host.applier.current().unwrap().pin().state().length < limits.max_image_bytes);
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    let duplicate = executor.stage(attempt(sequence - 1, 80)?, |_| {
+        panic!("durable receipt callback repeated")
+    })?;
+    let StageOutcome::Duplicate(duplicate) = duplicate else {
+        bail!("lost retained receipt")
+    };
+    assert_eq!(duplicate.receipt().result(), expected.to_be_bytes());
+    let cleanup = |number, tag| -> Result<CommandAttempt> {
+        let mut attempt = attempt(number, tag)?;
+        attempt.request.id = CommandId::new(ClientId::new([2; 16])?, number)?;
+        Ok(attempt)
+    };
+    let tiny = prepared(executor.stage(cleanup(1, 81)?, |transaction| {
+        // Another tiny row remains on this leaf: no application page is freed.
+        transaction.execute("DELETE FROM tiny WHERE id=1", [])?;
+        increment(transaction)
+    })?)?;
+    host.commit_private(&mut executor, tiny, 81).await?;
+    expected += 1;
+    assert_eq!(host.counter()?, expected);
+    assert!(matches!(
+        executor.stage(attempt(sequence, 82)?, grow),
+        Err(ExecutionError::Refused(CommandFailure::StorageFull))
+    ));
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    let freed = prepared(executor.stage(cleanup(2, 83)?, |transaction| {
+        transaction.execute(
+            "DELETE FROM items WHERE rowid=(SELECT max(rowid) FROM items)",
+            [],
+        )?;
+        increment(transaction)
+    })?)?;
+    host.commit_private(&mut executor, freed, 83).await?;
+    let reused = prepared(executor.stage(attempt(sequence, 84)?, grow)?)?;
+    host.commit_private(&mut executor, reused, 84).await?;
+    assert_eq!(host.counter()?, expected + 2);
+    let query = images::query(host.applier.current().unwrap().pin())?;
+    assert_eq!(
+        query
+            .connection()
+            .query_row("SELECT count(*) FROM tiny", [], |r| r.get::<_, u64>(0))?,
+        1
+    );
+    assert_eq!(
+        query
+            .connection()
+            .query_row("SELECT count(*) FROM items", [], |r| r.get::<_, u64>(0))?,
+        sequence - 2
+    );
+    drop(query);
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn receipt_storage_admission_refuses_without_acknowledging_private_writes() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let limits = ExecutionLimits {
+        receipt_reserve_bytes: 512,
+        ..Default::default()
+    };
+    let mut executor = host.private(root.path(), limits).await?;
+    assert!(matches!(
+        executor.stage(attempt(1, 1)?, initialize),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(host.applier.current().is_none());
+    assert_eq!(executor.status(), ExecutionStatus::RebuildRequired);
+    drop(executor);
+    host.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

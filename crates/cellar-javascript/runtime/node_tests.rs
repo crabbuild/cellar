@@ -167,6 +167,65 @@ fn node_process_survives_native_observer_pause() -> Result<()> {
 }
 
 #[test]
+fn node_queued_large_controls_do_not_hide_a_healthy_heartbeat() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    std::fs::write(
+        &entry,
+        r#"
+        export async function fetch(req, ctx) {
+            return Promise.all(Array.from({length:8}, () => ctx.variable('x'.repeat(512 << 10))));
+        }
+    "#,
+    )?;
+    let resumed = Arc::new(AtomicBool::new(false));
+    let mut node = NodeOptions::new(entry);
+    node.heartbeat_timeout = Duration::from_millis(100);
+    node.observer_pause = Some((Duration::from_millis(300), resumed.clone()));
+    node.observer_pause_after_start = true;
+    NodeRuntime::run(
+        Options::default(),
+        node,
+        Source::module().events([EventKind::Fetch]),
+        |app| {
+            let (id, mut receiver) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            let until = Instant::now() + Duration::from_secs(2);
+            while !resumed.load(Ordering::Acquire) {
+                assert!(Instant::now() < until, "active observer did not resume");
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            for _ in 0..8 {
+                let Event::Operation {
+                    id: operation,
+                    name,
+                    payload,
+                    ..
+                } = event(&mut receiver)
+                else {
+                    panic!("large control was lost")
+                };
+                assert_eq!(name, "var");
+                assert!(payload.len() >= 512 << 10);
+                app.runtime
+                    .reply(id, operation, r#"{"ok":true,"value":null}"#.into())?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receiver)
+            else {
+                panic!("extra operation")
+            };
+            assert!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!([null, null, null, null, null, null, null, null])
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
 fn node_crash_and_runaway_revoke_and_join() {
     for body in ["process.exit(9)", "while(true){}"] {
         let before = Instant::now();

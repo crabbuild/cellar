@@ -249,9 +249,7 @@ impl RaftHostOptions {
             cellar_ltx::ltx::full_snapshot_bound(self.execution.max_image_bytes, 512)
                 .ok_or_else(|| anyhow::anyhow!("snapshot encoded bound overflow"))?;
         anyhow::ensure!(
-            apply.decode.max_encoded_bytes >= snapshot_bound
-                && apply.max_total_encoded_bytes >= snapshot_bound
-                && self.archive.limits.max_object_bytes >= snapshot_bound
+            self.archive.limits.max_snapshot_bytes >= snapshot_bound as u64
                 && self.archive.limits.max_image_bytes >= self.execution.max_image_bytes,
             "snapshot image and archive admission must cover full-LTX encoding overhead"
         );
@@ -534,6 +532,7 @@ async fn initialize(
                 host: ltx_host(),
                 services: read_services(),
                 images: options.images,
+                snapshot_scratch: service.log.snapshot_scratch(),
                 execution: options.execution,
             };
             if placement == RaftCellPlacement::Standby {
@@ -745,11 +744,14 @@ async fn initialize(
                                 .transport
                                 .snapshot_limits(options.execution.max_image_bytes)?;
                             let action = if from_s3 {
-                                let archive = namespace.cell_archive(
-                                    &birth,
-                                    storage.host.clone(),
-                                    options.archive.limits,
-                                )?;
+                                let archive = namespace
+                                    .cell_archive(
+                                        &birth,
+                                        storage.host.clone(),
+                                        options.archive.limits,
+                                    )?
+                                    .with_scratch_directory(service.log.limits().directory.clone())
+                                    .with_snapshot_scratch(service.log.snapshot_scratch());
                                 let received = service
                                     .transport
                                     .seed_from_archive(
@@ -842,12 +844,21 @@ async fn initialize(
                     leader_hint: None,
                 },
             );
+            let archive = namespace
+                .cell_archive(&birth, ltx_host(), options.archive.limits)?
+                .with_scratch_directory(service.log.limits().directory.clone())
+                .with_snapshot_scratch(service.log.snapshot_scratch())
+                .with_publication_coordination(
+                    super::host_archive::publication_owner(group.identity().node_identity()),
+                    options.archive.publication_stale_ms,
+                    64 * 1024 * 1024,
+                )?;
             cells.insert(
                 scope.clone(),
                 Cell::recovered(
                     group,
                     birth.clone(),
-                    namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
+                    archive,
                     image,
                     worker,
                     namespace.minimum_durability(),
@@ -865,6 +876,7 @@ async fn initialize(
                 ImageId::new(nonce)?,
                 options.images.apply,
                 pool.image_accounting(),
+                service.log.snapshot_scratch(),
             )
             .await?;
             for cell in cells.values_mut() {
@@ -1251,6 +1263,12 @@ enum Job {
         result: Result<GroupStatus, RuntimeError>,
     },
     Sql {
+        scope: GroupScope,
+        purpose: SqlPurpose,
+        result: Box<Result<sql::Output, ExecutionError>>,
+        work: Option<Arc<client::Work>>,
+    },
+    SnapshotEncoded {
         scope: GroupScope,
         purpose: SqlPurpose,
         result: Box<Result<sql::Output, ExecutionError>>,
@@ -1686,6 +1704,7 @@ impl Driver {
                 .map(|pending| pending.request.control.clone()),
             _ => None,
         };
+        let encoding_work = work.clone();
         let job = self
             .pool
             .call(cell.worker, scope.clone(), action, work, cancel);
@@ -1695,6 +1714,7 @@ impl Driver {
                 scope,
                 purpose,
                 result: Box::new(job.await),
+                work: encoding_work,
             }
         }));
     }
@@ -2510,7 +2530,33 @@ impl Driver {
         scope: GroupScope,
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
+        work: Option<Arc<client::Work>>,
     ) {
+        let result = match result {
+            Ok(sql::Output {
+                value:
+                    Value::SnapshotCapture {
+                        capture,
+                        reservation,
+                    },
+                _bytes,
+            }) => {
+                let Some(cell) = self.cells.get_mut(&scope) else {
+                    return;
+                };
+                cell.sql_busy = false;
+                if !matches!(
+                    &purpose,
+                    SqlPurpose::Seed(_) | SqlPurpose::Checkpoint | SqlPurpose::SnapshotSource(_)
+                ) {
+                    self.fail(&scope);
+                    return;
+                }
+                self.encode_snapshot(scope, purpose, capture, reservation, work, _bytes);
+                return;
+            }
+            result => result,
+        };
         if let SqlPurpose::EffectScan(sequence) = purpose {
             self.finish_effect_scan(scope, sequence, result);
             return;
@@ -3315,7 +3361,19 @@ impl Driver {
                 scope,
                 purpose,
                 result,
-            } => self.on_sql(scope, purpose, *result),
+                work,
+            } => self.on_sql(scope, purpose, *result, work),
+            Job::SnapshotEncoded {
+                scope,
+                purpose,
+                result,
+            } => match purpose {
+                SqlPurpose::Seed(id) => self.seed_encoded(scope, id, *result),
+                SqlPurpose::Checkpoint | SqlPurpose::SnapshotSource(_) => {
+                    self.on_snapshot_encoded(scope, purpose, *result)
+                }
+                _ => self.fail(&scope),
+            },
             Job::Installed { scope, result } => {
                 if let Err(error) = result {
                     tracing::error!(group = ?scope.group, ?error, "Raft durable apply completion failed");

@@ -181,6 +181,9 @@ python3 -m unittest discover -s plans/multi-raft -p 'test_*.py'
 `validate` checks document links, source paths, task dependencies, case ownership,
 commands and evidence requirements. `preflight` compares the pinned source
 hashes with the checkout and fails on drift. It does not rewrite the baseline.
+When a source moves, `current_path` locates it in the checkout while `path`,
+the source hash and the baseline revision retain their original provenance.
+The same hash and checkout-boundary checks apply at the new location.
 Review every reported change, revise affected contracts and refresh the baseline
 in the same reviewed change before starting dependent work.
 

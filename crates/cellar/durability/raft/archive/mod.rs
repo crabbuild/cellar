@@ -13,7 +13,7 @@ use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState};
 use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
-use cellar_ltx::{ltx, LtxHost, TXID};
+use cellar_ltx::{host::IoActivity, ltx, stream_snapshot, LtxHost};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
@@ -27,16 +27,23 @@ use std::{
 
 pub(crate) mod bundle;
 mod coverage;
+mod physical;
+mod publication;
 mod replay;
 
 pub use coverage::VerifiedArchiveCoverage;
 
 const READ_WINDOW: usize = 4;
 
+pub(crate) const fn physical_read_bytes() -> usize {
+    physical::READ_BYTES
+}
+
 // Logical recovery limits exclude the containing bundles. Retain an additional
 // full bundle for every concurrent extraction, including cancelled workers.
 pub(crate) const RECOVERY_BUNDLE_READ_BYTES: usize = READ_WINDOW * bundle::MAX_BYTES;
-pub(crate) const MAX_RECOVERY_READ_BYTES: usize = 1024 * 1024 * 1024 + RECOVERY_BUNDLE_READ_BYTES;
+pub(crate) const MAX_RECOVERY_READ_BYTES: usize =
+    1024 * 1024 * 1024 + RECOVERY_BUNDLE_READ_BYTES + physical::READ_BYTES;
 
 #[derive(Debug)]
 pub enum ArchiveError {
@@ -49,6 +56,7 @@ pub enum ArchiveError {
     Timeout,
     Log(super::storage::LogError),
     Images(GenerationError),
+    Physical(stream_snapshot::Error),
     Storage(object_store::Error),
     Worker(cellar_ltx::host::HostTaskError),
 }
@@ -61,15 +69,31 @@ impl fmt::Display for ArchiveError {
 
 impl std::error::Error for ArchiveError {}
 
+impl ArchiveError {
+    pub(crate) fn scratch_full(&self) -> bool {
+        matches!(
+            self,
+            Self::Physical(stream_snapshot::Error::ScratchFull)
+                | Self::Images(GenerationError::Snapshot(
+                    stream_snapshot::Error::ScratchFull
+                ))
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ArchiveLimits {
     pub envelope: EnvelopeLimits,
     /// Logical SQLite image bound, independent of compressed object length.
     pub max_image_bytes: u64,
+    /// Encoded physical snapshot bytes, held in bounded file-backed chunks.
+    pub max_snapshot_bytes: u64,
     pub io_timeout_ms: u64,
     pub max_capture_bytes: usize,
     pub max_manifest_bytes: usize,
     pub max_object_bytes: usize,
+    /// Small index, encoded tails and dependency material retained for replay.
+    /// Physical snapshot parts have independent max_snapshot_bytes/disk bounds.
     pub max_set_bytes: usize,
     pub max_entries: usize,
     pub max_tails: usize,
@@ -86,6 +110,7 @@ impl Default for ArchiveLimits {
         Self {
             envelope: EnvelopeLimits::default(),
             max_image_bytes: 64 * 1024 * 1024,
+            max_snapshot_bytes: 128 * 1024 * 1024,
             io_timeout_ms: 10_000,
             max_capture_bytes: 4 * 1024 * 1024,
             max_manifest_bytes: 256 * 1024,
@@ -105,7 +130,8 @@ impl ArchiveLimits {
             .validate()
             .map_err(|_| ArchiveError::Invalid("archive envelope limits"))?;
         if !(1024..=1024 * 1024).contains(&self.max_manifest_bytes)
-            || !(512..=256 * 1024 * 1024).contains(&self.max_image_bytes)
+            || !(512..=stream_snapshot::MAX_IMAGE_BYTES).contains(&self.max_image_bytes)
+            || !(512..=stream_snapshot::MAX_ENCODED_BYTES).contains(&self.max_snapshot_bytes)
             || !(1..=60_000).contains(&self.io_timeout_ms)
             || !(1024..=self.max_object_bytes).contains(&self.max_capture_bytes)
             || self.max_manifest_bytes > self.max_object_bytes
@@ -363,60 +389,34 @@ impl CommittedArchiveCut {
                 .sum::<usize>()
     }
 
-    fn snapshot(&self, limits: ArchiveLimits) -> Result<Vec<u8>, ArchiveError> {
-        let pin = self
-            .image
-            .as_ref()
-            .ok_or(ArchiveError::Invalid(
-                "empty archive has no snapshot payload",
-            ))?
-            .pin();
-        let state = pin.state();
-        Image::from(state).decode()?;
-        if state.length > limits.max_image_bytes || state.length > limits.max_object_bytes as u64 {
-            return Err(ArchiveError::Limit);
-        }
-        let mut reader = pin.open_reader().map_err(ArchiveError::Images)?;
-        let mut pages = Vec::new();
-        let count = state.length / u64::from(state.page_size);
-        let mut hash = Sha256::new();
-        for i in 0..count {
-            let page = reader
-                .read_exact_at(i * u64::from(state.page_size), state.page_size as usize)
-                .map_err(ArchiveError::Images)?;
-            hash.update(&page);
-            if i + 1 != u64::from(ltx::lock_pgno(state.page_size)) {
-                pages.push((i as u32 + 1, page));
-            }
-        }
-        if <[u8; 32]>::from(hash.finalize()) != state.digest {
-            return Err(ArchiveError::Corrupt("pinned archive image digest"));
-        }
-        let header = ltx::Header {
-            version: ltx::VERSION,
-            flags: if state.checksum == 0 {
-                ltx::HEADER_FLAG_NO_CHECKSUM
-            } else {
-                0
-            },
-            page_size: state.page_size,
-            commit: count as u32,
-            min_txid: TXID(1),
-            max_txid: state.txid,
-            ..Default::default()
-        };
-        let bytes = ltx::encode_file_v0_5_2(&header, &pages, state.checksum)
-            .map_err(|_| ArchiveError::Corrupt("archive snapshot encoding"))?;
-        if bytes.len() > limits.max_object_bytes {
-            return Err(ArchiveError::Limit);
-        }
-        verify_snapshot(&bytes, state)?;
-        Ok(bytes)
+    fn snapshot(
+        &self,
+        limits: ArchiveLimits,
+        activity: Option<IoActivity>,
+    ) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
+        let image = self.image.as_ref().ok_or(ArchiveError::Invalid(
+            "empty archive has no snapshot payload",
+        ))?;
+        image
+            .pin()
+            .snapshot_with_io_profile(
+                stream_snapshot::Limits {
+                    max_image_bytes: limits.max_image_bytes,
+                    max_encoded_bytes: limits.max_snapshot_bytes,
+                },
+                physical::io_profile(image.pin().state().length),
+                activity,
+            )
+            .map_err(ArchiveError::Images)
     }
 }
 
 #[derive(Clone)]
 pub struct CellArchive {
+    coordination: Option<publication::Coordination>,
+    activity: Option<IoActivity>,
+    snapshot_scratch: stream_snapshot::ScratchPool,
+    scratch_directory: Option<std::path::PathBuf>,
     store: Arc<dyn ObjectStore>,
     prefix: String,
     bundle_prefix: String,
@@ -439,6 +439,11 @@ pub struct CellArchive {
 struct Head {
     manifest: ObjectRef,
     position: Position,
+}
+
+struct PreparedManifest {
+    manifest: Manifest,
+    confirmed_snapshot: Option<physical::ConfirmedSnapshot>,
 }
 
 /// An immutable manifest address. This names recovery data only; it is neither
@@ -512,12 +517,13 @@ impl ArchiveMetadata {
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
 pub struct ArchiveRecoverySet {
+    activity: Option<IoActivity>,
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
     scope: GroupScope,
     position: LogPosition,
     manifest: Manifest,
-    snapshot: Vec<u8>,
+    snapshot: Option<stream_snapshot::SnapshotFile>,
     entries: Vec<Entry>,
     dependencies: Vec<(ObjectRef, Vec<u8>)>,
     envelope: EnvelopeLimits,
@@ -548,6 +554,10 @@ impl CellArchive {
             ..Default::default()
         };
         Self {
+            coordination: None,
+            activity: None,
+            scratch_directory: None,
+            snapshot_scratch: Default::default(),
             store,
             prefix: format!(
                 "{}/{}/{}",
@@ -571,6 +581,19 @@ impl CellArchive {
         }
     }
 
+    /// Place anonymous receive spools on an existing owned volume. This changes
+    /// only scratch placement; verified data still carries no activation proof.
+    pub fn with_scratch_directory(mut self, directory: std::path::PathBuf) -> Self {
+        self.scratch_directory = Some(directory);
+        self
+    }
+
+    /// Share receive spool admission with all snapshot work on the node.
+    pub fn with_snapshot_scratch(mut self, pool: stream_snapshot::ScratchPool) -> Self {
+        self.snapshot_scratch = pool;
+        self
+    }
+
     pub(crate) fn can_batch_with(&self, other: &Self) -> bool {
         self.bundle_prefix == other.bundle_prefix
             && self.root == other.root
@@ -583,6 +606,7 @@ impl CellArchive {
     pub(crate) fn read_memory_bound(&self) -> usize {
         self.limits.max_set_bytes
             + READ_WINDOW * bundle::MAX_BYTES.min(self.limits.max_object_bytes)
+            + physical::READ_BYTES
     }
 
     pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
@@ -649,14 +673,8 @@ impl CellArchive {
         Path::from(format!("{}/{name}", self.prefix))
     }
 
-    /// Publish only after every object has been read back and checked. CAS
-    /// failures (including lost success responses) are reconciled with exact
-    /// head reads; bounded contention never falls back to unconditional writes.
-    pub async fn publish(
-        &self,
-        cut: CommittedArchiveCut,
-        verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    /// Refuse a cut from another history or application before advisory I/O.
+    fn validate_cut(&self, cut: &CommittedArchiveCut) -> Result<(), ArchiveError> {
         if cut.scope != self.scope
             || cut.schema_digest != self.schema
             || cut.birth_digest != self.birth
@@ -664,6 +682,15 @@ impl CellArchive {
         {
             return Err(ArchiveError::Invalid("archive producer history/schema"));
         }
+        Ok(())
+    }
+
+    async fn publish_inner(
+        &self,
+        cut: CommittedArchiveCut,
+        verifier: &ArchiveVerifier,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        self.validate_cut(&cut)?;
         for _ in 0..8 {
             let previous = self.load_head_metadata().await?;
             if let Some((metadata, _, _)) = &previous {
@@ -755,7 +782,10 @@ impl CellArchive {
                 .map_or(PutMode::Create, |(_, _, version)| {
                     PutMode::Update(version.clone())
                 });
-            let mut manifest = match (tail, previous) {
+            let PreparedManifest {
+                mut manifest,
+                confirmed_snapshot,
+            } = match (tail, previous) {
                 (Some((entries, true)), Some((metadata, _, _))) => {
                     // A cost-based checkpoint replaces an otherwise valid
                     // extension. Verify every intermediate transition before
@@ -802,16 +832,43 @@ impl CellArchive {
                     manifest.image = cut.image_state();
                     manifest.image_position =
                         cut.image.as_ref().map(|image| image.position().into());
-                    manifest
+                    PreparedManifest {
+                        manifest,
+                        confirmed_snapshot: None,
+                    }
                 }
                 (_, previous) => {
                     // A new base omits the old payloads from final verification.
                     // Preserve refusal of missing/corrupt prior material rather
                     // than silently repairing an invalid selected head here.
-                    if let Some((metadata, _, _)) = previous {
-                        self.load_material(metadata).await?;
+                    let previous = if let Some((metadata, _, _)) = previous {
+                        Some(self.load_material(metadata).await?)
+                    } else {
+                        None
+                    };
+                    if let Some(previous) = previous.filter(|previous| {
+                        cut.image.is_some()
+                            && previous.manifest.snapshot.image == cut.image_state()
+                            && previous.manifest.image == cut.image_state()
+                    }) {
+                        let snapshot = self
+                            .rebind_snapshot(
+                                previous,
+                                cut.image
+                                    .as_ref()
+                                    .ok_or(ArchiveError::Invalid("snapshot rebind needs an image"))?
+                                    .pin()
+                                    .state(),
+                                cut.position.into(),
+                            )
+                            .await?;
+                        PreparedManifest {
+                            manifest: self.full_manifest(&cut, Some(snapshot.reference().clone())),
+                            confirmed_snapshot: Some(snapshot),
+                        }
+                    } else {
+                        self.snapshot_manifest(&cut).await?
                     }
-                    self.snapshot_manifest(&cut).await?
                 }
             };
             let mut dependencies: BTreeMap<_, _> = manifest
@@ -858,9 +915,12 @@ impl CellArchive {
                 .await?;
             // Do not expose a head with a missing dependency, broken coverage
             // or an invalid LTX mapping, even if all PUTs reported success.
-            let set = self
-                .verify_set(self.load_manifest(&object).await?, verifier)
-                .await?;
+            let metadata = self.load_metadata(&object).await?;
+            let set = match confirmed_snapshot {
+                Some(snapshot) => self.load_confirmed_material(metadata, snapshot).await?,
+                None => self.load_material(metadata).await?,
+            };
+            let set = self.verify_set(set, verifier).await?;
             let desired = manifest::encode(
                 2,
                 &Head {
@@ -880,7 +940,10 @@ impl CellArchive {
                 )
                 .await;
             match self.read(&self.key("head"), 4096, None).await? {
-                Some((observed, _)) if observed == desired => return Ok(set),
+                Some((observed, _)) if observed == desired => {
+                    tracing::info!(event = "raft_archive_phase", phase = "head_confirmed", cell = %self.scope.cell, index = manifest.position.index);
+                    return Ok(set);
+                }
                 Some(_) => continue,
                 None => {
                     return match outcome {
@@ -893,31 +956,50 @@ impl CellArchive {
         Err(ArchiveError::Unconfirmed)
     }
 
-    async fn snapshot_manifest(&self, cut: &CommittedArchiveCut) -> Result<Manifest, ArchiveError> {
-        let position = cut.position.into();
-        let object = if cut.image.is_some() {
-            let input = cut.clone();
-            let limits = self.limits;
-            let body = self
-                .host
-                .run_blocking(move || input.snapshot(limits))
-                .await
-                .map_err(ArchiveError::Worker)??;
-            Some(
-                self.put_object(
-                    ObjectKind::Snapshot,
-                    &body,
-                    Some(PositionRange {
-                        first: position,
-                        last: position,
-                    }),
-                )
-                .await?,
-            )
-        } else {
-            None
+    async fn snapshot_manifest(
+        &self,
+        cut: &CommittedArchiveCut,
+    ) -> Result<PreparedManifest, ArchiveError> {
+        let Some(image) = cut.image.as_ref() else {
+            return Ok(PreparedManifest {
+                manifest: self.full_manifest(cut, None),
+                confirmed_snapshot: None,
+            });
         };
-        Ok(Manifest {
+        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = image.pin().state().length, io_profile = ?physical::io_profile(image.pin().state().length));
+        let input = cut.clone();
+        let limits = self.limits;
+        let activity = self.activity.clone();
+        let (body, inline) = self
+            .host
+            .run_blocking(move || {
+                let snapshot = input.snapshot(limits, activity)?;
+                let length = snapshot.metadata().encoded_length;
+                let inline = if length <= physical::INLINE_BYTES as u64 {
+                    Some(
+                        snapshot
+                            .chunk(0, length as usize)
+                            .map_err(ArchiveError::Physical)?,
+                    )
+                } else {
+                    None
+                };
+                Ok::<_, ArchiveError>((snapshot, inline))
+            })
+            .await
+            .map_err(ArchiveError::Worker)??;
+        let position = cut.position.into();
+        tracing::info!(event = "raft_archive_phase", phase = "encode_complete", cell = %self.scope.cell, index = cut.position.index.get(), encoded_bytes = body.metadata().encoded_length);
+        let snapshot = self.put_snapshot(body, inline, position).await?;
+        tracing::info!(event = "raft_archive_phase", phase = "upload_confirmed", cell = %self.scope.cell, index = cut.position.index.get());
+        Ok(PreparedManifest {
+            manifest: self.full_manifest(cut, Some(snapshot.reference().clone())),
+            confirmed_snapshot: Some(snapshot),
+        })
+    }
+
+    fn full_manifest(&self, cut: &CommittedArchiveCut, object: Option<ObjectRef>) -> Manifest {
+        Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
             birth_digest: self.birth,
@@ -934,7 +1016,7 @@ impl CellArchive {
             image: cut.image_state(),
             image_position: cut.image.as_ref().map(|image| image.position().into()),
             dependencies: Vec::new(),
-        })
+        }
     }
 
     async fn verify_extension(
@@ -971,14 +1053,18 @@ impl CellArchive {
         set: ArchiveRecoverySet,
         verifier: &ArchiveVerifier,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
-        self.host
+        let set = self
+            .host
             .run_blocking(move || {
                 verifier.verify(&set)?;
-                Ok(set)
+                Ok::<_, ArchiveError>(set)
             })
             .await
-            .map_err(ArchiveError::Worker)?
+            .map_err(ArchiveError::Worker)??;
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get());
+        Ok(set)
     }
 
     pub async fn recovery_set(&self) -> Result<Option<ArchiveRecoverySet>, ArchiveError> {
@@ -1072,16 +1158,10 @@ impl CellArchive {
         &self,
         metadata: ArchiveMetadata,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        let ArchiveMetadata {
-            reference,
-            manifest,
-            _retention,
-            ..
-        } = metadata;
-        // The validated manifest bounds the sum of these exact object lengths.
-        // Reads enforce each declared length before allocating its body. A
-        // small ordered window overlaps I/O. The read reservation also includes
-        // one full containing bundle per slot until physical extraction ends.
+        tracing::info!(event = "raft_archive_phase", phase = "material_read_start", cell = %self.scope.cell, index = metadata.manifest.position.index);
+        let manifest = &metadata.manifest;
+        // Metadata bounds the retained bodies; physical image parts have
+        // independent bounded read windows and disk admission.
         let objects = manifest
             .snapshot
             .object
@@ -1097,12 +1177,64 @@ impl CellArchive {
             .await?
             .into_iter();
         let snapshot = if manifest.snapshot.object.is_some() {
-            bodies
+            let index = bodies
                 .next()
-                .ok_or(ArchiveError::Corrupt("missing archive snapshot"))?
+                .ok_or(ArchiveError::Corrupt("missing snapshot index"))?;
+            Some(self.get_snapshot(&manifest.snapshot, index).await?)
         } else {
-            Vec::new()
+            None
         };
+        tracing::info!(event = "raft_archive_phase", phase = "material_read_complete", cell = %self.scope.cell, index = manifest.position.index);
+        self.finish_material(metadata, snapshot, bodies.collect())
+            .await
+    }
+
+    async fn load_confirmed_material(
+        &self,
+        metadata: ArchiveMetadata,
+        confirmed: physical::ConfirmedSnapshot,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        let manifest = &metadata.manifest;
+        if !manifest.tails.is_empty()
+            || manifest.position != manifest.snapshot.position
+            || manifest.image != manifest.snapshot.image
+        {
+            return Err(ArchiveError::Corrupt(
+                "confirmed snapshot requires a complete base",
+            ));
+        }
+        let snapshot = confirmed.bind(&manifest.snapshot)?;
+        // Dependencies still come from their exact stored references. The
+        // source proof replaces only the redundant snapshot-part download;
+        // physical validation and independent replay remain mandatory below.
+        let reads = manifest
+            .dependencies
+            .iter()
+            .map(|object| self.get_object(object))
+            .collect::<Vec<_>>();
+        let bodies = futures_util::stream::iter(reads)
+            .buffered(READ_WINDOW)
+            .try_collect::<Vec<_>>()
+            .await?;
+        self.finish_material(metadata, Some(snapshot), bodies).await
+    }
+
+    async fn finish_material(
+        &self,
+        metadata: ArchiveMetadata,
+        snapshot: Option<stream_snapshot::SnapshotFile>,
+        bodies: Vec<Vec<u8>>,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        let ArchiveMetadata {
+            reference,
+            manifest,
+            _retention,
+            ..
+        } = metadata;
+        if bodies.len() != manifest.tails.len() + manifest.dependencies.len() {
+            return Err(ArchiveError::Corrupt("archive material coverage"));
+        }
+        let mut bodies = bodies.into_iter();
         let tails = bodies
             .by_ref()
             .take(manifest.tails.len())
@@ -1110,6 +1242,12 @@ impl CellArchive {
         let dependencies = manifest.dependencies.iter().cloned().zip(bodies).collect();
         let scope = self.scope.clone();
         let limits = self.limits;
+        let activity = self.activity.clone();
+        if let (Some(activity), Some(snapshot)) = (&activity, &snapshot) {
+            snapshot
+                .set_io_activity(activity.clone())
+                .map_err(ArchiveError::Physical)?;
+        }
         self.host
             .run_blocking(move || {
                 let mut entries = Vec::new();
@@ -1127,6 +1265,7 @@ impl CellArchive {
                 }
                 let position = manifest.position.decode()?;
                 let set = ArchiveRecoverySet {
+                    activity,
                     _retention,
                     reference,
                     scope,
@@ -1308,6 +1447,13 @@ impl CellArchive {
                 return Err(ArchiveError::Limit);
             }
             bytes.extend_from_slice(&chunk);
+            // Advisory hint traffic cannot renew its own notion of progress.
+            // Count completed data/metadata reads belonging to the publication.
+            if !chunk.is_empty() && path.filename() != Some("publication") {
+                if let Some(activity) = &self.activity {
+                    activity.record();
+                }
+            }
         }
         if bytes.len() != length {
             return Err(ArchiveError::Corrupt("short archive object"));
@@ -1386,7 +1532,7 @@ impl ArchiveRecoverySet {
                 || self.manifest.image_position.is_some()
                 || !self.manifest.tails.is_empty()
                 || !self.manifest.dependencies.is_empty()
-                || !self.snapshot.is_empty()
+                || self.snapshot.is_some()
                 || !self.entries.is_empty()
                 || !self.dependencies.is_empty()
                 || self.manifest.snapshot.position != self.manifest.position
@@ -1396,7 +1542,14 @@ impl ArchiveRecoverySet {
             return Ok(());
         };
         let mut state = snapshot_image.decode()?;
-        verify_snapshot(&self.snapshot, state)?;
+        let snapshot = self
+            .snapshot
+            .as_ref()
+            .ok_or(ArchiveError::Corrupt("missing streamed snapshot"))?;
+        if snapshot.metadata().image != state {
+            return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
+        }
+        snapshot.verify().map_err(ArchiveError::Physical)?;
         let mut position = self.manifest.snapshot.position;
         let mut data_position = None;
         for entry in &self.entries {
@@ -1471,40 +1624,11 @@ fn result_state(update: &CellUpdate) -> Result<ImageState, ArchiveError> {
 
 pub(crate) fn apply_limits() -> ApplyLimits {
     super::snapshot::SnapshotLimits {
-        max_image_bytes: 256 * 1024 * 1024,
+        max_image_bytes: stream_snapshot::MAX_IMAGE_BYTES,
         max_encoded_bytes: 512 * 1024 * 1024,
         ..Default::default()
     }
     .apply()
-}
-
-fn verify_snapshot(bytes: &[u8], state: ImageState) -> Result<(), ArchiveError> {
-    let mut limits = apply_limits().decode;
-    // A compressed object cannot expand beyond its manifest-bound image even
-    // when the reader implementation supports larger configured profiles.
-    limits.max_image_bytes = state.length;
-    limits.max_decoded_bytes = state.length;
-    limits.max_pages = state.length.div_ceil(512) as usize;
-    let file = ltx::decode_file_bounded(bytes, limits)
-        .map_err(|_| ArchiveError::Corrupt("archive snapshot LTX"))?;
-    let header = file.header();
-    if !header.is_snapshot()
-        || header.max_txid != state.txid
-        || header.page_size != state.page_size
-        || u64::from(header.commit) * u64::from(header.page_size) != state.length
-        || file.trailer().post_apply_checksum != state.checksum
-    {
-        return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
-    }
-    let mut hash = Sha256::new();
-    for (_, page) in file.pages() {
-        hash.update(page);
-    }
-    // Archive images are bounded below SQLite's 1-GiB reserved lock page.
-    if <[u8; 32]>::from(hash.finalize()) != state.digest {
-        return Err(ArchiveError::Corrupt("archive snapshot image digest"));
-    }
-    Ok(())
 }
 
 fn encode_tail(entries: &[Entry], limits: ArchiveLimits) -> Result<Vec<u8>, ArchiveError> {

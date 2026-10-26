@@ -308,11 +308,17 @@ impl Fixture {
     }
 
     async fn leader(&self, group: usize) -> Result<usize> {
+        // Retain existing observations without adding probes or extending the
+        // deadline. A CI timeout must show which readiness gate stayed closed.
+        let mut last = vec![None; self.services.len()];
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                for index in 0..6 {
+                for (index, last_sample) in last.iter_mut().enumerate() {
                     if let Ok(cell) = self.cell(index, group) {
-                        if cell.status().await.is_ok_and(|status| status.command_ready) {
+                        let sample = cell.status().await;
+                        let ready = sample.as_ref().is_ok_and(|status| status.command_ready);
+                        *last_sample = Some(sample);
+                        if ready {
                             return Ok(index);
                         }
                     }
@@ -320,7 +326,8 @@ impl Fixture {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
-        .await?
+        .await
+        .with_context(|| format!("no command-ready leader; last samples: {last:#?}"))?
     }
 
     async fn enable(&self, enabled: bool) -> Result<()> {

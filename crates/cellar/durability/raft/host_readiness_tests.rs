@@ -2,6 +2,127 @@
 
 use super::*;
 
+fn image_fixture() -> (crate::raft::cache::CachedGroup, ImageView) {
+    let mut conf = ::raft::prelude::ConfState::default();
+    conf.set_voters(vec![1, 2, 3]);
+    let mut cache = crate::raft::cache::genesis(conf);
+    let image = ImageView {
+        position: cache.applied.position,
+        image: crate::raft::cache::CommittedImage {
+            name: "verified.sqlite".into(),
+            digest: [9; 32],
+            length: 8192,
+            ltx_epoch: 1,
+            txid: 1,
+            checksum: 0,
+            page_size: 4096,
+        },
+    };
+    cache.applied.image = Some(image.image.clone());
+    cache.validate(128).unwrap();
+    (cache, image)
+}
+
+fn apply_protocol(cache: &mut crate::raft::cache::CachedGroup, index: u64, term: u64) {
+    cache.entries.insert(
+        index,
+        ::raft::prelude::Entry {
+            index,
+            term,
+            ..Default::default()
+        },
+    );
+    cache.applied.position = LogPosition {
+        index: LogIndex::new(index),
+        term: Term::new(term),
+    };
+    cache.hard_state.commit = index;
+    cache.hard_state.term = term;
+    cache.validate(128).unwrap();
+}
+
+#[test]
+fn readiness_preserves_verified_image_across_protocol_only_positions() {
+    let (mut cache, image) = image_fixture();
+    assert!(coherent_image(&cache, Some(&image), cache.applied.position));
+    for (index, term) in [(2, 1), (3, 2), (4, 3)] {
+        apply_protocol(&mut cache, index, term);
+        assert!(
+            coherent_image(&cache, Some(&image), cache.applied.position),
+            "protocol-only apply must preserve the exact verified image at {index}/{term}"
+        );
+    }
+}
+
+#[test]
+fn readiness_refuses_a_missing_or_different_complete_image_marker() {
+    let (mut cache, image) = image_fixture();
+    apply_protocol(&mut cache, 2, 2);
+    assert!(!coherent_image(&cache, None, cache.applied.position));
+    let mut absent = cache.clone();
+    absent.applied.image = None;
+    assert!(!coherent_image(
+        &absent,
+        Some(&image),
+        absent.applied.position
+    ));
+    for field in 0..7 {
+        let mut changed = cache.clone();
+        let marker = changed.applied.image.as_mut().unwrap();
+        match field {
+            0 => marker.name = "other.sqlite".into(),
+            1 => marker.digest[0] ^= 1,
+            2 => marker.length += 4096,
+            3 => marker.ltx_epoch += 1,
+            4 => marker.txid += 1,
+            5 => marker.checksum = cellar_ltx::CHECKSUM_FLAG | 1,
+            _ => marker.page_size = 8192,
+        }
+        assert!(!coherent_image(
+            &changed,
+            Some(&image),
+            changed.applied.position
+        ));
+    }
+}
+
+#[test]
+fn readiness_refuses_regressing_mismatched_or_uncommitted_positions() {
+    let (mut cache, image) = image_fixture();
+    apply_protocol(&mut cache, 2, 2);
+    assert!(!coherent_image(&cache, Some(&image), image.position));
+    let mut future = image.clone();
+    future.position = LogPosition {
+        index: LogIndex::new(3),
+        term: Term::new(2),
+    };
+    assert!(!coherent_image(
+        &cache,
+        Some(&future),
+        cache.applied.position
+    ));
+    let mut newer_term = image.clone();
+    newer_term.position.term = Term::new(3);
+    assert!(!coherent_image(
+        &cache,
+        Some(&newer_term),
+        cache.applied.position
+    ));
+    let mut same_index_wrong_term = image.clone();
+    same_index_wrong_term.position.index = cache.applied.position.index;
+    assert!(!coherent_image(
+        &cache,
+        Some(&same_index_wrong_term),
+        cache.applied.position
+    ));
+    cache.hard_state.commit = 1;
+    assert!(!coherent_image(
+        &cache,
+        Some(&image),
+        cache.applied.position
+    ));
+}
+
 fn status(cache: &super::super::super::cache::CachedGroup, member: u64) -> GroupStatus {
     GroupStatus {
         membership_revision: cache.membership.revision(),

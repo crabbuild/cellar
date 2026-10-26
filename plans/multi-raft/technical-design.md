@@ -66,7 +66,7 @@ flowchart TB
 | `crates/cellar/actor/effects.rs`, `production.rs`, `output_proofs.rs` | Execute consensus effects and return versioned observations |
 | `crates/cellar/durability/replication/backend.rs` | Reuse exact WAL capture mechanics; do not credit old fleet/bucket tickets for Raft cells |
 | `crates/cellar/durability/log/mod.rs` | Fleet node-log ownership remains isolated; no Raft quorum policy hidden in this shipper |
-| `crates/cellar-ltx/src/db.rs`, `ltx.rs`, `host.rs` | Add bounded capture/apply/checksum/image mechanics through injected filesystem services |
+| `crates/cellar-ltx/src/db/mod.rs`, `ltx.rs`, `host.rs` | Add bounded capture/apply/checksum/image mechanics through injected filesystem services |
 | `crates/cellar/storage/sqlite/mod.rs` | Private execution opener and separate committed query opener |
 | `crates/cellar/runtime/invocation/gates.rs`, `runtime/workers/native/mod.rs` | Enforce command/query capabilities and activation fencing |
 | `crates/cellar/node/embedded.rs`, `fleet/ownership.rs`, `fleet/peer/auth.rs` | Mode configuration, lifecycle ownership, directory records and authenticated transport |

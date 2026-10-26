@@ -265,6 +265,75 @@ pub async fn historical_without_recent_source() -> Result<()> {
     joined
 }
 
+pub async fn after_protocol_only_leadership_transfer() -> Result<()> {
+    let fixture = Fixture::start_with_host(
+        Arc::new(get),
+        RaftHostOptions {
+            stale_source_timeout_ms: 2000,
+            ..Default::default()
+        },
+    )
+    .await?;
+    let result = async {
+        let primary = leader(&fixture.handles, None).await?;
+        let target = (primary + 1) % fixture.handles.len();
+        let member = MemberId::new(target as u64 + 1)?;
+        let before = observe(&fixture.handles[primary], |status| {
+            status.command_ready && status.queries.recent_source
+        })
+        .await?;
+        fixture.handles[primary]
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: member,
+                    expected_term: before.term,
+                    expected_revision: before.membership_revision,
+                },
+                Duration::from_secs(5),
+            )
+            .await?;
+        // No application command follows the transfer. The new leader's
+        // protocol entry advances durable apply while retaining the same image.
+        for (index, handle) in fixture.handles.iter().enumerate() {
+            let expected = if index == target {
+                RaftReplicaRole::Leader
+            } else {
+                RaftReplicaRole::Voter
+            };
+            let status = observe(handle, |status| {
+                status.role == expected
+                    && status.leader == Some(member)
+                    && status.command_ready == (index == target)
+                    && status.term > before.term
+                    && status.applied.index > before.applied.index
+                    && status.queries.historical
+                    && status.queries.recent_source
+            })
+            .await?;
+            ensure!(status.queries.coherent_image);
+            ensure!(status.command_ready == (index == target));
+            let read = handle
+                .query(
+                    fixture.definition.get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(read.result == 1i64.to_be_bytes());
+            ensure!(read.version.position.index >= status.applied.index);
+            ensure!(read.version.covers(&fixture.initial.version)?);
+        }
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let joined = fixture.close().await;
+    result?;
+    joined
+}
+
 pub(super) async fn without_query_code(handle: &RaftCellHandle) -> Result<()> {
     let status = observe(handle, |s| s.queries.coherent_image).await?;
     ensure!(
