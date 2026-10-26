@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "925bb68baf0157cd304fffe61eae0db68c0e2563",
+  "revision": "c6674580f14b7a99808d2772395ccd29ec093e23",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -109,10 +109,6 @@
     {
       "path": "crates/cellar/durability/raft/effect_delivery.rs",
       "sha256": "7996368004f4d84f52a5f505881fcc2b44db44cfc35932ceb19df365ce6343d4"
-    },
-    {
-      "path": "crates/cellar/durability/raft/fleet_catalog/resources/movement.rs",
-      "sha256": "9b6a8c8b70e5e6eaedcaf2a2a61310819c3e8262f8de4108d3f257f5ac175060"
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
@@ -313,10 +309,6 @@
     {
       "path": "crates/cellar/tests/support/raft_metrics_native.rs",
       "sha256": "f640609aa3265b159ca089efebfbb5f3b0f0e61e0ada9600596c879804906108"
-    },
-    {
-      "path": "crates/cellar/tests/support/raft_movement_native.rs",
-      "sha256": "8ae82c7cc80b12b5512505bd0dd4495f2ee77f946062490aeba3ce334208daae"
     },
     {
       "path": "tools/perf/raft_analyze.py",
