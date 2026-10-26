@@ -202,7 +202,7 @@ async fn run(
         }
         .await
     } else {
-        exercise(&address).await
+        exercise(&address, &docker, &host).await
     };
     // Always shut down this host, including after a failed application assertion.
     let shutdown = node.shutdown(ShutdownMode::Preserve).await;
@@ -256,11 +256,18 @@ async fn request(
     serde_json::from_str(&body).with_context(|| format!("{route} did not return JSON: {body}"))
 }
 
-async fn exercise(address: &str) -> Result<()> {
+async fn exercise(address: &str, docker: &cellar::docker::Docker, host: &str) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(125))
         .build()?;
     let result = exercise_routes(&client, address).await;
+    if result.is_err() {
+        // Capture this test host's state before explicit SDK destroy removes
+        // the evidence. Diagnostics never replace an application failure.
+        if let Err(error) = diagnose_owned_containers(docker, host).await {
+            eprintln!("Sandbox failure diagnostics: {error:#}");
+        }
+    }
     // Drain the SDK's own monitor before revoking its native activation, even
     // when an application assertion fails after the container has started.
     let destroyed = async {
@@ -429,6 +436,64 @@ async fn exercise_streamed_http(
             .any(|event| event["type"] == "complete" && event["exitCode"] == 7),
         "SDK HTTP stream lost exit status"
     );
+    Ok(())
+}
+
+async fn diagnose_owned_containers(docker: &cellar::docker::Docker, host: &str) -> Result<()> {
+    let filters = serde_json::to_string(&json!({"label": [format!("cellar.host={host}")]}))?;
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("all", "true")
+        .append_pair("filters", &filters)
+        .finish();
+    let response = docker
+        .call("GET", &format!("/containers/json?{query}"), None)
+        .await?;
+    ensure!(
+        response.status.is_success(),
+        "list diagnostic containers: {}",
+        response.message()
+    );
+    for container in response
+        .json()?
+        .as_array()
+        .context("diagnostic container list")?
+    {
+        let id = container["Id"]
+            .as_str()
+            .filter(|id| id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+            .context("diagnostic container ID")?;
+        let response = docker
+            .call("GET", &format!("/containers/{id}/json"), None)
+            .await?;
+        ensure!(
+            response.status.is_success(),
+            "inspect diagnostic container: {}",
+            response.message()
+        );
+        let inspected = response.json()?;
+        ensure!(
+            inspected["Config"]["Labels"]["cellar.host"] == host,
+            "diagnostic container belongs to another host"
+        );
+        eprintln!("Sandbox container {id} state: {}", inspected["State"]);
+        // Only this isolated fixture's image logs; never dump container env or
+        // unlabelled resources. The retained output is bounded independently.
+        let logs = docker
+            .call(
+                "GET",
+                &format!("/containers/{id}/logs?stdout=1&stderr=1&tail=40"),
+                None,
+            )
+            .await?;
+        ensure!(
+            logs.status.is_success(),
+            "container diagnostic logs unavailable"
+        );
+        eprintln!(
+            "Sandbox container {id} recent logs: {}",
+            logs.message().chars().take(8_000).collect::<String>()
+        );
+    }
     Ok(())
 }
 

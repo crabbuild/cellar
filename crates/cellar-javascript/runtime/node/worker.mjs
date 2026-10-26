@@ -290,6 +290,7 @@ function operation(
   if (
     ![
       "cell.call",
+      "workers.rpc.invoke",
       "response.read",
       "response.closed",
       "container.port.fetch",
@@ -367,6 +368,7 @@ const factory = makeRunner(
   makeDelegates,
   makeRpcStreams,
   makeRpcWritables,
+  makeRpcInputs,
 );
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

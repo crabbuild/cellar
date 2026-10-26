@@ -14,9 +14,14 @@
   makeDelegates,
   makeRpcStreams,
   makeRpcWritables,
+  makeRpcInputs,
 ) => {
   "use strict";
-  const delegates = makeDelegates(makeRpcStreams(), makeRpcWritables());
+  const delegates = makeDelegates(
+    makeRpcStreams(),
+    makeRpcWritables(),
+    makeRpcInputs,
+  );
 
   // Capture these builtins before importing/evaluating application code.
   const parse = JSON.parse;
@@ -56,8 +61,18 @@
   async function drain(id) {
     const state = lifetimes.get(id);
     if (!state) return;
-    while (state.jobs.size && lifetimes.get(id) === state) {
-      await race([allSettled([...state.jobs]), state.cancelled]);
+    while (lifetimes.get(id) === state) {
+      if (state.jobs.size) {
+        await race([allSettled([...state.jobs]), state.cancelled]);
+      } else if (state.cleanups.size) {
+        const cleanups = [...state.cleanups];
+        state.cleanups.clear();
+        const results = await allSettled(
+          cleanups.map((close) => resolve().then(close)),
+        );
+        if (results.some((result) => result.status === "rejected"))
+          state.failed = true;
+      } else return;
     }
   }
   const ErrorClass = Error;
@@ -435,9 +450,8 @@
       }
     };
 
-    const call = (name, value = {}, body, signal, budget) =>
-      track(
-        id,
+    const call = (name, value = {}, body, signal, budget, soft = false) =>
+      (soft ? resolve : (promise) => track(id, promise))(
         (async () => {
           let encoded, pending;
 
@@ -494,6 +508,7 @@
               if (
                 [
                   "cell.call",
+                  "workers.rpc.invoke",
                   "response.read",
                   "response.closed",
                   "container.port.fetch",
@@ -888,6 +903,22 @@
       // Private hooks used by dispatch while retaining this invocation.
       _crypto: crypto,
       _call: call,
+      _rpcSoftCall(name, value, signal) {
+        if (name !== "workers.rpc.invoke")
+          throw new TypeError("Invalid RPC session operation");
+        return call(name, value, undefined, signal, undefined, true);
+      },
+      _rpcCleanup(close) {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state || state.cleanups.size >= state.limit)
+          throw rpcFailure("OperationLimit", "not_committed");
+        state.cleanups.add(close);
+        return () => state.cleanups.delete(close);
+      },
       _containerState(owner) {
         const lifetime = lifetimes.get(id);
         if (!lifetime) {
@@ -1041,8 +1072,18 @@
       },
       _serialize: (value) => encode(encodeClone(value)),
       _deserialize: (value) => decodeClone(decode(value)),
-      _rpcResult: (value) =>
-        delegates.result(value, context(id, identity, activation, contracts)),
+      _rpcResult: (value, closed) =>
+        delegates.result(
+          value,
+          context(id, identity, activation, contracts),
+          closed,
+        ),
+      _rpcCall: (request, args) =>
+        delegates.call(
+          request,
+          args,
+          context(id, identity, activation, contracts),
+        ),
       _rpcDecode: (reply) =>
         delegates.reply(reply, context(id, identity, activation, contracts)),
       _rpcRetain: retain,
@@ -1263,6 +1304,13 @@
       if (invocation.kind === "cell_rpc") {
         const args = ctx._deserialize(event.args);
         if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
+        if (event.method === "__cellar_workers_rpc_inputs") {
+          return stringify(
+            await delegates.accept(args, ctx, (method, args) =>
+              target.cell_rpc(freeze({ method, args }), ctx),
+            ),
+          );
+        }
         let value;
         try {
           value = await target.cell_rpc(
@@ -1355,6 +1403,7 @@
         });
         const state = {
           jobs: new SetClass(),
+          cleanups: new SetClass(),
           reported: 0,
           retained: 0,
           limit: lifetimeLimit,

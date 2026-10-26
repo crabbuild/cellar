@@ -2,7 +2,7 @@
 
 // Factory captured before application initialization. Native session handles,
 // rather than serializable marker data, authorize every delegated operation.
-(readables, writables) => {
+(readables, writables, makeInputs) => {
   const apply = Reflect.apply;
   const keys = Object.keys;
   const prototype = Object.getPrototypeOf;
@@ -85,7 +85,7 @@
     return copy(input);
   }
 
-  async function result(value, context) {
+  async function result(value, context, closed) {
     const functions = [],
       markers = [],
       kinds = [],
@@ -137,16 +137,18 @@
           thrown = false,
           error;
         try {
-          value = await apply(
-            functions[command.target],
-            undefined,
-            context._deserialize(command.args),
-          );
+          const args = context._deserialize(command.args);
+          if (command.inputs) {
+            completion = await inputs.accept(args, context, (_target, args) =>
+              apply(functions[command.target], undefined, args),
+            );
+          } else
+            value = await apply(functions[command.target], undefined, args);
         } catch (failure) {
           thrown = true;
           error = failure;
         }
-        completion = thrown
+        completion ??= thrown
           ? errorResult(error, context)
           : await result(value, context);
       } catch {
@@ -182,9 +184,10 @@
         } finally {
           // Native lease loss wakes the poll even with a read pending. Cancel
           // and join every transferred source before its producer can drain.
-          await PromiseClass.allSettled(
-            senders.map((sender) => sender.close()),
-          );
+          await PromiseClass.allSettled([
+            ...senders.map((sender) => sender.close()),
+            ...(closed ? [PromiseClass.resolve().then(closed)] : []),
+          ]);
         }
       });
     } catch (error) {
@@ -208,7 +211,7 @@
     };
   }
 
-  function reply(frame, context) {
+  function reply(frame, context, soft = false, signal) {
     const value = context._deserialize(frame.value);
     const handles = frame.handles;
     if (!handles) {
@@ -231,17 +234,18 @@
       throw new ErrorClass("Invalid callable RPC result");
     const replacements = new MapClass();
     const imported = [];
-    function stub(id) {
+    function stub(id, callSignal) {
       let released = false;
       const check = () => {
         if (released) throw new ErrorClass("RPC stub disposed");
       };
       const callable = async (...args) => {
         check();
-        const frame = await context._call("workers.rpc.invoke", {
-          id,
-          args: context._serialize(args),
-        });
+        if (!soft && inputs) return inputs.call({ handle: id }, args, context);
+        const input = { id, args: context._serialize(args) };
+        const frame = soft
+          ? await context._rpcSoftCall("workers.rpc.invoke", input, callSignal)
+          : await context._call("workers.rpc.invoke", input);
         const value = reply(frame, context);
         if (frame.error) {
           const [thrown, properties] = value;
@@ -281,7 +285,10 @@
     let copied;
     try {
       for (let index = 0; index < handles.length; index++) {
-        const { callable, release } = stub(handles[index]);
+        const { callable, release } = stub(
+          handles[index],
+          index === 0 ? signal : undefined,
+        );
         let replacement = callable;
         if (value[2][index] !== "function") {
           const readable = value[2][index] === "readable";
@@ -333,5 +340,12 @@
     }
     return copied;
   }
-  return { result, reply };
+  const inputs = makeInputs?.({
+    transform,
+    errorResult,
+    reply,
+    readables,
+    writables,
+  });
+  return { result, reply, ...inputs };
 }

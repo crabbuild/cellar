@@ -101,34 +101,15 @@ export function namespaceBinding(current, binding) {
             };
           return async (...args) => {
             const nativeContext = current();
-            const reply = await nativeContext._call("workers.rpc", {
-              binding,
-              id: checked.toString(),
-              name: descriptor.name,
-              method,
-              args: nativeContext._serialize(args),
-            });
-            const value = nativeContext._rpcDecode(reply);
-            if (reply.error) {
-              if (!Array.isArray(value) || value.length !== 2)
-                throw new Error("Invalid remote error envelope");
-              const [thrown, properties] = value;
-              if (
-                thrown !== null &&
-                (typeof thrown === "object" || typeof thrown === "function")
-              ) {
-                for (const [name, property] of Object.entries(properties)) {
-                  Object.defineProperty(thrown, name, {
-                    value: property,
-                    writable: true,
-                    configurable: true,
-                    enumerable: true,
-                  });
-                }
-              }
-              throw thrown;
-            }
-            return value;
+            return nativeContext._rpcCall(
+              {
+                binding,
+                id: checked.toString(),
+                name: descriptor.name,
+                method,
+              },
+              args,
+            );
           };
         },
       });

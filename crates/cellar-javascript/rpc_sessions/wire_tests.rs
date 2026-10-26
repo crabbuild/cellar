@@ -101,3 +101,24 @@ fn stream_publications_require_one_known_kind_per_live_marker() {
     }
     assert!(markers(&encode(&graph), 1, 4096).is_err());
 }
+
+#[test]
+fn input_sessions_require_argument_arrays_and_stream_only_markers() {
+    let mut graph = value();
+    assert!(inputs(&encode(&graph), 1, 4096).is_err());
+    graph.objects[1] = Object::DenseArray {
+        elements: vec![CloneValue::Reference(3)],
+        properties: vec![],
+    };
+    assert!(inputs(&encode(&graph), 1, 4096).is_err());
+    for kind in ["readable", "writable"] {
+        graph.objects[4] = Object::DenseArray {
+            elements: vec![CloneValue::from(kind)],
+            properties: vec![],
+        };
+        assert!(inputs(&encode(&graph), 1, 4096).is_ok());
+        assert!(inputs(&encode(&graph), 2, 4096).is_err());
+    }
+    graph.objects[1] = Object::Object(vec![]);
+    assert!(inputs(&encode(&graph), 1, 4096).is_err());
+}

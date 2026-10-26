@@ -673,6 +673,7 @@ impl JavaScriptApplication {
                                                         &scoped_context,
                                                         &operation_name,
                                                         payload,
+                                                        signal,
                                                     )
                                                     .await
                                                     .map(|value| (value, None))

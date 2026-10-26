@@ -291,6 +291,7 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
     matches!(
         name,
         "response.read"
+            | "workers.rpc.invoke"
             | "response.closed"
             | "cell.call"
             | "container.port.fetch"

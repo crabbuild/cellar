@@ -97,11 +97,11 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, RPC stream inputs/message transfers and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, RPC Request/Response transfers and embedded web bootstrap |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
-| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable/writable byte streams preserve graph identity through native leases | Callback/stream arguments, Request/Response transfer and returned `RpcTarget` |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable/writable byte streams, including stream arguments, preserve graph identity through native leases | Callback arguments, Request/Response transfer and returned `RpcTarget` |
 | Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
 | Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
 | Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()`, readable/writable byte streams and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
@@ -182,8 +182,8 @@ Only streams with a byte source (`type: "bytes"`) qualify; locked and object
 streams refuse before pulling. Failed publication restores an untouched source's
 lock. Use `stream.cancel()` or its reader's `cancel()` when abandoning a stream;
 `result[Symbol.dispose]()` also disposes streams nested in a returned object.
-Node supplies the required web globals. Stream arguments and Request/Response
-RPC transfers remain incomplete.
+Node supplies the required web globals. Request/Response RPC transfers remain
+incomplete. Stream inputs use the separate session below.
 
 This slice follows the [RPC byte-stream and ownership contract](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response).
 
@@ -228,11 +228,66 @@ through RPC, retained background work, a failed write's accepted prefix, abort,
 unconsumed-handle cleanup and later-event refusal. Idle remote-loss notification
 and the complete cross-event/disconnect profile remain under fault qualification.
 
-This implements returned writable controls in the optional Node profile. It does
-not enable stream arguments, Request/Response transfer, or the Sandbox SDK's
-separate Cap'n Web upload transport. The pinned SDK's HTTP client explicitly
+Returned writable controls and the input sessions below run in the optional
+Node profile. Request/Response transfer and the Sandbox SDK's separate Cap'n Web
+upload transport remain incomplete. The pinned SDK's HTTP client explicitly
 refuses `writeFileStream`; unchanged SDK upload acceptance still requires that
 transport and its qualification.
+
+### RPC stream arguments
+
+Pass a readable byte stream or a writable byte sink to a DO method or to a
+returned RPC function. The caller can be a root Worker; it needs no object ID.
+Aliases within the argument graph resolve to the same transferred stream.
+
+```js
+// On a Durable Object:
+async upload(stream) {
+  const reader = stream.getReader({ mode: "byob" });
+  let bytes = 0;
+  for (;;) {
+    const chunk = await reader.read(new Uint8Array(4096));
+    if (chunk.done) return bytes;
+    bytes += chunk.value.byteLength;
+  }
+}
+
+// In a Worker:
+const data = new Blob([Uint8Array.of(0, 255, 42)]).stream();
+const count = await env.UPLOADS.getByName("alice").upload(data);
+```
+
+```mermaid
+sequenceDiagram
+    participant C as Original caller event
+    participant N as Native RPC leases
+    participant D as Original DO event
+    C->>N: Reserve inputs and open bounded session
+    N->>D: Open input session
+    D-->>N: Publish leased controls
+    N-->>C: Import controls
+    C->>N: Wait for next input operation
+    D->>N: Request read or write
+    N->>C: Deliver input operation
+    C->>N: Complete operation under caller authority
+    N->>D: Deliver bytes or sink acknowledgement
+    C->>N: Caller drains: cancel waiter and close session
+    N->>D: Close proxies and release reservations
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Ownership | Lock original sources/sinks. Native admission counts distinct inputs plus four session controls against existing quotas; local encoding/admission refusal restores untouched locks |
+| Flow control | Pull only on demand; each write awaits the actual sink. The smaller host budget bounds frames, including both base64 layers in input completions |
+| Original authority | Producer work stays in the caller event. Before forwarding, native invocation proves a cell caller's storage writes; stateless Workers have no local SQLite state |
+| Lifetime | A method may return a function or stream capturing its input, or forward the input to another DO. It remains usable while the original caller event is alive |
+| Cleanup | An idle control waiter does not retain the caller. Once public/background work drains, cancel the waiter, close both sides, join accepted work and release native reservations |
+| Errors | Preserve bounded source/sink errors and accepted prefixes; native validation strips producer error stacks. Oversized/uncloneable completions or lost acknowledgements fail with an unknown outcome; never replay mutations. Cleanup refusals cannot replace an already observed source error |
+
+Only byte-readable sources and Uint8Array writes qualify. Callback arguments,
+Request/Response transfer, arbitrary RpcTarget objects, complete abrupt-disconnect
+and cross-event fault semantics remain incomplete. This common runtime path does
+not qualify the published Sandbox SDK's separate Cap'n Web upload transport.
 
 ### HTTP response streaming
 
@@ -350,11 +405,12 @@ quotas and unknown-outcome reporting still apply.
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
 | Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |
+| Native stream-input fixture | Root Worker and returned-function inputs, cross-DO forwarding, aliases, incremental reads, delayed writes, captured inputs, cancellation, quota refusal, accepted prefixes and unused-session cleanup |
 | Native returned-stream fixtures | Bounded BYOB pulls and writable frames, mixed transform pairs, delayed sink/close acknowledgements, failures preserving accepted prefixes, held background jobs, abandoned imports and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, RPC stream arguments/message
+Sleep/wake, complete hooks/timeouts, RPC Request/Response
 transfers, upgrades, Sandbox previews and the remaining SDK/image fault
 qualification remain required, along with hosted providers.
 

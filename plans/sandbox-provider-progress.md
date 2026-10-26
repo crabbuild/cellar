@@ -14,9 +14,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, complete upgraded port behavior, image lifecycle and fault qualification |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, stream inputs/message transfers and Cap'n Web upload transport, process helper invocations, previews, persistence/restart/fencing and failure cases |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, Request/Response transfers and Cap'n Web upload transport, process helper invocations, previews, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
@@ -1019,3 +1019,67 @@ Idle remote-loss notification and complete disconnect/cross-event semantics,
 message transfers, upgrades, previews and full fault qualification remain open,
 along with the remaining provider and release requirements. Live E2B/Vercel
 qualification stays deferred; writable results do not narrow the SP-01–SP-10 goal.
+
+### RPC byte-stream arguments and caller-owned sessions
+
+Node namespace methods and returned RPC functions now accept readable byte
+sources and writable byte sinks. A private session uses four returned native
+controls instead of requiring the caller to expose a routable object. The
+original caller owns source/sink work; the original callee owns its input
+proxies and method execution. This extends the existing native lease/mailbox
+framework without introducing a JavaScript engine into native-only hosts.
+
+| Boundary | Implementation / evidence |
+| --- | --- |
+| Admission | Rust validates bounded clone graphs, argument arrays, distinct stream-only markers and exact counts. Invocation reservations count inputs plus four controls against handle/pending quotas. Local graph/encoding/admission failures restore untouched source locks. Callback arguments remain refused. |
+| Identity / authority | Native handles retain original object, epoch and invocation checks. Stream inputs work from a stateless Worker, through another DO, and through returned functions. Serialized markers alone grant no authority. The raw native request tunnel still refuses leased arguments; this higher-level session uses actual returned native leases. |
+| Flow / bounds | One source read or sink write progresses under consumer demand. Payload grants account for both base64 layers in completion submissions and the smaller host budget. A larger transfer does not become one buffered request. |
+| Output proof | Native delegated invocation proves the original cell caller's storage writes before forwarding. Stateless Workers have no local SQLite capability. Callee replies retain the existing producer proof. |
+| Lifetime | A returned stream/function may capture an input while the original caller event lives. Private control waits consume native budgets but do not hold the caller alive forever. After public/background jobs drain, cleanup cancels the waiter, closes proxies, joins the pump and all answers admitted by it, then releases native reservations. |
+| Failure | Bounded source/sink errors pass native validation and stack stripping; accepted prefixes remain observable. Failed data acknowledgement is an unknown composite outcome; no frame is replayed. Cleanup racing an observed source failure cannot replace it with a later expired-command refusal. Cancellation can overtake and join a pending read. |
+
+The native `workers_inputs` fixture observes a first upload chunk before an
+independent HTTP request releases the source, and separately holds an actual
+sink write. It transfers 4 KiB through a 2 KiB message budget, checks exact bytes
+and alias identity, forwards through another DO, invokes a returned function
+with a stream, reads an input captured by a returned function/stream, verifies
+cancel reasons, preserved source-error prefixes and stripped producer stacks,
+unused-input cleanup, and
+pre-effect quota/encoding refusal. Shutdown must drain application work and all
+native bridge reservations. Six bounded protocol-peer tests additionally cover
+nested framing, backpressure, cancellation/cleanup races and failed
+acknowledgement without replay; that peer is not native authority evidence.
+
+The first native run exposed a root Worker storage-proof request; proof now
+belongs to the native cell-aware operation. A subsequent bounded run exposed the
+second base64 layer, and another exposed a source-error/cleanup race. Those
+failures were corrected without increasing the test's message budget or
+weakening assertions. New session tests use their own explicit handshake budget;
+existing tests keep their original deadlines.
+
+Validation passes 82 selected native adapter tests (57 library, 16 Workers,
+three module, two Node/V8 SSE/WS, authority, readable responses/results, writable
+results and stream arguments), 62 JS/tool/type checks, four pinned-input tests,
+strict affected-adapter all-target Clippy, documentation and the 466-package
+native-only dependency guard. Formatting/layout checks cover 1,107 Rust sources;
+formatting covers 70 owned JS/TS sources. One broader run hit the previously
+observed V8 shutdown lifetime-cancellation budget failure while Clippy compiled.
+The unchanged isolated test and final serial suite pass at the same budgets;
+the cause remains unproven, without a timing-fix claim.
+
+Both pinned-image scenarios pass on the final source and leave no owned
+containers. One intervening SDK image run failed at `/__stream` with an
+unavailable HTTP endpoint after earlier commands succeeded; portable files and
+joined cleanup still passed. VM kernel logs showed no new OOM. The unchanged
+image assertions pass on rerun, but the connectivity cause remains unproven.
+The harness now captures bounded state/recent logs of verified owning-host
+containers before explicit SDK destroy on failure; it never dumps environment
+configuration or inspects other hosts. No image assertion, deadline or native
+mutation retry rule was changed.
+
+This does not qualify the SDK's separate Cap'n Web upload transport. Published
+Sandbox SDK upload acceptance, Request/Response RPC transfers, upgraded routing,
+full abrupt-disconnect/remote-loss and cross-event fault semantics, previews,
+remaining provider profiles and release qualification are still required by the
+full SP-01–SP-10 goal. Live E2B/Vercel qualification remains deferred until the
+user supplies configurations; the complete goal stays active.

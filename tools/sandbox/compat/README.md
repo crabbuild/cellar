@@ -101,8 +101,8 @@ removes only that host's empty, labelled bridges so repeated runs cannot exhaust
 the daemon's subnet pool.
 It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
-Passing it qualifies these routes for the pinned baseline; SP-04 stream inputs,
-message transfers, SDK upload transport, preview, restart/fencing and live-cloud
+Passing it qualifies these routes for the pinned baseline. Generic stream inputs
+have a separate native fixture; SP-04 SDK uploads, message transfers, preview, restart/fencing and live-cloud
 requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
@@ -146,3 +146,16 @@ stale writers and zero bridge reservations after joined shutdown.
 
 This is generic returned-writer evidence. It does not substitute for the
 published SDK's stream-input/Cap'n Web upload or full fault qualification.
+
+## Common RPC stream input test
+
+```sh
+cargo test --locked -p cellar-javascript --features node \
+  --test workers_inputs -- --test-threads=1
+```
+
+This native-host fixture proves incremental read/write arguments, aliases,
+root-Worker and returned-function calls, cross-DO forwarding, captured inputs,
+accepted prefixes after source failure, cancellation, local quota/encoding
+refusal and unused-session cleanup. Shutdown must drain both application work
+and native bridge reservations. It does not run SDK uploads or a container.

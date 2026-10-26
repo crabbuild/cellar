@@ -21,6 +21,7 @@ for (const [fixture, platform] of [
   ["sandbox-module", "node"],
   ["web-streams", "node"],
   ["web-writable", "node"],
+  ["web-inputs", "node"],
 ]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {
     const result = await build({

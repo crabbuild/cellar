@@ -51,7 +51,9 @@ releases the command. An additional route calls the unchanged `stub.execStream()
 method directly: its returned readable byte stream crosses native RPC before
 becoming the Worker response. It passes the same handshake, final output and
 exit-code checks. Generic returned writable streams also run in a separate native
-fixture; SDK stream inputs and Cap'n Web upload/message transport remain unqualified.
+fixture. Generic readable/writable RPC inputs now run in a native-host fixture,
+including returned-function arguments and cross-DO forwarding; this does not
+qualify the SDK's separate Cap'n Web upload/message transport.
 
 The baseline additionally needs preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,

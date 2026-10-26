@@ -32,6 +32,7 @@ struct Resources {
     next: u64,
     imports: HashMap<u64, Remote>,
     exports: HashMap<String, Export>,
+    inputs: HashMap<u64, usize>,
 }
 
 #[derive(Clone)]
@@ -66,7 +67,8 @@ impl Session {
     }
 
     fn reserve(&self, resources: &Resources, count: usize) -> Result<()> {
-        let used = resources.imports.len()
+        let used = resources.inputs.values().sum::<usize>()
+            + resources.imports.len()
             + resources
                 .exports
                 .values()
@@ -92,7 +94,13 @@ impl Session {
         Ok(remote)
     }
 
-    pub async fn execute(&self, context: &Context, name: &str, input: Value) -> Result<Value> {
+    pub async fn execute(
+        &self,
+        context: &Context,
+        name: &str,
+        input: Value,
+        signal: Option<cellar::sdk::web::AbortSignal>,
+    ) -> Result<Value> {
         self.authority.check(context)?;
         let result = match name {
             "workers.rpc" => {
@@ -103,6 +111,49 @@ impl Session {
                 )
                 .await?;
                 self.import(stub, data)
+            }
+            "workers.rpc.error" => {
+                // Input completions otherwise nest an opaque encoded error in
+                // another request. Apply the same native stack stripping and
+                // bounded error validation as ordinary RPC replies first.
+                ensure!(input["error"] == true, cellar_guest::failure::Validation);
+                let data = cellar_guest::workers::rpc::output(input, self.options.max_body_bytes)?;
+                cellar_guest::workers::rpc::reply(&data, self.options.max_body_bytes)
+            }
+            "workers.rpc.inputs" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    count: usize,
+                    value: String,
+                }
+                let input: Input =
+                    serde_json::from_value(input).context(cellar_guest::failure::Validation)?;
+                wire::inputs(&input.value, input.count, self.options.max_body_bytes)
+                    .context(cellar_guest::failure::Validation)?;
+                // Four session controls plus simultaneous stream data/cancel
+                // work must leave native slots for poll, result and submission.
+                ensure!(
+                    input.count <= self.options.max_pending_operations.saturating_sub(4) / 2,
+                    cellar_guest::failure::Validation
+                );
+                let mut resources = self.resources.lock().unwrap();
+                self.reserve(&resources, input.count.saturating_add(4))
+                    .context(cellar_guest::failure::Validation)?;
+                let id = next(&mut resources)?;
+                resources.inputs.insert(id, input.count);
+                Ok(json!({"id":id,"max_body_bytes":self.options.max_body_bytes}))
+            }
+            "workers.rpc.inputs_release" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    id: u64,
+                }
+                let input: Input =
+                    serde_json::from_value(input).context(cellar_guest::failure::Validation)?;
+                self.resources.lock().unwrap().inputs.remove(&input.id);
+                Ok(Value::Null)
             }
             "workers.rpc.export" => {
                 #[derive(Deserialize)]
@@ -200,6 +251,8 @@ impl Session {
                 struct Input {
                     id: u64,
                     args: String,
+                    #[serde(default)]
+                    inputs: bool,
                 }
                 let input: Input =
                     serde_json::from_value(input).context(cellar_guest::failure::Validation)?;
@@ -207,13 +260,27 @@ impl Session {
                     .context(cellar_guest::failure::Validation)?;
                 let remote = self.remote(input.id)?;
                 let request = RpcData::Json(serde_json::to_string(
-                    &json!({"format":1,"group":remote.group,"target":remote.target,"args":input.args}),
+                    &json!({"format":1,"group":remote.group,"target":remote.target,"args":input.args,"inputs":input.inputs}),
                 )?);
                 ensure!(
                     request.payload_bytes() <= self.options.max_body_bytes,
                     cellar_guest::failure::Validation
                 );
-                let data = remote.stub.rpc(context, METHOD, request).await?;
+                // Data produced in a cell event can depend on its writes. A
+                // root Worker has no SQLite state; it still uses native routing
+                // and output gates, without inventing a storage capability.
+                if context.identity().is_some() {
+                    context.storage()?.sync().await?;
+                }
+                let data = match signal {
+                    Some(signal) => {
+                        remote
+                            .stub
+                            .rpc_with_signal(context, METHOD, request, signal)
+                            .await?
+                    }
+                    None => remote.stub.rpc(context, METHOD, request).await?,
+                };
                 // Keep the source result alive until its in-flight call settles.
                 self.import(remote.stub.clone(), data)
             }

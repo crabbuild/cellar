@@ -57,8 +57,9 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
 background-process discovery and teardown routes pass. A published `execStream()`
 probe also forwards output through Worker/DO HTTP responses before command
-completion. Direct RPC `execStream()` also passes. Stream inputs, HTTP-message RPC
-transfers, SDK upload transport, previews and fault qualification remain open.
+completion. Direct RPC `execStream()` also passes. Generic RPC byte-stream inputs
+run through native sessions; SDK uploads still need their separate transport.
+HTTP-message RPC transfers, previews and full fault qualification remain open.
 See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start

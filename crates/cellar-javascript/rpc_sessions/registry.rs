@@ -42,6 +42,7 @@ struct Command {
     id: u64,
     target: usize,
     args: String,
+    inputs: bool,
     reply: oneshot::Sender<Result<RpcData>>,
     _permit: OwnedSemaphorePermit,
     _bytes: OwnedSemaphorePermit,
@@ -80,6 +81,7 @@ impl Registry {
             group: String,
             target: usize,
             args: String,
+            inputs: bool,
         }
         let RpcData::Json(encoded) = args else {
             anyhow::bail!("invalid delegate request")
@@ -136,6 +138,7 @@ impl Registry {
                 id,
                 target: call.target,
                 args: call.args,
+                inputs: call.inputs,
                 reply,
                 _permit: permit,
                 _bytes: bytes,
@@ -192,8 +195,7 @@ impl Entry {
             if command.reply.is_closed() {
                 continue;
             }
-            let value =
-                json!({"closed":false,"id":command.id,"target":command.target,"args":command.args});
+            let value = json!({"closed":false,"id":command.id,"target":command.target,"args":command.args,"inputs":command.inputs});
             self.pending.lock().unwrap().insert(command.id, command);
             return Ok(value);
         }

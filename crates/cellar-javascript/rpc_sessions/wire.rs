@@ -117,3 +117,40 @@ pub(super) fn publication(
 #[cfg(test)]
 #[path = "wire_tests.rs"]
 mod tests;
+
+// Input markers are admitted only with an invocation-owned native reservation.
+// Function callbacks require a separate profile; data cannot select that power.
+pub(super) fn inputs(encoded: &str, count: usize, maximum: usize) -> Result<()> {
+    markers(encoded, count, maximum)?;
+    let graph = graph(encoded, maximum)?;
+    let CloneValue::Reference(root) = graph.root else {
+        anyhow::bail!("missing RPC input graph")
+    };
+    let Object::DenseArray { elements, .. } = &graph.objects[root as usize] else {
+        anyhow::bail!("missing RPC input envelope")
+    };
+    let CloneValue::Reference(args) = elements[0] else {
+        anyhow::bail!("RPC inputs require an argument array")
+    };
+    ensure!(
+        matches!(
+            graph.objects.get(args as usize),
+            Some(Object::DenseArray { .. } | Object::SparseArray { .. })
+        ),
+        "RPC inputs require an argument array"
+    );
+    let CloneValue::Reference(kinds) = elements[2] else {
+        anyhow::bail!("missing RPC input kinds")
+    };
+    let Object::DenseArray { elements, .. } = &graph.objects[kinds as usize] else {
+        anyhow::bail!("missing RPC input kinds array")
+    };
+    ensure!(
+        elements
+            .iter()
+            .all(|kind| *kind == CloneValue::from("readable")
+                || *kind == CloneValue::from("writable")),
+        "RPC input callbacks require a separate profile"
+    );
+    Ok(())
+}
