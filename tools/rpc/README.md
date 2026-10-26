@@ -340,14 +340,72 @@ must conflict. The observer also checks each concurrent operation stays on the
 same owner, scope and epoch.
 
 Reports are published only after every native node drains and every language
-runtime joins. `--suite local` is the default; `--suite all` writes separate
-`local`, `remote`, `deadline`, `cancellation`, `cycles`, `provenance`, `proof_wait`, `recovery`, `crash`
+runtime joins. A non-async dispatcher constructs one heap-owned suite future at
+a time, so the combined driver does not retain every suite’s debug temporaries
+on the Python host stack. The host stack, executors and timeout budgets remain
+unchanged. `--suite local` is the default; `--suite all` writes separate
+`local`, `remote`, `peer_faults`, `deadline`, `cancellation`, `cycles`, `provenance`, `proof_wait`, `recovery`, `crash`
 and `proof` evidence objects. `remote_matrix_verified` and
 `remote_matrix_after_handoff_verified` record these measured boundaries. Full
 fleet qualification remains false: further interpreter modes, resource limits
 and the full lifecycle matrix are separate requirements. The dedicated proof suite below
 tests withheld/failed RPC output proof. This run uses normal GIL CPython; it is
 not free-threaded evidence.
+
+## Generated clients under peer faults
+
+After building the same locked fixtures and Python environment:
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite peer-faults --report .cellar/rpc/peer-faults.json
+python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
+```
+
+All **48 cases** use generated clients: Rust, Python, embedded V8 and Node callers
+against each of the four providers, at each fault below. The owner keeps real
+SQLite state, signed peer authentication and normal fleet durability proof.
+
+```text
+generated client -> native source -> relay -> signed owner -> typed handler
+                                       ^                       |
+                                       |                  count + receipt
+                                 observe real reply <---- output proof
+                                       |
+                         forward / drop / trusted refusal
+```
+
+| Fault | Required result | Independent observations |
+| --- | --- | --- |
+| Close a warm RPC tunnel | Fresh signed upgrade; successful generated call | Exact method, request ID, remaining budget, scope and owner epoch; one handler entry |
+| Drop a complete successful owner reply | `Unavailable/unknown`; no automatic replay | Closed mutation transaction and exact stored count; one handler entry before explicit retries |
+| Change the inner method to an unregistered name | `MethodNotFound/not_committed` from the real owner | No factory or business-handler entry; unchanged count before explicit retry |
+
+Each case then explicitly retries the original operation ID twice, requires the
+saved result and exactly one total mutation, and refuses a changed delta with
+that same ID. Native audits verify execution stays on the original remote owner,
+scope and epoch. The relay checks the actual descriptor digest and Protobuf
+request/reply; a requested target or a guest error string cannot certify a case.
+
+The relay bounds inner headers to 16 KiB, bodies to 64 KiB and connection tasks
+to 128. It rejects unsupported inner framing. Ordinary outer HTTP requests ask
+the real server for `Connection: close`: an unrelated keepalive must not later
+hide an RPC upgrade inside an unobserved byte stream. Signed upgrade headers,
+request signatures, payloads and proof responses retain their production paths.
+These are fixture bounds, not evidence of production-wide memory limits.
+
+Successful reports require both native nodes to drain and every relay task and
+language runtime to join. The independent auditor verifies all 48 unique tuples
+and rejects six corrupted reports covering missing/duplicate pairs, forged
+rollback, business execution after refusal, invalid budgets and retained sockets.
+This suite runs in `all` and Linux lifecycle CI, which retains its raw report/log.
+
+This closes the described generated-client reconnect, reply-loss and method
+refusal boundaries with GIL CPython. The deliberate warm-tunnel close does not
+force every provably-unsent Hyper race; the native transport regression separately
+checks that retry preserves identity and decreases its original budget. Full
+admission/saturation, parser/RSS, portable-profile, free-threaded Python and
+packaging qualification remain open.
 
 ## Failures after a parent commits
 

@@ -318,6 +318,14 @@ fn run_with<T>(
         let engine = worker
             .join()
             .map_err(|_| anyhow::anyhow!("JavaScript engine thread panicked"))?;
+        // An explicit host stop may interrupt dispatch or a microtask checkpoint.
+        // Preserve the host's result only for that typed cause; budget expiry,
+        // ordinary engine errors and panics still fail bootstrap.
+        #[cfg(feature = "embed")]
+        let engine = match engine {
+            Err(error) if error.is::<engine::RequestedShutdown>() => Ok(()),
+            result => result,
+        };
         match (result, engine) {
             (Ok(value), Ok(())) => Ok(value),
             (Err(error), Ok(())) => Err(error),

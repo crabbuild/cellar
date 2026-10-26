@@ -17,9 +17,9 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | The control-decoder/WAL revision `8bd52c73` passes all 696 combined cases and hosted JS/Node, lifecycle and Python-example CI. Hosted GIL SDK CI passes completely; free-threaded SDK test/lint and embedded packaging pass, with later gates still running. The original native large-binding workload falls from 46.98 to 3.77 seconds locally. The following peer-cache and IPC-work changes need their own combined runtime and hosted qualification. |
+| P0 — hosted verification | New-head hosted verification | The preceding peer-cache/IPC head `9ff2af7e` passes hosted SDK (GIL and free-threaded), typed-RPC lifecycle, JS/Node and Python examples. The new shutdown-cause, boxed-dispatch and generated-client peer-fault changes pass all 744 combined cases locally with independent audits; require their own hosted results. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -73,6 +73,87 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **2026-10-26 combined recheck: all 744 cases pass.** The original 696 cases
+  and 48 generated-client peer-fault cases finish in 1,354.280 seconds, including
+  all 96 Node/V8 lifecycle cases and all 48 Python suppression/supervision cases.
+  Success is published only after native drains, interpreter/engine joins and
+  required child-process exits. Tracked and unignored source hashes remain
+  unchanged throughout the run. Independent checks retain every prior section,
+  verify all new fault tuples and reject nine corrupted-evidence probes. This
+  does not erase the earlier real-clock deadline failure or qualify the complete
+  portable profile, resource bounds, interpreter modes or application delivery.
+  Local evidence: `.cellar/rpc/runtime-peer-recheck.json`, its `-status.json`,
+  `-source-hashes.json` and `-audit.json`; raw log:
+  `/tmp/cellar-rpc-runtime-peer-recheck.log`. Report size: 2,798,907 bytes;
+  SHA-256: `07734682663c19d24c2f6edd49b8f985712819ac10f98f67c866c7b75b6fec13`.
+  Executable SHA-256:
+  `7dd6cd1f12a235fe32d6623fb6b7fe23bb1bbae18d1c4c4582e4687229b3471c`.
+
+- **A separate real-clock deadline failure remains unresolved.** The first
+  boxed-dispatch combined attempt stops after 37.144 seconds because a guest
+  deadline target does not record its late SDK refusal within the existing
+  five-second observation bound. It returns the expected caller timeout, but
+  missing target evidence correctly fails qualification and publishes no report.
+  The frozen source hashes remain unchanged. A separate `--suite deadline` run
+  passes all 55 cases; that retry does not diagnose or fix the combined failure.
+  Guest deadline cases now log their language/mode and include native entry and
+  transaction-checkpoint observations on failure, with unchanged assertions and
+  budgets. Preserve `.cellar/rpc/runtime-peer-final-status.json` and its raw log
+  alongside the earlier stack-overflow attempt when assessing any later pass.
+
+- **The combined driver no longer exhausts the Python host stack.** The first
+  new combined run reaches all 96 Node/V8 lifecycle cases, then aborts entering
+  Python cancellation; no success report is published. The same standalone
+  smoke command reproduces it. The macOS trace contains no recursive chain and
+  reaches native startup before cancellation logic. Disassembly shows a
+  1.34 MiB root poll frame competing with nested startup on the unchanged 2 MiB
+  Python host stack. A non-async dispatcher now constructs one boxed suite
+  future; the combined loop polls one suite at a time in its original order.
+  No new task, stack setting or timeout is introduced. The driver-size guard
+  fails against the old sequential future (21,288 bytes of embedded state),
+  then passes after indirection, along with all 35 guard tests and the exact
+  standalone smoke command. The failed frozen run retains its log/status and
+  binary digest under `.cellar/rpc/runtime-peer-full*`; the combined rerun uses
+  a fresh report path. Those partial phases alone are not combined success.
+
+- **Requested V8 shutdown preserves the original host result.** Two real-isolate
+  regressions stop synchronous dispatch and a running microtask before the
+  unchanged turn deadline. Both fail against the old runtime: a requested stop
+  becomes a dispatch/budget error. The watchdog now retains its first observed
+  interruption cause under its existing deadline lock. Only a private typed
+  requested-stop marker is joined as shutdown; genuine expiry, ordinary engine
+  errors and panics still fail. The existing runaway test requires the exact
+  execution-budget error. Host success and original host failure survive both
+  interruption phases, with zero retained native bytes. The 55 library cases,
+  real typed-RPC, Node compatibility/restart and streaming tests pass together.
+- Focused validation also passes all 35 qualifier guard tests, six native peer
+  tunnel regressions, 17 embed-only runtime tests and the Node-only library
+  check. Clippy passes all targets for both JS backends and the full qualifier
+  with warnings denied. Formatting/layout cover 1,074 Rust files; the dependency
+  guard keeps native-only applications free of JS engines. Documentation checks
+  pass. These checks do not establish a full portable-profile or release result.
+- **The underlying streaming timing failure remains open.** Updated `main`
+  passes the original serial streaming/Node commands and 20 serial repetitions
+  (40 target executions, 60 test cases) under unchanged budgets. A separate
+  concurrency-four probe retains one real `/outbound/sse` native 250 ms handler
+  timeout among 24 target executions. That observation does not establish a
+  scheduling cause or close the intermittent Node/V8 regression. The shutdown
+  cause fix prevents misleading secondary errors; it does not extend any budget.
+- **Generated clients now exercise signed-peer faults.** The focused
+  `peer-faults` suite passes 48 cases: all 16 caller/provider pairs for forced
+  warm-tunnel reconnect, dropping a complete successful owner reply, and changing
+  the inner method to an unregistered name. Lost committed replies remain
+  `Unavailable/unknown` with exactly one initial handler entry and no implicit
+  replay. Real owner refusals preserve `MethodNotFound/not_committed` with zero
+  factory/handler entries. Two explicit same-ID retries recover/apply exactly
+  one effect; a changed command conflicts. Native owner/scope/epoch and closed
+  transaction audits agree with observed descriptor/request/reply bytes. The
+  relay bounds its framing and tasks, joins after native drain, and refuses
+  missing evidence. Ordinary outer keepalives must close so a subsequent upgrade
+  cannot bypass observation. The raw-report auditor rejects six corrupted
+  evidence variants. This extends peer correctness evidence, not full resource,
+  portable-profile, interpreter-mode or packaging qualification.
 
 - **Peer tunnel reuse now binds the authentication owner and target session.**
   Two real signed-upgrade regressions fail before the fix: a warmed address-only

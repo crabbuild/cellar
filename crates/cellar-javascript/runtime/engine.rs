@@ -12,6 +12,49 @@ use std::{
     time::Instant,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Interruption {
+    RequestedShutdown,
+    ExecutionBudget,
+}
+
+#[derive(Default)]
+struct WatchState {
+    deadline: Option<Instant>,
+    // The first observed cause survives deadline clearing and host teardown.
+    interruption: Option<Interruption>,
+}
+
+/// Only an interrupted V8 boundary can produce this private marker. Bootstrap
+/// may join that requested stop without replacing the host's original result.
+#[derive(Debug)]
+pub(super) struct RequestedShutdown;
+
+impl std::fmt::Display for RequestedShutdown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("JavaScript interrupted by requested shutdown")
+    }
+}
+
+impl std::error::Error for RequestedShutdown {}
+
+fn v8_failure(
+    scope: &v8::PinScope,
+    watch: &Mutex<WatchState>,
+    message: &'static str,
+) -> anyhow::Error {
+    if scope.is_execution_terminating() {
+        match watch.lock().unwrap().interruption {
+            Some(Interruption::RequestedShutdown) => return RequestedShutdown.into(),
+            Some(Interruption::ExecutionBudget) => {
+                return anyhow::anyhow!("JavaScript engine turn exceeded execution budget")
+            }
+            None => {}
+        }
+    }
+    anyhow::anyhow!(message)
+}
+
 struct InvocationState {
     start: Start,
     promise: Option<v8::Global<v8::Promise>>,
@@ -288,21 +331,26 @@ pub(super) fn run(
     let handle = isolate.thread_safe_handle();
     // The watchdog holds this mutex only while observing/terminating the isolate;
     // clearing it synchronizes against termination of a subsequent idle turn.
-    let deadline = Arc::new(Mutex::new(None::<Instant>));
+    let watch = Arc::new(Mutex::new(WatchState::default()));
     let (end, watchdog_end) = mpsc::channel::<()>();
-    let watch_deadline = deadline.clone();
+    let watch_state = watch.clone();
     let watchdog_runtime = runtime.clone();
     let watchdog = std::thread::spawn(move || {
         while watchdog_end.recv_timeout(Duration::from_millis(2)).is_err() {
-            let deadline = watch_deadline.lock().unwrap();
-            if deadline.is_some_and(|end| {
-                watchdog_runtime.closed.load(Ordering::Acquire) || Instant::now() >= end
-            }) {
-                handle.terminate_execution();
-                if deadline.is_some() {
-                    watchdog_runtime.close();
-                }
-            }
+            let mut state = watch_state.lock().unwrap();
+            let Some(end) = state.deadline else { continue };
+            // Expiry wins if both conditions are observed together. A host
+            // shutdown cannot hide an already expired startup or turn budget.
+            let cause = if Instant::now() >= end {
+                Interruption::ExecutionBudget
+            } else if watchdog_runtime.closed.load(Ordering::Acquire) {
+                Interruption::RequestedShutdown
+            } else {
+                continue;
+            };
+            state.interruption.get_or_insert(cause);
+            handle.terminate_execution();
+            watchdog_runtime.close();
         }
     });
 
@@ -326,7 +374,7 @@ pub(super) fn run(
         objects: HashMap::new(),
     }));
     isolate.set_slot(state.clone());
-    *deadline.lock().unwrap() = Some(Instant::now() + runtime.options.startup_timeout);
+    watch.lock().unwrap().deadline = Some(Instant::now() + runtime.options.startup_timeout);
     v8::scope!(let scope, &mut isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
@@ -362,7 +410,7 @@ pub(super) fn run(
     let runner = v8::Local::<v8::Object>::try_from(runner)?;
     let dispatch = v8::Global::new(scope, function(scope, runner, "dispatch")?);
     let retire = v8::Global::new(scope, function(scope, runner, "retire")?);
-    *deadline.lock().unwrap() = None;
+    watch.lock().unwrap().deadline = None;
     let _ = ready.send(Ok(()));
     loop {
         if runtime.closed.load(Ordering::Acquire) {
@@ -373,7 +421,7 @@ pub(super) fn run(
         v8::scope!(let turn, parent);
         // One budget covers the entire pump pass, including all admitted calls
         // and the microtask checkpoint below. It is not a per-handler I/O timeout.
-        *deadline.lock().unwrap() = Some(Instant::now() + runtime.options.turn_timeout);
+        watch.lock().unwrap().deadline = Some(Instant::now() + runtime.options.turn_timeout);
         // Service replies before admission. Never wait for one invocation to finish.
         for reply in replies
             .try_iter()
@@ -453,7 +501,7 @@ pub(super) fn run(
             let dispatch = v8::Local::new(turn, &dispatch);
             let result = dispatch
                 .call(turn, undefined.into(), &[token.into(), value.into(), body])
-                .context("JavaScript dispatch failed")?;
+                .ok_or_else(|| v8_failure(turn, &watch, "JavaScript dispatch failed"))?;
             let promise = v8::Local::<v8::Promise>::try_from(result)?;
             state.borrow_mut().invocations.get_mut(&id).unwrap().promise =
                 Some(v8::Global::new(turn, promise));
@@ -462,10 +510,13 @@ pub(super) fn run(
         // Clear ambient authority; queued continuations restore their own IDs.
         turn.set_continuation_preserved_embedder_data(undefined.into());
         turn.perform_microtask_checkpoint();
-        ensure!(
-            !turn.is_execution_terminating(),
-            "JavaScript engine turn exceeded execution budget"
-        );
+        if turn.is_execution_terminating() {
+            return Err(v8_failure(
+                turn,
+                &watch,
+                "JavaScript microtask checkpoint interrupted",
+            ));
+        }
 
         let mut finished = Vec::new();
         for (&id, invocation) in &state.borrow().invocations {
@@ -568,14 +619,17 @@ pub(super) fn run(
             let retire = v8::Local::new(turn, &retire);
             retire
                 .call(turn, undefined.into(), &[id.into()])
-                .context("JavaScript object retirement failed")?;
+                .ok_or_else(|| v8_failure(turn, &watch, "JavaScript object retirement failed"))?;
         }
-        *deadline.lock().unwrap() = None;
+        watch.lock().unwrap().deadline = None;
         std::thread::sleep(Duration::from_millis(1));
     }
     ensure!(
-        !scope.is_execution_terminating(),
-        "JavaScript runtime terminated"
+        watch.lock().unwrap().interruption != Some(Interruption::ExecutionBudget),
+        "JavaScript engine turn exceeded execution budget"
     );
+    if scope.is_execution_terminating() {
+        return Err(v8_failure(scope, &watch, "JavaScript runtime terminated"));
+    }
     Ok(())
 }

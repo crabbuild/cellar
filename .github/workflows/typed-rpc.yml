@@ -70,7 +70,7 @@ jobs:
             tail -n 100 .cellar/rpc/lifecycle.log
             exit 1
           fi
-          for rpc_suite in python-cancellation python-supervision; do
+          for rpc_suite in python-cancellation python-supervision peer-faults; do
             if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
               --suite "$rpc_suite" --report ".cellar/rpc/$rpc_suite.json" \
               > ".cellar/rpc/$rpc_suite.log" 2>&1; then
@@ -78,6 +78,7 @@ jobs:
               exit 1
             fi
           done
+          python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
       - name: Retain lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -90,3 +91,5 @@ jobs:
             .cellar/rpc/python-cancellation.log
             .cellar/rpc/python-supervision.json
             .cellar/rpc/python-supervision.log
+            .cellar/rpc/peer-faults.json
+            .cellar/rpc/peer-faults.log

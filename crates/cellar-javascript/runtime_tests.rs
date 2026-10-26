@@ -280,6 +280,61 @@ fn concurrent_mutations_are_refused_before_second_effect() {
 }
 
 #[test]
+fn requested_shutdown_interrupts_dispatch_without_a_runtime_failure() {
+    requested_shutdown(false);
+}
+
+#[test]
+fn requested_shutdown_interrupts_microtasks_without_a_budget_failure() {
+    requested_shutdown(true);
+}
+
+fn requested_shutdown(in_microtasks: bool) {
+    for fail_host in [false, true] {
+        let started = Instant::now();
+        let mut retained = None;
+        let result = JavaScriptRuntime::run(
+            Options::default(),
+            // The operation proves dispatch entered the actual isolate. It is
+            // deliberately not awaited, so JavaScript stays on this CPU turn
+            // until the watchdog observes the host's shutdown request.
+            source(if in_microtasks {
+                "await ctx.now(); void ctx.now(); while (true) {}"
+            } else {
+                "void ctx.now(); while (true) {}"
+            }),
+            |app| {
+                retained = Some(app.runtime.clone());
+                let invocation = app.runtime.id()?;
+                let mut receive = start(&app.runtime, invocation, Arc::new(AtomicBool::new(true)));
+                if in_microtasks {
+                    let Event::Operation { id, .. } = event(&mut receive) else {
+                        anyhow::bail!("shutdown fixture did not suspend dispatch")
+                    };
+                    app.runtime
+                        .reply(invocation, id, r#"{"ok":true,"value":0}"#.into())?;
+                }
+                let Event::Operation { name, .. } = event(&mut receive) else {
+                    anyhow::bail!("shutdown fixture did not enter JavaScript")
+                };
+                ensure!(name == "clock.now");
+                if fail_host {
+                    anyhow::bail!("original host failure")
+                }
+                Ok(42)
+            },
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(retained.unwrap().usage().retained_bytes, 0);
+        if fail_host {
+            assert_eq!(result.unwrap_err().to_string(), "original host failure");
+        } else {
+            assert_eq!(result.unwrap(), 42);
+        }
+    }
+}
+
+#[test]
 fn runaway_javascript_terminates_and_joins() {
     let started = Instant::now();
     let entered = AtomicBool::new(false);
@@ -305,6 +360,10 @@ fn runaway_javascript_terminates_and_joins() {
         "must test a running handler, not startup refusal"
     );
     assert!(result.is_err());
+    assert_eq!(
+        result.unwrap_err().root_cause().to_string(),
+        "JavaScript engine turn exceeded execution budget"
+    );
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
