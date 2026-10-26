@@ -70,7 +70,30 @@ async fn fleet_fenced_movement_settles_and_reconciles_lost_reply() -> Result<()>
         )
         .await
         .is_err());
-    ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
+    // Waiter expiry does not join the node-owned initializer. Its pending slot
+    // remains charged until cleanup; it must never become a physical history.
+    // Verify absence throughout cleanup, then require the original zero slots
+    // before attempting terminal settlement or any subsequent reservation.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let sample = s
+                    .target
+                    .inspect_peer_physical_inventory(NodeId::new([7; 16])?, cut.revision(), TIMEOUT)
+                    .await?;
+                let inventory = sample
+                    .inventory
+                    .as_ref()
+                    .context("physical target inventory")?;
+                ensure!(inventory.history(&movement.resources.group)?.is_none());
+                if inventory.initializing().is_none() {
+                    ensure!(sample.view.node.groups == 0);
+                    return Ok::<_, anyhow::Error>(());
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await???;
     s.f.store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
