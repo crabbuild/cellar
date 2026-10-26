@@ -4,6 +4,7 @@
 //! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;
 mod codec;
+mod completion;
 use anyhow::Context as _;
 use std::{
     cell::RefCell,
@@ -777,7 +778,10 @@ pub(super) fn run(
                         payload: "null".into(),
                         body: None,
                         failed: true,
-                        _bytes: runtime.reserve(4)?,
+                        _bytes: start
+                            ._completion
+                            .take()
+                            .context("V8 completion reservation missing")?,
                     });
                     continue;
                 }
@@ -876,48 +880,22 @@ pub(super) fn run(
             let failed = rejected || unsettled || backgrounds.get(&id) == Some(&2.0);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
-            let (payload, body) = if failed {
-                // Only a fixed category may leave an entered RPC handler.
-                // Never stringify exceptions or inspect application objects.
-                let payload = if rejected && !unsettled && result.is_string() {
-                    let value = v8::Local::<v8::String>::try_from(result)
-                        .context("RPC failure category must be a string")?;
-                    if value.length() <= 64 {
-                        cellar_guest::rpc_failure::payload(&value.to_rust_string_lossy(turn))
-                            .unwrap_or("null")
-                    } else {
-                        "null"
-                    }
-                } else {
-                    "null"
-                };
-                (payload.into(), None)
-            } else if result.is_uint8_array() {
-                // A malformed application reply is a call failure, not an
-                // engine failure. Missing bytes become InvalidResponse/unknown
-                // at the native RPC boundary, after any committed writes.
-                (
-                    "null".into(),
-                    super::binary::copy(turn, result, runtime.options.max_value_bytes)
-                        .unwrap_or(None),
-                )
+            let outcome = if rejected && !unsettled {
+                completion::Outcome::Rejected(result)
+            } else if failed {
+                completion::Outcome::Failed
             } else {
-                let result = v8::Local::<v8::String>::try_from(result)
-                    .context("JavaScript completion must be encoded")?;
-                ensure!(
-                    result.length() <= runtime.options.max_value_bytes,
-                    "JavaScript completion exceeds limit"
-                );
-                (result.to_rust_string_lossy(turn), None)
+                completion::Outcome::Resolved(result)
             };
-            let bytes = runtime.reserve(value_size(&payload, body.as_deref())?)?;
-            // +1 completion slot is reserved independently of operation capacity.
-            let _ = invocation.start.sender.try_send(Event::Complete {
-                payload,
-                body,
-                failed,
-                _bytes: bytes,
-            });
+            let reservation = invocation
+                .start
+                ._completion
+                .take()
+                .context("V8 completion reservation missing")?;
+            // Both the mailbox slot and its small error payload are reserved
+            // independently of capacity held by ordinary operations.
+            let completed = completion::event(turn, &runtime, outcome, reservation);
+            let _ = invocation.start.sender.try_send(completed);
             finished.push(id);
         }
         for id in &finished {

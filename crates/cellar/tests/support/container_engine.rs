@@ -40,6 +40,7 @@ pub struct Engine {
     pub networks: Mutex<HashMap<String, Value>>,
     pub execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub calls: Mutex<Vec<(String, String, Value)>>,
+    pub network_ip: Option<String>,
     pub http_port: u16,
     pub tcp_port: u16,
 }
@@ -193,7 +194,7 @@ impl Engine {
                     json!({
                         "State": {"Running": running},
                         "NetworkSettings": {
-                            "Networks": {"fixture": {"IPAddress": "127.0.0.1"}},
+                            "Networks": {"fixture": {"IPAddress": self.network_ip.as_deref().unwrap_or("127.0.0.1")}},
                             "Ports": {
                                 "8080/tcp": [{"HostPort": self.http_port.to_string()}],
                                 format!("{}/tcp", self.http_port): [{"HostPort": self.http_port.to_string()}],

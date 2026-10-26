@@ -74,6 +74,7 @@ fn start_scope(
         "object":object,"class":object.map(|_| "Counter")}).to_string();
     runtime
         .start(Start {
+            _completion: Default::default(),
             body: None,
             budget_source: None,
             id,

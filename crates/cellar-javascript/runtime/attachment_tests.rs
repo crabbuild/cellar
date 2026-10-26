@@ -3,11 +3,27 @@
 //! Runtime-only attachment qualification. These identity codecs intentionally
 //! isolate byte ownership/framing; real Protobuf/cell durability has separate tests.
 use super::*;
+use anyhow::Context as _;
 use cellar::sdk::rpc;
 use serde_json::json;
 use std::time::Instant;
 
 fn source() -> Result<Source> {
+    source_with_body(
+        r#"
+        const rpc = ctx[Symbol.for('cellar.rpc')];
+        rpc.check();
+        const bytes = Uint8Array.of(42, 0, 255, 128, 43);
+        const pending = rpc.call({binding:'COUNTERS', name:'alice',
+          method:'example.counter.v1.Counter/GetCount', contract_digest:'DIGEST'}, bytes.subarray(1,4));
+        bytes.fill(99);
+        const reply = await pending;
+        return reply.subarray(1, reply.length - 1);
+    "#,
+    )
+}
+
+fn source_with_body(body: &str) -> Result<Source> {
     let contract = Arc::new(rpc::Contract::from_descriptor(
         include_bytes!("../../../tools/rpc/fixtures/counter.binpb"),
         rpc::Limits::default(),
@@ -16,14 +32,7 @@ fn source() -> Result<Source> {
         class Counter {
           async getCount(input, ctx) {
             if (!(input instanceof Uint8Array) || input.length !== 0) throw Error('input');
-            const rpc = ctx[Symbol.for('cellar.rpc')];
-            rpc.check();
-            const bytes = Uint8Array.of(42, 0, 255, 128, 43);
-            const pending = rpc.call({binding:'COUNTERS', name:'alice',
-              method:'example.counter.v1.Counter/GetCount', contract_digest:'DIGEST'}, bytes.subarray(1,4));
-            bytes.fill(99);
-            const reply = await pending;
-            return reply.subarray(1, reply.length - 1);
+            HANDLER_BODY
           }
           async increment(input) { return input; }
         }
@@ -40,12 +49,124 @@ fn source() -> Result<Source> {
           'example.counter.v1.Counter/GetCount': method('getCount', 'example.counter.v1.GetCountRequest', 'example.counter.v1.GetCountResponse'),
           'example.counter.v1.Counter/Increment': method('increment', 'example.counter.v1.IncrementRequest', 'example.counter.v1.IncrementResponse'),
         }}};
-    "#.replace("DIGEST", contract.digest()).replace("EXPECTED_CONTRACT", &contract.inventory().to_string());
+    "#.replace("HANDLER_BODY", body).replace("DIGEST", contract.digest()).replace("EXPECTED_CONTRACT", &contract.inventory().to_string());
     Source::new(code, "attachment-test.js").cell_rpc(
         "Counter",
         "example.counter.v1.Counter",
         contract,
     )
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn v8_completion_reservation_survives_byte_saturation() -> Result<()> {
+    let mut source = source_with_body(
+        r#"
+        this.calls = (this.calls ?? 0) + 1;
+        await ctx.now();
+        return new Uint8Array(this.calls === 1 ? 8192 : 1).fill(7);
+    "#,
+    )?;
+    source.code = format!(
+        "globalThis.CellarApp = (() => {{ {}\n return {{cells,rpc}}; }})();",
+        source.code
+    );
+    let options = Options {
+        max_bridge_bytes: 4 * 1024 * 1024,
+        ..Options::default()
+    };
+    JavaScriptRuntime::run(options, source, |app| {
+        let runtime = &app.runtime;
+        let owner = Arc::new(AtomicBool::new(true));
+        for index in 0..2 {
+            let id = runtime.id()?;
+            let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
+            let (sender, mut receive) =
+                channel::channel(runtime.options.max_pending_operations + 1);
+            runtime.start(Start {
+                _completion: Default::default(),
+                budget_source: None,
+                id,
+                _bytes: runtime.reserve(payload.len())?,
+                payload,
+                body: Some(vec![]),
+                active: Arc::new(AtomicBool::new(true)),
+                owner: owner.clone(),
+                sender,
+            })?;
+            let Event::Operation {
+                id: operation,
+                name,
+                ..
+            } = event(&mut receive)?
+            else {
+                anyhow::bail!("reply fixture did not reach its clock barrier");
+            };
+            ensure!(name == "clock.now");
+            let payload = json!({"ok":true,"value":42}).to_string();
+            if index == 0 {
+                // Admit the SDK reply but withhold delivery until every other
+                // byte is held. Only its small charge can become available.
+                let reply = Reply {
+                    invocation: id,
+                    id: operation,
+                    _bytes: runtime.reserve(payload.len())?,
+                    payload,
+                    body: None,
+                };
+                let mut held = Vec::new();
+                while runtime.bytes.available_permits() != 0 {
+                    let bytes = runtime
+                        .bytes
+                        .available_permits()
+                        .min(runtime.options.max_value_bytes);
+                    held.push(runtime.reserve(bytes)?);
+                }
+                ensure!(runtime.usage().retained_bytes == runtime.options.max_bridge_bytes);
+                runtime
+                    .replies
+                    .try_send(reply)
+                    .map_err(|_| anyhow::anyhow!("clock reply refused"))?;
+                let completed = event(&mut receive).with_context(|| {
+                    format!(
+                        "quota failure lost its completion; copied {} reply bytes",
+                        runtime.completion_copied.load(Ordering::Relaxed)
+                    )
+                })?;
+                let Event::Complete {
+                    payload,
+                    body,
+                    failed,
+                    ..
+                } = completed
+                else {
+                    anyhow::bail!("unexpected work after reply saturation");
+                };
+                ensure!(failed && body.is_none());
+                let failure = cellar_guest::rpc_failure::failure(&payload);
+                ensure!(failure.code() == rpc::Code::ResourceExhausted);
+                ensure!(failure.outcome() == rpc::EffectOutcome::Unknown);
+                ensure!(runtime.completion_copied.load(Ordering::Relaxed) == 0);
+                ensure!(
+                    !runtime.usage().stopped,
+                    "one refused reply stopped the engine"
+                );
+                drop(held);
+            } else {
+                runtime.reply(id, operation, payload)?;
+                let Event::Complete { body, failed, .. } = event(&mut receive)? else {
+                    anyhow::bail!("subsequent call did not complete");
+                };
+                ensure!(!failed && body.as_deref() == Some(&[7][..]));
+            }
+        }
+        let until = Instant::now() + Duration::from_secs(2);
+        while runtime.usage().retained_bytes != 0 {
+            ensure!(Instant::now() < until, "completion reservations leaked");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
+    })
 }
 
 fn event(receiver: &mut channel::Receiver<Event>) -> Result<Event> {
@@ -69,6 +190,7 @@ fn roundtrip(app: Arc<JavaScriptApplication>) -> Result<()> {
             channel::channel(app.runtime.options.max_pending_operations + 1);
         let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
         app.runtime.start(Start {
+            _completion: Default::default(),
             budget_source: None,
             id,
             _bytes: app.runtime.reserve(payload.len())?,
@@ -153,6 +275,7 @@ fn node_releases_delivered_invocation_buffers_while_native_work_remains() -> Res
             let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
             let bytes = app.runtime.reserve(payload.len() + LENGTH)?;
             app.runtime.start(Start {
+                _completion: Default::default(),
                 budget_source: None,
                 id,
                 payload,

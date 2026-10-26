@@ -44,6 +44,7 @@ fn start(runtime: &Runtime, path: &str, active: Life) -> Result<(u64, channel::R
     let (sender, receive) = channel::channel(runtime.options.max_pending_operations + 1);
     let payload = json!({"kind":"fetch","event":{"url":format!("http://test/{path}"),"method":"GET","headers":[],"body":""},"identity":null,"object":null,"class":null}).to_string();
     runtime.start(Start {
+        _completion: Default::default(),
         budget_source: None,
         id,
         _bytes: runtime.reserve(payload.len())?,

@@ -461,6 +461,7 @@ impl JavaScriptApplication {
             "JavaScript invocation exceeds value budget"
         );
         self.runtime.start(Start {
+            _completion: Default::default(),
             budget_source: Some(cellar::sdk::rpc::BudgetSource::capture(&context)?),
             id: invocation,
             _bytes: self.runtime.reserve(charge)?,
