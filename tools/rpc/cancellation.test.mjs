@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { addAbortListener } from "node:events";
 import test from "node:test";
 import { testBudgetControl } from "./test-budgets.mjs";
-import { testRunner } from "./test-runner.mjs";
+import { testRunner } from "../javascript/test-runner.mjs";
 import { CounterClient } from "./fixtures/generated/javascript/counter_cellar.js";
 
 const contract = JSON.parse(readFileSync(new URL("./fixtures/generated/rpc.json", import.meta.url)));

@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { testRunner } from "./test-runner.mjs";
+import { testRunner } from "../javascript/test-runner.mjs";
 
 const wire = "test.Counter/Fail";
 

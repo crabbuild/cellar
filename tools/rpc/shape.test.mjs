@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { testBudget, testBudgetControl } from "./test-budgets.mjs";
-import { testRunner } from "./test-runner.mjs";
+import { testRunner } from "../javascript/test-runner.mjs";
 import { readFileSync } from "node:fs";
 import { createFileRegistry, fromBinary } from "@bufbuild/protobuf";
 import { FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt";
