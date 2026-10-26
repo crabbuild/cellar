@@ -198,6 +198,16 @@ above; these cases do not complete planner qualification.
 
 ## FO-04 explicit topology verifier
 
+Final topology source `3af38b41a574b06e6df5f0f831cc7bdc959ca796` separates
+current replica-receiving eligibility from final membership in the keep-set.
+It passes **66 public core cases**, including **15 topology cases**, core
+all-target Clippy with warnings denied, the downstream host-library build,
+formatting, layout, dependency and documentation checks. `topology-v2/` retains
+its frozen 1,256 Rust files and 21 configuration inputs, logs, immutable core
+executables and audit outside runtime data. The native movement and host
+all-target Clippy checks remain attributed to the parent below; they were not
+repeated for this pure input-field addition. No broader host rerun is claimed.
+
 Source `82221ec049e0da835363e14ab143d2585cc0212c` passes all seven ordinary
 public core suites, **65 cases**, including 14 topology cases and the 400-pair
 matrix. All ten native movement cases, core and host all-target Clippy with

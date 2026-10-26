@@ -2662,7 +2662,8 @@
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion-merged.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-preview.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-preview.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-eligibility.json"
       ]
     },
     {
