@@ -6,6 +6,47 @@ FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
 managed maintenance and resize are not delivered. The task manifest is the
 package-status source of truth. Historical sections below record earlier states.
 
+## Isolated-node repair delivery
+
+Source `3834c560e1215f7555ec796a50265df7f1a497f6` adds `attest_node_isolation`: after rooted evacuation
+exclusion, a trusted deployment assertion permanently quarantines the exact boot.
+The caller establishes process/worker shutdown and prevents restart; Cellar checks
+scope and journal linkage. Saved startup capabilities and generic quarantine
+clearance refuse. Exact lost-response retries preserve the original acceptance.
+This does not create a graceful-shutdown receipt or reclaim the retained engine.
+
+Resource-backed admission pins an isolated obsolete voter while requiring fresh
+survivor quorum. Completion substitutes its admitted isolation proof only after
+new RF3 excludes that exact member; surviving voters and target still supply live
+physical inventories. Receipts retain isolation provenance and physical floors.
+Three actual peer/S3-seeded replacements exercise recycling of the two-slot book
+while the old node remains offline, with business writes after every replacement.
+
+This work exposed a route dependency: fresh repair admission required endpoints
+for every current voter, so quarantine prevented repair from starting. Placement
+now uses the complete durable node set; network routes omit explicitly isolated
+endpoints. The original voter still counts toward Raft quorum and failure-domain
+checks until committed removal. The failing reproduction remains retained.
+
+All eight affected core/host suites pass **426 cases** on that behavioral source:
+enrollment 126, catalog 12, permits 25, directory 16, host 32, execution 21,
+reads 22 and Raft units 172. Clippy then caught a test's direct filesystem call.
+Successor `bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000` changes only that retained-directory
+assertion to use the injected filesystem through the execution domain. All
+production Rust and Cargo/configuration inputs are identical. Its three isolation
+cases, all-target host Clippy with warnings denied, formatting, layout, dependency
+and documentation checks pass; the broad cohort was not repeated for this
+test-only correction.
+
+Frozen sources, logs and immutable binaries remain outside runtime data in
+checkout-private `qualification/fleet-operations/isolation-v5/` and
+`isolation-fixture-v6/`. Initial route failures, the missing test-import build and
+the Clippy failure are retained separately. No assertion, timeout or stack bound
+was relaxed. No deployed RustFS, enforced Colima limits, throughput/latency or
+soak is claimed.
+Terminal isolated-node removal, deployment fencing integration and an automatic
+controller remain separate delivery work.
+
 ## Merged-main host qualification
 
 Source `7863043eb3f91c35e8e1e4b1d82099363af6d1bc` integrates main
@@ -173,8 +214,8 @@ was relaxed to make the cases pass.
 
 ## FO-04 successful movement completion
 
-`complete_movement` now owns fresh terminal target quorum and physical inventory
-of the target and every original voter. Admission pins all possible seed
+The all-reachable `complete_movement` path owns fresh terminal target quorum and
+physical inventory of the target and every original voter. Admission pins all possible seed
 providers, including providers different from the selected quorum source.
 Canonical compact fingerprints bind every boot field within the existing 4-KiB
 catalog value bound. Completion checks locally durable completed permit sequence,
@@ -245,31 +286,28 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Close unreachable-owner movement completion before enabling automatic
-   healing. Successful completion currently requires all three original voters'
-   physical observations and locally durable completed sequence. A permanently
-   lost voter therefore retains movement debt; the two-move fleet limit would
-   eventually block further repairs. Add a distinct authenticated isolation and
-   authority-fencing proof, retain uncertain source bytes/slots, and qualify
-   repeated repairs without restart or falsely inferred worker exit. Unstarted
-   and aborted moves need their own terminal cleanup rules.
-2. Generate complete final assignments from topology intent and measured role
-   costs, then consume this verifier through owned authenticated fleet inputs.
-   Respect retired bindings, pressure deadband/cooldown and explicit keep-sets;
-   do not interpret an unproven direct recovery as universal infeasibility.
-3. Build the resumable controller around resource-backed admission and terminal
-   completion. Persist cursor/effect identity, reconcile ambiguous replies, and
-   revalidate each group and capacity scope before admitting its next permit.
-4. Deliver operator add/drain/maintenance/remove workflows on that controller,
-   then qualify RustFS/Colima at enforced resources and measure foreground
-   TPS/p99 and fault recovery. Automatic redistribution stays default-off until
-   its acceptance gates pass.
+1. Complete terminal removal for a node with admitted external isolation. Own
+   current complete inventory, stable RF3 survivor proofs and archive replay;
+   retain the quarantined disk/engine and release the shared disruption slot only
+   in a terminal CAS. Movement completion alone cannot authorize another node
+   evacuation. Also implement separate cleanup rules for aborted/unstarted moves.
+2. Deliver an owned resumable move executor around resource-backed admission,
+   learner seeding, joint completion and terminal settlement. Persist effect
+   identity/cursor, reconcile ambiguous replies and revalidate each next permit.
+   Start with explicit verified layouts; optional workload balancing need not
+   delay this execution path.
+3. Collect complete authenticated fleet inputs and generate final assignments
+   from topology intent and measured role costs. Preserve retained bindings,
+   physical headroom, keep-sets, failure domains and bounded recovery witnesses.
+   Add load-aware leader balancing and cooldown as an optional policy layer.
+4. Expose add/drain/maintenance/remove and capacity scaling through the operator
+   API/CLI, then qualify RustFS/Colima at enforced resources with foreground
+   TPS/p99 and fault recovery. Automatic redistribution remains default-off.
 
 FO-04 remains in progress. FO-05 through FO-10 retain their load policy,
 controller, maintenance, operator, capacity-scaling and deployed qualification
-scope. Passing the pure verifier proves capacity/staging witnesses under its
-model; it does not close the failed-owner runtime execution gap or complete
-those fleet features.
+scope. The isolated-owner movement boundary closes repeated repair settlement;
+it does not complete terminal isolated-node removal or an automatic controller.
 
 ## Historical implementation checkpoints
 

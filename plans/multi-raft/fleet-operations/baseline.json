@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "f180adede52266ea30543386c6f83868eaef82c2",
+  "revision": "bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -56,11 +56,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "69dd8260b6761193aae45468df14f8c1bf9b0f032c377e7e992c951dec08db2e"
+      "sha256": "f8a9e3af3ed2670e669f721593269f4127ab09df6f73bbaa2862e300d60be5ee"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "e874538b92422cc51302a774d2a76d5f3e9400680564fc95d80c76f393b4d2e5"
+      "sha256": "9d410f18e169feb8d71cabe371492efb416ab34e4852c58c0df190d9a5c25f91"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -140,7 +140,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_membership.rs",
-      "sha256": "7de253a470caff6d4e7252ddb2644a107126545aed5bfbbf88068effb05cf518"
+      "sha256": "ece36f2f8d1f0f099cfa3b56cc6214d60070bc9e9bc42469cdbc90c42b15521d"
     },
     {
       "path": "crates/cellar/durability/raft/host_standby.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Reviewed main d3206c92 integration and additive explicit topology verification. Source 3af38b41 passes 66 public core cases including 15 topology cases and the 400-pair matrix, core Clippy, downstream host-library build and repository checks. Parent 82221ec0 retains ten native movement and host all-target Clippy passes. Broad source 7863043e retains 569 core/Raft, nine storage/limit and 20 streamed LTX passes; its one directory timeout remains separately retained alongside unchanged-binary repeats. FO-01 through FO-03 complete at local adapter boundaries; FO-04 remains in progress. Next healing prerequisite: isolation/fencing-backed completion of unreachable original owners without freeing uncertain physical footprint. Automatic assignment, controller and operator workflows and FO-05 through FO-10 remain unfinished. No deployed RustFS, enforced Colima resources, TPS/p99 or soak qualification."
+  "review_note": "Reviewed main d3206c92 and exact-boot isolation for successful obsolete-voter repairs. Full durable membership still governs placement/quorum while network routes omit quarantined endpoints. Terminal isolated-node removal, owned controller execution, assignment generation and operator workflows remain unfinished; automatic fleet management stays default-off. Local source qualification is retained outside runtime data. No deployed RustFS, enforced Colima resources, TPS/p99 or soak qualification. Behavioral source 3834c560e1215f7555ec796a50265df7f1a497f6 passes 426 affected core/host cases. Final test-only filesystem successor bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000 passes three focused isolation cases, host all-target Clippy and repository checks. Production/configuration hashes are unchanged; broad regression was not repeated for the test-only correction."
 }
