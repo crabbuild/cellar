@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -599,13 +599,14 @@ acknowledgement calls this component.
 ### Successful movement completion
 
 `complete_movement` owns a new target safe ReadIndex and complete physical
-observations of the target and all three original voters. Admission pins every
+observations of the target and all reachable original voters, with the distinct
+isolation boundary below for a removed voter. Admission pins every
 possible seed provider's exact boot and member, even when the learner selects a
 different source from admission's quorum observer. Compact canonical boot
 fingerprints bind every boot field while preserving the catalog's 4-KiB value
 bound; observations must resolve to those exact boots at the unchanged root.
 Completion requires the exact latest permit, locally
-durable Complete phase at its consumed sequence on all four owners, stable RF3 with
+durable Complete phase at its consumed sequence on every physically observed owner, stable RF3 with
 the replacement present and obsolete member absent, current enrollment and
 failure-domain separation. The original deadline covers every probe and CAS;
 the full probe cohort must remain within the five-second sample bound.
@@ -630,9 +631,43 @@ retries reconcile before live prerequisites, including after target shutdown;
 changed request payloads refuse.
 
 This boundary completes successful moves only. Aborted or unstarted moves,
-unreachable/rebooted owners and uncertain physical work retain their debt. Their
-terminal cleanup, complete assignment planner and automatic reconciliation remain
-subsequent implementation work. Completion is not a deletion or capacity lease.
+unreachable owners without isolation evidence, rebooted owners and uncertain
+physical work retain their debt. Their terminal cleanup, complete assignment
+planner and automatic reconciliation remain subsequent implementation work.
+Completion is not a deletion or capacity lease.
+
+### Isolated obsolete owners
+
+`attest_node_isolation` consumes trusted deployment evidence after
+`begin_evacuation` has rooted the node's exclusion and claimed the disruption
+slot. The deployment adapter must establish that the exact process and all its
+execution workers have stopped and cannot restart. Cellar validates the exact
+catalog/fleet/node/disk/engine/boot/process/epoch/join-key binding and canonical
+request; it does not independently verify the external platform. A missed
+heartbeat, failed RPC, elapsed deadline or health sample is insufficient.
+
+One root CAS stores the permanent evidence reference/digest and quarantines the
+node. Saved startup capabilities, later boots and transport admissions refuse;
+generic mutations cannot erase the receipt, clear quarantine or change its boot.
+A lost confirmation reconciles the exact original journal before current live
+prerequisites. Changed evidence under the same request identity conflicts.
+
+A resource-backed repair can pin the quarantined obsolete voter while obtaining
+fresh quorum from surviving voters. Route construction omits only an explicitly
+quarantined endpoint; placement validation still uses the full durable membership,
+including that voter's node and failure domain. Raft configuration and quorum
+thresholds do not change until the membership protocol commits them.
+
+Successful movement completion can substitute the admitted isolation proof only
+for the exact original obsolete boot, after fresh target quorum proves that
+member absent from stable RF3. All surviving original voters and the target
+still require current physical inventory and worker-exit proof. The completion
+receipt records `isolated_sources`, including on exact retries; its source digest
+distinguishes live observations from isolation evidence. Source storage remains
+retained and charged. This is not a signed graceful closure, an evacuation
+certificate, permission to erase a volume, or release of the fleet disruption
+slot. Terminal isolated-node removal and the production deployment isolation
+adapter remain separate delivery work.
 
 ## Complete physical history observation
 

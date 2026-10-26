@@ -51,21 +51,46 @@ fn join_endpoint(
         .validate_endpoint()
         .map_err(|_| CommandFailure::UnsupportedCapability)?;
     if endpoint.disk != member.disk
-        || route(
-            &cell.group,
-            &cell.birth,
-            &driver.peers,
-            cell.schema_digest,
-            &driver.label,
-            &driver.transport,
-        )?
-        .peers
-        .iter()
-        .any(|p| p.replica.node == member.node)
+        || placement_nodes(&cell.group, &cell.birth)?.contains(&member.node)
     {
         return Err(CommandFailure::CommandConflict);
     }
     Ok(())
+}
+
+pub(super) fn placement_nodes(
+    group: &GroupLog,
+    birth: &GroupBirth,
+) -> Result<Vec<NodeId>, CommandFailure> {
+    let cache = group.read().map_err(|_| CommandFailure::CorruptState)?;
+    super::super::member_state::members(&cache.conf_state)
+        .into_iter()
+        .map(|id| {
+            let member = MemberId::new(id).map_err(|_| CommandFailure::CorruptState)?;
+            member_node(&cache.membership, birth, member)
+        })
+        .collect()
+}
+
+fn member_node(
+    membership: &crate::raft::member_state::GroupMembership,
+    birth: &GroupBirth,
+    member: MemberId,
+) -> Result<NodeId, CommandFailure> {
+    if let Some((joined, _)) = membership
+        .joined(member)
+        .map_err(|_| CommandFailure::CorruptState)?
+    {
+        Ok(joined.node)
+    } else {
+        birth
+            .voters()
+            .iter()
+            .chain(birth.learners())
+            .find(|m| m.member == member)
+            .map(|m| m.node)
+            .ok_or(CommandFailure::CorruptState)
+    }
 }
 
 pub(super) fn route(
@@ -86,17 +111,7 @@ pub(super) fn route(
         let joined = membership
             .joined(member)
             .map_err(|_| CommandFailure::CorruptState)?;
-        let node = if let Some((joined, _)) = &joined {
-            joined.node
-        } else {
-            birth
-                .voters()
-                .iter()
-                .chain(birth.learners())
-                .find(|m| m.member == member)
-                .ok_or(CommandFailure::CorruptState)?
-                .node
-        };
+        let node = member_node(&membership, birth, member)?;
         if member == group.identity().member {
             if node != group.identity().node || !membership.permits(group.identity()) {
                 return Err(CommandFailure::CorruptState);
@@ -125,6 +140,12 @@ pub(super) fn route(
                     .map_or_else(|| transport.query_address(), |peer| peer.query_address),
             });
         } else {
+            if transport
+                .node_isolated(node)
+                .map_err(|_| CommandFailure::Unavailable)?
+            {
+                continue;
+            }
             let peer = peers.get(&node).ok_or(CommandFailure::Unavailable)?;
             if joined
                 .as_ref()

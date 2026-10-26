@@ -39,6 +39,7 @@ pub(super) struct Completion {
     pub permit: [u8; 32],
     pub target_inventory: [u8; 32],
     pub source_inventory: [u8; 32],
+    pub isolated_sources: Vec<[u8; 16]>,
     pub membership_revision: u64,
     pub barrier: u64,
     pub physical: FleetResourceBounds,
@@ -62,6 +63,8 @@ impl Completion {
             ]
             .contains(&[0; 32])
             || value.membership_revision == 0
+            || value.isolated_sources.len() > 1
+            || value.isolated_sources.contains(&[0; 16])
             || value.barrier < value.membership_revision
             || value.physical.high_water(value.request.attestation.used) != value.physical
         {
@@ -71,7 +74,22 @@ impl Completion {
     }
 
     fn matches(&self, row: &Record) -> Result<()> {
+        let obsolete = row
+            .request
+            .movement
+            .as_ref()
+            .ok_or_else(invalid)?
+            .plan()?
+            .obsolete
+            .get();
         if self.request.reservation != row.request.identity.id
+            || self.isolated_sources.iter().any(|node| {
+                row.seed_owners.as_ref().is_none_or(|owners| {
+                    !owners
+                        .iter()
+                        .any(|owner| owner.node == *node && owner.member == obsolete)
+                })
+            })
             || self.request.identity.operation != row.request.identity.operation
             || self.request.attestation.boot != row.request.attestation.boot
             || self.request.attestation.profile_revision != row.request.attestation.profile_revision

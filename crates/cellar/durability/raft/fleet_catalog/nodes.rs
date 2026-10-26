@@ -84,6 +84,9 @@ pub(super) struct NodeRecord {
     pub(super) storage_instance: Option<[u8; 16]>,
     #[serde(deserialize_with = "required_nullable")]
     pub(super) boot: Option<super::boots::Boot>,
+    /// Permanent exact-boot quarantine, linked to its admitted isolation record.
+    #[serde(deserialize_with = "required_nullable")]
+    pub(super) isolation: Option<[u8; 16]>,
 }
 
 fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
@@ -158,6 +161,20 @@ impl NodeRecord {
                 return Err(FleetCatalogError::Corrupt("boot without engine"));
             }
         }
+        if let Some(id) = self.isolation {
+            ProposalId::new(id).map_err(|_| identity())?;
+            if self.boot.is_none()
+                || !matches!(
+                    self.state,
+                    FleetNodeState::Draining
+                        | FleetNodeState::Finalizing
+                        | FleetNodeState::Evacuated
+                        | FleetNodeState::Removed
+                )
+            {
+                return Err(FleetCatalogError::Corrupt("isolated node state"));
+            }
+        }
         let operating = matches!(
             self.state,
             FleetNodeState::RestartPending
@@ -203,6 +220,7 @@ impl NodeRecord {
         normalized.state = origin.state;
         normalized.operation = origin.operation;
         normalized.epoch = origin.epoch;
+        normalized.isolation = origin.isolation;
         normalized == *origin
     }
 
@@ -210,6 +228,7 @@ impl NodeRecord {
         let mut normalized = self.clone();
         normalized.epoch = origin.epoch;
         normalized.boot = origin.boot.clone();
+        normalized.isolation = origin.isolation;
         normalized == *origin && self.epoch >= origin.epoch
     }
 
@@ -264,6 +283,10 @@ impl fmt::Debug for FleetHostAuthorization {
 }
 
 impl FleetHostAuthorization {
+    pub(crate) fn is_isolated(&self) -> bool {
+        self.record.isolation.is_some()
+    }
+
     pub(crate) fn boot_binding(&self) -> Result<crate::raft::fleet_stop::BootBinding> {
         self.record
             .boot_binding(self.catalog.birth_owner()?.catalog)
@@ -370,7 +393,9 @@ impl FleetHostAuthorization {
     }
 
     pub(crate) fn permits_transport(&self) -> bool {
-        self.state() != FleetNodeState::Removed && self.storage_instance.is_some()
+        self.state() != FleetNodeState::Removed
+            && self.storage_instance.is_some()
+            && self.record.isolation.is_none()
     }
 
     pub(crate) fn matches_peer(&self, peer: &crate::raft::transport_options::RaftPeerNode) -> bool {
@@ -523,6 +548,7 @@ impl FleetHostAuthorization {
             || a.registration_operation != b.registration_operation
             || a.storage_instance.is_some() && a.storage_instance != b.storage_instance
             || b.epoch < a.epoch
+            || a.isolation.is_some() && a.isolation != b.isolation
         {
             return Err(FleetCatalogError::Conflict);
         }
@@ -531,6 +557,9 @@ impl FleetHostAuthorization {
 
     fn require_running_successor(&self, current: &Self) -> Result<()> {
         self.require_successor(current)?;
+        if current.record.isolation.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
         if self.record.boot.is_some() && self.record.boot != current.record.boot {
             return Err(FleetCatalogError::Conflict);
         }
@@ -658,6 +687,7 @@ impl FleetCatalog {
             operation: None,
             storage_instance: spec.storage_instance.map(|id| id.bytes()),
             boot: None,
+            isolation: None,
         };
         record
             .validate(&self.inner)
@@ -749,7 +779,7 @@ impl FleetCatalog {
         node: NodeId,
     ) -> Result<FleetHostAuthorization> {
         let current = self.host_from_record(snapshot, node).await?;
-        if !current.state().permits_boot() {
+        if !current.state().permits_boot() || current.record.isolation.is_some() {
             return Err(FleetCatalogError::Conflict);
         }
         Ok(current)

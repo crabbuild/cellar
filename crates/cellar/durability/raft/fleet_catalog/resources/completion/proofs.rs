@@ -12,7 +12,7 @@ impl FleetCatalog {
         row: &Record,
         quorum: &RaftPeerFleetMembershipObservation,
         target: &RaftPeerNodeObservation,
-        sources: &[RaftPeerNodeObservation],
+        sources: &[OwnerClosure],
     ) -> Result<()> {
         let permit = row.permit.as_ref().ok_or_else(invalid)?;
         let scope = permit.binding().scope().map_err(|_| invalid())?;
@@ -89,7 +89,25 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Unconfirmed);
         }
         let mut bindings = Vec::with_capacity(3);
-        for (sample, owner) in sources.iter().zip(owners) {
+        for (closure, owner) in sources.iter().zip(owners) {
+            let sample = match closure {
+                OwnerClosure::Observed(sample) => sample.as_ref(),
+                OwnerClosure::Isolated(proof) => {
+                    // Only the obsolete owner may be absent. Its exact boot
+                    // was pinned before this move and permanently quarantined.
+                    if owner.member != plan.obsolete.get() || !owner.matches(&proof.boot)? {
+                        return Err(FleetCatalogError::Unconfirmed);
+                    }
+                    let host = self
+                        .host_from_record(snapshot, NodeId::new(owner.node).map_err(|_| invalid())?)
+                        .await?;
+                    let current = self.confirm_node_isolation(snapshot, &host.record).await?;
+                    if current.boot != proof.boot || current.digest != proof.digest {
+                        return Err(FleetCatalogError::Unconfirmed);
+                    }
+                    continue;
+                }
+            };
             let boot = sample
                 .view
                 .fleet_boot

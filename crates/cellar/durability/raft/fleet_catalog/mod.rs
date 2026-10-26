@@ -9,6 +9,7 @@ mod finalization;
 mod histories;
 mod imports;
 mod index;
+mod isolation;
 mod namespaces;
 mod nodes;
 mod permits;
@@ -29,6 +30,7 @@ pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
+pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
 pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
@@ -361,6 +363,8 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
+        self.check_isolation_mutation(snapshot, mutation, movement)
+            .await?;
         self.check_resource_mutation(snapshot, mutation, movement)
             .await?;
         self.inner

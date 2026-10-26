@@ -466,11 +466,15 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Conflict);
         }
         if current != record.node {
-            let boot = current.boot.as_ref().ok_or(FleetCatalogError::Conflict)?;
-            if current.epoch != boot.epoch || boot.epoch <= record.node.epoch {
-                return Err(FleetCatalogError::Conflict);
+            if current.isolation.is_some() {
+                self.confirm_node_isolation(snapshot, &current).await?;
+            } else {
+                let boot = current.boot.as_ref().ok_or(FleetCatalogError::Conflict)?;
+                if current.epoch != boot.epoch || boot.epoch <= record.node.epoch {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.confirm_boot(snapshot, &current).await?;
             }
-            self.confirm_boot(snapshot, &current).await?;
         }
         // active_disruption already checked this exact original journal link.
         let applied = record

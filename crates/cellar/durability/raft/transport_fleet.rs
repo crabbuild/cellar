@@ -18,12 +18,30 @@ impl Registry {
 }
 
 impl RaftTransport {
+    /// Routing may omit a permanently quarantined member. Its Raft vote and
+    /// physical placement still belong to the durable configuration until a
+    /// quorum commits removal. Missing discovery alone is never sufficient.
+    pub(crate) fn node_isolated(&self, node: NodeId) -> Result<bool, TransportError> {
+        let registry = self
+            .handle
+            .0
+            .registry
+            .lock()
+            .map_err(|_| TransportError::Closed)?;
+        Ok(registry
+            .fleet_trust
+            .as_ref()
+            .and_then(|trust| trust.node(node))
+            .is_some_and(|node| node.is_isolated()))
+    }
+
     /// Check a fresh learner against the installed rooted contract and actual
     /// durable configuration. Exclusions preserve old voters' transport and
     /// quorum obligations; only the proposed target must accept new placement.
     pub(crate) fn check_fleet_placement(
         &self,
-        route: &GroupRoute,
+        scope: &GroupScope,
+        members: &[NodeId],
         target: &JoiningMember,
         minimum_revision: u64,
     ) -> Result<(), TransportError> {
@@ -37,7 +55,7 @@ impl RaftTransport {
         if trust.revision() < minimum_revision {
             return Err(TransportError::StalePeer);
         }
-        if route.scope.cluster != trust.cluster() {
+        if scope.cluster != trust.cluster() {
             return Err(TransportError::Refused);
         }
         let destination = trust.node(target.node).ok_or(TransportError::Refused)?;
@@ -49,12 +67,7 @@ impl RaftTransport {
         }
         let mut nodes = BTreeSet::new();
         let mut hosts = BTreeSet::new();
-        for node in route
-            .peers
-            .iter()
-            .map(|peer| peer.replica.node)
-            .chain(std::iter::once(target.node))
-        {
+        for node in members.iter().copied().chain(std::iter::once(target.node)) {
             let enrolled = trust.node(node).ok_or(TransportError::Refused)?;
             if !nodes.insert(node)
                 || trust.replica_separation() == FleetReplicaSeparation::PhysicalHosts

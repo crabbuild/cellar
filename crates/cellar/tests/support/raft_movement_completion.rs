@@ -491,3 +491,6 @@ async fn fleet_movement_completion_unreachable_other_seed_owner_retains_debt() -
     ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
     s.close().await
 }
+
+#[path = "raft_movement_isolation.rs"]
+mod isolation_tests;

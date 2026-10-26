@@ -3,11 +3,18 @@
 //! Terminal quorum plus physical work exit, ordered with retained floors.
 mod proofs;
 mod records;
+use super::super::isolation::IsolationProof;
 use super::records::{Book, Record, Reference};
 use super::*;
 use crate::application::consensus::RaftCells;
+use crate::raft::host::RaftPeerNodeObservation;
 use cellar_logic::consensus::ProposalId;
 use records::{Completion, Floor};
+
+enum OwnerClosure {
+    Observed(Box<RaftPeerNodeObservation>),
+    Isolated(IsolationProof),
+}
 
 const COMPLETE_PREFIX: &str = "resource-completion/";
 const FLOOR_PREFIX: &str = "resource-floor/";
@@ -28,9 +35,16 @@ pub struct FleetMovementCompletion {
     reservation: [u8; 16],
     applied: u64,
     observed: u64,
+    isolated_sources: Vec<[u8; 16]>,
 }
 
 impl FleetMovementCompletion {
+    /// Removed seed owners closed by trusted deployment isolation, rather than
+    /// a live physical-inventory probe. Their retained storage remains charged.
+    pub fn isolated_sources(&self) -> &[[u8; 16]] {
+        &self.isolated_sources
+    }
+
     pub fn reservation(&self) -> [u8; 16] {
         self.reservation
     }
@@ -82,12 +96,13 @@ impl FleetCatalog {
             .run(deadline.remaining()?, async {
                 let current = self.inner.current().await?;
                 let previous = self.completion_request(request).await?;
-                if let Some((mutation, _)) = &previous {
+                if let Some((mutation, record)) = &previous {
                     if let Some(applied) = self.resource_applied(&current, mutation).await? {
                         return Ok(Err(FleetMovementCompletion {
                             reservation: request.reservation,
                             applied,
                             observed: current.revision(),
+                            isolated_sources: record.isolated_sources.clone(),
                         }));
                     }
                 }
@@ -156,27 +171,55 @@ impl FleetCatalog {
             .inspect_peer_physical_inventory(row.node, snapshot.revision(), deadline.remaining()?)
             .await
             .map_err(FleetCatalogError::Observation)?;
-        // Every original voter may have served this learner. Pin and probe all
-        // of them, including a now-retired obsolete member; selected ReadIndex
-        // provenance does not restrict the physical seed source.
+        // Every original voter may have served this learner. A permanently
+        // isolated obsolete voter can substitute rooted platform evidence for
+        // its physical probe. Surviving voters must still answer live probes.
         let owners = row.seed_owners.as_ref().ok_or_else(invalid)?;
+        let obsolete = row
+            .request
+            .movement
+            .as_ref()
+            .ok_or_else(invalid)?
+            .plan()?
+            .obsolete
+            .get();
         let mut sources = Vec::with_capacity(owners.len());
         for owner in owners {
-            sources.push(
-                observer
-                    .inspect_peer_physical_inventory(
-                        NodeId::new(owner.node).map_err(|_| invalid())?,
-                        snapshot.revision(),
+            let node = NodeId::new(owner.node).map_err(|_| invalid())?;
+            let host = self
+                .run(deadline.remaining()?, self.host_from_record(snapshot, node))
+                .await?;
+            if host.record.isolation.is_some() {
+                if owner.member != obsolete {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let proof = self
+                    .run(
                         deadline.remaining()?,
+                        self.confirm_node_isolation(snapshot, &host.record),
                     )
-                    .await
-                    .map_err(FleetCatalogError::Observation)?,
-            );
+                    .await?;
+                sources.push(OwnerClosure::Isolated(proof));
+            } else {
+                sources.push(OwnerClosure::Observed(Box::new(
+                    observer
+                        .inspect_peer_physical_inventory(
+                            node,
+                            snapshot.revision(),
+                            deadline.remaining()?,
+                        )
+                        .await
+                        .map_err(FleetCatalogError::Observation)?,
+                )));
+            }
         }
         self.require_resource_age(probe_started)?;
         if [quorum.sample_age_ms(), target.sample_age_ms]
             .into_iter()
-            .chain(sources.iter().map(|source| source.sample_age_ms))
+            .chain(sources.iter().filter_map(|source| match source {
+                OwnerClosure::Observed(sample) => Some(sample.sample_age_ms),
+                OwnerClosure::Isolated(_) => None,
+            }))
             .any(|age| age > MAX_SAMPLE_AGE_MS)
         {
             return Err(FleetCatalogError::Unconfirmed);
@@ -223,16 +266,32 @@ impl FleetCatalog {
                 source_inventory: {
                     let mut digests = b"cellar-completed-seed-owners-1".to_vec();
                     for source in &sources {
-                        digests.extend_from_slice(
-                            &source
-                                .inventory
-                                .as_ref()
-                                .ok_or(FleetCatalogError::Unconfirmed)?
-                                .digest(),
-                        );
+                        match source {
+                            OwnerClosure::Observed(source) => {
+                                digests.push(0);
+                                digests.extend_from_slice(
+                                    &source
+                                        .inventory
+                                        .as_ref()
+                                        .ok_or(FleetCatalogError::Unconfirmed)?
+                                        .digest(),
+                                );
+                            }
+                            OwnerClosure::Isolated(proof) => {
+                                digests.push(1);
+                                digests.extend_from_slice(&proof.digest);
+                            }
+                        }
                     }
                     hash(&digests)
                 },
+                isolated_sources: sources
+                    .iter()
+                    .filter_map(|source| match source {
+                        OwnerClosure::Isolated(proof) => Some(proof.boot.node),
+                        OwnerClosure::Observed(_) => None,
+                    })
+                    .collect(),
                 membership_revision: quorum.membership().membership_revision().get(),
                 barrier: quorum.membership().barrier().get(),
                 physical,
@@ -291,6 +350,7 @@ impl FleetCatalog {
                 reservation: request.reservation,
                 applied,
                 observed: committed.snapshot.revision(),
+                isolated_sources: record.isolated_sources,
             })
         })
         .await

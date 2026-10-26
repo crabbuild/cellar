@@ -25,37 +25,45 @@ impl Setup {
     }
 
     async fn with_capacity(qualified: bool, capacity: u32) -> Result<Self> {
+        Self::with_histories(qualified, capacity, 2).await
+    }
+
+    async fn with_histories(qualified: bool, capacity: u32, histories: u8) -> Result<Self> {
         let f = Fixture::with_managed_births(true).await?;
         let nodes = fleet(&f).await?;
         let (namespace, _) = initial_birth(&f).await?;
         let (first, _) = birth(&f).await?;
-        let mut second = first.clone();
-        second.scope.cell = "Counter:resource-second".into();
-        second.scope.group = GroupId::new([83; 16])?;
-        let cut = f.catalog.read(TIMEOUT).await?;
-        let pending = f
-            .catalog
-            .reserve_birth(
-                &cut,
-                &Fixture::request(132, cut.revision()),
-                &namespace,
-                second.clone(),
-                TIMEOUT,
-            )
-            .await?;
-        f.domain
-            .run(namespace.resolve_managed_birth(&pending.authorization, TIMEOUT))
-            .await??;
-        let cut = f.catalog.read(TIMEOUT).await?;
-        f.catalog
-            .confirm_birth(
-                &cut,
-                &Fixture::request(133, cut.revision()),
-                &namespace,
-                &pending.authorization,
-                TIMEOUT,
-            )
-            .await?;
+        let mut proposals = vec![first.clone()];
+        for index in 1..histories {
+            let mut second = first.clone();
+            second.scope.cell = format!("Counter:resource-{index}");
+            second.scope.group = GroupId::new([82 + index; 16])?;
+            let cut = f.catalog.read(TIMEOUT).await?;
+            let pending = f
+                .catalog
+                .reserve_birth(
+                    &cut,
+                    &Fixture::request(130 + index * 2, cut.revision()),
+                    &namespace,
+                    second.clone(),
+                    TIMEOUT,
+                )
+                .await?;
+            f.domain
+                .run(namespace.resolve_managed_birth(&pending.authorization, TIMEOUT))
+                .await??;
+            let cut = f.catalog.read(TIMEOUT).await?;
+            f.catalog
+                .confirm_birth(
+                    &cut,
+                    &Fixture::request(131 + index * 2, cut.revision()),
+                    &namespace,
+                    &pending.authorization,
+                    TIMEOUT,
+                )
+                .await?;
+            proposals.push(second);
+        }
         let spec = f.peer_spec(7)?;
         let cut = f.catalog.read(TIMEOUT).await?;
         let registered = f
@@ -106,7 +114,7 @@ impl Setup {
             target_node,
             target,
             namespace,
-            proposals: vec![first, second],
+            proposals,
         })
     }
 

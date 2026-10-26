@@ -12,6 +12,7 @@ pub(super) enum Authority {
     None,
     Admission,
     Completion,
+    Isolation,
 }
 mod movement;
 mod records;

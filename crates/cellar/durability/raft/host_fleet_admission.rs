@@ -36,16 +36,9 @@ impl Driver {
         {
             return Ok(());
         }
-        let route = super::membership::route(
-            &cell.group,
-            &cell.birth,
-            &self.peers,
-            cell.schema_digest,
-            &self.label,
-            &self.transport,
-        )?;
+        let members = super::membership::placement_nodes(&cell.group, &cell.birth)?;
         self.transport
-            .check_fleet_placement(&route, &plan.replacement, minimum_revision)
+            .check_fleet_placement(scope, &members, &plan.replacement, minimum_revision)
             .map_err(|error| match error {
                 super::super::transport::TransportError::Identity
                 | super::super::transport::TransportError::Refused => {

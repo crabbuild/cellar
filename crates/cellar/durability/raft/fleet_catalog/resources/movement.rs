@@ -348,7 +348,15 @@ impl FleetCatalog {
                 )
                 .map_err(|_| invalid())?,
             };
-            let voter = self.host_from(snapshot, node).await?;
+            let voter = self.host_from_record(snapshot, node).await?;
+            if voter.record.isolation.is_some() {
+                if member != plan.obsolete {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                self.confirm_node_isolation(snapshot, &voter.record).await?;
+            } else {
+                self.host_from(snapshot, node).await?;
+            }
             owners.push(MovementOwner::new(&voter.boot_binding()?, member)?);
             if !nodes.insert(node)
                 || snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts
