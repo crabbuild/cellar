@@ -56,7 +56,18 @@ async fn finish(
             let mut phases = Vec::new();
             for _ in 0..64 {
                 let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
-                let cut = catalog.read(TIMEOUT).await?;
+                let cut = match catalog.read(TIMEOUT).await {
+                    Ok(cut) => cut,
+                    Err(
+                        FleetCatalogError::Storage(_)
+                        | FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded,
+                    ) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
                 match catalog
                     .reconcile_movement(&cut, request, observer, TIMEOUT)
                     .await
@@ -71,7 +82,8 @@ async fn finish(
                     Err(
                         FleetCatalogError::Overloaded
                         | FleetCatalogError::Unconfirmed
-                        | FleetCatalogError::Conflict,
+                        | FleetCatalogError::Conflict
+                        | FleetCatalogError::Storage(_),
                     ) => (),
                     Err(error) => return Err(error.into()),
                 }
@@ -84,6 +96,11 @@ async fn finish(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_executor_remote_s3_move_recovers_lost_settlement() -> Result<()> {
+    // Keep composed fixture startup off the standard native harness stack.
+    Box::pin(remote_s3_case()).await
+}
+
+async fn remote_s3_case() -> Result<()> {
     let s = Box::pin(Setup::with_capacity(true, 2)).await?;
     let (cells, _) = running(&s).await?;
     let (p, movement, _) = reserved(&s, &cells).await?;
