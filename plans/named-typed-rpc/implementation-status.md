@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | Admission head `8ad7882c` passes hosted typed-RPC lifecycle and Python examples. The repeatable Linux-only published-container timeout at `8fa1acb0` and `8ad7882c` exposes a fixture port/address mismatch; the corrected direct-IP fixture needs its own hosted results. SDK GIL/free-threaded rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
+| P0 — hosted verification | New-head hosted verification | Linux head `f0a717ee` passes all four published-module tests and typed-RPC lifecycle. The JS job then reaches a second fixed-port fixture mismatch in the Workers WebSocket test; its endpoint correction passes locally and awaits Linux verification. SDK GIL/free-threaded rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -74,7 +74,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
-- **Published-container CI topology correction, awaiting Linux verification.**
+- **Published-container Linux correction verified; WebSocket follow-up pending.**
   The unchanged published module declares container port 8080. Native Docker
   routing on Linux uses the inspected container IP and that port, while macOS
   uses published host-port mappings. The old mock advertises `127.0.0.1:8080`
@@ -92,10 +92,18 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   bridge matrix pass locally. The latter includes HTTP/storage/SQL/alarm,
   cancellation, restart, remote routing, handoff, shutdown and both process-kill/
   disk-deletion watchdog recovery cases. JS all-target Clippy and the affected
-  native/Python test-target Clippy checks pass. Linux CI remains the required
-  platform proof.
+  native/Python test-target Clippy checks pass. Hosted JS run `40353259801` at
+  `f0a717ee` passes all four module tests, including the unchanged published
+  application and the two-peer endpoint regression. Typed-RPC lifecycle run
+  `40353259691` also passes. The JS job then fails the Workers WebSocket fixture's
+  first `/open`: that fixture also requests port 8080 but still starts its peer
+  on an ephemeral port. Use the same declared-port peer there; the original
+  WebSocket integration passes locally with its assertions and budgets intact.
+  Its Linux verification remains pending; this is the only other fixed-port
+  caller found in the compatibility fixtures.
   Evidence: `.cellar/rpc/diagnostics/workers-module-repeat100/status.json` and
-  `/tmp/cellar-workers-port-*`. The separate native 250 ms regression timing
+  `/tmp/cellar-workers-port-*` and `/tmp/cellar-rpc-workers-websocket-port.log`.
+  The separate native 250 ms regression timing
   failures remain unresolved.
 
 - **V8 admission now precedes native request allocation.** A real-isolate

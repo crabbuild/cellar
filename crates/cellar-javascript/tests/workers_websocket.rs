@@ -50,7 +50,7 @@ async fn run(
     path: &std::path::Path,
     application: Arc<cellar_javascript::JavaScriptApplication>,
 ) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     let (node, address) =
         native::start_configured(path, application.clone(), |config, services, graph| {
             peer.configure(config, services, graph)
