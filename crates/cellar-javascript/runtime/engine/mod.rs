@@ -490,7 +490,36 @@ fn function<'s>(
         .context("JavaScript runtime function missing")
 }
 
+#[derive(Debug)]
+struct ExecutionInterrupted(&'static str);
+
+impl std::fmt::Display for ExecutionInterrupted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "JavaScript engine turn exceeded execution budget{}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for ExecutionInterrupted {}
+
 pub(super) fn run(
+    runtime: Arc<Runtime>,
+    source: Source,
+    starts: mpsc::Receiver<Start>,
+    replies: mpsc::Receiver<Reply>,
+    ready: mpsc::SyncSender<Result<()>>,
+) -> Result<()> {
+    let result = run_engine(runtime.clone(), source, starts, replies, ready);
+    match result {
+        Err(error) if runtime.shutdown_requested() && error.is::<ExecutionInterrupted>() => Ok(()),
+        result => result,
+    }
+}
+
+fn run_engine(
     runtime: Arc<Runtime>,
     source: Source,
     starts: mpsc::Receiver<Start>,
@@ -518,10 +547,11 @@ pub(super) fn run(
             if deadline.is_some_and(|end| {
                 watchdog_runtime.closed.load(Ordering::Acquire) || Instant::now() >= end
             }) {
+                // Publish the cause before interrupting: the host can return
+                // as soon as V8 unwinds. Preserve an earlier requested stop.
+                watchdog_runtime.record_stop(StopReason::Failure);
                 handle.terminate_execution();
-                if deadline.is_some() {
-                    watchdog_runtime.close();
-                }
+                watchdog_runtime.close();
             }
         }
     });
@@ -721,9 +751,7 @@ pub(super) fn run(
             let result = dispatch.call(turn, undefined.into(), &[token.into(), value.into(), body]);
             let result = result.ok_or_else(|| {
                 if turn.is_execution_terminating() {
-                    anyhow::anyhow!(
-                        "JavaScript engine turn exceeded execution budget during dispatch"
-                    )
+                    anyhow::Error::new(ExecutionInterrupted(" during dispatch"))
                 } else {
                     anyhow::anyhow!("JavaScript dispatch failed")
                 }
@@ -736,10 +764,9 @@ pub(super) fn run(
         // Clear ambient authority; queued continuations restore their own IDs.
         turn.set_continuation_preserved_embedder_data(undefined.into());
         turn.perform_microtask_checkpoint();
-        ensure!(
-            !turn.is_execution_terminating(),
-            "JavaScript engine turn exceeded execution budget"
-        );
+        if turn.is_execution_terminating() {
+            return Err(ExecutionInterrupted("").into());
+        }
 
         let mut backgrounds = HashMap::new();
         if source.workers_lifetimes {
@@ -840,15 +867,13 @@ pub(super) fn run(
             let cancel = v8::Local::new(turn, &cancel);
             let id = v8::Number::new(turn, *id as f64);
             let cancelled = cancel.call(turn, undefined.into(), &[id.into()]);
-            ensure!(
-                cancelled.is_some(),
-                "{}",
-                if turn.is_execution_terminating() {
-                    "JavaScript engine turn exceeded execution budget during lifetime cancellation"
+            if cancelled.is_none() {
+                return Err(if turn.is_execution_terminating() {
+                    ExecutionInterrupted(" during lifetime cancellation").into()
                 } else {
-                    "JavaScript lifetime cancellation failed"
-                }
-            );
+                    anyhow::anyhow!("JavaScript lifetime cancellation failed")
+                });
+            }
         }
         let abandoned = {
             let mut state = state.borrow_mut();
@@ -881,16 +906,19 @@ pub(super) fn run(
             state.borrow_mut().objects.remove(&id);
             let id = v8::Number::new(turn, id as f64);
             let retire = v8::Local::new(turn, &retire);
-            retire
-                .call(turn, undefined.into(), &[id.into()])
-                .context("JavaScript object retirement failed")?;
+            if retire.call(turn, undefined.into(), &[id.into()]).is_none() {
+                return Err(if turn.is_execution_terminating() {
+                    ExecutionInterrupted(" during object retirement").into()
+                } else {
+                    anyhow::anyhow!("JavaScript object retirement failed")
+                });
+            }
         }
         *deadline.lock().unwrap() = None;
         std::thread::sleep(Duration::from_millis(1));
     }
-    ensure!(
-        !scope.is_execution_terminating(),
-        "JavaScript runtime terminated"
-    );
+    if scope.is_execution_terminating() {
+        return Err(ExecutionInterrupted(" while stopping").into());
+    }
     Ok(())
 }

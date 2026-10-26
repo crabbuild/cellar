@@ -1214,3 +1214,26 @@ validates both Python targets, adapter all-target Clippy passes, and format/layo
 (1,156 Rust sources), docs (808 local references) and the native dependency guard
 pass. This merge adds examples/manifests; it does not resolve the runtime failures
 recorded above.
+
+### Qualification follow-up after PR #117
+
+The follow-up starts from merged `main` at `80026d16`. A deterministic V8
+regression now closes the host during an unacknowledged synchronous native
+mutation, catches cancellation in the guest and continues running. Before the
+fix, requested interruption returned an execution-budget error. The runtime now
+retains the first stop cause and treats only a typed V8 interruption caused by
+an explicit host stop as joined shutdown. A timeout or protocol failure cannot
+be relabelled by a later host return. Real runaway/startup budget tests still
+fail as intended, and the new regression passes in Node and V8 with zero bridge
+reservations. No mutation is replayed and no budget is increased.
+
+Stream-input, response, writable and WebSocket fixtures now preserve their
+original exercise error together with bridge usage and shutdown evidence;
+a drainage error can no longer replace the initial request failure.
+
+All 95 selected native library/integration tests pass serially at the original
+budgets after this change. The preserved diagnostic runs also reproduced a cold
+call timing out before its cell handler entered, while lease renewal succeeded
+promptly. That delay's cause remains unproven. Disk-waiting build processes and
+other qualification work were observed; a passing campaign does not establish
+the cause of those earlier delays or complete SP-10 release/fault qualification.

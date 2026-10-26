@@ -426,3 +426,34 @@ fn pending_socket_output_allows_storage_but_not_overlapping_mutations() -> Resul
     }
     Ok(())
 }
+
+#[test]
+fn shutdown_interrupts_guest_continuation_after_native_wait() -> Result<()> {
+    for backend in modes() {
+        let before = Instant::now();
+        let app = run(
+            backend,
+            Options {
+                turn_timeout: Duration::from_secs(2),
+                ..Default::default()
+            },
+            "try { ctx._sync('storage.apply', {puts:{x:1}}); } catch {} while (true) {}",
+            |app| {
+                let (_, mut receive) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+                let Event::Operation { name, .. } = event(&mut receive) else {
+                    anyhow::bail!("native submission missing");
+                };
+                assert_eq!(name, "storage.apply");
+                // The host stops without acknowledging the possible mutation.
+                // Even a continuation that catches cancellation must be joined.
+                Ok(app)
+            },
+        )?;
+        assert!(before.elapsed() < Duration::from_secs(5));
+        let usage = app.bridge_usage();
+        assert!(usage.stopped);
+        assert_eq!(usage.active_invocations, 0);
+        assert_eq!(usage.retained_bytes, 0);
+    }
+    Ok(())
+}
