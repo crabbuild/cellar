@@ -4,18 +4,22 @@ use anyhow::{ensure, Context as _, Result};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
-use super::{gate::Gate, request, Limit, OWNER, SOURCE};
+use super::{gate::Gate, request, Limit, Side, OWNER, SOURCE};
 use crate::{application::Composite, fleet};
 
 async fn drained(gate: &Gate) -> Result<()> {
-    let services = gate.services()?;
     tokio::time::timeout(Duration::from_secs(3), async {
-        while services.outbound_rpc_usage() != Default::default() {
+        while gate.observed_services().iter().any(|services| {
+            let receiver = services.inbound_rpc_usage();
+            services.outbound_rpc_usage() != Default::default()
+                || receiver.active_requests != 0
+                || receiver.reserved_request_bytes != 0
+        }) {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .context("source RPC reservations did not retire")
+    .context("source or receiver RPC reservations did not retire")
 }
 
 pub(super) async fn cases(
@@ -25,12 +29,29 @@ pub(super) async fn cases(
     gate: &Arc<Gate>,
     remote: bool,
     limit: Limit,
+    side: Side,
 ) -> Result<Value> {
     let services = gate.services()?;
-    let policy = services.runtime_policy();
+    let owner_services = gate.services_for(if remote { OWNER } else { SOURCE })?;
+    let policy = if side == Side::Source {
+        services.runtime_policy()
+    } else {
+        owner_services.runtime_policy()
+    };
+    let (max_requests, max_bytes) = if side == Side::Source {
+        (
+            policy.max_outbound_rpc_requests,
+            policy.max_outbound_rpc_bytes,
+        )
+    } else {
+        (
+            policy.max_inbound_rpc_requests,
+            policy.max_inbound_rpc_bytes,
+        )
+    };
     ensure!(
-        policy.max_outbound_rpc_requests == limit.policy().max_outbound_rpc_requests
-            && policy.max_outbound_rpc_bytes == limit.policy().max_outbound_rpc_bytes,
+        max_requests == limit.policy().max_outbound_rpc_requests
+            && max_bytes == limit.policy().max_outbound_rpc_bytes,
         "source policy was not installed"
     );
     let owner = if remote { OWNER } else { SOURCE };
@@ -48,7 +69,11 @@ pub(super) async fn cases(
             drained(gate).await?;
             let before = *counts.get(provider).unwrap_or(&0_i64);
             let before_text = before.to_string();
-            let id = format!("saturation-{}-{remote}-{caller}-{provider}", limit.name());
+            let id = format!(
+                "saturation-{}-{}-{remote}-{caller}-{provider}",
+                side.name(),
+                limit.name()
+            );
             let held_id = format!("held-{id}");
             let (entered, release) = gate.arm(class, &held_id)?;
             let cursor = app.audit.cursor();
@@ -74,11 +99,11 @@ pub(super) async fn cases(
                         && evidence["transaction_open"] == false,
                     "held request entered wrong state/domain: {evidence}"
                 );
-                let held = services.outbound_rpc_usage();
+                let held = side.usage(&services, &owner_services);
                 ensure!(
                     held.active_requests == 1
                         && held.reserved_request_bytes > 64 * 1024
-                        && held.reserved_request_bytes <= policy.max_outbound_rpc_bytes,
+                        && held.reserved_request_bytes <= max_bytes,
                     "source did not retain its exact SDK submission: {held:?}"
                 );
                 let refused = request(
@@ -88,12 +113,12 @@ pub(super) async fn cases(
                 )
                 .await?;
                 ensure!(
-                    refused == json!({"code":"ResourceExhausted","outcome":"not_committed"}),
+                    refused == json!({"code":"ResourceExhausted","outcome": if side == Side::Source {"not_committed"} else {"unknown"}}),
                     "{} {caller}->{provider} refusal changed: {refused}",
                     limit.name()
                 );
                 ensure!(
-                    services.outbound_rpc_usage() == held,
+                    side.usage(&services, &owner_services) == held,
                     "refusal leaked or released the held reservation"
                 );
                 ensure!(
@@ -192,15 +217,15 @@ pub(super) async fn cases(
                 "held result did not match its closed native transaction"
             );
             counts.insert(provider, before + 2);
-            cases.push(json!({"route":if remote {"signed-peer"} else {"local"},"limit":limit.name(),
+            cases.push(json!({"side":side.name(),"route":if remote {"signed-peer"} else {"local"},"limit":limit.name(),
                 "caller":caller,"provider":provider,"class":class,"source":SOURCE,"owner":owner,
                 "scope":identity.scope,"epoch":identity.epoch,"held":evidence,"usage_while_held":held,
-                "max_outbound_rpc_requests":policy.max_outbound_rpc_requests,
-                "max_outbound_rpc_bytes":policy.max_outbound_rpc_bytes,
+                "max_rpc_requests":max_requests,
+                "max_rpc_bytes":max_bytes,
                 "first_refusal":refused,"refused_handler_count":0,"factory_count_change":0,
                 "counter_before":before.to_string(),"counter_after":(before+2).to_string(),
                 "total_handler_count":handlers,"automatic_replay":false,"explicit_receipt_retries":2,
-                "changed_command_refused":true,"usage_after_case":services.outbound_rpc_usage()}));
+                "changed_command_refused":true,"usage_after_case":side.usage(&services, &owner_services)}));
         }
     }
     Ok(json!(cases))

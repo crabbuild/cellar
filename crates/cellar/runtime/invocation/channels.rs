@@ -12,7 +12,7 @@ use crate::engine_api::RpcData;
 use crate::engine_api::{next_do_request_id, HttpResponse, RequestId};
 use crate::http_streams::RequestBodyGuard;
 #[doc(hidden)]
-pub use crate::outbound_rpc::Reservation as RpcReservation;
+pub use crate::rpc_reservation::Reservation as RpcReservation;
 use crate::ws_registry::OutboundWsReq;
 use anyhow::Result;
 pub use cellar_native::call_order::{CallChains, CallOrder, CallWait};

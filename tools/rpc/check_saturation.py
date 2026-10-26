@@ -14,15 +14,16 @@ LANGUAGES = {"rust": "RustCounter", "python": "PythonCounter", "v8": "V8Counter"
 
 def audit(report):
     assert report["format"] == 1
-    assert report["topology"] == "local-and-signed-peer-source-saturation"
+    assert report["topology"] == "local-and-signed-peer-rpc-saturation"
     assert re.fullmatch(r"[0-9a-f]{64}", report["contract_digest"])
     assert report["native_nodes_drained"] is True
-    assert report["source_reservations_after_drain"] == 0
+    assert report["source_reservations_after_drain"] == report["receiver_reservations_after_drain"] == report["receiver_tunnels_after_drain"] == 0
     assert report["all_memory_qualified"] is report["release_qualified"] is False
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 64
-    expected = set(itertools.product(("local", "signed-peer"), ("requests", "bytes"), LANGUAGES, LANGUAGES))
-    keys = [(c["route"], c["limit"], c["caller"], c["provider"]) for c in cases]
+    assert len(cases) == report["case_count"] == 96
+    expected = {(side, route, limit, caller, provider) for side, route in (("source", "local"), ("source", "signed-peer"), ("receiver", "signed-peer"))
+                for limit, caller, provider in itertools.product(("requests", "bytes"), LANGUAGES, LANGUAGES)}
+    keys = [(c["side"], c["route"], c["limit"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
     identities = {}
     counts = {}
@@ -34,7 +35,7 @@ def audit(report):
         assert case["owner"] == ("saturation-owner" if route == "signed-peer" else case["source"])
         assert isinstance(case["scope"], str) and case["scope"]
         assert type(case["epoch"]) is int and case["epoch"] > 0
-        key = route, limit, provider
+        key = case["side"], route, limit, provider
         identity = case["scope"], case["epoch"]
         assert identities.setdefault(key, identity) == identity
         before, after = int(case["counter_before"]), int(case["counter_after"])
@@ -47,14 +48,14 @@ def audit(report):
         usage = case["usage_while_held"]
         assert usage["active_requests"] == 1
         assert type(usage["reserved_request_bytes"]) is int
-        assert 65536 < usage["reserved_request_bytes"] <= case["max_outbound_rpc_bytes"]
+        assert 65536 < usage["reserved_request_bytes"] <= case["max_rpc_bytes"]
         if limit == "requests":
-            assert case["max_outbound_rpc_requests"] == 1
-            assert case["max_outbound_rpc_bytes"] == 256 * 1024 * 1024
+            assert case["max_rpc_requests"] == 1
+            assert case["max_rpc_bytes"] == 256 * 1024 * 1024
         else:
-            assert case["max_outbound_rpc_requests"] == 128
-            assert case["max_outbound_rpc_bytes"] == 128 * 1024
-        assert case["first_refusal"] == {"code": "ResourceExhausted", "outcome": "not_committed"}
+            assert case["max_rpc_requests"] == 128
+            assert case["max_rpc_bytes"] == 128 * 1024
+        assert case["first_refusal"] == {"code": "ResourceExhausted", "outcome": "not_committed" if case["side"] == "source" else "unknown"}
         assert case["refused_handler_count"] == case["factory_count_change"] == 0
         assert case["total_handler_count"] == 4
         assert case["explicit_receipt_retries"] == 2
@@ -67,11 +68,11 @@ def negative_probes(report):
     mutations = (
         lambda r: r["cases"].pop(),
         lambda r: r["cases"].__setitem__(1, r["cases"][0]),
-        lambda r: r["cases"][0]["first_refusal"].__setitem__("outcome", "unknown"),
+        lambda r: r["cases"][0]["first_refusal"].__setitem__("outcome", "forged"),
         lambda r: r["cases"][0].__setitem__("refused_handler_count", 1),
         lambda r: r["cases"][0]["usage_after_case"].__setitem__("reserved_request_bytes", 1),
         lambda r: r["cases"][0]["usage_while_held"].__setitem__("active_requests", 0),
-        lambda r: r["cases"][0].__setitem__("max_outbound_rpc_requests", 0),
+        lambda r: r["cases"][0].__setitem__("max_rpc_requests", 0),
         lambda r: r["cases"][0]["held"].__setitem__("epoch", 0),
         lambda r: r["cases"][0].__setitem__("automatic_replay", True),
         lambda r: r.__setitem__("native_nodes_drained", False),

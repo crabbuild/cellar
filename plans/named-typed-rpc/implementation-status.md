@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | Main includes #127 and #129 through `185c397a`. The receiver-admission follow-up passes the integrated local checks below and needs its own hosted results. Linux head `f0a717ee` verified all four published-module tests before exposing the second fixed-port WebSocket fixture. Later endpoint, SDK GIL/free-threaded and full JS verification remain pending. The older 744-case report is historical. |
-| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Earlier broader/mixed V8 HTTP and V8/Node streaming runs failed under the original 250 ms handler budget. Current selected streaming/compatibility regressions pass on integrated main; these passes do not explain or close the earlier intermittent failures. Earlier Python counters point to the native cold-cell path. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cancellation suppression and process supervision. The 80 generated-client peer-fault cases cover warm reconnect, committed reply loss, trusted method refusal and stricter receiving byte/element limits across all 16 pairs. Broader slot/capacity admission, nested-provider and uncertain partial-submission paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Native typed-envelope admission borrows the body with a separate 1 KiB metadata bound; it checks receiving byte/element limits without a discarded owned request copy. V8 reserves request copies and completion capacity before native allocation. Descriptor admission bounds work before decoding. Finish other effective method/runtime/host/peer minima, retained copies, decoder/allocator/RSS accounting and semantic conformance; demonstrate broader bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 — hosted verification | New-head hosted verification | The receiving follow-up has 631 live cases on main through `80aa3b64` (#131), recorded below. PR #132's earlier `3aa1e571` passes typed-RPC lifecycle, Python examples and the SDK free-threaded job. Its JavaScript job fails at published-container `/wake`; its SDK GIL job observes an ambiguous lease renewal, owner self-fence and connection refusal in the named-binding test. New-head hosted results remain required. Older combined reports remain historical. |
+| P0 | Cross-adapter deadline and regression timing | Controlled Python queue/decoder fixes remain verified. Native V8 HTTP and both SSE paths again hit their original 250 ms handler budget; a temporary wrapper observed one 1.345 s native poll before any cell constructor. Three parallel V8 unit cases also fail their original short turn budget. The later full 166-test adapter run passes unchanged budgets; successful retries do not diagnose those earlier failures. Published-container wake and native ambiguous-renewal CI failures remain open. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 96-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
+| P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Dense uploads, bounded header parsing, empty-frame timer progress and idle retirement have regressions. Native envelope and V8 pre-copy admission remain verified. Finish other effective method/runtime/host/peer minima, response/slow-reader limits, retained copies, decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -51,7 +51,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations, field reservations/packing and both JSON-name namespaces have adversarial tests; remaining option/schema semantics stay open |
 | Explicit registration, full method validation and RPC-only cells | Implementation under test |
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
-| Bounded request/response codec and binary bridge accounting | Native wire checks and raw attachments implemented; exact retained-copy accounting and saturation qualification remain |
+| Bounded request/response codec and binary bridge accounting | Native wire/raw attachments, SDK source admission and receiving request/input/tunnel quotas implemented; 96 generated-client saturation cases pass. Response/slow-reader bounds, exact retained-copy accounting and broader saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
 | Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; 96 parent-write/forged-category cases pass with unknown outcomes; broader peer/admission/lifecycle qualification remains |
@@ -63,7 +63,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | V8/Node real-host HTTP restart and runtime lifecycle tests pass; full T19 remains open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Full 166-test container/guest/V8/Node run passes; six external image/fleet tests remain ignored. Earlier native/engine timing and hosted wake/lease failures remain unresolved; full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
 | Standard format/layout/dependency/docs checks and affected tests/Clippy | The JSON-name follow-up passes core/codegen, selected native and V8/Node/Python typed-RPC tests, affected Clippy and standard checks. The earlier 696-case report and concurrent diagnostic rounds remain historical evidence; hosted and broader regression qualification remain open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
@@ -73,6 +73,91 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Receiving RPC admission and dense uploads are bounded before dispatch.**
+  A real Rust-to-Rust signed-peer call held before the original provider proved
+  the missing receiving quota: a second generated call mutated state despite a
+  configured one-request policy. The red log is
+  `/tmp/cellar-rpc-peer-admission-red.log`.
+  Receiving hosts now reserve global/per-authenticated-peer tunnel slots before
+  upgrade, and request/control capacity before authority decoding or body reads.
+  Uploads reserve dense capacity and a possible copy before growing one buffer;
+  fragmented frames retain no list nodes. Empty-frame floods yield to the
+  independent upload deadline. Header parsing, upgrade waits and idle pooled
+  tunnels are bounded. Defaults and explicit CLI/library configuration are in
+  [configuration](../../docs/11-configuration.md#library-defaults).
+
+  The opaque ticket is shared by input, native driver and retained reply body.
+  Caller cancellation cannot release another owner's capacity. Peer entries
+  retire with their last connection. Durability acknowledgements and cancellation
+  endpoints use independent paths. A paired fixed host status/header conveys
+  `ResourceExhausted/unknown`, including event ambiguity, without rollback proof
+  or automatic replay. Request/input accounting does not measure response or
+  decoded graphs, guest heaps, allocator overhead or RSS. Slow readers and the
+  remaining effective minima still need qualification.
+
+  The **96 saturation cases** cover every Rust/Python/V8/Node caller/provider
+  pair: source local/peer and receiving peer admission, independently by count
+  and bytes. Each observes the actual owner/scope/epoch and unchanged state
+  before business entry, refuses without a factory/handler, then verifies one
+  explicit receipt retry and changed-command conflict. Cases drain calls/bytes;
+  joined nodes also drain receiving tunnels and peer entries. Socket and buffer
+  regressions cover partial upload, slot reuse, 100,000 tiny fragments, empty
+  floods, native-ticket retention and idle retirement. Worker lifecycle cases
+  now retain observed services across node join and assert both quotas are zero.
+  Failures preserve bounded quota/bridge/authority snapshots and bootstrap errors.
+
+  On main through **`80aa3b64` (#131)**, the frozen receiving implementation
+  passes **631 live cases**: saturation 96, peer faults 80, provenance 96, cycles
+  80, deadlines 55, proof waits 128 and Node/V8 lifecycle 96. Both independent
+  report auditors reject ten corrupted reports. This uses Rust 1.98.1, Node
+  24.13.1 and **GIL CPython 3.14.6**. Evidence is
+  `.cellar/rpc/peer-admission-main-{saturation,peer-faults,provenance,cycles,deadline,proof-wait,lifecycle}.json`.
+  The saturation SHA-256 is
+  `0e41f1836df27c42ee17b3643684f94393c08aaa010f08326b74b0680e1167f7`;
+  lifecycle is
+  `11117f40214d3b316e8e8ad99d610198ba095a8c1f736c8f627a459804b95418`.
+  All **3,649** source/fixture hashes remain unchanged during these seven suites
+  and their auditors. `peer-admission-delivery-source-before.json` has SHA-256
+  `7879539b78970400628869192238236298a27850710ea95e4cda6cc85af7be16`;
+  `peer-admission-delivery-source-audit.json` records zero changes. Earlier runs
+  also passed 631 cases; they are repeated evidence, not additional coverage.
+
+  Local checks pass: **103** core RPC tests, **18** selected native integrations,
+  **35** qualifier guards and the complete **166-test** container/guest/V8/Node
+  adapter run, with six external image/fleet tests ignored. All-target Clippy for
+  the core, JavaScript and qualifier, Node-only library checking, format/layout
+  over **1,197** Rust files, the **466-package** engine-free native dependency
+  guard and documentation checks pass. The updated receiving socket assertion
+  is separately rerun after Clippy corrections. Logs are
+  `/tmp/cellar-rpc-peer-{main,delivery}-*.log` and
+  `.cellar/rpc/peer-admission-{main-ready,delivery}-checks.json`.
+
+  Reliability limits remain explicit. Earlier native HTTP/SSE regressions hit
+  250 ms, and three parallel V8 unit tests fail budget/liveness before their
+  isolated and later complete reruns pass. Temporary timing found one 1.345 s
+  stateless poll before any cell constructor; its later phase probe passes.
+  These probes establish no cause; their instrumentation is removed. The first
+  lifecycle run returns early `Unavailable/unknown`; later diagnostic/full runs
+  pass, so its cause stays open. The first peer-fault run also loses an opaque
+  V8 startup error. A controlled 40 ms runaway-startup regression now preserves
+  fixed startup phase/action and watchdog cause; syntax failures preserve phase
+  without source/path contents. This improves diagnosis without identifying the
+  earlier transient. The controlled red log is
+  `/tmp/cellar-rpc-startup-cause-red.log`.
+
+  The writable integration test observed 49 bridge bytes while sampling a live
+  Node engine after native drain. That matches one cancel/retire frame; it does
+  not by itself establish a leak. The test retains the native-invocation drain
+  assertion and now requires stopped/zero invocations/zero bytes after the
+  language runtime has joined. Its original failure and passing corrected run
+  remain in `/tmp/cellar-rpc-peer-main-ready-integrations.log` and
+  `/tmp/cellar-rpc-peer-writer-joined.log`. Clippy's three assertion-style
+  failures are corrected without changing their expected outcomes.
+  PR #132's earlier hosted JavaScript `/wake` timeout and SDK GIL named-binding
+  self-fence remain separate, unresolved failures. Input bounds, Counter cases
+  and successful reruns do not close T01–T19, full Protobuf interoperability,
+  supported Python modes, package identity or performance qualification.
 
 - **SDK submission count and length-weighted byte admission precede queueing.**
   Native SDK namespace calls previously entered an unbounded source queue and

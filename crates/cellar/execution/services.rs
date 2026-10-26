@@ -9,6 +9,7 @@
 //! and deterministic domains each install their own set, so routing authority
 //! and resource registries follow their owner.
 
+pub use crate::inbound_rpc::Usage as InboundRpcUsage;
 pub use crate::outbound_rpc::Usage as OutboundRpcUsage;
 use crate::ownership_store::LiveLoad;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -95,6 +96,7 @@ pub struct HostServices {
     operation_deadline_ms: OnceLock<u64>,
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
     outbound_rpc: OnceLock<crate::outbound_rpc::Budget>,
+    inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
     events: Arc<crate::application::event_stream::service::Service>,
@@ -126,6 +128,7 @@ impl HostServices {
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
             outbound_rpc: OnceLock::new(),
+            inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -158,6 +161,7 @@ impl HostServices {
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
             outbound_rpc: OnceLock::new(),
+            inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -389,6 +393,24 @@ impl HostServices {
         self.outbound_rpc
             .get()
             .map_or_else(Default::default, crate::outbound_rpc::Budget::usage)
+    }
+
+    pub(crate) fn admit_rpc_tunnel(&self, peer: &str) -> Option<crate::inbound_rpc::Connection> {
+        if !self.accepts_work() {
+            return None;
+        }
+        self.inbound_rpc
+            .get_or_init(|| crate::inbound_rpc::Budget::new(self.runtime_policy()))
+            .connect(peer)
+    }
+
+    /// Receiving tunnel/request reservations, including input upload, native
+    /// drivers and retained reply bodies. Byte counts cover input/control
+    /// allowances; responses, decoded graphs and guest heaps have other limits.
+    pub fn inbound_rpc_usage(&self) -> InboundRpcUsage {
+        self.inbound_rpc
+            .get()
+            .map_or_else(Default::default, crate::inbound_rpc::Budget::usage)
     }
 
     /// Fix outbound HTTP configuration before the first fetch. Factory identity

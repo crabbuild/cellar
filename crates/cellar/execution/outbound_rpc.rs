@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Finite SDK submission ownership across gates, queues and native execution.
+use crate::rpc_reservation::Reservation;
 use crate::{engine_api::RpcData, runtime_policy::RuntimePolicy};
 use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -23,14 +24,6 @@ pub(crate) struct Budget {
     bytes: Arc<Semaphore>,
     max_calls: usize,
     max_bytes: usize,
-}
-
-/// Opaque ownership carried by host dispatch and its local native driver.
-/// Only the host can construct it; clones retain the same reservation.
-#[doc(hidden)]
-#[derive(Clone)]
-pub struct Reservation {
-    _held: Arc<Held>,
 }
 
 struct Held {
@@ -86,12 +79,10 @@ impl Budget {
             .clone()
             .try_acquire_many_owned(u32::try_from(weight).ok()?)
             .ok()?;
-        Some(Reservation {
-            _held: Arc::new(Held {
-                _call: call,
-                _bytes: bytes,
-            }),
-        })
+        Some(Reservation::shared(Arc::new(Held {
+            _call: call,
+            _bytes: bytes,
+        })))
     }
 
     pub(crate) fn usage(&self) -> Usage {

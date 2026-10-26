@@ -159,4 +159,19 @@ mod tests {
             ErrorCode::Forbidden
         );
     }
+
+    #[test]
+    fn fixed_rpc_overload_category_preserves_ambiguous_event_outcomes() {
+        let reply = super::super::rpc_failure::exhausted();
+        let failure = super::super::rpc_failure::remote(reply.status(), reply.headers()).unwrap();
+        let error = annotate(
+            failure.into(),
+            response_code(reply.headers(), reply.status()),
+        );
+        assert_eq!(code(&error), ErrorCode::Ambiguous);
+        assert_eq!(
+            super::super::classify_remote_attempt(&error),
+            Attempt::Ambiguous
+        );
+    }
 }

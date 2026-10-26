@@ -386,6 +386,34 @@ async fn runtime_policy_rejects_invalid_limits_and_reconfiguration() -> Result<(
             handler_budget: Duration::ZERO,
             ..Default::default()
         },
+        RuntimePolicy {
+            max_inbound_rpc_requests: 0,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_inbound_rpc_tunnels: 0,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_rpc_tunnels_per_peer: 0,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_inbound_rpc_bytes: 128 * 1024 - 1,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            rpc_tunnel_idle_timeout: Duration::ZERO,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            rpc_tunnel_idle_timeout: Duration::from_nanos(1),
+            ..Default::default()
+        },
+        RuntimePolicy {
+            rpc_tunnel_idle_timeout: Duration::MAX,
+            ..Default::default()
+        },
     ] {
         assert!(domain.services().configure_runtime(invalid).is_err());
     }
@@ -426,6 +454,11 @@ fn library_runtime_policy_does_not_depend_on_process_environment() -> Result<()>
         .env("CELLAR_MAX_CELL_REQUESTS", "unusable")
         .env("CELLAR_MAX_OUTBOUND_RPC_REQUESTS", "unusable")
         .env("CELLAR_MAX_OUTBOUND_RPC_BYTES", "unusable")
+        .env("CELLAR_MAX_INBOUND_RPC_REQUESTS", "unusable")
+        .env("CELLAR_MAX_INBOUND_RPC_BYTES", "unusable")
+        .env("CELLAR_MAX_INBOUND_RPC_TUNNELS", "unusable")
+        .env("CELLAR_MAX_RPC_TUNNELS_PER_PEER", "unusable")
+        .env("CELLAR_RPC_TUNNEL_IDLE_MS", "unusable")
         .env("CELLAR_ADMISSION_WAIT_MS", "unusable")
         .env("CELLAR_HANDLER_BUDGET_S", "unusable")
         .output()?;
@@ -452,6 +485,11 @@ fn command_line_policy_resolves_environment_once() -> Result<()> {
                 max_cell_requests: 11,
                 max_outbound_rpc_requests: 9,
                 max_outbound_rpc_bytes: 128 * 1024,
+                max_inbound_rpc_requests: 5,
+                max_inbound_rpc_bytes: 128 * 1024,
+                max_inbound_rpc_tunnels: 3,
+                max_rpc_tunnels_per_peer: 2,
+                rpc_tunnel_idle_timeout: Duration::from_millis(1_500),
                 admission_wait: Duration::ZERO,
                 handler_budget: Duration::from_secs(3),
                 ..Default::default()
@@ -484,6 +522,11 @@ fn command_line_policy_resolves_environment_once() -> Result<()> {
         .env("CELLAR_MAX_CELL_REQUESTS", "11")
         .env("CELLAR_MAX_OUTBOUND_RPC_REQUESTS", "9")
         .env("CELLAR_MAX_OUTBOUND_RPC_BYTES", "131072")
+        .env("CELLAR_MAX_INBOUND_RPC_REQUESTS", "5")
+        .env("CELLAR_MAX_INBOUND_RPC_BYTES", "131072")
+        .env("CELLAR_MAX_INBOUND_RPC_TUNNELS", "3")
+        .env("CELLAR_MAX_RPC_TUNNELS_PER_PEER", "2")
+        .env("CELLAR_RPC_TUNNEL_IDLE_MS", "1500")
         .env("CELLAR_ADMISSION_WAIT_MS", "0")
         .env("CELLAR_HANDLER_BUDGET_S", "3")
         .output()?;

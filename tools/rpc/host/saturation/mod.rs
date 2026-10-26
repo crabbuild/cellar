@@ -14,6 +14,54 @@ use crate::{application::Composite, fleet};
 const SOURCE: &str = "saturation-source";
 const OWNER: &str = "saturation-owner";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Side {
+    Source,
+    Receiver,
+}
+
+impl Side {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Receiver => "receiver",
+        }
+    }
+
+    fn configure(self, config: &mut RuntimePolicy, limit: Limit) {
+        let (requests, bytes) = match limit {
+            Limit::Requests => (1, 256 * 1024 * 1024),
+            Limit::Bytes => (128, 128 * 1024),
+        };
+        match self {
+            Self::Source => {
+                config.max_outbound_rpc_requests = requests;
+                config.max_outbound_rpc_bytes = bytes;
+            }
+            Self::Receiver => {
+                config.max_inbound_rpc_requests = requests;
+                config.max_inbound_rpc_bytes = bytes;
+            }
+        }
+    }
+
+    fn usage(
+        self,
+        source: &cellar::host_services::HostServices,
+        owner: &cellar::host_services::HostServices,
+    ) -> cellar::host_services::OutboundRpcUsage {
+        if self == Self::Source {
+            source.outbound_rpc_usage()
+        } else {
+            let usage = owner.inbound_rpc_usage();
+            cellar::host_services::OutboundRpcUsage {
+                active_requests: usage.active_requests,
+                reserved_request_bytes: usage.reserved_request_bytes,
+            }
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum Limit {
     Requests,
@@ -53,7 +101,7 @@ async fn request(client: &reqwest::Client, base: &str, path: &str) -> Result<Val
     serde_json::from_str(&text).context("saturation ingress returned invalid JSON")
 }
 
-async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Value> {
+async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -> Result<Value> {
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
     let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
@@ -68,7 +116,6 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
     let mut nodes = Vec::new();
     let result = async {
         let owner_name = if remote { OWNER } else { SOURCE };
-        let policy = limit.policy();
         let (owner, owner_url) = fleet::start_configured(
             &directory.path().join("owner"),
             application.clone(),
@@ -76,9 +123,8 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
             bucket.clone(),
             None,
             |config, _| {
-                if !remote {
-                    config.runtime.max_outbound_rpc_requests = policy.max_outbound_rpc_requests;
-                    config.runtime.max_outbound_rpc_bytes = policy.max_outbound_rpc_bytes;
+                if !remote || side == Side::Receiver {
+                    side.configure(&mut config.runtime, limit);
                 }
                 Ok(())
             },
@@ -105,8 +151,9 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
                 bucket,
                 None,
                 |config, _| {
-                    config.runtime.max_outbound_rpc_requests = policy.max_outbound_rpc_requests;
-                    config.runtime.max_outbound_rpc_bytes = policy.max_outbound_rpc_bytes;
+                    if side == Side::Source {
+                        side.configure(&mut config.runtime, limit);
+                    }
                     Ok(())
                 },
             )
@@ -117,7 +164,7 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
         } else {
             owner_url
         };
-        matrix::cases(&app, &client, &base, &gate, remote, limit).await
+        matrix::cases(&app, &client, &base, &gate, remote, limit, side).await
     }
     .await;
     let mut cleanup = Vec::new();
@@ -126,9 +173,11 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
             cleanup.push(format!("{error:#}"));
         }
     }
-    if let Ok(services) = gate.services() {
-        if services.outbound_rpc_usage() != Default::default() {
-            cleanup.push("source retained SDK RPC reservations after node drain".into());
+    for services in gate.observed_services() {
+        if services.outbound_rpc_usage() != Default::default()
+            || services.inbound_rpc_usage() != Default::default()
+        {
+            cleanup.push("node retained SDK or peer RPC reservations after drain".into());
         }
     }
     ensure!(
@@ -141,9 +190,13 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit) -> Result<Val
 
 pub async fn run(app: Arc<Composite>) -> Result<Value> {
     let mut cases = Vec::new();
-    for remote in [false, true] {
+    for (side, remote) in [
+        (Side::Source, false),
+        (Side::Source, true),
+        (Side::Receiver, true),
+    ] {
         for limit in [Limit::Requests, Limit::Bytes] {
-            let report = topology(app.clone(), remote, limit).await?;
+            let report = topology(app.clone(), remote, limit, side).await?;
             cases.extend(
                 report
                     .as_array()
@@ -153,10 +206,14 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
             );
         }
     }
-    ensure!(cases.len() == 64, "source saturation matrix incomplete");
+    ensure!(
+        cases.len() == 96,
+        "source/receiver saturation matrix incomplete"
+    );
     Ok(
-        json!({"format":1,"topology":"local-and-signed-peer-source-saturation", "contract_digest":app.contract.digest(),
+        json!({"format":1,"topology":"local-and-signed-peer-rpc-saturation", "contract_digest":app.contract.digest(),
         "case_count":cases.len(),"cases":cases,"native_nodes_drained":true,"source_reservations_after_drain":0,
+        "receiver_reservations_after_drain":0,"receiver_tunnels_after_drain":0,
         "all_memory_qualified":false,"release_qualified":false}),
     )
 }

@@ -20,7 +20,7 @@ struct Arm {
 #[derive(Default)]
 pub(super) struct Gate {
     arm: Mutex<Option<Arm>>,
-    services: Mutex<Option<Arc<cellar::host_services::HostServices>>>,
+    services: Mutex<std::collections::BTreeMap<String, Arc<cellar::host_services::HostServices>>>,
 }
 
 impl Gate {
@@ -43,11 +43,20 @@ impl Gate {
     }
 
     pub fn services(&self) -> Result<Arc<cellar::host_services::HostServices>> {
+        self.services_for(super::SOURCE)
+    }
+
+    pub fn services_for(&self, node: &str) -> Result<Arc<cellar::host_services::HostServices>> {
         self.services
             .lock()
             .unwrap()
-            .clone()
-            .context("source services were not observed")
+            .get(node)
+            .cloned()
+            .context("node services were not observed")
+    }
+
+    pub fn observed_services(&self) -> Vec<Arc<cellar::host_services::HostServices>> {
+        self.services.lock().unwrap().values().cloned().collect()
     }
 
     fn take(&self, context: &Context, invocation: &Invocation) -> Result<Option<Arm>> {
@@ -105,16 +114,16 @@ impl cellar::sdk::Application for Application {
     }
 
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
-        if context.var("DOMAIN_MARKER") == Some(super::SOURCE) {
+        if let Some(node) = context.var("DOMAIN_MARKER") {
             let mut services = self.gate.services.lock().unwrap();
             let current = cellar::asyncrt::services();
-            if let Some(original) = services.as_ref() {
+            if let Some(original) = services.get(node) {
                 assert!(
                     Arc::ptr_eq(original, &current),
                     "source changed execution domain"
                 );
             } else {
-                *services = Some(current);
+                services.insert(node.into(), current);
             }
         }
         self.inner.clone().invoke(context, invocation)
