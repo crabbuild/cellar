@@ -189,6 +189,35 @@ the same class, scope and count as `/bindings/OTHER_COUNTERS/demo`.
 does not copy or migrate the original cell's data. Restore `class_name: Counter`
 before running the standard client below.
 
+### Repeat the complete curl demonstration
+
+After installing the language dependencies above, this command starts Python,
+Node JavaScript and compiled TypeScript in turn, prints every actual curl command
+and JSON response, and checks the results:
+
+```sh
+cargo build --locked -p cellar --bin cellar
+python3 examples/bindings/smoke.py \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --backend python --backend node-js --backend node-ts --curl-demo
+```
+
+The [curl client](curl_demo.py) requires `curl` on `PATH`. Set `PYO3_PYTHON` to
+the matching CPython 3.14 interpreter before running the Python backend. Each
+backend uses fresh temporary state and an automatically selected port, so a
+server already running on 9876 can remain open. The runner stops its own servers
+and deletes its temporary state after each backend finishes.
+
+| Phase | `COUNTERS/demo` | `COUNTER_ALIAS/demo` | `COUNTERS/demo-other` | `OTHER_COUNTERS/demo` |
+| --- | --- | --- | --- | --- |
+| Write through both aliases and separate cells | 2 | 2 | 1 | 3 |
+| Rebind alias to `OtherCounter`, then POST through alias | 2 | 4 | 1 | 4 |
+| Restore alias to `Counter` and restart | 2 | 2 | 1 | 4 |
+
+Only the alias's `class_name` changes between restarts. Assertions compare the
+complete responses, including class, entity name and scope, as well as counts.
+Add `--backend rust` or `--backend v8` to run the same demonstration there.
+
 ## Verify automatically
 
 The standard-library [client](check.py) can check any running backend:
@@ -215,7 +244,10 @@ python3 examples/bindings/smoke.py \
 
 Select only installed backends, for example `--backend rust`. The smoke runner
 checks fresh state, HTTP calls, concurrent increments, identity and count after
-restart, configuration-only rebinding, and graceful shutdown on all three boots.
+restart, configuration-only rebinding, a write through the rebound alias, restoring
+the original alias, and graceful shutdown on all four boots. The `--curl-demo`
+variant uses three boots and sequential increments to keep the transcript readable;
+the default mode also checks concurrency and invalid routes.
 It deletes its temporary state. JavaScript CI runs Rust, Node JS/TS and V8;
 Python CI runs CPython with both configured ABIs.
 
