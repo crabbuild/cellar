@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "0b0d278cb57eee502774a16be95404f4ed530800",
+  "baseline_revision": "abec54c927e141d8a47cf1dc4107b249daa8a47e",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3684,6 +3684,18 @@
           "--lib",
           "--locked",
           "fleet_topology_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_isolated_repair_service_",
           "--",
           "--test-threads=1"
         ]

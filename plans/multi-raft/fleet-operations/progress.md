@@ -59,6 +59,16 @@ minority case in isolation; this does not establish the timing failure's cause.
 The final native cohort completed in 345.86 seconds. No budget or assertion was
 relaxed. Original failures and immutable binaries remain outside runtime data.
 
+Rust implementation source `abec54c927e141d8a47cf1dc4107b249daa8a47e` also passes
+all-target `cellar-logic`/`cellar` Clippy with warnings denied, Rust formatting and
+module layout, native dependency and documentation checks, ten plan tests,
+311-case manifest validation and 88-anchor preflight. The source audit matches
+all 1,440 frozen Rust/Cargo/configuration inputs to that commit and verifies
+retained executable/output hashes. Primary artifacts are checkout-private under
+`qualification/fleet-operations/isolated-repair-runtime-v6/` and
+`isolated-repair-final-checks-v1/`, outside runtime data. These are focused local
+correctness checks; full latest-head SDK CI and deployed qualification remain open.
+
 The service remains explicit and default-off. Exact declared capability-digest
 equality conservatively excludes unknown namespace supersets. Deployment
 resource/isolation attestations are fixture authority in local tests. Cursor

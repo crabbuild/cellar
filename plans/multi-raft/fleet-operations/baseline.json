@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "0b0d278cb57eee502774a16be95404f4ed530800",
+  "revision": "abec54c927e141d8a47cf1dc4107b249daa8a47e",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/cellar-logic/README.md",
-      "sha256": "f513ba72be2a5d590f6fd4a5d3d69c4bc32b84754ade107b6368d4a835aabd28"
+      "sha256": "17fa1f9b7cc772ef430e90ab8532b487f2b68519948b2c2dc9e495a32c8d5a52"
     },
     {
       "path": "crates/cellar-logic/lib.rs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "75a7811f35c97abfbe5cc440e2f12d326e9d89e255fbe46fdcdfc529a5e7810b"
+      "sha256": "00ea8f3838fc25e8ca5d7b9faaaefcda36539d437793713850bd2652400b3b77"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
