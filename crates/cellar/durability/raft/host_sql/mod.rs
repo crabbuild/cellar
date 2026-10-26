@@ -951,10 +951,7 @@ impl Cell {
             }
             Action::CaptureArchive { limits } => {
                 let (options, applier) = self.images.materialized()?;
-                let cut = match applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                {
+                let cut = match applier.queryable().map_err(super::execution::storage)? {
                     Some(image) => {
                         let dependencies = super::effects::capture_dependencies(
                             &image,
