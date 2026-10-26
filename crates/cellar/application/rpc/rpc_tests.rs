@@ -225,6 +225,11 @@ fn exact_binary_envelope_round_trips_empty_and_non_utf8_bytes() {
         );
     }
     assert!(encode_envelope("not-a-digest", vec![], 128).is_err());
+    let failure = encode_envelope(&digest, vec![0; 129], 128)
+        .err()
+        .expect("oversized encoding was accepted");
+    assert_eq!(failure.code(), Code::ResourceExhausted);
+    assert_eq!(failure.outcome(), EffectOutcome::NotCommitted);
     assert!(decode_envelope(&RpcData::Json("[]".into()), 128).is_err());
 }
 
@@ -479,4 +484,45 @@ fn catalog_refuses_unknown_methods_and_digests_before_factories() {
         "test.Value"
     );
     assert!(catalog.validate_bridge(128).is_err());
+}
+
+#[test]
+fn receiver_byte_limit_refusal_keeps_call_specific_provenance() {
+    let source = contract(Limits::default());
+    let receiver = Arc::new(contract(Limits {
+        max_message_bytes: 128,
+        ..Default::default()
+    }));
+    assert_eq!(source.digest(), receiver.digest());
+    let mut catalog = Catalog::new();
+    catalog
+        .register("Counter", "test.Counter", receiver.clone())
+        .unwrap();
+    for size in [128, 129] {
+        // A well-formed unknown field keeps both messages valid under the
+        // sender's larger limits. Only the receiving byte ceiling differs.
+        let mut bytes = vec![0xfa, 0x07, (size - 3) as u8];
+        bytes.resize(size, 0);
+        source.validate_message("test.Value", &bytes).unwrap();
+        let args =
+            encode_envelope(source.digest(), bytes, source.limits().max_message_bytes).unwrap();
+        let refusal = catalog
+            .refusal("Counter", "test.Counter/GetCount", &args)
+            .expect("a valid oversized envelope lost its call-specific refusal");
+        if size == 128 {
+            assert!(refusal.is_none(), "exact receiver byte limit was refused");
+            continue;
+        }
+        let response = refusal.expect("receiving byte limit admitted an oversized call");
+        let failure = decode_reply(source.digest(), &response, source.limits()).unwrap_err();
+        assert_eq!(failure.code(), Code::ResourceExhausted);
+        assert_eq!(failure.outcome(), EffectOutcome::NotCommitted);
+        let response = catalog
+            .refusal_after_factory("Counter", "test.Counter/GetCount", &args)
+            .unwrap()
+            .unwrap();
+        let failure = decode_reply(source.digest(), &response, source.limits()).unwrap_err();
+        assert_eq!(failure.code(), Code::ResourceExhausted);
+        assert_eq!(failure.outcome(), EffectOutcome::Unknown);
+    }
 }

@@ -61,7 +61,13 @@ async fn cases(
 ) -> Result<Value> {
     let mut cases = Vec::new();
     let mut counts = BTreeMap::<&str, i64>::new();
-    for fault in [Fault::Reconnect, Fault::ReplyLoss, Fault::MethodRefusal] {
+    for fault in [
+        Fault::Reconnect,
+        Fault::ReplyLoss,
+        Fault::MethodRefusal,
+        Fault::ElementRefusal,
+        Fault::ByteRefusal,
+    ] {
         for (target, _, class) in fleet::CLASSES {
             let identity = owners.get(class).context("provider identity missing")?;
             for (caller, _, _) in fleet::CLASSES {
@@ -96,9 +102,9 @@ async fn cases(
                     app.audit.factories().len() == factories,
                     "peer refusal or reconnect ran a new factory"
                 );
-                if fault == Fault::MethodRefusal {
+                if let Some(code) = fault.refusal_code() {
                     ensure!(
-                        first == json!({"code":"MethodNotFound","outcome":"not_committed"}),
+                        first == json!({"code":code,"outcome":"not_committed"}),
                         "call-specific refusal changed: {first}"
                     );
                     ensure!(
@@ -131,7 +137,7 @@ async fn cases(
                         );
                     }
                 }
-                let current = if fault == Fault::MethodRefusal {
+                let current = if fault.refusal_code().is_some() {
                     before
                 } else {
                     before + 1
@@ -184,7 +190,7 @@ async fn cases(
             }
         }
     }
-    ensure!(cases.len() == 48, "peer fault matrix is incomplete");
+    ensure!(cases.len() == 80, "peer fault matrix is incomplete");
     Ok(
         json!({"format":1,"contract_digest":app.contract.digest(),"topology":"signed-peer-fault-relay",
         "case_count":cases.len(),"cases":cases,"fleet_durability":true,
@@ -199,13 +205,14 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;
-    let relay = Relay::start(app.contract.digest()).await?;
+    let relay = Relay::start(app.contract.clone()).await?;
+    let receiver = Arc::new(super::receiver::Receiver::new(app.clone())?);
     let mut owner = None;
     let mut source = None;
     let result = async {
         let (node, owner_url) = fleet::start_configured(
             &directory.path().join("owner"),
-            app.clone(),
+            receiver,
             OWNER,
             bucket.clone(),
             None,

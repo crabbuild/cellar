@@ -10,8 +10,11 @@ const OVERHEAD: usize = 1024;
 
 /// Encode an owned byte message in the existing native structured RPC format.
 pub fn encode_envelope(digest: &str, bytes: Vec<u8>, limit: usize) -> Result<RpcData, Failure> {
-    if !valid_digest(digest) || bytes.len() > limit {
+    if !valid_digest(digest) {
         return Err(Failure::refused(Code::InvalidArgument));
+    }
+    if bytes.len() > limit {
+        return Err(Failure::refused(Code::ResourceExhausted));
     }
     let graph = StructuredValue {
         root: Value::Reference(0),
@@ -39,42 +42,28 @@ pub fn encode_envelope(digest: &str, bytes: Vec<u8>, limit: usize) -> Result<Rpc
 
 /// Decode only the exact typed RPC graph. Arbitrary clone graphs and capability
 /// values are rejected before message decoding or application construction.
+/// Metadata is bounded to 1 KiB. An oversized body returns ResourceExhausted
+/// before copying; malformed metadata returns InvalidArgument.
 pub fn decode_envelope(data: &RpcData, limit: usize) -> Result<(String, Vec<u8>), Failure> {
+    let (digest, bytes) = view(data)?;
+    if bytes.len() > limit {
+        return Err(Failure::refused(Code::ResourceExhausted));
+    }
+    Ok((digest, bytes.to_vec()))
+}
+
+/// Inspect fixed metadata and borrow the body. Admission can reject size or
+/// Protobuf work limits without allocating an owned copy of refused bytes.
+pub(super) fn view(data: &RpcData) -> Result<(String, &[u8]), Failure> {
     let RpcData::Structured(bytes) = data else {
         return Err(Failure::refused(Code::InvalidArgument));
     };
-    let mut graph = clone::decode_with_limits(bytes, clone_limits(limit))
+    let (digest, bytes) = clone::decode_tagged_bytes(bytes, TAG, 1, 64)
         .map_err(|_| Failure::refused(Code::InvalidArgument))?;
-    if graph.root != Value::Reference(0) || graph.objects.len() != 2 {
+    if !valid_digest(&digest) {
         return Err(Failure::refused(Code::InvalidArgument));
     }
-    let Object::DenseArray {
-        elements,
-        properties,
-    } = &graph.objects[0]
-    else {
-        return Err(Failure::refused(Code::InvalidArgument));
-    };
-    let [tag, marker, Value::String(digest), buffer] = elements.as_slice() else {
-        return Err(Failure::refused(Code::InvalidArgument));
-    };
-    let digest = String::from_utf16(digest).map_err(|_| Failure::refused(Code::InvalidArgument))?;
-    if !properties.is_empty()
-        || tag != &Value::from(TAG)
-        || marker != &Value::Number(1.0)
-        || buffer != &Value::Reference(1)
-        || !valid_digest(&digest)
-    {
-        return Err(Failure::refused(Code::InvalidArgument));
-    }
-    match graph.objects.pop() {
-        Some(Object::ArrayBuffer {
-            bytes,
-            max_length: None,
-            immutable: false,
-        }) if bytes.len() <= limit => Ok((digest, bytes)),
-        _ => Err(Failure::refused(Code::InvalidArgument)),
-    }
+    Ok((digest, bytes))
 }
 
 fn clone_limits(limit: usize) -> clone::Limits {

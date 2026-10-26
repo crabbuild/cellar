@@ -362,7 +362,7 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
 ```
 
-All **48 cases** use generated clients: Rust, Python, embedded V8 and Node callers
+All **80 cases** use generated clients: Rust, Python, embedded V8 and Node callers
 against each of the four providers, at each fault below. The owner keeps real
 SQLite state, signed peer authentication and normal fleet durability proof.
 
@@ -379,7 +379,23 @@ generated client -> native source -> relay -> signed owner -> typed handler
 | --- | --- | --- |
 | Close a warm RPC tunnel | Fresh signed upgrade; successful generated call | Exact method, request ID, remaining budget, scope and owner epoch; one handler entry |
 | Drop a complete successful owner reply | `Unavailable/unknown`; no automatic replay | Closed mutation transaction and exact stored count; one handler entry before explicit retries |
-| Change the inner method to an unregistered name | `MethodNotFound/not_committed` from the real owner | No factory or business-handler entry; unchanged count before explicit retry |
+| Change the inner method to an unregistered name | `MethodNotFound/not_committed` from the real owner | No additional factory or business-handler entry; unchanged count before explicit retry |
+| Add valid unknown fields beyond the receiving element cap | `ResourceExhausted/not_committed` | Caller validation still passes; five occurrences exceed the owner's four-element limit, within its byte limit; no handler entry |
+| Add one valid unknown byte field beyond the receiving byte cap | `ResourceExhausted/not_committed` | Caller validation still passes; three occurrences stay below the element cap, but exceed the owner's 128-byte limit; no handler entry |
+
+The owner snapshots a stricter native catalog (128 message bytes and four
+Protobuf occurrences) than the source's default limits. Its real Rust, Python,
+V8 and Node providers retain their generated implementations. The relay changes
+only one admitted wire request, validates it against the source contract, and
+preserves its method, operation ID, request ID, scope and remaining deadline.
+The independent report auditor checks the actual byte/element geometry and
+rejects ten corrupted-coverage, admission, provenance and cleanup reports.
+
+Host admission borrows the encoded body instead of decoding a clone graph and
+copying its buffer merely to inspect it. It bounds envelope metadata to 1 KiB,
+checks the receiving message limits, then allows an admitted handler to own its
+request. Size refusal keeps its exact-call provenance through the normal output
+gate. A refusal after factory entry remains `unknown`.
 
 Each case then explicitly retries the original operation ID twice, requires the
 saved result and exactly one total mutation, and refuses a changed delta with

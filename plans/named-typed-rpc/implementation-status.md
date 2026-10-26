@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | Linux head `f0a717ee` passes all four published-module tests and typed-RPC lifecycle. The JS job then reaches a second fixed-port fixture mismatch in the Workers WebSocket test; its endpoint correction passes locally and awaits Linux verification. SDK GIL/free-threaded rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
-| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Raw descriptor admission bounds work before decoding; message definitions borrow the decoded tree. V8 reserves request copies and completion capacity before native allocation, with live saturation, UTF-8 boundary and queue-cleanup tests. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, other retained copies and decoder allocations; demonstrate broader bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 — hosted verification | New-head hosted verification | Main includes #127 and #129 through `185c397a`. The receiver-admission follow-up passes the integrated local checks below and needs its own hosted results. Linux head `f0a717ee` verified all four published-module tests before exposing the second fixed-port WebSocket fixture. Later endpoint, SDK GIL/free-threaded and full JS verification remain pending. The older 744-case report is historical. |
+| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Earlier broader/mixed V8 HTTP and V8/Node streaming runs failed under the original 250 ms handler budget. Current selected streaming/compatibility regressions pass on integrated main; these passes do not explain or close the earlier intermittent failures. Earlier Python counters point to the native cold-cell path. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cancellation suppression and process supervision. The 80 generated-client peer-fault cases cover warm reconnect, committed reply loss, trusted method refusal and stricter receiving byte/element limits across all 16 pairs. Broader slot/capacity admission, nested-provider and uncertain partial-submission paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
+| P0 | Resource bounds and parser correctness | Native typed-envelope admission borrows the body with a separate 1 KiB metadata bound; it checks receiving byte/element limits without a discarded owned request copy. V8 reserves request copies and completion capacity before native allocation. Descriptor admission bounds work before decoding. Finish other effective method/runtime/host/peer minima, retained copies, decoder/allocator/RSS accounting and semantic conformance; demonstrate broader bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -73,6 +73,49 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Receiving size refusal retains its exact-call proof without a body copy.**
+  A valid 128-byte message is admitted; a valid 129-byte message under the same
+  descriptor previously escaped `Catalog::refusal` as an outer
+  `InvalidArgument` error, losing its encoded refusal. The native
+  [envelope reader](../../crates/cellar-native/clone/bytes_envelope.rs) now
+  borrows its fixed private buffer, bounds metadata separately to 1 KiB and
+  retains clone versions 10–16 and the existing primitive/wrapper encodings.
+  Host catalog admission validates the borrowed Protobuf body before any owned
+  `Prepared` copy. Oversized bodies produce `ResourceExhausted/not_committed`
+  through the normal output path; the same check after a factory produces
+  `ResourceExhausted/unknown`. Malformed graphs, aliases, extra properties,
+  views and resizable/immutable buffers remain refused. Encoding uses the same
+  resource-exhaustion category for its byte ceiling.
+  The signed-peer matrix now has **80 cases**: all 16 caller/provider pairs
+  across reconnect, committed reply loss, method refusal, element refusal and
+  byte refusal. A receiving host snapshots 128-byte/four-element limits while
+  generated clients retain their default limits. The relay independently
+  validates its injected unknown fields against the source contract, isolates
+  the exceeded receiving limit, and preserves method, operation/request IDs,
+  scope and remaining deadline. Refusals enter no business handler and leave
+  state unchanged; two explicit same-ID retries and a changed-command conflict
+  prove one eventual mutation. Actual owner/epoch and transaction observations
+  guard against replay. Both native nodes and the relay join with zero relay
+  connections. The independent auditor rejects **ten** corrupted reports.
+  After integrating #127 and merged #129 through `185c397a`, all **81 native
+  tests, 60 core RPC tests, 35 qualifier guards, 76 V8/Node runtime tests, five
+  adapter integration tests and ten native typed/profile integration tests**
+  pass, as do the 65 JS RPC tests, strict TS checks and three SDK streaming
+  tests. Native, affected core/test, JS and qualifier Clippy checks pass. The
+  initial new encoder assertion needed `.err().expect(...)` because `RpcData`
+  has no `Debug`; the corrected assertion keeps the same required failure.
+  Qualification source/fixture hashes stay unchanged across all **3,632**
+  recorded files during the integrated run. Evidence:
+  `.cellar/rpc/receiver-main-peer-faults.json` (SHA-256
+  `9084da53d1dbfa85b07eae9654c1d0b5f0f74f468cde136e3f946306c58a35eb`),
+  `receiver-main-source-before.json`, `receiver-main-source-audit.json` and
+  `/tmp/cellar-rpc-receiver-*.log`. The original failure is preserved in
+  `/tmp/cellar-rpc-receiver-limit-red.log`; the initial assertion compile error
+  remains in `receiver-main-core.log`. This uses GIL CPython; other receiving
+  dimensions, runtime/slot admission, all-language full-profile calls, supported
+  Python modes, package identity and broader allocation/RSS qualification remain
+  open. It does not close T01–T19 or set `release_qualified`.
 
 - **V8 completion capacity survives byte saturation.** Two original regressions
   show startup accepting no terminal headroom and a saturated result copying

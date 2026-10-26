@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 LANGUAGES = {"rust": "RustCounter", "python": "PythonCounter", "v8": "V8Counter", "node": "NodeCounter"}
-SCENARIOS = ("reconnect", "reply_loss", "method_refusal")
+SCENARIOS = ("reconnect", "reply_loss", "method_refusal", "element_refusal", "byte_refusal")
 
 
 def audit(report):
@@ -22,7 +22,7 @@ def audit(report):
     assert report["remote_fleet_qualified"] is report["abrupt_crash_qualified"] is False
     assert re.fullmatch(r"[0-9a-f]{64}", report["contract_digest"])
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 48
+    assert len(cases) == report["case_count"] == 80
     expected = set(itertools.product(SCENARIOS, LANGUAGES, LANGUAGES))
     keys = [(c["scenario"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
@@ -44,7 +44,8 @@ def audit(report):
         totals[provider].add(int(before))
         assert case["explicit_receipt_retries"] == 2 and case["changed_command_refused"] is True
         assert case["automatic_replay"] is False and case["factory_count_change"] == 0
-        first_handlers = 0 if scenario == "method_refusal" else 1
+        refused = scenario.endswith("_refusal")
+        first_handlers = 0 if refused else 1
         assert case["first_handler_count"] == first_handlers
         assert case["total_handler_count"] == first_handlers + 3
         peer = case["peer"]
@@ -52,13 +53,27 @@ def audit(report):
         assert peer["method"] == "example.counter.v1.Counter/Increment"
         assert peer["operation_id"] == f"{scenario}-{caller}-{provider}"
         assert peer["delta"] == 1 and 0 < peer["remaining_ms"] <= 10000
+        assert peer["source_message_valid"] is True
+        assert peer["source_max_message_bytes"] == 1048576 and peer["source_max_elements"] == 100000
+        assert peer["receiver_max_message_bytes"] == 128 and peer["receiver_max_elements"] == 4
+        original, forwarded = peer["original_message_bytes"], peer["forwarded_message_bytes"]
+        assert type(original) is int and 0 < original <= 128
+        if scenario == "element_refusal":
+            assert forwarded == original + 9 and forwarded <= 128
+            assert peer["forwarded_elements"] == 5
+        elif scenario == "byte_refusal":
+            assert forwarded == original + 132 and 128 < forwarded <= 1048576
+            assert peer["forwarded_elements"] == 3
+        else:
+            assert forwarded == original and peer["forwarded_elements"] == 2
         request_id = peer["request_id"]
         assert re.fullmatch(r"[0-9a-f]{32}", request_id) and request_id not in seen_ids
         seen_ids.add(request_id)
         assert peer["reply_lost"] is (scenario == "reply_loss")
-        if scenario == "method_refusal":
+        if refused:
             assert peer["trusted_refusal"] is True
-            assert case["first_reply"] == {"code": "MethodNotFound", "outcome": "not_committed"}
+            code = "MethodNotFound" if scenario == "method_refusal" else "ResourceExhausted"
+            assert case["first_reply"] == {"code": code, "outcome": "not_committed"}
         else:
             assert peer["successful_owner_reply_observed"] is True
             if scenario == "reply_loss":
@@ -66,7 +81,7 @@ def audit(report):
             else:
                 assert case["first_reply"] == {"value": after}
                 assert case["new_signed_handshakes"] > 0
-    assert all(values == set(range(12)) for values in totals.values())
+    assert all(values == set(range(20)) for values in totals.values())
 
 
 def main():
@@ -83,6 +98,10 @@ def main():
         lambda r: next(c for c in r["cases"] if c["scenario"] == "method_refusal").update(first_handler_count=1),
         lambda r: r["cases"][0]["peer"].update(remaining_ms=10001),
         lambda r: r.update(relay_live_rpc_connections=1),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "byte_refusal")["peer"].update(forwarded_message_bytes=128),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "element_refusal")["peer"].update(forwarded_elements=4),
+        lambda r: r["cases"][0]["peer"].update(source_message_valid=False),
+        lambda r: r["cases"][0]["peer"].update(receiver_max_message_bytes=1048576),
     )
     for mutate in probes:
         changed = copy.deepcopy(report)
@@ -92,7 +111,7 @@ def main():
         except AssertionError:
             continue
         raise AssertionError("peer report auditor accepted corrupted evidence")
-    print(json.dumps({"cases": 48, "negative_audit_probes": len(probes),
+    print(json.dumps({"cases": 80, "negative_audit_probes": len(probes),
                       "sha256": hashlib.sha256(data).hexdigest(), "release_qualified": False}, indent=2))
 
 
