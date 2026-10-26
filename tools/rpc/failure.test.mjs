@@ -1,11 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Script } from "node:vm";
-
-const factory = new Script(`(${readFileSync(new URL("../../crates/cellar-javascript/runtime/runner.js", import.meta.url), "utf8")})`).runInThisContext();
+import { runnerFactory as factory } from "./test-runtime.mjs";
 const wire = "test.Counter/Fail";
 
 async function failure(error) {
