@@ -40,8 +40,22 @@ pub fn open_immutable_generation(
     options: ImmutableQueryOptions,
 ) -> anyhow::Result<ImmutableQuery> {
     let database = cellar_ltx::generation::open_immutable(pin, options.services)?;
+    configure(database, options.sqlite_vec)
+}
+
+/// Apply the same SQL limits and authorizer to an independently verified extent
+/// view. This opener supplies no schema initialization or native read authority.
+pub fn open_immutable_extent_image(
+    image: cellar_ltx::internal::ExtentImage,
+    options: ImmutableQueryOptions,
+) -> anyhow::Result<ImmutableQuery> {
+    let database = cellar_ltx::internal::open_extent_image(image, options.services)?;
+    configure(database, options.sqlite_vec)
+}
+
+fn configure(database: ImmutableDatabase, sqlite_vec: bool) -> anyhow::Result<ImmutableQuery> {
     let connection = database.connection();
-    if options.sqlite_vec {
+    if sqlite_vec {
         super::register_vec0_extension(connection)?;
     }
     let limits = crate::application::limits::current().sql;

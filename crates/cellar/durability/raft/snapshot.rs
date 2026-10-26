@@ -10,6 +10,7 @@ use super::manifest;
 use super::recovery::{PENDING_SNAPSHOT_REFERENCE, SNAPSHOT_REFERENCE};
 use super::storage::LogError;
 use crate::application::consensus::protocol::WireScope;
+use crate::application::consensus::ImageCommitment;
 use ::raft::prelude::Snapshot;
 use cellar_logic::consensus::{GroupScope, LogIndex, LogPosition, Term};
 use cellar_ltx::apply::ApplyLimits;
@@ -208,10 +209,21 @@ impl Descriptor {
         }
         if let Some(image) = &descriptor.image {
             image.validate()?;
-            marker_id(image)?;
-            marker_state(image)
-                .validate(&limits.apply())
-                .map_err(|_| SnapshotError::Invalid("image state"))?;
+            match image.commitment {
+                ImageCommitment::Sha256(_) => {
+                    marker_id(image)?;
+                    marker_state(image)?
+                        .validate(&limits.apply())
+                        .map_err(|_| SnapshotError::Invalid("image state"))?;
+                }
+                ImageCommitment::Extents(reference) => {
+                    if image.length > limits.max_image_bytes
+                        || descriptor.encoded_length != reference.encoded_length() as usize
+                    {
+                        return Err(SnapshotError::Invalid("extent snapshot metadata"));
+                    }
+                }
+            }
             if image.length == 0 || image.txid == 0 || descriptor.encoded_length == 0 {
                 return Err(SnapshotError::Invalid("empty image"));
             }
@@ -450,17 +462,17 @@ impl SnapshotPayload {
             .image
             .as_ref()
             .map(|image| {
-                stream_snapshot::Download::new_admitted_in(
+                Ok::<_, SnapshotError>(stream_snapshot::Download::new_admitted_in(
                     filesystem,
                     Some(directory),
                     stream_snapshot::Metadata {
-                        image: marker_state(image),
+                        image: marker_state(image)?,
                         encoded_length: descriptor.encoded_length as u64,
                         encoded_digest: descriptor.encoded_digest,
                     },
                     limits.physical(),
                     scratch,
-                )
+                )?)
             })
             .transpose()?;
         Ok(Self {
@@ -706,7 +718,7 @@ fn seal_image(
         return Ok(None);
     };
     let snapshot = payload.ok_or(SnapshotError::Invalid("missing image payload"))?;
-    let state = marker_state(image);
+    let state = marker_state(image)?;
     if snapshot.metadata().image != state {
         return Err(SnapshotError::Invalid("physical image binding"));
     }

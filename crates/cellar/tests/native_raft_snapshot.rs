@@ -2140,7 +2140,7 @@ fn marker(pin: &GenerationPin) -> CommittedImage {
     let state = pin.state();
     CommittedImage {
         name: format!("{}.sqlite", hex::encode(pin.id().bytes())),
-        digest: state.digest,
+        commitment: state.digest.into(),
         length: state.length,
         ltx_epoch: state.epoch,
         txid: state.txid.0,
@@ -2341,7 +2341,7 @@ impl Fixture {
             epoch: state.epoch,
             txid: state.txid.0,
             checksum: state.checksum,
-            image_digest: state.digest,
+            commitment: state.digest.into(),
         };
         Ok(CellUpdate {
             scope: scope(),

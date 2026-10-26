@@ -98,7 +98,9 @@ pub use cellar_logic::consensus::{
     NamespaceId, NodeId, NodeIdentity, ProcessGeneration, ProposalId, Term,
 };
 pub use cellar_logic::NamespaceMode;
-pub use protocol::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate, ProtocolError};
+pub use protocol::{
+    CellUpdate, EnvelopeLimits, ImageCommitment, LtxImage, LtxUpdate, ProtocolError,
+};
 
 /// Unstable host-storage interfaces for integration verification and embedding.
 #[doc(hidden)]
@@ -125,7 +127,8 @@ pub mod verification {
     pub use crate::raft::execution::{
         query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
-        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
+        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, RootPrivateOptions, StageOutcome,
+        StoredReceipt,
     };
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
@@ -143,6 +146,9 @@ pub mod verification {
     pub use crate::raft::member_state::{GroupMembership, JoiningMember};
     pub use crate::raft::options::RaftRuntimeOptions;
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
+    pub use crate::raft::rooted::{
+        query_registered_rooted, RootImageApplier, RootPublishedImage, RootQueryOptions,
+    };
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};
     pub use crate::raft::snapshot::{
         PreparedSnapshot, SnapshotCheckpoint, SnapshotDownload, SnapshotError, SnapshotLimits,

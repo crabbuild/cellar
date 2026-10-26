@@ -257,6 +257,17 @@ and closed retained roots protect shared objects; synced deletion precedes every
 capacity refund. Ambiguous creation, failed cleanup or an interrupted mutation
 quarantines further mutation until the owner is closed and recovered.
 
+`SealedImageRoot` adds SQLite geometry, canonical lock-page and optional LTX
+checksum verification to a complete local closure. `prepare_image_root` derives
+changed extents from bounded LTX files and independently verifies their result;
+unchanged extents are shared. `ExtentWorkspace` creates a disposable writable
+sparse main file from that exact base, faulting extents through an admitted cache
+and tracking actual main-file changes across checkpoints. WAL and locks stay with
+the injected SQLite VFS. Quota-sized metadata uses one slot per extent; private
+file disk admission and cleanup remain the caller's responsibility. Ordinary
+VFS observations retain their conservative full-image fallback. The public
+native SDK still needs writer/backend selection and remote transfer integration.
+
 Run `cargo test --locked -p cellar-ltx --test extent_store` for owning-boundary
 restart, actual SQLite demand-read, quota, publication, cleanup and retention
 checks, including an abrupt child-process exit after root-file sync. Sources and

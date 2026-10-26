@@ -4,6 +4,7 @@
 
 use super::member_state::GroupMembership;
 use super::storage::LogError;
+use crate::application::consensus::ImageCommitment;
 use ::raft::prelude::{ConfState, Entry, EntryType, HardState, Snapshot};
 use ::raft::{GetEntriesContext, RaftState, Storage, StorageError};
 use cellar_logic::consensus::{LogIndex, LogPosition, ReplicaIdentity, Term};
@@ -17,7 +18,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard};
 #[serde(deny_unknown_fields)]
 pub struct CommittedImage {
     pub name: String,
-    pub digest: [u8; 32],
+    pub commitment: ImageCommitment,
     pub length: u64,
     pub ltx_epoch: u64,
     pub txid: u64,
@@ -41,6 +42,17 @@ impl CommittedImage {
         {
             return Err(LogError::Invalid("invalid committed image marker".into()));
         }
+        if let ImageCommitment::Extents(reference) = self.commitment {
+            let encoded = 112 + 32 * self.length.div_ceil(cellar_ltx::internal::EXTENT_BYTES);
+            if self.length == 0
+                || self.txid == 0
+                || !self.length.is_multiple_of(u64::from(self.page_size))
+                || u64::from(reference.encoded_length()) != encoded
+                || self.name != format!("{}.root", hex::encode(reference.root().bytes()))
+            {
+                return Err(LogError::Invalid("invalid extent image marker".into()));
+            }
+        }
         Ok(())
     }
 }
@@ -53,7 +65,7 @@ mod image_limit_tests {
     fn durable_marker_accepts_decimal_quota_but_not_a_page_beyond_it() {
         let mut image = CommittedImage {
             name: "verified.sqlite".into(),
-            digest: [9; 32],
+            commitment: [9; 32].into(),
             length: 10_000_000_000 / 4096 * 4096,
             ltx_epoch: 1,
             txid: 1,

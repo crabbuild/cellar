@@ -436,7 +436,11 @@ term and applied startup barrier are required to reconcile an unresolved
 submission. Closing records unfinished identity and refuses further output.
 `Node::start_raft_cells` installs registered groups in the node's execution
 domain. `host.rs` owns serial command producers and effect dispatch;
-`host_sql.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
+`host_sql/mod.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
+Its private `images` module selects physical command/read adapters beneath the
+shared controller. The extent branch is exercised by the worker integration
+fixtures; public node configuration retains the materialized backend until the
+extent recovery and effect contracts are integrated.
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher

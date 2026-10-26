@@ -1244,7 +1244,7 @@ impl AttemptControl {
         self.domain.mono_ms().is_ok_and(|now| now < deadline)
     }
 
-    fn new(domain: crate::asyncrt::DomainToken) -> Self {
+    pub(crate) fn new(domain: crate::asyncrt::DomainToken) -> Self {
         Self {
             state: Arc::new(AtomicU8::new(0)),
             deadline: AtomicU64::new(u64::MAX),

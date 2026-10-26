@@ -3,7 +3,8 @@
 //! A fixed node-wide blocking pool owns SQLite and image directories. Domain
 //! cancellation joins a running callback before these owners release locks.
 
-use super::apply::{marker, ImageApplier, PublishedImage};
+use super::apply::{ImageApplier, PublishedImage};
+mod images;
 use super::archive::{ArchiveLimits, CommittedArchiveCut};
 use super::budget::{Budget, Permit};
 use super::cache::{CommittedImage, GroupLog};
@@ -24,6 +25,8 @@ use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::LtxHost;
 use futures_util::future::BoxFuture;
+use images::ImageOwner;
+pub(crate) use images::RootStorage;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{
@@ -34,8 +37,11 @@ use std::time::Duration;
 use tokio::sync::{oneshot, Semaphore};
 
 #[cfg(test)]
-#[path = "host_sql_tests.rs"]
+#[path = "../host_sql_tests.rs"]
 mod tests;
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod rooted_tests;
 
 #[derive(Clone)]
 pub(crate) struct CellStorage {
@@ -43,6 +49,7 @@ pub(crate) struct CellStorage {
     pub host: LtxHost,
     pub services: ReadServices,
     pub images: GenerationLimits,
+    pub rooted: Option<RootStorage>,
     pub execution: ExecutionLimits,
     pub snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
 }
@@ -57,7 +64,14 @@ impl ImageView {
     fn of(image: &PublishedImage) -> Self {
         Self {
             position: image.position(),
-            image: marker(&image.pin()),
+            image: super::apply::marker(&image.pin()),
+        }
+    }
+
+    fn execution(image: &PublishedExecutionImage) -> Self {
+        Self {
+            position: image.position(),
+            image: image.marker(),
         }
     }
 }
@@ -620,6 +634,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
+            if storage.rooted.is_some() {
+                return Err(ExecutionError::Invalid(
+                    "extent seed transport is not installed",
+                ));
+            }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
@@ -642,6 +661,11 @@ impl Pool {
         if let Action::SealSeed { received, storage } = action {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
+            }
+            if storage.rooted.is_some() {
+                return Err(ExecutionError::Invalid(
+                    "extent seed transport is not installed",
+                ));
             }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
@@ -671,38 +695,14 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || group.identity().scope != *scope {
                 return Err(ExecutionError::Invalid("cell initialization"));
             }
-            let images = GenerationStore::open_with_scratch(
-                storage.directory.join("images"),
-                storage.host.filesystem(),
-                storage.images,
-                Some(accounting),
-                storage.snapshot_scratch,
-            )
-            .map_err(super::execution::storage)?;
-            let applier = ImageApplier::recover(
-                group.clone(),
-                images.clone(),
-                class.schema_digest(),
-                storage.execution.envelope,
-            )
-            .map_err(super::execution::storage)?;
-            let view = applier.current().as_ref().map(ImageView::of);
-            let options = PrivateOptions {
-                directory: storage.directory.join("private"),
-                host: storage.host,
-                sqlite_vfs: None,
-                images,
-                query_services: storage.services,
-                application_digest: class.schema_digest(),
-                limits: storage.execution,
-            };
+            let images = ImageOwner::recover(group.clone(), &class, storage, accounting)?;
+            let view = images.current().as_ref().map(ImageView::execution);
             cells.insert(
                 scope.clone(),
                 Cell {
                     group,
                     class,
-                    options,
-                    applier,
+                    images,
                     snapshot: None,
                     private: None,
                     active: None,
@@ -769,8 +769,7 @@ impl Drop for Pool {
 struct Cell {
     group: GroupLog,
     class: Arc<RaftClass>,
-    options: PrivateOptions,
-    applier: ImageApplier,
+    images: ImageOwner,
     snapshot: Option<(ApplyTicket, PreparedSnapshot, Permit)>,
     private: Option<PrivateExecutor>,
     active: Option<CommandIdentity>,
@@ -831,16 +830,10 @@ impl Cell {
                 match self.private.as_mut() {
                     Some(private) => {
                         if private.refresh_authority(authority.clone()).is_err() {
-                            private.rebuild(self.applier.current(), authority)?;
+                            private.rebuild_image(self.images.current(), authority)?;
                         }
                     }
-                    None => {
-                        self.private = Some(PrivateExecutor::open(
-                            self.options.clone(),
-                            authority,
-                            self.applier.current(),
-                        )?)
-                    }
+                    None => self.private = Some(self.images.open_private(authority)?),
                 }
                 let executor = self
                     .private
@@ -887,7 +880,7 @@ impl Cell {
                     return Err(ExecutionError::Invalid("private retirement identity"));
                 }
                 if let Some(private) = self.private.as_mut() {
-                    private.retire_after_barrier(self.applier.current().as_ref(), barrier)?;
+                    private.retire_image_after_barrier(self.images.current().as_ref(), barrier)?;
                 } else {
                     let cache = self
                         .group
@@ -911,11 +904,14 @@ impl Cell {
                     return Err(ExecutionError::Invalid("apply event"));
                 };
                 Ok(Value::Prepared(
-                    self.applier
-                        .prepare_private(ticket.clone(), entry, image, self.private.as_mut())
+                    self.images
+                        .prepare(ticket.clone(), entry, image, self.private.as_mut())
                         .map_err(|error| match error {
                             super::apply::ImageApplyError::Images(
                                 cellar_ltx::generation::GenerationError::Limit,
+                            )
+                            | super::apply::ImageApplyError::Extents(
+                                cellar_ltx::internal::StoreError::Limit,
                             ) => ExecutionError::Refused(CommandFailure::Overloaded),
                             error => super::execution::storage(error),
                         })?,
@@ -923,7 +919,7 @@ impl Cell {
             }
             Action::Publish { ticket } => {
                 let published = self
-                    .applier
+                    .images
                     .publish(&ticket)
                     .map_err(super::execution::storage)?;
                 let receipt = if let Some(identity) = &self.active {
@@ -932,7 +928,7 @@ impl Cell {
                             .private
                             .as_mut()
                             .ok_or(ExecutionError::RebuildRequired)?
-                            .finish(published.clone())?
+                            .finish_image(published.clone())?
                         {
                             AppliedExecution::Command(receipt) => Some((identity.clone(), receipt)),
                             AppliedExecution::Pruned { .. } => {
@@ -949,13 +945,13 @@ impl Cell {
                     self.active = None;
                 }
                 Ok(Value::Published {
-                    view: ImageView::of(&published),
+                    view: ImageView::execution(&published),
                     receipt,
                 })
             }
             Action::CaptureArchive { limits } => {
-                let cut = match self
-                    .applier
+                let (options, applier) = self.images.materialized()?;
+                let cut = match applier
                     .queryable()
                     .map_err(super::execution::storage)?
                 {
@@ -963,7 +959,7 @@ impl Cell {
                         let dependencies = super::effects::capture_dependencies(
                             &image,
                             self.class.blob_limits(),
-                            self.options.query_services.clone(),
+                            options.query_services.clone(),
                             limits,
                         )
                         .map_err(super::execution::storage)?;
@@ -983,15 +979,15 @@ impl Cell {
                 prefer_delivery,
                 reservation,
             } => {
-                let scan = self
-                    .applier
+                let (options, applier) = self.images.materialized()?;
+                let scan = applier
                     .queryable()
                     .map_err(super::execution::storage)?
                     .map(|image| {
                         super::effects::scan::scan(
                             image,
                             &self.class,
-                            self.options.query_services.clone(),
+                            options.query_services.clone(),
                             now,
                             prefer_delivery,
                             reservation,
@@ -1005,11 +1001,8 @@ impl Cell {
                 limits,
                 reservation,
             } => {
-                let package = match self
-                    .applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                {
+                let (_options, applier) = self.images.materialized()?;
+                let package = match applier.queryable().map_err(super::execution::storage)? {
                     Some(image) => SnapshotCapture::capture(&self.group, image, limits),
                     None => SnapshotCapture::capture_empty(
                         &self.group,
@@ -1027,11 +1020,8 @@ impl Cell {
                 limits,
                 reservation,
             } => {
-                let package = match self
-                    .applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                {
+                let (_options, applier) = self.images.materialized()?;
+                let package = match applier.queryable().map_err(super::execution::storage)? {
                     Some(image) => SnapshotCapture::capture(&self.group, image, limits),
                     None => SnapshotCapture::capture_empty(
                         &self.group,
@@ -1050,9 +1040,10 @@ impl Cell {
                 limits,
                 reservation,
             } => {
+                let (options, _applier) = self.images.materialized()?;
                 let package = SnapshotCapture::retained(
                     &self.group,
-                    &self.options.images,
+                    &options.images,
                     self.class.schema_digest(),
                     &snapshot,
                     limits,
@@ -1064,12 +1055,13 @@ impl Cell {
                 })
             }
             Action::PrepareSnapshot { ticket, received } => {
+                let (options, _applier) = self.images.materialized()?;
                 if self.snapshot.is_some() {
                     return Err(ExecutionError::Invalid("snapshot already prepared"));
                 }
                 let (prepared, reservation) =
                     received
-                        .finish(&self.options.images)
+                        .finish(&options.images)
                         .map_err(|error| match error {
                             super::snapshot::SnapshotError::Limit
                             | super::snapshot::SnapshotError::Images(
@@ -1087,6 +1079,7 @@ impl Cell {
                 Ok(Value::SnapshotPrepared(Box::new(completion)))
             }
             Action::PublishSnapshot { ticket } => {
+                let (_options, applier) = self.images.materialized()?;
                 let Some((expected, prepared, _reservation)) = self.snapshot.take() else {
                     return Err(ExecutionError::Invalid("missing prepared snapshot"));
                 };
@@ -1102,12 +1095,12 @@ impl Cell {
                 {
                     Some(ImageView::of(
                         &prepared
-                            .publish(&mut self.applier)
+                            .publish(applier)
                             .map_err(super::execution::storage)?,
                     ))
                 } else {
                     prepared
-                        .publish_empty(&mut self.applier)
+                        .publish_empty(applier)
                         .map_err(super::execution::storage)?;
                     None
                 };
@@ -1126,7 +1119,7 @@ impl Cell {
                     return Err(ExecutionError::Refused(CommandFailure::VersionUnavailable));
                 }
                 let published = self
-                    .applier
+                    .images
                     .queryable()
                     .map_err(super::execution::storage)?
                     .ok_or(ExecutionError::Refused(CommandFailure::VersionUnavailable))?;
@@ -1146,14 +1139,12 @@ impl Cell {
                 let _query_pin = query_pins
                     .acquire(0)
                     .ok_or(ExecutionError::Refused(CommandFailure::Overloaded))?;
-                Ok(Value::Queried(query_registered_controlled(
+                Ok(Value::Queried(self.images.query(
                     &published,
                     &self.class,
                     &contract,
                     &input,
-                    self.options.query_services.clone(),
-                    self.options.limits,
-                    Some(control),
+                    control,
                 )?))
             }
         }
