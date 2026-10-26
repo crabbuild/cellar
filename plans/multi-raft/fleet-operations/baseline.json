@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "ceb3e5c15e040d88ec54379b33bd16e3ec3a8484",
+  "revision": "c3f96398378dffddf9a11bc8c3a0129a90c7e6c5",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -52,11 +52,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "d196e6fe1a18207302b7ee4fea8b0eb8ceaf24b4f95c3f00cb7558981ea79075"
+      "sha256": "753b5b427d29d2aabe3c335ac3a4b224e571c1b5fcc86834189271422ce63e9f"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "4c5094fecf34cef56006f8f4fe915fe6021dd0eeb3f5a316935c79191c446def"
+      "sha256": "b1253705422b7a015ba567d140c5fea18c3f555d3e905ff881b61764acf0ecc5"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -112,7 +112,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "4f2bad1e9572ae96724a57ea6a32b8a3aa5ba943bed098fb4dd9f187a3c8a235"
+      "sha256": "1e53ab9f9972d6b34f7da7e05464c461bfe1a85b7414c69d5b0a218da27e69a1"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -240,7 +240,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/transport_inspection_tests.rs",
-      "sha256": "e78f28ca2db4ba8e0a00162ffc4f5bba2f36e0c7bcb5e2e907760e7e9894e02a"
+      "sha256": "1279477d28b1da602fa0d825736db32b38340d0a6b9c06f3a7c6cfd259318cf9"
     },
     {
       "path": "crates/cellar/fleet/management/mod.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Reviewed explicit resumable remote movement execution through behavioral Rust source c115b4a1591dd63a91fdd14943005b19ee89827d and SDK-only successor ceb3e5c15e040d88ec54379b33bd16e3ec3a8484. All454selected native cases pass, including all141FO03requirements and six newFO06cases. All-target host Clippy-Dwarnings and repository format/layout/dependency/docs checks pass. SDK streaming3, tooling74, RPC65 and declaration/guest builds pass; SDK successor preserves all frozen Rust/configuration hashes. Original fixture-stack, uncertain-store-reply and next-cut discovery failures plus old-head CI failures are retained; no production guard, assertion, deadline or stack bound was relaxed. FO01-03 remain DONE at local adapter boundaries; FO04/06/07 IN_PROGRESS. Owned autonomous polling/scheduling, aborted/changed-boot cleanup, authenticated assignment generation, operator maintenance/capacity workflows and deployed RustFS/Colima performance/fault/soak remain unfinished. Automatic management stays default-off."
+  "review_note": "Node-owned paced admitted-movement execution delivered at c3f96398378dffddf9a11bc8c3a0129a90c7e6c5. 461 selected native cases pass, including all 141 required FO-03 cases and seven new service cases. Origin-node singleton, private node-owned catalog client, original turn budgets, bounded jitter/backoff, fair joint/terminal scheduling, lost-settlement receipt recovery, stop/restart and node-shutdown callback joins are verified. Initial cross-domain refusal retained and fixed at the production ownership boundary; closed starter capabilities still refuse. All-target host Clippy-Dwarnings and repository format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Automatic new placement/admission, aborted/changed-boot cleanup, authenticated fleet-input collection/assignment generation, operator workflows and deployed performance/fault/soak qualification remain unfinished. Latest real-node SDK CI container timeout and Python-host stack overflow remain open. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS; automatic fleet management default-off."
 }

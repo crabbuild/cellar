@@ -7,6 +7,54 @@ redistribution, operator commands, managed maintenance and resize are not
 delivered. The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Owned admitted-movement controller delivery
+
+`start_movement_service` now installs one explicit worker in the enrolled node's
+joined host job set. It reconstructs admitted moves and advances them without
+caller-driven phase loops. A private catalog turn uses the node's installed
+backend and execution domain after matching the requested rooted fleet. A closed
+starter capability refuses; caller and node domains need not be identical.
+Periodic metadata reads cannot occupy the foreground catalog adapter's turn.
+
+One round has one original discovery/evidence/execution budget and at most one
+move attempt. Retained work is bounded to two reservations and two MiB of control
+metadata admission. Failed rounds/moves use bounded exponential backoff and
+positive jitter. Joint and terminal work gets priority, with another ready move
+receiving a fairness turn after three priority selections. Missing book rows do
+not count as completion: permanent settlement must be verified before reclaiming
+a local slot. Aborted work remains unsettled and needs operator attention.
+
+Explicit shutdown, handle drop and node drain stop the worker. Physical node
+shutdown joins it through the existing job set, including a blocked deployment
+evidence callback. Submitted seeds/configurations retain their existing physical
+owners and durable intent. Restart reconstructs that intent rather than assuming
+cancellation rolled anything back.
+
+Source `c3f96398378dffddf9a11bc8c3a0129a90c7e6c5` passes **461 selected native cases**,
+including all 141 required FO-03 cases and seven new service cases. The cohort
+contains enrollment 138, Raft units 183, catalog 12, permits 25, directory 16,
+host 32, execution 21, reads 22, six targeted archive/seed cases and six rooted
+execution cases. Two pre-existing ignored execution cases are excluded.
+
+The new cases verify real remote S3 execution after service restart and a lost
+terminal response; cross-adapter singleton and closed-starter refusal; node
+shutdown joining blocked evidence; rebound-evidence refusal; bounded options,
+missing-work retention, joint/fairness scheduling and saturating retry jitter.
+All-target host Clippy with warnings denied, formatting, layout, dependency and
+docs checks pass. Immutable binaries, frozen inputs, logs and the qualification
+audit remain outside runtime data in checkout-private
+`qualification/fleet-operations/owned-service-v2/`. All 202 SDK v5 frozen inputs
+remain unchanged. The first attempt's three cross-domain refusals are retained.
+The production fix selects the enrolled node's backend/owner; no fixture
+assertion, stack or deadline was relaxed.
+
+This delivers automatic execution of already admitted work. New placement and
+failure-driven admission, aborted/changed-boot cleanup, deployment isolation
+integration, operator workflows and deployed qualification remain unfinished.
+Startup stays explicit and default-off. Latest SDK CI reached deeper real-node
+tests but failed on a container HTTP timeout and a Python-host stack overflow;
+local native successes do not establish full SDK or deployment qualification.
+
 ## Explicit resumable movement execution delivery
 
 `pending_movements` reconstructs the bounded active membership work from the
@@ -57,9 +105,9 @@ cut. All safety/value assertions and operation/cohort deadlines remain. Temporar
 diagnostic probes were removed. Old-head CI failures are preserved separately;
 local successes do not claim completion of the new GitHub CI run.
 
-FO-06 is now in progress for this explicit execution boundary. An owned paced
-polling service, required/optional scheduling, new assignment/admission generation
-and terminal cleanup for aborted/changed boots remain. Automatic fleet
+FO-06 is in progress. The owned service above supersedes this checkpoint's
+polling gap. New assignment/admission generation, required versus optional
+admission scheduling and terminal cleanup for aborted/changed boots remain. Automatic fleet
 management stays default-off. No deployed RustFS/Colima or performance/fault/soak
 qualification is claimed. The protocol hard cut ends in `/fleet-execution-1`;
 use matching binaries and fresh coordination/data roots and engine directories.
@@ -446,25 +494,23 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Own a paced, cancellable controller service around the delivered reconciliation
-   turn. Recover pending work before admitting more, prioritize joint completion
-   and redundancy repair, and join all work at shutdown. Use fresh observations
-   after uncertain action/storage responses; optional load policy remains separate.
-2. Complete terminal cleanup for aborted work and changed or unavailable boots
-   without freeing uncertain physical resources. Use the delivered fenced-unused
-   settlement path where its exact prerequisites hold.
-3. Collect complete authenticated fleet inputs and generate feasible assignments
-   and staged moves under retained occupancy, failure domains and recovery headroom.
-4. Deliver operator add/drain/remove, rolling maintenance/restart/resize and
-   capacity scaling, including cancellation/status reconciliation with committed
-   moves and actual worker ownership.
-5. Qualify deployed RustFS/Colima with enforced resources, foreground TPS/p99,
-   repeated failures and soak. Automatic fleet management remains default-off.
+1. Complete terminal cleanup for aborted work and changed/unavailable boots,
+   including trusted deployment isolation integration. Preserve uncertain physical
+   debt and exact durable receipts; do not free capacity after timeouts.
+2. Collect complete authenticated fleet inputs, generate candidate assignments
+   and connect the existing topology verifier to staged admission/execution under
+   retained occupancy, failure domains and single-failure restoration headroom.
+3. Deliver operator add/drain/remove, rolling maintenance/restart/resize and
+   scaling, with idempotent status/cancellation and verified physical outcomes.
+4. Complete deployed RustFS/Colima correctness and resource qualification, resolve
+   remaining real-node CI failures, then measure foreground TPS/p99 and controller
+   overhead with fault and soak runs. Performance changes require measured gains.
 
 FO-04, FO-06 and FO-07 remain in progress. FO-05 and FO-08 through FO-10 retain
 their load-policy, operator, capacity-scaling and deployment qualification scope.
-Explicit admitted moves now have a resumable execution path; autonomous fleet
-orchestration remains unfinished.
+Admitted moves now have an owned automatic executor; new fleet planning/admission
+and the operator workflows remain unfinished. Optional workload policy must not
+delay required recovery delivery. Fleet management remains default-off.
 
 ## Historical implementation checkpoints
 

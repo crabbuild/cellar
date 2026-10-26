@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ceb3e5c15e040d88ec54379b33bd16e3ec3a8484",
+  "baseline_revision": "c3f96398378dffddf9a11bc8c3a0129a90c7e6c5",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2168,7 +2168,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/execution-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/execution-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/owned-service-regression.json"
       ]
     },
     {
@@ -2904,7 +2905,8 @@
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/durability/raft/host_node.rs",
         "crates/cellar/durability/raft/transport.rs",
-        "crates/cellar/tests/support/raft_movement_native.rs"
+        "crates/cellar/tests/support/raft_movement_native.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_reconciliation.rs",
@@ -2915,7 +2917,12 @@
         "crates/cellar/durability/raft/fleet_move_transport.rs",
         "crates/cellar/durability/raft/fleet_move_transport_tests.rs",
         "crates/cellar/durability/raft/host_fleet_execution.rs",
-        "crates/cellar/tests/support/raft_movement_execution.rs"
+        "crates/cellar/tests/support/raft_movement_execution.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/worker.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/schedule.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/tests.rs",
+        "crates/cellar/tests/support/raft_movement_service.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -2923,7 +2930,8 @@
         "Prioritize joint completion and redundancy repair, then evacuation and optional balance.",
         "Enforce physical seed throttles, per-node slots, retry deadlines and telemetry-based pause of optional work.",
         "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority.",
-        "Expose bounded exact pending-movement discovery and one-turn reconciliation. Authenticate purpose/channel/nonce/body/boot-bound remote controls, independently resolve the active canonical resource row and rooted permit at the receiver, and use ordinary guarded begin, learner activation and joint completion. Derive progress from fresh quorum state; resolve permanent settlement by reservation before live probes after caller recreation. Keep autonomous scheduling, new placement generation and aborted/changed-boot cleanup as remaining work."
+        "Expose bounded exact pending-movement discovery and one-turn reconciliation. Authenticate purpose/channel/nonce/body/boot-bound remote controls, independently resolve the active canonical resource row and rooted permit at the receiver, and use ordinary guarded begin, learner activation and joint completion. Derive progress from fresh quorum state; resolve permanent settlement by reservation before live probes after caller recreation. The owned service schedules admitted work; new placement/admission generation and aborted/changed-boot cleanup remain.",
+        "Start one explicit node-owned admitted-movement polling service with deployment evidence integration, original round deadlines, bounded positive-jitter backoff, at most two retained reservations and fair joint/terminal priority. Node drain/closure and handle shutdown cancel and join the worker; missing resource rows require permanent-receipt resolution. Keep new admission/assignment policy and aborted/changed-boot cleanup as separate remaining work."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3069,6 +3077,76 @@
             "F06",
             "F08"
           ]
+        },
+        {
+          "name": "fleet_service_restarts_and_settles_remote_s3_work",
+          "oracle": "A zero-group enrolled origin owns the polling worker. Stop a blocked evidence callback, refuse a second worker through another adapter, retain the unused reservation/permit and restart. Without caller-driven phase advancement, execute actual S3 replacement and recover a lost settlement response; verify the permanent receipt and subsequent durable value 12.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_service_node_shutdown_joins_blocked_evidence",
+          "oracle": "Stop the origin node while its movement worker is blocked in deployment evidence. Physical node shutdown joins the callback and worker. The unused durable reservation and original RF3 business writes remain intact.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_service_rejects_rebound_evidence_without_consuming_permit",
+          "oracle": "An evidence provider returns a different reservation. Report typed rejection requiring operator attention; consume no permit, advance no root and create no target engine.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_service_bounds_refuse_busy_polling_and_unbounded_turns",
+          "oracle": "Refuse polling below 50 ms, retry bounds below the polling interval and turns exceeding 60 seconds.",
+          "invariants": [
+            "F06"
+          ]
+        },
+        {
+          "name": "fleet_service_retains_missing_work_until_proven_settlement",
+          "oracle": "Keep at most two tracked reservations. A later resource-book scan omitting an older row cannot clear its uncertain outcome or count success; accept later work only after explicit verified settlement releases a local slot.",
+          "invariants": [
+            "F03",
+            "F06",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_service_joint_priority_preserves_other_work_fairness",
+          "oracle": "Prefer due joint/terminal work while granting another ready reservation a turn after three priority selections; never select work before its retry deadline.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_service_backoff_saturates_and_bounds_jitter",
+          "oracle": "Exponential retry delay with positive jitter stays within configured minimum/maximum bounds, including saturated failure counts. Unconfirmed and corrupt results retain distinct diagnostic classifications.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
         }
       ],
       "verification": [
@@ -3119,7 +3197,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo06/explicit-execution.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo06/explicit-execution.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo06/owned-service.json"
       ]
     },
     {
