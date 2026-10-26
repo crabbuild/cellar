@@ -14,9 +14,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned byte streams, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, complete upgraded port behavior, image lifecycle and fault qualification |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, stream inputs/writable/message transfers, process helper invocations, previews, persistence/restart/fencing and failure cases |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, stream inputs/message transfers and Cap'n Web upload transport, process helper invocations, previews, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
@@ -976,3 +976,46 @@ The complete SP-01–SP-10 goal remains active. Readable results do not complete
 stream inputs, writable/message transfer, upgrades, previews, full lifetime/fault
 qualification, the remaining provider profiles or release qualification. Live
 E2B/Vercel acceptance stays deferred per the user's configuration instruction.
+
+### Returned RPC writable byte streams
+
+The optional Node profile now transfers writable results over the existing
+native lease/mailbox path. A dedicated private factory owns web writers; Rust
+validates the additional `writable` kind beside the existing function/readable
+markers. Native authority, producer storage proof, live-handle quotas and the
+negotiated producer/consumer budget remain shared with returned functions.
+
+| Boundary | Implementation / evidence |
+| --- | --- |
+| Ownership / graph | The original sender stays locked. Nested aliases resolve to one imported stream. Failed graph/encoding/export admission restores an untouched writer; value-only persisted bytes cannot recreate it. |
+| Bounded frames | Caller writes accept Uint8Array, including empty chunks. Larger values split into `min(64 KiB, floor((budget - 128) * 3 / 4) - 64)` bytes, reserving routed base64 and clone/control fields. Each source also validates its own chunk limit. |
+| Backpressure / proof | Each frame waits for the actual sink and then its original native producer's storage proof. Close waits for the sink close; neither is acknowledged optimistically. |
+| Partial outcomes | A later frame's proven pre-effect refusal cannot establish rollback of a larger write with accepted frames. The composite failure becomes `Ambiguous/unknown`, preserving the original failure as its cause. No data frame is replayed. |
+| Abort / dispose | Explicit abort and native lease loss join the standard source-writer abort. Accepted in-flight writes can finish before abort; cancellation cannot prove rollback. Synchronous disposal starts the same owned cleanup, including for a locked imported writer. |
+| Failure / retirement | Sink write/close/abort failures remain failures, without a successful close. Imports drop on caller completion; unconsumed native writers abort. Retained writers refuse SDK work under a later event. |
+
+The new native `workers_writable` fixture sends 4 KiB through a 1 KiB message
+budget, holding write and close acknowledgements behind independent requests.
+It verifies exact persisted binary bytes, retained background work after close,
+a failed write's accepted prefix, abort reasons, uncloneable reasons, abandoned
+imports and stale-writer refusal. An actual identity-transform pair crosses one
+mixed RPC result; readable/writable traffic progresses concurrently, writable
+aliases stay identical, and both sides drain. Native shutdown reports zero
+bridge reservations and active invocations.
+
+Validation passes all 80 selected native JS-adapter tests (56 library, 16 Workers,
+three module, two SSE/WS, authority, readable streaming and writable streaming),
+56 JS/tool/type checks, four pinned-input inventory tests and strict JS/guest
+all-target Clippy. Both pinned Sandbox image scenarios still pass as regressions;
+these remain SDK basic/readable-stream acceptance, not SDK upload acceptance.
+Rust format/layout covers 1,105 sources, formatting covers 67 owned JS/TS sources,
+and documentation plus the 466-package native-only dependency guard pass.
+
+The complete goal remains active. Stream arguments still need a bidirectional
+native request session; the peer request tunnel explicitly refuses leased
+arguments. The pinned SDK's HTTP file client also explicitly refuses
+`writeFileStream`, which needs its separate RPC/Cap'n Web upload transport.
+Idle remote-loss notification and complete disconnect/cross-event semantics,
+message transfers, upgrades, previews and full fault qualification remain open,
+along with the remaining provider and release requirements. Live E2B/Vercel
+qualification stays deferred; writable results do not narrow the SP-01–SP-10 goal.

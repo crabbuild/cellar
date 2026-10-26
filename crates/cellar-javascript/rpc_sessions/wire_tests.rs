@@ -91,6 +91,10 @@ fn stream_publications_require_one_known_kind_per_live_marker() {
     if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
         elements[0] = CloneValue::from("writable");
     }
+    assert!(markers(&encode(&graph), 1, 4096).is_ok());
+    if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
+        elements[0] = CloneValue::from("unknown-stream");
+    }
     assert!(markers(&encode(&graph), 1, 4096).is_err());
     if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
         elements.clear();

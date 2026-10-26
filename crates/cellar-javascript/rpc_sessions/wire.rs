@@ -57,7 +57,9 @@ pub(super) fn markers(encoded: &str, count: usize, maximum: usize) -> Result<()>
     );
     for kind in kinds {
         ensure!(
-            *kind == CloneValue::from("function") || *kind == CloneValue::from("readable"),
+            *kind == CloneValue::from("function")
+                || *kind == CloneValue::from("readable")
+                || *kind == CloneValue::from("writable"),
             "invalid RPC delegate kind"
         );
     }

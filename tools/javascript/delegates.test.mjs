@@ -20,7 +20,18 @@ const streamSource = await readFile(
   ),
   "utf8",
 );
-const make = () => makeDelegates((0, eval)(`(${streamSource})`)());
+const writableSource = await readFile(
+  new URL(
+    "../../crates/cellar-javascript/runtime/rpc_writable.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const make = () =>
+  makeDelegates(
+    (0, eval)(`(${streamSource})`)(),
+    (0, eval)(`(${writableSource})`)(),
+  );
 
 function context() {
   const calls = [],
@@ -222,4 +233,45 @@ test("failed native export or implicit admission restores an untouched stream", 
     await Promise.all(jobs);
     await body.cancel();
   }
+});
+
+test("writable markers retain aliases and value bytes cannot recreate a writer", async () => {
+  const codec = make();
+  const { ctx, jobs } = context();
+  let aborted = 0;
+  const stream = new WritableStream({
+    abort() {
+      aborted++;
+    },
+  });
+  const encoded = await codec.result({ stream, alias: stream }, ctx);
+  assert.equal(encoded.exports.count, 1);
+  assert.equal(stream.locked, true);
+  const value = codec.reply(
+    { ...encoded, handles: [7], max_body_bytes: 4096 },
+    ctx,
+  );
+  assert.ok(value.stream instanceof WritableStream);
+  assert.equal(value.stream, value.alias);
+  const stored = codec.reply({ value: encoded.value, error: false }, ctx);
+  assert.equal(stored[0].stream instanceof WritableStream, false);
+  value[Symbol.dispose]();
+  await Promise.all(jobs);
+  assert.equal(aborted, 1);
+});
+
+test("a refused writable export restores the sender before any sink effect", async () => {
+  const codec = make();
+  const { ctx, jobs } = context();
+  const stream = new WritableStream({
+    write() {
+      assert.fail("refused writer was used");
+    },
+  });
+  ctx._call = async () => {
+    throw new Error("native export refused");
+  };
+  await assert.rejects(codec.result(stream, ctx), /native export refused/);
+  assert.equal(stream.locked, false);
+  await Promise.all(jobs);
 });

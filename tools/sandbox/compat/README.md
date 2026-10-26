@@ -102,8 +102,8 @@ the daemon's subnet pool.
 It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline; SP-04 stream inputs,
-writable/message transfers, preview, restart/fencing and live-cloud requirements
-remain incomplete.
+message transfers, SDK upload transport, preview, restart/fencing and live-cloud
+requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
 scenario**. It uses Cellar's `ctx.container` file API against the real image,
@@ -134,3 +134,15 @@ host service. Qualification uses an isolated task VM whose Docker ephemeral
 port range was moved to observed-free host ports. Verify the expected protocol,
 not just HTTP status. This is local macOS/amd64-emulation evidence; Linux network
 policy, other architectures and live cloud services remain separately qualified.
+
+### Native writable-result fixture
+
+`web-writable.mjs` exercises ordinary Workers DO methods through Cellar, separately
+from the pinned Sandbox image. The native `workers_writable` target checks a
+4 KiB binary transfer through a 1 KiB message budget, independently held sink
+write/close acknowledgements, mixed readable/writable identity-transform results
+and aliases, accepted prefixes after failure, abort reasons, unconsumed imports,
+stale writers and zero bridge reservations after joined shutdown.
+
+This is generic returned-writer evidence. It does not substitute for the
+published SDK's stream-input/Cap'n Web upload or full fault qualification.

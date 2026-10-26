@@ -13,9 +13,10 @@
   addAbortListener,
   makeDelegates,
   makeRpcStreams,
+  makeRpcWritables,
 ) => {
   "use strict";
-  const delegates = makeDelegates(makeRpcStreams());
+  const delegates = makeDelegates(makeRpcStreams(), makeRpcWritables());
 
   // Capture these builtins before importing/evaluating application code.
   const parse = JSON.parse;

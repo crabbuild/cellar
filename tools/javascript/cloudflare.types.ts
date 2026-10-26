@@ -19,6 +19,9 @@ class Counter extends DurableObject {
   output(): ReadableStream<Uint8Array> {
     return new ReadableStream<Uint8Array>({ type: "bytes" });
   }
+  sink(): WritableStream<Uint8Array> {
+    return new WritableStream<Uint8Array>();
+  }
   nestedOutput() {
     return { body: this.output() };
   }
@@ -70,7 +73,14 @@ const consumed = stub.nestedOutput().then(({ body }) => {
   body[Symbol.dispose]();
   return bytes;
 });
-void [streamed, consumed];
+const written = stub.sink().then(async (sink) => {
+  const writer = sink.getWriter();
+  await writer.write(new Uint8Array([0, 255]));
+  // @ts-expect-error: byte writers refuse text chunks
+  writer.write("text");
+  sink[Symbol.dispose]();
+});
+void [streamed, consumed, written];
 // @ts-expect-error: instance fields are not RPC methods
 stub.env();
 // @ts-expect-error: argument types remain intact

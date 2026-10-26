@@ -2,7 +2,7 @@
 
 // Factory captured before application initialization. Native session handles,
 // rather than serializable marker data, authorize every delegated operation.
-(streams) => {
+(readables, writables) => {
   const apply = Reflect.apply;
   const keys = Object.keys;
   const prototype = Object.getPrototypeOf;
@@ -97,11 +97,16 @@
     try {
       const copied = transform(value, (value) => {
         let invoke, kind;
-        if (streams.isReadable(value)) {
-          const sender = streams.send(value, context);
+        if (readables.isReadable(value)) {
+          const sender = readables.send(value, context);
           senders.push(sender);
           invoke = sender.invoke;
           kind = "readable";
+        } else if (writables.isWritable(value)) {
+          const sender = writables.send(value, context);
+          senders.push(sender);
+          invoke = sender.invoke;
+          kind = "writable";
         } else if (typeof value === "function") {
           invoke = value;
           kind = "function";
@@ -219,7 +224,9 @@
       value[1].length !== handles.length ||
       !ArrayClass.isArray(value[2]) ||
       value[2].length !== handles.length ||
-      value[2].some((kind) => !["function", "readable"].includes(kind))
+      value[2].some(
+        (kind) => !["function", "readable", "writable"].includes(kind),
+      )
     )
       throw new ErrorClass("Invalid callable RPC result");
     const replacements = new MapClass();
@@ -276,12 +283,17 @@
       for (let index = 0; index < handles.length; index++) {
         const { callable, release } = stub(handles[index]);
         let replacement = callable;
-        if (value[2][index] === "readable") {
-          const received = streams.receive(
+        if (value[2][index] !== "function") {
+          const readable = value[2][index] === "readable";
+          const transfer = readable ? readables : writables;
+          const received = transfer.receive(
             callable,
             release,
             (reason) => {
-              const encoded = context._serialize(["cancel", reason]);
+              const encoded = context._serialize([
+                readable ? "cancel" : "abort",
+                reason,
+              ]);
               // The routed request wraps base64 arguments and group identity.
               // Account for that envelope against both hosts' negotiated budget.
               const maximum = Math.floor(

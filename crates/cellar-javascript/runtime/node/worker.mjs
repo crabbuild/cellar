@@ -366,6 +366,7 @@ const factory = makeRunner(
   addAbortListener,
   makeDelegates,
   makeRpcStreams,
+  makeRpcWritables,
 );
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

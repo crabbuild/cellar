@@ -101,10 +101,10 @@ const app = workersApplication(worker, {
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
-| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable byte streams preserve graph identity through native leases | Callback/stream arguments, writable streams, Request/Response transfer and returned `RpcTarget` |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable/writable byte streams preserve graph identity through native leases | Callback/stream arguments, Request/Response transfer and returned `RpcTarget` |
 | Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
 | Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
-| Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()`, readable byte streams and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
+| Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()`, readable/writable byte streams and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
 | Event lifetime | Retained native drivers for `waitUntil`, transaction callbacks, outstanding SDK work and complete container monitors | Complete compatibility eviction/deadline policy |
 
 Alarm callbacks serialize per object, including when a running handler rearms
@@ -182,10 +182,57 @@ Only streams with a byte source (`type: "bytes"`) qualify; locked and object
 streams refuse before pulling. Failed publication restores an untouched source's
 lock. Use `stream.cancel()` or its reader's `cancel()` when abandoning a stream;
 `result[Symbol.dispose]()` also disposes streams nested in a returned object.
-Node supplies the required web globals. Stream arguments, writable streams and
-Request/Response RPC transfers remain incomplete.
+Node supplies the required web globals. Stream arguments and Request/Response
+RPC transfers remain incomplete.
 
 This slice follows the [RPC byte-stream and ownership contract](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response).
+
+### Returned RPC writable streams
+
+A DO method may return a byte writer backed by native SDK work. The writer stays
+in its original event while the caller sends bounded byte frames:
+
+```js
+// A Durable Object method. Choose a unique upload ID in your application.
+openOutput(uploadId) {
+  let next = 0;
+  return new WritableStream({
+    write: (bytes) => this.ctx.storage.put(`${uploadId}:${next++}`, bytes),
+  });
+}
+```
+
+```js
+const output = await env.UPLOADS.getByName("alice").openOutput(uploadId);
+const writer = output.getWriter();
+try {
+  await writer.write(Uint8Array.of(0, 255, 42));
+  await writer.close();
+} finally {
+  output[Symbol.dispose]();
+}
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Ownership | Lock the sender's writable; shared aliases in a result resolve to one imported stream. Failed encoding/export admission restores an untouched lock |
+| Data and bounds | Accept `Uint8Array`, including empty writes. Split larger chunks into `min(64 KiB, floor((negotiated_budget - 128) * 3 / 4) - 64)` byte frames, accounting for base64 and clone/control fields |
+| Backpressure / close | Await each real sink write and close, then the original producer's native storage proof; no optimistic acknowledgement |
+| Failure | Reject on sink or transport failure. Earlier frames may be accepted; a later frame's `not_committed` refusal becomes an unknown outcome for that composite write |
+| Abort / disposal | Abort joins accepted in-flight writes before the sink abort completes. Dispose schedules owned abort/release work; lease loss also aborts the source |
+| Mixed results | A result may contain both stream kinds and shared aliases; native tests transfer an actual identity transform pair in both directions |
+
+Cancellation cannot establish rollback of accepted writes. The native fixture
+holds write and close independently, then checks exact binary bytes persisted
+through RPC, retained background work, a failed write's accepted prefix, abort,
+unconsumed-handle cleanup and later-event refusal. Idle remote-loss notification
+and the complete cross-event/disconnect profile remain under fault qualification.
+
+This implements returned writable controls in the optional Node profile. It does
+not enable stream arguments, Request/Response transfer, or the Sandbox SDK's
+separate Cap'n Web upload transport. The pinned SDK's HTTP client explicitly
+refuses `writeFileStream`; unchanged SDK upload acceptance still requires that
+transport and its qualification.
 
 ### HTTP response streaming
 
@@ -225,9 +272,8 @@ sequenceDiagram
 | HEAD / no-body status | Return `body: null` and release unused upstream readers |
 
 Uploads remain buffered and bounded before submission. Cancelling a response
-cannot prove that a submitted sandbox command stopped or rolled back. Returning
-writable streams or HTTP messages as RPC values and WebSocket upgrades remain
-separate profiles.
+cannot prove that a submitted sandbox command stopped or rolled back. Passing streams as RPC arguments, returning HTTP messages as RPC values and
+WebSocket upgrades remain separate profiles.
 
 ### Container API
 
@@ -304,11 +350,11 @@ quotas and unknown-outcome reporting still apply.
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
 | Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |
-| Native returned-stream fixture | Bounded BYOB pulls, errors, cancellation with independent held background jobs, abandoned imports, uncloneable cancellation reasons and later-event refusal |
+| Native returned-stream fixtures | Bounded BYOB pulls and writable frames, mixed transform pairs, delayed sink/close acknowledgements, failures preserving accepted prefixes, held background jobs, abandoned imports and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, RPC stream arguments/writable/message
+Sleep/wake, complete hooks/timeouts, RPC stream arguments/message
 transfers, upgrades, Sandbox previews and the remaining SDK/image fault
 qualification remain required, along with hosted providers.
 
