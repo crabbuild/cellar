@@ -31,15 +31,26 @@ hosts. Explicit node-only colocation grants no host-failure independence.
 Every managed boot claims its exact process through root CAS before endpoint
 publication. The Finalizing transition orders against those claims and refuses
 later boots; it retains the disruption slot and grants no physical-stop or
-terminal-removal authority. See the [fleet catalog contract](fleet_catalog/README.md).
+terminal-removal authority. The terminal API separately renews survivor quorum
+proofs after archive verification and checks signed joined-owner closure. One
+root CAS records removal, tombstones the exact node and releases the disruption
+slot. Unconfirmed closure keeps the slot and physical resources charged. See the
+[fleet catalog contract](fleet_catalog/README.md).
 The legacy opt-in controller remains disabled for managed hosts pending the
 owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1`; use fresh
+The experimental namespace protocol now ends in `/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1`; use fresh
 fleet/data prefixes, namespaces and matching binaries, with numeric markers
 retained at 1 and no compatibility reader or migration.
+
+Archive batches coalesce immutable payload uploads while reporting each verified
+history's result independently. A completed cell releases its own producer slot
+without waiting for another history's read-back. The coordinator keeps polling
+member publications during upload; the physical batch stays owned through
+shutdown. Shared payloads still require verified coverage for each head, and
+producer, byte and replay-workspace bounds remain enforced.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`

@@ -3,7 +3,8 @@
 Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
-the catalog and durable membership guard, with local verification. Complete fleet
+the catalog, durable membership guard, trusted enrollment and terminal removal,
+with local verification. FO-01 through FO-03 are complete; FO-04 is in progress. Complete fleet
 management APIs and operator commands remain delivery targets. `tasks.json` retains
 exact package status.
 

@@ -8,23 +8,24 @@ package-status source of truth. Historical sections below record earlier states.
 
 ## Current qualification and artifact retention
 
-Frozen source `45d3c1630d9545ad273574a36e3c90d0c6c5ff1b` passes all 141 required
-FO-03 cases and the full seven-suite cohort: enrollment 113, catalog 12, permits
-25, archive 57, snapshot 46, directory 16 and Raft units 166, **435 passed** total.
-Two snapshot subprocess fixtures remain ignored in direct execution and are
-invoked by passing parent crash matrices. All-target Clippy with warnings denied,
-formatting, layout, native dependencies, documentation checks and ten plan
-validator tests pass. Exact source inputs, executable copies, commands and log
-hashes are retained in `qualification/fleet-operations/terminal-v6/` under this
-checkout's unique target directory, outside runtime data. Completion records and
-small required logs are mirrored into ignored `.cellar/raft-perf` paths.
+Frozen source `55b7776f0e7f75d91531628ca925c2167332d41c`, including main's SQLite
+upgrade, passes all 141 required FO-03 cases and the full seven-suite cohort:
+enrollment 113, catalog 12, permits 25, archive 58, snapshot 46, directory 16
+and Raft units 166, **436 passed** total. Two snapshot subprocess fixtures remain
+ignored in direct execution and run through passing parent crash matrices.
+All-target Clippy with warnings denied, formatting, layout, native dependencies,
+documentation and ten plan validator tests pass. All 1,203 Rust files and 21
+Cargo/configuration inputs match the qualified commit. Executable copies,
+command/log hashes and source/scope audits are retained externally under this
+checkout's unique target at `qualification/fleet-operations/terminal-v11/`.
+Small required logs and completion records are mirrored into ignored `.cellar`
+paths for the plan validator. FO-01/FO-02 also use the fresh passing commands.
 
-The operator confirmed cleaning local artifacts while an earlier qualification
-was running. Earlier `.cellar/raft-perf` logs and binaries are unavailable;
-historical descriptions do not substitute for them. The current run is fresh
-verification, with primary artifacts outside `.cellar` and an explicit source
-and scope audit. FO-01/FO-02 completion records also reference fresh passing
-commands. No raw files under `plans/multi-raft/evidence/` are added to this PR.
+The operator confirmed cleaning local artifacts during an earlier run. Older
+`.cellar/raft-perf` logs and binaries are unavailable; historical descriptions
+do not replace them. Primary artifacts now live outside runtime data. The
+current qualification is fresh verification. No raw files under
+`plans/multi-raft/evidence/` are added to this PR.
 
 ## Completed FO-03 lifecycle
 
@@ -49,6 +50,37 @@ resumption, terminal removal, admission of the next disruption and another
 business write. These local tests qualify the adapter, not the future automatic
 controller or unreachable-owner isolation workflow. Deployed RustFS, enforced
 resource limits, density, throughput/latency and soak remain FO-10 gates.
+
+## Archive publication progress
+
+Requalification after merging main reproduced an existing cross-history progress
+barrier. The second cell's object-store head had advanced to position 2 while
+the host still reported position 1. Batch-level result delivery retained its
+producer slot behind another cell's stalled read-back. The upload coordinator
+also stopped polling member publications while it awaited that read-back.
+
+Archive batches now report each verified history independently and keep polling
+member futures during upload. A completed history drops its recovery material
+and releases its capture reservation after its own publication finishes. Its
+small bounded completion returns to the host independently; the physical batch
+owner stays in the Node's joined job set. Producer, byte and replay-workspace
+bounds are retained. Shared payload dependencies still require their own
+successful verification before any referencing head can advance.
+
+A scoped head/payload gate deterministically exercises an independent empty
+history while a data-bearing history stalls in upload verification. It failed
+before the coordinator fix and passes afterward. The original native S3 write
+case retains its progress deadline and durability assertions. Forty consecutive
+runs passed on the unchanged production implementation at `47c7f7a1`; the
+successors change the regression's selection macro to Cellar's required
+execution-domain macro and separate stop-reply fixtures from physical join.
+The retained self-stop waiter deterministically returns `Closed` after its own
+response domain shuts down; closure stays unconfirmed until real physical
+owners join, then the exact signed closure and survivor writes succeed. The
+final cohort repeats both cases, including three runs of the deterministic gate. Failed intermediate runs and the Clippy macro
+failure are retained outside runtime data; no failed attempt is counted as a
+passing cohort. Temporary diagnostic logs were removed. This establishes
+independent publication progress, not a fleet TPS or latency qualification.
 
 ## Next implementation milestone
 
