@@ -7,6 +7,44 @@ redistribution, operator commands, managed maintenance and resize are not
 delivered. The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Owned topology collection and generated-move delivery
+
+The healthy-fleet path now connects authenticated physical inventory and current
+typed capacity to three safe-ReadIndex observations per live history, automatic
+assignment generation, independent resource/permit admission and the node-owned
+movement service. The collector walks one history per bounded call, refreshes
+node samples after the complete walk and runs the pure solver in joined blocking
+work. Stable rooted configuration can outlive a single observation freshness
+window; actual movement admission reacquires quorum and target capacity.
+
+`FleetTopologyPreview::first_movement` describes only the first serial move at
+its original inventory revision. After verified settlement, callers recollect
+before admitting the next move. The native scenario executes two generated
+replacements across five nodes and two live histories without caller-driven
+repair phases, then verifies SQL values 7 to 12 to 21. A temporal scenario writes
+during a walk longer than the node freshness window and verifies that the real
+seed includes those newer writes. Missing inventory, unqualified capacity,
+changed roots and unmaterialized genesis refuse progress.
+
+Retired dynamic copies need permanent provenance because current Raft membership
+prunes removed learner bindings. Movement admission now roots an exact
+group/member/node lookup alongside its row, book and permit. Collection verifies
+the original admission and retained terminal receipt even after a later move
+supersedes the group's current permit. Physical occupancy and floors remain
+charged. Only a journal-confirmed unused Fenced proposal may be replaced by a
+later permit sequence on the same disk/engine; generic index edits refuse. This
+schema hard-cuts to `/topology-bindings-1`, retaining numeric markers at 1 and
+requiring fresh matching coordination/data roots and engines.
+
+The next connected delivery is a durable desired-topology operation with a
+placement fence and paced admission rounds. It must preserve already admitted
+seeding/joint work, reconcile unknown CAS outcomes and finish only from a fresh
+complete no-move preview. Operator add/drain/status/cancel should drive that
+same operation. Changed/unavailable-boot recovery, maintenance/rejoin, workload
+leader balancing and deployed fault/performance qualification remain required.
+Healthy per-move execution does not complete FO-04 or enable automatic fleet
+management.
+
 ## Automatic assignment generation delivery
 
 `raft_fleet::balance_topology` now generates a complete equal-copy RF3 assignment
@@ -52,9 +90,10 @@ checkout-private `qualification/fleet-operations/balance-v4/` (earlier attempts
 are retained alongside it). The ordinary test-target manifest disables internal
 library tests; no external internal-test harness was enabled.
 
-This delivers automatic candidate generation in FO-04. Authenticated fleet-view
-collection, durable topology intent and admission of its staged moves remain
-unfinished. FO-04 stays in progress; optional FO-05 workload policy and FO-09
+This delivered automatic candidate generation in FO-04. The later owned
+collection section above connects its first move to guarded admission; durable
+topology intent and automatic admission remain unfinished. FO-04 stays in
+progress; optional FO-05 workload policy and FO-09
 operator scaling are not completed by this pure planner. No deployed movement,
 TPS/p99 or Colima resource qualification is claimed.
 

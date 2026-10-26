@@ -4,6 +4,7 @@
 //! Physical measurements remain distinct from deployment attestation; release
 //! requires a separate terminal proof boundary.
 mod admission;
+mod bindings;
 mod completion;
 mod execution;
 pub use completion::{

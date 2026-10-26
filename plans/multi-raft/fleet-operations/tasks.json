@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "795d4a355e51ed23ce7f3be7bce938a79560684d",
+  "baseline_revision": "a1b560c9aa55d9180ea5cdcf6aa2125eba2527f1",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2244,7 +2244,8 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/topology/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/topology/inputs.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/topology/membership.rs",
-        "crates/cellar/tests/support/raft_topology_native.rs"
+        "crates/cellar/tests/support/raft_topology_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/bindings.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2263,7 +2264,8 @@
         "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path.",
         "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary.",
         "Generate equal-copy final assignments for the explicit keep-set in the pure core, with alternate remainder allocations, constrained direct surplus-to-deficit search, retained occupancy and one shared generation/staging/recovery budget. Return only complete verified witnesses; BalanceUnproven and SearchExhausted grant no partial authority or global infeasibility claim. Connect owned authenticated fleet collection and current guarded admission separately; weighted/load policy remains optional.",
-        "Connect the pure balanced planner to owned complete namespace, current capacity, physical binding and three-voter ReadIndex collection. Walk histories incrementally, retain genesis/retired/floor debt, refresh node inputs before planning, and describe only the first exact move for existing guarded admission and owned execution. Require terminal settlement and recollection for successors; durable fleet intent/exclusions and automatic new admission remain separate work."
+        "Connect the pure balanced planner to owned complete namespace, current capacity, physical binding and three-voter ReadIndex collection. Walk histories incrementally, retain genesis/retired/floor debt, refresh node inputs before planning, and describe only the first exact move for existing guarded admission and owned execution. Require terminal settlement and recollection for successors; durable fleet intent/exclusions and automatic new admission remain separate work.",
+        "Root an exact group/member/node provenance index atomically with each resource-linked permit. Resolve pruned dynamic physical bindings through the original admitted row and verified retained terminal receipt, without scans or release credit. Protect generic edits; allow lookup replacement only after a journal-confirmed unused Fenced proposal at a higher sequence on the same disk/engine."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2711,6 +2713,20 @@
           "invariants": [
             "F01",
             "F02",
+            "F05",
+            "F06",
+            "F07",
+            "F09"
+          ]
+        },
+        {
+          "name": "fleet_topology_retained_dynamic_binding_survives_later_move",
+          "oracle": "Fence an unused generated proposal and settle it through the owned service. Generic binding-index deletion/replacement refuses without root progress; a later exact admission reuses that unconsumed member/target at a higher permit sequence. Seed and abort the learner, verify current Raft membership prunes it, then complete a later generated replacement and continue SQL 7 to 12. Fresh complete recollection still verifies the older indexed retained binding and charges its physical occupancy.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
             "F05",
             "F06",
             "F07",

@@ -122,6 +122,7 @@ impl FleetTopologyVerification {
         let mut previous = None;
         let mut high_water = 0;
         let mut revision = None;
+        let mut retained = BTreeMap::new();
         for (node, member) in &voters {
             let input = self
                 .nodes
@@ -249,10 +250,32 @@ impl FleetTopologyVerification {
                         Some((joined, _)) => {
                             joined.node == input.host.node() && joined.disk == input.host.disk()
                         }
-                        None => history.voters.iter().chain(&history.learners).any(|m| {
-                            m.node == input.host.node().bytes()
-                                && m.member == physical.member().get()
-                        }),
+                        None => {
+                            if history.voters.iter().chain(&history.learners).any(|m| {
+                                m.node == input.host.node().bytes()
+                                    && m.member == physical.member().get()
+                            }) {
+                                true
+                            } else if let Some(valid) =
+                                retained.get(&(input.host.node(), physical.member()))
+                            {
+                                *valid
+                            } else {
+                                let valid = catalog
+                                    .run(
+                                        deadline.remaining()?,
+                                        catalog.retained_resource_binding(
+                                            &self.snapshot,
+                                            &key,
+                                            physical.member(),
+                                            &input.capacity.boot,
+                                        ),
+                                    )
+                                    .await?;
+                                retained.insert((input.host.node(), physical.member()), valid);
+                                valid
+                            }
+                        }
                     };
                     if physical.birth_digest() != history.birth_digest() || !binding {
                         return Err(FleetCatalogError::Conflict);

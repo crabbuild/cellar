@@ -176,6 +176,28 @@ impl FleetCatalog {
         Ok(self.resource_settlement(snapshot, row).await?.is_some())
     }
 
+    pub(in super::super) async fn resource_retained_target(
+        &self,
+        snapshot: &FleetSnapshot,
+        row: &Record,
+    ) -> Result<bool> {
+        let Some((kind, _)) = self.resource_settlement(snapshot, row).await? else {
+            return Ok(false);
+        };
+        if kind == Settlement::Fenced {
+            return Ok(false);
+        }
+        let bytes = self
+            .inner
+            .lookup(
+                snapshot.head.tables[FleetTable::Operations.slot()],
+                &completion_key(row.request.identity.id),
+            )
+            .await?
+            .ok_or(FleetCatalogError::Corrupt("missing binding completion"))?;
+        Ok(Completion::decode(&bytes)?.retained_target)
+    }
+
     pub(in super::super) async fn resource_settlement(
         &self,
         snapshot: &FleetSnapshot,

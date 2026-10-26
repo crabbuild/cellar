@@ -306,10 +306,22 @@ impl FleetCatalog {
         if !mutation.changes.iter().any(|c| {
             c.table == FleetTable::Policy && c.key == BOOK_KEY
                 || c.table == FleetTable::Operations && c.key.starts_with(ROW_PREFIX)
+                || c.table == FleetTable::Operations && c.key.starts_with(super::bindings::PREFIX)
         }) {
             return Ok(());
         }
-        if !(2..=3).contains(&mutation.changes.len()) {
+        // Historical binding validation is needed only for a resource debit.
+        // Keep its future out of ordinary boot/policy mutation frames.
+        Box::pin(self.check_resource_debit_mutation(snapshot, mutation, movement)).await
+    }
+
+    async fn check_resource_debit_mutation(
+        &self,
+        snapshot: &FleetSnapshot,
+        mutation: &FleetMutation,
+        movement: Authority,
+    ) -> Result<()> {
+        if !matches!(mutation.changes.len(), 2 | 4) {
             return Err(FleetCatalogError::Invalid("resource mutation"));
         }
         let row = &mutation.changes[0];
@@ -328,7 +340,7 @@ impl FleetCatalog {
         let record = Record::decode(self, row_bytes)?;
         match &record.permit {
             None if mutation.changes.len() == 2 => (),
-            Some(permit) if movement == Authority::Admission && mutation.changes.len() == 3 => {
+            Some(permit) if movement == Authority::Admission && mutation.changes.len() == 4 => {
                 let change = &mutation.changes[2];
                 if change.table != FleetTable::Admissions
                     || change.key != record.request.group
@@ -342,6 +354,8 @@ impl FleetCatalog {
                 {
                     return Err(FleetCatalogError::Invalid("resource permit mutation"));
                 }
+                self.check_resource_binding_change(snapshot, &record, &mutation.changes[3])
+                    .await?;
             }
             _ => return Err(FleetCatalogError::Invalid("resource permit authority")),
         }
@@ -463,7 +477,7 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != if request.movement.is_some() { 3 } else { 2 }
+            || mutation.changes.len() != if request.movement.is_some() { 4 } else { 2 }
             || mutation.changes[0].table != FleetTable::Operations
             || mutation.changes[0].key != row_key(request.identity.id)
             || mutation.changes[1].table != FleetTable::Policy
@@ -492,6 +506,9 @@ impl FleetCatalog {
                     )
             {
                 return Err(FleetCatalogError::Corrupt("resource request permit"));
+            }
+            if mutation.changes[3] != super::bindings::change(&record)? {
+                return Err(FleetCatalogError::Corrupt("resource request binding"));
             }
         }
         let book = Book::decode(

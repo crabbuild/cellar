@@ -243,6 +243,7 @@ impl FleetCatalog {
                         .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?,
                 ),
             });
+            mutation.changes.push(super::bindings::change(record)?);
         }
         mutation.validate()?;
         Ok(mutation)

@@ -463,3 +463,333 @@ async fn refusal() -> Result<()> {
     ensure!(collection.histories_checked() == 0);
     f.close().await
 }
+
+async fn settle_with_service(
+    f: &Scenario,
+    movement: &FleetMovementRequest,
+    target: &RaftCells,
+) -> Result<()> {
+    let service =
+        f.s.f
+            .catalog
+            .start_movement_service(
+                f.s.nodes[0].host.clone(),
+                Arc::new(Evidence {
+                    target: target.clone(),
+                    request: FleetMovementExecutionRequest {
+                        reservation: movement.resources.identity.id,
+                        attestation: movement.resources.attestation.clone(),
+                        from_s3: true,
+                    },
+                }),
+                FleetMovementServiceOptions {
+                    interval: Duration::from_millis(50),
+                    retry_max_interval: Duration::from_millis(500),
+                    turn_timeout: TIMEOUT,
+                },
+            )
+            .await?;
+    f.s.f
+        .domain
+        .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
+            while service.status().settled_movements != 1 {
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await??;
+    service.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_topology_retained_dynamic_binding_survives_later_move() -> Result<()> {
+    Box::pin(retained_binding()).await
+}
+
+async fn fence_and_reuse(
+    f: &Scenario,
+    movement: FleetMovementRequest,
+    permit: FleetPermitAuthorization,
+    primary: &RaftCellHandle,
+    target: &RaftCells,
+) -> Result<(FleetMovementRequest, FleetPermitAuthorization)> {
+    let empty = movement;
+    let fenced = primary.fence_fleet_permit(permit, TIMEOUT).await?;
+    ensure!(fenced.phase == Some(FleetPermitPhase::Fenced));
+    settle_with_service(f, &empty, target).await?;
+    let binding_key = format!(
+        "resource-binding/{}/{:016x}/{}",
+        f.s.f.catalog.group_binding(&empty.resources.group)?.key()?,
+        empty.plan.replacement.member.get(),
+        hex::encode(empty.plan.replacement.node.bytes())
+    );
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    let empty_pointer =
+        f.s.f
+            .catalog
+            .get(&cut, FleetTable::Operations, &binding_key, TIMEOUT)
+            .await?
+            .unwrap();
+    for (index, value) in [None, Some(vec![1])].into_iter().enumerate() {
+        ensure!(f
+            .s
+            .f
+            .catalog
+            .commit(
+                &cut,
+                &FleetMutation {
+                    id: [242 + index as u8; 16],
+                    operation: [244; 16],
+                    principal: "fixture-binding-tamper".into(),
+                    expected_revision: cut.revision(),
+                    changes: vec![FleetChange {
+                        table: FleetTable::Operations,
+                        key: binding_key.clone(),
+                        value
+                    }],
+                },
+                TIMEOUT
+            )
+            .await
+            .is_err());
+    }
+    ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == cut.revision());
+    discover(&f.s.f, &f.hosts()).await?;
+    let request = f.request().await?;
+    let mut walk = f.collection(&request).await?;
+    while walk.verify_next(TIMEOUT).await? {}
+    let preview = walk.preview(TIMEOUT).await?;
+    let movement = preview
+        .first_movement(Fixture::request(212, preview.inventory_revision()))?
+        .unwrap();
+    ensure!(
+        movement.resources.group == empty.resources.group
+            && movement.plan.replacement == empty.plan.replacement
+    );
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    let admitted =
+        f.s.f
+            .catalog
+            .reserve_movement(
+                &cut,
+                &movement,
+                &f.s.nodes[0].host,
+                std::slice::from_ref(&f.s.namespace),
+                TIMEOUT,
+            )
+            .await?;
+    let permit = admitted.authorization();
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        f.s.f
+            .catalog
+            .get(&cut, FleetTable::Operations, &binding_key, TIMEOUT)
+            .await?
+            .unwrap()
+            != empty_pointer
+    );
+    Ok((movement, permit))
+}
+
+async fn retained_binding() -> Result<()> {
+    let mut f = Box::pin(Scenario::new(true)).await?;
+    let request = f.request().await?;
+    let mut walk = f.collection(&request).await?;
+    while walk.verify_next(TIMEOUT).await? {}
+    let preview = walk.preview(TIMEOUT).await?;
+    let movement = preview
+        .first_movement(Fixture::request(210, preview.inventory_revision()))?
+        .unwrap();
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    let admission =
+        f.s.f
+            .catalog
+            .reserve_movement(
+                &cut,
+                &movement,
+                &f.s.nodes[0].host,
+                std::slice::from_ref(&f.s.namespace),
+                TIMEOUT,
+            )
+            .await?;
+    let permit = admission.authorization();
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    let auth =
+        f.s.f
+            .catalog
+            .authorize_group(&cut, &movement.resources.group, TIMEOUT)
+            .await?;
+    let index =
+        f.s.proposals
+            .iter()
+            .position(|p| p.scope == movement.resources.group)
+            .unwrap();
+    let cells = f.live[index]
+        .iter()
+        .map(|(_, h)| h.clone())
+        .collect::<Vec<_>>();
+    let p = primary(&f.s.f, &cells).await?;
+    let source = cells[p]
+        .observe_fleet_membership(auth.clone(), TIMEOUT)
+        .await?;
+    let target = if movement.plan.replacement.node == NodeId::new([7; 16])? {
+        f.s.target.clone()
+    } else {
+        f.spare.clone()
+    };
+    let (movement, permit) =
+        Box::pin(fence_and_reuse(&f, movement, permit, &cells[p], &target)).await?;
+    let learner = target.register_managed_history(auth, TIMEOUT).await?;
+    cells[p]
+        .begin_managed_repair(permit.clone(), movement.plan.clone(), TIMEOUT)
+        .await?;
+    learner
+        .activate_managed_learner(
+            permit.clone(),
+            LearnerActivation {
+                member: movement.plan.replacement.member,
+                source: source.replica().member,
+                source_node: source.replica().node,
+                from_s3: true,
+                timeout: TIMEOUT,
+            },
+        )
+        .await?;
+    ensure!(
+        super::super::retirement::step(&f.s.f, &cells[p], &permit, RepairStep::AbortLearner)
+            .await?
+            .phase
+            == RepairPhase::Aborted
+    );
+    settle_with_service(&f, &movement, &target).await?;
+    ensure!(target.observe_node(TIMEOUT).await?.node.groups == 1);
+    // The consumed learner is deliberately absent from the current Raft binding
+    // ledger. Its rooted admission/retained receipt must supply provenance.
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    let auth =
+        f.s.f
+            .catalog
+            .authorize_group(&cut, &movement.resources.group, TIMEOUT)
+            .await?;
+    let proof = cells[p].observe_fleet_membership(auth, TIMEOUT).await?;
+    ensure!(proof
+        .joined_member(movement.plan.replacement.member)?
+        .is_none());
+    let (_extra_root, extra_node, extra) = f.s.f.peer_host(9).await?;
+    let evidence = attestation(&f.s.f, &f.s.nodes[0].host, &extra).await?;
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    f.s.f
+        .catalog
+        .admit_node_capacity(
+            &cut,
+            &FleetCapacityRequest {
+                identity: Fixture::request(235, cut.revision()),
+                attestation: evidence,
+                action: FleetCapacityAction::Activate,
+            },
+            &f.s.nodes[0].host,
+            std::slice::from_ref(&f.s.namespace),
+            TIMEOUT,
+        )
+        .await?;
+    let all = f
+        .hosts()
+        .into_iter()
+        .cloned()
+        .chain([extra.clone()])
+        .collect::<Vec<_>>();
+    let references = all.iter().collect::<Vec<_>>();
+    discover(&f.s.f, &references).await?;
+    let mut request = f.request().await?;
+    let local = extra.observe_node(TIMEOUT).await?;
+    request.keep.push(local.node.identity.node);
+    request.nodes.push(FleetTopologyNodeResources {
+        attestation: FleetResourceAttestation {
+            boot: local.fleet_boot.unwrap(),
+            profile_revision: 1,
+            used: FleetResourceBounds {
+                engine_slots: local.node.groups,
+                durable_bytes: 1024 * 1024,
+                memory_bytes: 64 * 1024 * 1024,
+            },
+            evidence_digest: [71; 32],
+            evidence_reference: "fixture-only/topology-occupancy".into(),
+        },
+        reserve: FleetResourceBounds::default(),
+    });
+    let mut walk = f.collection(&request).await?;
+    while walk
+        .verify_next(TIMEOUT)
+        .await
+        .context("collect retained aborted learner")?
+    {}
+    let preview = walk.preview(TIMEOUT).await?;
+    ensure!(preview.plan().recovery.len() == 6);
+    let next = preview
+        .first_movement(Fixture::request(214, preview.inventory_revision()))?
+        .unwrap();
+    ensure!(next.resources.group == movement.resources.group);
+    ensure!(next.plan.replacement.member.get() > movement.plan.replacement.member.get());
+    ensure!(next.plan.replacement.node != movement.plan.replacement.node);
+    let target2 = match next.plan.replacement.node.bytes()[0] {
+        7 => f.s.target.clone(),
+        8 => f.spare.clone(),
+        9 => extra.clone(),
+        _ => anyhow::bail!("unexpected retained-binding target"),
+    };
+    let cut = f.s.f.catalog.read(TIMEOUT).await?;
+    f.s.f
+        .catalog
+        .reserve_movement(
+            &cut,
+            &next,
+            &f.s.nodes[0].host,
+            std::slice::from_ref(&f.s.namespace),
+            TIMEOUT,
+        )
+        .await?;
+    settle_with_service(&f, &next, &target2).await?;
+    let binding = f.live[index]
+        .iter_mut()
+        .find(|(node, _)| *node == next.source)
+        .unwrap();
+    *binding = (
+        next.plan.replacement.node,
+        target2.cell(next.resources.group.namespace, &next.resources.group.cell)?,
+    );
+    write_read(
+        &f.s.f,
+        &f.live[index]
+            .iter()
+            .map(|(_, h)| h.clone())
+            .collect::<Vec<_>>(),
+        2,
+        5,
+        12,
+    )
+    .await?;
+    discover(&f.s.f, &references).await?;
+    // Refresh deployment occupancy for the new target while preserving the
+    // same exact boot/profile; the old aborted target stays physically charged.
+    for input in &mut request.nodes {
+        if input.attestation.boot.node == next.plan.replacement.node.bytes() {
+            input.attestation.used.engine_slots += 1;
+        }
+    }
+    let mut walk = f.collection(&request).await?;
+    while walk
+        .verify_next(TIMEOUT)
+        .await
+        .context("collect older aborted binding after later complete")?
+    {}
+    let preview = walk.preview(TIMEOUT).await?;
+    let retained = preview
+        .plan()
+        .peaks
+        .iter()
+        .find(|peak| peak.scope.node.node == movement.plan.replacement.node)
+        .unwrap();
+    ensure!(retained.resources.engine_slots >= 1);
+    joined(extra_node).await?;
+    f.close().await
+}

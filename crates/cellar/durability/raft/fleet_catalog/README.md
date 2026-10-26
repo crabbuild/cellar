@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -575,7 +575,9 @@ request. It owns a fresh source safe-ReadIndex under the same original deadline
 as the target probe. It checks stable RF3 configuration, the latest settled
 permit, membership revision, member high water, exact history/birth/schema,
 source boot/process/engine and all staged voter failure domains. One root CAS
-installs the resource row, movement book and matching membership permit.
+installs the resource row, movement book, matching membership permit and exact
+group/member/node binding index. The index references the canonical admitted
+row and remains after current Raft membership prunes a retired learner.
 The returned opaque authorization still requires group consumption and actual
 learner initialization. A minority source cannot authorize this admission.
 
@@ -584,7 +586,8 @@ Every existing admission must have exact resource attribution; unknown costs
 refuse further work. The canonical journal request binds both resource evidence
 and the complete movement intent. Exact retries can return the original permit
 after target shutdown or adapter recreation; they grant no current health lease.
-The complete final/staged placement and failure-headroom planner remains pending.
+The topology collector below supplies the complete final/staged placement and
+failure-headroom planner; each resulting move still requires this admission.
 
 Exact committed retries reconcile from the permanent request journal before
 live probes, including after exclusion, target shutdown and adapter recreation.
@@ -1102,8 +1105,9 @@ Use the returned `FleetTopologyVerification` as follows:
    rooted history. Reserved births block; canonical cancellations consume no live
    capacity. For each live history, three fresh safe-ReadIndex responses must
    agree on stable RF3, settled permits and the rooted birth/schema. The adapter
-   validates current and retained physical bindings against genesis and committed
-   joined-member identities. Missing initial voter materialization remains debt.
+   validates physical bindings against genesis, committed joined-member identities
+   or an indexed journal-confirmed retained movement receipt. Missing initial
+   voter materialization remains debt.
 2. Call `preview`. The adapter refreshes authenticated node inventories and
    profiles, requires the same physical binding identities and retains rooted
    physical floors. Completed/apply progress may advance without invalidating
@@ -1138,6 +1142,19 @@ group/resource records. No complete membership ledger is retained per business
 cell. Unknown local histories, unmaterialized births, active debits and missing
 evidence block the operation. Ordinary archive/publication work can continue;
 the collector grants no physical reservation release.
+
+Raft deliberately prunes removed dynamic bindings from its current membership
+ledger. The permanent binding index therefore resolves an occupied copy directly
+to its original resource admission and verified Complete or retained Aborted
+receipt, including after a later movement supersedes the current permit. A
+candidate object or an empty/fenced receipt cannot establish provenance. Disk
+and engine identity must match; physical occupancy remains charged. Generic
+catalog mutations cannot edit or delete the index. A later admission may replace
+an index entry only after the exact previous unused proposal is journal-confirmed
+Fenced, at a higher permit sequence on the same disk/engine. Such a proposal did
+not consume its prospective member ID. Consumed bindings cannot be rebound.
+This schema hard-cuts to `/topology-bindings-1` with numeric markers still 1;
+use fresh matching coordination/data roots and engines.
 
 This API connects healthy-fleet collection, generation and guarded per-move
 execution. It does not persist a fleet-wide desired keep-set, exclude departing
