@@ -91,6 +91,8 @@ pub(super) async fn verify(
             .as_ref()
             .ok_or(FleetCatalogError::Unconfirmed)?;
         if auth.state() != FleetNodeState::Active
+            || node.fleet_boot.as_ref()
+                != Some(&auth.record.boot_binding(catalog.birth_owner()?.catalog)?)
             || auth.node() != replica.node
             || auth.disk() != replica.disk
             || auth.storage_instance() != Some(node.node.storage_instance)

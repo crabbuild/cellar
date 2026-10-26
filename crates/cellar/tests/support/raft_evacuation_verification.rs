@@ -577,6 +577,90 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
             && closure.process() == retained.node.identity.process.bytes()
     );
     write_read(&s.f, &active, 3, 6, 18).await?;
+    // Recreate the controller adapter after the physical stop. The rooted
+    // Finalizing record retains the original stop; every live proof is renewed.
+    let controller = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+    let root = controller.read(TIMEOUT).await?;
+    let mut terminal = controller
+        .prepare_evacuation_verification(
+            &root,
+            operation,
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
+        .await?;
+    for node in &s.nodes {
+        let peer = if node.spec.node == peers[0] {
+            peers[1]
+        } else {
+            peers[0]
+        };
+        s.f.remote(&node.host, peer, root.revision()).await?;
+    }
+    s.f.remote(&s.observer, peers[0], root.revision()).await?;
+    let recovered_cut = terminal.freeze_live(&s.observer, peers, TIMEOUT).await?;
+    ensure!(
+        recovered_cut.applied() == fixed.applied(),
+        "restart moved the fixed business cut"
+    );
+    terminal
+        .verify_live(&s.observer, peers, archive(&s, &reference), TIMEOUT)
+        .await?;
+    let removal = cellar::application::consensus::verification::FleetRemovalRequest {
+        identity: FleetRequestIdentity {
+            id: [240; 16],
+            operation: operation.bytes(),
+            principal: "terminal-removal".into(),
+            expected_revision: root.revision(),
+        },
+        stop: stop_id,
+    };
+    let completed = controller
+        .complete_evacuation(
+            &root,
+            &removal,
+            Some(&mut terminal),
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(
+        completed.node() == departed.spec.node.bytes()
+            && completed.closure_digest() == closure.digest()
+    );
+    let applied = completed.applied_revision();
+    let retry = controller
+        .complete_evacuation(&root, &removal, None, &[], TIMEOUT)
+        .await?;
+    ensure!(
+        retry.applied_revision() == applied
+            && retry.candidate_digest() == completed.candidate_digest()
+    );
+    let current = controller.read(TIMEOUT).await?;
+    ensure!(
+        controller
+            .authorize_host(&current, departed.spec.node, TIMEOUT)
+            .await?
+            .state()
+            == FleetNodeState::Removed
+    );
+    let next = FleetRequestIdentity {
+        id: [241; 16],
+        operation: [242; 16],
+        principal: "next-disruption".into(),
+        expected_revision: current.revision(),
+    };
+    let admitted_next = controller
+        .begin_evacuation(
+            &current,
+            &next,
+            peers[0],
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(admitted_next.applied_revision > applied);
+    write_read(&s.f, &active, 4, 3, 21).await?;
     // This fixture promoted the original empty observer into the replacement
     // voter, so require its actual occupied state and join that owner explicitly.
     ensure!(s.scratch.usage()?.generations == 0);

@@ -415,10 +415,22 @@ async fn peer_traffic_waits_until_all_local_groups_attach() -> anyhow::Result<()
             ..Default::default()
         };
         message.set_msg_type(MessageType::MsgHeartbeat);
-        tokio::time::timeout(
-            Duration::from_secs(3),
-            remote.transport.submit(&first, message)?.accepted(),
-        )
+        tokio::time::timeout(Duration::from_secs(3), async {
+            // The active host's one-item runtime queue also serves inspection.
+            // Retry only explicit refusal and still require successful admission.
+            loop {
+                let result = match remote.transport.submit(&first, message.clone()) {
+                    Ok(delivery) => delivery.accepted().await,
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Err(TransportError::Overloaded) => {
+                        tokio::time::sleep(Duration::from_millis(10)).await
+                    }
+                    result => return result,
+                }
+            }
+        })
         .await??;
         Ok::<_, anyhow::Error>(())
     }

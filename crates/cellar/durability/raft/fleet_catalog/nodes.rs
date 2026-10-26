@@ -225,6 +225,18 @@ impl NodeRecord {
         self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
         Ok(())
     }
+
+    pub(super) fn complete_removal(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::Finalizing
+            || self.operation != Some(operation)
+            || self.boot.is_none()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::Removed;
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
 }
 
 /// Opaque authorization from a rooted node record. Host startup refreshes the

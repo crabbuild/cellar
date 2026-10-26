@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -361,10 +361,9 @@ state and disruption slot unchanged.
 
 A candidate records historical verification. Its stored bytes cannot recreate
 the runtime's proofs after a crash, authorize a stop, release reservations or
-establish terminal removal. The remaining terminal path must obtain fresh
-survivor observations, reconcile reachable physical owners or fence unreachable
-authority while retaining occupancy, and atomically root the terminal receipt
-with the node transition and disruption-slot release. Business writes continue
+establish terminal removal. The terminal API below consumes renewed runtime
+verification and signed joined-owner closure while retaining physical occupancy.
+It updates the receipt, node and disruption slot atomically. Business writes continue
 without calling candidate preparation or coordination storage.
 
 ## No-new-boot finalization boundary
@@ -387,9 +386,8 @@ candidate cannot authorize the newer process.
 `FleetFinalizationAdmission` is an opaque historical observation of this boot
 fence. It grants no physical stop, terminal removal, resource release or volume
 deletion authority. The existing process remains owned and the disruption slot
-stays claimed. Fresh terminal survivor verification, resumption while Finalizing
-and the atomic terminal receipt/slot release remain
-required before this boundary can complete an evacuation.
+stays claimed. Completion requires the terminal API below; this admission alone
+cannot release that slot.
 
 ## Scoped physical stop and joined closure
 
@@ -435,7 +433,8 @@ establish current survivor health, archive catch-up, application completion,
 legacy graceful-reload proof, terminal removal or permission to delete a volume.
 An unplanned shutdown or a fence without an accepted stop produces no closure.
 Failed publication or an unreachable process remains unconfirmed and retains
-occupancy. Root terminal transitions and slot release are not implemented here.
+occupancy. Only the terminal verifier below can consume this closure together
+with fresh survivor and complete-inventory evidence to release the disruption.
 
 The existing authenticated, generation-bound private management endpoint accepts
 `NodeAction::FleetStop`; its acceptance is explicitly `physical_closure:
@@ -467,6 +466,37 @@ Native coverage includes empty origins/targets and an actual S3-seeded voter
 replacement followed by rooted finalization, Raft-control stop concurrent with
 survivor writes, retained-history owner join and signed closure. This still
 supplies no terminal node transition or disruption-slot release.
+
+## Terminal removal and recovery
+
+`prepare_evacuation_verification` also resumes a rooted Finalizing operation.
+It loads the original fence, rereads complete inventory and owns new quorum
+observations and physical archive replay. For an unchanged history/configuration,
+the original candidate supplies the fixed publication prefix; a current actual
+quorum publication must cover it before that prefix is re-established. A changed
+configuration or new history requires a new verification cut. This refresh
+preserves the original stop request and stopped boot.
+
+`complete_evacuation` requires that runtime verifier and a `FleetRemovalRequest`
+identifying the exact signed stop closure. It refuses incomplete or changed
+inventory and proofs older than 60 seconds, including queue, archive and caller
+residence. It reprobes every surviving process, validates current exact boot
+bindings and checks the age again immediately before CAS. An attempt that cannot
+finish within this freshness bound must repeat verification. Supported density
+and convergence rates remain qualification work.
+
+One root CAS writes the removal receipt, advances the exact Finalizing node to
+Removed and clears the shared disruption slot. The disk/engine/boot tombstone,
+physical histories and resource reservations remain. Public generic catalog
+mutations cannot delete the disruption slot or manufacture runtime verification.
+Exact committed retries reconcile the permanent request journal before requiring
+live verification or namespace handles, including after controller recreation.
+Changed request identity, stop or payload refuses. Orphan candidates grant no
+completion, and uncertain physical closure cannot release the slot.
+
+A controller that is itself one of a group's survivors uses the existing guarded
+local safe-ReadIndex operation, current rooted history authorization and charged
+reply retention. Locality grants no membership or removal authority.
 
 ## Capacity readiness and activation
 
@@ -774,7 +804,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

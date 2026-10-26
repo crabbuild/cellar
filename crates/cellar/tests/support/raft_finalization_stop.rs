@@ -87,6 +87,283 @@ async fn finalizing(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_enrollment_incomplete_import() -> Result<()> {
+    let (s, _gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let stop_id = ProposalId::new([238; 16])?;
+    s.observer_node
+        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
+        .await?;
+    finished(s.observer_node, &s.f).await?;
+    let (namespace, _) = initial_birth(&s.f).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .verify_physical_closure(&root, operation, stop_id, TIMEOUT)
+        .await?;
+    let observer = &s.nodes[0].host;
+    let peers = [
+        s.nodes[0].spec.node,
+        s.nodes[1].spec.node,
+        s.nodes[2].spec.node,
+    ];
+    for node in &s.nodes {
+        let peer = if node.spec.node == peers[0] {
+            peers[1]
+        } else {
+            peers[0]
+        };
+        s.f.remote(&node.host, peer, root.revision()).await?;
+    }
+    let mut verification =
+        s.f.catalog
+            .prepare_evacuation_verification(
+                &root,
+                operation,
+                std::slice::from_ref(&namespace),
+                TIMEOUT,
+            )
+            .await?;
+    let cut = verification.freeze_live(observer, peers, TIMEOUT).await?;
+    let reference =
+        s.f.domain
+            .run(s.archive.recovery_metadata())
+            .await??
+            .context("terminal archive metadata")?
+            .reference();
+    verification
+        .verify_live(
+            observer,
+            peers,
+            FleetEvacuationArchive {
+                archive: &s.archive,
+                reference: &reference,
+                verifier: &s.verifier,
+            },
+            TIMEOUT,
+        )
+        .await?;
+    ensure!(cut.image().is_none());
+    let mut config = namespace.config().clone();
+    config.namespace = NamespaceId::new([87; 16])?;
+    config.managed_fleet = None;
+    let extra = Catalog::new(
+        s.f.store.clone(),
+        CatalogOptions {
+            prefix: "host-enrollment/".into(),
+            ..Default::default()
+        },
+    )?
+    .open_namespace(config)
+    .await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .declare_namespace(
+            &root,
+            &Fixture::request(222, root.revision()),
+            &extra,
+            "Counter",
+            TIMEOUT,
+        )
+        .await?;
+    let current = s.f.catalog.read(TIMEOUT).await?;
+    let removal = cellar::application::consensus::verification::FleetRemovalRequest {
+        identity: FleetRequestIdentity {
+            id: [240; 16],
+            operation: operation.bytes(),
+            principal: "refuse-incomplete-removal".into(),
+            expected_revision: current.revision(),
+        },
+        stop: stop_id,
+    };
+    let catalogs = [namespace.clone(), extra];
+    ensure!(matches!(
+        s.f.catalog
+            .complete_evacuation(
+                &current,
+                &removal,
+                Some(&mut verification),
+                &catalogs,
+                TIMEOUT,
+            )
+            .await,
+        Err(FleetCatalogError::Conflict | FleetCatalogError::InventoryIncomplete)
+    ));
+    ensure!(matches!(
+        s.f.catalog
+            .prepare_evacuation_verification(&current, operation, &catalogs, TIMEOUT,)
+            .await,
+        Err(FleetCatalogError::InventoryIncomplete)
+    ));
+    let after = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(after.revision() == current.revision());
+    ensure!(
+        s.f.catalog
+            .authorize_host(&after, NodeId::new([7; 16])?, TIMEOUT)
+            .await?
+            .state()
+            == FleetNodeState::Finalizing
+    );
+    ensure!(matches!(
+        s.f.catalog
+            .begin_evacuation(
+                &after,
+                &FleetRequestIdentity {
+                    id: [241; 16],
+                    operation: [242; 16],
+                    principal: "blocked-next-disruption".into(),
+                    expected_revision: after.revision(),
+                },
+                peers[0],
+                &catalogs,
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::DisruptionInProgress { .. })
+    ));
+    write_read(&s.f, &s.cells, 10, 4, 4).await?;
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_removal_joined_closure_and_lost_reply() -> Result<()> {
+    use cellar::application::consensus::verification::{
+        FleetChange, FleetMutation, FleetRemovalRequest, FleetTable,
+    };
+    let (s, _gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let (namespace, _) = initial_birth(&s.f).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let peers = [
+        s.nodes[0].spec.node,
+        s.nodes[1].spec.node,
+        s.nodes[2].spec.node,
+    ];
+    for node in &s.nodes {
+        let peer = if node.spec.node == peers[0] {
+            peers[1]
+        } else {
+            peers[0]
+        };
+        s.f.remote(&node.host, peer, root.revision()).await?;
+    }
+    let mut proof =
+        s.f.catalog
+            .prepare_evacuation_verification(
+                &root,
+                operation,
+                std::slice::from_ref(&namespace),
+                TIMEOUT,
+            )
+            .await?;
+    let observer = &s.nodes[0].host;
+    proof.freeze_live(observer, peers, TIMEOUT).await?;
+    let reference =
+        s.f.domain
+            .run(s.archive.recovery_metadata())
+            .await??
+            .context("archive head")?
+            .reference();
+    proof
+        .verify_live(
+            observer,
+            peers,
+            FleetEvacuationArchive {
+                archive: &s.archive,
+                reference: &reference,
+                verifier: &s.verifier,
+            },
+            TIMEOUT,
+        )
+        .await?;
+    let stop_id = ProposalId::new([238; 16])?;
+    let request = FleetRemovalRequest {
+        identity: FleetRequestIdentity {
+            id: [240; 16],
+            operation: operation.bytes(),
+            principal: "joined-removal".into(),
+            expected_revision: root.revision(),
+        },
+        stop: stop_id,
+    };
+    ensure!(matches!(
+        s.f.catalog
+            .complete_evacuation(
+                &root,
+                &request,
+                Some(&mut proof),
+                std::slice::from_ref(&namespace),
+                TIMEOUT,
+            )
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == root.revision());
+    ensure!(matches!(
+        s.f.catalog
+            .commit(
+                &root,
+                &FleetMutation {
+                    id: [244; 16],
+                    operation: [245; 16],
+                    principal: "raw-release-refused".into(),
+                    expected_revision: root.revision(),
+                    changes: vec![FleetChange {
+                        table: FleetTable::Policy,
+                        key: "active-disruption".into(),
+                        value: None
+                    }],
+                },
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Invalid(_))
+    ));
+    s.observer_node
+        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
+        .await?;
+    finished(s.observer_node, &s.f).await?;
+    s.f.store
+        .fail_fleet_confirmation
+        .store(true, Ordering::Release);
+    let result =
+        s.f.catalog
+            .complete_evacuation(
+                &root,
+                &request,
+                Some(&mut proof),
+                std::slice::from_ref(&namespace),
+                TIMEOUT,
+            )
+            .await;
+    ensure!(matches!(
+        result,
+        Ok(_) | Err(FleetCatalogError::Storage(_) | FleetCatalogError::Unconfirmed)
+    ));
+    ensure!(!s.f.store.fail_fleet_confirmation.load(Ordering::Acquire));
+    let controller = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+    let current = controller.read(TIMEOUT).await?;
+    ensure!(current.revision() == root.revision() + 1);
+    let completed = controller
+        .complete_evacuation(&current, &request, None, &[], TIMEOUT)
+        .await?;
+    ensure!(completed.applied_revision() == current.revision() && completed.node() == [7; 16]);
+    let mut changed = request.clone();
+    changed.stop = ProposalId::new([239; 16])?;
+    ensure!(matches!(
+        controller
+            .complete_evacuation(&current, &changed, None, &[], TIMEOUT)
+            .await,
+        Err(FleetCatalogError::PayloadConflict)
+    ));
+    ensure!(controller.read(TIMEOUT).await?.revision() == current.revision());
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_stop_waiter_loss_still_joins_and_signs() -> Result<()> {
     let (s, gate) = Box::pin(guarded()).await?;
     let (operation, admission) = finalizing(&s).await?;

@@ -113,7 +113,8 @@ impl RaftCells {
         })
     }
 
-    /// Obtain a fresh safe-ReadIndex observation from an enrolled remote group.
+    /// Obtain a fresh safe-ReadIndex observation from an enrolled group. A local
+    /// target uses the same guarded quorum observer without a loopback RPC.
     /// The origin may have zero local groups. Both endpoints must install the
     /// requested catalog cut; the target independently authorizes this exact
     /// history. This creates no query, seeding or membership-mutation grant.

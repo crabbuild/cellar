@@ -17,6 +17,7 @@ pub(super) struct LocalCompleted {
     request: Box<NodeRequest>,
     bytes: Permit,
     result: Result<(Box<InspectionSnapshot>, LogIndex), CommandFailure>,
+    peer: Option<PeerFleetRequest>,
 }
 
 impl Driver {
@@ -25,6 +26,15 @@ impl Driver {
         mut request: NodeRequest,
         call: PeerFleetRequest,
     ) {
+        if call.node == self.log.limits().node {
+            self.start_fleet_inspection(
+                request,
+                History::new(&call.authorization),
+                call.minimum_revision,
+                Some(call),
+            );
+            return;
+        }
         let admitted = (|| {
             if self.options.managed.is_none() {
                 return Err(InspectionError::Refused);
@@ -96,9 +106,19 @@ impl Driver {
 
     pub(super) fn start_local_fleet_inspection(
         &mut self,
+        request: NodeRequest,
+        history: History,
+        minimum_revision: u64,
+    ) {
+        self.start_fleet_inspection(request, history, minimum_revision, None);
+    }
+
+    fn start_fleet_inspection(
+        &mut self,
         mut request: NodeRequest,
         history: History,
         minimum_revision: u64,
+        peer: Option<PeerFleetRequest>,
     ) {
         let admitted = (|| {
             let host = self
@@ -164,7 +184,7 @@ impl Driver {
                 result = work => result,
             };
             Job::LocalFleetInspection(Box::new(LocalCompleted {
-                request: Box::new(request), bytes, result,
+                request: Box::new(request), bytes, result, peer,
             }))
         }));
     }
@@ -174,6 +194,7 @@ impl Driver {
             mut request,
             bytes,
             result,
+            peer,
         } = completed;
         if request.control.cancelled() || self.closing.load(Ordering::Acquire) {
             return;
@@ -185,13 +206,31 @@ impl Driver {
             {
                 return Err(CommandFailure::Unavailable);
             }
-            Ok(Response::LocalFleetObservation(Box::new(
-                LocalObservation {
-                    node: Box::new(node),
-                    snapshot,
-                    barrier,
-                },
-            )))
+            let local = LocalObservation {
+                node: Box::new(node),
+                snapshot,
+                barrier,
+            };
+            if let Some(call) = peer {
+                self.transport
+                    .validate_fleet_node_observation(&local.node, call.minimum_revision)
+                    .map_err(|_| CommandFailure::Unavailable)?;
+                let age = self
+                    .log
+                    .domain()
+                    .mono_ms()
+                    .ok()
+                    .and_then(|now| now.checked_sub(request.started))
+                    .ok_or(CommandFailure::Unavailable)?;
+                Ok(Response::PeerFleetObservation(
+                    local
+                        .into_peer(&call.authorization, age)
+                        .map(Box::new)
+                        .map_err(|_| InspectionError::Refused),
+                ))
+            } else {
+                Ok(Response::LocalFleetObservation(Box::new(local)))
+            }
         });
         node_control::reply_node_charged(&mut request, result, Some(bytes));
     }

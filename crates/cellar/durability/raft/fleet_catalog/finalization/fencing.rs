@@ -16,18 +16,21 @@ fn key(operation: [u8; 16]) -> String {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
+pub(super) struct Record {
     format: u8,
     catalog: [u8; 32],
-    request: FleetRequestIdentity,
+    pub(super) request: FleetRequestIdentity,
     input_root: [u8; 32],
-    candidate: [u8; 32],
-    disruption: [u8; 32],
-    node: NodeRecord,
+    pub(super) candidate: [u8; 32],
+    pub(super) disruption: [u8; 32],
+    pub(super) node: NodeRecord,
 }
 
 impl Record {
-    fn stop_selector(&self, request: ProposalId) -> Result<crate::raft::fleet_stop::StopSelector> {
+    pub(super) fn stop_selector(
+        &self,
+        request: ProposalId,
+    ) -> Result<crate::raft::fleet_stop::StopSelector> {
         let selector = crate::raft::fleet_stop::StopSelector {
             boot: self.node.boot_binding(self.catalog)?,
             epoch: self.node.epoch,
@@ -360,6 +363,12 @@ fn check_process(
         .as_ref()
         .ok_or(FleetCatalogError::Unconfirmed)?;
     if node.node.identity.node != target.node()
+        || node.fleet_boot.as_ref()
+            != Some(
+                &target
+                    .record
+                    .boot_binding(target.catalog.birth_owner()?.catalog)?,
+            )
         || node.node.identity.disk != target.disk()
         || node.node.identity.process.bytes() != boot.process
         || Some(node.node.storage_instance) != target.storage_instance()
@@ -444,7 +453,11 @@ impl FleetCatalog {
         .await
     }
 
-    async fn stop_record(&self, snapshot: &FleetSnapshot, operation: [u8; 16]) -> Result<Record> {
+    pub(super) async fn stop_record(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: [u8; 16],
+    ) -> Result<Record> {
         let bytes = self
             .inner
             .lookup(

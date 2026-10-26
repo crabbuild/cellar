@@ -46,6 +46,8 @@ pub(super) struct Basis {
     pub(super) histories: u64,
     namespaces: u64,
     separation: FleetReplicaSeparation,
+    #[serde(deserialize_with = "nullable")]
+    pub(super) finalization: Option<[u8; 16]>,
 }
 
 impl Basis {
@@ -60,9 +62,19 @@ impl Basis {
         // admission must still be rooted and linked to its canonical journal.
         let operation = cellar_logic::consensus::ProposalId::new(self.operation)
             .map_err(|_| FleetCatalogError::Corrupt("receipt operation"))?;
-        catalog
-            .checked_active_evacuation(&current, operation)
-            .await?;
+        if let Some(request) = self.finalization {
+            let fence = catalog.stop_record(&current, self.operation).await?;
+            if fence.request.id != request
+                || fence.node.node != self.node
+                || fence.node.epoch != self.epoch
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+        } else {
+            catalog
+                .checked_active_evacuation(&current, operation)
+                .await?;
+        }
         Ok(())
     }
 
@@ -98,7 +110,28 @@ impl Basis {
             histories: inventory.histories(),
             namespaces: inventory.namespaces() as u64,
             separation: snapshot.replica_separation(),
+            finalization: None,
         };
+        result.validate()?;
+        Ok(result)
+    }
+
+    pub(super) fn capture_finalizing(
+        catalog: &FleetCatalog,
+        snapshot: &FleetSnapshot,
+        fence: &super::fencing::Record,
+        inventory: &FleetInventory,
+        previous: &Basis,
+    ) -> Result<Self> {
+        catalog.check_snapshot(snapshot)?;
+        let mut result = previous.clone();
+        result.revision = snapshot.revision();
+        result.epoch = fence.node.epoch;
+        result.tables = BASIS_TABLES.map(|table| snapshot.head.tables[table.slot()]);
+        result.histories = inventory.histories();
+        result.namespaces = inventory.namespaces() as u64;
+        result.separation = snapshot.replica_separation();
+        result.finalization = Some(fence.request.id);
         result.validate()?;
         Ok(result)
     }
@@ -116,6 +149,7 @@ impl Basis {
             || self.epoch == 0
             || self.epoch >= u64::MAX - 2
             || self.revision == 0
+            || self.finalization == Some([0; 16])
             || self.histories > HISTORY_LIMIT
             || !(1..=namespaces::MAX_NAMESPACES as u64).contains(&self.namespaces)
             || self.tables[0].is_none()
@@ -207,6 +241,36 @@ impl From<&FleetPublishedCut> for Publication {
                 digest: image.digest(),
             }),
         }
+    }
+}
+
+impl Publication {
+    pub(super) fn restore(&self, current: &FleetPublishedCut) -> Result<FleetPublishedCut> {
+        validate_image(self.applied, self.image_position, self.image)?;
+        let image = match (self.image_position, self.image) {
+            (Some(position), Some(image)) => Some(
+                crate::raft::host::FleetPublishedImage::new(
+                    position
+                        .decode()
+                        .map_err(|_| FleetCatalogError::Corrupt("receipt publication"))?,
+                    image
+                        .decode()
+                        .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?,
+                )
+                .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?,
+            ),
+            (None, None) => None,
+            _ => return Err(FleetCatalogError::Corrupt("receipt image binding")),
+        };
+        current
+            .checked_prefix(
+                self.applied
+                    .decode()
+                    .map_err(|_| FleetCatalogError::Corrupt("receipt position"))?,
+                cellar_logic::consensus::LogIndex::new(self.revision),
+                image,
+            )
+            .map_err(|_| FleetCatalogError::Unconfirmed)
     }
 }
 
@@ -463,6 +527,18 @@ impl Book {
 }
 
 impl Candidate {
+    pub(super) async fn entry(&self, catalog: &FleetCatalog, key: &str) -> Result<Option<Entry>> {
+        let Some(bytes) = catalog.inner.lookup(self.index, key).await? else {
+            return Ok(None);
+        };
+        let entry: Entry = decode(ENTRY_KIND, &bytes, ENTRY_LIMIT)?;
+        entry.validate(&self.basis)?;
+        if hex::encode(entry.history) != key {
+            return Err(FleetCatalogError::Corrupt("receipt entry key"));
+        }
+        Ok(Some(entry))
+    }
+
     fn validate(&self) -> Result<()> {
         self.basis.validate()?;
         if self.count != self.basis.histories

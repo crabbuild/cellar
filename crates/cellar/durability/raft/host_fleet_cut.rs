@@ -154,6 +154,26 @@ pub struct FleetPublishedCut {
 }
 
 impl FleetPublishedCut {
+    /// Re-establish a stored historical prefix from an actual current quorum
+    /// publication. Serialized receipt material alone cannot construct a cut.
+    pub(crate) fn checked_prefix(
+        &self,
+        applied: LogPosition,
+        revision: LogIndex,
+        image: Option<FleetPublishedImage>,
+    ) -> Result<Self, CommandFailure> {
+        let prefix = Self {
+            applied,
+            revision,
+            image,
+            ..self.clone()
+        };
+        if !self.covers(&prefix)? {
+            return Err(CommandFailure::Unavailable);
+        }
+        Ok(prefix)
+    }
+
     pub(crate) fn capture(
         membership: &FleetMembershipObservation,
         storage_instance: EngineInstanceId,

@@ -5,7 +5,9 @@
 mod fencing;
 mod receipts;
 mod survivors;
+mod terminal;
 pub use fencing::FleetFinalizationAdmission;
+pub use terminal::{FleetRemovalAdmission, FleetRemovalRequest};
 
 use super::*;
 use crate::application::consensus::RaftCells;
@@ -35,11 +37,16 @@ pub struct FleetEvacuationVerification {
     pending: Option<(FleetEntry, FleetHistory)>,
     frozen: Option<FrozenLive>,
     exhausted: bool,
+    prior: Option<Candidate>,
+    oldest_sample: Option<u64>,
+    observer: Option<RaftCells>,
+    survivor_nodes: std::collections::BTreeSet<NodeId>,
 }
 
 struct FrozenLive {
     fixed: FleetPublishedCut,
     survivors: [receipts::Survivor; 3],
+    sampled: u64,
 }
 
 /// Immutable historical verification material, never a terminal receipt. Only
@@ -87,21 +94,44 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Limit);
         }
         let deadline = Deadline::new(self, timeout)?;
-        let book = self
+        let (book, prior) = self
             .run(deadline.remaining()?, async {
                 if self.inner.current().await?.token != snapshot.token {
                     return Err(FleetCatalogError::Conflict);
                 }
-                let active = self.checked_active_evacuation(snapshot, operation).await?;
                 let inventory = self
                     .inner
                     .domain
                     .run(Box::pin(self.check_inventory_inner(snapshot, namespaces)))
                     .await
                     .map_err(|_| FleetCatalogError::Closed)??;
-                let basis = Basis::capture(self, snapshot, &active, &inventory)?;
+                let (basis, prior) = if self
+                    .inner
+                    .lookup(
+                        snapshot.head.tables[FleetTable::Operations.slot()],
+                        &format!("finalizing/{}", hex::encode(operation.bytes())),
+                    )
+                    .await?
+                    .is_some()
+                {
+                    let fence = self.stop_record(snapshot, operation.bytes()).await?;
+                    let previous = Candidate::read(self, fence.candidate).await?;
+                    (
+                        Basis::capture_finalizing(
+                            self,
+                            snapshot,
+                            &fence,
+                            &inventory,
+                            &previous.basis,
+                        )?,
+                        Some(previous),
+                    )
+                } else {
+                    let active = self.checked_active_evacuation(snapshot, operation).await?;
+                    (Basis::capture(self, snapshot, &active, &inventory)?, None)
+                };
                 basis.check_current(self).await?;
-                Ok(Book::new(basis))
+                Ok((Book::new(basis), prior))
             })
             .await?;
         deadline.remaining()?;
@@ -113,6 +143,10 @@ impl FleetCatalog {
             pending: None,
             frozen: None,
             exhausted: false,
+            prior,
+            oldest_sample: None,
+            observer: None,
+            survivor_nodes: std::collections::BTreeSet::new(),
         })
     }
 }
@@ -230,6 +264,11 @@ impl FleetEvacuationVerification {
             .authorize_group(&self.snapshot, &scope, deadline.remaining()?)
             .await?;
         let minimum_revision = self.book.basis.revision;
+        let mut sampled = catalog
+            .inner
+            .domain
+            .mono_ms()
+            .map_err(|_| FleetCatalogError::Closed)?;
         // Each invocation performs fresh metadata authorization through its
         // bounded catalog turn. Sequence calls instead of contending with our
         // own other observations; every phase retains the original deadline.
@@ -247,25 +286,58 @@ impl FleetEvacuationVerification {
                     .map_err(FleetCatalogError::Observation)?,
             );
         }
+        for observation in &observations {
+            let now = catalog
+                .inner
+                .domain
+                .mono_ms()
+                .map_err(|_| FleetCatalogError::Closed)?;
+            sampled = sampled.min(
+                now.checked_sub(observation.sample_age_ms())
+                    .ok_or(FleetCatalogError::Unconfirmed)?,
+            );
+        }
         deadline.remaining()?;
         let observations = observations
             .try_into()
             .map_err(|_| FleetCatalogError::Corrupt("receipt observation count"))?;
         let observations: [crate::raft::host::RaftPeerFleetMembershipObservation; 3] = observations;
-        let fixed = observations[0]
+        let current = observations[0]
             .published_cut()
             .ok_or(FleetCatalogError::Unconfirmed)?;
-        let survivors = catalog
+        let (fixed, survivors) = catalog
             .run(deadline.remaining()?, async {
                 self.book.basis.check_current(&catalog).await?;
-                survivors::verify(&catalog, &self.snapshot, history, &observations, fixed).await
+                let mut fixed = current.clone();
+                if let Some(prior) = &self.prior {
+                    let (pending, _) = self
+                        .pending
+                        .as_ref()
+                        .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                    if let Some(entry) = prior.entry(&catalog, &pending.key).await? {
+                        if entry.record == hash(&pending.value) {
+                            if let Evidence::Live(live) = entry.evidence {
+                                if live.fixed.revision == current.membership_revision().get() {
+                                    fixed = live.fixed.restore(current)?;
+                                }
+                            }
+                        }
+                    }
+                }
+                let survivors =
+                    survivors::verify(&catalog, &self.snapshot, history, &observations, &fixed)
+                        .await?;
+                Ok((fixed, survivors))
             })
             .await?;
         deadline.remaining()?;
         self.frozen = Some(FrozenLive {
             fixed: fixed.clone(),
             survivors,
+            sampled,
         });
+        self.observer = Some(observer.clone());
+        self.survivor_nodes.extend(nodes);
         Ok(fixed.clone())
     }
 
@@ -348,6 +420,12 @@ impl FleetEvacuationVerification {
             .await?;
         deadline.remaining()?;
         self.book = book;
+        if let Some(frozen) = &self.frozen {
+            self.oldest_sample = Some(
+                self.oldest_sample
+                    .map_or(frozen.sampled, |old| old.min(frozen.sampled)),
+            );
+        }
         self.pending = None;
         self.frozen = None;
         Ok(())

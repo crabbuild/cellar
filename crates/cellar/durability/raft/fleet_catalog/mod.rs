@@ -23,7 +23,7 @@ pub use capacity::{
 pub use evacuation::FleetEvacuationAdmission;
 pub use finalization::{
     FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
-    FleetFinalizationAdmission,
+    FleetFinalizationAdmission, FleetRemovalAdmission, FleetRemovalRequest,
 };
 pub use histories::{
     FleetBirthAuthorization, FleetBirthReservation, FleetHistory, FleetHistoryState,
@@ -332,6 +332,19 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
+        self.commit_with_disruption(snapshot, mutation, None, check)
+            .await
+    }
+
+    // Only the terminal verifier calls with a release. The public generic
+    // mutation path cannot turn serialized receipt bytes into this authority.
+    async fn commit_with_disruption(
+        &self,
+        snapshot: &FleetSnapshot,
+        mutation: &FleetMutation,
+        release: Option<[u8; 32]>,
+        check: impl FnOnce() -> Result<()>,
+    ) -> Result<FleetCommit> {
         let bytes = encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?;
         let digest = hash(&bytes);
         let key = hex::encode(mutation.id);
@@ -357,12 +370,19 @@ impl FleetCatalog {
         for change in &mutation.changes {
             let slot = change.table.slot();
             if change.table == FleetTable::Policy && change.key == evacuation::SLOT_KEY {
-                next.disruption = Some(self.next_disruption(
-                    snapshot,
-                    mutation,
-                    next.disruption,
-                    change.value.as_deref(),
-                )?);
+                next.disruption = if let Some(expected) = release {
+                    if change.value.is_some() || next.disruption != Some(expected) {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    None
+                } else {
+                    Some(self.next_disruption(
+                        snapshot,
+                        mutation,
+                        next.disruption,
+                        change.value.as_deref(),
+                    )?)
+                };
             }
             if change.table == FleetTable::Policy && change.key == namespaces::KEY {
                 next.namespace_count = namespaces::next_namespace_count(
