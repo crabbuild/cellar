@@ -1,15 +1,17 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 #![cfg(feature = "node")]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
 use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 #[path = "support/native.rs"]
 mod native;
 use native::start;
 
 #[test]
+// Observe bootstrap and joined shutdown outside the node's execution domain.
+#[allow(clippy::disallowed_methods)]
 fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
     let source = Source::module().events([EventKind::Fetch]).cell("Counter");
     let entry = std::env::var_os("CELLAR_TEST_NODE_ENTRY")
@@ -37,66 +39,21 @@ fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
                     .enable_all()
                     .build()?
                     .block_on(async {
-                        let (node, address) = start(directory.path(), application).await?;
-                        let client = reqwest::Client::new();
-                        let reply = client
-                            .get(format!("{address}/compatibility"))
-                            .send()
-                            .await?;
-                        let status = reply.status();
-                        let body = reply.text().await?;
-                        ensure!(
-                            status.is_success(),
-                            "Node compatibility failed: {status}: {body}"
-                        );
-                        let compatible: serde_json::Value = serde_json::from_str(&body)?;
-                        ensure!(compatible["nativeAddon"] == true);
-                        ensure!(compatible["cjs"] == "cellarNode");
-                        ensure!(compatible["esm"] == "app.ts");
-                        ensure!(compatible["filesystem"] == "cellar-node-example");
-                        ensure!(compatible["stream"] == "node-stream");
-                        ensure!(compatible["fetch"] == "node-fetch");
-                        ensure!(compatible["component"] == "<strong>Cellar + Node</strong>");
-                        ensure!(compatible["digest"].as_str().is_some_and(|s| s.len() == 64));
-                        let reply = client
-                            .post(format!("{address}/alice"))
-                            .body("3")
-                            .send()
-                            .await?;
-                        let status = reply.status();
-                        let body = reply.text().await?;
-                        ensure!(status.is_success(), "request failed: {status}: {body}");
-                        ensure!(
-                            serde_json::from_str::<serde_json::Value>(&body)?["count"] == expected
-                        );
-                        let reply = client.get(format!("{address}/alice")).send().await?;
-                        ensure!(reply.status().is_success());
-                        ensure!(
-                            serde_json::from_str::<serde_json::Value>(&reply.text().await?)?
-                                ["count"]
-                                == expected
-                        );
-                        let reply = client.get(format!("{address}/bob")).send().await?;
-                        ensure!(
-                            serde_json::from_str::<serde_json::Value>(&reply.text().await?)?
-                                ["count"]
-                                == 0
-                        );
-                        // Zod validation must fail without modifying the cell.
-                        ensure!(!client
-                            .post(format!("{address}/alice"))
-                            .body("101")
-                            .send()
-                            .await?
-                            .status()
-                            .is_success());
-                        let reply = client.get(format!("{address}/alice")).send().await?;
-                        ensure!(
-                            serde_json::from_str::<serde_json::Value>(&reply.text().await?)?
-                                ["count"]
-                                == expected
-                        );
-                        let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+                        let started = Instant::now();
+                        let (node, address) = start(directory.path(), application.clone()).await?;
+                        let startup = started.elapsed();
+                        let requests_started = Instant::now();
+                        let result = check(&address, expected).await;
+                        let elapsed = requests_started.elapsed();
+                        let before = application.bridge_usage();
+                        // A failed request must join the same host/process ownership
+                        // path and retain evidence without replacing its error.
+                        let outcome = node.shutdown(ShutdownMode::Preserve).await;
+                        let after = application.bridge_usage();
+                        result.with_context(|| format!(
+                            "Node compatibility/restart expected={expected}, startup={startup:?}, requests={elapsed:?}, bridge_before={before:?}, bridge_after={after:?}, shutdown={outcome:?}"
+                        ))?;
+                        let outcome = outcome?;
                         let NodeOutcome::Stopped(report) = outcome else {
                             anyhow::bail!("node failed on shutdown")
                         };
@@ -111,5 +68,53 @@ fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
             },
         )?;
     }
+    Ok(())
+}
+
+async fn check(address: &str, expected: i64) -> Result<()> {
+    let client = reqwest::Client::new();
+    let reply = client
+        .get(format!("{address}/compatibility"))
+        .send()
+        .await?;
+    let status = reply.status();
+    let body = reply.text().await?;
+    ensure!(
+        status.is_success(),
+        "Node compatibility failed: {status}: {body}"
+    );
+    let compatible: serde_json::Value = serde_json::from_str(&body)?;
+    ensure!(compatible["nativeAddon"] == true);
+    ensure!(compatible["cjs"] == "cellarNode");
+    ensure!(compatible["esm"] == "app.ts");
+    ensure!(compatible["filesystem"] == "cellar-node-example");
+    ensure!(compatible["stream"] == "node-stream");
+    ensure!(compatible["fetch"] == "node-fetch");
+    ensure!(compatible["component"] == "<strong>Cellar + Node</strong>");
+    ensure!(compatible["digest"].as_str().is_some_and(|s| s.len() == 64));
+    let reply = client
+        .post(format!("{address}/alice"))
+        .body("3")
+        .send()
+        .await?;
+    let status = reply.status();
+    let body = reply.text().await?;
+    ensure!(status.is_success(), "request failed: {status}: {body}");
+    ensure!(serde_json::from_str::<serde_json::Value>(&body)?["count"] == expected);
+    let reply = client.get(format!("{address}/alice")).send().await?;
+    ensure!(reply.status().is_success());
+    ensure!(serde_json::from_str::<serde_json::Value>(&reply.text().await?)?["count"] == expected);
+    let reply = client.get(format!("{address}/bob")).send().await?;
+    ensure!(serde_json::from_str::<serde_json::Value>(&reply.text().await?)?["count"] == 0);
+    // Zod validation must fail without modifying the cell.
+    ensure!(!client
+        .post(format!("{address}/alice"))
+        .body("101")
+        .send()
+        .await?
+        .status()
+        .is_success());
+    let reply = client.get(format!("{address}/alice")).send().await?;
+    ensure!(serde_json::from_str::<serde_json::Value>(&reply.text().await?)?["count"] == expected);
     Ok(())
 }

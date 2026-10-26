@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle, JS/Node and Python example CI pass; both SDK variants fail the native large-binding test's 60-second deadline. A controlled WAL-recycling regression now fails before the idle-connection fix and passes afterward; the original workload falls from 46.98 to 3.77 seconds locally. Require hosted verification on the fix. The frame-accounting change passes a fresh 696-case recheck; control-decoder and WAL-lifetime changes still need broader runtime qualification. |
+| P0 — hosted verification | Remaining broad SDK gates | The control-decoder/WAL revision `8bd52c73` passes all 696 combined cases and hosted JS/Node, lifecycle and Python-example CI. Hosted GIL SDK CI passes completely; free-threaded SDK test/lint and embedded packaging pass, with later gates still running. The original native large-binding workload falls from 46.98 to 3.77 seconds locally. The following peer-cache and IPC-work changes need their own combined runtime and hosted qualification. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -74,6 +74,74 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Peer tunnel reuse now binds the authentication owner and target session.**
+  Two real signed-upgrade regressions fail before the fix: a warmed address-only
+  cache admits an inner RPC with changed credentials or a different target
+  name, bypassing the fresh handshake's refusal. Keys now include address,
+  tunnel kind, target and an opaque per-`PeerAuth` scope. Scope clones retain
+  identity after the owner drops; no credential material, digest or pointer
+  string enters the key. Changing credentials requires a new handshake, and
+  wrong-target refusal preserves trusted stale-route classification.
+- **The idle cache has one 64-tunnel bound across every peer and kind.** A
+  65-live-peer regression fails against the former per-peer bound. The new
+  cache evicts the least recently returned idle sender, purges closed senders
+  and retains no empty peer entries. Active responses own their senders outside
+  this cache and are never evicted. This does not cap all active connections.
+- A real pooled-RPC reply-loss regression observes the complete submitted
+  request, exact request ID/method/body and a lost reply. The production caller
+  reports an ambiguous attempt, opens no replay tunnel, stops route retry and
+  never returns the failed sender to cache. The existing positive unsent
+  recovery test preserves the exact request and decreases its original budget.
+  All six focused peer tests pass, including receiver upload expiry before
+  admission. Logs use `/tmp/cellar-rpc-peer-auth-`; the global-bound red log is
+  `/tmp/cellar-rpc-peer-pool-red.log`. This is transport/admission evidence,
+  not the full forced-guest-retry or business-receipt matrix.
+- **Node IPC work now yields between bounded byte slices.** Two real-socket
+  regressions demonstrate that the old receive/write pass exceeds 1 MiB before
+  yielding. Each direction now has an independent 1 MiB turn quota. Decode
+  work charges wire size and permits at most one larger bounded frame in a
+  fresh turn. Large partial inputs and outputs retain their complete native
+  reservation until handoff/drop. The original 256-frame heartbeat observation
+  allowance survives across slices; a quota yield grants no new liveness
+  window. Native authority retirement, replies and shutdown are serviced
+  between slices, with no added per-slice sleep or changed timeout/capacity.
+  Real Node checks include a healthy queued 4 MiB control backlog after a
+  300 ms observer pause under the original 100 ms heartbeat setting. An initial
+  test expectation used `context.variable` instead of the actual `var` wire
+  operation; its failure is retained separately from behavioral regressions.
+  These finite cases do not qualify whole-process RSS or all flood conditions.
+- The final peer/resource checks pass **six native peer tests**, **53 combined
+  V8/Node library tests**, both named typed-RPC/codec-readiness tests, native
+  and JavaScript Clippy, the full qualifier build and standard checks. The
+  earlier broader pipeline also passes native admission/capacity and selected
+  integration tests, **39 Node-only library tests** with HTTP/restart and
+  streaming, and **31 GIL Python library tests** with streaming and typed RPC.
+  Each pipeline verifies unchanged source hashes during its execution. Stage
+  commands and results are retained in ignored
+  `.cellar/rpc/peer-resource-validation-status.json` and
+  `.cellar/rpc/peer-resource-final-status.json`; the separately run typed-RPC
+  target is logged at `/tmp/cellar-rpc-peer-resource-typed-rpc.log`.
+- **T19 timing qualification remains open.** The broader combined command
+  fails Node compatibility at the original 250 ms handler budget. Its harness
+  now joins host shutdown after request failures and records elapsed phases
+  and bridge usage without changing requests, assertions or budgets. A later
+  diagnostic run passes both restart rounds; that retry does not establish a
+  cause or fix. The final combined streaming command fails V8's outbound
+  WebSocket phase with both the original 250 ms handler timeout and 100 ms
+  engine-turn termination; native work drains on shutdown. The skipped
+  typed-RPC target was run separately and passes. Logs retain both failures,
+  the initially incorrect `var` test expectation and the subsequently fixed
+  Clippy range-loop warning; no limit or timeout was raised.
+- **Latest complete prior runtime report:** the control-decoder/WAL revision
+  `8bd52c73` passes all **696 cases** in **1,418.560 seconds**, with unchanged
+  source hashes and publication after joins. Independent audits cover every
+  suite count, 96 Node/V8 lifecycle cases, native reservation cleanup, exact
+  receipts and 32 forced retirements before original expiry; three negative
+  audit mutations are refused. `.cellar/rpc/wal-index-full.json` is 2,743,842
+  bytes, SHA-256
+  `1b843ed6231d472f15ea51b44d40292cfb40cbcba68acb7fd6c3e16d3bac4330`.
+  This report predates the peer-cache and IPC-work changes above; broader
+  release-qualification flags remain false.
 - **Development storage preserves the WAL index between operation connections.**
   The original lifted-limit workload completes all 1,002 blob puts and drains
   application work in **3.770 seconds**, versus **46.975 seconds** before the
@@ -111,7 +179,7 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   exit codes and logs are recorded in ignored
   `.cellar/rpc/wal-index-validation-status.json`. These passes do not establish
   the historical V8 watchdog/native cold-timing failures' exact causes. The
-  combined 696-case rerun and hosted verification remain next.
+  combined 696-case rerun is recorded above; hosted verification remains open.
 - **Node control decoding now has allocation-free shape and string admission.**
   The private protocol admits at most 16 scalar fields with distinct literal
   ASCII keys of at most 64 bytes and numeric tokens of at most 32 bytes.
