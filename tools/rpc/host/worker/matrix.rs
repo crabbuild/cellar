@@ -19,6 +19,10 @@ const OWNER: &str = "worker-owner";
 const SOURCE: &str = "worker-source";
 const DELTA: i64 = 9_007_199_254_740_993;
 
+// Force the held work before its inherited RPC deadline can complete a normal
+// drain. Keep the fleet's full eight-second budget for durability cleanup.
+const FORCED_DRAIN_STALL_MS: u64 = 250;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum End {
     Kill,
@@ -34,6 +38,7 @@ struct Scenario {
     peer: bool,
     after: bool,
     end: End,
+    near_deadline: bool,
 }
 
 impl End {
@@ -200,6 +205,7 @@ async fn live_case(
         peer,
         after,
         end,
+        near_deadline,
     } = scenario;
     let trace = Arc::new(Trace::default());
     let fixture = Arc::new(Fixture {
@@ -212,8 +218,20 @@ async fn live_case(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
         .build()?;
-    let (owner, owner_url) =
-        fleet::start(&path.join("owner"), fixture.clone(), OWNER, bucket.clone()).await?;
+    let (owner, owner_url) = fleet::start_configured(
+        &path.join("owner"),
+        fixture.clone(),
+        OWNER,
+        bucket.clone(),
+        None,
+        |config, _| {
+            if end == End::ForcedShutdown {
+                config.shutdown.no_progress_ms = FORCED_DRAIN_STALL_MS;
+            }
+            Ok(())
+        },
+    )
+    .await?;
     let mut owner = Some(owner);
     let mut source = None;
     let result = async {
@@ -254,6 +272,18 @@ async fn live_case(
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
         }).await.context("worker native count/receipt checkpoint was not observed")??;
+        if near_deadline {
+            tokio::time::timeout(Duration::from_secs(12), async {
+                loop {
+                    let remaining = trace.minimum_remaining_ms()?;
+                    if remaining <= 3_500 {
+                        ensure!(remaining > 2_500, "near-deadline probe overshot its live-call window");
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }).await.context("held call never reached its near-deadline window")??;
+        }
         let authority = trace.live(OWNER, if peer { SOURCE } else { OWNER }, backend.class())?;
         let held = worker.bridge_usage();
         ensure!(!held.stopped && held.active_invocations == 1 && held.retained_bytes > 0, "worker active reservations differ at failure: {held:?}");
@@ -261,6 +291,7 @@ async fn live_case(
         // may alter cleanup, and the saved checkpoint precedes this trigger.
         trace.disarm();
         let mut shutdown_proof = Value::Null;
+        let mut shutdown_observation = Value::Null;
         let mut termination_authority = Value::Null;
         let mut termination_result = Value::Null;
         let reply = match end {
@@ -319,13 +350,22 @@ async fn live_case(
                 reply
             }
             End::ForcedShutdown => {
+                let remaining_ms = trace.minimum_remaining_ms()?;
+                ensure!(remaining_ms > FORCED_DRAIN_STALL_MS + 1_000,
+                    "forced-shutdown injection has insufficient live-call headroom: {remaining_ms}ms");
+                let before = trace.snapshot();
+                let started = std::time::Instant::now();
                 let stopping = owner.take().context("worker owner already stopped")?.shutdown(ShutdownMode::Preserve);
                 let (stopped, reply) = tokio::join!(stopping, tokio::time::timeout(Duration::from_secs(12), &mut call));
+                shutdown_observation = json!({"before":before,"after":trace.snapshot(),
+                    "forced_stall_ms":FORCED_DRAIN_STALL_MS,"minimum_remaining_at_trigger_ms":remaining_ms,
+                    "elapsed_ms":started.elapsed().as_millis(),"guest":worker.bridge_usage(),
+                    "reply_code":reply.as_ref().ok().and_then(|reply| reply.as_ref().ok()).and_then(|value| value.get("code"))});
                 let outcome = stopped?;
                 let NodeOutcome::Stopped(proof) = outcome else { anyhow::bail!("forced owner shutdown failed: {outcome:?}"); };
                 ensure!(proof.drain_timed_out && !proof.application_work_drained && !proof.cells_drained
                     && !proof.clean_reload_prepared && proof.pending_application_events > 0 && proof.pending_dispatches > 0,
-                    "forced shutdown fabricated a graceful or idle proof: {proof:?}");
+                    "forced shutdown did not reach its required cutoff: {proof:?}; observations={shutdown_observation}");
                 ensure!(proof.log_quiesced && proof.local_durability_closed, "forced owner shutdown did not close durability: {proof:?}");
                 shutdown_proof = json!({"graceful":false,"drain_timed_out":proof.drain_timed_out,
                     "ingress_drained":proof.ingress_drained,"application_work_drained":proof.application_work_drained,
@@ -339,6 +379,9 @@ async fn live_case(
             while !trace.retired(if end == End::Terminate { 3 } else { 2 }) { tokio::time::sleep(Duration::from_millis(5)).await; }
         }).await.context("worker failure left a native typed child running")?;
         trace.assert_revoked(if end == End::Terminate { 3 } else { 2 })?;
+        if end == End::ForcedShutdown {
+            trace.assert_retired_before_deadline(2)?;
+        }
         let drained = idle(&worker, end.is_failure()).await?;
         trace.disarm();
         let mut caller_survived = false;
@@ -352,6 +395,7 @@ async fn live_case(
             "trigger":end.label(),"operation_id":operation,"pid":pid,"authority":authority,"result":reply,
             "baseline":baseline,"held":held,"drained":drained,"native_owner_survived":end.is_failure(),"caller_survived":caller_survived,
             "shutdown_proof":shutdown_proof,"termination_authority":termination_authority,"termination_result":termination_result,
+            "shutdown_observation":shutdown_observation,
             "native_frames_retired":true,"late_budget_refused":true}))
     }.await;
     // Every failure path releases the test gate before joining real nodes.
@@ -577,6 +621,13 @@ async fn matrix(base: Arc<Composite>, backend: Backend, ends: &[End]) -> Result<
                                 peer,
                                 after,
                                 end,
+                                // Preserve the hosted topology and deliberately consume setup
+                                // time: the forced cut must still beat this inherited deadline.
+                                near_deadline: backend == Backend::V8
+                                    && end == End::ForcedShutdown
+                                    && caller == "node"
+                                    && peer
+                                    && !after,
                             },
                         )
                         .await
@@ -607,6 +658,7 @@ async fn smoke_case(base: Arc<Composite>, backend: Backend, end: End) -> Result<
             peer: false,
             after: true,
             end,
+            near_deadline: false,
         },
     )
     .await?;
@@ -656,6 +708,51 @@ pub async fn v8_shutdown(base: Arc<Composite>) -> Result<Value> {
 
 pub async fn v8_shutdown_smoke(base: Arc<Composite>) -> Result<Value> {
     smoke_case(base, Backend::V8, End::ForcedShutdown).await
+}
+
+/// Repeat the hosted topology with fresh owners and the forced-cut fixture.
+pub fn v8_forced_peer_repro(base: Arc<Composite>) -> cellar::sdk::HandlerFuture<Value> {
+    forced_peer_repro(base, false)
+}
+
+/// Consume setup time so natural RPC expiry cannot masquerade as a forced cut.
+pub fn v8_forced_peer_deadline_repro(base: Arc<Composite>) -> cellar::sdk::HandlerFuture<Value> {
+    forced_peer_repro(base, true)
+}
+
+fn forced_peer_repro(
+    base: Arc<Composite>,
+    near_deadline: bool,
+) -> cellar::sdk::HandlerFuture<Value> {
+    Box::pin(async move {
+        let mut cases = Vec::new();
+        let diagnostic = if near_deadline {
+            "v8-forced-peer-deadline-repro"
+        } else {
+            "v8-forced-peer-repro"
+        };
+        for round in 0..if near_deadline { 1 } else { 16 } {
+            base.audit.reset_after_node_drain();
+            eprintln!("V8 forced peer reproduction round {round}");
+            cases.push(
+                case(
+                    base.clone(),
+                    Scenario {
+                        backend: Backend::V8,
+                        caller: "node",
+                        peer: true,
+                        after: false,
+                        end: End::ForcedShutdown,
+                        near_deadline,
+                    },
+                )
+                .await
+                .with_context(|| format!("V8 forced peer reproduction round {round}"))?,
+            );
+        }
+        Ok(json!({"format":1,"diagnostic":diagnostic,"qualified":false,
+        "case_count":cases.len(),"cases":cases}))
+    })
 }
 
 /// Preserve the same caller runtimes across both disposable-provider backends.

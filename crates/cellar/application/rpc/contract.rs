@@ -88,8 +88,10 @@ pub struct Contract {
 }
 
 impl Contract {
-    // Build-time artifact readers apply this before allocating descriptor input.
-    pub(crate) const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
+    /// Maximum encoded descriptor-bundle size accepted by the native validator.
+    /// Build tools should enforce this bound while reading, before allocating
+    /// descriptor input. It is independent of the business-message limits.
+    pub const MAX_DESCRIPTOR_BYTES: usize = 4 * 1024 * 1024;
 
     /// Load an application descriptor set at startup, with no I/O or runtime
     /// schema lookup. Unsupported features and unresolved imports are refused.
@@ -101,19 +103,22 @@ impl Contract {
             bytes.len() <= Self::MAX_DESCRIPTOR_BYTES,
             "RPC descriptor exceeds limit"
         );
+        super::descriptor::preflight(bytes)?;
         let mut set = FileDescriptorSet::decode(bytes).context("invalid RPC descriptor")?;
         ensure!(
             !set.file.is_empty() && set.file.len() <= 256,
             "invalid RPC descriptor file count"
         );
         set.file.sort_by(|a, b| a.name.cmp(&b.name));
-        // Validate the complete namespace and import graph before cloning any
-        // message subtrees or projecting language codec inventories.
+        // Validate the complete namespace and import graph before constructing
+        // type/wire inventories. Definitions remain borrowed from this tree.
         super::descriptor::validate(&set)?;
         let mut message_defs = BTreeMap::new();
         let mut enums = BTreeSet::new();
         for file in &mut set.file {
             file.source_code_info = None;
+        }
+        for file in &set.file {
             let package = file.package.as_deref().unwrap_or_default();
             for definition in &file.message_type {
                 collect_messages(package, definition, 0, &mut message_defs, &mut enums)?;
@@ -230,8 +235,8 @@ impl Contract {
                         "unresolved RPC method type"
                     );
                     ensure!(
-                        !super::schema::is_map(&message_defs[&input])
-                            && !super::schema::is_map(&message_defs[&output]),
+                        !super::schema::is_map(message_defs[&input])
+                            && !super::schema::is_map(message_defs[&output]),
                         "RPC methods cannot use synthetic map entries as messages"
                     );
                     ensure!(
@@ -305,14 +310,17 @@ impl Contract {
     }
 }
 
-fn collect_messages(
+fn collect_messages<'a>(
     prefix: &str,
-    definition: &DescriptorProto,
+    definition: &'a DescriptorProto,
     depth: usize,
-    messages: &mut BTreeMap<String, DescriptorProto>,
+    messages: &mut BTreeMap<String, &'a DescriptorProto>,
     enums: &mut BTreeSet<String>,
 ) -> Result<()> {
-    ensure!(depth <= 64, "RPC descriptor nesting exceeds limit");
+    ensure!(
+        depth <= super::descriptor::MAX_MESSAGE_DEPTH,
+        "RPC descriptor nesting exceeds limit"
+    );
     let name = definition.name.as_deref().context("unnamed RPC message")?;
     ensure!(valid_identifier(name, false), "invalid RPC message name");
     let name = qualify(prefix, name);
@@ -321,7 +329,7 @@ fn collect_messages(
         "RPC extensions are unsupported"
     );
     ensure!(
-        messages.insert(name.clone(), definition.clone()).is_none(),
+        messages.insert(name.clone(), definition).is_none(),
         "duplicate RPC message"
     );
     for nested in &definition.nested_type {
@@ -338,7 +346,7 @@ fn collect_messages(
 
 fn convert_field(
     field: &FieldDescriptorProto,
-    messages: &BTreeMap<String, DescriptorProto>,
+    messages: &BTreeMap<String, &DescriptorProto>,
     enums: &BTreeSet<String>,
 ) -> Result<Field> {
     ensure!(
@@ -346,6 +354,10 @@ fn convert_field(
         "RPC contracts require the portable bigint representation; jstype overrides are unsupported"
     );
     let kind = Type::try_from(field.r#type.context("RPC field has no type")?)?;
+    ensure!(
+        kind == Type::Message || !field.options.as_ref().is_some_and(|options| options.lazy()),
+        "lazy RPC option requires a message field"
+    );
     ensure!(kind != Type::Group, "RPC groups are unsupported");
     let label = Label::try_from(field.label.context("RPC field has no label")?)?;
     ensure!(

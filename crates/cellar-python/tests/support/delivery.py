@@ -8,6 +8,7 @@ holding = asyncio.Event()
 release = asyncio.Event()
 retained = None
 cancelled = []
+state_delay = 0.0
 
 
 async def refused(call, code):
@@ -37,9 +38,17 @@ async def fetch(request, ctx):
         results = await asyncio.gather(*(send() for _ in range(32)))
         return Response.json({"accepted": results.count("accepted"), "refused": results.count("refused")})
     elif request.path == "/state":
+        # The slow-state profile delays reporting while the real queue consumer
+        # and its retained authority continue running normally.
+        if state_delay:
+            await asyncio.sleep(state_delay)
         return Response.json({"effects": (await database.query("SELECT command FROM effects ORDER BY command"))["results"],
                               "attempts": (await database.query("SELECT message, attempt, command FROM attempts ORDER BY command, attempt"))["results"],
                               "holding": holding.is_set(), "cancelled": cancelled})
+    elif request.path == "/holding":
+        # Observe admission without competing with the consumer's SQL work.
+        # The host retains its original one-second deadline for this wait.
+        await holding.wait()
     elif request.path == "/release":
         release.set()
     elif request.path in ("/cross", "/expired"):

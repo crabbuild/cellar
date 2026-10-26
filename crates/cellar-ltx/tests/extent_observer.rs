@@ -10,7 +10,7 @@ use cellar_ltx::{
     },
     CheckpointMode, Db,
 };
-use rusqlite::{Connection, DatabaseName};
+use rusqlite::{Connection, MAIN_DB};
 use std::time::Duration;
 
 fn binding(txid: u64) -> ImageBinding {
@@ -59,7 +59,7 @@ fn compare(
     previous: Option<&ExtentObservation>,
     txid: u64,
 ) -> ExtentObservation {
-    let bytes = writer.serialize(DatabaseName::Main).unwrap();
+    let bytes = writer.serialize(MAIN_DB).unwrap();
     let extents = bytes
         .chunks(EXTENT_BYTES as usize)
         .map(|chunk| ExtentId::of(chunk).unwrap())

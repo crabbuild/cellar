@@ -80,10 +80,18 @@ fn bounded(service: &RaftCells) -> Result<(usize, usize)> {
     }
     ensure!(transport.snapshot_source.max_items == 1);
     ensure!(transport.snapshot_receive.max_items == 1);
-    ensure!(transport.snapshot_source.max_bytes <= 384 * 1024 * 1024);
-    // Archive seed admission also retains four full 8-MiB bundle buffers
-    // through physical extraction, separately from logical recovery bytes.
-    ensure!(transport.snapshot_receive.max_bytes == (640 + 32) * 1024 * 1024);
+    // Physical snapshots retain bounded wire/codec buffers, independently of
+    // the complete encoded image. With this fixture's 257-byte chunks, the
+    // source reservation must fit within 8 MiB.
+    ensure!(transport.snapshot_source.max_bytes <= 8 * 1024 * 1024);
+    // A receive additionally admits the configured archive recovery set,
+    // including containing bundles and physical extraction buffers. It no
+    // longer reserves the old complete-image encoder/decoder allocations.
+    ensure!(
+        transport.snapshot_receive.max_bytes
+            == transport.snapshot_source.max_bytes
+                + TransportOptions::default().max_seed_recovery_bytes
+    );
     let sql = usage.sql.context("live SQL resource view")?;
     ensure!(sql.work_reservations <= sql.work_capacity);
     Ok((

@@ -2724,7 +2724,8 @@ pub mod internal {
             conn.authorizer(Some(move |_: AuthContext<'_>| {
                 counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Authorization::Allow
-            }));
+            }))
+            .expect("capture connection owns its SQLite handle");
         }
         counter
     }

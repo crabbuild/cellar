@@ -48,11 +48,21 @@ inventories remain delivery work.
 ## Descriptor admission
 
 Generation and native startup use the same `Contract::from_descriptor` validator.
-An invalid descriptor fails before the generator creates its output directory,
-writes an artifact or invokes a language compiler.
+Refusal at this boundary happens before the generator creates its output
+directory, writes an artifact or invokes a language compiler.
+The generator requires a regular file and checks the shared
+`Contract::MAX_DESCRIPTOR_BYTES` bound before allocating its input buffer.
+The read itself is capped too, so a growing file cannot bypass the limit. A FIFO
+is refused before open instead of waiting for a writer.
 
 ```text
-descriptor set (at most 4 MiB)
+regular descriptor file (metadata at most 4 MiB)
+        |
+bounded read (reject growth past the shared limit)
+        |
+borrowed wire walk: model/version + occurrence/allocation budgets
+        |
+bounded descriptor decoding (no unknown attributes discarded)
         |
 canonical files + acyclic imports + bounded symbol namespace
         |
@@ -85,6 +95,9 @@ Negative or out-of-range indexes, self imports and import cycles are refused.
 | Descriptor budget | Maximum |
 | --- | --- |
 | Files | 256 |
+| Encoded descriptor/option/source-location records | 200,000 |
+| Encoded wire-field occurrences | 1,000,000 |
+| Message declaration nesting | 31 levels, including the top-level message |
 | Qualified symbol or referenced type name | 1,024 ASCII bytes |
 | All symbols, including package prefixes and enum values | 100,000 |
 | Aggregate expanded symbol-name bytes | 16 MiB |
@@ -92,10 +105,43 @@ Negative or out-of-range indexes, self imports and import cycles are refused.
 | Fields | 65,536 |
 | Methods | 4,096; each wire name at most 256 bytes |
 
-Expanded-name limits are checked before allocating each index name or cloning
-message subtrees. These limits bound descriptor inventory work; they are separate
-from message codec budgets and do not establish an aggregate runtime RSS limit.
+The wire walk counts encoded occurrences before the decoder can allocate or
+merge them. This includes source locations that normalization later removes.
+Its stack borrows the input bytes. Expanded-name limits apply before each
+index-name allocation; message definitions borrow the decoded tree, avoiding
+repeated copies of nested subtrees.
+
+Descriptors must already contain resolved options. `uninterpreted_option` is
+refused at every scope. Unknown descriptor attributes are refused instead of
+silently dropped from the artifact by the pinned native descriptor model.
+Regenerate with the supported toolchain or add explicit native support for the
+attribute. Proto3 MessageSet and scalar `lazy = true` are refused; message lazy
+hints retain full native wire preflight. Known metadata remains intact.
+These option definitions follow the [Protobuf descriptor schema](https://github.com/protocolbuffers/protobuf/blob/v34.0/src/google/protobuf/descriptor.proto).
+
+The declaration bound matches pinned `protoc` 34.0: 31 message levels are
+accepted and 32 are refused. It is separate from the default 64-level depth
+budget for business-message values, including recursive message types.
+These limits bound descriptor inventory work and do not establish an aggregate
+runtime RSS limit.
 The Counter and portable-profile fixtures retain their exact artifact identity.
+
+### Protobuf field JSON names
+
+The shared validator checks two field-name namespaces in each message, following
+the [pinned compiler's checks](https://github.com/protocolbuffers/protobuf/blob/v34.0/src/google/protobuf/descriptor.cc#L6422):
+
+| Namespace | Rule | Refused example |
+| --- | --- | --- |
+| Default JSON spelling | Remove underscores and capitalize the next character; preserve existing capitals | `foo_bar` and `fooBar` both become `fooBar` |
+| Effective JSON spelling | Use explicit `json_name` when present, otherwise the default spelling | `first [json_name = "second"]` and `second` collide |
+
+Distinct custom overrides cannot rescue conflicting default names: field masks
+still use the defaults. Names are case-sensitive and scoped to their message.
+Custom names may be empty or contain Unicode and spaces; embedded NUL characters
+and names enclosed in `[...]` are refused. Valid metadata stays in the artifact
+unchanged. These descriptor checks also apply to binary RPC contracts and run
+before output creation or language compiler invocation.
 
 ## Generated language APIs
 

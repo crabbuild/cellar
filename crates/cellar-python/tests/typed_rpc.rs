@@ -186,21 +186,58 @@ async fn request(client: &reqwest::Client, base: &str, path: &str) -> Result<ser
     let body = response.text().await?;
     ensure!(
         status.is_success(),
-        "RPC qualification failed: {status}: {body}"
+        "RPC qualification {path} failed: {status}: {body}"
     );
     Ok(serde_json::from_str(&body)?)
 }
 
+fn qualify_slow_constructor() -> Result<()> {
+    let output = tempfile::NamedTempFile::new()?;
+    let mut child = std::process::Command::new(std::env::current_exe()?)
+        .arg("--slow-constructor")
+        .stdout(output.as_file().try_clone()?)
+        .stderr(output.as_file().try_clone()?)
+        .spawn()?;
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let log = std::fs::read_to_string(output.path())?;
+            ensure!(
+                status.success(),
+                "slow-constructor RPC fixture failed: {log}"
+            );
+            return Ok(());
+        }
+        if std::time::Instant::now() >= until {
+            let _ = child.kill();
+            let _ = child.wait();
+            anyhow::bail!("slow-constructor RPC fixture timed out");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 fn main() -> Result<()> {
+    let slow_constructor = std::env::args().any(|argument| argument == "--slow-constructor");
+    if !slow_constructor {
+        qualify_slow_constructor()?;
+    }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let contract = Arc::new(rpc::Contract::from_descriptor(
         include_bytes!("../../../tools/rpc/fixtures/counter.binpb"),
         rpc::Limits::default(),
     )?);
-    let source = Source::new(include_str!("typed_rpc.py"), "typed_rpc.py")
-        .events([EventKind::Fetch])
-        .cell_rpc("Counter", "example.counter.v1.Counter", contract.clone())?
-        .require_distribution("protobuf", "7.34.2");
+    let source = Source::new(
+        format!(
+            "{}\nconstructor_delay = {}\n",
+            include_str!("typed_rpc.py"),
+            if slow_constructor { "0.12" } else { "0.0" }
+        ),
+        "typed_rpc.py",
+    )
+    .events([EventKind::Fetch])
+    .cell_rpc("Counter", "example.counter.v1.Counter", contract.clone())?
+    .require_distribution("protobuf", "7.34.2");
     let mut options = Options::default();
     options.module_paths.push(
         root.join("tools/rpc/fixtures/generated/python")
@@ -255,6 +292,13 @@ fn main() -> Result<()> {
                 assert_eq!(foreign["outcome"], "not_committed");
                 for target in ["rust", "python"] {
                     for phase in ["verify", "encode", "decode"] {
+                        if phase == "decode" {
+                            // Isolate decoder expiry from cold activation in a
+                            // separate invocation, retaining the 100 ms call
+                            // budget and the host's 250 ms handler budget.
+                            let warmed = request(&client, &base, &format!("/python/codec-warmup?target={target}")).await?;
+                            assert_eq!(warmed["count"], if round == 0 { "0" } else { "1" });
+                        }
                         let result = request(&client, &base, &format!("/python/codec-budget?target={target}&phase={phase}")).await?;
                         assert_eq!(result["code"], "DeadlineExceeded", "{target}/{phase}");
                         assert_eq!(result["outcome"], if phase == "decode" { "unknown" } else { "not_committed" });

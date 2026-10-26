@@ -10,6 +10,12 @@
 //! transaction that a directory of files cannot: a conditional update checks
 //! its ETag and installs the new object in one commit. This backend is local to
 //! one development machine. It is not a shared-filesystem production mode.
+//!
+//! Operation connections leave committed frames in the WAL. Closing an idle
+//! connection must not acquire the exclusive lock for a final checkpoint while
+//! another worker is trying to renew a lease. FULL commits and SQLite's normal
+//! automatic checkpoints remain enabled; preserve the database and its WAL
+//! together when moving local development state.
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -24,7 +30,7 @@ use object_store::{
     ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMode, PutMultipartOptions, PutOptions,
     PutPayload, PutResult,
 };
-use rusqlite::{params, Connection, OptionalExtension as _, TransactionBehavior};
+use rusqlite::{config::DbConfig, params, Connection, OptionalExtension as _, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fmt;
@@ -118,7 +124,7 @@ impl LocalStore {
     fn connect_reader(&self) -> object_store::Result<Connection> {
         // Reads must neither recreate a missing backend nor checkpoint unrelated
         // object data when their short-lived connection happens to close last.
-        // Writers retain ordinary automatic and connection-close checkpoints.
+        // Writers retain FULL commits and ordinary automatic checkpoints.
         let connection = Connection::open_with_flags(
             &self.database,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -218,7 +224,7 @@ impl LocalStore {
             // Incremental I/O pins this row/version in the read transaction.
             let blob = transaction
                 .blob_open(
-                    rusqlite::DatabaseName::Main,
+                    rusqlite::MAIN_DB,
                     "__sys_local_objects",
                     "body",
                     rowid,
@@ -279,8 +285,8 @@ impl LocalStore {
     ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
-        // Declare the guard first so the connection (including any rollback
-        // and close-time checkpoint) drops before writer admission reopens.
+        // Declare the guard first so the connection and any rollback release
+        // their SQLite locks before writer admission reopens.
         let _writer;
         let mut connection = self.connect()?;
         // The fixture observes a real entered SQLite connection without
@@ -347,7 +353,7 @@ impl LocalStore {
         {
             let mut blob = transaction
                 .blob_open(
-                    rusqlite::DatabaseName::Main,
+                    rusqlite::MAIN_DB,
                     "__sys_local_objects",
                     "body",
                     rowid,
@@ -384,6 +390,13 @@ impl LocalStore {
 }
 
 fn configure_connection(connection: &Connection) -> object_store::Result<()> {
+    // Every request owns a connection, including metadata reads. A last-close
+    // checkpoint takes an exclusive lock and can make new connections back off
+    // through a lease's entire renewal window. Retain the WAL between requests;
+    // automatic checkpoints still run, and FULL still syncs each commit.
+    connection
+        .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+        .map_err(db_error)?;
     // `synchronous` is connection-local. Setting it only while the schema is
     // created leaves later writes at the bundled SQLite default, so a build
     // configuration can silently weaken the development store's durability.

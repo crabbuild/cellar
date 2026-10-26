@@ -5,11 +5,11 @@
 #![allow(clippy::disallowed_methods)]
 
 use cellar_ltx::{CheckpointMode, Db};
-use rusqlite::{Connection, DatabaseName};
+use rusqlite::{Connection, MAIN_DB};
 use sha2::{Digest, Sha256};
 
 fn compare(db: &Db, writer: &Connection) {
-    let bytes = writer.serialize(DatabaseName::Main).unwrap();
+    let bytes = writer.serialize(MAIN_DB).unwrap();
     let page_size: u32 = writer
         .query_row("PRAGMA page_size", [], |r| r.get(0))
         .unwrap();
@@ -88,12 +88,9 @@ fn committed_image_refuses_corrupt_or_incomplete_latest_commit_at_the_same_size(
         .execute_batch("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(1);")
         .unwrap();
     compare(&db, &writer);
-    let length = writer.serialize(DatabaseName::Main).unwrap().len() as u64;
+    let length = writer.serialize(MAIN_DB).unwrap().len() as u64;
     writer.execute("UPDATE counter SET value=2", []).unwrap();
-    assert_eq!(
-        writer.serialize(DatabaseName::Main).unwrap().len() as u64,
-        length
-    );
+    assert_eq!(writer.serialize(MAIN_DB).unwrap().len() as u64, length);
     let wal = std::fs::read(db.wal_path()).unwrap();
     let mut corrupt = wal.clone();
     *corrupt.last_mut().unwrap() ^= 1;
@@ -130,7 +127,7 @@ fn committed_image_excludes_uncommitted_spilled_frames() {
         CREATE TABLE payload(value BLOB); INSERT INTO payload VALUES(zeroblob(1048576));",
         )
         .unwrap();
-    let bytes = writer.serialize(DatabaseName::Main).unwrap();
+    let bytes = writer.serialize(MAIN_DB).unwrap();
     let expected: [u8; 32] = Sha256::digest(&*bytes).into();
     // Keep the committed WAL snapshot pinned. Without a reader SQLite may
     // restart the WAL and overwrite its existing allocation, so file growth

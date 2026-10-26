@@ -124,7 +124,7 @@ impl CommandDatabase {
             );
         }
         capacity::initialize(&connection)?;
-        connection.authorizer(Some(authorize_command));
+        connection.authorizer(Some(authorize_command))?;
         Ok(Self { connection })
     }
 

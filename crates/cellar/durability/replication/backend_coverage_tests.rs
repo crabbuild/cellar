@@ -44,8 +44,9 @@ async fn evicted_coverage_reloads_durable_state_and_retries_failed_reads() -> an
     let result = domain
         .run(async {
             let directory = tempfile::tempdir()?;
-            let database = directory.path().join("objects.sqlite");
-            let backup = directory.path().join("unavailable.sqlite");
+            let objects = tempfile::tempdir_in(directory.path())?;
+            let database = objects.path().join("objects.sqlite");
+            let backup = directory.path().join("unavailable-objects");
             let store = Arc::new(crate::local_store::LocalStore::open(&database)?);
             let backend = LtxRepl::start(
                 &directory.path().join("node"),
@@ -86,10 +87,11 @@ async fn evicted_coverage_reloads_durable_state_and_retries_failed_reads() -> an
             assert!(through > 0 && through < u64::MAX);
             backend.note_covered("Counter:other", 1, 0);
             assert!(backend.covered_by_cell.lock().unwrap().get(&key).is_none());
-            // Remove only the disposable object-store database. Reads must fail
-            // without recreating the store or caching zero coverage.
+            // Hide the whole disposable store, including its committed WAL.
+            // Reads must fail without recreating the store or caching zero
+            // coverage. Moving only the main file loses uncheckpointed writes.
             let filesystem = host.filesystem();
-            let original = database.clone();
+            let original = objects.path().to_path_buf();
             let held = backup.clone();
             host.run_blocking(move || filesystem.rename(&original, &held))
                 .await??;
@@ -101,7 +103,8 @@ async fn evicted_coverage_reloads_durable_state_and_retries_failed_reads() -> an
             assert_eq!(backend.covered_txid(cell, 1, through).await, 0);
             assert!(backend.covered_by_cell.lock().unwrap().get(&key).is_none());
             let filesystem = host.filesystem();
-            host.run_blocking(move || filesystem.rename(&backup, &database))
+            let original = objects.path().to_path_buf();
+            host.run_blocking(move || filesystem.rename(&backup, &original))
                 .await??;
             assert_eq!(backend.covered_txid(cell, 1, through).await, through);
             assert_eq!(

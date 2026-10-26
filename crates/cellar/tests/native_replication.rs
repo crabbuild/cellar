@@ -304,7 +304,7 @@ async fn shared_store_namespaces_retain_real_durability_and_caller_page_readers(
             let connection = rusqlite::Connection::open_with_flags_and_vfs(
                 &activated.path,
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
-                &vfs,
+                vfs.as_str(),
             )?;
             assert_eq!(
                 connection.query_row::<(i64, i64), _, _>(
