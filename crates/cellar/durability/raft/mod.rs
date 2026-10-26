@@ -35,6 +35,7 @@ mod receipts;
 mod records;
 mod recovery;
 mod replica;
+pub(crate) mod rooted;
 pub(crate) mod runtime;
 pub(crate) mod snapshot;
 pub(crate) mod storage;

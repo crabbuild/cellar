@@ -122,7 +122,7 @@ async fn unchanged_durable_history_does_not_reenter_group_cache() -> anyhow::Res
 fn image(length: u64) -> crate::raft::cache::CommittedImage {
     crate::raft::cache::CommittedImage {
         name: format!("image-{length}"),
-        digest: [4; 32],
+        commitment: [4; 32].into(),
         length,
         ltx_epoch: 1,
         txid: 1,

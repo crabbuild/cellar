@@ -89,6 +89,7 @@ impl Fixture {
             max_roots: 8,
             max_root_extents: 64,
             max_references: 8,
+            max_workspaces: 8,
         }
     }
 

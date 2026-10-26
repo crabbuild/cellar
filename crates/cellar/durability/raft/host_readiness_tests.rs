@@ -10,7 +10,7 @@ fn image_fixture() -> (crate::raft::cache::CachedGroup, ImageView) {
         position: cache.applied.position,
         image: crate::raft::cache::CommittedImage {
             name: "verified.sqlite".into(),
-            digest: [9; 32],
+            commitment: [9; 32].into(),
             length: 8192,
             ltx_epoch: 1,
             txid: 1,
@@ -71,7 +71,14 @@ fn readiness_refuses_a_missing_or_different_complete_image_marker() {
         let marker = changed.applied.image.as_mut().unwrap();
         match field {
             0 => marker.name = "other.sqlite".into(),
-            1 => marker.digest[0] ^= 1,
+            1 => {
+                let crate::application::consensus::ImageCommitment::Sha256(digest) =
+                    &mut marker.commitment
+                else {
+                    panic!("materialized fixture")
+                };
+                digest[0] ^= 1;
+            }
             2 => marker.length += 4096,
             3 => marker.ltx_epoch += 1,
             4 => marker.txid += 1,

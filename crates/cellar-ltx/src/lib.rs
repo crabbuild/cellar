@@ -50,12 +50,14 @@ pub mod internal {
         file::{ExtentDownload, ExtentFile},
         image::{open_extent_image, CacheLimits, CacheUsage, ExtentImage, ExtentSource},
         store::{
-            ExtentRootReference, NodeExtentLimits, NodeExtentStore, NodeExtentUsage, RootView,
-            SealedRoot, StoreError,
+            ExtentRootReference, ImageRootUpdate, NodeExtentLimits, NodeExtentStore,
+            NodeExtentUsage, NodeWorkspace, PreparedImageRoot, RootApplyWork, RootView,
+            SealedImageRoot, SealedRoot, StoreError, WorkspaceBounds,
         },
         tree::{
             ExtentId, ExtentManifest, Geometry, ImageBinding, ImageRoot, RootError, EXTENT_BYTES,
         },
+        working::{ExtentWorkspace, WorkspaceOptions, WorkspaceStats},
     };
     pub use crate::lz4_block::internal as lz4_block;
     pub use crate::replica::internal as replica;

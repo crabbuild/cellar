@@ -27,6 +27,8 @@ pub struct Metrics {
     pub create_mode: AtomicUsize,
     pub fail_dir_sync: AtomicBool,
     pub fail_remove: AtomicBool,
+    pub fail_dir_remove_after: AtomicBool,
+    pub refuse_dir_remove_with_handles: AtomicBool,
     pub exit_after_root_sync: AtomicBool,
     pub clone_mode: AtomicUsize,
     pub clone_calls: AtomicUsize,
@@ -272,6 +274,31 @@ impl FileSystem for BoundedFiles {
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         DirectFileSystem.remove_dir_all(path)
+    }
+
+    fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        if self
+            .metrics
+            .refuse_dir_remove_with_handles
+            .load(Ordering::Acquire)
+            && self.metrics.active_handles.load(Ordering::Acquire) != 0
+        {
+            return Err(io::Error::other(
+                "directory still has an open injected handle",
+            ));
+        }
+        if self.metrics.fail_remove.swap(false, Ordering::AcqRel) {
+            return Err(io::Error::other("injected directory removal failure"));
+        }
+        let result = DirectFileSystem.remove_dir_batch(path, limit)?;
+        if self
+            .metrics
+            .fail_dir_remove_after
+            .swap(false, Ordering::AcqRel)
+        {
+            return Err(io::Error::other("injected failure after directory removal"));
+        }
+        Ok(result)
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {

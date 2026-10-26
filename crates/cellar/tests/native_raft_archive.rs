@@ -160,7 +160,7 @@ impl Fixture {
             epoch: state.epoch,
             txid: state.txid.0,
             checksum: state.checksum,
-            image_digest: state.digest,
+            commitment: state.digest.into(),
         };
         Ok(CellUpdate {
             scope: self.group.identity().scope.clone(),
@@ -255,7 +255,7 @@ impl Fixture {
             },
             image: Some(CommittedImage {
                 name: format!("{}.sqlite", hex::encode(pin.id().bytes())),
-                digest: state.digest,
+                commitment: state.digest.into(),
                 length: state.length,
                 ltx_epoch: state.epoch,
                 txid: state.txid.0,
@@ -476,17 +476,22 @@ async fn archive_replay_refuses_an_overwritten_intermediate_image_digest() -> Re
     let first = fixture.commit(1, vec![]).await?;
     fixture.publish(first.clone()).await?;
     let middle = images::image(Some(&fixture.bytes), "UPDATE counter SET value=2")?;
-    let mut false_digest = [0; 32];
+    let mut false_digest = cellar::sdk::consensus::ImageCommitment::Sha256([0; 32]);
     fixture
         .commit_bytes(middle, vec![], |update| {
-            update.result.image_digest[0] ^= 1;
-            false_digest = update.result.image_digest;
+            let cellar::sdk::consensus::ImageCommitment::Sha256(digest) =
+                &mut update.result.commitment
+            else {
+                panic!("materialized fixture returned a root commitment");
+            };
+            digest[0] ^= 1;
+            false_digest = update.result.commitment;
         })
         .await?;
     let final_image = images::image(Some(&fixture.bytes), "UPDATE counter SET value=3")?;
     let last = fixture
         .commit_bytes(final_image, vec![], |update| {
-            update.base.image_digest = false_digest;
+            update.base.commitment = false_digest;
         })
         .await?;
     ensure!(matches!(

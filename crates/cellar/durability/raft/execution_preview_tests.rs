@@ -58,9 +58,9 @@ fn preview_transfer_requires_submission_exact_bytes_states_and_store() -> anyhow
     let payload = b"exact encoded CellUpdate bytes";
     let mut pending = Pending {
         proposal: ProposalId::new([1; 16])?,
-        preview: Some(pin),
-        base,
-        result,
+        preview: Some(Preview::Materialized(pin)),
+        base: State::Materialized(base),
+        result: State::Materialized(result),
         payload_digest: Sha256::digest(payload).into(),
         kind: Kind::Prune {
             client: ClientId::new([1; 16])?,
