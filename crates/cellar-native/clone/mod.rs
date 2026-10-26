@@ -10,6 +10,8 @@
 //! matching cellar's supported x86-64 and ARM64 deployments.
 
 use anyhow::{anyhow, bail, ensure, Result};
+mod bytes_envelope;
+pub use bytes_envelope::decode_tagged_bytes;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -289,7 +291,7 @@ struct Reader<'a> {
     limits: Limits,
 }
 
-impl Reader<'_> {
+impl<'a> Reader<'a> {
     fn document(&mut self) -> Result<StructuredValue> {
         let root = self.value(0)?;
         self.padding();
@@ -324,7 +326,7 @@ impl Reader<'_> {
         Ok(byte)
     }
 
-    fn raw(&mut self, length: usize) -> Result<&[u8]> {
+    fn raw(&mut self, length: usize) -> Result<&'a [u8]> {
         let end = self
             .at
             .checked_add(length)

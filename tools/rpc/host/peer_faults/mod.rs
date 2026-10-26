@@ -4,6 +4,7 @@
 //! request or loses one proven reply. It never substitutes a business handler.
 mod framing;
 mod matrix;
+mod receiver;
 mod relay;
 
 pub use matrix::run;

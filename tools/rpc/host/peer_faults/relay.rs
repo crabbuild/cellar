@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::framing;
+use super::{framing, receiver};
 use anyhow::{ensure, Context, Result};
 use cellar::sdk::rpc::{self, prost::Message};
 use serde_json::{json, Value};
@@ -26,6 +26,8 @@ pub(super) enum Fault {
     Reconnect,
     ReplyLoss,
     MethodRefusal,
+    ElementRefusal,
+    ByteRefusal,
 }
 
 impl Fault {
@@ -34,6 +36,16 @@ impl Fault {
             Self::Reconnect => "reconnect",
             Self::ReplyLoss => "reply_loss",
             Self::MethodRefusal => "method_refusal",
+            Self::ElementRefusal => "element_refusal",
+            Self::ByteRefusal => "byte_refusal",
+        }
+    }
+
+    pub fn refusal_code(self) -> Option<rpc::Code> {
+        match self {
+            Self::MethodRefusal => Some(rpc::Code::MethodNotFound),
+            Self::ElementRefusal | Self::ByteRefusal => Some(rpc::Code::ResourceExhausted),
+            _ => None,
         }
     }
 }
@@ -46,9 +58,8 @@ struct Arm {
     expected: i64,
 }
 
-#[derive(Default)]
 struct Control {
-    digest: String,
+    contract: Arc<rpc::Contract>,
     destination: Mutex<Option<SocketAddr>>,
     arm: Mutex<Option<Arm>>,
     observations: Mutex<Vec<Value>>,
@@ -66,12 +77,18 @@ pub(super) struct Relay {
 }
 
 impl Relay {
-    pub async fn start(digest: &str) -> Result<Self> {
+    pub async fn start(contract: Arc<rpc::Contract>) -> Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let control = Arc::new(Control {
-            digest: digest.into(),
-            ..Default::default()
+            contract,
+            destination: Mutex::default(),
+            arm: Mutex::default(),
+            observations: Mutex::default(),
+            last_request: Mutex::default(),
+            handshakes: AtomicUsize::new(0),
+            live: AtomicUsize::new(0),
+            close_idle: Notify::new(),
         });
         let serving = control.clone();
         let (stop, mut stopped) = watch::channel(false);
@@ -234,7 +251,7 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
     let sending = action.clone();
     let send = async {
         while let Some(mut head) = framing::head(&mut client_read).await? {
-            let body = framing::body(&head, &mut client_read).await?;
+            let mut body = framing::body(&head, &mut client_read).await?;
             let candidate = control.arm.lock().unwrap().clone();
             if candidate.is_some() {
                 *control.last_request.lock().unwrap() = Some((
@@ -253,7 +270,7 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     framing::MAX_BODY,
                 )?;
                 ensure!(
-                    digest == control.digest,
+                    digest == control.contract.digest(),
                     "peer request used another descriptor"
                 );
                 let request = crate::generated::IncrementRequest::decode(bytes.as_slice())?;
@@ -282,7 +299,42 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     remaining > 0 && remaining <= 10_000,
                     "peer call has an invalid remaining budget"
                 );
-                let proof = json!({"operation_id":arm.id,"request_id":identity,"scope":head.get("x-cells-scope"),"method":METHOD,"remaining_ms":remaining,"delta":1});
+                let mut proof = json!({"operation_id":arm.id,"request_id":identity,"scope":head.get("x-cells-scope"),"method":METHOD,"remaining_ms":remaining,"delta":1,
+                    "original_message_bytes":bytes.len(),"source_max_message_bytes":control.contract.limits().max_message_bytes,
+                    "source_max_elements":control.contract.limits().max_elements,
+                    "receiver_max_message_bytes":receiver::BYTE_LIMIT,"receiver_max_elements":receiver::ELEMENT_LIMIT});
+                let mut forwarded = bytes;
+                let elements = match arm.fault {
+                    Fault::ElementRefusal => {
+                        // Three valid unknown varints make five occurrences.
+                        // The unchanged request remains below the byte ceiling.
+                        forwarded.extend_from_slice(&[0xf8, 0x07, 0].repeat(3));
+                        5
+                    }
+                    Fault::ByteRefusal => {
+                        // One valid unknown length-delimited field exceeds the
+                        // byte ceiling while remaining below the element cap.
+                        forwarded.extend_from_slice(&[0xfa, 0x07, 0x80, 0x01]);
+                        forwarded.extend_from_slice(&[0; 128]);
+                        3
+                    }
+                    _ => 2,
+                };
+                control
+                    .contract
+                    .validate_message("example.counter.v1.IncrementRequest", &forwarded)?;
+                proof["forwarded_message_bytes"] = json!(forwarded.len());
+                proof["forwarded_elements"] = json!(elements);
+                proof["source_message_valid"] = json!(true);
+                if matches!(arm.fault, Fault::ElementRefusal | Fault::ByteRefusal) {
+                    let cellar::engine_api::RpcData::Structured(encoded) =
+                        rpc::encode_envelope(&digest, forwarded, framing::MAX_BODY)?
+                    else {
+                        anyhow::bail!("binary fault envelope was not structured");
+                    };
+                    body = encoded.to_vec();
+                    head.replace("content-length", &body.len().to_string())?;
+                }
                 if arm.fault == Fault::MethodRefusal {
                     head.replace(METHOD_HEADER, "example.counter.v1.Counter/PrivateHelper")?;
                 }
@@ -326,16 +378,16 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     "owner returned a transport error"
                 );
                 let reply = rpc::decode_reply(
-                    &control.digest,
+                    control.contract.digest(),
                     &cellar::engine_api::RpcData::Structured(body.clone().into()),
                     rpc::Limits::default(),
                 );
-                if arm.fault == Fault::MethodRefusal {
+                if let Some(code) = arm.fault.refusal_code() {
                     let Err(failure) = reply else {
                         anyhow::bail!("unregistered method returned a business result");
                     };
                     ensure!(
-                        failure.code() == rpc::Code::MethodNotFound
+                        failure.code() == code
                             && failure.outcome() == rpc::EffectOutcome::NotCommitted,
                         "owner refusal has wrong provenance: {failure}"
                     );
