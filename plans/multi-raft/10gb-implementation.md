@@ -855,3 +855,29 @@ PR #124 has merged. On updated main `9f1e7df1`, the diagnostic follow-up
 and documentation checking for 808 local references. The
 underlying Raft/LTX production source is unchanged by the intervening main
 updates; the failed full-size executable remains frozen at `b8ed3d03`.
+
+### Snapshot disposal liveness investigation
+
+The `0e234925` diagnostic executable is running the full-size RustFS case with
+the unchanged production storage code. Its final-read checkpoint also observes
+the exact supplied token and read duration; a separate sampler captures the
+native process if that read remains outstanding. This run is not yet a pass.
+
+A focused native regression injects a held close into an actual encoded
+snapshot file after the real archive work. On the original implementation,
+an `AtLeast` read of an acknowledged command fails with `VersionUnavailable`
+while that close is held (1.59 and 6.88 seconds for two complete cases). The publication
+future is polled within the host driver: consuming its final recovery set closes
+the snapshot on that driver's poll stack and can prevent request admission.
+Another direct-binary repeat instead failed during node-authority startup,
+before reaching the injected close; it is not a reproduction of the read fault.
+
+The fix moves completion validation and recovery-set disposal into
+execution-domain-owned blocking work. The producer and capture reservation stay
+owned until physical cleanup completes, and shutdown joins the work. Coverage
+checks and read deadlines remain unchanged. The same version-bound read passes
+with the fix while the close remains held (9.97 seconds for the complete case).
+The regression is being extended to check that shutdown waits and admission
+remains charged through physical cleanup. This establishes a concrete liveness
+defect, but does not yet prove that a slow close caused the preserved 10 GB
+failure. Broader regression and full-size qualification of the fix remain pending.
