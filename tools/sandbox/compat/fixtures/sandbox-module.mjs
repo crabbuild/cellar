@@ -7,16 +7,11 @@ import {
   workersApplication,
 } from "../../../../packages/cellar-cloudflare/index.js";
 
-// Extend the published class only to observe its actual streaming method. The
-// unchanged upstream routes below continue to use the same SDK implementation.
-class StreamingProbe extends module.Sandbox {
-  async qualifyStream() {
-    const gate = "/workspace/cellar-stream-release";
-    await this.exec(`rm -f ${gate}`);
-    const command =
-      "node -e " +
-      JSON.stringify(
-        `
+function gatedCommand(gate) {
+  return (
+    "node -e " +
+    JSON.stringify(
+      `
       const fs = require('fs');
       process.stdout.write('cellar-first\\n');
       let attempts = 0;
@@ -32,7 +27,31 @@ class StreamingProbe extends module.Sandbox {
         }
       }, 100);
     `.replaceAll("\n", " "),
-      );
+    )
+  );
+}
+
+// Extend the published class only to observe its actual streaming method. The
+// unchanged upstream routes below continue to use the same SDK implementation.
+const HTTP_GATE = "/workspace/cellar-http-stream-release";
+class StreamingProbe extends module.Sandbox {
+  async releaseHttpStream() {
+    await this.exec(`touch ${HTTP_GATE}`);
+  }
+
+  async fetch(request) {
+    if (new URL(request.url).pathname === "/cellar-http-stream") {
+      await this.exec(`rm -f ${HTTP_GATE}`);
+      return new Response(await this.execStream(gatedCommand(HTTP_GATE)), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    return super.fetch(request);
+  }
+  async qualifyStream() {
+    const gate = "/workspace/cellar-stream-release";
+    await this.exec(`rm -f ${gate}`);
+    const command = gatedCommand(gate);
     let released = false;
     const events = [];
     try {
@@ -58,7 +77,25 @@ class StreamingProbe extends module.Sandbox {
 }
 
 const app = workersApplication(
-  { ...module, Sandbox: StreamingProbe },
+  {
+    ...module,
+    Sandbox: StreamingProbe,
+    default: {
+      async fetch(request, env, execution) {
+        const url = new URL(request.url);
+        const stub = env.Sandbox.getByName(
+          url.searchParams.get("id") ?? "demo",
+        );
+        if (url.pathname === "/__stream_http")
+          return stub.fetch("http://sandbox/cellar-http-stream");
+        if (url.pathname === "/__stream_release") {
+          await stub.releaseHttpStream();
+          return new Response(null, { status: 204 });
+        }
+        return module.default.fetch(request, env, execution);
+      },
+    },
+  },
   {
     namespaces: { Sandbox: "Sandbox" },
     containers: ["Sandbox"],

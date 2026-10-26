@@ -272,6 +272,7 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
                 | "workers.container.perform"
                 | "workers.rpc"
                 | "workers.fetch"
+                | "workers.fetch_stream"
                 | "workers.container.fetch"
                 | "workers.container.fetch_stream"
         )
@@ -281,11 +282,14 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
 pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
     matches!(
         name,
-        "cell.call"
+        "response.read"
+            | "response.closed"
+            | "cell.call"
             | "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
             | "workers.fetch"
+            | "workers.fetch_stream"
             | "workers.container.fetch"
             | "workers.container.fetch_stream"
     )

@@ -63,6 +63,33 @@ pub fn supports_synchronous(name: &str) -> bool {
 }
 
 impl State {
+    pub(crate) async fn fetch_stream(
+        &self,
+        context: &Context,
+        input: Value,
+        options: &Limits,
+        signal: Option<cellar::sdk::web::AbortSignal>,
+        transport: &crate::transport::Session,
+    ) -> Result<Value> {
+        crate::values::check_depth(&input).context(crate::failure::Validation)?;
+        let candidate = context.invocation_authority()?;
+        let authority = self.authority.get_or_init(|| candidate);
+        authority.check(context)?;
+        transport.response_capacity(context, options)?;
+        let call = namespace::fetch_response(context, input, options);
+        let response = match signal {
+            None => call.await,
+            Some(signal) => {
+                cellar::asyncrt::select_biased! { "cancellation revokes a namespace HTTP waiter before an undelivered head";
+                    _ = signal.cancelled() => Err(cellar::sdk::rpc::Failure::new(cellar::sdk::rpc::Code::Cancelled).into()),
+                    response = call => response,
+                }
+            }
+        }?;
+        authority.check(context)?;
+        transport.retain_response(context, response, options)
+    }
+
     pub async fn execute(
         &self,
         context: &Context,

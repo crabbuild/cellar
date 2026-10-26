@@ -62,6 +62,14 @@ test("Workers port keeps binary bodies and returns redirects without egress", as
   );
 });
 
+test("HEAD port replies expose no response body", async () => {
+  const { port, requests } = fixture();
+  const response = await port.fetch("http://container/", { method: "HEAD" });
+  assert.equal(response.body, null);
+  assert.equal((await response.arrayBuffer()).byteLength, 0);
+  assert.equal(requests[0].method, "HEAD");
+});
+
 test("oversized streamed bodies cancel their source before provider submission", async () => {
   const { port, requests } = fixture();
   let cancelled = false;

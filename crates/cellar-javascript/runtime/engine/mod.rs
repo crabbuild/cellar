@@ -710,9 +710,16 @@ pub(super) fn run(
             let token = v8::Number::new(turn, id as f64);
             turn.set_continuation_preserved_embedder_data(token.into());
             let dispatch = v8::Local::new(turn, &dispatch);
-            let result = dispatch
-                .call(turn, undefined.into(), &[token.into(), value.into(), body])
-                .context("JavaScript dispatch failed")?;
+            let result = dispatch.call(turn, undefined.into(), &[token.into(), value.into(), body]);
+            let result = result.ok_or_else(|| {
+                if turn.is_execution_terminating() {
+                    anyhow::anyhow!(
+                        "JavaScript engine turn exceeded execution budget during dispatch"
+                    )
+                } else {
+                    anyhow::anyhow!("JavaScript dispatch failed")
+                }
+            })?;
             let promise = v8::Local::<v8::Promise>::try_from(result)?;
             state.borrow_mut().invocations.get_mut(&id).unwrap().promise =
                 Some(v8::Global::new(turn, promise));
@@ -824,9 +831,16 @@ pub(super) fn run(
         for id in &finished {
             let cancel = v8::Local::new(turn, &cancel);
             let id = v8::Number::new(turn, *id as f64);
-            cancel
-                .call(turn, undefined.into(), &[id.into()])
-                .context("JavaScript lifetime cancellation failed")?;
+            let cancelled = cancel.call(turn, undefined.into(), &[id.into()]);
+            ensure!(
+                cancelled.is_some(),
+                "{}",
+                if turn.is_execution_terminating() {
+                    "JavaScript engine turn exceeded execution budget during lifetime cancellation"
+                } else {
+                    "JavaScript lifetime cancellation failed"
+                }
+            );
         }
         let abandoned = {
             let mut state = state.borrow_mut();

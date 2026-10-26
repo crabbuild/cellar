@@ -872,3 +872,49 @@ cause in the original diagnostic. The test now retains status/body/restart
 context on failure; the final run passes at its unchanged budget. That original
 cause remains unproven. No deadline or assertion was weakened; the image output
 assertions were strengthened to distinguish data events from SDK start records.
+
+### Worker and Durable Object HTTP response forwarding
+
+Standard web `Response` bodies now flow incrementally through the optional
+module adapter and namespace `fetch()` facade. The native transport retains
+headers/body capabilities under the original invocation and facet, with bounded
+prefixes and reads. A joined disconnect waiter wakes pending web reads and
+releases upstream consumers; it uses the existing operation and pending budgets.
+
+| Boundary | Implementation / evidence |
+| --- | --- |
+| Native authority | Response reads, forwarding and cancellation check exact native invocation/facet authority; an actual Rust host test refuses a foreign live event and a later event of the same cell. |
+| Body versus event lifetime | Explicit `response.finish` closes the HTTP body independently of background monitors/jobs. Native network tests verify successful EOF, failure and cancellation while independent `waitUntil` work remains held and can later finish. |
+| Durability at EOF | `Context::finish_stream` gates clean EOF behind writes performed after the final chunk. The native proof fixture withholds that gate, then verifies successful release and typed `DurabilityUnproven` refusal without clean EOF or a success acknowledgement. |
+| Web conversion | Headers precede the first read; per-chunk limits permit larger cumulative output. HEAD/no-body responses release unused readers; disturbed bodies refuse; producer/overflow errors remain body failures. |
+| Publication | A post-header failure errors the body and preserves earlier effects; it cannot replace the status already sent. The existing module regression now requires that body failure and still verifies the committed effect. |
+| Packaging | The actual packed npm artifact imports and dispatches in an isolated directory. This caught and fixed the previously omitted `response.js`; the new `output.js` is also included. |
+
+The pinned Sandbox 0.12.9 SDK/image now passes an additional external HTTP test:
+a probe calls the unchanged `execStream()` inside its published Sandbox class,
+returns the SSE body through a DO fetch and Worker fetch, and the real network
+client must observe a stdout event before a second request releases the command.
+The client then verifies final stdout/stderr data events and exit code 7. This is
+HTTP forwarding, not returned-stream RPC transport. Original upstream basic
+routes, the in-object stream probe, explicit destroy and joined shutdown also
+pass; no owned containers remain.
+
+Validation passes the Worker/DO HTTP network test, three module regressions,
+native live/stale handle authority, native EOF proof/cleanup/retirement, CPython
+streaming, and the published SDK/image test. Node's existing SSE/WS test passes;
+embedded V8's existing SSE/WS test passes in its diagnostic run. Frontend/tool
+checks pass 37 tests, including packed-package import and cleanup/error cases.
+All 16 shared guest tests, affected-adapter all-target Clippy and native-host
+library Clippy pass. Rust format/layout checks cover 1,097 sources, JS formatting
+covers 62 owned sources, and documentation plus the native-only dependency guard
+pass.
+The full SP-01–SP-10 goal remains active: RPC stream transfers, upgrades, previews,
+full loader/bindings/lifetimes/fault qualification and the other planned provider
+profiles remain incomplete. Live E2B/Vercel qualification stays deferred.
+
+Intermediate existing SSE runs exceeded Node's unchanged 250 ms handler budget
+and failed embedded V8 dispatch/lifetime cleanup. Native EOF completion fixed a
+separately reproduced container-monitor body hang. The original SSE/V8 failures
+remain unproven; V8 now distinguishes execution termination at those call sites,
+and its diagnostic rerun passed at the unchanged 100 ms pump budget. No deadline
+or assertion was relaxed and no timing fix is claimed.

@@ -179,6 +179,7 @@ function operation(
       "workers.container.perform",
       "workers.rpc",
       "workers.fetch",
+      "workers.fetch_stream",
       "workers.container.fetch",
       "workers.container.fetch_stream",
     ].includes(name) &&
@@ -207,6 +208,8 @@ function operation(
       "kv.list",
       "websocket.next",
       "response.read",
+      "response.cancel",
+      "response.closed",
       "container.capabilities",
       "container.running",
       "container.monitor",
@@ -284,10 +287,13 @@ function operation(
   if (
     ![
       "cell.call",
+      "response.read",
+      "response.closed",
       "container.port.fetch",
       "container.port.fetch_stream",
       "container.response.read",
       "workers.fetch",
+      "workers.fetch_stream",
       "workers.container.fetch",
       "workers.container.fetch_stream",
     ].includes(name)

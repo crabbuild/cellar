@@ -423,6 +423,8 @@
           "container.websocket.receive",
           "websocket.next",
           "response.read",
+          "response.cancel",
+          "response.closed",
         ].includes(name);
         const error = new ErrorClass(read ? "HostError" : "Ambiguous");
         error.code = error.message;
@@ -490,10 +492,13 @@
               if (
                 [
                   "cell.call",
+                  "response.read",
+                  "response.closed",
                   "container.port.fetch",
                   "container.port.fetch_stream",
                   "container.response.read",
                   "workers.fetch",
+                  "workers.fetch_stream",
                   "workers.container.fetch",
                   "workers.container.fetch_stream",
                 ].includes(name)
@@ -560,6 +565,8 @@
                 "container.websocket.receive",
                 "websocket.next",
                 "response.read",
+                "response.cancel",
+                "response.closed",
               ].includes(name);
               throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
             }
@@ -1290,16 +1297,20 @@
       if (invocation.kind === "fetch" && result?.chunks !== undefined) {
         // Publish headers before pulling the producer. Each awaited write
         // preserves native backpressure and keeps invocation authority alive.
-        await ctx._call("response.start", {
-          status: result.status,
-          headers: result.headers,
-          body: "",
-        });
-
-        for await (const chunk of result.chunks) {
-          await ctx._call("response.write", { body: ctx._encode(chunk) });
+        try {
+          await ctx._call("response.start", {
+            status: result.status,
+            headers: result.headers,
+            body: "",
+          });
+          for await (const chunk of result.chunks) {
+            await ctx._call("response.write", { body: ctx._encode(chunk) });
+          }
+          await ctx._call("response.finish");
+        } finally {
+          // A failed head must release a web reader even before iteration starts.
+          if (typeof result.cancel === "function") await result.cancel();
         }
-
         result = { streamed: true };
       } else if (
         invocation.kind === "fetch" &&

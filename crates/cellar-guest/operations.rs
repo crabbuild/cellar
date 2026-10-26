@@ -87,6 +87,24 @@ pub async fn execute_with_signal(
     options: &Limits,
     signal: Option<cellar::sdk::web::AbortSignal>,
 ) -> Result<Value> {
+    if name == "workers.fetch_stream" {
+        return state
+            .workers
+            .fetch_stream(context, value, options, signal, &state.transport)
+            .await;
+    }
+    if matches!(name, "response.closed" | "response.read") {
+        let call = state.transport.execute(context, name, value, options);
+        return match signal {
+            None => call.await,
+            Some(signal) => {
+                cellar::asyncrt::select_biased! { "cancellation revokes a response waiter before an undelivered reply";
+                    _ = signal.cancelled() => Err(cellar::sdk::rpc::Failure::new(cellar::sdk::rpc::Code::Cancelled).into()),
+                    result = call => result,
+                }
+            }
+        };
+    }
     if name == "workers.fetch" {
         return state
             .workers
@@ -148,6 +166,8 @@ pub fn is_read(name: &str) -> bool {
             | "kv.list"
             | "websocket.next"
             | "response.read"
+            | "response.cancel"
+            | "response.closed"
     )
 }
 
@@ -183,6 +203,12 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name == "workers.fetch_stream" {
+        return state
+            .workers
+            .fetch_stream(context, value, options, None, &state.transport)
+            .await;
+    }
     if name.starts_with("workers.container.") {
         return crate::containers::workers(context, state, name, value, options).await;
     }

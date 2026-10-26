@@ -3,7 +3,8 @@
 import { activateDurableObject } from "./activation.js";
 import { durableObjectContainer } from "./container.js";
 import { namespaceBinding } from "./namespace.js";
-import { decodeRequest, encodeResponse, webRuntime } from "./http.js";
+import { decodeRequest, webRuntime } from "./http.js";
+import { encodeStreamResponse } from "./output.js";
 
 function environment(current, namespaces, variables) {
   const env = Object.create(null);
@@ -69,7 +70,7 @@ export function workersApplication(
             throw new TypeError("Durable Object has no fetch handler");
           return target.fetch(decodeRequest(frame));
         });
-        return encodeResponse(response, context);
+        return encodeStreamResponse(response, context);
       }
       async cell_rpc({ method, args }, context) {
         return this.owner(context).rpc(method, args);
@@ -113,7 +114,7 @@ export function workersApplication(
         waitUntil: (promise) => context._waitUntil(promise),
       });
       const response = await worker.fetch(decodeRequest(frame), env, execution);
-      return encodeResponse(response, context);
+      return encodeStreamResponse(response, context);
     },
   };
 }

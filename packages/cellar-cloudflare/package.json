@@ -18,6 +18,8 @@
     "namespace.js",
     "container.js",
     "port.js",
+    "response.js",
+    "output.js",
     "http.js",
     "module.js",
     "activation.js",

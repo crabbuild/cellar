@@ -97,7 +97,7 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded binary bodies, separate Set-Cookie headers, manual redirects, abortable namespace/port calls | Streaming bridge, WebSocket upgrades and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, streamed RPC transfers and embedded web bootstrap |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
@@ -153,6 +153,47 @@ values: only a live native session grants authority.
 The stream extension follows the documented byte-forwarding and BYOB contract
 for [IdentityTransformStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
 This API slice does not establish full Workers stream conformance.
+
+### HTTP response streaming
+
+A module may return an ordinary web `Response`, including a `ReadableStream`
+body or the result of `stub.fetch()`. The adapter publishes its headers before
+pulling the body and forwards bounded byte chunks through the native transport.
+The whole response may exceed the host's per-chunk body limit.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Worker
+    participant DO as Durable Object
+    Client->>Worker: HTTP request
+    Worker->>DO: stub.fetch(request)
+    DO-->>Worker: Headers and event-owned body
+    Worker-->>Client: Headers before body data
+    loop Consumer requests bytes
+        Client->>Worker: Read
+        Worker->>DO: Pull one bounded chunk
+        DO-->>Client: Bytes through native output gates
+    end
+    Client--xWorker: Disconnect
+    Worker--xDO: Cancel body reader
+    Note over DO: Independent waitUntil jobs can finish
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Backpressure | Each producer awaits the native write before yielding again |
+| Completion / failure | Clean EOF trails final-write proof; errors cannot replace an already published status |
+| Disconnect | A joined native waiter wakes a pending reader and releases the upstream body |
+| Independent work | `waitUntil` jobs retain the original event after body completion, cancellation or failure |
+| Native authority | Reads, forwarding and cancellation check the original invocation/facet |
+| Stream completion | `response.finish` closes the body independently of background jobs, after the native output gate |
+| Limits | The disconnect waiter uses one normal pending-operation slot; producer reads/writes and application work use their own slots |
+| HEAD / no-body status | Return `body: null` and release unused upstream readers |
+
+Uploads remain buffered and bounded before submission. Cancelling a response
+cannot prove that a submitted sandbox command stopped or rolled back. Returning
+streams as RPC values and WebSocket upgrades remain separate profiles.
 
 ### Container API
 
@@ -232,7 +273,7 @@ quotas and unknown-outcome reporting still apply.
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, streamed RPC/Worker forwarding and upgrades, Sandbox previews and
+Sleep/wake, complete hooks/timeouts, streamed RPC transfers and upgrades, Sandbox previews and
 the remaining SDK/image fault qualification
 remain required, along with hosted providers.
 

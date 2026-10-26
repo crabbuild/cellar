@@ -26,7 +26,10 @@ export function containerPort(current, port, beforeFetch) {
         () => beforeFetch(context),
         // A response reader keeps this event's context, even if the activation
         // later handles another event with colliding local resource IDs.
-        (frame, _context, signal) => streamedResponse(frame, context, signal),
+        (frame, _context, signal, request) =>
+          streamedResponse(frame, context, signal, {
+            bodyless: request.method === "HEAD",
+          }),
       );
     },
   };

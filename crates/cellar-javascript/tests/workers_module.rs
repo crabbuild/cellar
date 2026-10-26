@@ -136,10 +136,13 @@ async fn module_round(
         .send()
         .await?;
     ensure!(
-        !lost.status().is_success(),
-        "oversized result after a write reported success"
+        lost.status().is_success(),
+        "streamed reply did not publish its head"
     );
-    let _ = lost.bytes().await?;
+    ensure!(
+        lost.bytes().await.is_err(),
+        "oversized streamed result became clean EOF"
+    );
     let effect: serde_json::Value = client
         .get(format!("{address}/alice/lost-effect"))
         .send()

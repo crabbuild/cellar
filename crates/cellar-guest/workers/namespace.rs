@@ -53,12 +53,11 @@ fn stub(
     namespace.get(&id)
 }
 
-pub(super) async fn fetch(
+pub(super) async fn fetch_response(
     context: &Context,
     input: Value,
     options: &Limits,
-    signal: Option<cellar::sdk::web::AbortSignal>,
-) -> Result<Value> {
+) -> Result<cellar::engine_api::HttpResponse> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {
@@ -74,8 +73,17 @@ pub(super) async fn fetch(
         Ok((stub, request))
     })()
     .context(crate::failure::Validation)?;
+    stub.fetch(context, request).await
+}
+
+pub(super) async fn fetch(
+    context: &Context,
+    input: Value,
+    options: &Limits,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> Result<Value> {
     let call = async {
-        let response = stub.fetch(context, request).await?;
+        let response = fetch_response(context, input, options).await?;
         crate::values::response(response, options.max_body_bytes).await
     };
     match signal {

@@ -3,7 +3,22 @@
 import { decodeResponse } from "./http.js";
 
 /** A port response retains its original event; pulls never borrow a later one. */
-export function streamedResponse(frame, context, signal) {
+export function streamedResponse(
+  frame,
+  context,
+  signal,
+  {
+    read = "container.response.read",
+    cancel = "container.response.cancel",
+    releaseOnEnd = false,
+    bodyless = false,
+  } = {},
+) {
+  if (bodyless || [204, 205, 304].includes(frame.status)) {
+    if (frame.stream !== null)
+      context._call(cancel, { id: frame.stream }).catch(() => {});
+    return new Response(null, { status: frame.status, headers: frame.headers });
+  }
   if (frame.stream === null) return decodeResponse(frame, context);
   const id = frame.stream;
   let finished = false;
@@ -13,7 +28,7 @@ export function streamedResponse(frame, context, signal) {
     if (finished) return;
     finished = true;
     detach();
-    await context._call("container.response.cancel", { id });
+    await context._call(cancel, { id });
   };
   const abort = () => {
     if (finished) return;
@@ -34,14 +49,11 @@ export function streamedResponse(frame, context, signal) {
         if (finished) return;
         try {
           while (!finished) {
-            const chunk = await context._call(
-              "container.response.read",
-              { id },
-              undefined,
-              signal,
-            );
+            const chunk = await context._call(read, { id }, undefined, signal);
             if (finished) return;
             if (chunk.done) {
+              if (releaseOnEnd) await context._call(cancel, { id });
+              if (finished) return;
               finished = true;
               detach();
               const pending = controller.byobRequest;
@@ -64,10 +76,6 @@ export function streamedResponse(frame, context, signal) {
       },
       cancel: release,
     });
-    if ([204, 205, 304].includes(frame.status)) {
-      body.cancel().catch(() => {});
-      return decodeResponse(frame, context);
-    }
     return new Response(body, { status: frame.status, headers: frame.headers });
   } catch (error) {
     release().catch(() => {});

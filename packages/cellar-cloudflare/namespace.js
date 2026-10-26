@@ -2,6 +2,7 @@
 
 import { idDescriptor, nativeId } from "./id.js";
 import { fetchRequest } from "./http.js";
+import { streamedResponse } from "./response.js";
 
 // This initial namespace facade is event-owned, just like the native SDK
 // context supplied to it. Activation-owned environment bindings are a separate
@@ -58,18 +59,44 @@ export function namespaceBinding(current, binding) {
           if (method === "fetch")
             return (input, init) => {
               const context = current();
-              return fetchRequest(input, init, context, (request, signal) =>
-                context._call(
-                  "workers.fetch",
-                  {
-                    binding,
-                    id: checked.toString(),
-                    name: descriptor.name,
-                    request,
-                  },
-                  undefined,
-                  signal,
-                ),
+              return fetchRequest(
+                input,
+                init,
+                context,
+                (request, signal) =>
+                  context._call(
+                    "workers.fetch_stream",
+                    {
+                      binding,
+                      id: checked.toString(),
+                      name: descriptor.name,
+                      request,
+                    },
+                    undefined,
+                    signal,
+                  ),
+                undefined,
+                (frame, _context, signal, request) => {
+                  if (frame.websocket) {
+                    context
+                      ._call("response.cancel", { id: frame.forward })
+                      .catch(() => {});
+                    throw new TypeError(
+                      "Namespace WebSocket upgrades require an upgrade-capable profile",
+                    );
+                  }
+                  return streamedResponse(
+                    { ...frame, stream: frame.forward },
+                    context,
+                    signal,
+                    {
+                      read: "response.read",
+                      cancel: "response.cancel",
+                      releaseOnEnd: true,
+                      bodyless: request.method === "HEAD",
+                    },
+                  );
+                },
               );
             };
           return async (...args) => {

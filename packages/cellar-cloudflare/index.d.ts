@@ -108,7 +108,7 @@ export interface DurableObjectContainer {
   signal(signal: number): void;
   monitor(): Promise<void>;
   destroy(error?: unknown): Promise<void>;
-  /** Buffered HTTP in a runtime with standard Request/Response globals. */
+  /** Bounded upload and incremental response in the standard web runtime. */
   getTcpPort(port: number): {
     fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
   };
@@ -191,7 +191,7 @@ export function activateDurableObject<T, E extends object>(
   options?: { env?: E; container?: unknown },
 ): Activation<T>;
 
-/** Bounded HTTP and value RPC module dispatch; native host registrations are required. */
+/** Bounded uploads, incremental HTTP replies and value RPC module dispatch. */
 export function workersApplication<
   M extends { default: { fetch: (...args: never[]) => unknown } },
 >(
@@ -210,5 +210,7 @@ export function workersApplication<
     status: number;
     headers: [string, string][];
     body: string;
+    chunks?: AsyncIterable<Uint8Array>;
+    cancel?: (reason?: unknown) => Promise<void>;
   }>;
 };

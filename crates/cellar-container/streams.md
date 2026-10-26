@@ -111,5 +111,6 @@ if let Some(id) = head["stream"].as_str() {
 
 The optional Cloudflare `getTcpPort(port).fetch()` returns a web `Response` using
 this boundary. Its byte stream supports BYOB reads, demand-driven pulls and
-abort after headers. This does not qualify streamed Durable Object RPC return
-values or full Worker response forwarding; those remain separate requirements.
+abort after headers. The optional [module adapter](../../packages/cellar-cloudflare/README.md#http-response-streaming)
+forwards Worker and Durable Object HTTP replies through the native stream
+transport. Returning a `ReadableStream` as an RPC value remains unsupported.

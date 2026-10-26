@@ -147,6 +147,7 @@ export async function fetchRequest(
       await dispatch(frame, request.signal),
       context,
       request.signal,
+      request,
     );
   } catch (error) {
     if (error.code === "Cancelled" && request.signal.aborted)

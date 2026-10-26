@@ -346,6 +346,83 @@ async fn exercise_routes(client: &reqwest::Client, address: &str) -> Result<()> 
         events.iter().any(|event| event["exitCode"] == 7),
         "SDK lost command exit: {streamed}"
     );
+    exercise_streamed_http(client, address).await?;
+    Ok(())
+}
+
+fn stream_events(bytes: &[u8]) -> Vec<Value> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|line| {
+            line.strip_prefix("data:")
+                .and_then(|data| serde_json::from_str(data.trim()).ok())
+        })
+        .collect()
+}
+
+async fn exercise_streamed_http(client: &reqwest::Client, address: &str) -> Result<()> {
+    let mut response = client
+        .get(format!("{address}/__stream_http"))
+        .send()
+        .await?
+        .error_for_status()?;
+    ensure!(response.headers()["content-type"]
+        .to_str()?
+        .starts_with("text/event-stream"));
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = response
+            .chunk()
+            .await?
+            .context("SDK HTTP stream ended before first stdout")?;
+        ensure!(
+            bytes.len() + chunk.len() <= 65536,
+            "SDK HTTP stream exceeds fixture bound"
+        );
+        bytes.extend_from_slice(&chunk);
+        if stream_events(&bytes).iter().any(|event| {
+            event["type"] == "stdout"
+                && event["data"]
+                    .as_str()
+                    .is_some_and(|data| data.contains("cellar-first"))
+        }) {
+            break;
+        }
+    }
+    // This independent request permits the still-running command to finish.
+    let released = client
+        .get(format!("{address}/__stream_release"))
+        .send()
+        .await?;
+    ensure!(released.status().as_u16() == 204 && released.bytes().await?.is_empty());
+    while let Some(chunk) = response.chunk().await? {
+        ensure!(
+            bytes.len() + chunk.len() <= 65536,
+            "SDK HTTP stream exceeds fixture bound"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    let events = stream_events(&bytes);
+    ensure!(
+        events.iter().any(|event| event["type"] == "stdout"
+            && event["data"]
+                .as_str()
+                .is_some_and(|data| data.contains("cellar-last"))),
+        "SDK HTTP stream lost final stdout"
+    );
+    ensure!(
+        events.iter().any(|event| event["type"] == "stderr"
+            && event["data"]
+                .as_str()
+                .is_some_and(|data| data.contains("cellar-stderr"))),
+        "SDK HTTP stream lost stderr"
+    );
+    ensure!(
+        events
+            .iter()
+            .any(|event| event["type"] == "complete" && event["exitCode"] == 7),
+        "SDK HTTP stream lost exit status"
+    );
     Ok(())
 }
 

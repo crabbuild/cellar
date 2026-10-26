@@ -56,8 +56,8 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
 background-process discovery and teardown routes pass. A published `execStream()`
-probe also receives output before command completion. Streamed RPC/Worker
-forwarding, previews and fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
+probe also receives output before command completion. Streamed RPC
+transfers, previews and fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
 
 ## Quick start
 
