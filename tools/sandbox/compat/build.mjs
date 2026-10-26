@@ -26,6 +26,7 @@ for (const [fixture, platform] of [
   ["web-writable", "node"],
   ["web-inputs", "node"],
   ["web-websocket", "node"],
+  ["web-upgrade", "node"],
   ["web-messages", "node"],
   ["http-rpc", "node"],
 ]) {

@@ -3,14 +3,31 @@
 // The native socket remains owned by its opening event. Same-activation callers
 // enqueue sends after their own output proof; only the original pumps perform
 // socket I/O. A later event never receives the opening event's native handle.
+const transfers = new WeakMap();
+
+// Only the output adapter consumes this private capability. A Response property
+// or an object imitating the public socket API cannot manufacture authority.
+export function transferWebSocket(socket, context) {
+  const transfer = transfers.get(socket);
+  if (!transfer) throw new TypeError("Expected an owned WebSocket endpoint");
+  return transfer.take(context);
+}
+
+export function cancelUntransferredWebSocket(socket, context) {
+  return transfers.get(socket)?.cancel(context);
+}
+
 export function websocketRuntime() {
   for (const name of ["EventTarget", "Event", "MessageEvent", "Blob"])
     if (typeof globalThis[name] !== "function")
       throw new TypeError(`WebSocket profile requires ${name}`);
 }
 
-export function eventWebSocket(frame, owner, current) {
+export function eventWebSocket(frame, owner, current, eventOwner = owner) {
   websocketRuntime();
+  // Activation getters may produce different facades for the same event. Keep
+  // its canonical context, rather than granting a later event of that activation.
+  const openingContext = eventOwner._current?.() ?? eventOwner;
   const maximum = owner._sync("workers.http.limits").max_body_bytes;
   const id = frame.id;
   const events = new EventTarget();
@@ -24,7 +41,8 @@ export function eventWebSocket(frame, owner, current) {
   let bytes = 0,
     count = 0,
     released = false,
-    finishing;
+    finishing,
+    transferred = false;
   let binaryType = "arraybuffer",
     inflight;
   const handlers = Object.create(null);
@@ -182,6 +200,7 @@ export function eventWebSocket(frame, owner, current) {
     },
     accept() {
       current();
+      if (transferred) throw new TypeError("WebSocket has been transferred");
       if (accepted || state !== 1) return;
       // Start both pumps in the original event. The first accept occurs while
       // consuming the upgrade in that same event; later accepts are idempotent.
@@ -196,6 +215,7 @@ export function eventWebSocket(frame, owner, current) {
     },
     send(value) {
       const context = current();
+      if (transferred) throw new TypeError("WebSocket has been transferred");
       if (!accepted)
         throw new Error("WebSocket must be accepted before sending");
       if (state !== 1) return;
@@ -218,6 +238,7 @@ export function eventWebSocket(frame, owner, current) {
     },
     close(code = 1000, reason = "") {
       const context = current();
+      if (transferred) throw new TypeError("WebSocket has been transferred");
       if (
         !Number.isInteger(code) ||
         !(
@@ -261,10 +282,74 @@ export function eventWebSocket(frame, owner, current) {
     CLOSED: 3,
   }))
     Object.defineProperty(socket, key, { value, enumerable: true });
-  return Object.defineProperties(
+  const result = Object.defineProperties(
     events,
     Object.getOwnPropertyDescriptors(socket),
   );
+  transfers.set(result, {
+    take(context) {
+      current();
+      if ((context._current?.() ?? context) !== openingContext) {
+        const error = new Error("WebSocket belongs to another event");
+        error.code = "ContextMismatch";
+        throw error;
+      }
+      if (transferred) throw new TypeError("WebSocket has been transferred");
+      if (accepted || state !== 1)
+        throw new TypeError(
+          "Only an unaccepted open endpoint can be transferred",
+        );
+      transferred = true;
+      if (frame.forward !== undefined) owner._forward();
+      let peerClosed = false;
+      return {
+        forward: frame.forward,
+        async read(signal) {
+          const message = await owner._call(
+            "container.websocket.receive",
+            { id },
+            undefined,
+            signal,
+          );
+          if (message.type === "close") peerClosed = true;
+          return message;
+        },
+        async send(message) {
+          if (message.type === "text")
+            await owner._call("container.websocket.send_text", {
+              id,
+              text: message.text,
+            });
+          else if (message.type === "binary")
+            await owner._call("container.websocket.send_binary", {
+              id,
+              data: message.data,
+            });
+          else throw new TypeError("Invalid transferred WebSocket message");
+        },
+        async close(code = 1001, reason = "", clean = false) {
+          try {
+            if (!peerClosed && frame.forward === undefined) {
+              await owner._call("container.websocket.close", {
+                id,
+                code,
+                reason,
+              });
+              released = true;
+            }
+          } finally {
+            await finish(code, reason, clean);
+          }
+        },
+      };
+    },
+    cancel(context) {
+      current();
+      if (!transferred && (context._current?.() ?? context) === openingContext)
+        return finish();
+    },
+  });
+  return result;
 }
 
 export function websocketResponse(frame, socket) {

@@ -15,8 +15,8 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks, idle SIGTERM sleep/wake cycles and persisted hook counts; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates | Embedded web globals, callback-owned queue drainage, complete continuation/hook/upgraded port behavior and image lifecycle/fault qualification |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper and upgraded-preview coverage, persistence/restart/fencing and failure cases |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks, idle SIGTERM sleep/wake cycles and persisted hook counts; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, callback-owned queue drainage, complete continuation/hook behavior and image lifecycle/upgrade/fault qualification |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
@@ -37,7 +37,8 @@ independent of the optional Workers runtime.
 | Delivered fix; broader qualification open | Requested V8 shutdown and initial-error diagnostics | Deterministic regression plus 97 selected native cases at original budgets; earlier cold-call delay remains unproven |
 | Delivered Node slice | RPC `Request` transfers and HTTP-message arguments | Native metadata/body ownership, round-trip forwarding, pre-effect refusal, streaming in both directions, live abort after EOF and resource release |
 | Delivered fix; profile partial | Overlapping callback/alarm resumptions | The original extra-barrier image probe passes after async alarm APIs use the asynchronous native bridge; deadlines and native gates remain intact |
-| 1 — next | First-call latency, remaining callback-owned controls, hooks and upgraded Worker/DO routing | The 250 ms first module request remains intermittent; published sleep/wake and HTTP previews run, but complete continuation/fault qualification is pending |
+| Delivered Node slice | Worker/DO/container upgrade forwarding and published Sandbox WebSocket previews | Native network tests, held-receiver disconnect and exact-image text/binary round trips with joined cleanup |
+| 1 — next | Remaining callback-owned controls, hooks and first-call investigation | The fresh module campaign passes at the original 250 ms budget; its earlier intermittent failure has no established cause. Complete continuation/fault qualification remains pending |
 | 2 | Named portable bindings and reconnect/expiry/orphan handling | Same native contract in four languages; explicit fencing guarantees, durable reconciliation and no blind mutation replay |
 | Following milestones | Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent pinned profiles and the SP-07–SP-10 acceptance requirements |
 
@@ -1371,3 +1372,58 @@ are removed. These selected checks do not establish complete SP-10 qualification
 E2B/Vercel real-account qualification still awaits configuration; durable provider
 reconnect/expiry/orphan delivery and separately qualified 1.x/additional-provider
 profiles remain outstanding.
+
+### Worker/DO upgrades and published WebSocket previews
+
+The Node module dispatcher can return an unaccepted container socket or local
+pair endpoint, and forward an unchanged namespace upgrade through later Worker/DO
+hops. Private transfer capabilities bind to the canonical opening event, so
+same-event facade aliases work without granting a later event authority. Accepted,
+synthetic and already-transferred endpoints refuse; invalid heads close only
+their own untransferred endpoint.
+
+| Boundary | Delivery and evidence |
+| --- | --- |
+| Native server | Explicit `accept_polled` retains frame delivery and native I/O cleanup in the opening event even after publishing the upgrade; later events cannot borrow it or turn it into a hibernating socket. Ordinary invocation-delivered and hibernating sockets keep their existing modes |
+| Namespace routing | Forward the existing native upgrade without another language proxy; edited response headers pass native bounds and survive the final handshake |
+| Frame flow | Two original-event pumps await each send, preserve binary/text kinds and keep existing frame, queue, operation and retained-work bounds |
+| Disconnect | A cancellable native close observer does not take the frame-reader lock or consume queued frames. It wakes a bridge while local delivery is held and preserves terminal metadata across retirement |
+| Native network fixture | Worker and DO pairs, container forwarding, namespace acceptance, storage callbacks, headers, clean/abrupt disconnect, an unaccepted local receiver and zero-resource joined shutdown |
+| Published preview image | The unchanged 0.12.9 `proxyToSandbox` helper forwards text/binary WebSockets, strips forged routing headers and closes cleanly or abruptly before/after explicit re-exposure |
+
+The image keeps its exact digest and dependencies. Only the probe service changes
+to use HTTP/WebSockets from Bun 1.3.12 already included in that image; no rewritten
+Sandbox SDK or replacement control server supplies the result.
+
+Two regressions fail before their fixes: returning a valid upgrade through the
+module adapter, and disconnecting while application acceptance holds delivery.
+The latter requires observing native closure independently of the busy frame
+pump. Native queue tests also prove the observer does not consume the buffered
+prefix, wakes despite a held reader/full queue and retains the close code/reason.
+
+The fresh `main` baseline and feature campaign both pass the module target at
+the original 250 ms budget. Three separate cold-first-call probes also pass.
+This does not establish a cause or a fix for the earlier intermittent latency;
+no assertion or deadline was weakened.
+
+The branch incorporates `main` at `185c397a`, including V8 completion reservations
+and isolated Linux engine-peer ports. The new native ownership probe additionally
+keeps an upgrade live while a later event attempts send/read/close/accept, requires
+every attempt to refuse, then ends the opening event without a JS close and
+observes native transport cleanup. Polled servers also refuse hibernation.
+
+| Combined-source verification | Result |
+| --- | --- |
+| Adapter library / Workers target | 76 + 16 passed |
+| Streaming, HTTP messages, module, port and upgrade targets | 11 passed, including all 5 module tests at existing budgets |
+| Native close-queue tests / existing native WebSocket integration targets | 3 + 4 passed; the integration targets each execute their test without a name filter |
+| Exact Sandbox 0.12.9 image scenarios | All 4 passed, including WebSocket previews and RPC binary files |
+| JS/tool/type checks / reference input pins | 95 + 4 passed |
+| Strict Clippy | Adapter all-target and affected core/library/WebSocket targets pass |
+| Repository checks | Rust/JS formatting, 1,184-file layout, docs and native-only dependency guard pass; 466 native packages, no JS engine |
+
+Complete slow-peer/overflow, cross-node, ownership-loss, hibernation and versioned
+Workers/SDK conformance remain open. Callback-owned queued controls and remaining
+hooks are the next local compatibility work; named durable provider bindings,
+reconnect/expiry/orphan cleanup and separate Sandbox 1.x/additional providers
+remain subsequent delivery milestones.

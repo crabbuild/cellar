@@ -19,19 +19,24 @@ class PreviewProbe extends Sandbox {
 }
 
 const server = `
-  const http = require('http');
-  http.createServer((req, res) => {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => {
-      res.statusCode = 207;
-      res.setHeader('x-preview-method', req.method);
-      res.setHeader('x-preview-path', req.url);
-      res.setHeader('x-preview-host', req.headers['x-forwarded-host'] ?? '');
-      res.setHeader('x-preview-internal', Object.keys(req.headers).some(k => k.startsWith('x-sandbox-preview-')) ? 'leaked' : 'clean');
-      res.end(Buffer.concat(chunks));
-    });
-  }).listen(8080, '0.0.0.0');
+  Bun.serve({
+    port: 8080, hostname: '0.0.0.0',
+    async fetch(request, server) {
+      const url = new URL(request.url);
+      const headers = {
+        'x-preview-method': request.method,
+        'x-preview-path': url.pathname + url.search,
+        'x-preview-host': request.headers.get('x-forwarded-host') ?? '',
+        'x-preview-internal': [...request.headers.keys()].some(k => k.startsWith('x-sandbox-preview-')) ? 'leaked' : 'clean'
+      };
+      if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        if (server.upgrade(request, { headers })) return;
+        return new Response('upgrade declined', { status: 426 });
+      }
+      return new Response(await request.arrayBuffer(), { status: 207, headers });
+    },
+    websocket: { message(socket, message) { socket.send(message); } }
+  });
 `;
 
 export default workersApplication(
@@ -48,7 +53,7 @@ export default workersApplication(
           const url = new URL(request.url);
           if (url.pathname === "/setup") {
             const process = await sandbox.startProcess(
-              "node -e " + JSON.stringify(server.replaceAll("\n", " ")),
+              "bun -e " + JSON.stringify(server.replaceAll("\n", " ")),
             );
             await process.waitForPort(8080, { mode: "tcp", timeout: 10000 });
             return Response.json(

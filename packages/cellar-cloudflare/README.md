@@ -97,7 +97,7 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, container-port WebSocket upgrades/local pairs, Set-Cookie fields, manual redirects and aborts | Worker/DO WebSocket upgrade forwarding and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Worker/DO WebSocket forwarding and container-port/local pair upgrades, Set-Cookie fields, manual redirects and aborts | Embedded web bootstrap and complete versioned HTTP/upgrade qualification |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
@@ -412,9 +412,57 @@ byte count and every final byte. The pinned server uses an atomic temporary-file
 rename; this test preserves that behavior. SDK destroy and native shutdown must
 join all work and release bridge reservations.
 
-Worker/DO upgrade forwarding, hibernation,
-complete idle/reconnect and disconnect/fault semantics remain incomplete. This
-facade does not implement the global network WebSocket constructor.
+Hibernation and complete idle/reconnect and disconnect/fault semantics remain
+incomplete. This facade does not implement the global network WebSocket constructor.
+
+### Return an upgrade through a Worker or Durable Object
+
+A module can return an unaccepted container-port endpoint or the client end of
+a local pair. A Worker can forward the result of `stub.fetch(request)` unchanged,
+or accept its `response.webSocket` locally. This implements the published
+Containers/Sandbox proxy shape in the Node profile.
+
+```js
+// Inside a Durable Object fetch handler:
+return this.ctx.container.getTcpPort(8080).fetch(request);
+
+// Inside the entry Worker's fetch handler:
+return env.CONTAINERS.getByName("service").fetch(request);
+```
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant W as Worker
+    participant D as Durable Object
+    participant P as Container port / local pair
+    C->>W: Upgrade request
+    W->>D: stub.fetch(request)
+    D->>P: Open endpoint
+    P-->>D: 101 and unaccepted endpoint
+    Note over D: Retain opening event; bounded native pumps
+    D-->>W: Native upgrade capability
+    W-->>C: Forward 101 and headers
+    loop Connection open
+        C->>P: Text / binary through native output gates
+        P-->>C: Awaited bounded frame
+    end
+    C--xD: Close or disconnect
+    Note over D: Cancel waits, close peers and join pumps
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Transfer | Exactly once, from the opening event. Different context facades for that event share authority; another event or activation cannot claim it |
+| Namespace forwarding | Preserve the native upgrade and edited response headers without adding a language proxy at every hop |
+| Frame delivery | Local/container bridges await each native send. Existing frame, queue, operation and retained-work limits remain in force |
+| Cell execution | Explicit polled delivery retains the original native event, its storage/output gates and native I/O cleanup after publishing the upgrade. Later events cannot borrow it; it cannot become hibernatable |
+| Close | A native close observer wakes a bridge even while local delivery waits for application `accept()`. Close code/reason/clean status survive native queue retirement |
+| Refusal / cleanup | Accepted, transferred or synthetic endpoints refuse. Invalid heads close their owned untransferred peer; foreign endpoints remain owned by their original event |
+| Resource use | The close observer consumes a normal pending-operation slot, alongside the two pumps; header failure, disconnect and shutdown join admitted work |
+
+These are selected Node routing and cleanup paths. Full slow-peer/overflow,
+ownership-loss, remote-node and hibernation qualification remain separate.
 
 ### HTTP response streaming
 
@@ -456,7 +504,7 @@ sequenceDiagram
 Uploads remain buffered and bounded before submission. Cancelling a response
 cannot prove that a submitted sandbox command stopped or rolled back. RPC
 byte-stream and HTTP-message arguments use the caller-owned sessions above.
-Forwarding Worker/DO WebSocket upgrades remains an incomplete profile.
+Worker/DO upgrade responses use the separate transfer path above.
 
 ### Container API
 
@@ -540,6 +588,7 @@ quotas and unknown-outcome reporting still apply.
 | Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |
 | Native stream-input fixture | Root Worker and returned-function inputs, cross-DO forwarding, aliases, incremental reads, delayed writes, captured inputs, cancellation, quota refusal, accepted prefixes and unused-session cleanup |
 | Native container WebSocket fixture | Actual native socket I/O through an engine peer, handshake headers, ordered cross-event text/binary sends, foreign-activation refusal, close and unused-upgrade cleanup |
+| Native module upgrade fixture | Worker/DO pair and container-port forwarding, namespace acceptance, edited headers, binary/text frames, native storage callbacks, clean/abrupt close, held local delivery and drained shutdown |
 | SDK RPC image files | Published SDK/Cap'n Web over the native port and local pair proxy, gated 2 MiB binary upload, atomic publication, exact binary download through `readFile`, SDK destroy and drained bridge resources |
 | Native returned-response fixture | HTTP metadata/aliases, incremental default-source byte bodies, prefix before error, client disconnect and unused-body disposal |
 | Native HTTP-message RPC fixture | Request results and Request/Response arguments, alias preservation, incremental binary bodies and live abort after EOF |
@@ -549,9 +598,8 @@ quotas and unknown-outcome reporting still apply.
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Complete hooks/timeouts and callback-owned controls, Worker/DO upgrade forwarding,
-upgraded previews and the remaining SDK/image fault qualification remain required,
-along with hosted providers.
+Complete hooks/timeouts and callback-owned controls, the remaining SDK/image
+upgrade and fault qualification, and hosted providers remain required.
 
 ```sh
 node tools/sandbox/compat/build.mjs

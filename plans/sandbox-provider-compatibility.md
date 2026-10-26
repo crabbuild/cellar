@@ -65,7 +65,7 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Docker/compatible Podman | Existing Cellar container facades | Existing local native engine | Implemented |
 | Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
 | Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
-| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream and RPC binary SDK upload pass; HTTP preview routing passes; upgraded previews and complete lifetime/fault qualification pending |
+| Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream, RPC binary SDK upload and selected HTTP/WebSocket preview paths pass; complete lifetime/fault qualification pending |
 | Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Planned next profile |
 | Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Experimental bounded exec/files; live-account qualification pending |
 | Daytona / Modal | Same portable operations plus declared extensions | Provider adapters and durable remote bindings | Planned |
@@ -198,7 +198,7 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 | First-call latency, callback-owned queued controls, remaining Containers hooks and upgraded Worker/DO routing | Idle lifecycle, local HTTP previews and the overlapping alarm regression have selected-path evidence; the 250 ms first module request remains intermittent, and full continuation/fault qualification is pending |
+| 1 | Callback-owned queued controls, remaining Containers hooks and first-call investigation | Idle lifecycle, local HTTP/WebSocket previews and the overlapping alarm regression have selected-path evidence. Fresh module tests pass at 250 ms, but the earlier intermittent failure has no established cause; full continuation/fault qualification remains pending |
 | 2 | Named provider bindings, reconnect/expiry and orphan reconciliation | Make the common framework useful across events and ownership changes |
 | 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
 

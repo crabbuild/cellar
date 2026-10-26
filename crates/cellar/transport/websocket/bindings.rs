@@ -352,13 +352,23 @@ pub(crate) fn prepare_worker_handoff(context: &IoContext, id: u64) {
     drop(replaced);
 }
 
-pub(crate) fn transfer_worker_handoff(context: &IoContext, id: u64) -> Option<WorkerWebSocket> {
+pub(crate) fn transfer_worker_handoff(
+    context: &IoContext,
+    id: u64,
+    retain_event_owner: bool,
+) -> Option<WorkerWebSocket> {
     let inbound = ws_registry().lock().unwrap().worker_handoffs.remove(&id)?;
-    context
-        .sockets
-        .lock()
-        .unwrap()
-        .retain(|opened| *opened != id);
+    // A polled server retains its opening driver. Keep native cleanup authority
+    // on that event too, so fencing/cancellation closes the socket even when the
+    // language thread cannot submit another operation. Ordinary stateless
+    // handoffs may outlive a completed handler and transfer cleanup to the peer.
+    if !retain_event_owner {
+        context
+            .sockets
+            .lock()
+            .unwrap()
+            .retain(|opened| *opened != id);
+    }
     Some(WorkerWebSocket { id, inbound })
 }
 
