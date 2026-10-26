@@ -74,7 +74,7 @@ impl NodeExtentStore {
         result
     }
 
-    fn put_extent_inner(
+    pub(super) fn put_extent_inner(
         &self,
         id: ExtentId,
         read: &mut impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
@@ -192,32 +192,38 @@ impl NodeExtentStore {
 
     pub fn seal_root(&self, manifest: ExtentManifest) -> Result<SealedRoot, StoreError> {
         let operation = self.begin()?;
-        let result =
-            (|| {
-                let state = self.inner.state()?;
-                for index in 0..manifest.geometry().extent_count() {
-                    let id = manifest.extent(index).ok_or(StoreError::Layout)?;
-                    if !state.objects.get(&id).is_some_and(|entry| {
-                        entry.verified && entry.bytes == u64::from(id.length())
-                    }) {
-                        return Err(StoreError::Unverified);
-                    }
-                }
-                drop(state);
-                let view = self.stage_inner(manifest)?;
-                let state = self.inner.state()?;
-                if view
-                    .data
-                    .objects
-                    .iter()
-                    .any(|id| !state.objects.get(id).is_some_and(|entry| entry.verified))
-                {
-                    return Err(StoreError::Unverified);
-                }
-                Ok(SealedRoot(view))
-            })();
+        let result = self.seal_root_inner(manifest);
         operation.finish()?;
         result
+    }
+
+    pub(super) fn seal_root_inner(
+        &self,
+        manifest: ExtentManifest,
+    ) -> Result<SealedRoot, StoreError> {
+        let state = self.inner.state()?;
+        for index in 0..manifest.geometry().extent_count() {
+            let id = manifest.extent(index).ok_or(StoreError::Layout)?;
+            if !state
+                .objects
+                .get(&id)
+                .is_some_and(|entry| entry.verified && entry.bytes == u64::from(id.length()))
+            {
+                return Err(StoreError::Unverified);
+            }
+        }
+        drop(state);
+        let view = self.stage_inner(manifest)?;
+        let state = self.inner.state()?;
+        if view
+            .data
+            .objects
+            .iter()
+            .any(|id| !state.objects.get(id).is_some_and(|entry| entry.verified))
+        {
+            return Err(StoreError::Unverified);
+        }
+        Ok(SealedRoot(view))
     }
 
     fn stage_inner(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {

@@ -6,7 +6,9 @@
 use super::apply::{marker, PublishedImage};
 use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
-use super::{receipts, working::Working};
+use super::receipts;
+mod images;
+mod rooted_working;
 use crate::application::consensus::{
     command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
     ProtocolError, RaftClass, RegistrationError,
@@ -19,11 +21,14 @@ use cellar_logic::consensus::{
 use cellar_ltx::apply::ImageState;
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::{HostFileLock, LtxHost};
+pub(crate) use images::Published as PublishedExecutionImage;
+pub use images::RootPrivateOptions;
+use images::{Images, Options, Preview, Published, State, WorkingImage};
 use sha2::{Digest, Sha256};
 use std::{fmt, path::PathBuf};
 
 #[cfg(test)]
-#[path = "execution_preview_tests.rs"]
+#[path = "../execution_preview_tests.rs"]
 mod preview_tests;
 
 #[derive(Clone, Copy, Debug)]
@@ -152,23 +157,13 @@ pub(crate) fn query_registered_controlled(
     limits: ExecutionLimits,
     cancel: Option<std::sync::Arc<crate::application::consensus::client::AttemptControl>>,
 ) -> Result<RegisteredQueryOutput, ExecutionError> {
-    limits.validate()?;
-    class
-        .validate_operation(contract)
-        .map_err(ExecutionError::Registration)?;
-    if contract.kind != OperationKind::Query {
-        return Err(ExecutionError::Registration(
-            RegistrationError::KindMismatch,
-        ));
-    }
-    if class.schema_digest() != published.application_digest() {
-        return Err(ExecutionError::Registration(
-            RegistrationError::ContractMismatch,
-        ));
-    }
-    if input.len() > limits.envelope.max_payload_bytes {
-        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
-    }
+    validate_registered_query(
+        class,
+        contract,
+        input,
+        published.application_digest(),
+        limits,
+    )?;
     let database = crate::storage::open_immutable_generation(
         published.pin(),
         crate::storage::ImmutableQueryOptions {
@@ -194,6 +189,33 @@ pub(crate) fn query_registered_controlled(
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
     }
     Ok(RegisteredQueryOutput { result, version })
+}
+
+pub(super) fn validate_registered_query(
+    class: &RaftClass,
+    contract: &OperationContract,
+    input: &[u8],
+    application_digest: [u8; 32],
+    limits: ExecutionLimits,
+) -> Result<(), ExecutionError> {
+    limits.validate()?;
+    class
+        .validate_operation(contract)
+        .map_err(ExecutionError::Registration)?;
+    if contract.kind != OperationKind::Query {
+        return Err(ExecutionError::Registration(
+            RegistrationError::KindMismatch,
+        ));
+    }
+    if class.schema_digest() != application_digest {
+        return Err(ExecutionError::Registration(
+            RegistrationError::ContractMismatch,
+        ));
+    }
+    if input.len() > limits.envelope.max_payload_bytes {
+        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+    }
+    Ok(())
 }
 
 /// A checked observation of a caught-up leader. The host must recheck runtime
@@ -253,7 +275,7 @@ impl CommandAuthority {
 
     fn check_base(
         &self,
-        base: Option<&PublishedImage>,
+        base: Option<&Published>,
         application_digest: [u8; 32],
     ) -> Result<(), ExecutionError> {
         self.check()?;
@@ -261,7 +283,7 @@ impl CommandAuthority {
             b.scope() != &self.replica.scope
                 || b.application_digest() != application_digest
                 || b.position().index > self.applied.position.index
-        }) || base.map(|b| marker(&b.pin())) != self.applied.image
+        }) || base.map(Published::marker) != self.applied.image
         {
             return Err(ExecutionError::Invalid("authoritative command base"));
         }
@@ -409,9 +431,9 @@ struct Pending {
     proposal: ProposalId,
     // Taking the pin transfers its retention responsibility to ImageApplier.
     // Private cleanup must never retire a promoted committed generation.
-    preview: Option<GenerationPin>,
-    base: ImageState,
-    result: ImageState,
+    preview: Option<Preview>,
+    base: State,
+    result: State,
     payload_digest: [u8; 32],
     kind: Kind,
     submitted: bool,
@@ -425,29 +447,41 @@ impl Pending {
         base: ImageState,
         result: ImageState,
     ) -> Option<GenerationPin> {
-        let pin = self.preview.as_ref()?;
+        let Preview::Materialized(pin) = self.preview.as_ref()? else {
+            return None;
+        };
         if !self.submitted
-            || self.base != base
-            || self.result != result
+            || self.base != State::Materialized(base)
+            || self.result != State::Materialized(result)
             || !images.owns(pin)
             || self.payload_digest != <[u8; 32]>::from(Sha256::digest(bytes))
         {
             return None;
         }
-        self.preview.take()
+        match self.preview.take()? {
+            Preview::Materialized(pin) => Some(pin),
+            Preview::Rooted(_) => None,
+        }
     }
 }
 
 pub struct PrivateExecutor {
-    options: PrivateOptions,
+    options: Options,
     authority: CommandAuthority,
-    base: Option<PublishedImage>,
-    working: Option<Working>,
+    base: Option<Published>,
+    working: Option<WorkingImage>,
     pending: Option<Pending>,
     rebuild_required: bool,
-    retired_preview: Option<GenerationPin>,
+    retired_preview: Option<Preview>,
     receipt_cursor: Option<ClientId>,
+    _lock: PrivateLock,
+}
+
+// Fields drop in declaration order: close the lock before releasing the final
+// directory pin, including implicit drop and partially failed opens.
+struct PrivateLock {
     _lock: HostFileLock,
+    _workspace: Option<cellar_ltx::internal::NodeWorkspace>,
 }
 
 impl PrivateExecutor {
@@ -472,6 +506,25 @@ impl PrivateExecutor {
         base: Option<&PublishedImage>,
         barrier: LogPosition,
     ) -> Result<(), ExecutionError> {
+        self.retire_image_after_barrier(
+            base.cloned().map(Published::Materialized).as_ref(),
+            barrier,
+        )
+    }
+
+    pub fn retire_rooted_after_barrier(
+        &mut self,
+        base: Option<&crate::raft::rooted::RootPublishedImage>,
+        barrier: LogPosition,
+    ) -> Result<(), ExecutionError> {
+        self.retire_image_after_barrier(base.cloned().map(Published::Rooted).as_ref(), barrier)
+    }
+
+    pub(crate) fn retire_image_after_barrier(
+        &mut self,
+        base: Option<&Published>,
+        barrier: LogPosition,
+    ) -> Result<(), ExecutionError> {
         let cache = self
             .authority
             .group
@@ -486,7 +539,7 @@ impl PrivateExecutor {
                     || base.application_digest() != self.options.application_digest
                     || base.position().index > barrier.index
             })
-            || base.map(|base| marker(&base.pin())) != cache.applied.image
+            || base.map(Published::marker) != cache.applied.image
         {
             return Err(ExecutionError::Uncertain);
         }
@@ -507,18 +560,26 @@ impl PrivateExecutor {
             previews.push(preview);
         }
         for pin in previews {
-            self.options.images.retire(pin.id()).map_err(storage)?;
+            self.options.images.retire(&pin).map_err(storage)?;
             drop(pin);
         }
-        self.options.images.reclaim(2).map_err(storage)?;
+        self.options.images.reclaim_private().map_err(storage)?;
         Ok(())
     }
 
     /// Join and close the private SQL/capture owner. This is no durability proof;
     /// submitted history is recovered from the Raft engine, never this file.
     pub fn close(mut self) -> Result<(), ExecutionError> {
+        let store = self.options.images.root_store().cloned();
         if let Some(working) = self.working.take() {
             working.close().map_err(ExecutionError::Storage)?;
+        }
+        drop(self.options);
+        drop(self._lock);
+        if let Some(store) = store {
+            if store.usage().map_err(storage)?.quarantined {
+                return Err(storage(cellar_ltx::internal::StoreError::Quarantined));
+            }
         }
         Ok(())
     }
@@ -622,7 +683,27 @@ impl PrivateExecutor {
         authority: CommandAuthority,
         base: Option<PublishedImage>,
     ) -> Result<Self, ExecutionError> {
+        Self::open_image(options.into(), authority, base.map(Published::Materialized))
+    }
+
+    pub fn open_rooted(
+        options: RootPrivateOptions,
+        authority: CommandAuthority,
+        base: Option<crate::raft::rooted::RootPublishedImage>,
+    ) -> Result<Self, ExecutionError> {
+        Self::open_image(options.into(), authority, base.map(Published::Rooted))
+    }
+
+    fn open_image(
+        options: Options,
+        authority: CommandAuthority,
+        base: Option<Published>,
+    ) -> Result<Self, ExecutionError> {
         options.limits.validate()?;
+        options.images.validate_workspace(options.limits)?;
+        if !options.images.matches(base.as_ref()) {
+            return Err(ExecutionError::Invalid("private storage kind differs"));
+        }
         authority.check_base(base.as_ref(), options.application_digest)?;
         let filesystem = options.host.filesystem();
         cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &options.directory)
@@ -630,7 +711,12 @@ impl PrivateExecutor {
         let lock = filesystem
             .lock_file(&options.directory.join("working.lock"))
             .map_err(storage)?;
-        let working = Working::open(&options, base.as_ref()).map_err(ExecutionError::Storage)?;
+        let lock = PrivateLock {
+            _lock: lock,
+            _workspace: options.images.workspace().cloned(),
+        };
+        let working = WorkingImage::open(&options, base.as_ref(), authority.group.birth_digest)
+            .map_err(ExecutionError::Storage)?;
         Ok(Self {
             options,
             authority,
@@ -658,6 +744,14 @@ impl PrivateExecutor {
         }
     }
 
+    /// Logical bytes hashed by the last extent observation. This excludes
+    /// source/cache/sealing I/O and is not an RSS or transfer measurement.
+    pub fn extent_observation_work(&self) -> Option<cellar_ltx::internal::db::ObservationWork> {
+        self.working
+            .as_ref()
+            .and_then(WorkingImage::observation_work)
+    }
+
     fn ready(&mut self) -> Result<(), ExecutionError> {
         if self.pending.is_some() {
             return Err(ExecutionError::Busy);
@@ -668,8 +762,7 @@ impl PrivateExecutor {
         self.authority
             .check_base(self.base.as_ref(), self.options.application_digest)?;
         if let Some(pin) = self.retired_preview.take() {
-            let id = pin.id();
-            if let Err(error) = self.options.images.retire(id) {
+            if let Err(error) = self.options.images.retire(&pin) {
                 self.retired_preview = Some(pin);
                 self.rebuild_required = true;
                 return Err(storage(error));
@@ -699,7 +792,7 @@ impl PrivateExecutor {
             || self.base.as_ref().is_none_or(|base| {
                 self.working
                     .as_ref()
-                    .is_none_or(|working| !working.matches(base))
+                    .is_none_or(|working| !working.matches(&self.options, base))
             })
         {
             return Err(ExecutionError::RebuildRequired);
@@ -732,7 +825,7 @@ impl PrivateExecutor {
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?;
         if receipts::preflight_identity(
-            working.database.framework(),
+            working.database().framework(),
             &attempt.request,
             &self.options.limits,
         )?
@@ -746,12 +839,12 @@ impl PrivateExecutor {
             )?;
             return Ok(StageOutcome::Duplicate(receipt));
         }
-        let count = receipts::retained_count(working.database.framework())?;
+        let count = receipts::retained_count(working.database().framework())?;
         let ceiling = self.options.limits.max_retained_receipts;
         let maintenance = match self.options.limits.receipt_maintenance {
             Some(limits) if count >= ceiling - ceiling / 4 => {
                 let plan = super::receipt_maintenance::plan(
-                    working.database.framework(),
+                    working.database().framework(),
                     attempt.inputs.now_unix_millis,
                     limits,
                     self.receipt_cursor,
@@ -791,7 +884,7 @@ impl PrivateExecutor {
         self.working
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?
-            .database
+            .database()
             .transaction(attempt.inputs, |connection, transaction| {
                 if let Some(maintenance) = maintenance {
                     maintenance
@@ -845,7 +938,7 @@ impl PrivateExecutor {
         self.working
             .as_ref()
             .ok_or(ExecutionError::RebuildRequired)?
-            .database
+            .database()
             .transaction(inputs, |connection, _| {
                 receipts::prune(connection, client, through, inputs.now_unix_millis)
                     .map_err(anyhow::Error::new)
@@ -875,12 +968,28 @@ impl PrivateExecutor {
             .encode(self.options.limits.envelope)
             .map_err(ExecutionError::Protocol)?;
         let base = match self.base.as_ref() {
-            Some(base) => base.pin().state(),
-            None => ImageState::empty(update.base.epoch).map_err(storage)?,
+            Some(base) => base.state(),
+            None => match &self.options.images {
+                Images::Materialized(_) => {
+                    State::Materialized(ImageState::empty(update.base.epoch).map_err(storage)?)
+                }
+                Images::Extents { .. } => State::Rooted(images::RootState {
+                    image: update.base,
+                    geometry: cellar_ltx::internal::Geometry::new(0, 0).map_err(storage)?,
+                }),
+            },
         };
-        let pin =
-            super::working::verify_preview(&self.options, self.base.as_ref(), preview, &update)
-                .map_err(ExecutionError::Storage)?;
+        let pin = self
+            .options
+            .images
+            .preview(
+                &self.options,
+                self.base.as_ref(),
+                preview,
+                &update,
+                self.authority.group.birth_digest,
+            )
+            .map_err(storage)?;
         self.retired_preview = Some(pin);
         self.authority.check()?;
         let command = match &kind {
@@ -892,8 +1001,7 @@ impl PrivateExecutor {
             .take()
             .ok_or(ExecutionError::RebuildRequired)?;
         let archive_bytes = preview
-            .state()
-            .length
+            .length()
             .saturating_add(bytes.len() as u64)
             .saturating_add(1024);
         self.pending = Some(Pending {
@@ -956,6 +1064,20 @@ impl PrivateExecutor {
         &mut self,
         published: PublishedImage,
     ) -> Result<AppliedExecution, ExecutionError> {
+        self.finish_image(Published::Materialized(published))
+    }
+
+    pub fn finish_rooted(
+        &mut self,
+        published: crate::raft::rooted::RootPublishedImage,
+    ) -> Result<AppliedExecution, ExecutionError> {
+        self.finish_image(Published::Rooted(published))
+    }
+
+    pub(crate) fn finish_image(
+        &mut self,
+        published: Published,
+    ) -> Result<AppliedExecution, ExecutionError> {
         let pending = self
             .pending
             .as_ref()
@@ -963,7 +1085,7 @@ impl PrivateExecutor {
         if published.scope() != &self.authority.replica.scope
             || published.application_digest() != self.options.application_digest
             || published.proposal() != Some(pending.proposal)
-            || published.pin().state() != pending.result
+            || published.state() != pending.result
             || published.position().index <= self.authority.applied.position.index
             || published.position().term < self.authority.term
         {
@@ -994,13 +1116,13 @@ impl PrivateExecutor {
     fn read_committed(
         &self,
         request: &CommandRequest,
-        published: &PublishedImage,
+        published: &Published,
     ) -> Result<CommittedReceipt, ExecutionError> {
-        let database = cellar_ltx::generation::open_immutable(
-            published.pin(),
-            self.options.query_services.clone(),
-        )
-        .map_err(storage)?;
+        let database = self
+            .options
+            .images
+            .read(&self.options, published)
+            .map_err(storage)?;
         let receipt = receipts::preflight(database.connection(), request, &self.options.limits)?
             .ok_or(ExecutionError::Invalid("committed receipt missing"))?;
         Ok(CommittedReceipt {
@@ -1015,6 +1137,22 @@ impl PrivateExecutor {
     pub fn rebuild(
         &mut self,
         base: Option<PublishedImage>,
+        authority: CommandAuthority,
+    ) -> Result<(), ExecutionError> {
+        self.rebuild_image(base.map(Published::Materialized), authority)
+    }
+
+    pub fn rebuild_rooted(
+        &mut self,
+        base: Option<crate::raft::rooted::RootPublishedImage>,
+        authority: CommandAuthority,
+    ) -> Result<(), ExecutionError> {
+        self.rebuild_image(base.map(Published::Rooted), authority)
+    }
+
+    pub(crate) fn rebuild_image(
+        &mut self,
+        base: Option<Published>,
         authority: CommandAuthority,
     ) -> Result<(), ExecutionError> {
         if authority.replica.scope != self.authority.replica.scope {
@@ -1037,7 +1175,12 @@ impl PrivateExecutor {
         self.base = base;
         self.authority = authority;
         self.working = Some(
-            Working::open(&self.options, self.base.as_ref()).map_err(ExecutionError::Storage)?,
+            WorkingImage::open(
+                &self.options,
+                self.base.as_ref(),
+                self.authority.group.birth_digest,
+            )
+            .map_err(ExecutionError::Storage)?,
         );
         self.rebuild_required = false;
         Ok(())
@@ -1047,6 +1190,9 @@ impl PrivateExecutor {
 pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
     let error = error.into();
     if matches!(
+        error.downcast_ref::<cellar_ltx::internal::StoreError>(),
+        Some(cellar_ltx::internal::StoreError::Limit | cellar_ltx::internal::StoreError::Busy)
+    ) || matches!(
         error.downcast_ref::<cellar_ltx::generation::GenerationError>(),
         Some(
             cellar_ltx::generation::GenerationError::Limit

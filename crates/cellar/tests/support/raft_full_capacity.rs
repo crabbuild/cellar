@@ -253,7 +253,7 @@ fn preload(
                     },
                     image: Some(CommittedImage {
                         name: format!("{}.sqlite", hex::encode(pin.id().bytes())),
-                        digest: state.digest,
+                        commitment: state.digest.into(),
                         length: state.length,
                         ltx_epoch: state.epoch,
                         txid: state.txid.0,

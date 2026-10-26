@@ -847,6 +847,7 @@ impl std::fmt::Display for HostTaskError {
 
 impl std::error::Error for HostTaskError {}
 
+#[derive(Clone)]
 struct Inner {
     now_unix_millis: Arc<NowUnixMillis>,
     file_age: Arc<FileAge>,
@@ -887,10 +888,10 @@ impl LtxHost {
     }
 
     /// Selects the filesystem used by synchronous local LTX operations.
+    /// Cloned hosts retain their previous filesystem and share the injected
+    /// clock/executor facilities; selecting an adapter never mutates a peer.
     pub fn with_filesystem(mut self, filesystem: Arc<dyn FileSystem>) -> Self {
-        Arc::get_mut(&mut self.inner)
-            .expect("a fresh LtxHost has one owner")
-            .filesystem = filesystem;
+        Arc::make_mut(&mut self.inner).filesystem = filesystem;
         self
     }
 
@@ -1001,5 +1002,35 @@ impl Default for LtxHost {
                     .map_err(|error| HostTaskError::new(error.to_string()))
             },
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cloned_hosts_select_filesystems_without_changing_their_peers() {
+        let original = LtxHost::new(
+            || 42,
+            |_| Ok(Duration::from_secs(3)),
+            |_| async { Ok(vec![7]) },
+            |job| async move {
+                job();
+                Ok(())
+            },
+        );
+        let peer = original.clone();
+        let before = original.filesystem();
+        let replacement: Arc<dyn FileSystem> = Arc::new(DirectFileSystem);
+        let selected = original.with_filesystem(replacement.clone());
+        assert!(Arc::ptr_eq(&peer.filesystem(), &before));
+        assert!(Arc::ptr_eq(&selected.filesystem(), &replacement));
+        assert_eq!(selected.now_unix_millis(), 42);
+        assert_eq!(
+            selected.file_age(Path::new("unused")).unwrap(),
+            Duration::from_secs(3)
+        );
+        assert_eq!(peer.now_unix_millis(), 42);
     }
 }

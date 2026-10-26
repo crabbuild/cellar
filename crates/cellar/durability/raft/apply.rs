@@ -25,6 +25,7 @@ pub enum ImageApplyError {
     Log(LogError),
     Envelope(ProtocolError),
     Images(GenerationError),
+    Extents(cellar_ltx::internal::StoreError),
     Snapshot(Box<super::snapshot::SnapshotError>),
 }
 
@@ -105,7 +106,7 @@ impl ImageApplier {
             .map(|marker| {
                 let id = marker_id(marker)?;
                 let pin = images
-                    .adopt(id, marker_state(marker))
+                    .adopt(id, marker_state(marker)?)
                     .map_err(ImageApplyError::Images)?;
                 Ok::<_, ImageApplyError>(PublishedImage {
                     pin,
@@ -283,43 +284,14 @@ impl ImageApplier {
         if self.pending.is_some() {
             return Err(ImageApplyError::Busy);
         }
-        if ticket.replica() != self.group.identity()
-            || entry.get_entry_type() != EntryType::EntryNormal
-            || entry.data.is_empty()
-            || entry.index != ticket.position().index.get()
-            || entry.term != ticket.position().term.get()
-        {
-            return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
-        }
-        {
-            let cache = self.group.read().map_err(ImageApplyError::Log)?;
-            if cache.entries.get(&entry.index) != Some(entry) {
-                return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
-            }
-            if cache.applied.position.index.get().checked_add(1) != Some(entry.index)
-                || cache.hard_state.commit < entry.index
-                || cache.applied.image != self.current.as_ref().map(|head| marker(&head.pin))
-            {
-                return Err(ImageApplyError::Invalid("committed apply head"));
-            }
-        }
-        // Equality with the bounded durable entry precedes serialization, so
-        // an unrelated caller-supplied Entry cannot cause an unbounded copy.
-        if <[u8; 32]>::from(Sha256::digest(
-            entry
-                .write_to_bytes()
-                .map_err(|_| ImageApplyError::Invalid("entry encoding"))?,
-        )) != ticket.entry_digest()
-        {
-            return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
-        }
-        let update =
-            CellUpdate::decode(&entry.data, self.limits).map_err(ImageApplyError::Envelope)?;
-        if update.scope != ticket.replica().scope
-            || update.application_digest != self.application_digest
-        {
-            return Err(ImageApplyError::Invalid("group/schema identity"));
-        }
+        let update = validate_committed_update(
+            &self.group,
+            &ticket,
+            entry,
+            self.current.as_ref().map(|head| marker(&head.pin)),
+            self.application_digest,
+            self.limits,
+        )?;
         let base = match &self.current {
             Some(current) => current.pin.state(),
             None => ImageState::empty(update.base.epoch)
@@ -338,7 +310,11 @@ impl ImageApplier {
             epoch: update.result.epoch,
             txid: TXID(update.result.txid),
             checksum: update.result.checksum,
-            digest: update.result.image_digest,
+            digest: update
+                .result
+                .commitment
+                .sha256()
+                .map_err(ImageApplyError::Envelope)?,
             page_size: header.page_size,
             length: header.commit as u64 * header.page_size as u64,
         };
@@ -446,12 +422,57 @@ impl ImageApplier {
     }
 }
 
+pub(super) fn validate_committed_update(
+    group: &GroupLog,
+    ticket: &ApplyTicket,
+    entry: &Entry,
+    current: Option<CommittedImage>,
+    application_digest: [u8; 32],
+    limits: EnvelopeLimits,
+) -> Result<CellUpdate, ImageApplyError> {
+    if ticket.replica() != group.identity()
+        || entry.get_entry_type() != EntryType::EntryNormal
+        || entry.data.is_empty()
+        || entry.index != ticket.position().index.get()
+        || entry.term != ticket.position().term.get()
+    {
+        return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+    }
+    {
+        let cache = group.read().map_err(ImageApplyError::Log)?;
+        if cache.entries.get(&entry.index) != Some(entry) {
+            return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+        }
+        if cache.applied.position.index.get().checked_add(1) != Some(entry.index)
+            || cache.hard_state.commit < entry.index
+            || cache.applied.image != current
+        {
+            return Err(ImageApplyError::Invalid("committed apply head"));
+        }
+    }
+    // Equality with the bounded durable entry precedes serialization, so
+    // an unrelated caller-supplied Entry cannot cause an unbounded copy.
+    if <[u8; 32]>::from(Sha256::digest(
+        entry
+            .write_to_bytes()
+            .map_err(|_| ImageApplyError::Invalid("entry encoding"))?,
+    )) != ticket.entry_digest()
+    {
+        return Err(ImageApplyError::Invalid("apply ticket/entry identity"));
+    }
+    let update = CellUpdate::decode(&entry.data, limits).map_err(ImageApplyError::Envelope)?;
+    if update.scope != ticket.replica().scope || update.application_digest != application_digest {
+        return Err(ImageApplyError::Invalid("group/schema identity"));
+    }
+    Ok(update)
+}
+
 pub(crate) fn image_position(state: ImageState) -> LtxImage {
     LtxImage {
         epoch: state.epoch,
         txid: state.txid.0,
         checksum: state.checksum,
-        image_digest: state.digest,
+        commitment: state.digest.into(),
     }
 }
 
@@ -462,7 +483,7 @@ pub(crate) fn marker(pin: &GenerationPin) -> CommittedImage {
 fn marker_for(id: ImageId, state: ImageState) -> CommittedImage {
     CommittedImage {
         name: format!("{}.sqlite", hex::encode(id.bytes())),
-        digest: state.digest,
+        commitment: state.digest.into(),
         length: state.length,
         ltx_epoch: state.epoch,
         txid: state.txid.0,
@@ -471,18 +492,25 @@ fn marker_for(id: ImageId, state: ImageState) -> CommittedImage {
     }
 }
 
-pub(crate) fn marker_state(marker: &CommittedImage) -> ImageState {
-    ImageState {
+pub(crate) fn marker_state(marker: &CommittedImage) -> Result<ImageState, ImageApplyError> {
+    Ok(ImageState {
         epoch: marker.ltx_epoch,
         txid: TXID(marker.txid),
         checksum: marker.checksum,
         page_size: marker.page_size,
         length: marker.length,
-        digest: marker.digest,
-    }
+        digest: marker
+            .commitment
+            .sha256()
+            .map_err(ImageApplyError::Envelope)?,
+    })
 }
 
 pub(crate) fn marker_id(marker: &CommittedImage) -> Result<ImageId, ImageApplyError> {
+    marker
+        .commitment
+        .sha256()
+        .map_err(ImageApplyError::Envelope)?;
     let name = marker
         .name
         .strip_suffix(".sqlite")

@@ -74,6 +74,17 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **2026-10-26 PR #126 integration with main.** Main is integrated through
+  `9f1e7df1`, including the new runtime delegates and extent-backed storage.
+  The moved V8 engine retains requested-shutdown provenance across dispatch,
+  microtasks, lifetime cancellation and background queries. RPC facade tests
+  supply the production delegate factories; SDK container cancellation uses the
+  existing portable signal interface so ES-only TypeScript builds remain valid.
+  All 65 JavaScript RPC tests, strict RPC/SDK typechecks and rebuilt fixtures
+  pass. Merged-head native checks and hosted results are recorded in
+  [PR #126](https://github.com/crabbuild/cellar/pull/126). The 744-case report
+  below predates this integration and does not qualify the merged source.
+
 - **2026-10-26 combined recheck: all 744 cases pass.** The original 696 cases
   and 48 generated-client peer-fault cases finish in 1,354.280 seconds, including
   all 96 Node/V8 lifecycle cases and all 48 Python suppression/supervision cases.

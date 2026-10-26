@@ -68,7 +68,7 @@ regressions for the unchanged Fleet paths.
 ## Command ownership and output
 
 `host.rs` retains `CommandState` and each accepted producer in the node's
-execution domain. The fixed blocking pool in `host_sql.rs` owns SQLite, private
+execution domain. The fixed blocking pool in `host_sql/mod.rs` owns SQLite, private
 executors, generation pins and directories. Public futures own waiters. They do
 not own a producer's submitted RPC or private state.
 

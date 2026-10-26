@@ -35,7 +35,14 @@
 //! - Unregistering frees the registration; open files keep their own
 //!   references to the reader and the hydration set, and SQLite opens
 //!   nothing new through an unregistered VFS.
+//!
+//! The extent working-image adapter shares these base-VFS forwarding and file
+//! lifetime rules. It uses one bounded slot per 4 MiB extent, no per-page
+//! hydration inventory. Its own serialized main-file operations preserve partial
+//! writes, quota and truncate/regrow semantics; advisory file sizing cannot
+//! bypass that tracker. The paged-restore hydrator does not accept this adapter.
 
+use crate::extent::working::{MainFile, MainWorkspace};
 use crate::ltx::lock_pgno;
 use crate::paged::PageSource;
 use rusqlite::ffi;
@@ -81,13 +88,36 @@ impl PageReader for PageSource {
     }
 }
 
+#[derive(Clone)]
+enum Backing {
+    Pages(Arc<dyn PageReader>),
+    Extents(Arc<MainWorkspace>),
+}
+
+impl Backing {
+    fn pages(&self) -> Option<&Arc<dyn PageReader>> {
+        match self {
+            Self::Pages(reader) => Some(reader),
+            Self::Extents(_) => None,
+        }
+    }
+
+    fn root(&self) -> Option<&Arc<MainWorkspace>> {
+        match self {
+            Self::Extents(root) => Some(root),
+            Self::Pages(_) => None,
+        }
+    }
+}
+
 /// Per-registration state, hung off the VFS `pAppData`.
 struct VfsAppData {
     base: *mut ffi::sqlite3_vfs,
     /// The cell's database, as the base VFS spells it: the one file the
     /// registration serves.
     path: CString,
-    reader: Arc<dyn PageReader>,
+    wal_path: CString,
+    backing: Backing,
     /// Files open through this registration. Unregistering with files still
     /// open used to free the VFS under them: the pager's close deletes the
     /// WAL through `xDelete`, which reads `pAppData` of the freed struct.
@@ -117,7 +147,8 @@ struct FileState {
     /// The registration, for the open-file count (see [`VfsAppData::open_files`]).
     vfs: *mut ffi::sqlite3_vfs,
     /// `Some` only for the main db; other files (WAL, journal) forward untouched.
-    reader: Option<Arc<dyn PageReader>>,
+    backing: Option<Backing>,
+    wal: Option<Arc<MainWorkspace>>,
     /// The registration's shared hydration set (see [`VfsAppData::hydrated`]).
     hydrated: Arc<Mutex<HashSet<u32>>>,
     page_size: u32,
@@ -130,6 +161,67 @@ unsafe fn base_vfs(vfs: *mut ffi::sqlite3_vfs) -> *mut ffi::sqlite3_vfs {
 unsafe fn base_methods(file: *mut ffi::sqlite3_file) -> *const ffi::sqlite3_io_methods {
     let paged = file as *mut PagedFile;
     (*(*paged).base).pMethods
+}
+
+struct MainIo(*mut ffi::sqlite3_file);
+
+impl MainFile for MainIo {
+    fn size(&mut self) -> Result<u64, i32> {
+        let mut length = 0;
+        // SAFETY: SQLite owns this live base file for the complete synchronous
+        // wrapper callback. The output is a valid sqlite3_int64 pointer.
+        let result = unsafe { ((*(*self.0).pMethods).xFileSize.unwrap())(self.0, &mut length) };
+        if result != ffi::SQLITE_OK {
+            return Err(result);
+        }
+        u64::try_from(length).map_err(|_| ffi::SQLITE_IOERR_FSTAT)
+    }
+
+    fn read(&mut self, offset: u64, bytes: &mut [u8]) -> Result<(), i32> {
+        let length = c_int::try_from(bytes.len()).map_err(|_| ffi::SQLITE_IOERR_READ)?;
+        let offset = i64::try_from(offset).map_err(|_| ffi::SQLITE_IOERR_READ)?;
+        // SAFETY: the live base file receives this exact writable buffer for
+        // the synchronous call; both integer conversions were checked.
+        let result = unsafe {
+            ((*(*self.0).pMethods).xRead.unwrap())(
+                self.0,
+                bytes.as_mut_ptr().cast(),
+                length,
+                offset,
+            )
+        };
+        if result == ffi::SQLITE_OK {
+            Ok(())
+        } else {
+            Err(result)
+        }
+    }
+
+    fn write(&mut self, offset: u64, bytes: &[u8]) -> Result<(), i32> {
+        let length = c_int::try_from(bytes.len()).map_err(|_| ffi::SQLITE_IOERR_WRITE)?;
+        let offset = i64::try_from(offset).map_err(|_| ffi::SQLITE_IOERR_WRITE)?;
+        // SAFETY: the live base file receives the exact immutable slice for
+        // this synchronous call; it cannot outlive the caller's buffer.
+        let result = unsafe {
+            ((*(*self.0).pMethods).xWrite.unwrap())(self.0, bytes.as_ptr().cast(), length, offset)
+        };
+        if result == ffi::SQLITE_OK {
+            Ok(())
+        } else {
+            Err(result)
+        }
+    }
+
+    fn truncate(&mut self, length: u64) -> Result<(), i32> {
+        let length = i64::try_from(length).map_err(|_| ffi::SQLITE_IOERR_TRUNCATE)?;
+        // SAFETY: this base file stays live throughout the wrapper callback.
+        let result = unsafe { ((*(*self.0).pMethods).xTruncate.unwrap())(self.0, length) };
+        if result == ffi::SQLITE_OK {
+            Ok(())
+        } else {
+            Err(result)
+        }
+    }
 }
 
 // ── file methods ────────────────────────────────────────────────────────────
@@ -157,7 +249,19 @@ unsafe fn x_read_inner(
 ) -> c_int {
     let paged = file as *mut PagedFile;
     let state = &*(*paged).state;
-    if let Some(reader) = &state.reader {
+    if let Some(root) = state.backing.as_ref().and_then(Backing::root) {
+        if ofst < 0 || amt <= 0 {
+            return ffi::SQLITE_IOERR_READ;
+        }
+        // SAFETY: SQLite supplies amt writable bytes for its xRead call. The
+        // root and base file are retained by this wrapper's FileState.
+        let output = std::slice::from_raw_parts_mut(buf.cast::<u8>(), amt as usize);
+        return root
+            .read(ofst as u64, output, &mut MainIo((*paged).base))
+            .err()
+            .unwrap_or(ffi::SQLITE_OK);
+    }
+    if let Some(reader) = state.backing.as_ref().and_then(Backing::pages) {
         let ps = state.page_size.max(1) as i64;
         let first = (ofst / ps) as u32 + 1;
         let last = ((ofst + amt as i64 - 1) / ps) as u32 + 1;
@@ -231,7 +335,34 @@ unsafe extern "C" fn x_write(
     // over them.
     let paged = file as *mut PagedFile;
     let state = &*(*paged).state;
-    if state.reader.is_some() {
+    if let Some(root) = &state.wal {
+        if ofst < 0 || amt <= 0 {
+            return ffi::SQLITE_IOERR_WRITE;
+        }
+        return std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: SQLite supplies exactly amt readable bytes for xWrite.
+            let bytes = std::slice::from_raw_parts(buf.cast::<u8>(), amt as usize);
+            root.write_wal(ofst as u64, bytes, &mut MainIo((*paged).base))
+                .err()
+                .unwrap_or(ffi::SQLITE_OK)
+        }))
+        .unwrap_or(ffi::SQLITE_IOERR_WRITE);
+    }
+    if let Some(root) = state.backing.as_ref().and_then(Backing::root) {
+        if ofst < 0 || amt <= 0 {
+            return ffi::SQLITE_IOERR_WRITE;
+        }
+        return std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // SAFETY: SQLite supplies amt readable bytes for its xWrite call.
+            // Panic containment prevents unwinding through SQLite's C frames.
+            let bytes = std::slice::from_raw_parts(buf.cast::<u8>(), amt as usize);
+            root.write(ofst as u64, bytes, &mut MainIo((*paged).base))
+                .err()
+                .unwrap_or(ffi::SQLITE_OK)
+        }))
+        .unwrap_or(ffi::SQLITE_IOERR_WRITE);
+    }
+    if state.backing.as_ref().and_then(Backing::pages).is_some() {
         let ps = state.page_size.max(1) as i64;
         let first = (ofst / ps) as u32 + 1;
         let last = ((ofst + amt as i64 - 1) / ps) as u32 + 1;
@@ -292,7 +423,29 @@ unsafe extern "C" fn x_truncate(file: *mut ffi::sqlite3_file, size: ffi::sqlite3
     // the base file's zeros as hydrated data.
     let paged = file as *mut PagedFile;
     let state = &*(*paged).state;
-    if state.reader.is_some() {
+    if let Some(root) = &state.wal {
+        if size < 0 {
+            return ffi::SQLITE_IOERR_TRUNCATE;
+        }
+        return std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            root.truncate_wal(size as u64, &mut MainIo((*paged).base))
+                .err()
+                .unwrap_or(ffi::SQLITE_OK)
+        }))
+        .unwrap_or(ffi::SQLITE_IOERR_TRUNCATE);
+    }
+    if let Some(root) = state.backing.as_ref().and_then(Backing::root) {
+        if size < 0 {
+            return ffi::SQLITE_IOERR_TRUNCATE;
+        }
+        return std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            root.truncate(size as u64, &mut MainIo((*paged).base))
+                .err()
+                .unwrap_or(ffi::SQLITE_OK)
+        }))
+        .unwrap_or(ffi::SQLITE_IOERR_TRUNCATE);
+    }
+    if state.backing.as_ref().and_then(Backing::pages).is_some() {
         let ps = state.page_size.max(1) as i64;
         let keep = ((size + ps - 1) / ps).max(0) as u32;
         state.hydrated.lock().unwrap().retain(|pgno| *pgno <= keep);
@@ -305,7 +458,29 @@ forward_io!(x_file_size(size: *mut ffi::sqlite3_int64) -> c_int => xFileSize);
 forward_io!(x_lock(lock: c_int) -> c_int => xLock);
 forward_io!(x_unlock(lock: c_int) -> c_int => xUnlock);
 forward_io!(x_check_reserved_lock(out: *mut c_int) -> c_int => xCheckReservedLock);
-forward_io!(x_file_control(op: c_int, arg: *mut c_void) -> c_int => xFileControl);
+
+unsafe extern "C" fn x_file_control(
+    file: *mut ffi::sqlite3_file,
+    op: c_int,
+    arg: *mut c_void,
+) -> c_int {
+    let paged = file as *mut PagedFile;
+    let state = &*(*paged).state;
+    if (state.backing.as_ref().and_then(Backing::root).is_some() || state.wal.is_some())
+        && matches!(
+            op,
+            ffi::SQLITE_FCNTL_SIZE_HINT | ffi::SQLITE_FCNTL_CHUNK_SIZE
+        )
+    {
+        // Advisory preallocation must not change the file length outside the
+        // root's tracked xWrite/xTruncate boundary. Sparse growth stays bounded.
+        return ffi::SQLITE_OK;
+    }
+    match (*base_methods(file)).xFileControl {
+        Some(control) => control((*paged).base, op, arg),
+        None => ffi::SQLITE_NOTFOUND,
+    }
+}
 forward_io!(x_sector_size() -> c_int => xSectorSize);
 forward_io!(x_device_characteristics() -> c_int => xDeviceCharacteristics);
 forward_io!(x_shm_map(pg: c_int, sz: c_int, ext: c_int, out: *mut *mut c_void) -> c_int => xShmMap);
@@ -395,14 +570,23 @@ unsafe extern "C" fn x_open(
     let is_cell = flags & ffi::SQLITE_OPEN_MAIN_DB != 0
         && !name.is_null()
         && CStr::from_ptr(name) == app.path.as_c_str();
-    let (reader, page_size) = if is_cell {
-        (Some(app.reader.clone()), app.reader.page_size())
+    let backing = is_cell.then(|| app.backing.clone());
+    let wal = if flags & ffi::SQLITE_OPEN_WAL != 0
+        && !name.is_null()
+        && CStr::from_ptr(name) == app.wal_path.as_c_str()
+    {
+        app.backing.root().cloned()
     } else {
-        (None, 0)
+        None
     };
+    let page_size = backing
+        .as_ref()
+        .and_then(Backing::pages)
+        .map_or(0, |reader| reader.page_size());
     let state = Box::into_raw(Box::new(FileState {
         vfs,
-        reader,
+        backing,
+        wal,
         hydrated: app.hydrated.clone(),
         page_size,
     }));
@@ -420,6 +604,14 @@ unsafe extern "C" fn x_open(
     // while their hydration marks survive (CellarPagedVfs.tla,
     // `BreakOpenTruncates`).
     if is_cell {
+        if let Some(root) = app.backing.root() {
+            return std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                root.initialize(&mut MainIo(base_file))
+                    .err()
+                    .unwrap_or(ffi::SQLITE_OK)
+            }))
+            .unwrap_or(ffi::SQLITE_IOERR);
+        }
         let methods = &*base_methods(file);
         let mut size: ffi::sqlite3_int64 = 0;
         let rc = (methods.xFileSize.unwrap())(base_file, &mut size);
@@ -427,7 +619,10 @@ unsafe extern "C" fn x_open(
             return rc;
         }
         if size == 0 {
-            let bytes = i64::from(app.reader.page_size()) * i64::from(app.reader.commit());
+            let Some(reader) = app.backing.pages() else {
+                return ffi::SQLITE_IOERR;
+            };
+            let bytes = i64::from(reader.page_size()) * i64::from(reader.commit());
             let rc = (methods.xTruncate.unwrap())(base_file, bytes);
             if rc != ffi::SQLITE_OK {
                 return rc;
@@ -482,6 +677,55 @@ pub fn register_paged_vfs(
     path: &Path,
     reader: Arc<dyn PageReader>,
 ) -> crate::error::Result<()> {
+    register(name, base, path, Backing::Pages(reader))
+}
+
+pub(crate) fn register_extent_workspace(
+    name: &str,
+    base: Option<&str>,
+    path: &Path,
+    root: Arc<MainWorkspace>,
+) -> crate::Result<()> {
+    register(name, base, path, Backing::Extents(root))
+}
+
+/// Mint observation evidence only from the live SQLite main file, never from
+/// a VFS name, supplied dirty-page list or caller-provided manifest.
+pub(crate) fn extent_workspace(
+    connection: &rusqlite::Connection,
+) -> crate::Result<Option<Arc<MainWorkspace>>> {
+    let mut file: *mut ffi::sqlite3_file = std::ptr::null_mut();
+    // SAFETY: this connection is owned by the calling Db. FILE_POINTER returns
+    // its live main file, retained throughout this synchronous inspection.
+    let result = unsafe {
+        ffi::sqlite3_file_control(
+            connection.handle(),
+            c"main".as_ptr(),
+            ffi::SQLITE_FCNTL_FILE_POINTER,
+            (&mut file as *mut *mut ffi::sqlite3_file).cast(),
+        )
+    };
+    if result != ffi::SQLITE_OK || file.is_null() {
+        return Err(crate::Error::Other(
+            "no main file for extent observation".into(),
+        ));
+    }
+    // SAFETY: inspect only sqlite3_file's public prefix until its method table
+    // proves this is our PagedFile allocation; FileState retains the root Arc.
+    unsafe {
+        if !std::ptr::eq((*file).pMethods, &PAGED_IO_METHODS) {
+            return Ok(None);
+        }
+        let file = file.cast::<PagedFile>();
+        Ok((*(*file).state)
+            .backing
+            .as_ref()
+            .and_then(Backing::root)
+            .cloned())
+    }
+}
+
+fn register(name: &str, base: Option<&str>, path: &Path, backing: Backing) -> crate::Result<()> {
     let cname = CString::new(name).map_err(|_| crate::error::Error::LTXCorrupted)?;
     let base_name = base
         .map(CString::new)
@@ -496,10 +740,14 @@ pub fn register_paged_vfs(
         let Some(path) = full_pathname(base, path) else {
             return Err(crate::error::Error::Other("paged vfs path".into()));
         };
+        let mut wal_name = path.as_bytes().to_vec();
+        wal_name.extend_from_slice(b"-wal");
+        let wal_path = CString::new(wal_name).map_err(|_| crate::Error::LTXCorrupted)?;
         let app = Box::into_raw(Box::new(VfsAppData {
             base,
             path,
-            reader,
+            wal_path,
+            backing,
             hydrated: Arc::new(Mutex::new(HashSet::new())),
             open_files: std::sync::atomic::AtomicUsize::new(0),
             retired: std::sync::atomic::AtomicBool::new(false),
@@ -530,6 +778,9 @@ pub fn register_paged_vfs(
         }));
         let rc = ffi::sqlite3_vfs_register(vfs, 0);
         if rc != ffi::SQLITE_OK {
+            // Registration failed before any caller could open a file. These
+            // exclusively owned allocations have no SQLite borrowers.
+            free_vfs(vfs);
             return Err(crate::error::Error::Other(
                 format!("register vfs {name}: {rc}").into(),
             ));
@@ -564,15 +815,16 @@ pub fn hydration(name: &str) -> Option<Hydration> {
             return None;
         }
         let app = &*((*vfs).pAppData as *mut VfsAppData);
-        let commit = app.reader.commit();
-        let lock = lock_pgno(app.reader.page_size());
+        let reader = app.backing.pages()?;
+        let commit = reader.commit();
+        let lock = lock_pgno(reader.page_size());
         let hydrated = app.hydrated.lock().unwrap();
         Some(Hydration {
             hydrated: (1..=commit)
                 .filter(|p| *p != lock && hydrated.contains(p))
                 .count() as u32,
             total: commit - u32::from(lock <= commit),
-            faults: app.reader.faults(),
+            faults: reader.faults(),
         })
     }
 }
@@ -615,8 +867,12 @@ impl Hydrator {
                 return Err(crate::error::Error::Other("hydrator: vfs is gone".into()));
             }
             let app = &*((*vfs).pAppData as *mut VfsAppData);
-            let page_size = app.reader.page_size();
-            let commit = app.reader.commit();
+            let reader = app
+                .backing
+                .pages()
+                .ok_or_else(|| crate::Error::Other("not a paged restore".into()))?;
+            let page_size = reader.page_size();
+            let commit = reader.commit();
             (page_size, commit, lock_pgno(page_size))
         };
         let mut file: *mut ffi::sqlite3_file = std::ptr::null_mut();

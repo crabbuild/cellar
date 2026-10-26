@@ -34,7 +34,7 @@ fn payload(cut: &images::Cut, proposal: u8) -> Result<Vec<u8>> {
         epoch: state.epoch,
         txid: state.txid.0,
         checksum: state.checksum,
-        image_digest: state.digest,
+        commitment: state.digest.into(),
     };
     Ok(CellUpdate {
         scope: scope(),
@@ -496,7 +496,10 @@ async fn apply_marker_crash_cut() -> Result<()> {
         );
         let marker = recovered.log.group(&scope())?.applied()?;
         assert_eq!(marker.position, head.position());
-        assert_eq!(marker.image.unwrap().digest, head.pin().state().digest);
+        assert_eq!(
+            marker.image.unwrap().commitment,
+            head.pin().state().digest.into()
+        );
         drop(head);
         recovered.close().await?;
     }

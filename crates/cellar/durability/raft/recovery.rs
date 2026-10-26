@@ -45,7 +45,7 @@ pub(crate) fn snapshot_pin(
     let Some(image) = &image else {
         return Ok(None);
     };
-    let pin = images.adopt(marker_id(image)?, marker_state(image))?;
+    let pin = images.adopt(marker_id(image)?, marker_state(image)?)?;
     pin.retain_reference(SNAPSHOT_REFERENCE, snapshot.get_metadata().index)?;
     Ok(Some(pin))
 }
