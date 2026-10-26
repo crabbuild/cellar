@@ -165,7 +165,7 @@ impl FleetCatalog {
             sources.push(
                 observer
                     .inspect_peer_physical_inventory(
-                        NodeId::new(owner.boot.node).map_err(|_| invalid())?,
+                        NodeId::new(owner.node).map_err(|_| invalid())?,
                         snapshot.revision(),
                         deadline.remaining()?,
                     )

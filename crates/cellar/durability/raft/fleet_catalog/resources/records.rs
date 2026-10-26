@@ -136,21 +136,18 @@ impl Record {
                 let source = movement.source()?;
                 if owners.len() != 3
                     || owners.windows(2).any(|w| w[0].member >= w[1].member)
-                    || !owners.iter().any(|o| o.boot.node == source.bytes())
+                    || !owners.iter().any(|o| o.node == source.bytes())
                 {
                     return Err(FleetCatalogError::Corrupt("resource seed owners"));
                 }
                 for owner in owners {
                     cellar_logic::consensus::MemberId::new(owner.member)
                         .map_err(|_| FleetCatalogError::Corrupt("resource source member"))?;
-                    owner
-                        .boot
-                        .validate()
-                        .map_err(|_| FleetCatalogError::Corrupt("resource source boot"))?;
-                    if owner.boot.catalog != self.request.attestation.boot.catalog
-                        || owner.boot.fleet != self.request.attestation.boot.fleet
-                        || owner.boot.node == self.request.attestation.boot.node
-                        || !nodes.insert(owner.boot.node)
+                    NodeId::new(owner.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("resource source node"))?;
+                    if owner.boot == [0; 32]
+                        || owner.node == self.request.attestation.boot.node
+                        || !nodes.insert(owner.node)
                     {
                         return Err(FleetCatalogError::Corrupt("resource source owner"));
                     }

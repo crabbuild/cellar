@@ -104,8 +104,54 @@ fn invalid() -> FleetCatalogError {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct MovementOwner {
-    pub boot: BootBinding,
+    pub node: [u8; 16],
+    #[serde(with = "owner_digest")]
+    pub boot: [u8; 32],
     pub member: u64,
+}
+
+impl MovementOwner {
+    fn new(boot: &BootBinding, member: MemberId) -> Result<Self> {
+        Ok(Self {
+            node: boot.node,
+            boot: Self::digest(boot)?,
+            member: member.get(),
+        })
+    }
+
+    fn digest(boot: &BootBinding) -> Result<[u8; 32]> {
+        boot.validate().map_err(|_| invalid())?;
+        let mut bytes = b"cellar-fleet-seed-owner-1".to_vec();
+        bytes.extend_from_slice(&serde_json::to_vec(boot).map_err(|_| invalid())?);
+        Ok(hash(&bytes))
+    }
+
+    pub fn matches(&self, boot: &BootBinding) -> Result<bool> {
+        Ok(self.node == boot.node && self.boot == Self::digest(boot)?)
+    }
+}
+
+mod owner_digest {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        digest: &[u8; 32],
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        serializer.serialize_str(&hex::encode(digest))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        decoder: D,
+    ) -> std::result::Result<[u8; 32], D::Error> {
+        let value = String::deserialize(decoder)?;
+        let mut digest = [0; 32];
+        hex::decode_to_slice(&value, &mut digest).map_err(serde::de::Error::custom)?;
+        if value != hex::encode(digest) {
+            return Err(serde::de::Error::custom("noncanonical boot digest"));
+        }
+        Ok(digest)
+    }
 }
 
 pub(super) struct MovementProof {
@@ -303,10 +349,7 @@ impl FleetCatalog {
                 .map_err(|_| invalid())?,
             };
             let voter = self.host_from(snapshot, node).await?;
-            owners.push(MovementOwner {
-                boot: voter.boot_binding()?,
-                member: member.get(),
-            });
+            owners.push(MovementOwner::new(&voter.boot_binding()?, member)?);
             if !nodes.insert(node)
                 || snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts
                     && !hosts.insert(voter.physical_host())

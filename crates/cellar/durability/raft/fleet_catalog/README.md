@@ -601,7 +601,10 @@ acknowledgement calls this component.
 `complete_movement` owns a new target safe ReadIndex and complete physical
 observations of the target and all three original voters. Admission pins every
 possible seed provider's exact boot and member, even when the learner selects a
-different source from admission's quorum observer. Completion requires the exact latest permit, locally
+different source from admission's quorum observer. Compact canonical boot
+fingerprints bind every boot field while preserving the catalog's 4-KiB value
+bound; observations must resolve to those exact boots at the unchanged root.
+Completion requires the exact latest permit, locally
 durable Complete phase at its consumed sequence on all four owners, stable RF3 with
 the replacement present and obsolete member absent, current enrollment and
 failure-domain separation. The original deadline covers every probe and CAS;

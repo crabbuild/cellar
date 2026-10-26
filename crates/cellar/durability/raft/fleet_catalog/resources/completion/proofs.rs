@@ -88,17 +88,25 @@ impl FleetCatalog {
         if owners.len() != 3 || sources.len() != owners.len() {
             return Err(FleetCatalogError::Unconfirmed);
         }
+        let mut bindings = Vec::with_capacity(3);
+        for (sample, owner) in sources.iter().zip(owners) {
+            let boot = sample
+                .view
+                .fleet_boot
+                .as_ref()
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            if !owner.matches(boot)? {
+                return Err(FleetCatalogError::Unconfirmed);
+            }
+            bindings.push((sample, boot, owner.member));
+        }
         for (sample, boot, member) in std::iter::once((
             target,
             &row.request.attestation.boot,
             replacement.member.get(),
         ))
-        .chain(
-            sources
-                .iter()
-                .zip(owners)
-                .map(|(sample, owner)| (sample, &owner.boot, owner.member)),
-        ) {
+        .chain(bindings)
+        {
             let host = self
                 .host_from(snapshot, NodeId::new(boot.node).map_err(|_| invalid())?)
                 .await?;
