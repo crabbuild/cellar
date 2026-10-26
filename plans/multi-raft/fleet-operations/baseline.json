@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "abec54c927e141d8a47cf1dc4107b249daa8a47e",
+  "revision": "2c1f53fdb2d1f9eb7645eeb0158ee3003e5b76a5",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -48,7 +48,7 @@
     },
     {
       "path": "crates/cellar-logic/README.md",
-      "sha256": "17fa1f9b7cc772ef430e90ab8532b487f2b68519948b2c2dc9e495a32c8d5a52"
+      "sha256": "1da6c5e20c00af674ed3fcef259385df3f60a9dd9a41904f8a7cab7d6b28525a"
     },
     {
       "path": "crates/cellar-logic/lib.rs",
@@ -92,7 +92,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "4445c5137b60fd97e5179bddf8391e1b76239f8b2d546d75b9da3efb993af8a2"
+      "sha256": "80fec49e7cdde75c31ee6a09452cf4a3016998c219a89a0cddafb78fe84753ee"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -132,7 +132,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "1e53ab9f9972d6b34f7da7e05464c461bfe1a85b7414c69d5b0a218da27e69a1"
+      "sha256": "c4f48e8e8e3f2a359eb0d54f9c87a865ac6b5072ef4ce74b3ab09f7d6037e7d8"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -312,7 +312,7 @@
     },
     {
       "path": "crates/cellar/tests/native_raft_archive.rs",
-      "sha256": "69d96eb09d6f9020f69a29c3f5617c0076963de8786843b092551186759eb329"
+      "sha256": "e61ae32876e8402ae99830ac7b0a3370c37e00a9095a6f3553046054b88a37dd"
     },
     {
       "path": "crates/cellar/tests/native_raft_directory.rs",
@@ -324,7 +324,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "ede598576d36fcc5af9816fdcda11c71f362e732b57fba05804d1c71b2fc50e3"
+      "sha256": "9f3df9cc13d7975e53083f4e38815b590289e986d318843f2713331521c2c8bb"
     },
     {
       "path": "crates/cellar/tests/support/raft_controller_native.rs",
@@ -356,5 +356,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Distinct aborted-movement settlement delivered at eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd. All 466 selected native cases pass, including all 141 required FO-03 cases and five new abort cases. The proof owns exact Aborted observations from all original seed owners before physical exit/occupancy samples, retains learner storage and its monotonic floor, and recovers permanent typed receipts after lost confirmation, caller recreation, later work and target shutdown. Owned reconciliation drives this boundary without deciding to abort. Initial historical-status assertion and concurrent fixture stack failures are retained; shared guarded terminal dispatch fixes the standard-stack regression without changing the concurrent fixture, proof checks or deadlines. All-target host Clippy-Dwarnings and format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Changed/unavailable-boot recovery, trusted platform isolation, authenticated fleet inputs/assignment generation, operator workflows and deployed RustFS/Colima performance/fault/soak remain unfinished. Full SDK CI remains open. Protocol hard cut ends /aborted-movement-1, markers1; fresh roots/engines required. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS."
+  "review_note": "Distinct aborted-movement settlement delivered at eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd. All 466 selected native cases pass, including all 141 required FO-03 cases and five new abort cases. The proof owns exact Aborted observations from all original seed owners before physical exit/occupancy samples, retains learner storage and its monotonic floor, and recovers permanent typed receipts after lost confirmation, caller recreation, later work and target shutdown. Owned reconciliation drives this boundary without deciding to abort. Initial historical-status assertion and concurrent fixture stack failures are retained; shared guarded terminal dispatch fixes the standard-stack regression without changing the concurrent fixture, proof checks or deadlines. All-target host Clippy-Dwarnings and format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Changed/unavailable-boot recovery, trusted platform isolation, authenticated fleet inputs/assignment generation, operator workflows and deployed RustFS/Colima performance/fault/soak remain unfinished. Full SDK CI remains open. Protocol hard cut ends /aborted-movement-1, markers1; fresh roots/engines required. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS. Independent repair with retained charged debt is delivered at 0db5164b550ff53c77c9728aba121698728840f6 and passes 77 distinct focused cases plus three repeated probes; audit matches all 1,442 frozen Rust/Cargo/configuration inputs. Merge 2c1f53fdb2d1f9eb7645eeb0158ee3003e5b76a5 integrates origin/main b3ff49a6 with owned blocking archive cleanup and per-cut completion. Reviewed anchor drift is limited to logic/raft READMEs, host callback ownership, the two mainline snapshot-close tests and the exact held-payload test counter. Merged-source qualification is recorded in progress.md; no deployed performance or full fleet completion is implied."
 }

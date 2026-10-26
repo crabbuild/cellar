@@ -36,12 +36,35 @@ the old book/debit bytes after independent settlements, verify RF3 and S3 SQL
 continuity, then release and finish the original movement. A dedicated RAII
 counter proves the exact held read stays owned after its waiter is dropped.
 Four additional pure cases cover retained growth, slot exhaustion, old-boot
-credit and engine rebinding. The frozen implementation passes **77 distinct
-focused cases**: all 58 native resource/movement cases, fifteen pure selector
+credit and engine rebinding. Implementation source
+`0db5164b550ff53c77c9728aba121698728840f6` is recorded in the retained audit.
+The frozen implementation passes **77 distinct focused cases**: all 58 native resource/movement cases, fifteen pure selector
 cases and four service units. The three new native scenarios also pass as
 separate probes before the full cohort. The final native cohort took 386.42
-seconds. All-target host/logic Clippy with warnings denied passes. This is local
-correctness verification, not deployed failure, scale or throughput qualification.
+seconds. All-target host/logic Clippy with warnings denied passes. The source
+audit matches all 1,442 frozen Rust/Cargo/configuration inputs to that commit
+and verifies retained executable/output hashes. These are local correctness
+checks, not deployed failure, scale or throughput qualification.
+
+Merge source `2c1f53fdb2d1f9eb7645eeb0158ee3003e5b76a5` incorporates main
+`b3ff49a6` and resolves the archive publication conflict by retaining independent
+per-cut completion on an owned execution-domain blocking worker. Snapshot cleanup
+stays off the host loop; the batch still joins before shutdown completes. All
+75 archive tests pass, including main's two snapshot-close cases and this
+branch's partial-batch/stalled-peer cases. The merged source passes **152
+distinct focused cases**: archive 75, resource/movement 58, selector 15 and service
+units four, plus the three repeated native probes. The resource cohort completed
+in 394.69 seconds. All-target host/logic Clippy with warnings denied passes.
+The audit matches all **1,451 frozen Rust/Cargo/configuration inputs** to this
+commit and verifies immutable executable/output hashes. Primary artifacts remain
+outside runtime data under checkout-private
+`qualification/fleet-operations/repair-fairness-merged-v1/` and
+`repair-fairness-merged-checks-v1/`. Earlier pre-merge runs remain separately
+attributed above. Full latest-head SDK CI and deployed qualification stay open.
+Repository formatting/layout, native dependency and docs checks,
+ten plan tests and 318-case manifest validation pass. The 88-anchor baseline
+was refreshed after reviewing the five changed anchors. No raw evidence is added
+to the PR.
 
 The first probe stopped before reaching fairness: the fixture tried immediate
 execution before peers installed the new permit cut. Targeted observations
@@ -333,7 +356,17 @@ also delivered. The next work should extend these usable boundaries:
    registration, typed capacity, evacuation, repair, stop and removal adapters to
    the catalog-pinned audit/permission surface. Deliver one end-to-end add/activate
    and evacuate/remove workflow, with exact retries and visible blocked debt,
-   before adding resize. The repair cursor cannot stand in for terminal proof.
+   before adding resize. The next executable slice is authenticated node
+   registration and explicit qualify/activate, followed by an existing keep-set
+   rebalance that actually places a voter on the new node. The management
+   connection currently has namespace/catalog handles but no live observer;
+   qualification must use a trusted server-configured observer and deployment
+   attestation, with an explicit unavailable result when either is absent.
+   Registration alone cannot manufacture capacity. Verify denied permission,
+   catalog-generation mismatch, lost replies after commit, duplicate/different
+   payload IDs, changed boots and foreground SQL continuity. Then deliver
+   evacuation/removal using the existing fenced inventory and joined-stop proof;
+   the repair cursor cannot stand in for terminal proof.
 2. **Failure policy and deployment isolation (FO-06/FO-07):** supply a real
    trusted provider, conservative suspect/failed policy, concurrent-failure rules
    and restart/rejoin protection. A timeout cannot establish physical isolation;
