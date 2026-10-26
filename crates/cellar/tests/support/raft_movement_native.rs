@@ -346,20 +346,27 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     retry.identity.expected_revision = current.revision();
     let (_, mut request) = movement(&s, &first_cells, 214).await?;
     request.resources = retry;
-    ensure!(matches!(
-        s.f.catalog
-            .reserve_movement(
-                &current,
-                &request,
-                &s.nodes[0].host,
-                std::slice::from_ref(&s.namespace),
-                TIMEOUT
-            )
-            .await,
-        Err(FleetCatalogError::Resource(LedgerError::CapacityExceeded(
-            ResourceKind::EngineSlots
-        )))
-    ));
+    let refused = s
+        .f
+        .catalog
+        .reserve_movement(
+            &current,
+            &request,
+            &s.nodes[0].host,
+            std::slice::from_ref(&s.namespace),
+            TIMEOUT,
+        )
+        .await;
+    ensure!(
+        matches!(
+            &refused,
+            Err(FleetCatalogError::Resource(LedgerError::CapacityExceeded(
+                ResourceKind::EngineSlots
+            )))
+        ),
+        "last-slot refusal: {:?}",
+        refused.as_ref().err()
+    );
     ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == current.revision());
     ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
     s.close().await
