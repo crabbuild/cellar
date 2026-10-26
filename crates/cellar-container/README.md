@@ -235,12 +235,14 @@ inputs bounded by `max_body_bytes`. Consumed tickets cannot be replayed; an
 uncertain startup needs explicit reconciliation or cleanup.
 
 The Workers path requires `Source::workers_lifetimes()` and both provider opt-ins.
-It currently refuses queued lifecycle calls inside transaction and
-`blockConcurrencyWhile` callbacks before effects. Node supports incremental port
+Concurrency callbacks join their accepted controls before releasing the native
+input gate. Transactions, including concurrency blocks nested inside them,
+refuse before admission. A callback's returned continuation cannot admit another
+control while the earlier controls drain. Node supports incremental port
 and Worker/DO HTTP forwarding; the pinned Container example runs against an engine protocol peer,
 and the Sandbox baseline also passes matching-image HTTP streaming and SDK RPC
-uploads over container-port upgrades/local WebSocket pairs. Worker/DO upgrade
-forwarding and complete package lifecycle/fault acceptance remain pending; see the
+uploads over container-port upgrades/local WebSocket pairs. Selected Worker/DO
+upgrades also forward to clients; complete lifecycle/fault acceptance remains pending. See the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
 ## Understand lifetime and failure outcomes

@@ -63,6 +63,13 @@ pub struct CallbackScope {
 }
 
 impl CallbackScope {
+    /// Whether this callback owns or inherits an open transaction view.
+    /// Adapters must not await an external effect whose output proof depends
+    /// on committing that same transaction.
+    pub fn is_transaction(&self) -> bool {
+        self.transaction.is_some()
+    }
+
     /// Execute an inline FFI callback with this boundary's native guards.
     pub fn run_sync<T>(
         &self,

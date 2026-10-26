@@ -2,12 +2,34 @@
 
 import { Container } from "@cloudflare/containers";
 import { application, check, refuses } from "./adapter.mjs";
+let releaseCallback;
+let lateControl;
 class Probe extends Container {
   async inspect(command, nativeContext) {
     const state = await this.getState();
     check(state.status === "stopped", "published Container state");
-    const alarm = await this.ctx.storage.getAlarm();
-    check(typeof alarm === "number", "published constructor alarm");
+    if (!this.constructorAlarmChecked) {
+      const alarm = await this.ctx.storage.getAlarm();
+      check(typeof alarm === "number", "published constructor alarm");
+      this.constructorAlarmChecked = true;
+    }
+    if (command === "idle-alarm") {
+      check(!this.container.running, "idle alarm requires a stopped container");
+      check(
+        Number(
+          this.sql`SELECT COUNT(*) AS count FROM container_schedules`[0].count,
+        ) === 0,
+        "idle alarm has no schedules",
+      );
+      await this.ctx.blockConcurrencyWhile(async () => {
+        await this.alarm({ isRetry: false, retryCount: 0 });
+        check(
+          (await this.ctx.storage.getAlarm()) === null,
+          "published idle alarm clears wake",
+        );
+      });
+      return { idle: true };
+    }
     if (command === "ports") {
       const port = Number(await nativeContext.variable("HTTP_PORT"));
       for (const invalid of [0, -1, 65536, 1.5, NaN]) {
@@ -23,6 +45,7 @@ class Probe extends Container {
         return { ports: false };
       }
       try {
+        this.controlInStartHook = true;
         await this.startAndWaitForPorts(port, {
           instanceGetTimeoutMS: 1000,
           portReadyTimeoutMS: 1000,
@@ -33,6 +56,18 @@ class Probe extends Container {
           "published readiness persists healthy state",
         );
         check(this.started === 1, "published onStart hook");
+        const unavailable = port === 1 ? 2 : 1;
+        const failure = await refuses(() =>
+          this.waitForPort({ portToCheck: unavailable, retries: 1 }),
+        );
+        check(
+          failure.message !== "error hook failure",
+          "readiness preserves original failure",
+        );
+        check(
+          this.errors === 1 && typeof this.lastError === "string",
+          "published readiness onError hook",
+        );
         const response = await tcp.fetch(
           "https://untrusted.invalid/path?query=yes",
         );
@@ -45,7 +80,6 @@ class Probe extends Container {
           (await response.text()) === "container response",
           "standard response body",
         );
-        return { ports: true };
       } finally {
         const monitor = this.monitor;
         await this.container.destroy();
@@ -59,7 +93,13 @@ class Probe extends Container {
           "published stop state",
         );
         check(this.stopped === 1, "published onStop hook");
+        check(
+          this.lastStop.exitCode === 0 && this.lastStop.reason === "exit",
+          "explicit destroy stop parameters",
+        );
       }
+      await this.checkCrashHooks(port);
+      return { ports: true };
     }
     if (command === "queued-failure") {
       check(
@@ -98,9 +138,6 @@ class Probe extends Container {
           check(error.outcome === "not_committed", "inline admission refusal");
         }
       });
-      await this.ctx.blockConcurrencyWhile(async () => {
-        await refuses(() => this.container.start());
-      });
       this.queuedPhase = "start";
       const result = this.container.start({
         env: { MODE: "queued" },
@@ -136,6 +173,40 @@ class Probe extends Container {
         "destroy preserves monitor error identity",
       );
       return { queued: true };
+    }
+    if (command === "callback-void") {
+      const result = await this.ctx.blockConcurrencyWhile(() => {
+        this.ctx.storage.kv.put("callback-control", "admitted");
+        check(this.container.start() === undefined, "callback start is void");
+        // This continuation retains the callback's native token, but runs
+        // after its body returned while startup is still awaiting the engine.
+        lateControl = new Promise((resolve) => {
+          releaseCallback = resolve;
+        }).then(() => refuses(() => this.container.signal(15)));
+        return "joined";
+      });
+      check(
+        result === "joined" && this.container.running,
+        "void startup joined",
+      );
+      await this.ctx.blockConcurrencyWhile(async () => {
+        await this.ctx.storage.transaction(async () => {
+          await this.ctx.blockConcurrencyWhile(async () => {
+            const refusal = await refuses(() => this.container.signal(15));
+            check(
+              refusal.outcome === "not_committed",
+              "inherited transaction refusal",
+            );
+          });
+        });
+        await this.ctx.blockConcurrencyWhile(async () => {
+          check(this.container.signal(15) === undefined, "nested block signal");
+        });
+        await this.container.destroy();
+        check(!this.container.running, "callback destroy acknowledges cleanup");
+        this.ctx.storage.kv.put("callback-control", "complete");
+      });
+      return { callback: this.ctx.storage.kv.get("callback-control") };
     }
     if (command === "queued-progress") {
       return {
@@ -184,13 +255,70 @@ class Probe extends Container {
       configuration: this.ctx.storage.kv.get("configuration") ?? null,
     };
   }
+  async checkCrashHooks(port) {
+    try {
+      await this.startAndWaitForPorts(port, {
+        instanceGetTimeoutMS: 1000,
+        portReadyTimeoutMS: 1000,
+        waitInterval: 25,
+      });
+      const failedMonitor = this.monitor;
+      this.container.signal(9);
+      const failure = await refuses(() => failedMonitor);
+      check(failure.exitCode === 137, "nonzero monitor exit code");
+      await this.ctx.blockConcurrencyWhile(async () => {});
+      await this.syncPendingStoppedEvents();
+      check(
+        this.started === 2 && this.stopped === 2,
+        "published crash lifecycle hooks",
+      );
+      check(
+        this.lastStop.exitCode === 137 && this.lastStop.reason === "exit",
+        "nonzero onStop parameters",
+      );
+      check(
+        this.ctx.storage.kv.get("last-stop").exitCode === 137,
+        "onStop durable state",
+      );
+      check(
+        (await this.getState()).status === "stopped",
+        "crash hook state persisted",
+      );
+    } finally {
+      await this.container.destroy();
+    }
+  }
   callback() {}
   onStart() {
     this.started = (this.started ?? 0) + 1;
+    if (this.controlInStartHook) this.container.signal(12);
   }
-  onStop() {
+  onStop(params) {
     this.stopped = (this.stopped ?? 0) + 1;
+    this.lastStop = params;
+    this.ctx.storage.kv.put("last-stop", params);
+  }
+  onError(error) {
+    this.errors = (this.errors ?? 0) + 1;
+    this.lastError = error;
+    this.ctx.storage.kv.put("readiness-error", typeof error);
+    throw new Error("error hook failure");
   }
 }
 const app = application(Probe, true);
-export const { cells, fetch } = app;
+export const { cells } = app;
+export async function fetch(request, context) {
+  if (request.url.endsWith("/callback-release")) {
+    check(typeof releaseCallback === "function", "callback was entered");
+    releaseCallback();
+    const error = await lateControl;
+    return {
+      status: 200,
+      headers: [],
+      body: context._encode(
+        JSON.stringify({ code: error.code, outcome: error.outcome }),
+      ),
+    };
+  }
+  return app.fetch(request, context);
+}

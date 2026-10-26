@@ -15,7 +15,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks, idle SIGTERM sleep/wake cycles and persisted hook counts; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, callback-owned queue drainage, complete continuation/hook behavior and image lifecycle/upgrade/fault qualification |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
@@ -38,8 +38,9 @@ independent of the optional Workers runtime.
 | Delivered Node slice | RPC `Request` transfers and HTTP-message arguments | Native metadata/body ownership, round-trip forwarding, pre-effect refusal, streaming in both directions, live abort after EOF and resource release |
 | Delivered fix; profile partial | Overlapping callback/alarm resumptions | The original extra-barrier image probe passes after async alarm APIs use the asynchronous native bridge; deadlines and native gates remain intact |
 | Delivered Node slice | Worker/DO/container upgrade forwarding and published Sandbox WebSocket previews | Native network tests, held-receiver disconnect and exact-image text/binary round trips with joined cleanup |
-| 1 — next | Remaining callback-owned controls, hooks and first-call investigation | The fresh module campaign passes at the original 250 ms budget; its earlier intermittent failure has no established cause. Complete continuation/fault qualification remains pending |
-| 2 | Named portable bindings and reconnect/expiry/orphan handling | Same native contract in four languages; explicit fencing guarantees, durable reconciliation and no blind mutation replay |
+| Delivered selected slice | Concurrency-block controls and published error/exit hooks | Void controls join before native admission releases; nested blocks execute; transactions, inherited transaction views and late continuation admission refuse. Node exercises published readiness errors and nonzero exit/stop parameters |
+| 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
+| 2 — feature delivery | Named portable bindings and reconnect/expiry/orphan handling | Same native contract in four languages; explicit fencing guarantees, durable reconciliation and no blind mutation replay |
 | Following milestones | Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent pinned profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
@@ -1427,3 +1428,57 @@ Workers/SDK conformance remain open. Callback-owned queued controls and remainin
 hooks are the next local compatibility work; named durable provider bindings,
 reconnect/expiry/orphan cleanup and separate Sandbox 1.x/additional providers
 remain subsequent delivery milestones.
+
+### Concurrency-block controls and published error/exit hooks
+
+Queued start/signal/destroy operations now run in native concurrency callbacks.
+The JS bridge retains their complete promises before submitting callback finish,
+including destroy's monitor-drain wrapper. Native callback checks remain active
+for each poll. A private continuation-token query selects the original callback;
+it supplies no native authority of its own.
+
+| Boundary | Selected evidence |
+| --- | --- |
+| Void start | Hold the real engine startup acknowledgement; another native cell invocation remains outside the input gate until the accepted control completes |
+| Nested blocks | Signal and awaited destroy execute under their original callbacks; destroy acknowledges cleanup before the next state write |
+| Transaction inheritance | Both direct transactions and blocks nested in them refuse admission before effects; exact engine signal counts exclude refused calls |
+| Returned continuation | Resume an original-token continuation while startup is held and the callback body has returned; new control admission refuses with `ContextExpired` / `not_committed` |
+| Published `onStart` | The unchanged 0.3.7 package invokes the subclass hook in a native block; its signal reaches the engine once per successful start |
+| Published `onError` | Readiness failure invokes the real hook; a hook throw does not replace the original failure |
+| Published `onStop` | Explicit destroy reports the package's normal stop parameters; a later nonzero run reports exit code 137 / reason `exit`, with hook state persisted in native DO storage |
+| Constructor/idle alarm | Preserve the numeric-alarm assertion at constructor admission, then run the published idle/no-schedule handler, require the alarm to clear, and admit another read |
+
+The Node/V8 constructor/queued-control target exercises fresh and recreated
+runtimes against the engine peer. Hook HTTP/readiness assertions require Node's
+web runtime. These selected paths do not complete SP-03: callback failure and
+cancellation, complete timeout/hook behavior, image faults and full versioned
+conformance remain open. The 250 ms first-request timeout and an alarm-start
+failure reproduced in the combined native campaign; a fresh full module run
+then passes unchanged. A passing timing probe measured about 135 ms between
+the Worker's native routed call and entry into the first DO's JS handler, versus
+about 10 ms for later cell admissions. This narrows the investigation boundary
+without establishing a cause or a fix; the temporary timing probes were removed.
+Named provider bindings and durable reconnect/expiry/orphan
+reconciliation are the next feature milestone; live E2B/Vercel tests still await
+configuration.
+
+| Callback/hook campaign | Result |
+| --- | --- |
+| Adapter library / Workers target | 76 + 16 passed; Node/V8 callback controls run before and after runtime recreation |
+| HTTP messages / fresh module and streaming/upgrade/socket targets | 2 + 8 passed in completed targeted suites; all five module cases pass on the fresh full run |
+| Exact Sandbox 0.12.9 image | All four scenarios pass, including previews and RPC binary files |
+| JS/tool/type checks / input pins | 95 + 4 passed |
+| Static checks | Strict adapter all-target and core-library Clippy, Rust/JS formatting, layout, docs and native-only dependency guard pass |
+| Cold dispatch repetitions | One of three further default probes times out. An alternating eight-run-per-configuration comparison reproduces the timeout with both default and eager Node compilation; no flag change is justified or applied |
+
+Timing budgets remain unchanged. The initial combined module campaign has two
+failures; the later passing full run does not erase
+that unresolved intermittent qualification failure.
+
+A later repetition also exposed a fixture assertion that incorrectly required
+the constructor alarm on every subsequent request. The published SDK can clear
+it when stopped without schedules, and alarm delivery may temporarily consume
+the timestamp. The constructor assertion now runs at admission; a separate
+published idle-handler scenario requires a cleared alarm and a successful later
+request. This corrects the fixture's lifecycle invariant without changing the
+SDK, native alarm behavior or deadlines.
