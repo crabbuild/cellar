@@ -267,7 +267,7 @@ fn fixture_image(path: &Path, ticket: &ApplyTicket) -> Result<CommittedImage> {
     std::fs::File::open(path)?.sync_all()?;
     Ok(CommittedImage {
         name,
-        digest: Sha256::digest(&bytes).into(),
+        commitment: <[u8; 32]>::from(Sha256::digest(&bytes)).into(),
         length: bytes.len() as u64,
         ltx_epoch: 1,
         txid: ticket.position().index.get(),

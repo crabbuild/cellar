@@ -45,6 +45,7 @@ impl NodeExtentStore {
             || limits.max_roots == 0
             || limits.max_root_extents == 0
             || limits.max_references == 0
+            || !(1..=1024).contains(&limits.max_workspaces)
         {
             return Err(StoreError::Limit);
         }
@@ -60,6 +61,7 @@ impl NodeExtentStore {
         filesystem.sync_all(&lock_path)?;
         filesystem.sync_all(&directory)?;
         let mut state = State::default();
+        let mut workspaces = Vec::new();
         for entry in filesystem.read_dir_iter(&directory)? {
             let entry = entry?;
             if entry.file_name == "extents.lock" {
@@ -70,6 +72,17 @@ impl NodeExtentStore {
                 return Err(StoreError::Layout);
             }
             let metadata = filesystem.symlink_metadata(&directory.join(name))?;
+            if name.len() == 66 && name.starts_with("w-") {
+                let id = digest(&name[2..])?;
+                if workspace::name(&id) != name || !entry.is_dir || !metadata.is_dir {
+                    return Err(StoreError::Layout);
+                }
+                if workspaces.len() >= limits.max_workspaces {
+                    return Err(StoreError::Limit);
+                }
+                workspaces.push(directory.join(name));
+                continue;
+            }
             if entry.is_dir || !metadata.is_file {
                 return Err(StoreError::Layout);
             }
@@ -127,6 +140,14 @@ impl NodeExtentStore {
                 return Err(StoreError::Layout);
             }
             state.bytes = next_bytes;
+        }
+        // Do not delete while enumerating: changing directory iteration offsets
+        // could skip an immutable object and undercount the recovered inventory.
+        for path in &workspaces {
+            workspace::discard(filesystem.as_ref(), path)?;
+        }
+        if !workspaces.is_empty() {
+            filesystem.sync_all(&directory)?;
         }
         Ok(Self {
             inner: Arc::new(Inner {

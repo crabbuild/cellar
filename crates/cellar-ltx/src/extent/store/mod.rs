@@ -4,9 +4,14 @@
 //! closing them never refunds files that remain on disk. Root selection and
 //! native acknowledgement authority belong to the host, not this inventory.
 
+mod image;
 mod inventory;
 mod publication;
 mod reclaim;
+mod workspace;
+
+pub use image::{ImageRootUpdate, PreparedImageRoot, RootApplyWork, SealedImageRoot};
+pub use workspace::{NodeWorkspace, WorkspaceBounds};
 
 use super::{
     file::ExtentDownload,
@@ -32,6 +37,8 @@ pub struct NodeExtentLimits {
     /// Total extent slots described by retained root files, not SQLite pages.
     pub max_root_extents: usize,
     pub max_references: usize,
+    /// Live or quarantined disposable SQLite directories sharing this budget.
+    pub max_workspaces: usize,
 }
 
 impl Default for NodeExtentLimits {
@@ -42,6 +49,7 @@ impl Default for NodeExtentLimits {
             max_roots: 4096,
             max_root_extents: 262144,
             max_references: 16384,
+            max_workspaces: 256,
         }
     }
 }
@@ -66,6 +74,8 @@ pub enum StoreError {
     Integrity,
     #[error("extent metadata: {0}")]
     Root(#[from] RootError),
+    #[error("extent image apply: {0}")]
+    Apply(#[from] crate::apply::ApplyError),
     #[error("extent bytes: {0}")]
     Extent(#[from] stream_snapshot::Error),
     #[error("extent inventory I/O: {0}")]
@@ -83,6 +93,8 @@ pub struct NodeExtentUsage {
     pub objects: usize,
     pub roots: usize,
     pub root_extents: usize,
+    pub workspace_bytes: u64,
+    pub workspaces: usize,
     pub busy: bool,
     pub quarantined: bool,
 }
@@ -143,6 +155,7 @@ struct State {
     objects: BTreeMap<ExtentId, ObjectEntry>,
     roots: BTreeMap<ImageRoot, RootEntry>,
     references: BTreeMap<[u8; 32], ReferenceEntry>,
+    workspaces: BTreeMap<[u8; 32], u64>,
     bytes: u64,
     root_extents: usize,
     busy: bool,
@@ -249,6 +262,8 @@ impl NodeExtentStore {
             objects: state.objects.len(),
             roots: state.roots.len(),
             root_extents: state.root_extents,
+            workspace_bytes: state.workspaces.values().sum(),
+            workspaces: state.workspaces.len(),
             busy: state.busy,
             quarantined: state.quarantined,
         })
