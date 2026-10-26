@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Consume runtime verification and signed physical closure in one terminal CAS.
+//! Consume runtime verification and distinct joined/isolation evidence in one CAS.
 use super::super::histories::validate_request;
 use super::super::nodes::{NodeRecord, NODE_KIND};
 use super::*;
@@ -18,17 +18,47 @@ pub struct FleetRemovalRequest {
     pub stop: ProposalId,
 }
 
+/// Terminal isolated-node intent. This references the permanent deployment
+/// isolation admission for the exact fenced boot. It is not a stop request.
+#[derive(Clone, Debug)]
+pub struct FleetIsolatedRemovalRequest {
+    pub identity: FleetRequestIdentity,
+    pub isolation: ProposalId,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+enum RemovalProof {
+    Joined { request: [u8; 16] },
+    Isolated { request: [u8; 16] },
+}
+
+impl RemovalProof {
+    fn id(self) -> [u8; 16] {
+        match self {
+            Self::Joined { request } | Self::Isolated { request } => request,
+        }
+    }
+
+    fn matches_node(self, node: &NodeRecord) -> bool {
+        match self {
+            Self::Joined { .. } => node.isolation.is_none(),
+            Self::Isolated { request } => node.isolation == Some(request),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Record {
     format: u8,
     catalog: [u8; 32],
     request: FleetRequestIdentity,
-    stop: [u8; 16],
+    proof: RemovalProof,
     finalization: [u8; 16],
     input_root: [u8; 32],
     candidate: [u8; 32],
-    closure: [u8; 32],
+    proof_digest: [u8; 32],
     disruption: [u8; 32],
     node: NodeRecord,
 }
@@ -55,7 +85,7 @@ impl FleetRemovalAdmission {
     }
 
     pub fn closure_digest(&self) -> [u8; 32] {
-        self.record.closure
+        self.record.proof_digest
     }
 
     pub fn applied_revision(&self) -> u64 {
@@ -65,6 +95,51 @@ impl FleetRemovalAdmission {
     pub fn observed_revision(&self) -> u64 {
         self.observed
     }
+}
+
+/// Terminal acceptance using trusted deployment isolation. Its evidence digest
+/// is distinct from a graceful joined-owner closure. Retained disk and engine
+/// state remain tombstoned and cannot be reclaimed from this receipt.
+pub struct FleetIsolatedRemovalAdmission {
+    record: Record,
+    applied: u64,
+    observed: u64,
+}
+
+impl FleetIsolatedRemovalAdmission {
+    pub fn operation(&self) -> [u8; 16] {
+        self.record.request.operation
+    }
+
+    pub fn node(&self) -> [u8; 16] {
+        self.record.node.node
+    }
+
+    pub fn candidate_digest(&self) -> [u8; 32] {
+        self.record.candidate
+    }
+
+    pub fn isolation_request(&self) -> [u8; 16] {
+        self.record.proof.id()
+    }
+
+    pub fn isolation_digest(&self) -> [u8; 32] {
+        self.record.proof_digest
+    }
+
+    pub fn applied_revision(&self) -> u64 {
+        self.applied
+    }
+
+    pub fn observed_revision(&self) -> u64 {
+        self.observed
+    }
+}
+
+struct Completed {
+    record: Record,
+    applied: u64,
+    observed: u64,
 }
 
 fn key(operation: [u8; 16]) -> String {
@@ -77,12 +152,13 @@ impl Record {
         self.node.validate(&catalog.inner)?;
         if self.format != 1
             || self.catalog != catalog.birth_owner()?.catalog
-            || self.stop == [0; 16]
+            || self.proof.id() == [0; 16]
+            || !self.proof.matches_node(&self.node)
             || self.finalization == [0; 16]
             || [
                 self.input_root,
                 self.candidate,
-                self.closure,
+                self.proof_digest,
                 self.disruption,
             ]
             .contains(&[0; 32])
@@ -158,8 +234,8 @@ impl Record {
         Ok(applied)
     }
 
-    fn admission(self, applied: u64, observed: u64) -> FleetRemovalAdmission {
-        FleetRemovalAdmission {
+    fn admission(self, applied: u64, observed: u64) -> Completed {
+        Completed {
             record: self,
             applied,
             observed,
@@ -197,8 +273,67 @@ impl FleetCatalog {
         namespaces: &[NamespaceCatalog],
         timeout: Duration,
     ) -> Result<FleetRemovalAdmission> {
+        let completed = self
+            .complete_removal_inner(
+                snapshot,
+                &request.identity,
+                RemovalProof::Joined {
+                    request: request.stop.bytes(),
+                },
+                verification,
+                namespaces,
+                timeout,
+            )
+            .await?;
+        Ok(FleetRemovalAdmission {
+            record: completed.record,
+            applied: completed.applied,
+            observed: completed.observed,
+        })
+    }
+
+    /// Remove a permanently isolated exact boot after complete current
+    /// inventory, fresh survivor quorum and physical archive replay. The
+    /// terminal receipt, retained node tombstone and disruption-slot release
+    /// share one CAS. Exact committed retries require no live verification.
+    pub async fn complete_isolated_evacuation(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetIsolatedRemovalRequest,
+        verification: Option<&mut FleetEvacuationVerification>,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetIsolatedRemovalAdmission> {
+        let completed = self
+            .complete_removal_inner(
+                snapshot,
+                &request.identity,
+                RemovalProof::Isolated {
+                    request: request.isolation.bytes(),
+                },
+                verification,
+                namespaces,
+                timeout,
+            )
+            .await?;
+        Ok(FleetIsolatedRemovalAdmission {
+            record: completed.record,
+            applied: completed.applied,
+            observed: completed.observed,
+        })
+    }
+
+    async fn complete_removal_inner(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        proof: RemovalProof,
+        verification: Option<&mut FleetEvacuationVerification>,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<Completed> {
         self.check_snapshot(snapshot)?;
-        validate_request(&request.identity)?;
+        validate_request(request)?;
         if namespaces.len() > namespaces::MAX_NAMESPACES {
             return Err(FleetCatalogError::Limit);
         }
@@ -209,7 +344,7 @@ impl FleetCatalog {
                 if let Some((mutation, _)) = self
                     .inner
                     .read::<FleetMutation>(
-                        &format!("requests/{}", hex::encode(request.identity.id)),
+                        &format!("requests/{}", hex::encode(request.id)),
                         REQUEST_KIND,
                         REQUEST_LIMIT,
                     )
@@ -221,14 +356,14 @@ impl FleetCatalog {
                         .iter()
                         .find(|change| {
                             change.table == FleetTable::Operations
-                                && change.key == key(request.identity.operation)
+                                && change.key == key(request.operation)
                         })
                         .and_then(|change| change.value.as_deref())
                         .ok_or(FleetCatalogError::PayloadConflict)?;
                     let record: Record = decode(KIND, value, LIMIT)?;
                     record.validate(self)?;
-                    if record.request != request.identity
-                        || record.stop != request.stop.bytes()
+                    if record.request != *request
+                        || record.proof != proof
                         || record.mutation()? != mutation
                     {
                         return Err(FleetCatalogError::PayloadConflict);
@@ -238,7 +373,7 @@ impl FleetCatalog {
                     }
                 }
                 if current.token != snapshot.token
-                    || request.identity.expected_revision != snapshot.revision()
+                    || request.expected_revision != snapshot.revision()
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -251,7 +386,7 @@ impl FleetCatalog {
         }
         let verification = verification.ok_or(FleetCatalogError::InventoryIncomplete)?;
         if !Arc::ptr_eq(&self.inner, &verification.catalog.inner)
-            || verification.book.basis.operation != request.identity.operation
+            || verification.book.basis.operation != request.operation
             || verification.book.basis.finalization.is_none()
         {
             return Err(FleetCatalogError::Conflict);
@@ -324,25 +459,41 @@ impl FleetCatalog {
                 .run(Box::pin(self.check_inventory_inner(snapshot, namespaces)))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)??;
-            let fence = self
-                .stop_record(snapshot, request.identity.operation)
-                .await?;
+            let fence = self.stop_record(snapshot, request.operation).await?;
             if verification.book.basis.finalization != Some(fence.request.id) {
                 return Err(FleetCatalogError::Conflict);
             }
-            let selector = fence.stop_selector(request.stop)?;
-            let closure = self.closure_sink(&selector)?.verify(&selector).await?;
+            let proof_digest = match proof {
+                RemovalProof::Joined { request } => {
+                    let selector = fence.stop_selector(
+                        ProposalId::new(request)
+                            .map_err(|_| FleetCatalogError::Invalid("stop request"))?,
+                    )?;
+                    self.closure_sink(&selector)?
+                        .verify(&selector)
+                        .await?
+                        .digest()
+                }
+                RemovalProof::Isolated { request } => {
+                    if fence.node.isolation != Some(request) {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    self.confirm_node_isolation(snapshot, &fence.node)
+                        .await?
+                        .digest
+                }
+            };
             let mut node = fence.node;
-            node.complete_removal(request.identity.operation)?;
+            node.complete_removal(request.operation)?;
             let record = Record {
                 format: 1,
                 catalog: self.birth_owner()?.catalog,
-                request: request.identity.clone(),
-                stop: request.stop.bytes(),
+                request: request.clone(),
+                proof,
                 finalization: fence.request.id,
                 input_root: hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?),
                 candidate: candidate.digest,
-                closure: closure.digest(),
+                proof_digest,
                 disruption: fence.disruption,
                 node,
             };

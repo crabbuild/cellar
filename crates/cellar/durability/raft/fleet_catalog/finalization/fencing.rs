@@ -31,6 +31,9 @@ impl Record {
         &self,
         request: ProposalId,
     ) -> Result<crate::raft::fleet_stop::StopSelector> {
+        if self.node.isolation.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
         let selector = crate::raft::fleet_stop::StopSelector {
             boot: self.node.boot_binding(self.catalog)?,
             epoch: self.node.epoch,
@@ -119,6 +122,9 @@ impl Record {
             return Err(FleetCatalogError::Corrupt("finalization candidate scope"));
         }
         catalog.confirm_boot(snapshot, &self.node).await?;
+        if self.node.isolation.is_some() {
+            catalog.confirm_node_isolation(snapshot, &self.node).await?;
+        }
         Ok(applied)
     }
 
@@ -141,6 +147,12 @@ pub struct FleetFinalizationAdmission {
 }
 
 impl FleetFinalizationAdmission {
+    /// External isolation admission, when this fence uses deployment evidence.
+    /// A fenced isolated node has no graceful stop selector or closure receipt.
+    pub fn isolation_request(&self) -> Option<[u8; 16]> {
+        self.record.node.isolation
+    }
+
     /// Request data only. The receiving host must revalidate the rooted fence
     /// and persist its exact local guard before issuing any Node stop.
     pub fn stop_request(
@@ -224,16 +236,71 @@ enum Start {
     Ready(Box<FleetHostAuthorization>),
 }
 
+enum FinalizationSource<'a> {
+    Process(&'a RaftCells),
+    Isolation(ProposalId),
+}
+
+impl FinalizationSource<'_> {
+    fn isolation(&self) -> Option<[u8; 16]> {
+        match self {
+            Self::Process(_) => None,
+            Self::Isolation(id) => Some(id.bytes()),
+        }
+    }
+}
+
 impl FleetEvacuationCandidate {
-    /// Atomically fence further boots after complete inventory/candidate checks
-    /// and an owned fresh process probe. Existing process work remains owned;
-    /// a successful fence neither stops that process nor certifies completion.
-    /// Exact committed retries reconcile without requiring live probe inputs.
+    /// Fence a reachable process using an owned current process observation.
     pub async fn begin_finalization(
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetRequestIdentity,
         observer: &RaftCells,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetFinalizationAdmission> {
+        self.begin_finalization_inner(
+            snapshot,
+            request,
+            FinalizationSource::Process(observer),
+            namespaces,
+            timeout,
+        )
+        .await
+    }
+
+    /// Fence an already quarantined exact boot using its admitted deployment
+    /// isolation evidence. The candidate still requires complete inventory,
+    /// survivor quorum and physical archive replay. No graceful stop selector
+    /// or terminal removal is granted by this transition.
+    pub async fn begin_isolated_finalization(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        isolation: ProposalId,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetFinalizationAdmission> {
+        self.begin_finalization_inner(
+            snapshot,
+            request,
+            FinalizationSource::Isolation(isolation),
+            namespaces,
+            timeout,
+        )
+        .await
+    }
+
+    /// Atomically fence further boots after complete inventory/candidate checks
+    /// and an owned fresh process probe. Existing process work remains owned;
+    /// a successful fence neither stops that process nor certifies completion.
+    /// Exact committed retries reconcile without requiring live probe inputs.
+    async fn begin_finalization_inner(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        source: FinalizationSource<'_>,
         namespaces: &[NamespaceCatalog],
         timeout: Duration,
     ) -> Result<FleetFinalizationAdmission> {
@@ -251,7 +318,9 @@ impl FleetEvacuationCandidate {
             .run(deadline.remaining()?, async {
                 let current = catalog.inner.current().await?;
                 if let Some(record) = catalog.finalization_request(request).await? {
-                    if record.candidate != self.digest {
+                    if record.candidate != self.digest
+                        || record.node.isolation != source.isolation()
+                    {
                         return Err(FleetCatalogError::PayloadConflict);
                     }
                     let mutation = record.mutation()?;
@@ -295,7 +364,19 @@ impl FleetEvacuationCandidate {
                     .map_err(|_| FleetCatalogError::Closed)??;
                 let node = NodeId::new(self.candidate.basis.node)
                     .map_err(|_| FleetCatalogError::Corrupt("candidate node"))?;
-                let target = catalog.host_from(&current, node).await?;
+                let target = match &source {
+                    FinalizationSource::Process(_) => catalog.host_from(&current, node).await?,
+                    FinalizationSource::Isolation(id) => {
+                        let target = catalog.host_from_record(&current, node).await?;
+                        if target.record.isolation != Some(id.bytes()) {
+                            return Err(FleetCatalogError::Conflict);
+                        }
+                        catalog
+                            .confirm_node_isolation(&current, &target.record)
+                            .await?;
+                        target
+                    }
+                };
                 catalog.confirm_boot(&current, &target.record).await?;
                 Ok(Start::Ready(Box::new(target)))
             })
@@ -307,12 +388,14 @@ impl FleetEvacuationCandidate {
             }
             Start::Ready(target) => target,
         };
-        let observation = observer
-            .inspect_peer_node(target.node(), snapshot.revision(), deadline.remaining()?)
-            .await
-            .map_err(FleetCatalogError::Observation)?;
-        deadline.remaining()?;
-        check_process(&target, &observation)?;
+        if let FinalizationSource::Process(observer) = source {
+            let observation = observer
+                .inspect_peer_node(target.node(), snapshot.revision(), deadline.remaining()?)
+                .await
+                .map_err(FleetCatalogError::Observation)?;
+            deadline.remaining()?;
+            check_process(&target, &observation)?;
+        }
         catalog
             .run(deadline.remaining()?, async {
                 let current = catalog.inner.current().await?;

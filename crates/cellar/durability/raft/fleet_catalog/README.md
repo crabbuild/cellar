@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -666,8 +666,38 @@ receipt records `isolated_sources`, including on exact retries; its source diges
 distinguishes live observations from isolation evidence. Source storage remains
 retained and charged. This is not a signed graceful closure, an evacuation
 certificate, permission to erase a volume, or release of the fleet disruption
-slot. Terminal isolated-node removal and the production deployment isolation
-adapter remain separate delivery work.
+slot. The distinct terminal path below can release the disruption only after
+complete survivor and archive verification. Production deployment isolation
+integration remains separate delivery work.
+
+### Terminal isolated-node removal
+
+After every affected membership has settled, the isolated path reuses complete
+inventory, fresh RF3 survivor observations and actual archive replay through
+`prepare_evacuation_verification`. The candidate's
+`begin_isolated_finalization` takes the permanent isolation admission ID. It
+checks the exact quarantined boot and canonical journal, then records Finalizing
+without probing the unavailable process. It cannot produce a stop or stop-fence
+selector, and `verify_physical_closure` cannot reinterpret it as a signed closure.
+The reachable `begin_finalization` path continues to require a current process
+probe.
+
+A recreated adapter resumes Finalizing through the original candidate prefix and
+renews survivor and replay proofs. `complete_isolated_evacuation` takes a distinct
+`FleetIsolatedRemovalRequest`; it verifies the admitted isolation again and runs
+the same complete-inventory and fresh survivor checks as reachable removal. One
+CAS stores a typed isolation removal receipt, preserves the node/disk/engine and
+permanent quarantine, changes the node to Removed and releases the exact shared
+disruption slot. Its `FleetIsolatedRemovalAdmission` exposes the isolation request
+and digest separately from the reachable receipt's closure digest.
+
+A lost terminal reply reconciles the original request journal before live
+prerequisites, including after another node operation begins. Changed evidence
+or using the same request identity through the other proof path conflicts. Stale
+inventory, unknown histories or a failed survivor retain Finalizing and the slot.
+The terminal receipt grants no archive or volume reclamation. The deployment
+adapter remains responsible for establishing actual external isolation; a health
+timeout never creates that evidence.
 
 ## Complete physical history observation
 

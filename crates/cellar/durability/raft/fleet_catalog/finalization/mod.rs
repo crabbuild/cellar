@@ -7,7 +7,10 @@ mod receipts;
 mod survivors;
 mod terminal;
 pub use fencing::FleetFinalizationAdmission;
-pub use terminal::{FleetRemovalAdmission, FleetRemovalRequest};
+pub use terminal::{
+    FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetRemovalAdmission,
+    FleetRemovalRequest,
+};
 
 use super::*;
 use crate::application::consensus::RaftCells;

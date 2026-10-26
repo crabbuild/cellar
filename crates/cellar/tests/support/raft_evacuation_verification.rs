@@ -10,6 +10,9 @@ use cellar::application::consensus::verification::{
 #[path = "raft_finalization_fence.rs"]
 mod finalization_fence;
 
+#[path = "raft_isolated_removal.rs"]
+mod isolated_removal;
+
 async fn begin(s: &Started) -> Result<(NamespaceCatalog, ProposalId, FleetEvacuationVerification)> {
     s.f.state(NodeId::new([7; 16])?, FleetNodeState::Active, 190)
         .await?;
