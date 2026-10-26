@@ -134,7 +134,8 @@
       ],
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo01/completion.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion-merged-regression.json"
       ]
     },
     {
@@ -278,7 +279,8 @@
       ],
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo02/completion.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion-merged-regression.json"
       ]
     },
     {
@@ -2162,7 +2164,8 @@
       ],
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json"
       ]
     },
     {
@@ -2652,7 +2655,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion-merged.json"
       ]
     },
     {

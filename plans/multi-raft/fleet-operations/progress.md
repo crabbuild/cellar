@@ -6,7 +6,39 @@ FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
 managed maintenance and resize are not delivered. The task manifest is the
 package-status source of truth. Historical sections below record earlier states.
 
-## Current completion qualification
+## Current merged-main qualification
+
+Source `7863043eb3f91c35e8e1e4b1d82099363af6d1bc` integrates main
+`d3206c924031a3f2ca3387b542c02877bb91423d`, including file-backed streamed
+snapshots and the RPC scope/pump fixes. Dynamic history admission shares the
+node's snapshot scratch pool. Streamed replay preserves canonical empty archives,
+exact publication-origin positions and independent per-history batch completion.
+
+Eleven complete core/Raft suites pass **569 cases**: enrollment 123, catalog 12,
+permits 25, archive 73, snapshot 46, directory 16, Raft units 172, host 32,
+execution 21, reads 22 and LTX integration 27. Local-store and cell-limit suites
+add nine; four streamed snapshot/LTX suites add 20. All 141 required FO-03 cases
+and ten movement cases pass. Ignored helper cases are not counted; the snapshot
+helpers also execute through their passing parent crash matrices.
+
+All-target Clippy with warnings denied, formatting, layout, native dependencies
+and documentation checks pass. The source manifest freezes 1,252 Rust files and
+21 Cargo/configuration inputs. Logs, copied immutable binaries, hashes and audit
+are retained outside runtime data in `qualification/fleet-operations/` under this
+checkout's private target, generations `movement-completion-merge-v8/` and
+`movement-completion-merge-v9/`. Ignored local mirrors and supplemental regression
+records preserve the earlier qualification records.
+
+The v8 directory deadline test timed out waiting for its fault gate. The same
+unchanged binary passed 20 focused repetitions and all 16 directory cases in v9;
+its root cause remains unestablished. The original failure is retained separately,
+as are the v6 missing scratch-field build failure and v7 invalid harness target.
+No assertion, deadline or stack bound was relaxed. Other successful v8 suites
+were retained; v9 completes the remaining checks on identical frozen inputs.
+No evidence-directory files are added. Deployed RustFS, enforced Colima resources,
+fleet TPS/latency and soak remain unqualified.
+
+## Previous completion qualification
 
 Source `c7a1152b7366a799cc7fe41b1bbda6d63493cd0c` passes all 141 required FO-03 cases and
 seven complete suites: enrollment 123, catalog 12, permits 25, archive 58,
