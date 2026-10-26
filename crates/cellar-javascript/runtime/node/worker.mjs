@@ -3,6 +3,7 @@
 // Injected by the Rust bootstrap. No application code runs before the private
 // transport and context factory have captured their dependencies.
 import { readFileSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { Serializer, Deserializer } from "node:v8";
 import { types } from "node:util";
@@ -23,6 +24,22 @@ const stringify = JSON.stringify;
 const isPromise = types.isPromise;
 const scope = new AsyncLocalStorage();
 const workersLifetimes = parse(config.descriptor).workers_lifetimes;
+if (workersLifetimes) {
+  // Workers exposes this synchronous BufferSource comparison on SubtleCrypto.
+  // Use Node's native constant-time primitive, never a JavaScript byte loop.
+  Object.defineProperty(crypto.subtle, "timingSafeEqual", {
+    value: timingSafeEqual,
+    configurable: true,
+    writable: true,
+  });
+  const rejections = makeRejections(
+    () => scope.getStore(),
+    scope.run.bind(scope),
+    console.error.bind(console),
+  );
+  process.on("unhandledRejection", rejections.unhandled);
+  process.on("rejectionHandled", rejections.handled);
+}
 // Track invocation authority separately from operations waiting for Rust replies.
 const active = new Map();
 const pending = new Map();

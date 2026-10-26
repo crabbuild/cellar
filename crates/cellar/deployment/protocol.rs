@@ -102,6 +102,7 @@ pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
     FEATURE_ASSETS_V1,
     FEATURE_CONTAINERS_V1,
     FEATURE_CONTAINER_IMAGES_V1,
+    FEATURE_CONTAINER_PORTS_V1,
     FEATURE_CRON_V1,
     FEATURE_SQL_V1,
     FEATURE_KV_V1,
@@ -241,6 +242,22 @@ impl NativeDeployment {
 /// Refuse ambiguous execution formats before reading code or constructing
 /// workers. The feature gate makes older nodes reject native manifests too.
 pub fn validate_execution_manifest(manifest: &Manifest) -> anyhow::Result<()> {
+    for spec in &manifest.containers {
+        crate::container::validate_exposed_ports(&spec.exposed_ports)?;
+    }
+    if manifest
+        .containers
+        .iter()
+        .any(|spec| !spec.exposed_ports.is_empty())
+    {
+        anyhow::ensure!(
+            manifest
+                .required_features
+                .iter()
+                .any(|feature| feature == FEATURE_CONTAINER_PORTS_V1),
+            "additional container ports require the {FEATURE_CONTAINER_PORTS_V1} feature gate"
+        );
+    }
     anyhow::ensure!(
         manifest.native.is_some()
             || !manifest
@@ -373,6 +390,7 @@ pub const FEATURE_ASSETS_V1: &str = "assets-v1";
 /// `container`, and fail only when the object first touches it.
 pub const FEATURE_CONTAINERS_V1: &str = "containers-v1";
 pub const FEATURE_CONTAINER_IMAGES_V1: &str = "container-images-v1";
+pub const FEATURE_CONTAINER_PORTS_V1: &str = "container-ports-v1";
 /// A deployment with SQL databases. Required because a build without the
 /// reserved `__SqlDatabase` class would load the manifest and then fail every
 /// `env.DB` call at request time, on a node the developer is not watching —

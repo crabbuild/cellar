@@ -474,6 +474,11 @@ admission permits at most 64 tickets, with aggregate JSON inputs bounded by the
 host body limit. Tickets are invocation-owned and consumed once. Queued lifecycle
 inside transactions and `blockConcurrencyWhile` currently refuses before effects.
 
+For local HTTP previews, use the published SDK's `proxyToSandbox` and
+`exposePort` with explicit domain and container-port configuration. The
+[preview guide](previews.md) covers routing, token/runtime lifetime and platform
+requirements.
+
 ## Which context can be retained?
 
 | Value | Valid lifetime |

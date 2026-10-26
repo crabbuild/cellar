@@ -95,6 +95,7 @@ pub fn graph(config: &AppConfig) -> DeploymentGraph {
                     instance_type: Some("lite".into()),
                     max_instances: Some(1),
                     runtime: None,
+                    exposed_ports: Vec::new(),
                 }]
             })
             .unwrap_or_default(),

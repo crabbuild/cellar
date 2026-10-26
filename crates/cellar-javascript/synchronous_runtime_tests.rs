@@ -457,3 +457,37 @@ fn shutdown_interrupts_guest_continuation_after_native_wait() -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(feature = "node")]
+#[test]
+fn ordinary_node_profile_keeps_floating_rejections_fatal() -> Result<()> {
+    let result = run(
+        Backend::Node,
+        Options::default(),
+        "Promise.reject(new Error('floating application failure')); return new Promise(() => {});",
+        |application| {
+            let active = Arc::new(AtomicBool::new(true));
+            let (_, mut receive) = start(&application.runtime, active.clone());
+            let until = Instant::now() + Duration::from_secs(5);
+            loop {
+                match receive.try_recv() {
+                    Err(channel::error::TryRecvError::Disconnected) => break,
+                    Err(channel::error::TryRecvError::Empty) => {}
+                    Ok(_) => anyhow::bail!("floating rejection unexpectedly completed"),
+                }
+                ensure!(
+                    Instant::now() < until,
+                    "ordinary Node rejection did not stop the runtime"
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            active.store(false, Ordering::Release);
+            Ok(())
+        },
+    );
+    ensure!(
+        result.is_err(),
+        "Workers rejection handling leaked into the ordinary Node profile"
+    );
+    Ok(())
+}

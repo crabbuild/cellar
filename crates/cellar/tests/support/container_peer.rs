@@ -244,6 +244,7 @@ impl Peer {
             instance_type: Some("basic".into()),
             max_instances: None,
             runtime: None,
+            exposed_ports: Vec::new(),
         }];
         graph.primary.fence_image = Some(cellar::container::image_reference(&"b".repeat(64)));
         graph.primary.options.vars.extend([

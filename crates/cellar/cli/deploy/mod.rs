@@ -420,6 +420,8 @@ struct ContainerDecl {
     max_instances: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     runtime: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    exposed_ports: Vec<u16>,
 }
 
 struct ProjectAssets {
@@ -624,6 +626,7 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
             instance_type: decl.instance_type.clone(),
             max_instances: decl.max_instances,
             runtime: decl.runtime.clone(),
+            exposed_ports: decl.exposed_ports.clone(),
         })
         .collect();
     if !container_specs.is_empty() {
@@ -749,6 +752,12 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
             }
             if !container_specs.is_empty() {
                 features.push(FEATURE_CONTAINERS_V1.to_string());
+            }
+            if container_specs
+                .iter()
+                .any(|spec| !spec.exposed_ports.is_empty())
+            {
+                features.push(crate::protocol::FEATURE_CONTAINER_PORTS_V1.to_string());
             }
             if uses_sql {
                 features.push(FEATURE_SQL_V1.to_string());
@@ -2185,7 +2194,13 @@ fn read_containers(
         if let Some(key) = entry.keys().find(|key| {
             !matches!(
                 key.as_str(),
-                "class_name" | "image" | "name" | "instance_type" | "max_instances" | "runtime"
+                "class_name"
+                    | "image"
+                    | "name"
+                    | "instance_type"
+                    | "max_instances"
+                    | "runtime"
+                    | "exposed_ports"
             )
         }) {
             bail!("config `containers[{index}]` declares `{key}`, which cellar does not model");
@@ -2263,6 +2278,15 @@ fn read_containers(
                     })
             })
             .transpose()?;
+        let exposed_ports: Vec<u16> = entry
+            .get("exposed_ports")
+            .map(|value| serde_json::from_value(value.clone()))
+            .transpose()
+            .with_context(|| {
+                format!("config `containers[{index}].exposed_ports` requires integer TCP ports")
+            })?
+            .unwrap_or_default();
+        crate::container::validate_exposed_ports(&exposed_ports)?;
         declared.push(ContainerDecl {
             class_name: class_name.to_string(),
             image: image.to_string(),
@@ -2270,6 +2294,7 @@ fn read_containers(
             instance_type,
             max_instances,
             runtime,
+            exposed_ports,
         });
     }
     Ok(declared)

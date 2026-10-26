@@ -177,8 +177,8 @@ leave no native bridge reservations.
 This exercises the published Containers local WebSocketPair proxy and Cap'n Web
 session over Cellar's native port socket. It does not replace SDK transport code.
 New stream/WS tests retain explicit handshake budgets; existing image deadlines
-and assertions remain unchanged. Complete reconnect, abandoned-stream,
-and complete fault qualification remain required.
+and assertions remain unchanged. Complete reconnect, abandoned-stream and
+fault qualification remain required.
 
 ## Returned RPC response fixture
 
@@ -188,7 +188,6 @@ responses returned from DO methods: metadata and aliases, a 3 KiB body through a
 prefix, client cancellation and unconsumed-body disposal. Shutdown must drain
 application work and bridge reservations. Full HTTP-message compatibility remains
 pending; the Request/argument slice below has separate evidence.
-
 
 ## RPC Request and HTTP-message argument fixture
 
@@ -204,3 +203,21 @@ The owned protocol tests separately prove that a later abort waits for that
 caller's storage proof while source cancellation runs in its original scope.
 This is a bounded Node profile, not full Workers conformance or an embedded web
 bootstrap.
+
+
+## Published idle lifecycle and HTTP previews
+
+`container-lifecycle.mjs` observes the actual Containers idle alarm and hooks
+against the native engine peer. The peer models graceful SIGTERM exit; state
+and counters must survive sleep/wake, and explicit teardown must drain resources.
+
+`sandbox-preview.mjs` uses the unchanged Sandbox preview helper and matching
+image. It verifies binary HTTP forwarding, forged-header removal, invalid-token
+refusal, stale URLs after stop/replacement, explicit re-exposure and revocation.
+The image keeps its pinned digest; the host declares additional port 8080 with
+`exposed_ports`. No external domain or hosted account is contacted.
+
+See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
+wiring and the [open callback/alarm qualification gap](../../../plans/sandbox-provider-progress.md#open-callbackalarm-qualification-failure)
+for the extra overlapping-barrier probe. HTTP preview acceptance does not qualify
+that gap, Worker/DO upgraded routing or complete SDK conformance.

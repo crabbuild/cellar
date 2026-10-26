@@ -167,3 +167,9 @@ async function httpMessageTypes(
   return { method, body };
 }
 void httpMessageTypes;
+
+const equalPreviewTokens: boolean = crypto.subtle.timingSafeEqual(
+  new Uint8Array([1]),
+  new Uint8Array([1]),
+);
+void equalPreviewTokens;

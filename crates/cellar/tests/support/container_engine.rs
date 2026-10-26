@@ -32,6 +32,7 @@ pub struct Engine {
     pub destroy_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub destroy_entered: AtomicBool,
     pub fail_next_start: AtomicBool,
+    pub exit_on_sigterm: AtomicBool,
     pub refuse_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
@@ -215,6 +216,13 @@ impl Engine {
             if method == "DELETE" || query.contains("SIGKILL") || query.ends_with("=9") {
                 if let Some(sender) = self.containers.lock().unwrap().get(name) {
                     sender.send_replace(Some(137));
+                }
+            }
+            if self.exit_on_sigterm.load(Ordering::SeqCst)
+                && (query.contains("SIGTERM") || query.ends_with("=15"))
+            {
+                if let Some(sender) = self.containers.lock().unwrap().get(name) {
+                    sender.send_replace(Some(0));
                 }
             }
             if method == "DELETE" {

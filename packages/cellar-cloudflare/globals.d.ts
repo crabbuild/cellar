@@ -6,6 +6,9 @@ import type { WorkerWebSocket } from "./index.js";
 export {};
 
 declare global {
+  interface SubtleCrypto {
+    timingSafeEqual(a: BufferSource, b: BufferSource): boolean;
+  }
   interface Response {
     readonly webSocket: WorkerWebSocket | null;
   }
