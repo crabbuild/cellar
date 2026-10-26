@@ -7,6 +7,59 @@ redistribution, operator commands, managed maintenance and resize are not
 delivered. The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Aborted-movement settlement delivery
+
+`settle_aborted_movement` adds a distinct terminal receipt for the exact consumed
+abort. All three original seed owners must independently observe its applied
+`Aborted` phase, exact plan/permit and stable original RF3 configuration before
+physical worker-exit samples. The destination is empty or retains the exact
+admitted learner history. A removed learner may never receive the abort commit
+index; its local phase is not used as terminal quorum proof. Its actual occupied
+engine, deployment evidence and installed pools raise the retained physical
+floor. The receipt exposes historical `retained_target()` and grants no deletion.
+
+The same bounded root CAS retains the original debit/permit/journals, records
+the typed result and removes only its exact active book reference. Canonical
+retries precede live prerequisites, including after later admission and target
+shutdown. Complete, Fenced and Aborted receipts cannot be reinterpreted. Explicit
+reconciliation and the node-owned service drive this boundary without deciding
+to abort a plan themselves. Unsettled seeding/joint work, running workers and
+unproved boot changes retain their debt through this API.
+
+Source `eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd` passes **466 selected native cases**,
+including all 141 required FO-03 cases and five new abort cases. The cohort is
+enrollment 143, Raft units 183, catalog 12, permits 25, directory 16, host 32,
+execution 21, reads 22, six targeted archive/seed cases and six rooted execution
+cases. Two pre-existing ignored execution cases are excluded. All-target host
+Clippy with warnings denied and repository format/layout/dependency/docs checks
+pass. All 202 SDK v5 frozen inputs remain unchanged. Immutable binaries, frozen
+inputs, logs and the audit remain outside runtime data in checkout-private
+`qualification/fleet-operations/aborted-movement-v6/`.
+
+The cases verify actual S3 seed/abort, retained physical history,
+lost terminal confirmation, adapter recreation, distinct proof kinds/payloads,
+unchanged historical begin retries, later capacity, target shutdown, original RF3
+values 7 to 12 to 21, automatic empty-target settlement and rejection of late
+activation, active/joint work, a source archive worker after waiter loss/deadline,
+and an unavailable original owner.
+
+The first attempt expected an error for an exact already committed begin retry;
+the API correctly returned historical Aborted status. The test now asserts that
+status, plan, unchanged membership revision and consumed sequence. The next
+attempt reproduced a standard-stack overflow in the existing concurrent fixture.
+Startup probes located it before reconciliation; measured reconciliation future
+state was 26,824 bytes. Sharing one guarded terminal future restores the original
+concurrent fixture on the standard stack (26,768-byte state). Uninstrumented
+executor cases pass, and temporary probes are removed. No proof, concurrency
+assertion, stack limit or deadline was relaxed; failed attempts are retained.
+
+This schema hard-cuts to `/aborted-movement-1`, keeping numeric markers at 1.
+Use fresh matching coordination/data roots and engines. Changed/unavailable-boot
+recovery, trusted platform/closure integration, fleet planning/admission,
+operator workflows and deployed qualification remain unfinished. Automatic
+management stays default-off; no TPS/p99 or enforced Colima qualification is
+claimed. Full SDK CI remains open.
+
 ## Owned admitted-movement controller delivery
 
 `start_movement_service` now installs one explicit worker in the enrolled node's
@@ -22,7 +75,8 @@ metadata admission. Failed rounds/moves use bounded exponential backoff and
 positive jitter. Joint and terminal work gets priority, with another ready move
 receiving a fairness turn after three priority selections. Missing book rows do
 not count as completion: permanent settlement must be verified before reclaiming
-a local slot. Aborted work remains unsettled and needs operator attention.
+a local slot. The abort settlement above supersedes this checkpoint's Aborted
+cleanup gap; unproved boot changes still retain debt.
 
 Explicit shutdown, handle drop and node drain stop the worker. Physical node
 shutdown joins it through the existing job set, including a blocked deployment
@@ -494,9 +548,10 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Complete terminal cleanup for aborted work and changed/unavailable boots,
-   including trusted deployment isolation integration. Preserve uncertain physical
-   debt and exact durable receipts; do not free capacity after timeouts.
+1. Recover changed/unavailable boots with verified physical closure or trusted
+   platform evidence and exact durable ownership continuity. A new process,
+   current catalog boot or synced lifecycle guard alone is not joined-owner
+   proof. Preserve uncertain debt and make maintenance/rejoin resumable.
 2. Collect complete authenticated fleet inputs, generate candidate assignments
    and connect the existing topology verifier to staged admission/execution under
    retained occupancy, failure domains and single-failure restoration headroom.

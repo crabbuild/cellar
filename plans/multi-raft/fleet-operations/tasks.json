@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c3f96398378dffddf9a11bc8c3a0129a90c7e6c5",
+  "baseline_revision": "eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2169,7 +2169,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/execution-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/owned-service-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/owned-service-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/aborted-movement-regression.json"
       ]
     },
     {
@@ -2237,7 +2238,8 @@
         "crates/cellar-logic/tests/raft_fleet_topology.rs",
         "crates/cellar/durability/raft/fleet_catalog/isolation.rs",
         "crates/cellar/tests/support/raft_movement_isolation.rs",
-        "crates/cellar/tests/support/raft_movement_fenced.rs"
+        "crates/cellar/tests/support/raft_movement_fenced.rs",
+        "crates/cellar/tests/support/raft_movement_aborted.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2253,7 +2255,8 @@
         "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Aborted, unreachable and rebooted owners remain charged. Unused reservations require the distinct quorum-fenced settlement boundary; admission or timeout never releases them.",
         "Verify explicit complete RF3 topology proposals in the pure core. Search legal direct serial move orders under seed peaks and retained source occupancy, then complete direct restoration witnesses for each kept-node loss. Share one bounded search budget; distinguish search exhaustion, direct-path refusal and unproven restoration. Stable groups and unsettled-free fresh complete inputs are prerequisites. Automatic final assignment and owned adapter collection/execution remain separate work.",
         "Accept distinct trusted deployment isolation for an exact boot after rooted exclusion; permanently deny restart/transport and preserve retained storage. Successful movement completion may substitute this admitted proof only for the obsolete original voter absent from fresh stable RF3. Keep full durable membership for placement/quorum while omitting quarantined endpoints from routes; retain provenance across lost replies. External platform integration remains separate work; terminal isolated-node removal is delivered under FO-07.",
-        "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path."
+        "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path.",
+        "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2622,6 +2625,55 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_aborted_movement_retains_seeded_history_and_recovers_receipt",
+          "oracle": "Seed an actual S3 learner, commit the exact abort, verify all original owners and settle while retaining its physical history and floor. Lose CAS confirmation, recreate the adapter, enforce distinct settlement kind and exact payload, preserve historical Aborted begin replies without another configuration, admit later capacity, stop the target and reconcile the old receipt without releasing later work. Original RF3 S3 values advance 7 to12 to21.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_aborted_movement_refuses_active_and_joint_work",
+          "oracle": "The aborted-settlement API refuses Seeding and Joint plans, retaining their active book row and root revision. Ordinary joint finish and subsequent durable business writes remain valid.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_aborted_movement_inflight_seed_retains_debt",
+          "oracle": "Hold a real source archive metadata worker after its learner waiter is lost and deadline expires. Even after every original voter applies the abort, settlement refuses while physical work remains. Releasing and joining that worker permits the distinct abort settlement without creating a destination engine.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_aborted_movement_unavailable_owner_retains_debt",
+          "oracle": "A committed abort with an unavailable original seed owner remains unsettled; a surviving quorum and a stopped process observed only by the caller cannot replace the missing exact physical closure proof. Preserve the active row and continue original-majority writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F07",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -2759,7 +2811,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-preview.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo04/topology-eligibility.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo04/node-isolation.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo04/fenced-movement.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/fenced-movement.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/aborted-settlement.json"
       ]
     },
     {
@@ -2931,7 +2984,8 @@
         "Enforce physical seed throttles, per-node slots, retry deadlines and telemetry-based pause of optional work.",
         "Bound metadata polling/CAS attempts separately from observations and implement non-preemptible physical move-budget priority.",
         "Expose bounded exact pending-movement discovery and one-turn reconciliation. Authenticate purpose/channel/nonce/body/boot-bound remote controls, independently resolve the active canonical resource row and rooted permit at the receiver, and use ordinary guarded begin, learner activation and joint completion. Derive progress from fresh quorum state; resolve permanent settlement by reservation before live probes after caller recreation. The owned service schedules admitted work; new placement/admission generation and aborted/changed-boot cleanup remain.",
-        "Start one explicit node-owned admitted-movement polling service with deployment evidence integration, original round deadlines, bounded positive-jitter backoff, at most two retained reservations and fair joint/terminal priority. Node drain/closure and handle shutdown cancel and join the worker; missing resource rows require permanent-receipt resolution. Keep new admission/assignment policy and aborted/changed-boot cleanup as separate remaining work."
+        "Start one explicit node-owned admitted-movement polling service with deployment evidence integration, original round deadlines, bounded positive-jitter backoff, at most two retained reservations and fair joint/terminal priority. Node drain/closure and handle shutdown cancel and join the worker; missing resource rows require permanent-receipt resolution. Keep new admission/assignment policy and aborted/changed-boot cleanup as separate remaining work.",
+        "Drive verified Aborted terminal settlement from explicit reconciliation and the owned service. Settlement counts are terminal outcomes, not successful replacement counts; do not decide to abort a move from timeout or queue state."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3147,6 +3201,19 @@
             "F06",
             "F07"
           ]
+        },
+        {
+          "name": "fleet_aborted_service_settles_empty_target_and_fences_late_activation",
+          "oracle": "A node-owned service settles an already committed abort whose target never initialized. No caller loop advances settlement. The unused destination stays empty, old activation cannot create an engine, the permanent Aborted receipt reconciles and later resource admission succeeds.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F06",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3198,7 +3265,8 @@
       ],
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo06/explicit-execution.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo06/owned-service.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo06/owned-service.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo06/aborted-execution.json"
       ]
     },
     {

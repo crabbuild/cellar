@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "c3f96398378dffddf9a11bc8c3a0129a90c7e6c5",
+  "revision": "eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -56,11 +56,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "b1253705422b7a015ba567d140c5fea18c3f555d3e905ff881b61764acf0ecc5"
+      "sha256": "e9753cf7ea5ece248e684af2c0933baea01ff679eb959fc3ae9d398cc2f6a067"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "6ca886351fa85bbeded6300efdbfb7768247f9877bab88be938e29ade9df925e"
+      "sha256": "6b5f1a2ecf589d1315b05fc39d7ca4081308db1d97317fd46de79bab415e3631"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -96,7 +96,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "736a4f9a3bf38747bbe24901fae3bca507fa6cfe44d80b82d181cd3c4b97ebc5"
+      "sha256": "6dc32c8efc9e5320fd3ce73ee160f3d1513607b94b946e24c71362ab9fd4746e"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Node-owned paced admitted-movement execution delivered at c3f96398378dffddf9a11bc8c3a0129a90c7e6c5. 461 selected native cases pass, including all 141 required FO-03 cases and seven new service cases. Origin-node singleton, private node-owned catalog client, original turn budgets, bounded jitter/backoff, fair joint/terminal scheduling, lost-settlement receipt recovery, stop/restart and node-shutdown callback joins are verified. Initial cross-domain refusal retained and fixed at the production ownership boundary; closed starter capabilities still refuse. All-target host Clippy-Dwarnings and repository format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Automatic new placement/admission, aborted/changed-boot cleanup, authenticated fleet-input collection/assignment generation, operator workflows and deployed performance/fault/soak qualification remain unfinished. Latest real-node SDK CI container timeout and Python-host stack overflow remain open. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS; automatic fleet management default-off."
+  "review_note": "Distinct aborted-movement settlement delivered at eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd. All 466 selected native cases pass, including all 141 required FO-03 cases and five new abort cases. The proof owns exact Aborted observations from all original seed owners before physical exit/occupancy samples, retains learner storage and its monotonic floor, and recovers permanent typed receipts after lost confirmation, caller recreation, later work and target shutdown. Owned reconciliation drives this boundary without deciding to abort. Initial historical-status assertion and concurrent fixture stack failures are retained; shared guarded terminal dispatch fixes the standard-stack regression without changing the concurrent fixture, proof checks or deadlines. All-target host Clippy-Dwarnings and format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Changed/unavailable-boot recovery, trusted platform isolation, authenticated fleet inputs/assignment generation, operator workflows and deployed RustFS/Colima performance/fault/soak remain unfinished. Full SDK CI remains open. Protocol hard cut ends /aborted-movement-1, markers1; fresh roots/engines required. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS."
 }
