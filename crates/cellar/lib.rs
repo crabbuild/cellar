@@ -216,6 +216,8 @@ pub(crate) mod queue_batching;
 pub mod queue_cli;
 #[path = "application/queue/policy.rs"]
 pub mod queue_policy;
+#[path = "cli/raft_cli/mod.rs"]
+pub mod raft_cli;
 #[path = "durability/replication/storage.rs"]
 pub mod replica_storage;
 #[path = "durability/replication/contracts.rs"]

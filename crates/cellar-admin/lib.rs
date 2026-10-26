@@ -9,6 +9,7 @@ mod auth;
 mod cron;
 mod events;
 mod nodes;
+mod raft;
 
 pub use audit::{AuditStore, Operation};
 pub use auth::{Permission, Principal};
@@ -60,6 +61,23 @@ pub fn router(console: Console) -> Result<Router> {
     }
     let state = Arc::new(console);
     let api = Router::new()
+        .route("/fleets/{fleet}/raft/status", get(raft::status))
+        .route(
+            "/fleets/{fleet}/raft/operations",
+            post(raft::begin).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}",
+            get(raft::operation),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}/movements",
+            get(raft::movements),
+        )
+        .route(
+            "/fleets/{fleet}/raft/operations/{operation}/cancel",
+            post(raft::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/session", get(api::session))
         .route(
             "/fleets/{fleet}/events/retirement-proof",

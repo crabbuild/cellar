@@ -168,6 +168,12 @@ pub struct FleetCommit {
 }
 
 impl FleetCatalog {
+    /// Immutable cluster, fleet-incarnation and addressing binding. This is a
+    /// descriptive request pin, not a current-root or mutation capability.
+    pub fn catalog_id(&self) -> Result<[u8; 32]> {
+        Ok(self.birth_owner()?.catalog)
+    }
+
     pub fn new(
         domain: &ExecutionDomain,
         bucket: Bucket,

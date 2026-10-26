@@ -4,6 +4,9 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[path = "raft_operator_native.rs"]
+mod operator_cases;
+
 struct Inputs {
     hosts: Vec<(NodeId, RaftCells)>,
     namespace: NamespaceCatalog,

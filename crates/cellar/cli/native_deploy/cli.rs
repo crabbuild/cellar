@@ -6,6 +6,9 @@ use super::*;
 /// this executable builds and manages their artifacts and invokes fleet tools.
 pub fn main() -> Result<()> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
+    if arguments.first().is_some_and(|command| command == "raft") {
+        crate::raft_cli::entry(arguments.into_iter().skip(1).collect());
+    }
     if arguments.first().is_some_and(|command| {
         matches!(
             command.as_str(),
@@ -80,6 +83,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
              writes a new executable path; use your process supervisor to activate it.\n\n\
              cellar cell|sql|kv|queue|outbox|stream|subscription|blob COMMAND [OPTIONS]\n\
              cellar diagnose|connect|credentials|token|disconnect [OPTIONS]\n\
+             cellar raft fleet COMMAND [--admin-url URL] [--fleet ID] [OPTIONS]\n\
              Run a compiled application executable to start a Cellar node."
         ))?;
         return Ok(());

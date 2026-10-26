@@ -302,6 +302,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cc",
+ "cellar-admin",
  "cellar-logic",
  "cellar-ltx",
  "cellar-native",

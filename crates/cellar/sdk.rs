@@ -192,6 +192,16 @@ pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };
 pub use crate::application::*;
+/// Rooted managed-Raft operator contracts, independent of the HTTP adapter.
+pub mod fleet_operations {
+    pub use crate::management::{
+        RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetConnection,
+        RaftFleetControl, RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement,
+        RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetOperation,
+        RaftFleetOutcome, RaftFleetStatus,
+    };
+    pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
+}
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain, WallClock};

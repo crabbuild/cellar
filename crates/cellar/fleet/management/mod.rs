@@ -16,11 +16,18 @@ mod kv;
 pub use kv::{EditExpiration, KvEdit, RevisionCondition};
 mod nodes;
 mod operations;
+mod raft;
 mod raft_stop;
 pub use nodes::NodeAction;
 pub(crate) use nodes::NodeRequest;
 pub(crate) use operations::receipt_key;
 pub use operations::{StopMode, StopProof, StopReceipt};
+pub use raft::{
+    RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetConnection, RaftFleetControl,
+    RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement, RaftFleetMovements,
+    RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetOperation, RaftFleetOutcome,
+    RaftFleetStatus,
+};
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;
 mod workflows;
@@ -42,6 +49,7 @@ use std::time::Duration;
 pub struct FleetClient {
     bucket: Bucket,
     allow_public_peers: bool,
+    raft: Option<RaftFleetControl>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,7 +68,19 @@ impl FleetClient {
         Self {
             bucket,
             allow_public_peers,
+            raft: None,
         }
+    }
+
+    /// Install trusted Raft coordination and namespace handles explicitly.
+    /// Ordinary management clients retain no Raft mutation capability.
+    pub fn with_raft_fleet(mut self, control: RaftFleetControl) -> Self {
+        self.raft = Some(control);
+        self
+    }
+
+    pub fn raft_fleet(&self) -> Option<&RaftFleetControl> {
+        self.raft.as_ref()
     }
 
     async fn call(&self, scope: String, name: Option<&str>, body: Value) -> Result<Value> {

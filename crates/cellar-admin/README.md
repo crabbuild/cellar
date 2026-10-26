@@ -51,11 +51,61 @@ configure the external origin. The private Cellar peer listener stays private.
 ## Configure access
 
 Permissions are independent per fleet: `metadata_read`, `data_read`,
-`data_write`, `operate`, and `configure`. Resource operations resolve declared
+`data_write`, `operate`, `configure`, `fleet_topology`, and `fleet_cancel`. Resource operations resolve declared
 application bindings on the server before routing. Do not distribute tokens
 with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
 explicit principal provisioning.
+
+## Managed Raft placement operations
+
+The SDK, admin API and dedicated `cellar raft fleet` CLI expose durable
+keep-set rebalancing, operation status, paginated movement admissions, wait and
+cancellation. Enable this interface explicitly; ordinary dashboard fleets have
+no Raft mutation adapter. The browser does not yet provide placement controls.
+
+For an existing managed fleet, add `raft` to its private dashboard configuration:
+
+```json
+{
+  "cluster_id": "01010101010101010101010101010101",
+  "incarnation_id": "50505050505050505050505050505050",
+  "coordination_prefix": "hosts/",
+  "namespaces": [
+    {
+      "namespace_id": "02020202020202020202020202020202",
+      "schema_digest": "0303030303030303030303030303030303030303030303030303030303030303",
+      "catalog_prefix": "raft/",
+      "scope": "bucket",
+      "managed": true
+    }
+  ]
+}
+```
+
+These are example identities: use the original cluster, fleet incarnation,
+namespace schema and storage prefixes. Supply the complete rooted namespace
+inventory, including previously imported namespaces with their original
+`managed` setting. `bucket` resolves namespace metadata within the fleet's bucket
+prefix; explicit `store_root` is for deployments whose existing namespace metadata
+is outside that prefix. Connection opens existing roots and verifies inventory;
+it never initializes a missing fleet or namespace. A separately started,
+node-owned topology service must execute admitted work with trusted deployment
+resource inputs. This server connection does not start that service.
+
+Grant `metadata_read` for observation, `fleet_topology` for rebalance admission,
+and `fleet_cancel` for cancellation. Neither `operate` nor `configure` grants
+these mutations. The authenticated principal supplies the audit identity;
+request bodies cannot impersonate another principal. Each mutation is audited
+before dispatch. An exact retry reconciles the real catalog even when an earlier
+audit entry exists. A confirmed historical admission cannot be downgraded by a
+later unconfirmed retry.
+
+See the [runnable operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
+for commands, catalog-generation pins, API routes and retry semantics. This
+delivery balances replica placement among already admitted nodes. Node
+registration/activation, maintenance, resize, failure-driven recovery and
+infrastructure provisioning remain separate delivery work.
 
 ## Validate changes
 

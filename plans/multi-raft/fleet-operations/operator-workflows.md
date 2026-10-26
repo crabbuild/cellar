@@ -1,10 +1,103 @@
 # Fleet operator workflows
 
-## Command and API contract
+## Delivered keep-set workflow
 
-All commands below are proposed FO-08 deliverables. They must not be presented
-as usable commands until their implementation and tests pass. The management
-server exposes the same behavior under `/api/fleets/{fleet}/raft/operations` and
+The dedicated `cellar` binary implements the commands in this section. They use
+the authenticated admin API; bucket credentials are not supplied to the CLI.
+Configure the server's existing-root adapter as described in the
+[admin guide](../../../crates/cellar-admin/README.md#managed-raft-placement-operations).
+The SDK equivalent is `cellar::sdk::fleet_operations::RaftFleetControl`.
+
+The fleet and all namespaces must already be enrolled, target nodes must already
+have eligible capacity, and an explicitly started node-owned topology service
+must have trusted deployment resource inputs. The API can accept durable intent
+while that service is unavailable; admission does not promise immediate progress.
+No node add/activate/stop/remove or infrastructure provisioner is hidden in these
+commands. Keep sets contain 4–64 unique nodes under the current RF3 policy.
+
+Set `CELLAR_ADMIN_URL` to the dashboard origin and provide a bearer token through
+`CELLAR_ADMIN_TOKEN` or `--token-file`. Keep credentials out of command history.
+Read the current catalog ID and root revision before preparing a request:
+
+```sh
+cellar raft fleet status --fleet F --json
+```
+
+Retain its 64-digit `catalog_id` as `CATALOG`, the current `observed_revision` as
+`REVISION`, and a new nonzero 32-digit lowercase hexadecimal request ID as `OP`.
+Use the actual registered node IDs in `KEEP`, comma separated. A policy file has
+this shape; choose domain constraints and bounded solver work for the deployment:
+
+```json
+{"revision":1,"distinct_zones":false,"distinct_regions":false,"max_work":1000000}
+```
+
+```sh
+cellar raft fleet rebalance --fleet F --catalog-id "$CATALOG" \
+  --keep "$KEEP" --policy policy.json --operation-id "$OP" \
+  --expected-revision "$REVISION" --json
+cellar raft fleet operation status "$OP" --fleet F --catalog-id "$CATALOG" --json
+cellar raft fleet operation progress "$OP" --fleet F --catalog-id "$CATALOG" --limit 64 --json
+cellar raft fleet operation wait "$OP" --fleet F --catalog-id "$CATALOG" --timeout-seconds 600 --json
+```
+
+Progress lists admitted movements with full history incarnation and the observed
+root revision. Pass its `next_cursor` using `--cursor`; a changed movement index
+returns a conflict and requires restarting pagination. It is not a transfer-byte
+meter. Fleet status distinguishes the active operation from the operation whose
+retained placement policy governs future admission.
+
+For cancellation, inspect the current root revision and generate a distinct
+request ID, retaining the original catalog and operation IDs:
+
+```sh
+cellar raft fleet operation cancel "$OP" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$CANCEL_REQUEST" --expected-revision "$CURRENT_REVISION" --wait --json
+```
+
+Cancellation stops new admissions, settles previously admitted work and restores
+the earlier placement policy. Completed moves remain visible. `cancel --wait`
+succeeds at `cancelled`; ordinary `operation wait` succeeds at `complete` and
+reports a blocked result if the operation was cancelled. Wait timeout leaves
+durable work unchanged. `converged: true` is historical placement completion at
+`applied_revision`, not a fresh health lease, leader-balance result or permission
+to delete nodes or retained storage.
+
+All operation commands require the catalog-generation pin. A replacement fleet
+must use a new incarnation. Mutations reject a different pin before catalog
+dispatch; reads refuse to display a response from a different generation as the
+retained operation's success. Canonical retries retain the exact catalog ID,
+request ID, expected revision, keep set, policy and authenticated principal,
+including after a lost response. Keep-set order is canonicalized. Do not refresh
+the expected revision on an ambiguous retry. `not_submitted` describes rejection
+of this attempt; it does not certify that an earlier attempt with that identity
+was absent. Likewise, operation-not-found is only an observed root lookup.
+
+The API routes use `/api/v1/fleets/{fleet}/raft`:
+
+| Method and suffix | Permission and response |
+| --- | --- |
+| `GET /status` | `metadata_read`; catalog ID, root revision, active and governing operations |
+| `POST /operations` | `fleet_topology`; begin request, HTTP 202 admission/reconciliation |
+| `GET /operations/{id}` | `metadata_read`; rooted operation status |
+| `GET /operations/{id}/movements?limit=64&cursor=...` | `metadata_read`; bounded page, 1–128 entries |
+| `POST /operations/{id}/cancel` | `fleet_cancel`; cancellation request, HTTP 202 admission/reconciliation |
+
+Begin JSON carries `catalog_id`, `operation_id`, `expected_revision`, `keep` and
+`policy`; cancel carries `catalog_id`, `request_id` and `expected_revision`.
+Mutation bodies are capped at 16 KiB and reject unknown fields. Success carries
+the observed phase and terminal/converged flags; errors carry a typed `code`,
+`outcome`, and null phase/terminal. CLI exit codes are 0 for the requested result,
+2 invalid input, 3 conflict, 4 blocked/cancelled/authentication/authorization,
+5 unavailable or unknown result, and 6 wait timeout. Mutations are never retried
+automatically; exact caller retries are reconciled against the catalog.
+
+## Remaining command and API contract
+
+The broader commands below are proposed FO-08 deliverables, except for the
+explicit subset above. They must not be presented as usable commands until their
+implementation and tests pass. The future management server extends
+`/api/v1/fleets/{fleet}/raft/operations` and
 read-only `/raft/nodes`, `/raft/groups`, `/raft/policy` and `/raft/operations/{id}`.
 Integrate existing admin authentication and auditing, with distinct permissions
 for read, node registration, policy change, maintenance, removal and cancellation.

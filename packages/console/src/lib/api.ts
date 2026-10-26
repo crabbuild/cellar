@@ -4,7 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 import { useSession } from "@/lib/session"
 
 export type Permission =
-  "metadata_read" | "data_read" | "data_write" | "operate" | "configure"
+  "metadata_read" | "data_read" | "data_write" | "operate" | "configure" |
+  "fleet_topology" | "fleet_cancel"
 export type Fleet = { id: string; name: string; environment: string }
 export type Session = {
   user: string

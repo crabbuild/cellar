@@ -169,7 +169,7 @@ impl FleetCatalog {
             Box::pin(async {
                 let record = self.intent_record(snapshot, operation.bytes()).await?;
                 if after.is_some_and(|c| c.index != record.moves) {
-                    return Err(FleetCatalogError::Invalid("topology movement cursor"));
+                    return Err(FleetCatalogError::Conflict);
                 }
                 let page = self.inner.scan(record.moves, after, limit).await?;
                 let mut entries = Vec::with_capacity(page.entries.len());

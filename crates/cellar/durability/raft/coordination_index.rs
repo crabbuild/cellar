@@ -44,6 +44,37 @@ pub struct IndexCursor {
 }
 
 impl IndexCursor {
+    /// Portable read position. It grants no access, freshness or mutation
+    /// authority; the receiving API must check the cursor's index binding.
+    pub fn to_token(&self) -> Result<String, CatalogError> {
+        let bytes = serde_json::to_vec(&CursorToken {
+            format: 1,
+            index: self.index,
+            key: self.key.clone(),
+        })
+        .map_err(|_| CatalogError::Invalid("cursor encoding"))?;
+        Ok(hex::encode(bytes))
+    }
+
+    /// Decode bounded canonical data. Index ownership is checked by the API
+    /// performing the read, including after a concurrent index change.
+    pub fn from_token(token: &str) -> Result<Self, CatalogError> {
+        if token.is_empty() || token.len() > 2048 {
+            return Err(CatalogError::Invalid("cursor size"));
+        }
+        let bytes = hex::decode(token).map_err(|_| CatalogError::Invalid("cursor encoding"))?;
+        let value: CursorToken =
+            serde_json::from_slice(&bytes).map_err(|_| CatalogError::Invalid("cursor record"))?;
+        if value.format != 1 {
+            return Err(CatalogError::Invalid("cursor format"));
+        }
+        let cursor = Self::after(value.index, value.key)?;
+        if cursor.to_token()? != token {
+            return Err(CatalogError::Invalid("noncanonical cursor"));
+        }
+        Ok(cursor)
+    }
+
     /// Restore a rooted controller's exact continuation. A caller-supplied
     /// cursor is only a read position; owners must root progress themselves.
     pub(crate) fn after(index: Option<[u8; 32]>, key: String) -> Result<Self, CatalogError> {
@@ -54,6 +85,14 @@ impl IndexCursor {
             key,
         })
     }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CursorToken {
+    format: u8,
+    index: Option<[u8; 32]>,
+    key: String,
 }
 
 pub struct IndexPage {

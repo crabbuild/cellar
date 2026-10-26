@@ -19,6 +19,8 @@ pub enum Permission {
     DataWrite,
     Operate,
     Configure,
+    FleetTopology,
+    FleetCancel,
 }
 
 #[derive(Clone)]

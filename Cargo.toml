@@ -48,6 +48,7 @@ base64 = "0.22"
 bytes = "1"
 cc = "1.4.1"
 cellar = { path = "crates/cellar", version = "0.1.0" }
+cellar-admin = { path = "crates/cellar-admin" }
 cellar-axum = { path = "crates/cellar-axum", version = "0.1.0" }
 cellar-logic = { path = "crates/cellar-logic" }
 cellar-ltx = { path = "crates/cellar-ltx" }

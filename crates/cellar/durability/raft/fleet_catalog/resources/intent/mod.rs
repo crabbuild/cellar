@@ -94,6 +94,57 @@ fn mutation(request: &FleetRequestIdentity, changes: Vec<FleetChange>) -> FleetM
 }
 
 impl FleetCatalog {
+    /// Rooted optional lookup for operator status. Absence is an observation
+    /// at this snapshot, not proof that a concurrent request cannot commit.
+    pub async fn find_topology_operation(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<FleetTopologyOperation>> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            if self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Operations.slot()],
+                    &row_key(operation.bytes()),
+                )
+                .await?
+                .is_none()
+            {
+                return Ok(None);
+            }
+            let record = self.intent_record(snapshot, operation.bytes()).await?;
+            self.intent_observation(snapshot, &record).await.map(Some)
+        })
+        .await
+    }
+
+    /// Operation whose keep policy currently governs new placement, including
+    /// after successful convergence or restoration of an older policy.
+    pub async fn placement_topology_operation(
+        &self,
+        snapshot: &FleetSnapshot,
+        timeout: Duration,
+    ) -> Result<Option<FleetTopologyOperation>> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            let Some(policy) = self.placement_policy(snapshot).await? else {
+                return Ok(None);
+            };
+            let record = self.intent_record(snapshot, policy.operation).await?;
+            let view = self.intent_observation(snapshot, &record).await?;
+            if Definition::new(&view.keep.iter().copied().collect(), &view.policy)?
+                != policy.definition
+            {
+                return Err(FleetCatalogError::Corrupt("placement operation policy"));
+            }
+            Ok(Some(view))
+        })
+        .await
+    }
+
     pub async fn topology_operation(
         &self,
         snapshot: &FleetSnapshot,
