@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "45d3c1630d9545ad273574a36e3c90d0c6c5ff1b",
+  "revision": "3a1243d1786a3e44d8a36c0959114ec7806d8018",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -12,11 +12,11 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "f594fdc22e0824be876d4294d0f6c54f20297c46aa1abe44c9a56fe9d405cdf6"
+      "sha256": "cc2a2175cfe3072924c3072e5b48f7b4d5967de9d39412a19c953939079f0963"
     },
     {
       "path": "Cargo.toml",
-      "sha256": "ad0799fa0b5f898dcea443b4a7fd93311582f3badea289b9d36ca1ed09830380"
+      "sha256": "0ffecc96c1e03eeafa183d3d6382a0c00d12bc8f8f43b8a61048a8d684387bbc"
     },
     {
       "path": "crates/cellar-admin/api.rs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "25809daf0c88a13c3f4cbd4541c87327ccad341bbe5a16ab5d00ed7b873ee9d0"
+      "sha256": "9f18d2df56c618fa48d8632df74dde2dd15f48e948051e80d8a9e10f4d9516b2"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -112,7 +112,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "fa9fbe85df78113e38def82f01f0d99b96f77742fc4eb1956acc39171fbb0cea"
+      "sha256": "23689409fc37cbedbbcb79430c8de2f107bfc424d01f34c1591a59aebce6f642"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -284,11 +284,11 @@
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",
-      "sha256": "b271bb747c1fd1fddb421b43cfe9284de769a4f3825496f8cb621014c77b2b58"
+      "sha256": "7bf840d3239304692f708f5926cc4fb5549117679413a4248caa1cb6ff071cdc"
     },
     {
       "path": "crates/cellar/tests/native_raft_archive.rs",
-      "sha256": "dd0cdc8b08e6927cdf63a376e3f0d7b184c5fa6326eebefdab60b7af748199f0"
+      "sha256": "127e94d40ba66695979d17b23550e9f1915d62f079f876201669698680a36496"
     },
     {
       "path": "crates/cellar/tests/native_raft_directory.rs",
@@ -300,7 +300,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_catalog_fault.rs",
-      "sha256": "27b55ef8a76f67cb7c623310bae8f4dc4402b24106c6c8da0f0e19e1a79e858d"
+      "sha256": "fd001b448858d0202aad5b28fd574cd631769322cb783315dff626e2b29fef72"
     },
     {
       "path": "crates/cellar/tests/support/raft_controller_native.rs",
