@@ -69,7 +69,7 @@ limits refuse the entire listing. File writes are non-transactional.
 | `container.port.wait_ready` | `{port,timeout_ms}` | `null` |
 | `container.port.fetch` | `{port,request:{url,method,headers,body}}` | `{status,headers,body}` |
 | `container.port.connect` | `{port}` | Socket ID |
-| `container.port.connect_websocket` | `{port,url,headers}` | `{upgraded:true,id,protocol}` or `{upgraded:false,response}` |
+| `container.port.connect_websocket` | `{port,url,headers}` | `{upgraded:true,id,protocol,headers}` or `{upgraded:false,response}` |
 | `container.socket.read` / `.write` / `.close_write` / `.close` | `{id}`; write adds `data` | Base64 chunk or `null` |
 | `container.websocket.receive` | `{id}` | One event from the table below |
 | `container.websocket.send_text` / `.send_binary` / `.close` | `{id,text}` / `{id,data}` / `{id,code,reason}` | `null` |

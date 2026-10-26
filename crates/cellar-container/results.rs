@@ -64,9 +64,19 @@ pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Res
             ensure!(!done || size == 0, "completed response has body bytes");
         }
         CancelResponse => ensure!(value.is_null(), "response cancellation must return null"),
+        ConnectWebSocket if value["upgraded"] == true => {
+            ensure!(
+                value["id"].as_str().is_some_and(|id| !id.is_empty()),
+                "invalid WebSocket handle"
+            );
+            ensure!(value["protocol"].is_string(), "invalid WebSocket protocol");
+            let headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
+            crate::values::headers(&headers)?;
+        }
         ConnectWebSocket if value["upgraded"] == false => {
             binary(&value["response"]["body"], limit)?;
         }
+        ConnectWebSocket => anyhow::bail!("invalid WebSocket upgrade result"),
         ReceiveWebSocket if value["type"] == "binary" => {
             binary(&value["data"], limit)?;
         }
@@ -88,6 +98,20 @@ mod tests {
     use super::*;
     use crate::Validation;
     use serde_json::json;
+
+    #[test]
+    fn upgraded_sockets_require_headers_without_pre_effect_failure_provenance() {
+        let valid = json!({"upgraded":true,"id":"socket-1","protocol":"","headers":[["upgrade","websocket"]]});
+        assert!(validate(Operation::ConnectWebSocket, &valid, 256).is_ok());
+        for invalid in [
+            json!({"upgraded":true,"id":"socket-1","protocol":""}),
+            json!({"upgraded":true,"id":"","protocol":"","headers":[]}),
+            json!({"upgraded":"true","id":"socket-1","protocol":"","headers":[]}),
+        ] {
+            let error = validate(Operation::ConnectWebSocket, &invalid, 256).unwrap_err();
+            assert!(!error.is::<Validation>());
+        }
+    }
 
     #[test]
     fn provider_results_share_combined_binary_budget_without_refusal_provenance() {

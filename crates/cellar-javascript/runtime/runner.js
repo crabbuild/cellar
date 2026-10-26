@@ -514,6 +514,8 @@
                   "container.port.fetch",
                   "container.port.fetch_stream",
                   "container.response.read",
+                  "container.port.connect_websocket",
+                  "container.websocket.receive",
                   "workers.fetch",
                   "workers.fetch_stream",
                   "workers.container.fetch",
@@ -765,6 +767,7 @@
                 ? {
                     upgraded: true,
                     protocol: result.protocol,
+                    headers: freeze(result.headers.map((pair) => freeze(pair))),
                     socket: resource("websocket", result.id),
                   }
                 : { upgraded: false, response: request(result.response) },
@@ -902,6 +905,12 @@
         ),
       // Private hooks used by dispatch while retaining this invocation.
       _crypto: crypto,
+      _current() {
+        const active = lifetimes.get(currentHost());
+        if (!active?.context)
+          throw rpcFailure("ContextExpired", "not_committed");
+        return active.context;
+      },
       _call: call,
       _rpcSoftCall(name, value, signal) {
         if (name !== "workers.rpc.invoke")
@@ -1245,6 +1254,8 @@
         invocation.object,
         contracts,
       );
+      const lifetime = lifetimes.get(id);
+      if (lifetime) lifetime.context = ctx;
       let rule, argument;
       if (invocation.kind === "rpc") {
         rule = rpc.get(invocation.class)?.get(invocation.event.method);

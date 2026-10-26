@@ -64,7 +64,7 @@ peer and refuse foreign-cell property access. Root-event queued lifecycle tests
 cover blocked startup with storage progress, explicit destroy/monitor outcomes
 and submitted startup failures without replay. Node forwards incremental port
 and Worker/DO HTTP responses with native cancellation; embedded web globals,
-upgrades and callback-owned queued lifecycle remain incomplete. These tests
+Worker/DO upgrade forwarding and callback-owned queued lifecycle remain incomplete. These tests
 qualify those paths only. The unchanged Container module now runs in the separate Node `workers_module`
 target: named/singleton/random routing, separate native container ownership,
 delayed destroy acknowledgement and explicit cleanup use an engine protocol
@@ -102,7 +102,8 @@ the daemon's subnet pool.
 It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline. Generic stream inputs
-have a separate native fixture; SP-04 SDK uploads, message transfers, preview, restart/fencing and live-cloud
+have a separate native fixture; SDK RPC uploads now have their own real-image
+scenario. SP-04 message transfers, previews, restart/fencing and live-cloud
 requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
@@ -145,7 +146,9 @@ and aliases, accepted prefixes after failure, abort reasons, unconsumed imports,
 stale writers and zero bridge reservations after joined shutdown.
 
 This is generic returned-writer evidence. It does not substitute for the
-published SDK's stream-input/Cap'n Web upload or full fault qualification.
+published SDK's stream-input/Cap'n Web upload by itself. The dedicated image
+scenario below supplies that separate positive upload evidence; full fault
+qualification remains pending.
 
 ## Common RPC stream input test
 
@@ -159,3 +162,18 @@ root-Worker and returned-function calls, cross-DO forwarding, captured inputs,
 accepted prefixes after source failure, cancellation, local quota/encoding
 refusal and unused-session cleanup. Shutdown must drain both application work
 and native bridge reservations. It does not run SDK uploads or a container.
+
+## Actual SDK RPC upload
+
+The `published_sandbox_rpc_upload_uses_the_pinned_image` image test selects the
+declared `SANDBOX_TRANSPORT=rpc` binding and calls unchanged `getSandbox`,
+`writeFile` with a byte stream, `exec` and `destroy`. A separate execution session
+observes an actual temporary-file prefix before source release; the destination
+must remain unpublished until EOF. The final 2 MiB + 17 bytes and SDK byte count
+must match exactly, and shutdown must leave no native bridge reservations.
+
+This exercises the published Containers local WebSocketPair proxy and Cap'n Web
+session over Cellar's native port socket. It does not replace SDK transport code.
+New stream/WS tests retain explicit handshake budgets; existing image deadlines
+and assertions remain unchanged. Complete reconnect, abandoned-stream,
+Request/Response transfer and fault qualification remain required.

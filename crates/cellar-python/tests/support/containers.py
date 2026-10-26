@@ -103,6 +103,7 @@ class Counter:
         assert isinstance(declined, Response) and declined.status == 302
         upgraded = await port.connect_websocket("ws://container/ws")
         assert isinstance(upgraded, ContainerWebSocket)
+        assert ("upgrade", "websocket") in upgraded.headers
         await upgraded.send_text("hello")
         assert await receive(upgraded) == {"type": "text", "text": "hello"}
         await upgraded.send_binary(b"\x00\xff*")

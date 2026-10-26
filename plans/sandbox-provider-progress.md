@@ -14,15 +14,35 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, complete upgraded port behavior, image lifecycle and fault qualification |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, Request/Response transfers and Cap'n Web upload transport, process helper invocations, previews, persistence/restart/fencing and failure cases |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload through Cap'n Web/local WS proxy, and drained shutdown | Complete SDK HTTP/RPC/helper coverage, Request/Response transfers and full RPC transport fault/lifetime semantics, process helper invocations, previews, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
+
+## Delivery order
+
+Keep the next milestones tied to usable published SDK operations. Extend the
+shared native provider boundary when a feature needs it; provider selection and
+credentials remain host configuration. Native Rust/Python/JS/TS controls stay
+independent of the optional Workers runtime.
+
+| Priority | Feature milestone | Acceptance boundary |
+| --- | --- | --- |
+| 1 — current delivery | Container-port WebSockets, local pairs and Sandbox RPC streaming uploads | Unchanged pinned SDK/image; bytes visible before EOF, exact final file, caller output proof, ownership refusal, bounded queues and joined cleanup |
+| 2 | RPC `Request`/`Response` transfers, starting with binary `readFile({ encoding: "none" })` | Actual SDK download; preserve HTTP metadata and body ownership, incremental delivery, cancellation, failures after accepted prefixes and native resource release |
+| 3 | Published Containers sleep/wake and hooks, then upgraded Worker/DO and preview forwarding | Actual package routes across idle/restart; original activation authority, output gates, close/error propagation and owned cleanup |
+| 4 | Named portable bindings and reconnect/expiry/orphan handling | Same native contract in four languages; explicit fencing guarantees, durable reconciliation and no blind mutation replay |
+| Following milestones | Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent pinned profiles and the SP-07–SP-10 acceptance requirements |
+
+Failure, lifetime and resource checks belong to each delivered feature. E2B and
+Vercel live qualification remains deferred until configuration is supplied; it
+does not block the local Cloudflare or common-framework milestones. This order
+does not mark any partial SP profile complete.
 
 ## Verified implementation details
 
@@ -1083,3 +1103,51 @@ full abrupt-disconnect/remote-loss and cross-event fault semantics, previews,
 remaining provider profiles and release qualification are still required by the
 full SP-01–SP-10 goal. Live E2B/Vercel qualification remains deferred until the
 user supplies configurations; the complete goal stays active.
+
+### Container WebSockets and published SDK RPC uploads
+
+The optional Node profile supports native container-port upgrades and local
+`WebSocketPair` endpoints used by the published Containers proxy. The pinned
+Sandbox SDK now uploads readable byte sources with its actual Cap'n Web
+transport when the declared host variable `SANDBOX_TRANSPORT` is `rpc`. This
+uses the same selected provider and native cell authority as portable APIs;
+neither the SDK nor its control server is rewritten.
+
+| Contract | Implementation / acceptance |
+| --- | --- |
+| Upgrade | Bodyless GET; actual status/protocol/network handshake headers; declined upgrades remain HTTP responses. Rust/Python/JS/TS portable facades expose the headers. |
+| Ownership | Original-event pumps own native socket I/O. Later events of the same activation enqueue after their own storage output proof. Foreign or retired activations refuse. |
+| Flow / bounds | Text and copied binary frames; real EventTarget/MessageEvent delivery; at most 64 queued entries and two frame budgets of bytes per queue, plus native handle, operation and retained-work quotas. |
+| Failure / cleanup | Peer close, receive cancellation and event drainage wake and join pumps. Unaccepted upgrades release. Post-upgrade representation/admission failure remains an unknown outcome and schedules release. Accepted frames are never replayed. |
+| Real SDK upload | 2 MiB + 17 binary bytes through the published SDK and pinned image; observe a real temporary-file prefix before releasing the source, then require SDK success/byte count, exact final bytes, explicit destroy and drained native bridge resources. |
+
+Actual Cap'n Web initialization exposed overlapping storage proofs being refused
+as `ConcurrentMutation/not_committed`. `storage.sync` is an output barrier,
+not a SQLite mutation; Node and V8 admission now let proofs overlap while still
+refusing a second real mutation. A regression holds an actual admitted write,
+admits two proofs and refuses another write before completing the first write.
+Native durability/output gates and uncertain-effect classification remain intact.
+
+The first image attempts also exposed missing local-pair support and an incorrect
+test assumption about when the final file appears. Inspection of the pinned
+server showed atomic `.tmp.<uuid>` writing and rename at EOF. The test observes
+that real temporary file through a separate SDK execution session: commands in
+the writer's own session serialize behind the upload. It still requires bytes
+before source release and an unpublished destination, without relaxing existing
+assertions/deadlines or adding mutation retries. Temporary tracing was removed.
+
+Worker/DO upgrade forwarding, `Request`/`Response` RPC transfer, hibernation,
+complete idle/reconnect/disconnect semantics, sleep/wake/hooks, previews and
+remaining SP-01–SP-10 requirements stay open. The facade does not supply the
+global network WebSocket constructor. Full SDK conformance remains `not_run`;
+this evidence qualifies the selected operation and pinned image only.
+
+Validation after merging `main` at `d3206c92`: 91 selected Node/V8 native
+library/integration tests, all three pinned-image scenarios, 21 provider unit
+tests, the CPython container fixture and native WebSocket opening test pass.
+The 69 JS/tool/type checks, four pinned-input checks, strict affected-adapter
+all-target Clippy and native-host library Clippy pass. Formatting/layout covers
+1,150 Rust sources; JS formatting covers 76 owned sources. Documentation and
+the 466-package native-only dependency guard pass. The merge also passed all
+six peer-tunnel scope/ownership tests. Earlier intermittent budget/connectivity
+causes remain recorded above; this delivery does not claim to fix them.

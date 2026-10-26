@@ -94,6 +94,8 @@ async function control(ctx: Context) {
   await socket.close();
   const upgrade = await port.connectWebSocket("ws://container/ws");
   if (upgrade.upgraded) {
+    const headers: readonly (readonly [string, string])[] = upgrade.headers;
+    void headers;
     await upgrade.socket.sendText("hello");
     await upgrade.socket.sendBinary(bytes);
     const event = await upgrade.socket.receive();

@@ -110,9 +110,56 @@ export interface DurableObjectContainer {
   destroy(error?: unknown): Promise<void>;
   /** Bounded upload and incremental response in the standard web runtime. */
   getTcpPort(port: number): {
-    fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+    fetch(
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<WorkerResponse>;
   };
 }
+/** Event-style socket owned by its original native event. */
+export interface WorkerCloseEvent extends Event {
+  readonly code: number;
+  readonly reason: string;
+  readonly wasClean: boolean;
+}
+export interface WorkerWebSocket extends EventTarget {
+  readonly CONNECTING: 0;
+  readonly OPEN: 1;
+  readonly CLOSING: 2;
+  readonly CLOSED: 3;
+  readonly readyState: 0 | 1 | 2 | 3;
+  readonly protocol: string;
+  readonly extensions: string;
+  readonly bufferedAmount: number;
+  binaryType: "arraybuffer" | "blob";
+  onmessage:
+    ((event: MessageEvent<string | ArrayBuffer | Blob>) => unknown) | null;
+  onclose: ((event: WorkerCloseEvent) => unknown) | null;
+  onerror: ((event: Event) => unknown) | null;
+  onopen: ((event: Event) => unknown) | null;
+  accept(): void;
+  send(value: string | ArrayBuffer | ArrayBufferView): void;
+  close(code?: number, reason?: string): void;
+  addEventListener(
+    type: "message",
+    listener: (event: MessageEvent<string | ArrayBuffer | Blob>) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(
+    type: "close",
+    listener: (event: WorkerCloseEvent) => void,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+}
+export interface WorkerResponse extends Response {
+  readonly webSocket: WorkerWebSocket | null;
+}
+
 /** Activation-bound, authoritative provider state; never performs backend I/O. */
 export function durableObjectContainer(
   nativeContext: object,
@@ -156,7 +203,7 @@ type RpcValue<T> =
                 : T;
 
 /** Returned functions and byte streams retain native event ownership.
- * Callback/stream arguments and RpcTarget/property transport remain incomplete. */
+ * Callback arguments and RpcTarget/property transport remain incomplete. */
 export type RpcResult<T> = RpcValue<T> &
   (T extends object ? { [Symbol.dispose](): void } : unknown);
 

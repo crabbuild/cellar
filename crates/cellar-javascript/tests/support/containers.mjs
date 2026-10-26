@@ -333,6 +333,12 @@ export class Counter {
     );
     const upgraded = await http.connectWebSocket("ws://container/ws");
     check(upgraded.upgraded, "websocket upgraded");
+    check(
+      upgraded.headers.some(
+        ([name, value]) => name === "upgrade" && value === "websocket",
+      ),
+      "upgrade headers preserved",
+    );
     await upgraded.socket.sendText("hello");
     const text = await receive(upgraded.socket);
     check(text.type === "text" && text.text === "hello", "websocket text");

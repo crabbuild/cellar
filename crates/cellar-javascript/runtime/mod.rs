@@ -268,12 +268,15 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // without being classified as reads or taking the local storage mutation slot.
 // Body output may await consumer backpressure while independent waitUntil work
 // writes storage. Its native gate proves earlier writes; it does not own the
-// cell's mutation slot. Output failures retain uncertain effect provenance.
+// cell's mutation slot. Storage sync is likewise an output barrier, not a
+// SQLite mutation; parallel frame proofs must not refuse one another. Output
+// failures retain uncertain effect provenance.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     !name.starts_with("workers.rpc.")
         && !matches!(
             name,
-            "response.write"
+            "storage.sync"
+                | "response.write"
                 | "response.finish"
                 | "workers.callback.finish"
                 | "workers.callback.finish_sync"
@@ -297,6 +300,8 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
             | "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.port.connect_websocket"
+            | "container.websocket.receive"
             | "workers.fetch"
             | "workers.fetch_stream"
             | "workers.container.fetch"

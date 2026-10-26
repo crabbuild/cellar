@@ -2,6 +2,7 @@
 
 import { durableStorage } from "./storage.js";
 import { nativeId } from "./id.js";
+import { installSocketGlobals } from "./websocket-pair.js";
 import { DurableObject, RpcTarget } from "./workers.js";
 
 const reserved = new Set([
@@ -53,6 +54,7 @@ export function activateDurableObject(
   if (typeof Target !== "function")
     throw new TypeError("Durable Object export must be a class");
   const current = nativeContext._activation();
+  installSocketGlobals(nativeContext._current);
   if (globalThis.crypto === undefined)
     Object.defineProperty(globalThis, "crypto", {
       value: nativeContext._crypto,

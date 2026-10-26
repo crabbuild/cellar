@@ -310,3 +310,57 @@ fn activation_facades_cannot_rebind_after_same_epoch_instance_reset() -> Result<
     }
     Ok(())
 }
+
+#[test]
+fn output_barriers_overlap_writes_without_admitting_another_mutation() -> Result<()> {
+    let body = r#"
+      const write = ctx.storage.apply({puts:{x:1}});
+      const proofs = [ctx.storage.sync(), ctx.storage.sync()];
+      const refused = ctx.storage.apply({puts:{y:2}}).then(
+        () => false,
+        error => error.code === 'ConcurrentMutation' && error.outcome === 'not_committed'
+      );
+      return Promise.all([write, ...proofs, refused]).then(values => ({refused:values[3]}));
+    "#;
+    for backend in modes() {
+        run(backend, Options::default(), body, |app| {
+            let (invocation, mut receive) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            let mut pending = Vec::new();
+            for expected in ["storage.apply", "storage.sync", "storage.sync"] {
+                let Event::Operation {
+                    id,
+                    name,
+                    synchronous,
+                    ..
+                } = event(&mut receive)
+                else {
+                    anyhow::bail!("output barrier refused while a native write was pending");
+                };
+                assert_eq!(name, expected);
+                pending.push((id, synchronous));
+            }
+            // Do not acknowledge either proof before the owning native write.
+            for (id, synchronous) in pending {
+                app.runtime.respond(
+                    invocation,
+                    id,
+                    r#"{"ok":true,"value":null}"#.into(),
+                    synchronous,
+                )?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receive)
+            else {
+                anyhow::bail!("another mutation was admitted");
+            };
+            assert!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!({"refused":true})
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}

@@ -416,8 +416,9 @@ class ContainerSocket:
 
 class ContainerWebSocket:
     """Event-owned outbound WebSocket, closed when the invocation ends."""
-    def __init__(self, context: Context, resource_id: str, protocol: str) -> None:
+    def __init__(self, context: Context, resource_id: str, protocol: str, headers: Headers = ()) -> None:
         self._context, self._id, self.protocol = context, resource_id, protocol
+        self.headers = tuple(tuple(pair) for pair in headers)
 
     async def receive(self) -> dict[str, Any]:
         value = await self._context._call("container.websocket.receive", id=self._id)
@@ -490,7 +491,7 @@ class ContainerPort:
     async def connect_websocket(self, url: str, headers: Headers = ()) -> ContainerWebSocket | Response:
         value = await self._context._call("container.port.connect_websocket", port=self._port, url=url, headers=list(headers))
         if value["upgraded"]:
-            return ContainerWebSocket(self._context, value["id"], value["protocol"])
+            return ContainerWebSocket(self._context, value["id"], value["protocol"], value["headers"])
         response = value["response"]
         return Response(base64.b64decode(response["body"]), response["status"], response["headers"])
 

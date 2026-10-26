@@ -113,3 +113,29 @@ const synchronous: bigint = storage.transactionSync(() => 9n);
 // @ts-expect-error: synchronous transactions cannot return a Promise
 storage.transactionSync(async () => 1);
 void [result, local, cell, count, counters, row, transaction, synchronous];
+
+// Optional Node/DOM Workers globals, installed by the admitted runtime profile.
+import type {} from "../../packages/cellar-cloudflare/globals.js";
+import type {
+  DurableObjectContainer,
+  WorkerWebSocket,
+} from "../../packages/cellar-cloudflare/index.js";
+async function socketTypes(portContainer: DurableObjectContainer) {
+  const response = await portContainer
+    .getTcpPort(3000)
+    .fetch("http://container/rpc", { headers: { Upgrade: "websocket" } });
+  const socket: WorkerWebSocket | null = response.webSocket;
+  if (socket) {
+    socket.accept();
+    socket.send(Uint8Array.of(0, 255));
+    socket.close(1011, "failure");
+  }
+  const pair = new WebSocketPair();
+  pair[1].accept();
+  pair[1].addEventListener("message", (event) => {
+    const data: string | ArrayBuffer | Blob = event.data;
+    void data;
+  });
+  return new Response(null, { status: 101, webSocket: pair[0] });
+}
+void socketTypes;

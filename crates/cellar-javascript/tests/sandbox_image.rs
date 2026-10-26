@@ -115,7 +115,12 @@ fn published_sandbox_exec_files_and_processes_use_the_pinned_image() -> Result<(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(run(directory.path(), application, &images, false))
+                .block_on(run(
+                    directory.path(),
+                    application,
+                    &images,
+                    Scenario::Published,
+                ))
         },
     )
 }
@@ -142,16 +147,69 @@ fn portable_files_use_daemon_archives_across_events() -> Result<()> {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(run(directory.path(), application, &images, true))
+                .block_on(run(
+                    directory.path(),
+                    application,
+                    &images,
+                    Scenario::Portable,
+                ))
         },
     )
+}
+
+#[test]
+#[ignore = "requires isolated CELLAR_SANDBOX_ENGINE_SOCKET and preloaded CELLAR_SANDBOX_FENCE_IMAGE"]
+fn published_sandbox_rpc_upload_uses_the_pinned_image() -> Result<()> {
+    let images = Images::configured()?;
+    let directory = tempfile::tempdir()?;
+    let entry = fixture()?.with_file_name("sandbox-rpc.mjs");
+    let source = Source::module()
+        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .workers_lifetimes()
+        .events([EventKind::Fetch])
+        .cell_events(
+            "Sandbox",
+            [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
+        );
+    NodeRuntime::run(
+        Options::default(),
+        NodeOptions::new(entry),
+        source,
+        |application| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?
+                .block_on(async {
+                    let result = run(
+                        directory.path(),
+                        application.clone(),
+                        &images,
+                        Scenario::Rpc,
+                    )
+                    .await;
+                    let usage = application.bridge_usage();
+                    ensure!(
+                        usage.active_invocations == 0 && usage.retained_bytes == 0,
+                        "SDK RPC bridge resources leaked: {usage:?}"
+                    );
+                    result
+                })
+        },
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Scenario {
+    Published,
+    Portable,
+    Rpc,
 }
 
 async fn run(
     path: &Path,
     application: Arc<dyn Application>,
     images: &Images,
-    portable: bool,
+    scenario: Scenario,
 ) -> Result<()> {
     images.verify().await?;
     let namespace = format!(
@@ -182,9 +240,18 @@ async fn run(
             runtime: None,
         }];
         graph.primary.fence_image = Some(images.fence.clone());
+        if scenario == Scenario::Rpc {
+            graph
+                .primary
+                .options
+                .vars
+                .push(("SANDBOX_TRANSPORT".into(), "rpc".into()));
+        }
     })
     .await?;
-    let result = if portable {
+    let result = if scenario == Scenario::Rpc {
+        exercise_rpc(&address, &docker, &host).await
+    } else if scenario == Scenario::Portable {
         async {
             let client = reqwest::Client::builder()
                 .timeout(Duration::from_secs(125))
@@ -236,6 +303,118 @@ async fn run(
     .filter_map(|(stage, result)| result.err().map(|error| format!("{stage}: {error:#}")))
     .collect::<Vec<_>>();
     ensure!(failures.is_empty(), "{}", failures.join("\n"));
+    Ok(())
+}
+
+async fn exercise_rpc(address: &str, docker: &cellar::docker::Docker, host: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(125))
+        .build()?;
+    let mut upload = Some(tokio::spawn(client.get(format!("{address}/upload")).send()));
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let response = client.get(format!("{address}/progress")).send().await?;
+                let status = response.status();
+                let bytes = response.bytes().await?;
+                ensure!(
+                    status.is_success(),
+                    "SDK upload progress: {status}: {}",
+                    String::from_utf8_lossy(&bytes)
+                );
+                let value: Value = serde_json::from_slice(&bytes)?;
+                if value["size"].as_u64().is_some_and(|n| n > 0) {
+                    ensure!(
+                        value["published"] == false && value["exit"] == 0,
+                        "SDK upload was published before EOF: {value}"
+                    );
+                    break;
+                }
+                ensure!(
+                    !upload
+                        .as_ref()
+                        .context("upload task missing")?
+                        .is_finished(),
+                    "upload ended before incremental file data was visible"
+                );
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("SDK upload did not publish a prefix before release")??;
+        ensure!(
+            !upload
+                .as_ref()
+                .context("upload task missing")?
+                .is_finished(),
+            "SDK upload buffered the whole source"
+        );
+        client
+            .get(format!("{address}/release"))
+            .send()
+            .await?
+            .error_for_status()?;
+        let response = upload
+            .take()
+            .context("upload task already joined")?
+            .await??;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        ensure!(
+            status.is_success(),
+            "SDK upload: {status}: {}",
+            String::from_utf8_lossy(&bytes)
+        );
+        let value: Value = serde_json::from_slice(&bytes)?;
+        let size = 2 * 1024 * 1024 + 17;
+        ensure!(
+            value["bytes"] == size
+                && value["locked"] == true
+                && value["result"]["success"] == true
+                && value["result"]["bytesWritten"] == size,
+            "SDK input transfer: {value}"
+        );
+        let result: Value = client
+            .get(format!("{address}/verify"))
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        ensure!(
+            result["exit"] == 0 && result["size"] == size && result["valid"] == true,
+            "SDK file bytes: {result}"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    if result.is_err() {
+        if let Err(error) = diagnose_owned_containers(docker, host).await {
+            eprintln!("RPC image diagnostic: {error:#}");
+        }
+    }
+    // Always release and join the caller, including an assertion failure. A
+    // cancelled observation is not permission to abandon accepted upload work.
+    let released = client.get(format!("{address}/release")).send().await;
+    let joined = match upload.take() {
+        Some(task) => task
+            .await
+            .context("join SDK upload")?
+            .map(|_| ())
+            .map_err(anyhow::Error::from),
+        None => Ok(()),
+    };
+    let destroyed = client.get(format!("{address}/destroy")).send().await;
+    result?;
+    released?.error_for_status()?;
+    joined?;
+    let destroyed = destroyed?;
+    ensure!(
+        destroyed.status().is_success(),
+        "SDK RPC destroy failed: {}",
+        destroyed.text().await?
+    );
     Ok(())
 }
 

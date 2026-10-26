@@ -62,6 +62,7 @@ pub(crate) struct SocketState {
     closing: bool,
     connecting: bool,
     protocol: String,
+    upgrade_headers: Option<Vec<(String, String)>>,
     url: Option<String>,
     polled: bool,
     pull: Option<ws::WsPullQueue>,
@@ -130,6 +131,12 @@ impl WebSocket {
 
     pub fn protocol(&self) -> String {
         self.state.lock().unwrap().protocol.clone()
+    }
+
+    /// Response headers from a network upgrade. Locally bound and tunneled
+    /// sockets return None when their opening did not carry that metadata.
+    pub fn upgrade_headers(&self) -> Option<Vec<(String, String)>> {
+        self.state.lock().unwrap().upgrade_headers.clone()
     }
 
     pub fn url(&self) -> Option<String> {
@@ -266,7 +273,8 @@ impl WebSocket {
     pub fn close(&self, context: &Context, code: u16, reason: impl Into<String>) -> Result<()> {
         self.owner.check(context)?;
         anyhow::ensure!(
-            code == 1000 || (3000..=4999).contains(&code),
+            (1000..=1014).contains(&code) && ![1004, 1005, 1006].contains(&code)
+                || (3000..=4999).contains(&code),
             "WebSocket close code {code} is not permitted"
         );
         let reason = reason.into();
@@ -676,6 +684,7 @@ impl Context {
                 let mut state = socket.state.lock().unwrap();
                 state.connecting = false;
                 state.protocol = open.protocol.unwrap_or_default();
+                state.upgrade_headers = open.headers;
             }
             guard.completed = true;
             Ok(UpgradeResponse::Upgraded(socket))

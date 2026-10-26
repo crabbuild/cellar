@@ -97,7 +97,7 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, RPC Request/Response transfers and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, container-port WebSocket upgrades/local pairs, Set-Cookie fields, manual redirects and aborts | Worker/DO WebSocket upgrade forwarding, RPC Request/Response transfers and embedded web bootstrap |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
@@ -229,10 +229,9 @@ unconsumed-handle cleanup and later-event refusal. Idle remote-loss notification
 and the complete cross-event/disconnect profile remain under fault qualification.
 
 Returned writable controls and the input sessions below run in the optional
-Node profile. Request/Response transfer and the Sandbox SDK's separate Cap'n Web
-upload transport remain incomplete. The pinned SDK's HTTP client explicitly
-refuses `writeFileStream`; unchanged SDK upload acceptance still requires that
-transport and its qualification.
+Node profile. Request/Response RPC transfer remains incomplete. The pinned
+SDK's HTTP client refuses `writeFileStream`; SDK uploads use its actual Cap'n Web
+RPC transport, qualified separately below.
 
 ### RPC stream arguments
 
@@ -287,7 +286,63 @@ sequenceDiagram
 Only byte-readable sources and Uint8Array writes qualify. Callback arguments,
 Request/Response transfer, arbitrary RpcTarget objects, complete abrupt-disconnect
 and cross-event fault semantics remain incomplete. This common runtime path does
-not qualify the published Sandbox SDK's separate Cap'n Web upload transport.
+not by itself qualify the published Sandbox SDK's separate Cap'n Web upload
+transport; its actual image acceptance is described below.
+
+### Container WebSockets and SDK RPC uploads
+
+A container port accepts a bodyless GET with `Upgrade: websocket`. A successful
+fetch exposes status 101, actual network handshake headers and an event-style
+`webSocket`. Declined upgrades remain ordinary bounded HTTP replies.
+
+```js
+const response = await container.getTcpPort(3000).fetch("http://container/rpc", {
+  headers: { Upgrade: "websocket" },
+});
+if (response.webSocket) {
+  const socket = response.webSocket;
+  socket.accept();
+  socket.addEventListener("message", (event) => console.log(event.data));
+  socket.send("hello");
+}
+```
+
+| Boundary | Implemented behavior |
+| --- | --- |
+| Native I/O | Original-event receive/transmit pumps; same-activation callers enqueue after their own native storage proof. A foreign or retired activation cannot send |
+| Limits | Each text/binary frame respects the host body limit. Each send/receive queue holds at most 64 entries and two frame budgets of bytes; native operation, handle and background quotas also apply |
+| Events | `accept`, text/binary `send`, `close`, ready state, buffered bytes, event listeners and handler properties; ArrayBuffer/Blob binary modes. Reserved wire close codes refuse |
+| Local proxy | Admitted Workers events install `WebSocketPair` and 101 Response construction for local pair endpoints, as used by the published Containers proxy |
+| Cleanup | Unaccepted upgrades release on event drainage. Accepted pumps retain their original event until close/error; peer close or cleanup wakes both pumps. No failed data frame is replayed |
+| Outcomes | A failure to represent an already accepted upgrade has an unknown outcome and schedules native handle release. Clean-close status comes from the native peer |
+
+For Node/DOM TypeScript projects, opt in to these declarations with
+`import type {} from "@cellar/cloudflare/globals"`. Projects using official
+Workers globals should retain that environment's types.
+
+The pinned Sandbox package selects Cap'n Web with the declared host variable
+`SANDBOX_TRANSPORT=rpc`. Include that variable in `workersApplication`'s
+`variables` list and configure its value in the native deployment. Its published
+stream upload then runs unchanged:
+
+```js
+const sandbox = getSandbox(env.Sandbox, "uploads");
+await sandbox.writeFile(
+  "/workspace/data.bin",
+  new Blob([Uint8Array.of(0, 255, 42)]).stream(),
+);
+```
+
+The real-image test sends **2 MiB + 17 bytes**, observes a real temporary-file
+prefix through another SDK execution session before releasing the source,
+checks that the destination stays unpublished until EOF, then verifies the SDK
+byte count and every final byte. The pinned server uses an atomic temporary-file
+rename; this test preserves that behavior. SDK destroy and native shutdown must
+join all work and release bridge reservations.
+
+Worker/DO upgrade forwarding, Request/Response RPC transfer, hibernation,
+complete idle/reconnect and disconnect/fault semantics remain incomplete. This
+facade does not implement the global network WebSocket constructor.
 
 ### HTTP response streaming
 
@@ -327,8 +382,10 @@ sequenceDiagram
 | HEAD / no-body status | Return `body: null` and release unused upstream readers |
 
 Uploads remain buffered and bounded before submission. Cancelling a response
-cannot prove that a submitted sandbox command stopped or rolled back. Passing streams as RPC arguments, returning HTTP messages as RPC values and
-WebSocket upgrades remain separate profiles.
+cannot prove that a submitted sandbox command stopped or rolled back. RPC
+byte-stream arguments use the caller-owned sessions above. Returning HTTP
+messages as RPC values and forwarding Worker/DO WebSocket upgrades remain
+incomplete profiles.
 
 ### Container API
 
@@ -406,12 +463,14 @@ quotas and unknown-outcome reporting still apply.
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
 | Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |
 | Native stream-input fixture | Root Worker and returned-function inputs, cross-DO forwarding, aliases, incremental reads, delayed writes, captured inputs, cancellation, quota refusal, accepted prefixes and unused-session cleanup |
+| Native container WebSocket fixture | Actual native socket I/O through an engine peer, handshake headers, ordered cross-event text/binary sends, foreign-activation refusal, close and unused-upgrade cleanup |
+| SDK RPC image upload | Published SDK/Cap'n Web over the native port and local pair proxy, gated 2 MiB binary upload, atomic publication, final byte verification, SDK destroy and drained bridge resources |
 | Native returned-stream fixtures | Bounded BYOB pulls and writable frames, mixed transform pairs, delayed sink/close acknowledgements, failures preserving accepted prefixes, held background jobs, abandoned imports and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
 Sleep/wake, complete hooks/timeouts, RPC Request/Response
-transfers, upgrades, Sandbox previews and the remaining SDK/image fault
+transfers, Worker/DO upgrade forwarding, Sandbox previews and the remaining SDK/image fault
 qualification remain required, along with hosted providers.
 
 ```sh

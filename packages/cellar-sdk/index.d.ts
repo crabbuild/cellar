@@ -224,7 +224,12 @@ export interface Container {
     fetchStream(request: RequestData, options?: { signal?: AbortSignal }): Promise<ContainerResponse>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
-      | { upgraded: true; protocol: string; socket: ContainerWebSocket }
+      | {
+          upgraded: true;
+          protocol: string;
+          readonly headers: Headers;
+          socket: ContainerWebSocket;
+        }
       | { upgraded: false; response: Response }
     >;
   };

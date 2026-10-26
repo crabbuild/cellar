@@ -116,6 +116,8 @@ pub async fn execute_with_signal(
         "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.port.connect_websocket"
+            | "container.websocket.receive"
             | "workers.container.fetch"
             | "workers.container.fetch_stream"
     ) {
@@ -131,6 +133,10 @@ pub async fn execute_with_signal(
                         crate::containers::Operation::FetchStream
                     }
                     "container.response.read" => crate::containers::Operation::ReadResponse,
+                    "container.port.connect_websocket" => {
+                        crate::containers::Operation::ConnectWebSocket
+                    }
+                    "container.websocket.receive" => crate::containers::Operation::ReceiveWebSocket,
                     _ => crate::containers::Operation::Fetch,
                 },
                 value,

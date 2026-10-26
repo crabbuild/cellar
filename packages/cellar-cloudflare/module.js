@@ -5,6 +5,7 @@ import { durableObjectContainer } from "./container.js";
 import { namespaceBinding } from "./namespace.js";
 import { decodeRequest, webRuntime } from "./http.js";
 import { encodeStreamResponse } from "./output.js";
+import { installSocketGlobals } from "./websocket-pair.js";
 
 function environment(current, namespaces, variables) {
   const env = Object.create(null);
@@ -109,6 +110,7 @@ export function workersApplication(
   return {
     cells,
     async fetch(frame, context) {
+      installSocketGlobals(context._current);
       const env = environment(() => context, namespaces, variables);
       const execution = Object.freeze({
         waitUntil: (promise) => context._waitUntil(promise),

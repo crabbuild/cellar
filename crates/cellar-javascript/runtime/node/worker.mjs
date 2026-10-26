@@ -177,6 +177,7 @@ function operation(
   const mutation =
     !name.startsWith("workers.rpc.") &&
     ![
+      "storage.sync",
       "response.write",
       "response.finish",
       "workers.container.perform",
@@ -296,6 +297,8 @@ function operation(
       "container.port.fetch",
       "container.port.fetch_stream",
       "container.response.read",
+      "container.port.connect_websocket",
+      "container.websocket.receive",
       "workers.fetch",
       "workers.fetch_stream",
       "workers.container.fetch",

@@ -58,8 +58,10 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 background-process discovery and teardown routes pass. A published `execStream()`
 probe also forwards output through Worker/DO HTTP responses before command
 completion. Direct RPC `execStream()` also passes. Generic RPC byte-stream inputs
-run through native sessions; SDK uploads still need their separate transport.
-HTTP-message RPC transfers, previews and full fault qualification remain open.
+run through native sessions. With `SANDBOX_TRANSPORT=rpc`, a real 2 MiB SDK
+binary upload now passes through Cap'n Web and native container WebSockets,
+including a prefix observed before EOF and exact final bytes. HTTP-message RPC
+transfers, previews and full fault qualification remain open.
 See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start
@@ -230,8 +232,9 @@ The Workers path requires `Source::workers_lifetimes()` and both provider opt-in
 It currently refuses queued lifecycle calls inside transaction and
 `blockConcurrencyWhile` callbacks before effects. Node supports incremental port
 and Worker/DO HTTP forwarding; the pinned Container example runs against an engine protocol peer,
-and the Sandbox baseline also passes matching-image HTTP streaming. Upgrades
-and complete package lifecycle/fault acceptance remain pending; see the
+and the Sandbox baseline also passes matching-image HTTP streaming and SDK RPC
+uploads over container-port upgrades/local WebSocket pairs. Worker/DO upgrade
+forwarding and complete package lifecycle/fault acceptance remain pending; see the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
 ## Understand lifetime and failure outcomes

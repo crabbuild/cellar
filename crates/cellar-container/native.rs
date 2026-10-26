@@ -230,7 +230,11 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         }
         "container.websocket.close" => {
             let code = integer(value, "code", 4999)?;
-            ensure!(code == 1000 || code >= 3000, "invalid WebSocket close code");
+            ensure!(
+                (1000..=1014).contains(&code) && ![1004, 1005, 1006].contains(&code)
+                    || code >= 3000,
+                "invalid WebSocket close code"
+            );
             ensure!(
                 values::field(value, "reason")?.len() <= 123,
                 "WebSocket close reason too long"
@@ -440,8 +444,12 @@ pub(crate) async fn execute(
             {
                 websocket::UpgradeResponse::Upgraded(socket) => {
                     let protocol = socket.protocol();
+                    let headers = socket
+                        .upgrade_headers()
+                        .context("network upgrade headers missing")?;
+                    values::headers(&headers)?;
                     Ok(
-                        json!({"upgraded":true,"id":resources.insert(Resource::WebSocket(socket)),"protocol":protocol}),
+                        json!({"upgraded":true,"id":resources.insert(Resource::WebSocket(socket)),"protocol":protocol,"headers":headers}),
                     )
                 }
                 websocket::UpgradeResponse::Declined(response) => Ok(
