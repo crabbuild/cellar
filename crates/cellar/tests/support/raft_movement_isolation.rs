@@ -350,7 +350,14 @@ async fn fleet_movement_isolated_obsolete_repairs_three_histories() -> Result<()
             .boot()
             == &evidence.attestation.boot
     );
-    ensure!(stopped.root.path().exists());
+    let retained = stopped.root.path().to_path_buf();
+    let retained =
+        s.f.domain
+            .run(async move {
+                cellar::asyncrt::blocking(move || cellar::asyncrt::fs().metadata(&retained)).await
+            })
+            .await???;
+    ensure!(retained.is_dir);
     s.close().await
 }
 
