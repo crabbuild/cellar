@@ -13,7 +13,7 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 // Internal development keeps protocol 1; all fleet participants use one build.
@@ -66,7 +66,21 @@ pub struct PeerAuth {
     key: [u8; 32],
     source: String,
     replay: Mutex<ReplayCache>,
+    tunnel_scope: TunnelScope,
 }
+
+/// An in-process cache namespace, containing no credential material. Keeping a
+/// clone alive prevents identity reuse after its PeerAuth has been dropped.
+#[derive(Clone)]
+pub(crate) struct TunnelScope(Arc<()>);
+
+impl PartialEq for TunnelScope {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for TunnelScope {}
 
 #[derive(Debug)]
 pub enum VerifyError {
@@ -111,11 +125,18 @@ impl PeerAuth {
                 entries: HashMap::new(),
                 checks: 0,
             }),
+            tunnel_scope: TunnelScope(Arc::new(())),
         })
     }
 
     pub fn source(&self) -> &str {
         &self.source
+    }
+
+    /// A shared authentication owner may reuse its established tunnels. A new
+    /// owner, even with the same source name, must authenticate independently.
+    pub(crate) fn tunnel_scope(&self) -> TunnelScope {
+        self.tunnel_scope.clone()
     }
 
     /// Raft's distinct wire domains never reuse Fleet's textual signature input.

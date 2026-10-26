@@ -18,6 +18,8 @@ mod package;
 mod transport;
 use transport::Transport;
 
+const RECEIVE_PASS_FRAMES: usize = 256;
+
 /// Trusted application process configuration. The module and its node_modules
 /// must be deployed together. Node 24 or later is required. Node OS APIs are
 /// ordinary external effects, outside Cellar's durability and cancellation proof.
@@ -38,6 +40,8 @@ pub struct NodeOptions {
     // Hold native observation while the real worker continues producing input.
     #[cfg(test)]
     pub(crate) observer_pause: Option<(Duration, Life)>,
+    #[cfg(test)]
+    pub(crate) observer_pause_after_start: bool,
 }
 
 impl NodeOptions {
@@ -51,6 +55,8 @@ impl NodeOptions {
             heartbeat_timeout: Duration::from_secs(2),
             #[cfg(test)]
             observer_pause: None,
+            #[cfg(test)]
+            observer_pause_after_start: false,
         }
     }
 }
@@ -292,12 +298,13 @@ fn run(
     let mut last_operation = 0;
     let mut last_budget = 0;
     let mut budgets = super::budgets::Budgets::default();
+    let mut receive_remaining = RECEIVE_PASS_FRAMES;
     loop {
         if runtime.closed.load(Ordering::Acquire) {
             return Ok(());
         }
         #[cfg(test)]
-        if initialized {
+        if initialized && (!node.observer_pause_after_start || !invocations.is_empty()) {
             if let Some((duration, resumed)) = observer_pause.take() {
                 std::thread::sleep(duration);
                 ensure!(
@@ -307,6 +314,7 @@ fn run(
                 resumed.store(true, Ordering::Release);
             }
         }
+        transport.begin_turn();
         let now = Instant::now();
         let loop_gap = now.saturating_duration_since(last_check);
         let heartbeat_gap = now.saturating_duration_since(heartbeat);
@@ -416,11 +424,14 @@ fn run(
         }
 
         transport.flush()?;
-        // Bound each receive pass so a busy peer cannot starve shutdown or replies.
-        for _ in 0..256 {
+        // Keep the original 256-frame heartbeat observation pass, but split
+        // socket/decoder work across turns so shutdown, authority retirement
+        // and native replies make progress even under a continuous byte flood.
+        while receive_remaining > 0 {
             let Some(frame) = transport.receive()? else {
                 break;
             };
+            receive_remaining -= 1;
             let _frame_bytes = frame._bytes;
             let message = frame.metadata;
             let mut body = frame.body;
@@ -652,13 +663,23 @@ fn run(
         // A delayed native observer can resume with valid heartbeats already
         // queued. Inspect the bounded receive pass before deciding the worker
         // is unresponsive; input readiness alone never resets the watchdog.
-        let heartbeat_gap = Instant::now().saturating_duration_since(heartbeat);
-        ensure!(
-            !initialized || heartbeat_gap < node.heartbeat_timeout,
-            "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
-            heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
-        );
-        std::thread::sleep(Duration::from_millis(1));
+        if receive_remaining == 0 || !transport.receive_yielded() {
+            // A quota yield does not mean queued heartbeats have been observed.
+            // The finite frame allowance survives across turns; input readiness
+            // never renews liveness or starts an unbounded observation window.
+            let heartbeat_gap = Instant::now().saturating_duration_since(heartbeat);
+            ensure!(
+                !initialized || heartbeat_gap < node.heartbeat_timeout,
+                "Node event loop or initialization timed out: initialized={initialized}, heartbeat_gap_ms={}, observer_gap_ms={}, input_ready={:?}, invocations={}, objects={}",
+                heartbeat_gap.as_millis(), loop_gap.as_millis(), transport.input_ready().ok(), invocations.len(), objects.len()
+            );
+            receive_remaining = RECEIVE_PASS_FRAMES;
+            std::thread::sleep(Duration::from_millis(1));
+        } else {
+            // Splitting a busy observation pass must not add a fresh sleep or
+            // heartbeat grace period for every byte slice.
+            std::thread::yield_now();
+        }
     }
 }
 

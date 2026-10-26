@@ -773,7 +773,7 @@ impl RaftCellHandle {
             match &kind {
                 Kind::NodeDrain => {}
                 Kind::ActivateLearner(activation) => {
-                    if activation.member == activation.source || timeout > Duration::from_secs(300)
+                    if activation.member == activation.source || timeout > Duration::from_secs(3600)
                     {
                         return Err(CommandFailure::UnsupportedCapability);
                     }

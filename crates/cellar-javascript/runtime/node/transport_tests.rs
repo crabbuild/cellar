@@ -36,6 +36,7 @@ fn receive(transport: &mut Transport) -> Result<Frame> {
         if let Some(value) = transport.receive()? {
             return Ok(value);
         }
+        transport.begin_turn();
         ensure!(Instant::now() < until, "Node transport stalled");
         std::thread::yield_now();
     }
@@ -266,6 +267,7 @@ fn partial_socket_writes_keep_full_allocations_reserved_until_flush() -> Result<
     let until = Instant::now() + Duration::from_secs(2);
     let mut received = Vec::new();
     while received.len() != expected.len() {
+        transport.begin_turn();
         transport.flush()?;
         let mut bytes = [0; 65_536];
         match peer.read(&mut bytes) {
@@ -359,4 +361,125 @@ fn decoded_control_strings_preserve_unicode_and_release_scratch() -> Result<()> 
     drop(transport);
     assert_eq!(budget.available_permits(), 4096);
     Ok(())
+}
+
+#[test]
+fn incoming_burst_cannot_monopolize_one_turn() -> Result<()> {
+    const TURN_BYTES: usize = 1 << 20;
+    let (mut peer, mut transport) = connected(128 << 10, 4 << 20)?;
+    peer.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let bytes = frame(
+        json!({"type":"heartbeat","has_body":false,"padding":"x".repeat(64 << 10)}),
+        &[],
+    );
+    let wire_size = bytes.len();
+    let writer = std::thread::spawn(move || -> io::Result<()> {
+        for _ in 0..64 {
+            peer.write_all(&bytes)?;
+        }
+        // Keep the peer alive until the transport closes its read side.
+        let mut end = [0];
+        let _ = peer.read(&mut end);
+        Ok(())
+    });
+    let result = (|| -> Result<usize> {
+        let mut processed = 0;
+        // This is one runtime receive pass, without resetting its work budget.
+        for _ in 0..256 {
+            if let Some(frame) = transport.receive()? {
+                assert_eq!(frame.metadata["type"], "heartbeat");
+                processed += wire_size;
+                ensure!(
+                    processed <= TURN_BYTES,
+                    "receive turn consumed {processed} wire bytes; limit={TURN_BYTES}"
+                );
+            } else {
+                std::thread::sleep(Duration::from_millis(1));
+            }
+        }
+        ensure!(processed > 0, "burst fixture made no progress");
+        Ok(processed)
+    })();
+    let budget = transport.budget.clone();
+    drop(transport);
+    // The intentionally stopped receiver may abort the fixture's next write.
+    let _ = writer.join().unwrap();
+    assert_eq!(budget.available_permits(), 4 << 20);
+    result?;
+    Ok(())
+}
+
+#[test]
+fn queued_output_cannot_monopolize_one_turn() -> Result<()> {
+    const TURN_BYTES: usize = 1 << 20;
+    let (mut peer, mut transport) = connected(3 << 20, 8 << 20)?;
+    let reader = std::thread::spawn(move || -> io::Result<()> {
+        let mut bytes = [0; 64 << 10];
+        while peer.read(&mut bytes)? != 0 {}
+        Ok(())
+    });
+    transport.send_parts(json!({"type":"reply"}), Some(&vec![7; 2 << 20]))?;
+    let queued = transport.queued;
+    let result = (|| -> Result<()> {
+        for _ in 0..256 {
+            transport.flush()?;
+            let written = queued - transport.queued + transport.offset;
+            ensure!(
+                written <= TURN_BYTES,
+                "write turn consumed {written} wire bytes; limit={TURN_BYTES}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        ensure!(
+            transport.offset > 0 && transport.queued == queued,
+            "partial output lost its backing allocation"
+        );
+        assert_eq!(transport.budget.available_permits(), (8 << 20) - queued);
+        Ok(())
+    })();
+    let budget = transport.budget.clone();
+    drop(transport);
+    reader.join().unwrap()?;
+    assert_eq!(budget.available_permits(), 8 << 20);
+    result
+}
+
+#[test]
+fn one_large_frame_yields_with_its_full_reservation_and_then_completes() -> Result<()> {
+    let body = vec![9; 2 << 20];
+    let bytes = frame(json!({"has_body":true}), &body);
+    let size = bytes.len();
+    let (mut peer, mut transport) = connected(3 << 20, 8 << 20)?;
+    peer.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let writer = std::thread::spawn(move || -> io::Result<()> {
+        peer.write_all(&bytes)?;
+        let mut end = [0];
+        let _ = peer.read(&mut end);
+        Ok(())
+    });
+    let result = (|| -> Result<()> {
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            ensure!(
+                transport.receive()?.is_none(),
+                "large frame consumed one unbounded turn"
+            );
+            if transport.receive_yielded() {
+                break;
+            }
+            ensure!(Instant::now() < until, "large input did not arrive");
+            std::thread::yield_now();
+        }
+        assert_eq!(transport.input.len(), TURN_IO_BYTES);
+        assert_eq!(transport.budget.available_permits(), (8 << 20) - size);
+        let received = receive(&mut transport)?;
+        assert_eq!(received.body.as_deref(), Some(body.as_slice()));
+        assert_eq!(transport.input.capacity(), 0);
+        drop(received);
+        assert_eq!(transport.budget.available_permits(), 8 << 20);
+        Ok(())
+    })();
+    drop(transport);
+    let _ = writer.join().unwrap();
+    result
 }

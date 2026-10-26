@@ -64,7 +64,7 @@ pub struct TransportOptions {
     /// Whole-transfer deadline, independent of the per-I/O idle deadline.
     pub snapshot_timeout_ms: u64,
     pub max_snapshot_bytes: usize,
-    /// Logical image bytes covered by the snapshot source/receiver reservation.
+    /// Logical image quota; memory admission covers only bounded codec/wire buffers.
     pub max_snapshot_image_bytes: u64,
     /// Complete S3 recovery set plus containing-bundle read reservations.
     pub max_seed_recovery_bytes: usize,
@@ -95,7 +95,9 @@ impl Default for TransportOptions {
             snapshot_timeout_ms: 30_000,
             max_snapshot_bytes: 128 * 1024 * 1024,
             max_snapshot_image_bytes: 64 * 1024 * 1024,
-            max_seed_recovery_bytes: 256 * 1024 * 1024 + super::archive::RECOVERY_BUNDLE_READ_BYTES,
+            max_seed_recovery_bytes: 256 * 1024 * 1024
+                + super::archive::RECOVERY_BUNDLE_READ_BYTES
+                + super::archive::physical_read_bytes(),
             snapshot_chunk_bytes: 1024 * 1024,
         }
     }
@@ -108,7 +110,7 @@ impl TransportOptions {
     ) -> Result<super::snapshot::SnapshotLimits, TransportError> {
         if image_bytes > self.max_snapshot_image_bytes {
             return Err(TransportError::Invalid(
-                "snapshot image exceeds reserved working memory".into(),
+                "snapshot image exceeds configured quota".into(),
             ));
         }
         let limits = super::snapshot::SnapshotLimits {
@@ -146,9 +148,11 @@ impl TransportOptions {
             || self.queue_items > 4096
             || self.io_timeout_ms == 0
             || self.io_timeout_ms > 60_000
-            || !(1..=300_000).contains(&self.snapshot_timeout_ms)
-            || !(512..=512 * 1024 * 1024).contains(&self.max_snapshot_bytes)
-            || !(512..=256 * 1024 * 1024).contains(&self.max_snapshot_image_bytes)
+            || !(1..=3_600_000).contains(&self.snapshot_timeout_ms)
+            || !(512..=cellar_ltx::stream_snapshot::MAX_ENCODED_BYTES as usize)
+                .contains(&self.max_snapshot_bytes)
+            || !(512..=cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES)
+                .contains(&self.max_snapshot_image_bytes)
             || !(1..=super::archive::MAX_RECOVERY_READ_BYTES)
                 .contains(&self.max_seed_recovery_bytes)
             || !(1..=1024 * 1024).contains(&self.snapshot_chunk_bytes)

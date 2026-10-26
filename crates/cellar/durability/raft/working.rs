@@ -12,7 +12,6 @@ use cellar_logic::consensus::{GroupScope, ProposalId};
 use cellar_ltx::apply::{ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationPin, ImageId};
 use cellar_ltx::{ltx, Db, FileSystem, TXID};
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -34,21 +33,7 @@ impl Working {
                 state.length <= options.limits.max_image_bytes,
                 "command base exceeds image bound"
             );
-            let mut reader = pin.open_reader()?;
-            let mut target = filesystem.create_read_write(&path)?;
-            let mut hash = Sha256::new();
-            let mut offset = 0;
-            while offset < state.length {
-                let length = (state.length - offset).min(64 * 1024) as usize;
-                let bytes = reader.read_exact_at(offset, length)?;
-                hash.update(&bytes);
-                target.write_all(&bytes)?;
-                offset += length as u64;
-            }
-            ensure!(
-                <[u8; 32]>::from(hash.finalize()) == state.digest,
-                "private base SHA-256 mismatch"
-            );
+            pin.private_copy(&filesystem, &path)?;
             // Only the independently sealed base is a recovery authority.
             // This copy is discarded on every reopen, including after a crash.
         }
@@ -120,9 +105,29 @@ impl Working {
         base: Option<&PublishedImage>,
     ) -> Result<CellUpdate> {
         let limits = options.limits.envelope;
-        let captured = self
-            .capture
-            .capture_with_files(limits.max_files, limits.max_payload_bytes)?;
+        let captured = self.capture.capture_with_limits(
+            limits.max_files,
+            ltx::DecodeLimits {
+                max_encoded_bytes: limits.max_payload_bytes,
+                max_decoded_bytes: limits.max_decoded_bytes,
+                max_pages: usize::try_from(limits.max_pages)?,
+                max_image_bytes: options.limits.max_image_bytes,
+                ..Default::default()
+            },
+        )?;
+        if options.limits.receipt_reserve_bytes != 0 {
+            let usage = self
+                .database
+                .frozen_capacity(options.limits.max_image_bytes)?;
+            options
+                .limits
+                .check_capacity(
+                    usage.application_bytes,
+                    usage.receipt_bytes,
+                    usage.structural_reserve_bytes,
+                )
+                .map_err(anyhow::Error::new)?;
+        }
         let result_position = self.capture.pos()?;
         let base_state = base
             .map(|b| b.pin().state())
@@ -184,7 +189,13 @@ impl Working {
             };
             ensure!(files.insert(min, update).is_none(), "duplicate L0 range");
         }
-        let (digest, length, page_size) = self.database.digest(options.limits.max_image_bytes)?;
+        let (length, page_size) = self.database.geometry(options.limits.max_image_bytes)?;
+        // Read the actual committed SQLite main/WAL overlay, independently of
+        // the LTX bytes whose application must produce this exact digest. Keep
+        // WAL scratch/index admission separate from the logical image quota.
+        let digest = self
+            .capture
+            .committed_image_digest(length, page_size, 512 * 1024 * 1024)?;
         let result = ImageState {
             epoch: base_state.epoch,
             txid: result_position.txid,

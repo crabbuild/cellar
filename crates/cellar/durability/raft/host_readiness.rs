@@ -29,6 +29,16 @@ fn role(cache: &super::super::cache::CachedGroup, status: &GroupStatus) -> RaftR
 #[path = "host_readiness_tests.rs"]
 mod tests;
 
+fn coherent_image(
+    cache: &super::super::cache::CachedGroup,
+    image: Option<&ImageView>,
+    applied: cellar_logic::consensus::LogPosition,
+) -> bool {
+    image.is_some_and(|image| {
+        cache.coherent_image_position(&image.image, image.position) == Some(applied)
+    })
+}
+
 pub(super) fn capture(
     cell: &Cell,
     status: &GroupStatus,
@@ -39,11 +49,7 @@ pub(super) fn capture(
 ) -> Result<(RaftReplicaRole, RaftQueryReadiness), RuntimeError> {
     let cache = cell.group.read()?;
     let role = role(&cache, status);
-    let coherent_image = cell.image.as_ref().is_some_and(|image| {
-        cache.applied.position == status.applied
-            && image.position == cache.applied.position
-            && cache.applied.image.as_ref() == Some(&image.image)
-    });
+    let coherent_image = coherent_image(&cache, cell.image.as_ref(), status.applied);
     let historical = registered_queries
         && coherent_image
         && !matches!(role, RaftReplicaRole::Removed | RaftReplicaRole::Unknown)

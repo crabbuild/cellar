@@ -120,7 +120,14 @@ async fn dead_tunnel_returns_exact_unsent_request_for_safe_retry() -> anyhow::Re
             let original_budget: u64 = request.headers()[rpc_deadline::BUDGET_HEADER]
                 .to_str()?
                 .parse()?;
-            let mut failure = match send_on_tunnel("dead-test-tunnel", sender, request).await {
+            let auth = PeerAuth::new([0; 32], "origin")?;
+            let key = TunnelKey {
+                address: "dead-test-tunnel".into(),
+                kind: "rpc",
+                target: "owner".into(),
+                scope: auth.tunnel_scope(),
+            };
+            let mut failure = match send_on_tunnel(&key, sender, request).await {
                 Ok(_) => anyhow::bail!("dead tunnel returned a response"),
                 Err(failure) => failure,
             };
@@ -147,4 +154,329 @@ async fn dead_tunnel_returns_exact_unsent_request_for_safe_retry() -> anyhow::Re
         .await?;
     domain.shutdown().await;
     result
+}
+
+#[tokio::test]
+async fn idle_tunnel_churn_evicts_old_peers_at_the_global_bound() -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let mut pool = IdleTunnels::default();
+            let prefix = format!(
+                "idle-bound-{}-",
+                crate::engine_api::request_id_string(crate::engine_api::next_request_id())
+            );
+            let auth = PeerAuth::new([0; 32], "origin")?;
+            let key = |index| TunnelKey {
+                address: format!("{prefix}{index}"),
+                kind: "rpc",
+                target: "owner".into(),
+                scope: auth.tunnel_scope(),
+            };
+            let mut owners = Vec::new();
+            let mut drivers = Vec::new();
+            for index in 0..=TUNNEL_POOL_CAP {
+                let (client, owner) = tokio::io::duplex(4096);
+                let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
+                    .handshake::<_, TunnelBody>(TokioIo::new(client))
+                    .await?;
+                drivers.push(crate::asyncrt::spawn(async move {
+                    let _ = connection.await;
+                }));
+                sender.ready().await?;
+                owners.push(owner);
+                pool.park(&key(index), sender);
+            }
+            // Use the production checkout path, not container-size assertions.
+            // Old peers must yield their idle slot to the newly observed peer.
+            let oldest = pool.checkout(&key(0));
+            let newest = pool.checkout(&key(TUNNEL_POOL_CAP));
+            let evicted = oldest.is_none();
+            let retained = newest.is_some();
+            drop(oldest);
+            drop(newest);
+            drop(pool);
+            drop(owners);
+            for driver in drivers {
+                driver.await?;
+            }
+            anyhow::ensure!(
+                evicted,
+                "idle pool retained more than {TUNNEL_POOL_CAP} distinct live peer tunnels"
+            );
+            anyhow::ensure!(retained, "idle pool discarded the newest ready peer");
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn submitted_rpc_reply_loss_cannot_enter_the_unsent_retry_path() -> anyhow::Result<()> {
+    use futures_util::FutureExt as _;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let fallback = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = fallback.local_addr()?.to_string();
+            let (client, owner) = tokio::io::duplex(4096);
+            let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
+                .handshake::<_, TunnelBody>(TokioIo::new(client))
+                .await?;
+            let driver = crate::asyncrt::spawn(async move {
+                let _ = connection.await;
+            });
+            let (observed, received) = tokio::sync::oneshot::channel();
+            let observed = Arc::new(std::sync::Mutex::new(Some(observed)));
+            let server = crate::asyncrt::spawn(async move {
+                let service = service_fn(move |request: Request<Incoming>| {
+                    let observed = observed.clone();
+                    async move {
+                        let identity = request.headers()[REQUEST_ID_HEADER].clone();
+                        let method = request.headers()[METHOD_HEADER].clone();
+                        let bytes = request
+                            .into_body()
+                            .collect()
+                            .await
+                            .map_err(std::io::Error::other)?
+                            .to_bytes();
+                        // The complete request has crossed the transport boundary.
+                        // Lose the reply before even its headers reach the caller.
+                        observed
+                            .lock()
+                            .unwrap()
+                            .take()
+                            .unwrap()
+                            .send((identity, method, bytes))
+                            .unwrap();
+                        Err::<HttpReply, _>(std::io::Error::other("intentional owner reply loss"))
+                    }
+                });
+                assert!(hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(owner), service)
+                    .await
+                    .is_err());
+            });
+            sender.ready().await?;
+            let http = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(1))
+                .build()?;
+            let auth = PeerAuth::new([0; 32], "origin")?;
+            let peer = Peer {
+                http: &http,
+                auth: &auth,
+                addr: &address,
+                node: "owner",
+            };
+            let key = tunnel_key(&peer, "rpc");
+            park(&key, sender);
+            let identity = crate::engine_api::next_request_id();
+            let method = "example.counter.v1.Counter/Increment";
+            let payload = Bytes::from_static(b"one submitted request");
+            let outcome = crate::asyncrt::timeout(
+                std::time::Duration::from_secs(2),
+                rpc(
+                    &peer,
+                    "Counter:lost-reply",
+                    Some("lost-reply"),
+                    method,
+                    &crate::engine_api::RpcData::Structured(payload.clone()),
+                    RpcControl {
+                        request_id: Some(identity),
+                        authority: None,
+                        deadline_ms: Some(crate::asyncrt::mono_ms() + 1000),
+                    },
+                ),
+            )
+            .await
+            .context("lost reply incorrectly waited for a replay tunnel")?;
+            let failure = outcome.err().context("lost reply unexpectedly succeeded")?;
+            let (actual_id, actual_method, actual_body) = received.await?;
+            assert_eq!(actual_id, crate::engine_api::request_id_string(identity));
+            assert_eq!(actual_method, method);
+            assert_eq!(actual_body, payload);
+            assert_eq!(
+                classify_remote_attempt(&failure),
+                cellar_logic::routing::Attempt::Ambiguous
+            );
+            let mut routing = RemoteRouteRetry::new(1000);
+            assert_eq!(
+                routing.failed(classify_remote_attempt(&failure)),
+                RemoteRetryAction::Stop
+            );
+            assert!(
+                fallback.accept().now_or_never().is_none(),
+                "submitted RPC opened a replay tunnel"
+            );
+            assert!(
+                checkout(&key).is_none(),
+                "failed reply returned a poisoned tunnel to the pool"
+            );
+            server.await?;
+            driver.await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pooled_rpc_requires_its_original_credential_scope() -> anyhow::Result<()> {
+    changed_peer_cannot_reuse_authenticated_tunnel(false).await
+}
+
+#[tokio::test]
+async fn pooled_rpc_does_not_reuse_a_different_target_session() -> anyhow::Result<()> {
+    changed_peer_cannot_reuse_authenticated_tunnel(true).await
+}
+
+async fn changed_peer_cannot_reuse_authenticated_tunnel(change_target: bool) -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let (app, mut routes) = super::super::capacity_tests::app("peer")?;
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?.to_string();
+            let handshakes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let seen = handshakes.clone();
+            let serving = app.clone();
+            let (stop, mut stopped) = tokio::sync::oneshot::channel();
+            let server = crate::asyncrt::spawn(async move {
+                let mut connections = Vec::new();
+                while let Some(stream) = accept_until_stopped(&listener, &mut stopped).await? {
+                    let app = serving.clone();
+                    let seen = seen.clone();
+                    connections.push(crate::asyncrt::spawn(async move {
+                        let service = service_fn(move |request| {
+                            seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                            let reply = accept(request, app.clone());
+                            async move { Ok::<_, Infallible>(reply) }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), service)
+                            .with_upgrades()
+                            .await;
+                    }));
+                }
+                for connection in connections {
+                    connection.await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            });
+            let http = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()?;
+            let original_auth = PeerAuth::new([0; 32], "origin")?;
+            let other_auth = PeerAuth::new([1; 32], "origin")?;
+            let original = Peer {
+                http: &http,
+                auth: &original_auth,
+                addr: &address,
+                node: "peer",
+            };
+            let changed = Peer {
+                http: &http,
+                auth: if change_target {
+                    &original_auth
+                } else {
+                    &other_auth
+                },
+                addr: &address,
+                node: if change_target {
+                    "another-session"
+                } else {
+                    "peer"
+                },
+            };
+            let args = crate::engine_api::RpcData::Structured(Bytes::new());
+            let call = |peer| {
+                rpc(
+                    peer,
+                    "Counter:auth-probe",
+                    None,
+                    "example.counter.v1.Counter/GetCount",
+                    &args,
+                    RpcControl {
+                        request_id: None,
+                        authority: None,
+                        deadline_ms: None,
+                    },
+                )
+            };
+            let warm = call(&original).await?;
+            assert_eq!(warm.status(), StatusCode::SERVICE_UNAVAILABLE);
+            // A clean EOF is necessary to return the authenticated sender to cache.
+            warm.into_body().collect().await?;
+            let cached = checkout(&tunnel_key(&original, "rpc"));
+            anyhow::ensure!(
+                cached.is_some(),
+                "authentication fixture did not cache its warm tunnel"
+            );
+            park(&tunnel_key(&original, "rpc"), cached.unwrap());
+            let result = call(&changed).await;
+            let refused = result.is_err();
+            let stale = result
+                .as_ref()
+                .err()
+                .is_some_and(|error| error.downcast_ref::<StaleTunnelRoute>().is_some());
+            let unauthorized = result.as_ref().err().is_some_and(|error| {
+                error.to_string()
+                    == format!("tunnel establishment answered {}", StatusCode::UNAUTHORIZED)
+            });
+            if let Ok(response) = result {
+                response.into_body().collect().await?;
+            }
+            // Close this fixture's cached inner connections before joining its domain.
+            while let Some(sender) = checkout(&tunnel_key(&original, "rpc")) {
+                drop(sender);
+            }
+            while let Some(sender) = checkout(&tunnel_key(&changed, "rpc")) {
+                drop(sender);
+            }
+            let attempted = handshakes.load(std::sync::atomic::Ordering::SeqCst);
+            assert!(matches!(
+                routes.try_recv(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            ));
+            drop(http);
+            let _ = stop.send(());
+            server.await??;
+            anyhow::ensure!(
+                refused,
+                "changed peer credentials/session reused an authenticated tunnel"
+            );
+            anyhow::ensure!(
+                attempted == 2,
+                "changed peer skipped its own authentication handshake"
+            );
+            anyhow::ensure!(
+                !change_target || stale,
+                "wrong target lost trusted stale-route classification"
+            );
+            anyhow::ensure!(
+                change_target || unauthorized,
+                "changed credentials did not reach the peer's authentication refusal"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
+async fn accept_until_stopped(
+    listener: &tokio::net::TcpListener,
+    stopped: &mut tokio::sync::oneshot::Receiver<()>,
+) -> std::io::Result<Option<tokio::net::TcpStream>> {
+    crate::asyncrt::select_biased! { "test server stops before accepting more tunnels";
+        _ = stopped => Ok(None),
+        accepted = listener.accept() => accepted.map(|(stream, _)| Some(stream)),
+    }
 }

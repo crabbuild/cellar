@@ -50,6 +50,10 @@ records authentication, bounds, ambiguous outcomes and remaining retention work.
 `RaftCellHandle.status()` reports a sampled replica role and local query
 readiness, including coherent image, registered callbacks and exact RecentSource
 age. These observations do not reserve capacity or prove a current quorum.
+Protocol-only applied entries can advance the sampled position while retaining
+the same verified image. Readiness uses the same complete marker and monotonic
+position checks as query admission; changed markers, regressing positions and
+uncommitted cuts remain ineligible.
 `RaftHostOptions.max_query_pins` bounds physical SDK query-reader reservations;
 the blocking owner retains its permit through callback/connection exit after
 waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host
@@ -380,6 +384,16 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
+
+Checkpoint and source metadata capture freezes an exact durable cut on that SQL
+owner, then releases it before physical snapshot encoding. A separate registered
+blocking task retains the immutable image pin, source reservation, scratch owners
+and any application work until encoding exits. The same source admission bounds
+checkpoints and transfers. Queries and commands can continue while a snapshot is
+encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
+The `snapshot_encode` performance timer records this work separately from SQL.
+Physical verification and runtime checkpoint/install authorization still precede
+publication, and shutdown joins the encoder before releasing its owners.
 
 Each SQL owner prioritizes queued publication, retirement, submission, discard
 and archive capture over unrelated ordinary work. It never passes an earlier
@@ -762,6 +776,57 @@ retained payloads once during complete final verification. Reusing a covering
 head still downloads and physically verifies its material. Snapshot rotation
 also checks the prior payloads before replacing them, preserving refusal of
 missing or corrupt prior history.
+
+Fresh snapshot uploads retain their anonymous source after exact conditional
+read-back confirmation of every part and index. The SHA-256 of the actual
+uploaded stream must equal that source's encoded digest. This private proof can
+supply the same bytes to full physical validation and independent destination
+replay without downloading the producer's own parts again. It remains bound to
+the exact snapshot reference and complete image state. Source scratch admission
+stays charged until the recovery set's last physical owner drops; failed
+confirmation or replay returns no new head proof.
+
+Part publication overlaps at most two conditional writes/read-back confirmations
+per producer. Source reads and the whole-stream hash remain ordered; the index
+retains source order even when confirmations finish out of order. Each part's
+owned buffer moves into its upload, avoiding additional complete-part copies.
+The window's PUT/read buffers fit the existing physical working-memory
+allowance, independently of logical image size. A failure stops new part
+admission and drains entered confirmations before releasing the source. No
+index/head is exposed on failure, and independent destination replay remains
+required. `raft_archive_phase` logs distinguish encoding, confirmed upload,
+material download, physical replay and exact head confirmation; they are
+observations, not new publication proofs or recovery-time guarantees.
+
+Native replicas coordinate publication for actual images of at least 64 MiB
+through a bounded conditional `publication` record beside the cell archive's
+`head`. It is an advisory scheduling hint, with no cell ownership or durability
+authority. Each boot binds its publisher identity to node, disk and process.
+Acquisition, renewal and release use exact conditional versions and reconcile
+lost replies by reading back the complete desired record. A late publisher
+cannot release a replacement's hint.
+
+`RaftArchiveOptions.publication_stale_ms` defaults to 5,000 ms (100..=60,000).
+Competing replicas age unchanged versions on their own monotonic clocks; no
+shared wall clock or lease timestamp is required. Renewal requires completed
+data I/O, so a live but stalled publisher cannot keep peers waiting forever.
+The renewal future joins entered I/O before the producer returns. Released
+records permit immediate acquisition. Missing, malformed or unavailable hints
+fall back to ordinary publication; they cannot relax data validation. Small
+images avoid this scheduling traffic. Covering heads still require independent
+material reads and physical replay on every replica. This reduces duplicate
+snapshot creation, but does not remove full-image scans or qualify an RTO.
+
+A newer protocol/configuration cut may rebind an existing full snapshot index
+when its complete image state, including epoch, TXID, checksum, geometry and
+digest, is unchanged. The producer first downloads and validates the prior
+recovery closure, then conditionally writes and reads back an index reference
+for the new exact position. The manifest uses the newly captured durable
+configuration/member bindings. No image parts are uploaded on this path.
+Missing or corrupt prior material remains a refusal. Full physical validation,
+independent destination sealing and head CAS still gate publication; ordinary
+recovery continues to download and verify every selected part.
+
 `archive/replay.rs` materializes bounded batches into a private image and seals
 only each batch's final generation. Every intermediate image still passes its
 full SHA-256 and checksum proof. Batches retain at most 64 decoded envelopes or
@@ -788,7 +853,8 @@ it cannot recover through native snapshots.
 The default logical image limit is 64 MiB. For a larger fully materialized
 image, configure every replica with
 `config.with_materialized_image_limit(256 * 1024 * 1024)?` before
-`Node::start_raft_cells`. The opt-in maximum is 256 MiB. This method coordinates
+`Node::start_raft_cells`. The opt-in maximum is decimal 10 GB
+(10,000,000,000 bytes). This method coordinates
 execution, apply/decoder geometry, snapshot and archive sizes, generation disk
 admission, archive scratch space and transport working-memory reservations.
 It preserves the independent per-command envelope limits. Larger encoded-body
@@ -796,8 +862,9 @@ allowances alone cannot admit images beyond `max_snapshot_image_bytes`; S3
 recovery also checks `max_seed_recovery_bytes` before reading its complete set.
 Defaults retain the previous memory and disk bounds.
 
-This materialized path still copies and hashes complete images and buffers
-snapshot/archive data. It is not a 10 GB recovery qualification. The
+This materialized path still copies and hashes complete images. Snapshot files
+and object parts use bounded I/O and explicit scratch admission; full-size
+recovery remains unqualified. The
 [large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
 verified demand loading for fast cold activation, targeting Cloudflare's

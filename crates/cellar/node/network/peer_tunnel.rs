@@ -22,7 +22,7 @@
 //! whole ephemeral-port range into TIME_WAIT within seconds (~1k calls/s is
 //! the hard OS ceiling), which the pooled transport this replaces never hit.
 
-use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::convert::Infallible;
 
 use bytes::Bytes;
@@ -339,28 +339,74 @@ pub(crate) struct Peer<'a> {
     pub(crate) node: &'a str,
 }
 
-/// Idle tunnels per (peer, kind). A sender goes back only after its response
-/// body reaches a clean end, so active replies do not consume the idle bound.
-/// A dropped or poisoned connection reports `is_closed` and is purged on scan.
-static TUNNELS: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Vec<TunnelSender>>>> =
-    std::sync::OnceLock::new();
+/// One bounded idle cache across all peers and tunnel kinds. A sender goes back
+/// only after its response body reaches a clean end; active calls own senders
+/// outside the cache. No empty per-peer entries survive checkout or eviction.
+static TUNNELS: std::sync::OnceLock<std::sync::Mutex<IdleTunnels>> = std::sync::OnceLock::new();
 /// Completed idle tunnels count against this bound. Active calls own their
-/// senders outside the pool, so concurrency cannot evict a reusable tunnel.
+/// senders outside the pool; filling the cache cannot interrupt an active reply.
 const TUNNEL_POOL_CAP: usize = 64;
 
-fn checkout(key: &str) -> Option<TunnelSender> {
-    let mut pool = TUNNELS.get_or_init(Default::default).lock().unwrap();
-    let senders = pool.get_mut(key)?;
-    senders.retain(|sender| !sender.is_closed());
-    let index = senders.iter().position(TunnelSender::is_ready)?;
-    Some(senders.swap_remove(index))
+#[derive(Clone, PartialEq, Eq)]
+struct TunnelKey {
+    address: String,
+    kind: &'static str,
+    target: String,
+    scope: crate::peer_auth::TunnelScope,
 }
 
-fn park(key: &str, sender: TunnelSender) {
-    let mut pool = TUNNELS.get_or_init(Default::default).lock().unwrap();
-    let senders = pool.entry(key.to_string()).or_default();
-    if senders.len() < TUNNEL_POOL_CAP {
-        senders.push(sender);
+#[derive(Default)]
+struct IdleTunnels(VecDeque<(TunnelKey, TunnelSender)>);
+
+impl IdleTunnels {
+    fn checkout(&mut self, key: &TunnelKey) -> Option<TunnelSender> {
+        self.0.retain(|(_, sender)| !sender.is_closed());
+        let index = self
+            .0
+            .iter()
+            .position(|(peer, sender)| peer == key && sender.is_ready())?;
+        self.0.remove(index).map(|(_, sender)| sender)
+    }
+
+    fn park(&mut self, key: &TunnelKey, sender: TunnelSender) {
+        self.0.retain(|(_, sender)| !sender.is_closed());
+        if sender.is_closed() {
+            return;
+        }
+        // Evict the least recently returned idle tunnel. Reusing a live peer
+        // refreshes its position, while departed peers cannot reserve slots
+        // forever. Eviction never touches an active response or replays work.
+        if self.0.len() == TUNNEL_POOL_CAP {
+            self.0.pop_front();
+        }
+        self.0.push_back((key.clone(), sender));
+    }
+}
+
+fn checkout(key: &TunnelKey) -> Option<TunnelSender> {
+    TUNNELS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .checkout(key)
+}
+
+fn park(key: &TunnelKey, sender: TunnelSender) {
+    TUNNELS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap()
+        .park(key, sender);
+}
+
+fn tunnel_key(peer: &Peer<'_>, kind: &'static str) -> TunnelKey {
+    // The signed upgrade binds both authentication owner and target session.
+    // Neither may be bypassed just because another connection shares an address.
+    TunnelKey {
+        address: peer.addr.to_string(),
+        kind,
+        target: peer.node.to_string(),
+        scope: peer.auth.tunnel_scope(),
     }
 }
 
@@ -483,7 +529,7 @@ async fn send_inner(
     body: crate::engine_api::RequestBody,
     deadline_ms: Option<u64>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
-    let key = format!("{}#{kind}", peer.addr);
+    let key = tunnel_key(peer, kind);
     let body = match body {
         crate::engine_api::RequestBody::Bytes(bytes) => full_body(bytes),
         crate::engine_api::RequestBody::Stream(stream_id) => {
@@ -513,14 +559,14 @@ async fn send_inner(
 }
 
 async fn send_on_tunnel(
-    key: &str,
+    key: &TunnelKey,
     mut sender: TunnelSender,
     request: Request<TunnelBody>,
 ) -> Result<Response<PooledResponseBody>, Box<hyper::client::conn::TrySendError<Request<TunnelBody>>>>
 {
     let response = sender.try_send_request(request).await.map_err(Box::new)?;
     let reusable =
-        (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.to_string(), sender));
+        (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.clone(), sender));
     Ok(response.map(|body| PooledResponseBody { body, reusable }))
 }
 
@@ -530,7 +576,7 @@ async fn send_on_tunnel(
 /// upgraded TCP connection for every overflow call.
 pub(crate) struct PooledResponseBody {
     body: Incoming,
-    reusable: Option<(String, TunnelSender)>,
+    reusable: Option<(TunnelKey, TunnelSender)>,
 }
 
 impl Body for PooledResponseBody {

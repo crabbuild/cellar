@@ -2405,7 +2405,7 @@ fn download(package: &SnapshotPackage, target: &Fixture) -> Result<PreparedSnaps
     )?;
     for offset in (0..package.encoded_length()).step_by(257) {
         let bytes = package.chunk(offset, 257.min(package.encoded_length() - offset))?;
-        download.append(offset, bytes)?;
+        download.append(offset, &bytes)?;
     }
     Ok(download.finish(&target.images)?)
 }
@@ -2904,7 +2904,14 @@ async fn maximum_image_retained_snapshot_and_archive_roundtrip() -> Result<()> {
     assert!(
         cut.bytes.len() <= cellar_ltx::ltx::full_snapshot_bound(bytes.len() as u64, 512).unwrap()
     );
-    let pin = source.images.prepare(images::id(1), None, &cut.update())?;
+    let physical = cellar_ltx::stream_snapshot::encode(
+        &DirectFileSystem,
+        cut.result,
+        Default::default(),
+        |offset, length| Ok(bytes[offset as usize..offset as usize + length].to_vec()),
+    )?;
+    let pin = source.images.prepare_snapshot(images::id(1), &physical)?;
+    drop(physical);
     drop(cut);
     let mut write = GroupWrite::new(&source.group);
     write.entries.push(Entry {
@@ -2982,7 +2989,7 @@ async fn maximum_image_retained_snapshot_and_archive_roundtrip() -> Result<()> {
     for offset in (0..package.encoded_length()).step_by(1024 * 1024) {
         download.append(
             offset,
-            package.chunk(offset, (1024 * 1024).min(package.encoded_length() - offset))?,
+            &package.chunk(offset, (1024 * 1024).min(package.encoded_length() - offset))?,
         )?;
     }
     let prepared = download.finish(&target.images)?;
@@ -3691,7 +3698,7 @@ async fn snapshot_download_bounds_and_incomplete_refusal() -> Result<()> {
     ensure!(state.append(1, &[0]).is_err());
     ensure!(state.append(0, &[]).is_err());
     ensure!(state.append(0, &[0; 33]).is_err());
-    state.append(0, package.chunk(0, 32)?)?;
+    state.append(0, &package.chunk(0, 32)?)?;
     ensure!(state.append(0, &[0]).is_err());
     ensure!(state.finish(&target.images).is_err());
     assert_eq!(target.images.usage()?.generations, 0);

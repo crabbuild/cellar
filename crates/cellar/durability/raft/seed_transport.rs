@@ -537,7 +537,7 @@ impl State {
         let request: SeedRequest = wire.decode(REQUEST_MAGIC, REQUEST_PURPOSE, &head, None)?;
         if frame::decimal(&request.nonce)? == 0
             || request.timeout_ms == 0
-            || request.timeout_ms > 300_000
+            || request.timeout_ms > 3_600_000
         {
             return Err(TransportError::Protocol);
         }

@@ -35,13 +35,34 @@ impl CommittedImage {
                 .name
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
-            || self.length > 256 * 1024 * 1024
+            || self.length > cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES
             || self.ltx_epoch == 0
             || !cellar_ltx::ltx::is_valid_page_size(self.page_size)
         {
             return Err(LogError::Invalid("invalid committed image marker".into()));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod image_limit_tests {
+    use super::*;
+
+    #[test]
+    fn durable_marker_accepts_decimal_quota_but_not_a_page_beyond_it() {
+        let mut image = CommittedImage {
+            name: "verified.sqlite".into(),
+            digest: [9; 32],
+            length: 10_000_000_000 / 4096 * 4096,
+            ltx_epoch: 1,
+            txid: 1,
+            checksum: 0,
+            page_size: 4096,
+        };
+        assert!(image.validate().is_ok());
+        image.length += 4096;
+        assert!(image.validate().is_err());
     }
 }
 
@@ -124,6 +145,9 @@ impl GroupWrite {
 
 #[derive(Clone)]
 pub struct GroupLog {
+    pub(crate) scratch_directory: std::path::PathBuf,
+    pub(crate) snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
+    pub(crate) filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub(crate) key: u64,
     pub(crate) birth_digest: [u8; 32],
     pub(crate) identity: ReplicaIdentity,
@@ -329,6 +353,23 @@ pub(crate) struct CachedGroup {
 }
 
 impl CachedGroup {
+    /// Advance a verified image view across durable protocol-only entries. The
+    /// complete marker must remain identical; an older or uncommitted position
+    /// cannot relabel this image. The caller already owns its verified pin.
+    pub(crate) fn coherent_image_position(
+        &self,
+        image: &CommittedImage,
+        position: LogPosition,
+    ) -> Option<LogPosition> {
+        let applied = &self.applied;
+        (applied.image.as_ref() == Some(image)
+            && applied.position.index >= position.index
+            && applied.position.term >= position.term
+            && (applied.position.index != position.index || applied.position.term == position.term)
+            && applied.position.index.get() <= self.hard_state.commit)
+            .then_some(applied.position)
+    }
+
     pub fn first_index(&self) -> u64 {
         self.snapshot.get_metadata().index + 1
     }

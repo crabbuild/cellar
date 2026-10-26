@@ -510,6 +510,7 @@ dependencies = [
  "crc-fast",
  "futures-util",
  "http",
+ "libc",
  "lz4_flex",
  "object_store",
  "percent-encoding",

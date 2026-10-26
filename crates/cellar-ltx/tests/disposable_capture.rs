@@ -11,6 +11,41 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
+#[test]
+fn capture_decoded_budget_rejects_compressible_growth_before_page_collection() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("bounded.sqlite");
+    let mut db = Db::open_disposable_with_host(&path, Default::default(), None).unwrap();
+    let writer = rusqlite::Connection::open(&path).unwrap();
+    writer
+        .execute_batch(
+            "CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(4194304));",
+        )
+        .unwrap();
+    let limits = cellar_ltx::ltx::DecodeLimits {
+        max_encoded_bytes: 1024 * 1024,
+        max_decoded_bytes: 8192,
+        max_pages: 2,
+        ..Default::default()
+    };
+    assert!(db.capture_with_limits(64, limits).is_err());
+    assert_eq!(db.pos().unwrap().txid, TXID(0));
+    let cuts = db.capture_with_files(64, 1024 * 1024).unwrap();
+    assert!(!cuts.is_empty());
+    let decoded = cellar_ltx::ltx::decode_file_bounded(&cuts[0].bytes, Default::default()).unwrap();
+    assert!(decoded.decoded_bytes() > 4 * 1024 * 1024);
+    assert!(cuts[0].bytes.len() < 1024 * 1024);
+    assert_eq!(
+        writer
+            .query_row("SELECT length(value) FROM padding", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        4194304
+    );
+    drop(writer);
+    db.close().unwrap();
+}
+
 struct RejectSyncFile(HostFile);
 
 impl HostFileIo for RejectSyncFile {

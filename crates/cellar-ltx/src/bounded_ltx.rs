@@ -41,7 +41,7 @@ impl DecodeLimits {
             || self.max_pages == 0
             || self.max_pages > 524_288
             || self.max_image_bytes == 0
-            || self.max_image_bytes > 256 * 1024 * 1024
+            || self.max_image_bytes > crate::stream_snapshot::MAX_IMAGE_BYTES
             || !matches!(
                 self.max_frame_block_bytes,
                 65_536 | 262_144 | 1_048_576 | 4_194_304

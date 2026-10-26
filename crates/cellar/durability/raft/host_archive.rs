@@ -7,8 +7,9 @@
 use super::archive::{
     apply_limits, ArchiveError, ArchiveLimits, ArchiveVerifier, CellArchive, CommittedArchiveCut,
 };
-use cellar_logic::consensus::{GroupScope, LogPosition};
+use cellar_logic::consensus::{GroupScope, LogPosition, NodeIdentity};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
@@ -21,6 +22,10 @@ pub struct RaftArchiveOptions {
     /// total retained cuts across all batches remain bounded by `max_producers`.
     pub max_batch_groups: usize,
     pub retry_ms: u64,
+    /// Large-image peers wait while a competing publisher's conditional hint
+    /// keeps changing. This is a scheduling grace period, never a lease of
+    /// cell ownership or permission to acknowledge unverified archive data.
+    pub publication_stale_ms: u64,
     /// Maximum distinct cells retained across capture, pending batches and
     /// publication (1..=4). Each slot retains its complete capture reservation
     /// and bounded recovery sets until publication completes.
@@ -41,6 +46,7 @@ impl Default for RaftArchiveOptions {
             limits: ArchiveLimits::default(),
             max_batch_groups: 2,
             retry_ms: 100,
+            publication_stale_ms: 5000,
             max_producers: 2,
             max_unarchived_bytes: 256 * 1024 * 1024,
             max_unarchived_entries: 4096,
@@ -58,12 +64,22 @@ impl RaftArchiveOptions {
         anyhow::ensure!(
             (1..=super::archive::bundle::MAX_GROUPS).contains(&self.max_batch_groups)
                 && (1..=60_000).contains(&self.retry_ms)
-                && (4096..=16 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
+                && (100..=60_000).contains(&self.publication_stale_ms)
+                && (4096..=256 * 1024 * 1024 * 1024).contains(&self.max_unarchived_bytes)
                 && (1..=65_536).contains(&self.max_unarchived_entries),
             "invalid archive admission limits"
         );
         Ok(())
     }
+}
+
+pub(super) fn publication_owner(identity: NodeIdentity) -> [u8; 32] {
+    let mut hash = Sha256::new();
+    hash.update(b"cellar-archive-publication-owner-1");
+    hash.update(identity.node.bytes());
+    hash.update(identity.disk.bytes());
+    hash.update(identity.process.bytes());
+    hash.finalize().into()
 }
 
 pub(crate) struct Owner {
@@ -170,6 +186,7 @@ impl Owner {
         nonce: ImageId,
         mut apply: cellar_ltx::apply::ApplyLimits,
         accounting: cellar_ltx::generation::GenerationAccounting,
+        snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     ) -> anyhow::Result<Self> {
         let filesystem = host.filesystem();
         let verifier = host
@@ -181,9 +198,14 @@ impl Owner {
                     max_generations: 4,
                     max_bytes: (512 * 1024 * 1024).max(4 * apply.decode.max_image_bytes),
                 };
-                let images =
-                    GenerationStore::open_observed(directory, filesystem, limits, &accounting)
-                        .map_err(ArchiveError::Images)?;
+                let images = GenerationStore::open_with_scratch(
+                    directory,
+                    filesystem,
+                    limits,
+                    Some(&accounting),
+                    snapshot_scratch,
+                )
+                .map_err(ArchiveError::Images)?;
                 // This directory contains verification copies only, never an
                 // engine marker or the only acknowledged application image.
                 images.retain_only(&[]).map_err(ArchiveError::Images)?;
@@ -296,6 +318,54 @@ mod tests {
             }
             .validate()
             .is_ok());
+        }
+    }
+
+    #[test]
+    fn publication_scheduling_grace_is_bounded() {
+        for publication_stale_ms in [0, 99, 60_001, u64::MAX] {
+            assert!(RaftArchiveOptions {
+                publication_stale_ms,
+                ..Default::default()
+            }
+            .validate()
+            .is_err());
+        }
+        for publication_stale_ms in [100, 5000, 60_000] {
+            assert!(RaftArchiveOptions {
+                publication_stale_ms,
+                ..Default::default()
+            }
+            .validate()
+            .is_ok());
+        }
+    }
+
+    #[test]
+    fn publication_owner_distinguishes_node_disk_and_process() {
+        use cellar_logic::consensus::{DiskLineage, NodeId, NodeIdentity, ProcessGeneration};
+        let identity = NodeIdentity {
+            node: NodeId::new([1; 16]).unwrap(),
+            disk: DiskLineage::new([2; 16]).unwrap(),
+            process: ProcessGeneration::new([3; 16]).unwrap(),
+        };
+        let owner = super::publication_owner(identity);
+        assert_ne!(owner, [0; 32]);
+        for changed in [
+            NodeIdentity {
+                node: NodeId::new([4; 16]).unwrap(),
+                ..identity
+            },
+            NodeIdentity {
+                disk: DiskLineage::new([4; 16]).unwrap(),
+                ..identity
+            },
+            NodeIdentity {
+                process: ProcessGeneration::new([4; 16]).unwrap(),
+                ..identity
+            },
+        ] {
+            assert_ne!(owner, super::publication_owner(changed));
         }
     }
 }
