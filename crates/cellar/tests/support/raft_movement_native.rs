@@ -266,8 +266,10 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     write_read(&s.f, &second_cells, 1, 7, 7).await?;
     let (_, first) = movement(&s, &first_cells, 210).await?;
     let (p, mut second) = movement(&s, &second_cells, 212).await?;
+    // Writer turns are independent of the hosts serving fresh control proofs.
+    let writer = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let other = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
-    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let cut = writer.read(TIMEOUT).await?;
     let other_cut = other.read(TIMEOUT).await?;
     ensure!(other_cut.revision() == cut.revision());
     second.resources = s.request(1, 212, cut.revision()).await?;
@@ -277,7 +279,7 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     s.f.store.fleet_cas_hang.store(true, Ordering::Release);
     s.f.store.hold_next_fleet_cas.store(true, Ordering::Release);
     let (catalog, observer, namespace, first_cut) = (
-        s.f.catalog.clone(),
+        writer,
         s.nodes[0].host.clone(),
         s.namespace.clone(),
         cut.clone(),
