@@ -2,8 +2,9 @@
 
 //! Shared container and sandbox provider boundary.
 pub use cellar_container::{
-    Adapter, Capabilities, Environment, Fencing, Limits, Native, Operation, Provider,
-    ProviderFuture, ProviderSession, Reconciliation, ReconciliationState, Session,
+    Adapter, BindingCapabilities, BindingSessions, Bindings, Capabilities, Environment, Fencing,
+    Limits, Native, Operation, Provider, ProviderFuture, ProviderSession, Reconciliation,
+    ReconciliationState, Session,
 };
 
 pub(crate) async fn workers(
@@ -65,11 +66,43 @@ pub(crate) async fn workers(
 
 pub(crate) async fn execute(
     context: &cellar::sdk::Context,
-    session: &Session,
+    state: &crate::operations::State,
     name: &str,
-    value: serde_json::Value,
+    mut value: serde_json::Value,
     limits: &crate::Limits,
 ) -> anyhow::Result<serde_json::Value> {
+    if name == "container.bindings" {
+        anyhow::ensure!(
+            value.as_object().is_some_and(serde_json::Map::is_empty),
+            crate::failure::Validation
+        );
+        let mut bindings = Vec::new();
+        for binding in std::iter::once("container").chain(state.container_bindings.names()) {
+            let session = if binding == "container" {
+                &state.containers
+            } else {
+                state.container_bindings.get(binding)?
+            };
+            let capabilities = session
+                .execute(
+                    context,
+                    Operation::Capabilities,
+                    serde_json::json!({}),
+                    &Limits {
+                        max_body_bytes: limits.max_body_bytes,
+                    },
+                )
+                .await?;
+            bindings.push(serde_json::json!({"name":binding,"capabilities":capabilities}));
+        }
+        let result = serde_json::Value::Array(bindings);
+        anyhow::ensure!(
+            serde_json::to_vec(&result)?.len() <= limits.max_body_bytes,
+            "container binding discovery exceeds byte limit"
+        );
+        return Ok(result);
+    }
+    let session = select(state, &mut value)?;
     let operation = Operation::parse(name)
         .map_err(anyhow::Error::new)
         .map_err(|error| error.context(crate::failure::Validation))?;
@@ -83,4 +116,23 @@ pub(crate) async fn execute(
             },
         )
         .await
+}
+
+pub(crate) fn select<'a>(
+    state: &'a crate::operations::State,
+    value: &mut serde_json::Value,
+) -> anyhow::Result<&'a Session> {
+    use crate::failure::Validation;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!(Validation))?;
+    match object.remove("binding") {
+        None => Ok(&state.containers),
+        Some(serde_json::Value::String(name)) if name == "container" => Ok(&state.containers),
+        Some(serde_json::Value::String(name)) => state
+            .container_bindings
+            .get(&name)
+            .map_err(|error| error.context(Validation)),
+        _ => anyhow::bail!(Validation),
+    }
 }

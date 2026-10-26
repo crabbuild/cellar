@@ -114,6 +114,10 @@ impl Peer {
     }
 
     pub fn provider(&self) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.provider_binding("container")
+    }
+
+    pub fn provider_binding(&self, binding: &str) -> Result<Arc<dyn cellar_container::Provider>> {
         use cellar_container::e2b::{Config, E2b, Ownership};
         Ok(Arc::new(E2b::new(
             Config::new(
@@ -123,6 +127,7 @@ impl Peer {
                 "fixture-template",
                 Ownership::LocalChecksAndExpiry,
             )?
+            .binding(binding)?
             .api_endpoint(&self.address)?
             .envd_gateway(&format!("{}envd/", self.address))?
             .lifetime_seconds(60)?

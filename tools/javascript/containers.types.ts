@@ -11,6 +11,13 @@ import {
 
 async function control(ctx: Context) {
   const container: Container = ctx.container;
+  const backup: Container = ctx.containers.get("backup");
+  const bindings = await ctx.containers.list();
+  const name: string = bindings[0].name;
+  void name;
+  void backup;
+  // @ts-expect-error Declared binding metadata is readonly.
+  bindings[0].name = "forged";
   const fencing:
     | "unspecified"
     | "native_cell"

@@ -4,6 +4,7 @@
 #![doc = include_str!("README.md")]
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
+mod bindings;
 mod capabilities;
 pub mod e2b;
 mod files;
@@ -17,6 +18,7 @@ mod values;
 pub mod vercel;
 
 use anyhow::{ensure, Context as _, Result};
+pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
 pub use reconciliation::{Reconciliation, ReconciliationState};
@@ -255,6 +257,12 @@ pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send 
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
     fn name(&self) -> &str;
+
+    /// Host-configured durable slot identity. Named registration requires an
+    /// exact match; None supports only the existing default adapter path.
+    fn binding_name(&self) -> Option<&str> {
+        None
+    }
 
     /// Execution environment supplied by this configured backend. Unknown is
     /// explicit for existing providers until they declare their environment.

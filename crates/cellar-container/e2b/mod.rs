@@ -29,6 +29,10 @@ impl Provider for E2b {
         "e2b"
     }
 
+    fn binding_name(&self) -> Option<&str> {
+        Some(&self.0.binding)
+    }
+
     fn environment(&self) -> Environment {
         Environment::Linux
     }

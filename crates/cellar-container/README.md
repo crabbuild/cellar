@@ -39,6 +39,11 @@ SDK compatibility is qualified against its matching image.
 | Provider | Backend effects, process/socket handles, isolation and cleanup |
 | Native Cellar host | Cell ownership, activation epoch and required durability/output gates |
 
+Hosts can also declare [named provider slots](bindings.md#select-a-host-declared-provider-slot).
+All four language paths share their operations and discovery. Use
+`ctx.containers.get("builds")` in Python/JS/TS; `ctx.container` retains the default.
+Selection never falls back to a different provider when a slot is missing.
+
 For durable remote resources, all four language facades expose
 [`reconcile()`](bindings.md#reconcile-from-a-later-invocation): recover a matching
 pending create, observe expiry or check pending deletion without creating,

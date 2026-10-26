@@ -529,9 +529,7 @@ class Container:
 
     async def capabilities(self) -> ContainerCapabilities:
         value = await self._context._call("container.capabilities")
-        return ContainerCapabilities(value["format"], value["provider"], value["environment"],
-            tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
-            value["synchronous_running"], value["queued_lifecycle"], value["fencing"])
+        return _container_capabilities(value)
 
     async def reconcile(self) -> ContainerReconciliation:
         """Observe recovery/expiry without creating, resuming or deleting compute."""
@@ -688,6 +686,42 @@ class Scheduled:
         await self._context._call("cron.no_retry")
 
 
+class _ContainerContext:
+    """Select a host-declared slot without replacing invocation authority."""
+    def __init__(self, context: Context, name: str) -> None:
+        self._context, self._name = context, name
+
+    async def _call(self, operation, **value):
+        return await self._context._call(operation, binding=self._name, **value)
+
+
+@dataclass(frozen=True)
+class ContainerBindingCapabilities:
+    name: str
+    capabilities: ContainerCapabilities
+
+
+def _container_capabilities(value):
+    return ContainerCapabilities(value["format"], value["provider"], value["environment"],
+        tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
+        value["synchronous_running"], value["queued_lifecycle"], value["fencing"])
+
+
+class ContainerBindings:
+    def __init__(self, context: Context) -> None:
+        self._context = context
+
+    def get(self, name: str) -> Container:
+        if (not isinstance(name, str) or not 1 <= len(name) <= 128
+                or not all(c.isascii() and (c.isalnum() or c in "-_.") for c in name)):
+            raise ValidationError("Invalid container binding", "ValidationError", "not_committed")
+        return Container(self._context if name == "container" else _ContainerContext(self._context, name))
+
+    async def list(self) -> tuple[ContainerBindingCapabilities, ...]:
+        values = await self._context._call("container.bindings")
+        return tuple(ContainerBindingCapabilities(value["name"], _container_capabilities(value["capabilities"])) for value in values)
+
+
 class Context:
     def __init__(self, bridge: Any, identity: dict[str, Any] | None, initial_storage=None) -> None:
         self._bridge = bridge
@@ -709,6 +743,10 @@ class Context:
     @property
     def container(self) -> Container:
         return Container(self)
+
+    @property
+    def containers(self) -> ContainerBindings:
+        return ContainerBindings(self)
 
     def _check(self):
         if asyncio.get_running_loop() is not self._loop:

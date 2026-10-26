@@ -104,6 +104,7 @@ Python uses embedded CPython. TypeScript compiles before deployment.
 | Lifecycle | `start`, `monitor`, `destroy`, `signal` | Same async names | Same async names |
 | Idle policy | `set_inactivity_timeout` | `set_inactivity_timeout` | `setInactivityTimeout` |
 | Discover provider operations/limits | `Adapter::capabilities` | `capabilities` | `capabilities` |
+| Select a named provider slot | `Bindings::sessions().get(name)` | `ctx.containers.get(name)` | `ctx.containers.get(name)` |
 | Reconcile provider recovery/expiry | `Session::execute(Operation::Reconcile, …)` | `reconcile` | `reconcile` |
 | Execute with streams | `exec` | `exec` | `exec` |
 | Collect bounded output | `exec(...).output(...)` | `exec_output` | `execOutput` |

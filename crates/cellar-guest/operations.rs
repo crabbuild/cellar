@@ -73,6 +73,7 @@ pub struct State {
     pub workers_lifetimes: bool,
     pub workers: crate::workers::State,
     pub containers: crate::containers::Session,
+    pub container_bindings: crate::containers::BindingSessions,
     pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
@@ -127,8 +128,13 @@ pub async fn execute_with_signal(
         if name.starts_with("workers.container.") {
             ensure!(state.workers_lifetimes, crate::failure::Validation);
         }
-        return state
-            .containers
+        let mut value = value;
+        let session = if name.starts_with("workers.") {
+            &state.containers
+        } else {
+            crate::containers::select(state, &mut value)?
+        };
+        return session
             .execute_with_signal(
                 context,
                 match name {
@@ -160,6 +166,9 @@ pub async fn execute_with_signal(
 pub fn is_read(name: &str) -> bool {
     if name.starts_with("workers.") {
         return crate::workers::is_read(name);
+    }
+    if name == "container.bindings" {
+        return true;
     }
     if let Ok(operation) = crate::containers::Operation::parse(name) {
         return operation.is_read();
@@ -228,7 +237,7 @@ pub async fn execute(
     if name.starts_with("container.") {
         values::check_depth(&value).context(crate::failure::Validation)?;
         ensure!(value.is_object(), crate::failure::Validation);
-        return crate::containers::execute(context, &state.containers, name, value, options).await;
+        return crate::containers::execute(context, state, name, value, options).await;
     }
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"

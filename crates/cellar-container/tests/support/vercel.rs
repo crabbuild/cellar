@@ -112,6 +112,10 @@ impl Peer {
     }
 
     pub fn provider(&self) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.provider_binding("container")
+    }
+
+    pub fn provider_binding(&self, binding: &str) -> Result<Arc<dyn cellar_container::Provider>> {
         use cellar_container::vercel::{Config, Ownership, Vercel};
         Ok(Arc::new(Vercel::new(
             Config::new(
@@ -122,6 +126,7 @@ impl Peer {
                 "fixture-image",
                 Ownership::LocalChecksAndExpiry,
             )?
+            .binding(binding)?
             .api_endpoint(&self.address)?
             .lifetime_ms(60_000)?
             .request_timeout_ms(2000)?,

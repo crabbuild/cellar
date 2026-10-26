@@ -19,9 +19,16 @@ Applications normally use the language facade. Provider implementers use
 
 ## Lifecycle and discovery
 
+Portable `container.*` inputs may include `binding: "builds"` to select a
+host-declared slot. Omission or `"container"` selects the default. The host strips
+this selector before validating provider input. Process/socket/response follow-up
+calls must carry the same slot as the opening call. Workers controls retain the
+default slot. The provider cannot interpret a guest selector as new configuration.
+
 | Operations | Input | Result |
 | --- | --- | --- |
 | `container.capabilities` | `{}` | Versioned capability descriptor |
+| `container.bindings` | `{}` only; no selector | Array of `{name,capabilities}` for configured slots; no provider effects |
 | `container.reconcile` | `{}` only | `{state,generation}`; lifecycle evidence and nullable decimal generation |
 | `container.running` / `.monitor` / `.destroy` | `{}` | Boolean / integer exit code / `null` |
 | `container.start` | `{options:{entrypoint?,env?,enable_internet?,labels?}}` | Run token |

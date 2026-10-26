@@ -1535,3 +1535,46 @@ The initial machine-default Homebrew Node 26.5.0 run failed two package-copy
 launch tests. Both pass under Node 24.13.1; this campaign does not qualify the
 Homebrew Node 26 packaging path. Exact Sandbox image tests were not rerun for
 this portable API slice. Earlier native/image evidence retains its own limits.
+
+### Named provider selection and discovery
+
+Hosts can declare additional provider slots with `Source::container_binding`
+or the shared Rust `Bindings` registry. Python/JavaScript/TypeScript select them
+with `ctx.containers.get(name)` and discover names/capabilities using
+`ctx.containers.list()`. The existing default facade and Workers controls keep
+the `container` slot. No vendor SDK, ambient credentials or native-engine alias
+is introduced by selection.
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Admission | Exact provider binding identity, unique names and no default/named journal collision; startup rechecks later default overrides |
+| Bounds | 63 additional slots, 128-byte ASCII names, per-slot resource limits and bounded discovery output |
+| Discovery | Default first, then names in sorted order; credentials and remote resource IDs remain native; no provider I/O |
+| Selection | Unknown/invalid slots refuse before effects; no fallback to a default or another provider |
+| Authority | Original root-event checks remain in every session; a saved named facade/session cannot borrow a later event |
+| Handles | Processes, sockets, WebSockets and HTTP response readers retain their selected slot on follow-up and release calls |
+| Durable resources | Separate E2B/Vercel journal names and generations; destroying the default resource preserves the named backup |
+
+The native Rust protocol campaigns exercise a named resource and stale-session
+refusal. The language fixtures use two real protocol-peer resources with the
+same file path and different bytes, then read them in a later event and retire
+them independently. A shared-runner unit exercises every process/socket/response
+follow-up against its selected slot. These are local protocol/runtime tests;
+they do not qualify live VMs, remote fencing or background orphan cleanup.
+
+The cold 250 ms admission timeout and remaining callback faults remain open.
+Host-supervised cleanup, ownership-transfer failure evidence and separately
+versioned Sandbox 1.x/additional-provider profiles remain subsequent deliveries.
+
+| Named-binding campaign | Result |
+| --- | --- |
+| Shared provider library / native integrations | 24 + 4 passed; includes configuration bounds, named native-Rust execution and later-event refusal |
+| JS runtime library / selected integrations | 77 + 11 passed, including Node/V8 two-resource peers, all child-handle selectors and unchanged default Cloudflare module routes |
+| CPython 3.14.6 | E2B/Vercel two-resource fixtures and the native-container fixture pass |
+| JS/tool/type checks | 95 passed with Node 24.13.1 |
+| Strict Clippy / static checks | All targets in the four affected crates, 1,190-file Rust format/layout, 94 JS sources, documentation references and the 466-package native-only guard pass |
+
+The extra-slot language fixtures use local protocol peers, not configured cloud
+accounts. Exact Sandbox image scenarios were not rerun for this shared-framework
+slice. The earlier cold-process and Homebrew Node 26 packaging failures remain
+open; this campaign does not broaden those qualification claims.

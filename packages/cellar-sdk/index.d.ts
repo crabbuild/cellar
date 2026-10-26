@@ -196,6 +196,17 @@ export interface ContainerReconciliation {
   readonly generation: string | null;
 }
 
+export interface ContainerBindingCapabilities {
+  readonly name: string;
+  readonly capabilities: Readonly<ContainerCapabilities>;
+}
+
+/** Select only providers declared in trusted host configuration. */
+export interface ContainerBindings {
+  get(name: string): Container;
+  list(): Promise<readonly Readonly<ContainerBindingCapabilities>[]>;
+}
+
 export interface Container {
   capabilities(): Promise<Readonly<ContainerCapabilities>>;
   /** Observe and checkpoint recovery/expiry without creating, resuming or
@@ -260,6 +271,7 @@ export interface Context {
 
   /** Invocation-scoped control of this cell’s declared container. */
   readonly container: Container;
+  readonly containers: ContainerBindings;
   /** Fetch an outbound response without buffering its complete body. */
   fetchStream(request: RequestData): Promise<LiveResponse>;
 

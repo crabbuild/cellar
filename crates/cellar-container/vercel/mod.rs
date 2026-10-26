@@ -28,6 +28,10 @@ impl Provider for Vercel {
         "vercel"
     }
 
+    fn binding_name(&self) -> Option<&str> {
+        Some(&self.0.binding)
+    }
+
     fn environment(&self) -> Environment {
         Environment::Linux
     }
