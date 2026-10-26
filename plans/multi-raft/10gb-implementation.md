@@ -877,7 +877,42 @@ execution-domain-owned blocking work. The producer and capture reservation stay
 owned until physical cleanup completes, and shutdown joins the work. Coverage
 checks and read deadlines remain unchanged. The same version-bound read passes
 with the fix while the close remains held (9.97 seconds for the complete case).
-The regression is being extended to check that shutdown waits and admission
-remains charged through physical cleanup. This establishes a concrete liveness
-defect, but does not yet prove that a slow close caused the preserved 10 GB
-failure. Broader regression and full-size qualification of the fix remain pending.
+On frozen `f0e22e86`, the expanded release regression also passes (0.58 seconds):
+shutdown waits for the held close and admission remains charged until physical
+cleanup finishes. All 69 native archive cases pass in release mode in 23.40
+seconds, including fault, producer-admission and shutdown coverage. Formatting
+and layout cover 1,172 Rust files; native dependency, documentation and whitespace
+checks pass. The build manifest verifies 1,265 tracked Rust/Cargo inputs and the
+frozen executable hashes; raw evidence stays outside the repository.
+
+This establishes a concrete liveness defect, but does not yet prove that a slow
+close caused the preserved 10 GB failure. Full-size qualification of the fix
+remains pending.
+
+### Second full-size diagnostic result
+
+The unchanged-production `0e234925` RustFS diagnostic run failed after 4,275.42
+seconds with `VersionUnavailable` and maximum resident set of 85,524,480 bytes.
+It confirmed the index/term 9/4 archive after a 1,174.917-second wait, restored
+the replacement, completed its first local read in 683.267 seconds, verified
+payload hashes, and promoted it. It acknowledged the recovered owner's next
+command, then failed in the following version-bound read before the combined
+`cold-owner-first-write` completion marker. The later restart checkpoint was
+never reached. This identifies the failing operation from the source/control
+flow; the cold read did not yet have its own diagnostic context.
+
+Both the raw-log and executable hashes match the terminal record. This log has
+no null bytes and is preserved read-only with its source/fixture manifests. The
+original sampler watched only the later restart read, so it captured no stacks.
+The next test revision observes both post-write reads, including token, start,
+finish, acknowledged-write timing and bounded status before failure teardown.
+It keeps the existing 60-second read deadlines, assertions and consistency.
+
+The fixed `f0e22e86` executable separately passes the actual 272 MiB RustFS
+preflight in 122.59 seconds, including restored-owner writes and restart/read/
+receipt verification. That smaller pass does not qualify the full-size fix.
+Broader Clippy exposed two inherited test issues: an ignored authorizer setup
+result and a cold RPC fixture call using the old helper signature. Test-only
+fixes propagate the first error and preserve the RPC fixture's existing bindings
+and handler budget with the current helper. The all-target owning-crate Clippy
+check then passed with warnings denied before the new probe expansion.

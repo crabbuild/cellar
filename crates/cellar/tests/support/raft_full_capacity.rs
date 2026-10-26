@@ -387,6 +387,35 @@ async fn verify_payloads(
     Ok(())
 }
 
+fn record_version_read_start(
+    phase: &str,
+    receipt: &CommandReceipt,
+    schema: [u8; 32],
+) -> Result<std::time::Instant> {
+    eprintln!(
+        "full-native stage=version-read-start phase={phase} required={:?}",
+        receipt.version
+    );
+    let started = std::time::Instant::now();
+    let wall_ms = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    let observed = public_node::version_keys()?.verify(
+        &receipt.version_token,
+        &receipt.version.scope,
+        schema,
+        wall_ms,
+    );
+    // Observe the supplied token without replacing it or changing admission.
+    eprintln!(
+        "full-native read-token-observation phase={phase} wall_ms={wall_ms} result={:?}",
+        observed.map(|version| version.position)
+    );
+    Ok(started)
+}
+
 async fn record_read_refusal(
     phase: &str,
     error: &anyhow::Error,
@@ -863,6 +892,13 @@ async fn drill(
         calls[3].load(Ordering::SeqCst) == 1,
         "restored owner did not execute exactly one new callback"
     );
+    eprintln!(
+        "full-native stage=cold-owner-write-ack duration_s={:.3} elapsed_s={:.3}",
+        cold_write.elapsed().as_secs_f64(),
+        started.elapsed().as_secs_f64()
+    );
+    let local_started =
+        record_version_read_start("cold-owner-after-write", &resumed, definitions[3].schema)?;
     let local = read(
         &learner,
         definitions[3].get.clone(),
@@ -870,7 +906,24 @@ async fn drill(
         payload_bytes,
         QueryConsistency::AtLeast(resumed.version_token),
     )
-    .await?;
+    .await;
+    eprintln!(
+        "full-native stage=version-read-finished phase=cold-owner-after-write accepted={} duration_s={:.3}",
+        local.is_ok(), local_started.elapsed().as_secs_f64()
+    );
+    if let Err(error) = &local {
+        let mut observed_handles = handles.clone();
+        observed_handles.push(learner.clone());
+        record_read_refusal(
+            "cold-owner-after-write",
+            error,
+            &cluster,
+            &observed_handles,
+            Some(&resumed.version),
+        )
+        .await;
+    }
+    let local = local.context("read the recovered owner's newly acknowledged version")?;
     ensure!(local.served_by == target.member);
     eprintln!(
         "full-native stage=cold-owner-first-write duration_s={:.3}",
@@ -1002,28 +1055,11 @@ async fn drill(
         "full-native stage=restart-first-write duration_s={:.3}",
         restart_write.elapsed().as_secs_f64()
     );
-    eprintln!(
-        "full-native stage=restart-payload-verification-start required={:?}",
-        written.version
-    );
-    let payload_started = std::time::Instant::now();
-    let token_wall_ms = u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_millis(),
-    )?;
-    let token_observation = public_node::version_keys()?.verify(
-        &written.version_token,
-        &written.version.scope,
+    let payload_started = record_version_read_start(
+        "restart-payload-verification",
+        &written,
         definitions[3].schema,
-        token_wall_ms,
-    );
-    // Observe the exact supplied token without changing server admission or
-    // substituting a different consistency level when the native read refuses.
-    eprintln!(
-        "full-native restart-token-observation wall_ms={token_wall_ms} result={:?}",
-        token_observation.map(|version| version.position)
-    );
+    )?;
     let verified = verify_payloads(
         restored,
         definitions[3].get.clone(),
@@ -1035,7 +1071,7 @@ async fn drill(
     )
     .await;
     eprintln!(
-        "full-native stage=restart-payload-verification-finished accepted={} duration_s={:.3}",
+        "full-native stage=version-read-finished phase=restart-payload-verification accepted={} duration_s={:.3}",
         verified.is_ok(),
         payload_started.elapsed().as_secs_f64()
     );
