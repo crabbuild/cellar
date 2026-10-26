@@ -2318,11 +2318,22 @@ async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result
     use std::time::Duration;
     let store = Arc::new(faults::Store::default());
     let mut first = Fixture::new_group(ArchiveLimits::default(), store.clone(), 7).await?;
-    let mut second = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
+    let second = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
     let inputs = vec![
         (first.archive.clone(), first.commit(7, vec![]).await?),
-        (second.archive.clone(), second.commit(8, vec![]).await?),
+        (
+            second.archive.clone(),
+            CommittedArchiveCut::capture_empty(&second.group, [9; 32], ArchiveLimits::default())?,
+        ),
     ];
+    // The empty history's head read resumes only once the other history is
+    // stalled inside upload read-back. This requires the coordinator to keep
+    // polling independent member futures while its upload is pending.
+    *store.hold_archive_head_until_payload.lock().unwrap() = Some(format!(
+        "/archives/{}/{}/head",
+        hex::encode(second.birth.scope().group.bytes()),
+        hex::encode(second.birth.scope().incarnation.bytes()),
+    ));
     store.payload_hang.store(true, Ordering::Release);
     store.hold_next_payload.store(true, Ordering::Release);
     let (done, mut completed) = tokio::sync::mpsc::channel(2);
@@ -2347,16 +2358,8 @@ async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result
             .context("completed history was withheld behind its stalled batch peer")?
             .context("missing batch completion")?;
         let set = result?;
-        ensure!(number < 2 && store.payload_waiting.load(Ordering::Acquire));
-        ensure!(
-            set.scope()
-                == if number == 0 {
-                    first.birth.scope()
-                } else {
-                    second.birth.scope()
-                }
-        );
-        restored(&set, if number == 0 { 7 } else { 8 })?;
+        ensure!(number == 1 && store.payload_waiting.load(Ordering::Acquire));
+        ensure!(set.scope() == second.birth.scope() && set.image_state()?.is_none());
         ensure!(completed.try_recv().is_err());
         Ok::<_, anyhow::Error>(number)
     };
@@ -2378,8 +2381,8 @@ async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result
         .await
         .context("remaining completion timed out")?
         .context("missing remaining completion")?;
-    ensure!(number != early && number < 2);
-    restored(&result?, if number == 0 { 7 } else { 8 })?;
+    ensure!(early == 1 && number == 0);
+    restored(&result?, 7)?;
     ensure!(completed.try_recv().is_err());
     cleanup_first?;
     cleanup_second

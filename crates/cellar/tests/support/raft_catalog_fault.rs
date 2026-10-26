@@ -71,6 +71,7 @@ pub struct Store {
     pub payload_waiting: AtomicBool,
     pub payload_resume: tokio::sync::Notify,
     pub held_payload_path: std::sync::Mutex<Option<Path>>,
+    pub hold_archive_head_until_payload: std::sync::Mutex<Option<String>>,
     pub non_create: AtomicUsize,
     pub birth_inventory_cas: AtomicUsize,
     pub hold_next_birth_inventory_cas: AtomicBool,
@@ -426,6 +427,34 @@ impl ObjectStore for Store {
                 resumed.await;
             }
         }
+        let wait_for_payload = {
+            let mut selector = self
+                .hold_archive_head_until_payload
+                .lock()
+                .map_err(|_| failure())?;
+            if selector
+                .as_ref()
+                .is_some_and(|suffix| path.as_ref().ends_with(suffix))
+            {
+                selector.take();
+                true
+            } else {
+                false
+            }
+        };
+        if wait_for_payload {
+            loop {
+                let signaled = self.payload_resume.notified();
+                tokio::pin!(signaled);
+                signaled.as_mut().enable();
+                if self.payload_waiting.load(Ordering::Acquire)
+                    || !self.payload_hang.load(Ordering::Acquire)
+                {
+                    break;
+                }
+                signaled.await;
+            }
+        }
         self.archive_fault(path).await?;
         let payload = path.as_ref().contains("/archives/")
             && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
@@ -458,6 +487,7 @@ impl ObjectStore for Store {
             if self.hold_next_payload.swap(false, Ordering::AcqRel) {
                 *self.held_payload_path.lock().map_err(|_| failure())? = Some(path.clone());
                 self.payload_waiting.store(true, Ordering::Release);
+                self.payload_resume.notify_waiters();
                 loop {
                     let resumed = self.payload_resume.notified();
                     tokio::pin!(resumed);

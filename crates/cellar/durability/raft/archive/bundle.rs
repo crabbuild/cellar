@@ -422,7 +422,16 @@ impl CellArchive {
                     _ = &mut timer => break,
                 }
             }
-            flush(requests).await;
+            let upload = flush(requests);
+            tokio::pin!(upload);
+            loop {
+                crate::asyncrt::select! {
+                    done = jobs.next(), if !jobs.is_empty() => {
+                        if let Some((number, result)) = done { complete(number, result); }
+                    }
+                    _ = &mut upload => break,
+                }
+            }
         }
         Ok(())
     }
