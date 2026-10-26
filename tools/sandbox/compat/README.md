@@ -101,8 +101,9 @@ removes only that host's empty, labelled bridges so repeated runs cannot exhaust
 the daemon's subnet pool.
 It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
-Passing it qualifies these routes for the pinned baseline; SP-04 RPC stream
-transfer, preview, restart/fencing and live-cloud requirements remain incomplete.
+Passing it qualifies these routes for the pinned baseline; SP-04 stream inputs,
+writable/message transfers, preview, restart/fencing and live-cloud requirements
+remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
 scenario**. It uses Cellar's `ctx.container` file API against the real image,
@@ -120,11 +121,12 @@ scenario does not substitute for the unchanged published SDK route test.
 | `/processes` | A later request finds the same process ID with a running/starting status |
 | In-object `execStream()` | A stdout event arrives before release; final stdout/stderr data events and exit code 7 follow |
 | Worker/DO HTTP `execStream()` | A network client receives actual SDK SSE stdout before a second HTTP request releases the command; final data events and exit code 7 follow |
+| Direct RPC `execStream()` | The unchanged SDK method returns its readable byte stream across native RPC; the network client verifies stdout before releasing the command, final stdout/stderr and exit code 7 |
 | Teardown / shutdown | Explicit SDK destroy removes owned containers; serialized alarm callbacks allow native cell/application drainage without a timeout |
 
 **The complete opt-in route test passes.** RPC functions retain their original
 native event and use bounded, revocable handles; methods remain on SDK return
-objects. The source inventory keeps its broader RPC-stream/preview/fault baseline
+objects. The source inventory keeps its broader stream-input/preview/fault baseline
 at `conformance: not_run`.
 
 In the local Colima run, automatic VM ports initially collided with an unrelated

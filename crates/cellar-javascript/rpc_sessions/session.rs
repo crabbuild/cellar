@@ -266,7 +266,10 @@ impl Session {
             );
             handles.push(id);
         }
-        Ok(json!({"value":publication.value,"error":false,"handles":handles}))
+        Ok(
+            json!({"value":publication.value,"error":false,"handles":handles,
+            "max_body_bytes":publication.max_body_bytes}),
+        )
     }
 
     pub fn output(&self, value: Value) -> Result<RpcData> {
@@ -355,6 +358,7 @@ impl Session {
             format: 1,
             group: exports.group,
             count: exports.count,
+            max_body_bytes: self.options.max_body_bytes,
             value: encoded,
         };
         let encoded = serde_json::to_string(&publication)?;

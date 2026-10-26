@@ -14,11 +14,11 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | Slice | Current evidence | Remaining work / completion evidence |
 | --- | --- | --- |
 | SP-01 | Exact celld reference commit/files/license, npm packages/lock/integrities, imported runtime bytes and immutable Sandbox image manifest are in `tools/sandbox/compat`; drift/refusal tests pass; API/fixture inventory lists native mappings and explicit gaps | Input inventory implemented; runtime conformance remains in SP-02–SP-04 and later profiles |
-| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
-| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, streamed/upgrade port behavior and real-image cleanup |
-| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, streamed exec, process helper invocations, previews, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery | Provider integration of the journal, richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
-| SP-06 | No Vercel/E2B implementation yet | Real shared provider implementations, fixtures and real-account conformance, explicit Cloudflare profile compatibility/gaps |
+| SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned byte streams, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
+| SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event queued lifecycle and run-bound monitors; Node runs published readiness with native HTTP ports, healthy state and start/stop hooks; unchanged pinned module named/singleton/random routes execute against the engine peer | Embedded web globals, callback-owned queue drainage, sleep/wake, complete hooks, complete upgraded port behavior, image lifecycle and fault qualification |
+| SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy and drained shutdown | Complete SDK HTTP/RPC/helper coverage, stream inputs/writable/message transfers, process helper invocations, previews, persistence/restart/fencing and failure cases |
+| SP-05 | Four-language provider environment/operation/limit discovery; portable binary file read/write/stat/list; Native engine archive implementation, shared input/result bounds and unknown-outcome tests; direct file scenario passes against the real image across events; host-only, revisioned binding journals preserve resource intent across business clear and recovery; E2B/Vercel adapters integrate durable lifecycle reconciliation | Richer operations, named guest configuration/discovery, remote fencing, expiry/reconnect, provider loss/takeover qualification and orphan reconciliation |
+| SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
@@ -926,3 +926,53 @@ selected Node/V8 HTTP/WS, Worker-module and authority tests, native EOF proof,
 and both pinned-image scenarios (SDK HTTP streams plus portable files). Both
 image scenarios drain their native/application work; no owned containers remain.
 Format/layout, documentation and the native-only dependency guard pass again.
+
+### Returned RPC readable byte streams
+
+The optional Node Workers profile now transfers returned readable byte streams,
+including nested/cyclic result graphs with shared aliases. It uses the existing
+native lease, bounded producer mailbox and original event/facet authority; each
+read and EOF reply still waits for that producer's storage output proof. Stream
+arguments, writable streams and Request/Response RPC transfer remain required.
+The internal publication cuts over together with its reader, retaining marker 1.
+
+| Boundary | Implementation / evidence |
+| --- | --- |
+| Transfer ownership | Acquire a BYOB reader without pulling; the sender's source remains locked after transfer. Object/locked streams refuse, and failed graph/export admission restores untouched readers. |
+| Native authority | Distinct empty markers and exact known kind counts are validated in Rust; persisted value bytes cannot mint a live stream. Imported handles retain the native lease and refuse later-event reads. |
+| Negotiated limits | Native publication advertises the producer budget and import clamps it to the consumer budget. Pulls grant at most the smaller budget minus 128 bytes of clone/control reserve, capped at 64 KiB. Arguments account for the routed base64 envelope; native clone and bridge checks remain independent. |
+| Backpressure / EOF | One bounded BYOB read per pull, with larger cumulative bodies. EOF and native release failures remain failures; a pending BYOB request receives its final zero-byte completion. |
+| Cancellation / disposal | Explicit cancel joins upstream cancellation and releases the import; synchronous disposal starts the same owned cleanup. Lease loss wakes the producer poll and joins source cancellation, including a pending read. Invalid cancellation reasons are refused after cleanup without that reason. |
+| Scope and lifetime | Native network tests exercise source errors, client disconnect, clean EOF with independent background jobs held, unconsumed imports, uncloneable reasons and stale readers; joined shutdown reports zero bridge bytes/invocations. |
+
+The real pinned Sandbox 0.12.9 image also passes a direct RPC stream probe. The
+Worker calls the unchanged published `stub.execStream()` method, wraps its
+returned byte stream in a Response, and the network client must observe a stdout
+event before a second request releases the command. Final stdout/stderr data
+events and exit code 7 follow. The earlier in-object/DO-HTTP probes and original
+application routes still pass, followed by SDK destroy and drained shutdown.
+This is returned readable-stream evidence, not a complete RPC transfer profile.
+
+A broader native regression repeatedly refused an independent post-disconnect
+`waitUntil` storage write. Targeted tracing proved `ConcurrentMutation` with
+`not_committed`: the pending response write occupied the local storage mutation
+slot. Both JS and Rust admission now separate response chunk/EOF output waits
+from that slot, preserving native output gates and uncertain-effect failure
+classification. The original test passes, followed by all 16 Workers tests and
+the full selected suite. Diagnostic logging was removed; no deadline or
+assertion was relaxed.
+
+Validation passes 56 JS-adapter library tests, 16 Workers tests, three module
+tests, two Node/V8 SSE/WS tests, native response authority and Worker/DO HTTP/RPC
+streaming: 79 selected native tests total. Both pinned-image scenarios pass,
+as do native EOF proof, 46 JS/tool/type checks, four inventory checks and strict
+JS/guest all-target Clippy. Format/layout covers 1,104 Rust sources and formatting
+covers 64 owned JS/TS sources; documentation and the 466-package native-only
+dependency guard pass. An earlier parallel library run hit an embedded V8
+cancellation-budget failure; the serial library runs pass with unchanged budgets.
+That separate timing cause remains unproven.
+
+The complete SP-01–SP-10 goal remains active. Readable results do not complete
+stream inputs, writable/message transfer, upgrades, previews, full lifetime/fault
+qualification, the remaining provider profiles or release qualification. Live
+E2B/Vercel acceptance stays deferred per the user's configuration instruction.

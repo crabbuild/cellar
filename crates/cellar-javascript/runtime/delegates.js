@@ -2,7 +2,7 @@
 
 // Factory captured before application initialization. Native session handles,
 // rather than serializable marker data, authorize every delegated operation.
-() => {
+(streams) => {
   const apply = Reflect.apply;
   const keys = Object.keys;
   const prototype = Object.getPrototypeOf;
@@ -87,20 +87,40 @@
 
   async function result(value, context) {
     const functions = [],
-      markers = [];
-    const copied = transform(value, (value) => {
-      if (typeof value !== "function") return value;
-      functions.push(value);
-      const marker = Object.create(null);
-      markers.push(marker);
-      return marker;
-    });
-    if (!functions.length)
-      return { value: context._serialize(copied), error: false };
-    // Serialize before reserving authority. The marker array shares identity
-    // with placeholders in the value graph; business data cannot collide with
-    // these fresh objects or cause a persisted clone to become a capability.
-    const encoded = context._serialize([copied, markers]);
+      markers = [],
+      kinds = [],
+      senders = [];
+    let encoded;
+    const restore = () => {
+      for (const sender of senders) sender.restore();
+    };
+    try {
+      const copied = transform(value, (value) => {
+        let invoke, kind;
+        if (streams.isReadable(value)) {
+          const sender = streams.send(value, context);
+          senders.push(sender);
+          invoke = sender.invoke;
+          kind = "readable";
+        } else if (typeof value === "function") {
+          invoke = value;
+          kind = "function";
+        } else return value;
+        functions.push(invoke);
+        kinds.push(kind);
+        const marker = Object.create(null);
+        markers.push(marker);
+        return marker;
+      });
+      if (!functions.length)
+        return { value: context._serialize(copied), error: false };
+      // Kind metadata is private to this live native publication. Persisting
+      // its clone graph never turns ordinary data back into a capability.
+      encoded = context._serialize([copied, markers, kinds]);
+    } catch (error) {
+      restore();
+      throw error;
+    }
     let group, start;
     const ready = new PromiseClass((resolve) => {
       start = resolve;
@@ -137,24 +157,35 @@
     }
     // Reserve implicit background capacity before minting a native export or
     // starting a poll. Failed admission must not strand an unpublished lease.
-    context._rpcRetain(async () => {
-      if (!(await ready)) return;
-      for (;;) {
-        const command = await context._call("workers.rpc.poll", { group });
-        if (command.closed) return;
+    try {
+      context._rpcRetain(async () => {
+        if (!(await ready)) return;
         try {
-          context._rpcRetain(() => answer(command));
-        } catch {
-          // Admission failed before calling the function. The already accepted
-          // routed call still needs a bounded, honest failure response.
-          await context._call("workers.rpc.reply", {
-            group,
-            id: command.id,
-            result: null,
-          });
+          for (;;) {
+            const command = await context._call("workers.rpc.poll", { group });
+            if (command.closed) return;
+            try {
+              context._rpcRetain(() => answer(command));
+            } catch {
+              await context._call("workers.rpc.reply", {
+                group,
+                id: command.id,
+                result: null,
+              });
+            }
+          }
+        } finally {
+          // Native lease loss wakes the poll even with a read pending. Cancel
+          // and join every transferred source before its producer can drain.
+          await PromiseClass.allSettled(
+            senders.map((sender) => sender.close()),
+          );
         }
-      }
-    });
+      });
+    } catch (error) {
+      restore();
+      throw error;
+    }
     try {
       ({ group } = await context._call("workers.rpc.export", {
         count: functions.length,
@@ -162,6 +193,7 @@
       start(true);
     } catch (error) {
       start(false);
+      restore();
       throw error;
     }
     return {
@@ -182,9 +214,12 @@
     if (
       frame.error ||
       !ArrayClass.isArray(value) ||
-      value.length !== 2 ||
+      value.length !== 3 ||
       !ArrayClass.isArray(value[1]) ||
-      value[1].length !== handles.length
+      value[1].length !== handles.length ||
+      !ArrayClass.isArray(value[2]) ||
+      value[2].length !== handles.length ||
+      value[2].some((kind) => !["function", "readable"].includes(kind))
     )
       throw new ErrorClass("Invalid callable RPC result");
     const replacements = new MapClass();
@@ -218,39 +253,72 @@
         }
         return value;
       };
+      const release = async () => {
+        if (released) return;
+        released = true;
+        await context._call("workers.rpc.release", { id });
+      };
       define(callable, dispose, {
         value: () => {
-          if (released) return;
-          released = true;
-          // Automatic native event cleanup may already have disposed it. A
-          // synchronous disposer must not create an unhandled stale-context
-          // rejection; forced cleanup still drops every native import.
-          context._call("workers.rpc.release", { id }).catch(() => {});
+          release().catch(() => {});
         },
       });
       define(callable, "dup", {
         value: () => {
           check();
-          return stub(context._sync("workers.rpc.dup", { id }).id);
+          return stub(context._sync("workers.rpc.dup", { id }).id).callable;
         },
       });
-      return callable;
+      return { callable, release };
     }
-    for (let index = 0; index < handles.length; index++) {
-      const callable = stub(handles[index]);
-      imported.push(callable);
-      replacements.set(value[1][index], callable);
+    let copied;
+    try {
+      for (let index = 0; index < handles.length; index++) {
+        const { callable, release } = stub(handles[index]);
+        let replacement = callable;
+        if (value[2][index] === "readable") {
+          const received = streams.receive(
+            callable,
+            release,
+            (reason) => {
+              const encoded = context._serialize(["cancel", reason]);
+              // The routed request wraps base64 arguments and group identity.
+              // Account for that envelope against both hosts' negotiated budget.
+              const maximum = Math.floor(
+                ((frame.max_body_bytes - 128) * 3) / 4,
+              );
+              if (context._decode(encoded).byteLength > maximum)
+                throw new RangeError(
+                  "RPC stream cancellation reason exceeds limit",
+                );
+              // Use the validated copy so accessors cannot change the arguments
+              // between local validation and the native cancellation operation.
+              return context._deserialize(encoded)[1];
+            },
+            frame.max_body_bytes,
+          );
+          const close = () => {
+            received.dispose().catch(() => {});
+          };
+          replacement = received.stream;
+          define(replacement, dispose, { value: close, configurable: true });
+          imported.push(close);
+        } else imported.push(() => callable[dispose]());
+        replacements.set(value[1][index], replacement);
+      }
+      copied = transform(value[0], (value) => replacements.get(value) ?? value);
+      if (copied !== null && typeof copied === "object")
+        define(copied, dispose, {
+          value: () => {
+            for (const close of imported) close();
+          },
+        });
+    } catch (error) {
+      for (const close of imported) close();
+      for (const id of handles)
+        context._call("workers.rpc.release", { id }).catch(() => {});
+      throw error;
     }
-    const copied = transform(
-      value[0],
-      (value) => replacements.get(value) ?? value,
-    );
-    if (copied !== null && typeof copied === "object")
-      define(copied, dispose, {
-        value: () => {
-          for (const callable of imported) callable[dispose]();
-        },
-      });
     return copied;
   }
   return { result, reply };

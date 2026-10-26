@@ -346,7 +346,8 @@ async fn exercise_routes(client: &reqwest::Client, address: &str) -> Result<()> 
         events.iter().any(|event| event["exitCode"] == 7),
         "SDK lost command exit: {streamed}"
     );
-    exercise_streamed_http(client, address).await?;
+    exercise_streamed_http(client, address, "http", "release").await?;
+    exercise_streamed_http(client, address, "rpc", "rpc_release").await?;
     Ok(())
 }
 
@@ -360,9 +361,14 @@ fn stream_events(bytes: &[u8]) -> Vec<Value> {
         .collect()
 }
 
-async fn exercise_streamed_http(client: &reqwest::Client, address: &str) -> Result<()> {
+async fn exercise_streamed_http(
+    client: &reqwest::Client,
+    address: &str,
+    mode: &str,
+    release: &str,
+) -> Result<()> {
     let mut response = client
-        .get(format!("{address}/__stream_http"))
+        .get(format!("{address}/__stream_{mode}"))
         .send()
         .await?
         .error_for_status()?;
@@ -391,7 +397,7 @@ async fn exercise_streamed_http(client: &reqwest::Client, address: &str) -> Resu
     }
     // This independent request permits the still-running command to finish.
     let released = client
-        .get(format!("{address}/__stream_release"))
+        .get(format!("{address}/__stream_{release}"))
         .send()
         .await?;
     ensure!(released.status().as_u16() == 204 && released.bytes().await?.is_empty());

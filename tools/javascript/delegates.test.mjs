@@ -12,12 +12,21 @@ const source = await readFile(
   ),
   "utf8",
 );
-const make = (0, eval)(`(${source})`);
+const makeDelegates = (0, eval)(`(${source})`);
+const streamSource = await readFile(
+  new URL(
+    "../../crates/cellar-javascript/runtime/rpc_streams.js",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const make = () => makeDelegates((0, eval)(`(${streamSource})`)());
 
 function context() {
   const calls = [],
     jobs = [];
   const ctx = {
+    _decode: (value) => Buffer.from(value, "base64"),
     _serialize(value) {
       const serializer = new Serializer();
       serializer.writeHeader();
@@ -33,6 +42,7 @@ function context() {
     _rpcRetain: (make) => jobs.push(make()),
     _sync(name, value) {
       calls.push([name, value]);
+      if (name === "workers.http.limits") return { max_body_bytes: 4096 };
       assert.equal(name, "workers.rpc.dup");
       return { id: 99 };
     },
@@ -155,4 +165,61 @@ test("implicit-job admission happens before exporting authority", async () => {
     /job quota/,
   );
   assert.equal(calls.length, 0);
+});
+
+test("RPC stream markers preserve aliases and persisted bytes cannot mint a stream", async () => {
+  const codec = make();
+  const { ctx, jobs } = context();
+  let cancelled = 0;
+  const body = new ReadableStream({
+    type: "bytes",
+    cancel() {
+      cancelled++;
+    },
+  });
+  const encoded = await codec.result(
+    { body, alias: body, map: new Map([[body, 1]]) },
+    ctx,
+  );
+  assert.equal(encoded.exports.count, 1);
+  assert.equal(body.locked, true);
+  const reply = codec.reply(
+    { ...encoded, handles: [7], max_body_bytes: 4096 },
+    ctx,
+  );
+  assert.ok(reply.body instanceof ReadableStream);
+  assert.equal(reply.body, reply.alias);
+  assert.equal(reply.map.get(reply.body), 1);
+  const stored = codec.reply({ value: encoded.value, error: false }, ctx);
+  assert.equal(stored[0].body instanceof ReadableStream, false);
+  reply[Symbol.dispose]();
+  await Promise.all(jobs);
+  assert.equal(cancelled, 1);
+});
+
+test("failed native export or implicit admission restores an untouched stream", async () => {
+  const codec = make();
+  for (const failAdmission of [false, true]) {
+    const { ctx, calls, jobs } = context();
+    const body = new ReadableStream({ type: "bytes" });
+    if (failAdmission)
+      ctx._rpcRetain = () => {
+        throw new Error("job quota");
+      };
+    else
+      ctx._call = async () => {
+        throw new Error("export refusal");
+      };
+    await assert.rejects(
+      codec.result(body, ctx),
+      failAdmission ? /job quota/ : /export refusal/,
+    );
+    assert.equal(body.locked, false);
+    assert.equal(
+      calls.some(([name]) => name === "workers.rpc.export"),
+      false,
+    );
+    await Promise.all(jobs);
+    await body.cancel();
+  }
 });

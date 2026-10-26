@@ -59,7 +59,11 @@ async fn run(
             graph.primary.options.bindings = vec![("COUNTERS".into(), "Counter".into())];
         })
         .await?;
-    let result = exercise(&address).await;
+    let result = async {
+        exercise(&address).await?;
+        exercise_rpc(&address).await
+    }
+    .await;
     let shutdown = node.shutdown(ShutdownMode::Preserve).await?;
     ensure!(
         matches!(shutdown, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
@@ -202,5 +206,111 @@ async fn exercise(address: &str) -> Result<()> {
         state(&client, address, "oversized").await?["phase"] == 1,
         "failed body erased a committed effect"
     );
+    Ok(())
+}
+
+async fn exercise_rpc(address: &str) -> Result<()> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .build()?;
+    let mut response = client
+        .get(format!("{address}/rpc/stream?token=rpc-phases"))
+        .send()
+        .await?
+        .error_for_status()?;
+    ensure!(response.headers()["x-stream"] == "before-first-byte");
+    ensure!(state(&client, address, "rpc-phases").await?["phase"] == 0);
+    release(&client, address, "rpc-phases", "first").await?;
+    ensure!(response.chunk().await?.context("RPC first chunk")?.as_ref() == [0, 255, 42]);
+    release(&client, address, "rpc-phases", "second").await?;
+    ensure!(response.bytes().await?.as_ref() == [43, 0, 255]);
+    ensure!(state(&client, address, "rpc-phases").await?["phase"] == 2);
+
+    let bytes = client
+        .get(format!("{address}/rpc/large"))
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
+    ensure!(
+        bytes.len() == 768,
+        "RPC stream buffered or truncated cumulative output"
+    );
+    for (index, chunk) in bytes.as_chunks::<128>().0.iter().enumerate() {
+        ensure!(chunk.iter().all(|byte| *byte == index as u8));
+    }
+    for mode in ["error", "cancel", "finish"] {
+        let token = format!("rpc-{mode}");
+        let mut response = client
+            .get(format!("{address}/rpc/{mode}?token={token}"))
+            .send()
+            .await?
+            .error_for_status()?;
+        ensure!(response.chunk().await?.context("RPC prefix")?.as_ref() == [0, 255, 42]);
+        if mode == "cancel" {
+            drop(response);
+        } else {
+            release(&client, address, &token, "second").await?;
+            let bytes = response.bytes().await;
+            if mode == "error" {
+                ensure!(bytes.is_err(), "RPC source error became clean EOF");
+            } else {
+                ensure!(
+                    bytes?.as_ref() == [43, 0, 255],
+                    "RPC EOF waited for background work"
+                );
+            }
+        }
+        if mode == "cancel" {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if state(&client, address, &token).await?["cancelled"] == 1 {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await??;
+        }
+        ensure!(state(&client, address, &token).await?["background"] == false);
+        release(&client, address, &token, "background").await?;
+    }
+    let refused = client
+        .get(format!("{address}/rpc/bad-reason?token=rpc-bad-reason"))
+        .send()
+        .await?;
+    ensure!(refused.status().as_u16() == 204 && refused.bytes().await?.is_empty());
+    ensure!(state(&client, address, "rpc-bad-reason").await?["cancelled"] == 1);
+    release(&client, address, "rpc-bad-reason", "background").await?;
+    let response = client
+        .get(format!("{address}/rpc/abandon?token=rpc-abandon"))
+        .send()
+        .await?;
+    ensure!(response.status().as_u16() == 204 && response.bytes().await?.is_empty());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if state(&client, address, "rpc-abandon").await?["cancelled"] == 1 {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    let stale: Value = client
+        .get(format!("{address}/rpc/stale"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(
+        matches!(
+            stale["code"].as_str(),
+            Some("ContextExpired" | "ContextMismatch")
+        ),
+        "stale RPC reader reused a later event: {stale}"
+    );
+    release(&client, address, "rpc-abandon", "background").await?;
     Ok(())
 }

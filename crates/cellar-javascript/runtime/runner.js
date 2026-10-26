@@ -12,9 +12,10 @@
   scopedHost,
   addAbortListener,
   makeDelegates,
+  makeRpcStreams,
 ) => {
   "use strict";
-  const delegates = makeDelegates();
+  const delegates = makeDelegates(makeRpcStreams());
 
   // Capture these builtins before importing/evaluating application code.
   const parse = JSON.parse;

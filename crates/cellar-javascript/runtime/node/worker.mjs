@@ -172,10 +172,13 @@ function operation(
   // storage mutation slot while startup awaits I/O. All retain effect provenance.
   // Workers routed calls own independent native futures/output gates. Keep
   // their mutation failure provenance, without the local storage mutation slot.
+  // Body output can await backpressure while independent jobs mutate storage.
   // Ordinary SQL and fetch operations remain conservative mutations.
   const mutation =
     !name.startsWith("workers.rpc.") &&
     ![
+      "response.write",
+      "response.finish",
       "workers.container.perform",
       "workers.rpc",
       "workers.fetch",
@@ -362,6 +365,7 @@ const factory = makeRunner(
   },
   addAbortListener,
   makeDelegates,
+  makeRpcStreams,
 );
 
 // Revocation prevents new Cellar calls. It cannot undo effects already submitted

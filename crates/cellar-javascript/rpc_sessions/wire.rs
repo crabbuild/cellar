@@ -11,6 +11,7 @@ pub(super) struct Publication {
     pub format: u8,
     pub group: String,
     pub count: usize,
+    pub max_body_bytes: usize,
     pub value: String,
 }
 
@@ -47,12 +48,19 @@ pub(super) fn markers(encoded: &str, count: usize, maximum: usize) -> Result<()>
         }
     }
     let root = array(&graph, &graph.root)?;
-    ensure!(root.len() == 2, "invalid callable RPC graph");
+    ensure!(root.len() == 3, "invalid callable RPC graph");
     let references = array(&graph, &root[1])?;
+    let kinds = array(&graph, &root[2])?;
     ensure!(
-        count > 0 && references.len() == count,
+        count > 0 && references.len() == count && kinds.len() == count,
         "invalid RPC delegate count"
     );
+    for kind in kinds {
+        ensure!(
+            *kind == CloneValue::from("function") || *kind == CloneValue::from("readable"),
+            "invalid RPC delegate kind"
+        );
+    }
     let mut seen = HashSet::new();
     for reference in references {
         let CloneValue::Reference(id) = reference else {
@@ -93,13 +101,14 @@ pub(super) fn publication(
         value.len() <= maximum,
         "RPC publication exceeds byte budget"
     );
-    let publication: Publication =
+    let mut publication: Publication =
         serde_json::from_str(&value).context("invalid RPC publication")?;
     ensure!(
-        publication.format == 1 && publication.group.len() <= 64,
-        "invalid RPC publication version"
+        publication.format == 1 && publication.group.len() <= 64 && publication.max_body_bytes > 0,
+        "invalid RPC publication metadata"
     );
     markers(&publication.value, publication.count, maximum)?;
+    publication.max_body_bytes = publication.max_body_bytes.min(maximum);
     Ok(publication)
 }
 

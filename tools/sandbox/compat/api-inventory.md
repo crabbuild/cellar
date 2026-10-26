@@ -20,7 +20,7 @@ none of the rows is a runtime compatibility pass. Requalify changed inputs.
 | `ctx.storage.kv.get` / `put` and async storage `get` / `put` / `delete` | Native KV snapshots and atomic batches | Correct missing values, supported serialization, multi-key operations and API-level limits |
 | Storage `transaction`, alarms, `sync` | Native synchronous checked batches, alarms and durability proof | Callback transaction semantics, rollback/conflict behavior, alarm delivery and published package scheduling |
 | Stable `ctx.container.running` property and synchronous queued `start` | Authoritative synchronous snapshot; bounded one-shot admission and native run identity | Root-event startup/monitor/destroy slices execute in Node/V8; callback-owned queues, package hooks and complete stopped-state recovery remain required |
-| Container `getTcpPort`, HTTP/WS forwarding and readiness | Native port, TCP and WS capabilities; incremental Node port responses, bounded upload and abortable native fetch | Embedded web globals, RPC stream transfers, upgrade conversion, port switching and complete timeout behavior |
+| Container `getTcpPort`, HTTP/WS forwarding and readiness | Native port, TCP and WS capabilities; incremental Node port responses, bounded upload and abortable native fetch | Embedded web globals, stream inputs/writable transfers, upgrade conversion, port switching and complete timeout behavior |
 | Background monitor/lifetime work | Native cancellation, ownership, inactivity and cleanup | Workers `waitUntil`/event lifetime behavior without detached native SDK work |
 | Outbound interception and `ctx.exports.ContainerProxy` | Native internet policy | Interception/proxy implementation or explicit profile refusal; no silent policy bypass |
 | Sandbox Cap'n Web `RpcSession`, `RpcTarget` and HTTP transport | Native streaming and WS transport | Actual package RPC sessions, target lifetime, stream errors and cleanup |
@@ -47,8 +47,10 @@ An additional probe subclasses the published Sandbox class and consumes its real
 only after stdout is observed, then verifies final stdout/stderr and exit code 7.
 The test also forwards the SDK SSE body through DO and Worker fetches to an
 external HTTP client, which must receive stdout before an independent request
-releases the command. The SDK remains unchanged. Returning streams as RPC values
-remains unqualified.
+releases the command. An additional route calls the unchanged `stub.execStream()`
+method directly: its returned readable byte stream crosses native RPC before
+becoming the Worker response. It passes the same handshake, final output and
+exit-code checks. Stream inputs and writable/message transfers remain unqualified.
 
 The baseline additionally needs preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,

@@ -16,6 +16,12 @@ class Counter extends DurableObject {
   background(): void {
     this.ctx.waitUntil(Promise.resolve(3));
   }
+  output(): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({ type: "bytes" });
+  }
+  nestedOutput() {
+    return { body: this.output() };
+  }
   tools() {
     return { add: (by: bigint) => by + 1n };
   }
@@ -56,6 +62,15 @@ const tools = stub.tools().then((tools) => {
   return [value, other, immediate];
 });
 void tools;
+const streamed: Promise<ReadableStream<Uint8Array>> = stub.output();
+const consumed = stub.nestedOutput().then(({ body }) => {
+  const bytes: Promise<ReadableStreamReadResult<Uint8Array>> = body
+    .getReader()
+    .read();
+  body[Symbol.dispose]();
+  return bytes;
+});
+void [streamed, consumed];
 // @ts-expect-error: instance fields are not RPC methods
 stub.env();
 // @ts-expect-error: argument types remain intact

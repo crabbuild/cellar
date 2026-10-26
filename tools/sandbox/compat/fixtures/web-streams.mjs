@@ -19,6 +19,12 @@ export class Counter extends DurableObject {
     };
   }
 
+  async rpcStream(mode, token) {
+    return (
+      await this.fetch(new Request(`http://object/${mode}?token=${token}`))
+    ).body;
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
     const mode = url.pathname.slice(1);
@@ -29,9 +35,13 @@ export class Counter extends DurableObject {
       return new Response(
         new ReadableStream(
           {
+            type: "bytes",
             pull(controller) {
-              if (n === 6) controller.close();
-              else controller.enqueue(new Uint8Array(128).fill(n++));
+              if (n === 6) {
+                const pending = controller.byobRequest;
+                controller.close();
+                pending?.respond(0);
+              } else controller.enqueue(new Uint8Array(128).fill(n++));
             },
           },
           { highWaterMark: 0 },
@@ -55,6 +65,7 @@ export class Counter extends DurableObject {
     let n = 0;
     const body = new ReadableStream(
       {
+        type: "bytes",
         async pull(controller) {
           if (mode === "oversized") {
             storage.kv.put(`${token}-phase`, 1);
@@ -98,6 +109,7 @@ export class Counter extends DurableObject {
   }
 }
 
+let staleStream;
 const worker = {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -108,6 +120,42 @@ const worker = {
     if (url.pathname === "/release") {
       await stub.release(token, url.searchParams.get("gate"));
       return new Response(null, { status: 204 });
+    }
+    if (url.pathname.startsWith("/rpc/")) {
+      const mode = url.pathname.slice("/rpc/".length);
+      if (mode === "stale") {
+        try {
+          await staleStream.getReader().read();
+          throw new Error("stale RPC stream accepted a read");
+        } catch (error) {
+          return Response.json({ code: error.code, message: error.message });
+        }
+      }
+      const body = await stub.rpcStream(
+        ["abandon", "bad-reason"].includes(mode) ? "cancel" : mode,
+        token,
+      );
+      if (mode === "bad-reason") {
+        const reader = body.getReader();
+        await reader.read();
+        const pending = reader.read();
+        let refused = false;
+        try {
+          await reader.cancel(() => {});
+        } catch {
+          refused = true;
+        }
+        if (!refused || !(await pending).done)
+          throw new Error("untransferable reason did not join cancellation");
+        return new Response(null, { status: 204 });
+      }
+      if (mode === "abandon") {
+        staleStream = body;
+        return new Response(null, { status: 204 });
+      }
+      return new Response(body, {
+        headers: { "x-stream": "before-first-byte" },
+      });
     }
     return stub.fetch(request);
   },

@@ -8,7 +8,11 @@ fn value() -> StructuredValue {
         root: CloneValue::Reference(0),
         objects: vec![
             Object::DenseArray {
-                elements: vec![CloneValue::Reference(1), CloneValue::Reference(2)],
+                elements: vec![
+                    CloneValue::Reference(1),
+                    CloneValue::Reference(2),
+                    CloneValue::Reference(4),
+                ],
                 properties: vec![],
             },
             Object::Object(vec![(CloneValue::from("call"), CloneValue::Reference(3))]),
@@ -17,6 +21,10 @@ fn value() -> StructuredValue {
                 properties: vec![],
             },
             Object::Object(vec![]),
+            Object::DenseArray {
+                elements: vec![CloneValue::from("function")],
+                properties: vec![],
+            },
         ],
     }
 }
@@ -47,13 +55,18 @@ fn malformed_publications_and_non_array_arguments_refuse() {
         format: 1,
         group: "native-group".into(),
         count: 1,
+        max_body_bytes: 4096,
         value: encode(&value()),
     };
     let encoded = serde_json::to_string(&valid).unwrap();
     let data = || cellar::engine_api::RpcData::Json(encoded.clone());
     assert!(publication(data(), 4096).is_ok());
+    assert_eq!(publication(data(), 512).unwrap().max_body_bytes, 512);
     assert!(publication(data(), 4).is_err());
     let mut json: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+    json["max_body_bytes"] = 0.into();
+    assert!(publication(cellar::engine_api::RpcData::Json(json.to_string()), 4096).is_err());
+    json["max_body_bytes"] = 4096.into();
     json["format"] = 2.into();
     assert!(publication(cellar::engine_api::RpcData::Json(json.to_string()), 4096).is_err());
     assert!(arguments(
@@ -66,4 +79,21 @@ fn malformed_publications_and_non_array_arguments_refuse() {
         4096
     )
     .is_ok());
+}
+
+#[test]
+fn stream_publications_require_one_known_kind_per_live_marker() {
+    let mut graph = value();
+    if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
+        elements[0] = CloneValue::from("readable");
+    }
+    assert!(markers(&encode(&graph), 1, 4096).is_ok());
+    if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
+        elements[0] = CloneValue::from("writable");
+    }
+    assert!(markers(&encode(&graph), 1, 4096).is_err());
+    if let Object::DenseArray { elements, .. } = &mut graph.objects[4] {
+        elements.clear();
+    }
+    assert!(markers(&encode(&graph), 1, 4096).is_err());
 }

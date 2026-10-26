@@ -97,14 +97,14 @@ const app = workersApplication(worker, {
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
 | Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
-| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, streamed RPC transfers and embedded web bootstrap |
+| HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Set-Cookie fields, manual redirects and aborts | WebSocket upgrades, RPC stream inputs/message transfers and embedded web bootstrap |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
-| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions preserve graph identity through native leases | Callback arguments, transfers and returned `RpcTarget` |
+| Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions and readable byte streams preserve graph identity through native leases | Callback/stream arguments, writable streams, Request/Response transfer and returned `RpcTarget` |
 | Constructor admission | `blockConcurrencyWhile`, real native input gate, activation reset on failure | Full abort/reconstruction qualification |
 | Transactions | Native sync/async savepoints, nesting, rollback and callback return/throw identity | Full lifetime/deadline profile qualification |
-| Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()` and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
+| Object RPC | Native IDs/routing; inherited public prototype methods; clone values/errors; root-event returned function calls, nested functions, `dup()`, readable byte streams and disposal | Property RPC, pipelining, returned `RpcTarget`, callback arguments, scoped callback imports and cross-event failure state |
 | Event lifetime | Retained native drivers for `waitUntil`, transaction callbacks, outstanding SDK work and complete container monitors | Complete compatibility eviction/deadline policy |
 
 Alarm callbacks serialize per object, including when a running handler rearms
@@ -154,6 +154,39 @@ The stream extension follows the documented byte-forwarding and BYOB contract
 for [IdentityTransformStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
 This API slice does not establish full Workers stream conformance.
 
+### Returned RPC byte streams
+
+A public DO method may return a readable byte stream. For example, the pinned
+Sandbox SDK's `execStream()` now crosses native RPC directly:
+
+```js
+const sandbox = env.Sandbox.getByName("demo");
+const output = await sandbox.execStream("printf 'hello\\n'");
+return new Response(output, {
+  headers: { "content-type": "text/event-stream" },
+});
+```
+
+| Boundary | Behavior |
+| --- | --- |
+| Ownership | Transfer locks the sender's original stream; aliases in one result graph share one imported stream |
+| Flow control | One producer BYOB read per consumer pull; native frames cap each read at `min(64 KiB, negotiated_max_body_bytes - 128)` |
+| Negotiation | Native publication carries the producer budget; import clamps it to the consumer budget, and each pull grants only that bounded size |
+| Limits | The 128-byte reserve covers clone/control fields; native clone and bridge budgets also validate every reply. Budgets at or below 128 bytes refuse transfer |
+| Authority / proof | The existing native lease routes each read to the original producer event; its storage proof precedes every chunk and EOF reply |
+| Cancellation | `cancel()` awaits upstream cleanup and releases the native handle; synchronous disposal schedules the same owned cleanup. An uncloneable/oversized reason is refused after cleanup without that reason |
+| Native event loss | Automatic import disposal closes the lease, wakes the producer poll and cancels its pending source |
+| Errors | Source and native reply failures error the reader; they cannot become clean EOF |
+
+Only streams with a byte source (`type: "bytes"`) qualify; locked and object
+streams refuse before pulling. Failed publication restores an untouched source's
+lock. Use `stream.cancel()` or its reader's `cancel()` when abandoning a stream;
+`result[Symbol.dispose]()` also disposes streams nested in a returned object.
+Node supplies the required web globals. Stream arguments, writable streams and
+Request/Response RPC transfers remain incomplete.
+
+This slice follows the [RPC byte-stream and ownership contract](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response).
+
 ### HTTP response streaming
 
 A module may return an ordinary web `Response`, including a `ReadableStream`
@@ -193,7 +226,8 @@ sequenceDiagram
 
 Uploads remain buffered and bounded before submission. Cancelling a response
 cannot prove that a submitted sandbox command stopped or rolled back. Returning
-streams as RPC values and WebSocket upgrades remain separate profiles.
+writable streams or HTTP messages as RPC values and WebSocket upgrades remain
+separate profiles.
 
 ### Container API
 
@@ -269,13 +303,14 @@ quotas and unknown-outcome reporting still apply.
 | Node module fixture | HTTP object routing by named/opaque ID, activation-owned env, binary/cookie preservation, cross-object refusal and effects surviving an oversized response |
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
-| Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file, background startup and later process-list assertions pass, followed by explicit destroy and joined shutdown |
+| Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |
+| Native returned-stream fixture | Bounded BYOB pulls, errors, cancellation with independent held background jobs, abandoned imports, uncloneable cancellation reasons and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, streamed RPC transfers and upgrades, Sandbox previews and
-the remaining SDK/image fault qualification
-remain required, along with hosted providers.
+Sleep/wake, complete hooks/timeouts, RPC stream arguments/writable/message
+transfers, upgrades, Sandbox previews and the remaining SDK/image fault
+qualification remain required, along with hosted providers.
 
 ```sh
 node tools/sandbox/compat/build.mjs

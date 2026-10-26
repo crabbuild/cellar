@@ -33,6 +33,7 @@ function gatedCommand(gate) {
 
 // Extend the published class only to observe its actual streaming method. The
 // unchanged upstream routes below continue to use the same SDK implementation.
+const RPC_GATE = "/workspace/cellar-rpc-stream-release";
 const HTTP_GATE = "/workspace/cellar-http-stream-release";
 class StreamingProbe extends module.Sandbox {
   async releaseHttpStream() {
@@ -86,6 +87,16 @@ const app = workersApplication(
         const stub = env.Sandbox.getByName(
           url.searchParams.get("id") ?? "demo",
         );
+        if (url.pathname === "/__stream_rpc") {
+          await stub.exec(`rm -f ${RPC_GATE}`);
+          return new Response(await stub.execStream(gatedCommand(RPC_GATE)), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        if (url.pathname === "/__stream_rpc_release") {
+          await stub.exec(`touch ${RPC_GATE}`);
+          return new Response(null, { status: 204 });
+        }
         if (url.pathname === "/__stream_http")
           return stub.fetch("http://sandbox/cellar-http-stream");
         if (url.pathname === "/__stream_release") {
