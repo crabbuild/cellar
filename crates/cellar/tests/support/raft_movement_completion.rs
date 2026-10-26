@@ -4,6 +4,9 @@
 use super::*;
 use cellar::application::consensus::verification::FleetSnapshot;
 
+#[path = "raft_movement_fenced.rs"]
+mod fenced;
+
 struct Replaced {
     cells: Vec<RaftCellHandle>,
     target: RaftCellHandle,

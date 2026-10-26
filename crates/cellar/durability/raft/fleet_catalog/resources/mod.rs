@@ -5,7 +5,9 @@
 //! requires a separate terminal proof boundary.
 mod admission;
 mod completion;
-pub use completion::{FleetMovementCompletion, FleetMovementCompletionRequest};
+pub use completion::{
+    FleetFencedMovementCompletion, FleetMovementCompletion, FleetMovementCompletionRequest,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Authority {

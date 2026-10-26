@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -630,11 +630,25 @@ Generic mutations cannot forge or erase a completion or floor. Exact committed
 retries reconcile before live prerequisites, including after target shutdown;
 changed request payloads refuse.
 
-This boundary completes successful moves only. Aborted or unstarted moves,
-unreachable owners without isolation evidence, rebooted owners and uncertain
-physical work retain their debt. Their terminal cleanup, complete assignment
-planner and automatic reconciliation remain subsequent implementation work.
-Completion is not a deletion or capacity lease.
+`complete_movement` completes successful moves only. `settle_fenced_movement`
+provides a distinct terminal receipt for an unused reservation after
+`fence_fleet_permit` has committed its exact sequence. It obtains a fresh safe
+ReadIndex on every original voter before collecting physical observations.
+Every original owner must retain its exact admitted boot and have durably
+applied that fence; its seed workers, pending registration and initializer must
+have exited. The destination must have no physical binding for this history,
+no initializer and no seed work. Dormant registered metadata supplies no proof
+of absence; complete authenticated physical inventory does.
+
+One CAS journals the fenced outcome, advances the same monotonic physical floor
+and removes only the exact active reservation. Original resource and permit
+records remain. Exact retries reconcile before live prerequisites, including
+after a later reservation or destination shutdown; a fenced receipt cannot be
+retried through the successful-replacement API. Seeding, joint or aborted work,
+unreachable or changed owners, isolation and uncertain physical work retain
+their debt through this path. Aborted/rebooted cleanup, complete assignment
+planning and automatic reconciliation remain subsequent implementation work.
+Neither settlement grants deletion or a capacity lease.
 
 ### Isolated obsolete owners
 

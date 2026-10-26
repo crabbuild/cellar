@@ -33,6 +33,7 @@ impl Floor {
 #[serde(deny_unknown_fields)]
 pub(super) struct Completion {
     pub format: u8,
+    pub settlement: Settlement,
     pub request: FleetMovementCompletionRequest,
     pub input_root: [u8; 32],
     pub resource: [u8; 32],
@@ -64,6 +65,7 @@ impl Completion {
             .contains(&[0; 32])
             || value.membership_revision == 0
             || value.isolated_sources.len() > 1
+            || value.settlement == Settlement::Fenced && !value.isolated_sources.is_empty()
             || value.isolated_sources.contains(&[0; 16])
             || value.barrier < value.membership_revision
             || value.physical.high_water(value.request.attestation.used) != value.physical
@@ -181,7 +183,7 @@ impl FleetCatalog {
         let completion = Completion::decode(&bytes)?;
         completion.matches(row)?;
         let (mutation, original) = self
-            .completion_request(&completion.request)
+            .completion_request(&completion.request, completion.settlement)
             .await?
             .ok_or(FleetCatalogError::Unconfirmed)?;
         if original.encode()? != bytes
@@ -195,6 +197,7 @@ impl FleetCatalog {
     pub(super) async fn completion_request(
         &self,
         request: &FleetMovementCompletionRequest,
+        settlement: Settlement,
     ) -> Result<Option<(FleetMutation, Completion)>> {
         let Some((mutation, _)) = self
             .inner
@@ -224,7 +227,7 @@ impl FleetCatalog {
         }
         let completion =
             Completion::decode(mutation.changes[0].value.as_deref().ok_or_else(invalid)?)?;
-        if completion.request != *request {
+        if completion.request != *request || completion.settlement != settlement {
             return Err(FleetCatalogError::PayloadConflict);
         }
         let floor = Floor::decode(

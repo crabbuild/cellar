@@ -41,9 +41,9 @@ pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub use resources::{
-    FleetMovementAdmission, FleetMovementCompletion, FleetMovementCompletionRequest,
-    FleetMovementRequest, FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds,
-    FleetResourceRequest,
+    FleetFencedMovementCompletion, FleetMovementAdmission, FleetMovementCompletion,
+    FleetMovementCompletionRequest, FleetMovementRequest, FleetResourceAdmission,
+    FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 
 use records::{CommitRecord, Head, Pin};

@@ -11,6 +11,19 @@ use crate::raft::host::RaftPeerNodeObservation;
 use cellar_logic::consensus::ProposalId;
 use records::{Completion, Floor};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Settlement {
+    Complete,
+    Fenced,
+}
+
+enum PhysicalRole {
+    Completed { member: u64, sequence: u64 },
+    FencedOwner { member: u64 },
+    EmptyTarget,
+}
+
 enum OwnerClosure {
     Observed(Box<RaftPeerNodeObservation>),
     Isolated(IsolationProof),
@@ -36,6 +49,26 @@ pub struct FleetMovementCompletion {
     applied: u64,
     observed: u64,
     isolated_sources: Vec<[u8; 16]>,
+}
+
+/// Historical settlement of an unused, quorum-fenced permit. This is distinct
+/// from successful replica replacement and never grants storage reclamation.
+pub struct FleetFencedMovementCompletion {
+    inner: FleetMovementCompletion,
+}
+
+impl FleetFencedMovementCompletion {
+    pub fn reservation(&self) -> [u8; 16] {
+        self.inner.reservation()
+    }
+
+    pub fn applied_revision(&self) -> u64 {
+        self.inner.applied_revision()
+    }
+
+    pub fn observed_revision(&self) -> u64 {
+        self.inner.observed_revision()
+    }
 }
 
 impl FleetMovementCompletion {
@@ -89,13 +122,42 @@ impl FleetCatalog {
         observer: &RaftCells,
         timeout: Duration,
     ) -> Result<FleetMovementCompletion> {
+        self.settle_movement(snapshot, request, observer, timeout, Settlement::Complete)
+            .await
+    }
+
+    /// Settle an unused reservation only after its exact permit is durably
+    /// fenced on every original owner. Own fresh quorum observations followed
+    /// by physical worker-exit and empty-target probes. Missing or changed boots,
+    /// seeding, joint and aborted work retain their debt. Exact committed retries
+    /// precede live probes and cannot be reinterpreted as successful replacement.
+    pub async fn settle_fenced_movement(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetMovementCompletionRequest,
+        observer: &RaftCells,
+        timeout: Duration,
+    ) -> Result<FleetFencedMovementCompletion> {
+        self.settle_movement(snapshot, request, observer, timeout, Settlement::Fenced)
+            .await
+            .map(|inner| FleetFencedMovementCompletion { inner })
+    }
+
+    async fn settle_movement(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetMovementCompletionRequest,
+        observer: &RaftCells,
+        timeout: Duration,
+        settlement: Settlement,
+    ) -> Result<FleetMovementCompletion> {
         self.check_snapshot(snapshot)?;
         request.validate()?;
         let deadline = super::super::deadline::Deadline::new(self, timeout)?;
         let start = self
             .run(deadline.remaining()?, async {
                 let current = self.inner.current().await?;
-                let previous = self.completion_request(request).await?;
+                let previous = self.completion_request(request, settlement).await?;
                 if let Some((mutation, record)) = &previous {
                     if let Some(applied) = self.resource_applied(&current, mutation).await? {
                         return Ok(Err(FleetMovementCompletion {
@@ -158,15 +220,52 @@ impl FleetCatalog {
             .authorize_group(snapshot, &scope, deadline.remaining()?)
             .await?;
         let probe_started = self.resource_now()?;
+        let quorum_node = match settlement {
+            Settlement::Complete => row.node,
+            Settlement::Fenced => row
+                .request
+                .movement
+                .as_ref()
+                .ok_or_else(invalid)?
+                .source()?,
+        };
         let quorum = observer
             .observe_peer_fleet_membership(
-                row.node,
-                authorization,
+                quorum_node,
+                authorization.clone(),
                 snapshot.revision(),
                 deadline.remaining()?,
             )
             .await
             .map_err(FleetCatalogError::Observation)?;
+        // Fence application must precede worker-exit samples on every possible
+        // seed provider. No provider can grant a new seed for this sequence
+        // afterward; already running work still has to exit physically.
+        let mut fenced_owners = Vec::new();
+        if settlement == Settlement::Fenced {
+            for owner in row.seed_owners.as_ref().ok_or_else(invalid)? {
+                let node = NodeId::new(owner.node).map_err(|_| invalid())?;
+                let sample = if node == quorum_node {
+                    quorum.clone()
+                } else {
+                    observer
+                        .observe_peer_fleet_membership(
+                            node,
+                            authorization.clone(),
+                            snapshot.revision(),
+                            deadline.remaining()?,
+                        )
+                        .await
+                        .map_err(FleetCatalogError::Observation)?
+                };
+                self.run(
+                    deadline.remaining()?,
+                    self.check_fenced_owner(snapshot, &row, owner, &sample),
+                )
+                .await?;
+                fenced_owners.push(sample);
+            }
+        }
         let target = observer
             .inspect_peer_physical_inventory(row.node, snapshot.revision(), deadline.remaining()?)
             .await
@@ -190,7 +289,7 @@ impl FleetCatalog {
                 .run(deadline.remaining()?, self.host_from_record(snapshot, node))
                 .await?;
             if host.record.isolation.is_some() {
-                if owner.member != obsolete {
+                if settlement != Settlement::Complete || owner.member != obsolete {
                     return Err(FleetCatalogError::Conflict);
                 }
                 let proof = self
@@ -220,6 +319,7 @@ impl FleetCatalog {
                 OwnerClosure::Observed(sample) => Some(sample.sample_age_ms),
                 OwnerClosure::Isolated(_) => None,
             }))
+            .chain(fenced_owners.iter().map(|sample| sample.sample_age_ms()))
             .any(|age| age > MAX_SAMPLE_AGE_MS)
         {
             return Err(FleetCatalogError::Unconfirmed);
@@ -228,8 +328,16 @@ impl FleetCatalog {
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }
-            self.check_movement_completion(snapshot, &row, &quorum, &target, &sources)
-                .await?;
+            match settlement {
+                Settlement::Complete => {
+                    self.check_movement_completion(snapshot, &row, &quorum, &target, &sources)
+                        .await?;
+                }
+                Settlement::Fenced => {
+                    self.check_fenced_movement(snapshot, &row, &target, &sources, &fenced_owners)
+                        .await?;
+                }
+            }
             let current = &target.view;
             let physical = request
                 .attestation
@@ -248,6 +356,7 @@ impl FleetCatalog {
             };
             let record = Completion {
                 format: 1,
+                settlement,
                 request: request.clone(),
                 input_root: hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?),
                 resource: hash(&row.encode()?),
@@ -282,6 +391,18 @@ impl FleetCatalog {
                                 digests.extend_from_slice(&proof.digest);
                             }
                         }
+                    }
+                    for sample in &fenced_owners {
+                        digests.extend_from_slice(&sample.membership().replica().node.bytes());
+                        digests.extend_from_slice(
+                            &sample
+                                .membership()
+                                .membership_revision()
+                                .get()
+                                .to_be_bytes(),
+                        );
+                        digests
+                            .extend_from_slice(&sample.membership().barrier().get().to_be_bytes());
                     }
                     hash(&digests)
                 },
