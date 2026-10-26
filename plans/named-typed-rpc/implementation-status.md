@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | Merged baseline `b3c276bd` passes hosted typed-RPC lifecycle. Follow-up `8fa1acb0` fixes stale SDK/native test bootstrap signatures; its Python examples pass, while JS/Node CI now reaches a ten-second published-container module timeout. SDK and lifecycle rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
+| P0 — hosted verification | New-head hosted verification | Admission head `8ad7882c` passes hosted typed-RPC lifecycle and Python examples. The repeatable Linux-only published-container timeout at `8fa1acb0` and `8ad7882c` exposes a fixture port/address mismatch; the corrected direct-IP fixture needs its own hosted results. SDK GIL/free-threaded rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -73,6 +73,30 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Published-container CI topology correction, awaiting Linux verification.**
+  The unchanged published module declares container port 8080. Native Docker
+  routing on Linux uses the inspected container IP and that port, while macOS
+  uses published host-port mappings. The old mock advertises `127.0.0.1:8080`
+  on Linux but listens on an unrelated ephemeral port; readiness never succeeds.
+  Both hosted heads stop at the original ten-second `/container/alice` deadline,
+  while 100 original module-suite runs with two Tokio workers pass locally before
+  the fix. Those retries do not explain the failure; the platform-specific
+  routing and fixture metadata do. The fixed-port fixture now binds port 8080
+  on an isolated Linux loopback IP and reports that address in Engine inspection.
+  Other hosts retain the real published-port mapping. A new real-HTTP two-peer
+  regression checks endpoint isolation and Linux's declared port. The pinned
+  application, existing assertions and handler/client budgets are unchanged.
+  All four module tests, both V8/Node container integration tests, both native
+  container tests, the explicit Python container mode and the full GIL Python
+  bridge matrix pass locally. The latter includes HTTP/storage/SQL/alarm,
+  cancellation, restart, remote routing, handoff, shutdown and both process-kill/
+  disk-deletion watchdog recovery cases. JS all-target Clippy and the affected
+  native/Python test-target Clippy checks pass. Linux CI remains the required
+  platform proof.
+  Evidence: `.cellar/rpc/diagnostics/workers-module-repeat100/status.json` and
+  `/tmp/cellar-workers-port-*`. The separate native 250 ms regression timing
+  failures remain unresolved.
 
 - **V8 admission now precedes native request allocation.** A real-isolate
   saturation regression first fails because an RPC refused by the aggregate
