@@ -29,7 +29,7 @@ export function testRunner(host, subscribe, currentHost = () => 1) {
     undefined,
     currentHost,
     serialize,
-    bytes => deserialize(Buffer.from(bytes)),
+    (bytes) => deserialize(Buffer.from(bytes)),
     (_id, _scope, callback) => callback(),
     subscribe,
     delegates,
