@@ -215,30 +215,18 @@ impl FleetCatalog {
                     reservation: request.reservation,
                     attestation: request.attestation.clone(),
                 };
-                let observed = match phase {
-                    FleetMovementPhase::Complete => self
-                        .complete_movement(snapshot, &settlement, observer, deadline.remaining()?)
-                        .await?
-                        .observed_revision(),
-                    FleetMovementPhase::Aborted => self
-                        .settle_aborted_movement(
-                            snapshot,
-                            &settlement,
-                            observer,
-                            deadline.remaining()?,
-                        )
-                        .await?
-                        .observed_revision(),
-                    _ => self
-                        .settle_fenced_movement(
-                            snapshot,
-                            &settlement,
-                            observer,
-                            deadline.remaining()?,
-                        )
-                        .await?
-                        .observed_revision(),
+                let kind = match phase {
+                    FleetMovementPhase::Complete => Settlement::Complete,
+                    FleetMovementPhase::Fenced => Settlement::Fenced,
+                    FleetMovementPhase::Aborted => Settlement::Aborted,
+                    _ => return Err(invalid()),
                 };
+                // Use one guarded settlement future rather than composing the
+                // public typed wrappers in the orchestration frame.
+                let observed = self
+                    .settle_movement(snapshot, &settlement, observer, deadline.remaining()?, kind)
+                    .await?
+                    .observed_revision();
                 return Ok(progress(phase, true, observed));
             }
         };

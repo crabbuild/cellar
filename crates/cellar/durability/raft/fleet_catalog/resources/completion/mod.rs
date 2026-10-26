@@ -189,7 +189,7 @@ impl FleetCatalog {
             .map(|inner| FleetAbortedMovementCompletion { inner })
     }
 
-    async fn settle_movement(
+    pub(super) async fn settle_movement(
         &self,
         snapshot: &FleetSnapshot,
         request: &FleetMovementCompletionRequest,
