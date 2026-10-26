@@ -14,7 +14,9 @@ use super::execution::*;
 use super::performance::{
     Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
 };
-use super::snapshot::{PreparedSnapshot, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage};
+use super::snapshot::{
+    PreparedSnapshot, SnapshotCapture, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage,
+};
 use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
 use crate::application::consensus::{OperationContract, RaftClass};
@@ -42,6 +44,7 @@ pub(crate) struct CellStorage {
     pub services: ReadServices,
     pub images: GenerationLimits,
     pub execution: ExecutionLimits,
+    pub snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
 }
 
 #[derive(Clone)]
@@ -146,6 +149,10 @@ pub(crate) enum Value {
     ArchiveCut(Option<Box<CommittedArchiveCut>>),
     EffectScan(Option<Box<super::effects::scan::EffectScan>>),
     Checkpoint(Box<SnapshotCheckpoint>),
+    SnapshotCapture {
+        capture: Box<SnapshotCapture>,
+        reservation: SourceReservation,
+    },
     SnapshotSource {
         package: Box<SnapshotPackage>,
         reservation: SourceReservation,
@@ -613,11 +620,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -635,11 +643,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             // Caller verified an absent stable group and absent permanent claim.
@@ -662,11 +671,12 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || group.identity().scope != *scope {
                 return Err(ExecutionError::Invalid("cell initialization"));
             }
-            let images = GenerationStore::open_observed(
+            let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
                 storage.host.filesystem(),
                 storage.images,
-                accounting,
+                Some(accounting),
+                storage.snapshot_scratch,
             )
             .map_err(super::execution::storage)?;
             let applier = ImageApplier::recover(
@@ -994,16 +1004,16 @@ impl Cell {
                     .queryable()
                     .map_err(super::execution::storage)?
                 {
-                    Some(image) => SnapshotPackage::capture(&self.group, image, limits),
-                    None => SnapshotPackage::capture_empty(
+                    Some(image) => SnapshotCapture::capture(&self.group, image, limits),
+                    None => SnapshotCapture::capture_empty(
                         &self.group,
                         self.class.schema_digest(),
                         limits,
                     ),
                 }
                 .map_err(super::execution::storage)?;
-                Ok(Value::SnapshotSource {
-                    package: Box::new(package),
+                Ok(Value::SnapshotCapture {
+                    capture: Box::new(package),
                     reservation,
                 })
             }
@@ -1011,28 +1021,30 @@ impl Cell {
                 limits,
                 reservation,
             } => {
-                let _reservation = reservation;
                 let package = match self
                     .applier
                     .queryable()
                     .map_err(super::execution::storage)?
                 {
-                    Some(image) => SnapshotPackage::capture(&self.group, image, limits),
-                    None => SnapshotPackage::capture_empty(
+                    Some(image) => SnapshotCapture::capture(&self.group, image, limits),
+                    None => SnapshotCapture::capture_empty(
                         &self.group,
                         self.class.schema_digest(),
                         limits,
                     ),
                 }
                 .map_err(super::execution::storage)?;
-                Ok(Value::Checkpoint(Box::new(package.checkpoint_material())))
+                Ok(Value::SnapshotCapture {
+                    capture: Box::new(package),
+                    reservation,
+                })
             }
             Action::CaptureSnapshot {
                 snapshot,
                 limits,
                 reservation,
             } => {
-                let package = SnapshotPackage::retained(
+                let package = SnapshotCapture::retained(
                     &self.group,
                     &self.options.images,
                     self.class.schema_digest(),
@@ -1040,8 +1052,8 @@ impl Cell {
                     limits,
                 )
                 .map_err(super::execution::storage)?;
-                Ok(Value::SnapshotSource {
-                    package: Box::new(package),
+                Ok(Value::SnapshotCapture {
+                    capture: Box::new(package),
                     reservation,
                 })
             }

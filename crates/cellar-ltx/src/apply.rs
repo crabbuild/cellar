@@ -291,6 +291,31 @@ pub(crate) fn apply_private_chain(
     Ok(state)
 }
 
+/// Continue from an exclusively owned snapshot destination. The independent
+/// destination inspection supplies the initial rolling checksum; all tail
+/// transitions retain the ordinary bounded apply and intermediate proofs.
+pub(crate) fn apply_private_tail(
+    target: &mut HostFile,
+    base: ImageState,
+    updates: &[ImageUpdate<'_>],
+    limits: &ApplyLimits,
+) -> Result<ImageState, ApplyError> {
+    base.validate(limits)?;
+    if !updates.is_empty() {
+        peak_chain_bytes(updates, limits)?;
+        if updates[0].base != base {
+            return Err(ApplyError::Chain);
+        }
+    }
+    let mut rolling = inspect(target, &base, None)?;
+    let mut state = base;
+    for update in updates {
+        rolling = apply_private_update(target, update, limits, rolling)?;
+        state = update.result;
+    }
+    Ok(state)
+}
+
 // This target belongs exclusively to apply_private_chain. No intermediate
 // image is exposed, but every result is physically inspected before proceeding.
 fn apply_private_update(
@@ -450,18 +475,26 @@ pub(crate) fn inspect(
     Ok(rolling)
 }
 
-fn validate_sqlite_header(bytes: &[u8], state: &ImageState) -> Result<(), ApplyError> {
+pub(crate) fn validate_sqlite_header(bytes: &[u8], state: &ImageState) -> Result<(), ApplyError> {
+    validate_sqlite_geometry(bytes, state.page_size, state.length)
+}
+
+pub(crate) fn validate_sqlite_geometry(
+    bytes: &[u8],
+    page_size: u32,
+    length: u64,
+) -> Result<(), ApplyError> {
     if bytes.len() < 100 || &bytes[..16] != b"SQLite format 3\0" {
         return Err(ApplyError::Geometry);
     }
     let encoded = u16::from_be_bytes([bytes[16], bytes[17]]);
     let size = if encoded == 1 { 65_536 } else { encoded as u32 };
-    if size != state.page_size {
+    if size != page_size {
         return Err(ApplyError::Geometry);
     }
     if bytes[24..28] == bytes[92..96] {
         let pages = u32::from_be_bytes(bytes[28..32].try_into().map_err(|_| ApplyError::Geometry)?);
-        if pages as u64 * state.page_size as u64 != state.length {
+        if pages as u64 * page_size as u64 != length {
             return Err(ApplyError::Geometry);
         }
     }

@@ -24,6 +24,7 @@ pub mod compaction_level;
 pub mod compactor;
 pub mod db;
 pub mod error;
+mod extent;
 pub mod generation;
 mod generation_accounting;
 mod generation_vfs;
@@ -35,6 +36,7 @@ pub mod paged_vfs;
 pub mod replica;
 pub mod replica_compactor;
 pub mod replica_url;
+pub mod stream_snapshot;
 pub mod system_schema;
 pub mod wal;
 
@@ -44,6 +46,17 @@ pub mod wal;
 #[doc(hidden)]
 pub mod internal {
     pub use crate::db::internal as db;
+    pub use crate::extent::{
+        file::{ExtentDownload, ExtentFile},
+        image::{open_extent_image, CacheLimits, CacheUsage, ExtentImage, ExtentSource},
+        store::{
+            ExtentRootReference, NodeExtentLimits, NodeExtentStore, NodeExtentUsage, RootView,
+            SealedRoot, StoreError,
+        },
+        tree::{
+            ExtentId, ExtentManifest, Geometry, ImageBinding, ImageRoot, RootError, EXTENT_BYTES,
+        },
+    };
     pub use crate::lz4_block::internal as lz4_block;
     pub use crate::replica::internal as replica;
 

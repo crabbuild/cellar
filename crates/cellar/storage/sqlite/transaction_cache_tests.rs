@@ -81,9 +81,12 @@ fn allocation_observations_preserve_warm_statements_and_sql_restrictions() -> an
         "PRAGMA freelist_count",
         "PRAGMA page_size",
         "PRAGMA page_size=8192",
+        "PRAGMA auto_vacuum",
+        "PRAGMA auto_vacuum=1",
         "SELECT * FROM pragma_page_count()",
         "SELECT * FROM pragma_freelist_count()",
         "SELECT * FROM pragma_page_size()",
+        "SELECT * FROM pragma_auto_vacuum()",
     ] {
         assert!(sql_exec(scope, query, &[]).is_err(), "allowed {query}");
         assert!(

@@ -10,8 +10,7 @@ pub(crate) struct SeedDownload {
     grant: crate::raft::transport::seeds::SeedGrant,
     descriptor: Descriptor,
     initial: ::raft::prelude::ConfState,
-    limits: SnapshotLimits,
-    bytes: Vec<u8>,
+    payload: SnapshotPayload,
 }
 
 impl SeedDownload {
@@ -24,6 +23,9 @@ impl SeedDownload {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: SnapshotLimits,
+        filesystem: &dyn cellar_ltx::FileSystem,
+        directory: &std::path::Path,
+        scratch: &stream_snapshot::ScratchPool,
     ) -> Result<Self, SnapshotError> {
         let mut initial = ::raft::prelude::ConfState::default();
         initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
@@ -55,10 +57,9 @@ impl SeedDownload {
         }
         Ok(Self {
             grant,
+            payload: SnapshotPayload::new(&descriptor, limits, filesystem, directory, scratch)?,
             descriptor,
             initial,
-            limits,
-            bytes: Vec::new(),
         })
     }
 
@@ -67,20 +68,7 @@ impl SeedDownload {
     }
 
     pub(crate) fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
-        if offset != self.bytes.len()
-            || bytes.is_empty()
-            || bytes.len() > self.limits.max_chunk_bytes
-            || offset
-                .checked_add(bytes.len())
-                .is_none_or(|end| end > self.descriptor.encoded_length)
-        {
-            return Err(SnapshotError::Limit);
-        }
-        self.bytes
-            .try_reserve_exact(self.descriptor.encoded_length - self.bytes.len())
-            .map_err(|_| SnapshotError::Limit)?;
-        self.bytes.extend_from_slice(bytes);
-        Ok(())
+        self.payload.append(offset, bytes)
     }
 
     pub(crate) fn finish(
@@ -88,7 +76,7 @@ impl SeedDownload {
         images: &GenerationStore,
         reservation: crate::raft::budget::Permit,
     ) -> Result<PreparedSeed, SnapshotError> {
-        let pin = seal_image(&self.descriptor, &self.bytes, self.limits, images)?;
+        let pin = seal_image(&self.descriptor, self.payload.finish()?, images)?;
         Ok(PreparedSeed {
             grant: SeedPermit::Peer(self.grant),
             descriptor: self.descriptor,
@@ -294,8 +282,8 @@ impl PreparedSeed {
                 .map_err(|_| SnapshotError::Invalid("archive seed configuration encoding"))?,
             membership,
             image: Some(marker(&pin)),
-            encoded_length: bytes.len(),
-            encoded_digest: Sha256::digest(&bytes).into(),
+            encoded_length: bytes.metadata().encoded_length as usize,
+            encoded_digest: bytes.metadata().encoded_digest,
         };
         Descriptor::decode_bound(
             birth.scope(),

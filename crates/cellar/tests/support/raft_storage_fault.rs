@@ -25,6 +25,7 @@ pub const FAIL_PARENT_SYNC: u8 = 8;
 pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
 pub const HOLD_LOCK_DROP: u8 = 10;
 pub const HOLD_IMAGE_READ: u8 = 11;
+pub const HOLD_SNAPSHOT_TEMP: u8 = 12;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -220,6 +221,23 @@ impl HostFileIo for FaultFile {
 }
 
 impl FileSystem for FaultFileSystem {
+    fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
+        // Hold every encoder until the explicit release. Archive and consensus
+        // snapshot encoders can race; consuming a one-shot gate could otherwise
+        // leave the serialized SQL encoder untested.
+        if directory
+            .and_then(Path::file_name)
+            .is_some_and(|name| name.to_string_lossy().ends_with(".snapshot-scratch"))
+            && self.gate.mode.load(Ordering::Acquire) == HOLD_SNAPSHOT_TEMP
+        {
+            self.gate.pause()?;
+        }
+        Ok(self.wrap(
+            Path::new("snapshot.scratch"),
+            DirectFileSystem.temporary_file(directory)?,
+        ))
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         DirectFileSystem.read(path)
     }

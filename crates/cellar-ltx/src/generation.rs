@@ -57,7 +57,7 @@ impl GenerationLimits {
         if self.max_generations == 0
             || self.max_generations > 4096
             || self.max_bytes == 0
-            || self.max_bytes > 16 * 1024 * 1024 * 1024
+            || self.max_bytes > 256 * 1024 * 1024 * 1024
         {
             return Err(GenerationError::Limit);
         }
@@ -83,6 +83,8 @@ pub enum GenerationError {
     Quarantined,
     #[error("image apply: {0}")]
     Apply(#[from] ApplyError),
+    #[error("streamed snapshot: {0}")]
+    Snapshot(#[from] crate::stream_snapshot::Error),
     #[error("image store I/O: {0}")]
     Io(#[from] std::io::Error),
     #[error("image operation failed ({operation}); cleanup also failed: {cleanup}")]
@@ -178,6 +180,7 @@ struct Inner {
     directory: PathBuf,
     filesystem: Arc<dyn FileSystem>,
     limits: GenerationLimits,
+    snapshot_scratch: crate::stream_snapshot::ScratchPool,
     state: Mutex<State>,
     _lock: HostFileLock,
 }
@@ -285,6 +288,86 @@ impl GenerationPin {
         }
         current.active = false;
         Ok(true)
+    }
+
+    /// Create an independently verified disposable writer base. COW is used
+    /// only with this pin's exact filesystem provider. Never returns a handle
+    /// before destination verification, even when a copy adapter reports success.
+    pub fn private_copy(
+        &self,
+        filesystem: &Arc<dyn FileSystem>,
+        destination: &Path,
+    ) -> Result<(), GenerationError> {
+        let source_path = self.inner.directory.join(final_name(self.id()));
+        let clone = if Arc::ptr_eq(filesystem, &self.inner.filesystem) {
+            filesystem.clone_read_write(&source_path, destination)?
+        } else {
+            None
+        };
+        let mut target = match clone {
+            Some(file) => file,
+            None => {
+                let mut target = filesystem.create_read_write(destination)?;
+                let mut reader = self.inner.filesystem.open(&source_path)?;
+                apply::inspect(&mut reader, &self.state(), Some(&mut target))?;
+                target
+            }
+        };
+        apply::inspect(&mut target, &self.state(), None)?;
+        Ok(())
+    }
+
+    /// Encode this immutable image without retaining its pages in memory.
+    /// The anonymous scratch files use this pin's injected filesystem.
+    pub fn snapshot(
+        &self,
+        limits: crate::stream_snapshot::Limits,
+    ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
+        self.snapshot_with_activity(limits, None)
+    }
+
+    /// The same physical snapshot contract with completed-I/O observations.
+    /// Observations grant no data, persistence or publication proof.
+    pub fn snapshot_with_activity(
+        &self,
+        limits: crate::stream_snapshot::Limits,
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
+        self.snapshot_with_io_profile(limits, crate::stream_snapshot::IoProfile::Compact, activity)
+    }
+
+    /// Encode with explicit codec memory admission supplied by the caller.
+    /// Physical identity, scratch ownership and source-read bounds are unchanged.
+    pub fn snapshot_with_io_profile(
+        &self,
+        limits: crate::stream_snapshot::Limits,
+        profile: crate::stream_snapshot::IoProfile,
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
+        let mut name = self
+            .inner
+            .directory
+            .file_name()
+            .ok_or(GenerationError::Layout)?
+            .to_os_string();
+        name.push(".snapshot-scratch");
+        let scratch = self.inner.directory.with_file_name(name);
+        create_dir_all_durable(self.inner.filesystem.as_ref(), &scratch)?;
+        let mut reader = self.open_reader()?;
+        reader.file.set_io_activity(activity.clone());
+        Ok(crate::stream_snapshot::encode_observed_in(
+            self.inner.filesystem.as_ref(),
+            &scratch,
+            self.state(),
+            limits,
+            &self.inner.snapshot_scratch,
+            crate::stream_snapshot::IoOptions { profile, activity },
+            |offset, length| {
+                reader
+                    .read_exact_at(offset, length)
+                    .map_err(std::io::Error::other)
+            },
+        )?)
     }
 
     pub fn open_reader(&self) -> Result<GenerationReader, GenerationError> {
@@ -430,7 +513,7 @@ impl GenerationStore {
         filesystem: Arc<dyn FileSystem>,
         limits: GenerationLimits,
     ) -> Result<Self, GenerationError> {
-        Self::open_inner(directory, filesystem, limits, None)
+        Self::open_inner(directory, filesystem, limits, None, None)
     }
 
     /// Open with physical reservation accounting. Pins keep both the directory
@@ -441,7 +524,25 @@ impl GenerationStore {
         limits: GenerationLimits,
         accounting: &GenerationAccounting,
     ) -> Result<Self, GenerationError> {
-        Self::open_inner(directory, filesystem, limits, Some(accounting))
+        Self::open_inner(directory, filesystem, limits, Some(accounting), None)
+    }
+
+    /// Share snapshot spool admission with other producers/receivers on the
+    /// same node. Immutable generation bytes keep their separate reservation.
+    pub fn open_with_scratch(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: GenerationLimits,
+        accounting: Option<&GenerationAccounting>,
+        snapshot_scratch: crate::stream_snapshot::ScratchPool,
+    ) -> Result<Self, GenerationError> {
+        Self::open_inner(
+            directory,
+            filesystem,
+            limits,
+            accounting,
+            Some(snapshot_scratch),
+        )
     }
 
     fn open_inner(
@@ -449,8 +550,13 @@ impl GenerationStore {
         filesystem: Arc<dyn FileSystem>,
         limits: GenerationLimits,
         accounting: Option<&GenerationAccounting>,
+        snapshot_scratch: Option<crate::stream_snapshot::ScratchPool>,
     ) -> Result<Self, GenerationError> {
         limits.validate()?;
+        let snapshot_scratch = match snapshot_scratch {
+            Some(pool) => pool,
+            None => crate::stream_snapshot::ScratchPool::new(Default::default())?,
+        };
         create_dir_all_durable(filesystem.as_ref(), &directory)?;
         let lock = filesystem.lock_file(&directory.join("images.lock"))?;
         filesystem.sync_all(&directory.join("images.lock"))?;
@@ -507,6 +613,7 @@ impl GenerationStore {
                 directory,
                 filesystem,
                 limits,
+                snapshot_scratch,
                 state: Mutex::new(state),
                 _lock: lock,
             }),
@@ -556,6 +663,18 @@ impl GenerationStore {
         base: Option<&GenerationPin>,
         updates: &[ImageUpdate<'_>],
     ) -> Result<GenerationPin, GenerationError> {
+        self.prepare_chain_with_activity(id, base, updates, None)
+    }
+
+    /// The same private chain, with observations on its owned destination.
+    /// All independent inspection and persistence barriers remain required.
+    pub fn prepare_chain_with_activity(
+        &self,
+        id: ImageId,
+        base: Option<&GenerationPin>,
+        updates: &[ImageUpdate<'_>],
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<GenerationPin, GenerationError> {
         let peak = apply::peak_chain_bytes(updates, &self.inner.limits.apply)?;
         let first = updates.first().ok_or(ApplyError::Limit)?;
         if let Some(base) = base {
@@ -565,6 +684,131 @@ impl GenerationStore {
         } else if first.base != ImageState::empty(first.base.epoch)? {
             return Err(ApplyError::MissingBase.into());
         }
+        let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
+        self.prepare_private(
+            id,
+            peak,
+            base_path.as_deref(),
+            activity,
+            |destination, cloned| {
+                if cloned {
+                    Ok(apply::apply_private_tail(
+                        destination,
+                        first.base,
+                        updates,
+                        &self.inner.limits.apply,
+                    )
+                    .map_err(|error| match error {
+                        ApplyError::Digest => ApplyError::BaseDigest,
+                        error => error,
+                    })?)
+                } else {
+                    Ok(apply::apply_private_chain(
+                        self.inner.filesystem.as_ref(),
+                        base_path.as_deref(),
+                        destination,
+                        updates,
+                        &self.inner.limits.apply,
+                    )?)
+                }
+            },
+        )
+    }
+
+    /// Seal an independently verified, file-backed physical snapshot. The body
+    /// and decoded image are bounded separately; command-delta budgets do not
+    /// grow with the full image quota. The same reservation, cleanup and sync
+    /// barriers as command publication protect this path.
+    pub fn prepare_snapshot(
+        &self,
+        id: ImageId,
+        snapshot: &crate::stream_snapshot::SnapshotFile,
+    ) -> Result<GenerationPin, GenerationError> {
+        self.prepare_snapshot_chain(id, snapshot, &[])
+    }
+
+    /// Apply a bounded tail after the file-backed snapshot while both remain
+    /// private. Every intermediate image is independently inspected, but only
+    /// the final generation crosses file and directory publication barriers.
+    pub fn prepare_snapshot_chain(
+        &self,
+        id: ImageId,
+        snapshot: &crate::stream_snapshot::SnapshotFile,
+        updates: &[ImageUpdate<'_>],
+    ) -> Result<GenerationPin, GenerationError> {
+        self.prepare_snapshot_chain_with_activity(id, snapshot, updates, None)
+    }
+
+    /// Observe destination writes and independent rereads during snapshot
+    /// replay without relaxing its reservation, integrity or sync contract.
+    pub fn prepare_snapshot_chain_with_activity(
+        &self,
+        id: ImageId,
+        snapshot: &crate::stream_snapshot::SnapshotFile,
+        updates: &[ImageUpdate<'_>],
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<GenerationPin, GenerationError> {
+        let expected = snapshot.metadata().image;
+        expected.validate(&self.inner.limits.apply)?;
+        let peak = if updates.is_empty() {
+            expected.length
+        } else {
+            if updates[0].base != expected {
+                return Err(GenerationError::Identity);
+            }
+            apply::peak_chain_bytes(updates, &self.inner.limits.apply)?.max(expected.length)
+        };
+        self.prepare_private(id, peak, None, activity, |destination, _cloned| {
+            snapshot.write_image(destination)?;
+            // Re-read the destination independently: valid input does not prove
+            // that the storage adapter wrote the same bytes to the final file.
+            Ok(apply::apply_private_tail(
+                destination,
+                expected,
+                updates,
+                &self.inner.limits.apply,
+            )?)
+        })
+    }
+
+    /// Import an exact physical SQLite image as private data material. A COW
+    /// clone is preferred where supported; the portable fallback copies bounded
+    /// buffers. The final destination is independently checked before sealing.
+    /// This method grants no cell membership, Raft position or SDK output proof.
+    pub fn prepare_image_file(
+        &self,
+        id: ImageId,
+        source: &Path,
+        expected: ImageState,
+    ) -> Result<GenerationPin, GenerationError> {
+        expected.validate(&self.inner.limits.apply)?;
+        if expected.length == 0 {
+            return Err(GenerationError::Identity);
+        }
+        self.prepare_private(
+            id,
+            expected.length,
+            Some(source),
+            None,
+            |destination, cloned| {
+                if !cloned {
+                    let mut source = self.inner.filesystem.open(source)?;
+                    apply::inspect(&mut source, &expected, Some(destination))?;
+                }
+                apply::inspect(destination, &expected, None)?;
+                Ok(expected)
+            },
+        )
+    }
+
+    fn prepare_private(
+        &self,
+        id: ImageId,
+        peak: u64,
+        clone_source: Option<&Path>,
+        activity: Option<crate::host::IoActivity>,
+        write: impl FnOnce(&mut HostFile, bool) -> Result<ImageState, GenerationError>,
+    ) -> Result<GenerationPin, GenerationError> {
         // Keep the existing conservative temporary-image admission charge.
         // Publication uses one exclusive name, but does not relax capacity.
         let charge = peak.checked_mul(2).ok_or(GenerationError::Limit)?;
@@ -620,16 +864,18 @@ impl GenerationStore {
             // prevents adoption while bytes are incomplete; no pin escapes
             // until verification and both persistence barriers succeed. Crash
             // recovery adopts only an independently authoritative exact marker.
-            let mut destination = self.inner.filesystem.create_read_write(&final_path)?;
+            let cloned = clone_source
+                .map(|source| self.inner.filesystem.clone_read_write(source, &final_path))
+                .transpose()?
+                .flatten();
+            let is_cloned = cloned.is_some();
+            let mut destination = match cloned {
+                Some(file) => file,
+                None => self.inner.filesystem.create_read_write(&final_path)?,
+            };
+            destination.set_io_activity(activity);
             final_owned = true;
-            let base_path = base.map(|p| self.inner.directory.join(final_name(p.id())));
-            let image = apply::apply_private_chain(
-                self.inner.filesystem.as_ref(),
-                base_path.as_deref(),
-                &mut destination,
-                updates,
-                &self.inner.limits.apply,
-            )?;
+            let image = write(&mut destination, is_cloned)?;
             destination.sync_all()?;
             drop(destination);
             let selected = self.select_reclamation(8)?;

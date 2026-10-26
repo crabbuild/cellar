@@ -5,8 +5,10 @@
 use anyhow::{ensure, Context as _, Result};
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use rusqlite::{ffi, Connection, OpenFlags, Params, Row};
-use sha2::{Digest, Sha256};
 use std::path::Path;
+
+#[path = "command_capacity.rs"]
+mod capacity;
 
 /// Host-captured inputs for one command. Followers apply bytes, never rerun it.
 #[derive(Clone, Copy, Debug)]
@@ -57,6 +59,27 @@ pub(crate) struct CommandDatabase {
 }
 
 impl CommandDatabase {
+    /// Inspect the current framework-owned transaction before committing its
+    /// captured bytes. This never visits application table payloads.
+    pub(crate) fn capacity(connection: &Connection, quota: u64) -> Result<capacity::Usage> {
+        capacity::measure(connection, quota)
+    }
+
+    /// Recheck after capture/checkpoint control writes. The private owner keeps
+    /// every writer quiescent, and this read transaction binds all observations
+    /// to one SQLite view without modifying the disposable image.
+    pub(crate) fn frozen_capacity(&self, quota: u64) -> Result<capacity::Usage> {
+        ensure!(
+            self.connection.is_autocommit(),
+            "capacity inspection requires a quiescent writer"
+        );
+        super::as_storage_transaction(|| self.connection.execute_batch("BEGIN"))?;
+        let result = capacity::measure(&self.connection, quota);
+        super::as_storage_transaction(|| self.connection.execute_batch("ROLLBACK"))
+            .context("private capacity inspection rollback failed; rebuild is required")?;
+        result
+    }
+
     pub(crate) fn open(path: &Path, vfs: Option<&str>, max_image_bytes: u64) -> Result<Self> {
         let connection = match vfs {
             Some(vfs) => Connection::open_with_flags_and_vfs(path, OpenFlags::default(), vfs)?,
@@ -100,6 +123,7 @@ impl CommandDatabase {
                 "cannot enable defensive command SQLite"
             );
         }
+        capacity::initialize(&connection)?;
         connection.authorizer(Some(authorize_command))?;
         Ok(Self { connection })
     }
@@ -138,7 +162,7 @@ impl CommandDatabase {
         result
     }
 
-    pub(crate) fn digest(&self, max_image_bytes: u64) -> Result<([u8; 32], u64, u32)> {
+    pub(crate) fn geometry(&self, max_image_bytes: u64) -> Result<(u64, u32)> {
         ensure!(
             self.connection.is_autocommit(),
             "cannot freeze an active command transaction"
@@ -156,12 +180,7 @@ impl CommandDatabase {
             length > 0 && length <= max_image_bytes,
             "private image exceeds its bound"
         );
-        let image = self.connection.serialize(rusqlite::MAIN_DB)?;
-        ensure!(
-            image.len() as u64 == length,
-            "frozen SQLite image length changed"
-        );
-        Ok((Sha256::digest(&*image).into(), length, size))
+        Ok((length, size))
     }
 }
 

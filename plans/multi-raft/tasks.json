@@ -2305,7 +2305,7 @@
         "tools/perf/raft_node.rs",
         "tools/perf/raft.Dockerfile",
         "crates/cellar/application/consensus/protocol.rs",
-        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/archive/mod.rs",
         "crates/cellar/durability/raft/catalog.rs",
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/durability/raft/host_archive.rs",

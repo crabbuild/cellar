@@ -138,6 +138,7 @@ automatic retry into the new history.
 | --- | --- |
 | `NotLeader` | Redirect hint; server still validates authority after reroute |
 | `Unavailable` / `Overloaded` | Refused before proposal submission; retry within policy |
+| `StorageFull` | Private SQLite execution ran out of storage before proposal submission; free capacity before retrying the same identity. The private image is discarded and rebuilt; a failed write cannot establish a reusable transaction. |
 | `Ambiguous(command_id)` | Proposal may have committed; reconcile using the same ID |
 | `CommandConflict` | ID reused with different content; do not retry with altered content |
 | `SequenceGap` / `CommandExpired` | Reconcile the client's sequence or expired retry; never execute it as a fresh command |

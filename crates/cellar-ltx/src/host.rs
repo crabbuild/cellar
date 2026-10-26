@@ -11,6 +11,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "host_activity.rs"]
+mod activity;
+pub use activity::IoActivity;
+
 type HostFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 type BlockingJob = Box<dyn FnOnce() + Send>;
 type NowUnixMillis = dyn Fn() -> i64 + Send + Sync;
@@ -44,11 +48,52 @@ pub type HostDirIterator = Box<dyn Iterator<Item = io::Result<HostDirEntry>> + S
 /// Retains an exclusive OS/virtual-filesystem lock until its owner drops it.
 pub type HostFileLock = Box<dyn Send + Sync>;
 
+/// Largest caller-owned sequential window accepted by the file adapter.
+/// This is independent of logical image size and grants no data proof.
+pub const MAX_IO_WINDOW_BYTES: usize = 4 * 1024 * 1024;
+const FALLBACK_IO_BYTES: usize = 64 * 1024;
+
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
+    /// Request reduced OS cache retention for a large sequential scratch file.
+    /// This supplies no memory, persistence or integrity proof. Providers may
+    /// return Unsupported; callers retain their ordinary bounded I/O path.
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "streaming cache advice is unsupported",
+        ))
+    }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>>;
+
+    /// Fill an already admitted caller buffer. Existing providers retain their
+    /// 64 KiB operation bound; native providers may override without allocating
+    /// another complete window. The caller discards the buffer after any error.
+    fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        window_range(offset, output.len())?;
+        for (index, chunk) in output.chunks_mut(FALLBACK_IO_BYTES).enumerate() {
+            let bytes =
+                self.read_exact_at(offset + (index * FALLBACK_IO_BYTES) as u64, chunk.len())?;
+            if bytes.len() != chunk.len() {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            chunk.copy_from_slice(&bytes);
+        }
+        Ok(())
+    }
+
+    /// Write an already admitted caller buffer. An error may follow a partial
+    /// write; it never establishes whether the complete window reached storage.
+    fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        for chunk in bytes.chunks(FALLBACK_IO_BYTES) {
+            self.write_all(chunk)?;
+        }
+        Ok(())
+    }
 
     fn sync_all(&mut self) -> io::Result<()>;
 
@@ -71,30 +116,87 @@ pub trait HostFileIo: Send {
     }
 }
 
+fn window_range(offset: u64, length: usize) -> io::Result<()> {
+    if length > MAX_IO_WINDOW_BYTES || offset.checked_add(length as u64).is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "file I/O window bound",
+        ));
+    }
+    Ok(())
+}
+
 /// One open file owned by an injected filesystem.
 pub struct HostFile {
     inner: Box<dyn HostFileIo>,
+    activity: Option<IoActivity>,
 }
 
 impl HostFile {
+    /// Attach scheduling observations to this owned handle. Completed I/O
+    /// still requires its original integrity and publication checks.
+    pub fn set_io_activity(&mut self, activity: Option<IoActivity>) {
+        self.activity = activity;
+    }
+
+    fn record_activity<T>(&self, result: io::Result<T>) -> io::Result<T> {
+        if result.is_ok() {
+            if let Some(activity) = &self.activity {
+                activity.record();
+            }
+        }
+        result
+    }
+
+    /// Request the provider's optional streaming-cache policy. Unsupported
+    /// providers retain normal I/O; a successful hint proves no data property.
+    pub fn advise_streaming(&mut self) -> io::Result<()> {
+        self.inner.advise_streaming()
+    }
+
     pub fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all_at(offset, bytes)
+        let result = self.inner.write_all_at(offset, bytes);
+        self.record_activity(result)
     }
 
     pub fn set_len(&mut self, length: u64) -> io::Result<()> {
-        self.inner.set_len(length)
+        let result = self.inner.set_len(length);
+        self.record_activity(result)
     }
 
     pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
-        self.inner.write_all(bytes)
+        let result = self.inner.write_all(bytes);
+        self.record_activity(result)
     }
 
     pub fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
-        self.inner.read_exact_at(offset, len)
+        let result = self.inner.read_exact_at(offset, len);
+        self.record_activity(result)
+    }
+
+    /// Read into bounded caller-owned storage; discard all output on error.
+    pub fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        window_range(offset, output.len())?;
+        if output.is_empty() {
+            return Ok(());
+        }
+        let result = self.inner.read_exact_into_at(offset, output);
+        self.record_activity(result)
+    }
+
+    /// The caller retains this bounded window and handles uncertain failures.
+    pub fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let result = self.inner.write_all_window(bytes);
+        self.record_activity(result)
     }
 
     pub fn sync_all(&mut self) -> io::Result<()> {
-        self.inner.sync_all()
+        let result = self.inner.sync_all();
+        self.record_activity(result)
     }
 
     pub fn file_len(&mut self) -> io::Result<u64> {
@@ -104,6 +206,7 @@ impl HostFile {
     pub fn from_io(inner: impl HostFileIo + 'static) -> Self {
         Self {
             inner: Box::new(inner),
+            activity: None,
         }
     }
 }
@@ -123,6 +226,19 @@ pub trait FileSystem: Send + Sync {
             io::ErrorKind::Unsupported,
             "read/write open is unsupported",
         ))
+    }
+
+    /// Try to exclusively create an independent writable COW clone. Shared
+    /// physical blocks must split on writes; hard links are never permitted.
+    /// `None` requests the caller's bounded copy fallback. That fallback must
+    /// still use exclusive creation, since an error may leave an uncertain name.
+    /// Success is data material only: callers independently verify and sync it.
+    fn clone_read_write(
+        &self,
+        _source: &Path,
+        _destination: &Path,
+    ) -> io::Result<Option<HostFile>> {
+        Ok(None)
     }
 
     fn lock_file(&self, _path: &Path) -> io::Result<HostFileLock> {
@@ -156,6 +272,15 @@ pub trait FileSystem: Send + Sync {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata>;
+
+    /// Inspect the leaf itself, rather than following a symbolic link. Durable
+    /// inventories require this contract; unsupported providers must refuse.
+    fn symlink_metadata(&self, _path: &Path) -> io::Result<HostMetadata> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "link-aware metadata is unsupported",
+        ))
+    }
 
     fn create(&self, path: &Path) -> io::Result<HostFile>;
 
@@ -286,8 +411,67 @@ struct DirectFile {
     file: std::fs::File,
 }
 
+struct DirectFileLock {
+    file: std::fs::File,
+    process: u32,
+}
+
+// This filesystem-provider check must observe the actual post-fork PID; a
+// captured execution-domain process tag would still identify the parent.
+#[allow(clippy::disallowed_methods)]
+fn lock_process() -> u32 {
+    std::process::id()
+}
+
+impl Drop for DirectFileLock {
+    fn drop(&mut self) {
+        // Closing only this descriptor can leave the lock held by a forked
+        // child's inherited descriptor until exec/exit. The last actual owner
+        // explicitly releases the shared lock before closing its file.
+        // An inherited copy must not unlock a still-live parent owner.
+        if self.process == lock_process() {
+            let _ = self.file.unlock();
+        }
+    }
+}
+
 #[allow(clippy::disallowed_methods)]
 impl HostFileIo for DirectFile {
+    fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        window_range(offset, output.len())?;
+        self.file.seek(SeekFrom::Start(offset))?;
+        self.file.read_exact(output)
+    }
+
+    fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        std::io::Write::write_all(&mut self.file, bytes)
+    }
+
+    fn advise_streaming(&mut self) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::fd::AsRawFd as _;
+            // SAFETY: this live file owns the descriptor for the synchronous
+            // call. F_NOCACHE takes an integer flag and no borrowed pointer.
+            // It does not change the file's data, alignment or sync contract.
+            let result = unsafe { libc::fcntl(self.file.as_raw_fd(), libc::F_NOCACHE, 1) };
+            if result == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "native streaming cache advice is unsupported",
+            ))
+        }
+    }
+
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
         use std::io::{Seek as _, SeekFrom, Write as _};
         self.file.seek(SeekFrom::Start(offset))?;
@@ -319,6 +503,146 @@ impl HostFileIo for DirectFile {
     }
 }
 
+// Optional native COW creation. Unsupported filesystems retain the bounded
+// copy path. The publisher independently verifies and syncs the output.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[allow(clippy::disallowed_methods)]
+fn clone_source_file(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    // Do not follow a leaf symlink or block while opening a non-regular inode.
+    // Managed directories may themselves live under an ordinary volume symlink.
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "clone source is not a regular file",
+        ));
+    }
+    Ok(file)
+}
+
+#[cfg(target_os = "macos")]
+#[allow(clippy::disallowed_methods)]
+fn clone_read_write_direct(source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::{
+        ffi::CString,
+        os::{
+            fd::AsRawFd as _,
+            unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
+        },
+    };
+    let source = clone_source_file(source)?;
+    let destination_c = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "clone destination contains NUL",
+        )
+    })?;
+    // SAFETY: source owns a live readable regular-file descriptor; the C path
+    // is NUL-terminated and lives through this synchronous call. Darwin creates
+    // the destination exclusively and atomically, with independent writable
+    // metadata/data semantics. See Apple's clonefile(2) manual in xnu/bsd/man.
+    let result = unsafe {
+        libc::fclonefileat(
+            source.as_raw_fd(),
+            libc::AT_FDCWD,
+            destination_c.as_ptr(),
+            0,
+        )
+    };
+    if result != 0 {
+        let error = io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOTSUP | libc::EXDEV | libc::ENOSYS) => Ok(None),
+            _ => Err(error),
+        };
+    }
+    // A failed open after creation remains an uncertain owned name to the
+    // publisher. It must keep its reservation and quarantine, never overwrite.
+    // A read-only template may carry a read-only mode. Its independent clone
+    // gets private owner access before opening the writable handle; source
+    // permissions and bytes remain untouched.
+    let mode_handle = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(destination)?;
+    mode_handle.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    drop(mode_handle);
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(destination)?;
+    Ok(Some(HostFile::from_io(DirectFile { file })))
+}
+
+#[cfg(target_os = "linux")]
+#[allow(clippy::disallowed_methods)]
+fn clone_read_write_direct(source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+    use std::os::fd::AsRawFd as _;
+    let source = clone_source_file(source)?;
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(destination)?;
+    // SAFETY: both descriptors are live regular files, and the destination was
+    // just created exclusively for this operation. FICLONE receives an integer
+    // source descriptor, not a pointer. The kernel supplies COW isolation.
+    // https://man7.org/linux/man-pages/man2/FICLONE.2const.html
+    let result = unsafe { libc::ioctl(file.as_raw_fd(), libc::FICLONE, source.as_raw_fd()) };
+    if result == 0 {
+        return Ok(Some(HostFile::from_io(DirectFile { file })));
+    }
+    let error = io::Error::last_os_error();
+    match error.raw_os_error() {
+        Some(
+            libc::EOPNOTSUPP
+            | libc::ENOTTY
+            | libc::EXDEV
+            | libc::EINVAL
+            | libc::ENOSYS
+            | libc::EBADF,
+        ) => {
+            drop(file);
+            // This exact exclusive-create handle established ownership. Refund
+            // the transient name only after its removal and directory barrier.
+            std::fs::remove_file(destination)?;
+            let parent = destination
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new("."));
+            std::fs::File::open(parent)?.sync_all()?;
+            Ok(None)
+        }
+        _ => Err(error),
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn clone_read_write_direct(_source: &Path, _destination: &Path) -> io::Result<Option<HostFile>> {
+    Ok(None)
+}
+
+fn file_metadata(metadata: std::fs::Metadata) -> HostMetadata {
+    let modified_unix_millis = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0);
+    HostMetadata {
+        len: metadata.len(),
+        is_dir: metadata.is_dir(),
+        is_file: metadata.is_file(),
+        modified_unix_millis,
+    }
+}
+
 #[allow(clippy::disallowed_methods)]
 impl FileSystem for DirectFileSystem {
     fn create_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -329,6 +653,10 @@ impl FileSystem for DirectFileSystem {
                 .create_new(true)
                 .open(path)?,
         }))
+    }
+
+    fn clone_read_write(&self, source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+        clone_read_write_direct(source, destination)
     }
 
     fn open_read_write(&self, path: &Path) -> io::Result<HostFile> {
@@ -348,7 +676,10 @@ impl FileSystem for DirectFileSystem {
             .truncate(false)
             .open(path)?;
         file.try_lock().map_err(io::Error::from)?;
-        Ok(Box::new(file))
+        Ok(Box::new(DirectFileLock {
+            file,
+            process: lock_process(),
+        }))
     }
 
     fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
@@ -380,19 +711,11 @@ impl FileSystem for DirectFileSystem {
     }
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata> {
-        let metadata = std::fs::metadata(path)?;
-        let modified_unix_millis = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-            .map(|duration| duration.as_millis() as i64)
-            .unwrap_or(0);
-        Ok(HostMetadata {
-            len: metadata.len(),
-            is_dir: metadata.is_dir(),
-            is_file: metadata.is_file(),
-            modified_unix_millis,
-        })
+        Ok(file_metadata(std::fs::metadata(path)?))
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
+        Ok(file_metadata(std::fs::symlink_metadata(path)?))
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {

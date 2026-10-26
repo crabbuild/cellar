@@ -27,6 +27,9 @@ pub struct ReplicaLogOptions {
     pub max_entries_per_group: usize,
     pub target_file_bytes: u64,
     pub purge_threshold_bytes: u64,
+    /// Shared anonymous snapshot source/index/receive disk and file admission.
+    /// Immutable images, private SQLite/WAL and retained logs are separate.
+    pub snapshot_scratch: cellar_ltx::stream_snapshot::ScratchLimits,
 }
 
 impl ReplicaLogOptions {
@@ -51,10 +54,14 @@ impl ReplicaLogOptions {
             max_entries_per_group: 16_384,
             target_file_bytes: 16 * 1024 * 1024,
             purge_threshold_bytes: 64 * 1024 * 1024,
+            snapshot_scratch: Default::default(),
         }
     }
 
     pub(crate) fn validate(&self) -> Result<(), LogError> {
+        self.snapshot_scratch
+            .validate()
+            .map_err(|e| LogError::Invalid(e.to_string()))?;
         if self.directory.as_os_str().is_empty()
             || self.directory.to_str().is_none()
             || self.max_groups == 0

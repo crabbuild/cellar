@@ -4,7 +4,9 @@
 #![allow(clippy::disallowed_methods)]
 use super::public_node;
 use anyhow::{ensure, Result};
-use cellar::sdk::{consensus::*, Node, NodeRaftConfig, NodeRaftListeners, ShutdownMode};
+use cellar::sdk::{
+    consensus::*, Node, NodeOutcome, NodeRaftConfig, NodeRaftListeners, ShutdownMode,
+};
 use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
 use std::{
     net::SocketAddr,
@@ -251,17 +253,30 @@ impl DataLink {
 type JoinedResumeCheck =
     Box<dyn FnOnce(RaftCells) -> futures_util::future::BoxFuture<'static, Result<()>> + Send>;
 
+pub type PreloadReplicas = Box<
+    dyn FnOnce(
+            Vec<ReplicaLogOptions>,
+            Arc<dyn object_store::ObjectStore>,
+        ) -> futures_util::future::BoxFuture<'static, Result<()>>
+        + Send,
+>;
+
 enum ExtraNode<'a> {
     None,
     InitialLearner,
     QueryRouter(&'a [(ClusterId, NamespaceId)]),
     Standby(Option<Arc<dyn cellar_ltx::FileSystem>>),
+    Preloaded {
+        roots: Vec<tempfile::TempDir>,
+        prepare: PreloadReplicas,
+    },
     Resume {
         roots: Vec<tempfile::TempDir>,
         placements: Vec<RaftCellPlacement>,
         check: JoinedResumeCheck,
         generation: u8,
         target_first: bool,
+        retired_owner: Option<usize>,
     },
 }
 
@@ -277,6 +292,8 @@ pub struct Cluster {
     _roots: Vec<tempfile::TempDir>,
     generation: u8,
     materialized_image_bytes: Option<u64>,
+    restart_host: RaftHostOptions,
+    retired_owner: Option<usize>,
 }
 
 impl Cluster {
@@ -453,6 +470,33 @@ impl Cluster {
         .await
     }
 
+    /// Preload the same verified baseline on all initial replicas before their
+    /// native runtimes start. Used for full-capacity recovery tests without
+    /// admitting a giant command or weakening ordinary envelope bounds.
+    #[allow(dead_code)]
+    pub async fn start_with_preloaded_images(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        host: RaftHostOptions,
+        store: Arc<dyn object_store::ObjectStore>,
+        roots: Vec<tempfile::TempDir>,
+        prepare: PreloadReplicas,
+    ) -> Result<Self> {
+        Self::start_layout(
+            definitions,
+            registrations,
+            100,
+            host,
+            ExtraNode::Preloaded { roots, prepare },
+            TransportOptions {
+                snapshot_timeout_ms: 3_600_000,
+                ..Default::default()
+            },
+            Some(store),
+        )
+        .await
+    }
+
     #[allow(dead_code)] // Shared with targets that do not run seed crash matrices.
     pub async fn start_seed_crash_fixture(
         definitions: &[public_node::Counter],
@@ -499,6 +543,7 @@ impl Cluster {
                 check: check.unwrap_or_else(|| Box::new(|_| Box::pin(async { Ok(()) }))),
                 generation: 60,
                 target_first,
+                retired_owner: None,
             },
             TransportOptions::default(),
             Some(store),
@@ -515,7 +560,7 @@ impl Cluster {
         check: JoinedResumeCheck,
     ) -> Result<Self> {
         ensure!(
-            self.nodes.len() == 4 && self.services.len() >= 3,
+            self._roots.len() == 4 && self.services.len() >= 3,
             "restart requires three voters and the replacement directory"
         );
         self.stop_owned().await?;
@@ -525,7 +570,7 @@ impl Cluster {
             .checked_add(40)
             .filter(|generation| *generation <= 252)
             .ok_or_else(|| anyhow::anyhow!("fixture process generations exhausted"))?;
-        let mut host = RaftHostOptions::default();
+        let mut host = self.restart_host.clone();
         if let Some(bytes) = self.materialized_image_bytes {
             host.execution.max_image_bytes = bytes;
         }
@@ -540,6 +585,7 @@ impl Cluster {
                 check,
                 generation,
                 target_first: true,
+                retired_owner: self.retired_owner,
             },
             TransportOptions {
                 snapshot_chunk_bytes: 64,
@@ -563,7 +609,10 @@ impl Cluster {
         for registration in &mut config.cells {
             registration.placement = placement;
         }
-        let service = self.nodes[3]
+        let service = self
+            .nodes
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("missing standby node"))?
             .start_raft_cells(
                 config,
                 RaftCellsServices {
@@ -589,40 +638,62 @@ impl Cluster {
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> Result<Self> {
         let initial_learner = matches!(&extra, ExtraNode::InitialLearner);
-        let (namespaces, standby_node, resume, filesystem) = match extra {
-            ExtraNode::None | ExtraNode::InitialLearner => (None, false, None, None),
-            ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None, None),
-            ExtraNode::Standby(filesystem) => (None, true, None, filesystem),
+        let (namespaces, standby_node, resume, filesystem, mut preload) = match extra {
+            ExtraNode::None | ExtraNode::InitialLearner => (None, false, None, None, None),
+            ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None, None, None),
+            ExtraNode::Standby(filesystem) => (None, true, None, filesystem, None),
+            ExtraNode::Preloaded { roots, prepare } => {
+                (None, true, None, None, Some((roots, prepare)))
+            }
             ExtraNode::Resume {
                 roots,
                 placements,
                 check,
                 generation,
                 target_first,
+                retired_owner,
             } => (
                 None,
                 false,
-                Some((roots, placements, check, generation, target_first)),
+                Some((
+                    roots,
+                    placements,
+                    check,
+                    generation,
+                    target_first,
+                    retired_owner,
+                )),
+                None,
                 None,
             ),
         };
         let resuming = resume.is_some();
+        let preloaded = preload.is_some();
+        let mut prepare_template = None;
         let target_first = resume
             .as_ref()
-            .is_some_and(|(_, _, _, _, target_first)| *target_first);
-        let count = if namespaces.is_some() || standby_node || resuming || initial_learner {
-            4
-        } else {
-            3
-        };
+            .is_some_and(|(_, _, _, _, target_first, _)| *target_first);
+        let retired_owner = resume
+            .as_ref()
+            .and_then(|(_, _, _, _, _, retired)| *retired);
+        let count =
+            if namespaces.is_some() || standby_node || resuming || initial_learner || preloaded {
+                4
+            } else {
+                3
+            };
         ensure!(definitions.len() == count, "incorrect fixture node count");
         let (roots, placements, mut resume_check, generation) =
-            if let Some((roots, placements, check, generation, _)) = resume {
+            if let Some((roots, placements, check, generation, _, _)) = resume {
                 ensure!(
                     roots.len() == count && placements.len() == count,
                     "incorrect restart roots/placements"
                 );
                 (roots, Some(placements), Some(check), generation)
+            } else if let Some((roots, prepare)) = preload.take() {
+                ensure!(roots.len() == count, "incorrect preload roots");
+                prepare_template = Some(prepare);
+                (roots, None, None, 20)
             } else {
                 (
                     (0..count)
@@ -694,6 +765,20 @@ impl Cluster {
             routes.push(route);
         }
         let store = store.unwrap_or_else(|| Arc::new(object_store::memory::InMemory::new()));
+        if let Some(prepare) = prepare_template {
+            let logs = (0..3)
+                .map(|i| {
+                    ReplicaLogOptions::new(
+                        nodes[i].info().data_dir.join("raft"),
+                        peers[i].node,
+                        peers[i].disk,
+                        peers[i].process,
+                        LogOpenMode::Create,
+                    )
+                })
+                .collect();
+            prepare(logs, store.clone()).await?;
+        }
         let mut services = vec![None; count];
         let mut standby = None;
         let mut listeners = listeners.into_iter().map(Some).collect::<Vec<_>>();
@@ -703,6 +788,11 @@ impl Cluster {
             (0..count).collect()
         };
         for i in order {
+            // A crashed owner whose disk was erased never resumes its old
+            // member identity. Only the quorum-authorized replacement starts.
+            if retired_owner == Some(i) {
+                continue;
+            }
             let listeners = listeners[i]
                 .take()
                 .ok_or_else(|| anyhow::anyhow!("duplicate listener start"))?;
@@ -727,7 +817,7 @@ impl Cluster {
                         peers[i].node,
                         peers[i].disk,
                         peers[i].process,
-                        if resuming {
+                        if resuming || (preloaded && i < 3) {
                             LogOpenMode::Resume
                         } else {
                             LogOpenMode::Create
@@ -799,6 +889,8 @@ impl Cluster {
             standby,
             _roots: roots,
             generation,
+            restart_host: host.clone(),
+            retired_owner,
             materialized_image_bytes: (host.execution.max_image_bytes > 64 * 1024 * 1024)
                 .then_some(host.execution.max_image_bytes),
         })
@@ -950,6 +1042,28 @@ impl Cluster {
             .filter(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Query)
             .map(|(_, _, _, proxy)| proxy.held_response_bytes.load(Ordering::SeqCst))
             .sum()
+    }
+
+    /// Force the complete owner domain down, join it, and stop retaining its
+    /// service. The caller may then erase this fixture-owned data directory.
+    #[allow(dead_code)]
+    pub async fn crash_owner(&mut self, index: usize) -> Result<std::path::PathBuf> {
+        ensure!(
+            self.retired_owner.is_none()
+                && index < 3
+                && self.nodes.len() == 4
+                && self.services.len() == 3,
+            "owner crash requires the original three-voter layout"
+        );
+        let node = self.nodes.remove(index);
+        let directory = node.info().data_dir.clone();
+        self.services.remove(index);
+        ensure!(
+            node.cancel().await? == NodeOutcome::Cancelled,
+            "owner domain did not cancel and join"
+        );
+        self.retired_owner = Some(index);
+        Ok(directory)
     }
 
     pub async fn close(mut self) -> Result<()> {

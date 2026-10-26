@@ -102,7 +102,13 @@ def validate_manifest(manifest, baseline, root=ROOT, package=PACKAGE):
     for item in baseline["files"]:
         require(item["path"] not in source_paths, "Duplicate source anchor")
         source_paths.add(item["path"])
-        require(within(root, item["path"]).is_file(), f"Missing baseline source: {item['path']}")
+        within(root, item["path"])
+        location = item.get("current_path", item["path"])
+        path = within(root, location)
+        if location != item["path"]:
+            require(location not in source_paths, "Duplicate source anchor")
+            source_paths.add(location)
+        require(path.is_file(), f"Missing baseline source: {location}")
         require(re.fullmatch(r"[0-9a-f]{64}", item["sha256"]) is not None, "Invalid source hash")
     producers, test_names, covered, ancestors = {}, set(), set(), {}
     invariants = set(manifest["invariants"])
@@ -180,7 +186,7 @@ def check_links(package=PACKAGE):
 def preflight(baseline, root=ROOT):
     drift = []
     for source in baseline["files"]:
-        path = within(root, source["path"])
+        path = within(root, source.get("current_path", source["path"]))
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != source["sha256"]:
             drift.append(source["path"])
     require(not drift, "Source drift requires review:\n" + "\n".join(drift))

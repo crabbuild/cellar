@@ -88,8 +88,8 @@ async fn evicted_coverage_reloads_durable_state_and_retries_failed_reads() -> an
             backend.note_covered("Counter:other", 1, 0);
             assert!(backend.covered_by_cell.lock().unwrap().get(&key).is_none());
             // Hide the whole disposable store, including its committed WAL.
-            // Moving only the main database separates it from uncheckpointed
-            // writes. Failed reads must not cache zero coverage.
+            // Reads must fail without recreating the store or caching zero
+            // coverage. Moving only the main file loses uncheckpointed writes.
             let filesystem = host.filesystem();
             let original = objects.path().to_path_buf();
             let held = backup.clone();

@@ -1539,7 +1539,7 @@ engine persistence and committed-image preparation have no failed operations.
 Boundary archive snapshots cannot identify transient admission peaks.
 
 A concrete code opportunity is visible in
-[`stage_registered_kind`](../../crates/cellar/durability/raft/execution.rs):
+[`stage_registered_kind`](https://github.com/crabbuild/cellar/blob/bbdc6b2a1ad95fad793a3dc611de6dacae1be2e9/crates/cellar/durability/raft/execution.rs):
 `allow_new == false` is checked inside the transaction callback, after `stage`
 marks the private owner as requiring rebuild. Consequently a known admission
 refusal can force a later private-image reconstruction without executing business
@@ -1956,7 +1956,7 @@ retain their existing durable-log and committed-image publication proofs.
 RustFS archive coverage is checked separately for every acknowledged cell.
 Prefer p99 below 200 ms; the accepted upper budget is 500 ms.
 
-The [previous measurements](../../tools/perf/raft-results.md) record an
+The [previous measurements](https://github.com/crabbuild/cellar/blob/bbdc6b2a1ad95fad793a3dc611de6dacae1be2e9/tools/perf/raft-results.md) record an
 error-free two-window confirmation averaging 45.53 writes/sec, with a worst
 window p99 of 450.58 ms. A shorter window reached 96.81 writes/sec at 144.42 ms
 p99, but that result did not reproduce in the longer confirmation. During the

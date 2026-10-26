@@ -18,7 +18,7 @@ see [write durability](../../docs/06-storage-transactions.md#durability-and-exte
 
 | Task | Entry point | Source |
 | --- | --- | --- |
-| Capture WAL commits | `Db` | [Database capture](src/db.rs) |
+| Capture WAL commits | `Db` | [Database capture](src/db/mod.rs) |
 | Drive replication | `Replica` | [Replication loop](src/replica.rs) |
 | Implement a storage backend | `ReplicaClient` | [Client trait](src/client/mod.rs) |
 | Store local replicas | `FileReplicaClient` | [Filesystem client](src/client/file.rs) |
@@ -29,6 +29,13 @@ see [write durability](../../docs/06-storage-transactions.md#durability-and-exte
 | Materialize and retain immutable images | `GenerationStore` | [Apply contracts](src/apply.rs), [Generation owner](src/generation.rs) |
 | Query an immutable image | `generation::open_immutable` | [Read-only virtual filesystem](src/generation_vfs.rs) |
 | Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](src/host.rs) |
+
+The database implementation lives in `src/db/`: lifecycle and capture in
+`mod.rs`, committed image/extent observations in `image.rs` and `extents.rs`,
+and WAL inspection in `overlay.rs` and `wal_index.rs`. Immutable extent
+identities, files, cached images and persistent storage live together in
+[`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
+Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
@@ -73,8 +80,10 @@ decoder verifies file integrity, physical index coverage, page identities,
 snapshot completeness and compressed-frame bounds before retaining page data.
 Apply checks transaction ranges, declared page/byte counts, growth coverage and
 truncation against the resulting SQLite header and full image digest. Published
-images are never patched in place. This first materialized implementation uses
-a full verified copy; it does not require filesystem reflinks.
+images are never patched in place. Supported filesystems use an exclusively
+created copy-on-write clone; other providers use bounded copying. Both paths
+independently inspect the destination before it can be used. Hard links are not
+allowed, and a clone never replaces verification or publication barriers.
 
 `GenerationStore::prepare_chain` replays several exact updates into one private
 image. It verifies every intermediate image's digest, SQLite geometry and optional
@@ -84,6 +93,75 @@ disk admission reserves twice the largest intermediate image, including growth
 that is later truncated. No intermediate pin is exposed. Archive recovery uses
 `limits()` to partition longer histories within the destination's captured limits,
 retiring each previous batch only after its successor is sealed.
+
+`stream_snapshot` encodes and verifies full v0.5.2 images using anonymous files,
+bounded I/O buffers and a disk-spooled page index. Its default `IoProfile::Compact`
+uses 64 KiB buffers. Explicit `IoProfile::Buffered` uses 2 MiB sequential codec
+buffers under the caller's memory admission; `max_working_bytes()` bounds the
+codec-owned buffers separately from caller-owned source and transport windows.
+Both profiles produce identical encoded bytes and run the same integrity checks.
+Source callbacks and decoded destination writes remain bounded at 64 KiB.
+`HostFile` accepts caller-owned read/write windows through 4 MiB; native files
+operate directly on those buffers, while existing injected providers retain a
+64 KiB fallback. `SnapshotFile::read_into` and `Download::append_window` use this
+contract without allocating another complete transport window. Uncertain partial
+writes poison the download just as ordinary appends do. The native archive
+selects the buffered codec for actual logical images of at least 256 MiB within
+its existing physical working-memory reservation. Compression and configured
+maximum quotas do not select it. Logical image quotas extend to
+decimal 10 GB independently of command-delta decode budgets. Offsets stay `u64`;
+the reserved SQLite lock page is omitted from LTX and represented by canonical
+zeros in the full physical image digest. `Download` owns ordered scratch writes
+and refuses reuse after an uncertain append. A complete transport digest alone
+does not establish physical validity or a durable generation.
+
+`GenerationStore::prepare_snapshot_chain` decodes this file-backed source and
+applies its bounded tail in one private destination. It independently re-reads
+the written image, checks every intermediate result and shares ordinary image
+reservation, cleanup and publication barriers. File-backed snapshot callers do
+not raise command `max_decoded_bytes`, `max_pages` or encoded-envelope bounds to
+the full image quota. All synchronous work belongs to the owning blocking domain.
+Optional `host::IoActivity` counters observe completed operations on owned file
+handles during encoding, reading and destination replay. Pending/failed I/O and
+metadata inspection do not advance the counter. The native archive uses these
+observations only to schedule competing publishers; they never establish byte
+integrity, persistence or permission to acknowledge a write.
+Native transfer and archive receive spools use the configured replica volume;
+generation snapshot sources use a separate sibling scratch directory outside
+the generation inventory. Anonymous handles retain their storage through
+blocking work and cancellation. `ScratchPool` supplies shared byte/file admission:
+encoders reserve a complete body/index bound before file creation and receivers
+reserve the declared complete file. Charges survive cloning, failed appends and
+cancellation until the last physical file owner closes. Generation stores opened
+with `open_with_scratch` and archive/receive callers can share the same pool.
+Standalone generation stores use a separate default 2 GiB snapshot scratch pool;
+configure a shared larger pool explicitly for larger standalone snapshots.
+
+Snapshot encoder body/index files and receive spools request the injected
+`HostFileIo::advise_streaming` policy when the **logical image** is at least
+256 MiB. Compression and configured maximum quotas do not select this policy.
+The direct macOS provider uses `F_NOCACHE` for these anonymous sequential files;
+other direct providers currently return `Unsupported` and retain ordinary
+bounded I/O. Injected providers may also decline the hint with `Unsupported`.
+Other I/O failures abort preparation and close files before releasing scratch
+admission. The hint does not change encoded bytes, physical verification, syncs,
+ownership or admission, and supplies no memory bound or recovery-time guarantee.
+Small snapshots and hot immutable-generation files retain their normal policy.
+
+`Db::committed_image_digest` independently observes the committed main-file/WAL
+overlay without SQLite serialization. Writers must remain exclusively quiescent
+during that scan. Main-file reads use SQLite's VFS, including demand-loaded
+images; complete WAL transactions supply the page overlay. The live WAL index's
+two matching, checksum-verified headers fix the committed frame boundary,
+geometry, salts and last-frame checksum. Corrupt or missing committed bytes
+refuse observation instead of selecting an older transaction with the same
+database length. Uncommitted spilled frames remain outside that boundary.
+The metadata sample borrows the WAL write lock for its 96-byte copy and refuses
+contention; it does not checkpoint. Unsupported WAL-index formats also refuse
+observation.
+All writers and checkpoints must remain quiescent throughout inspection.
+This still scans the
+full image and is not an incremental identity or fast-takeover qualification.
 
 Image preparation also removes up to eight eligible retired files before its
 final directory sync, sharing that barrier with the new image's creation. Selected
@@ -155,6 +233,38 @@ all files close. Permanent descriptors avoid dangling SQLite registry pointers.
 The host's `cellar::storage::open_immutable_generation` adds its SQL limits and
 read authorizer without initializing framework tables. Query registration and
 Raft publication authority remain the host's responsibility.
+
+The unstable verification API also provides `ExtentImage` and
+`open_extent_image` for actual SQLite reads over an authenticated extent root.
+It shares this read-only VFS, fetching, independently verifying and caching only
+the extents needed by each read. Cache byte/file limits and a shared scratch
+pool bound retained and in-flight files separately. Eviction keeps the root
+fixed; live reads retain their physical files and charges. Sources execute on
+the owning blocking domain and append through an already admitted download.
+Verified extent files retain at most 2 KiB of local block digests and check each
+later read against them before exposing bytes, including after cache insertion.
+An unaligned read needs at most two 64 KiB reads, with no complete extent rescan.
+The caller must authenticate the manifest and retain its dependency closure.
+`NodeExtentStore` supplies a persistent, exclusively locked inventory shared by
+all groups on one node. It inventories bounded names and lengths without scanning
+extent bodies, charges files even when cell handles close, and opens only the
+exact `ExtentRootReference` supplied by its caller. A `RootView` supports verified
+demand reads after restart; a `SealedRoot` additionally requires the complete
+locally verified, synced extent closure. Reopening filenames grants neither
+that seal nor native admission authority. The host must reconstruct its complete
+authoritative references before reclamation. Live views, monotonic references
+and closed retained roots protect shared objects; synced deletion precedes every
+capacity refund. Ambiguous creation, failed cleanup or an interrupted mutation
+quarantines further mutation until the owner is closed and recovered.
+
+Run `cargo test --locked -p cellar-ltx --test extent_store` for owning-boundary
+restart, actual SQLite demand-read, quota, publication, cleanup and retention
+checks, including an abrupt child-process exit after root-file sync. Sources and
+inventory work belong to the owning blocking domain. Keep the separate anonymous
+read cache outside the inventory directory and give it its own scratch admission.
+This remains a data-access component; native command/archive integration and
+authenticated recovery selection remain open. See the
+[extent image contract](../../plans/multi-raft/extent-root-contract.md).
 
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected

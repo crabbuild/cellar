@@ -34,6 +34,7 @@ pub(crate) struct PositionRange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum ObjectKind {
     Snapshot,
+    SnapshotPart,
     Tail,
     Dependency,
     Manifest,
@@ -53,6 +54,7 @@ impl ObjectRef {
     pub fn name(&self) -> String {
         let kind = match self.kind {
             ObjectKind::Snapshot => "snapshots",
+            ObjectKind::SnapshotPart => "snapshot-parts",
             ObjectKind::Tail => "tails",
             ObjectKind::Dependency => "dependencies",
             ObjectKind::Manifest => "manifests",
