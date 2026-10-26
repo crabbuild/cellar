@@ -6,7 +6,33 @@ FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
 managed maintenance and resize are not delivered. The task manifest is the
 package-status source of truth. Historical sections below record earlier states.
 
-## Current qualification and artifact retention
+## Current completion qualification
+
+Source `c7a1152b7366a799cc7fe41b1bbda6d63493cd0c` passes all 141 required FO-03 cases and
+seven complete suites: enrollment 123, catalog 12, permits 25, archive 58,
+snapshot 46, directory 16 and Raft units 166: **446 passed**. Local-store and
+native cell-limit suites add **nine passes**. Two snapshot helper fixtures are
+intentionally ignored directly and execute through passing parent crash matrices.
+The ten movement cases pass both focused and within the complete enrollment suite.
+
+All-target Clippy with warnings denied, formatting, layout, native dependencies
+and documentation checks pass on that source. All 1,210 Rust files and 21
+Cargo/configuration inputs are frozen. Primary logs, copied immutable executables,
+source hashes and the qualification audit are retained outside runtime data in
+`qualification/fleet-operations/movement-completion-v4/` under this checkout's
+private target. Small ignored mirrors and supplemental FO-01–FO-03 regression
+records preserve the original completion records; FO-04 retains an explicitly
+partial movement-completion record.
+
+The first build's missing test import and the later full-boot record size refusal
+remain separately retained in generations v1 and v3. Generation v2 qualifies its
+superseded selected-source version only. The compact all-provider implementation
+uses the existing 4-KiB value bound and passes the complete v4 cohort. Failed and
+superseded attempts are not counted as the passing qualification. No evidence
+directory files are added. RustFS, enforced resources, TPS/latency and soak remain
+unqualified.
+
+## Previous admission qualification and artifact retention
 
 Behavioral source `07315b2c16c6ddad33118bd0a2afdf82230b2cfa`, including latest
 main's local-store WAL fix and resource-backed membership admission, passes all
@@ -113,15 +139,39 @@ the winning cut before the next capacity decision. Fixture ownership,
 backpressure and stale-cut failures are retained; no production admission check
 was relaxed to make the cases pass.
 
+## FO-04 successful movement completion
+
+`complete_movement` now owns fresh terminal target quorum and physical inventory
+of the target and every original voter. Admission pins all possible seed
+providers, including providers different from the selected quorum source.
+Canonical compact fingerprints bind every boot field within the existing 4-KiB
+catalog value bound. Completion checks locally durable completed permit sequence,
+stable RF3, unchanged boots/current trust, and physical seed/initializer exit.
+Retired voters use their durable local cache; local observers use bounded host
+control without a manufactured loopback transport route.
+
+One CAS records the permanent completion, retains a separate monotonic physical
+high-water floor and removes the exact reservation from the active book. The
+original resource row, latest consumed permit and request journals remain.
+Subsequent admission charges physical occupancy plus every unresolved movement.
+Exact committed retries precede live probes, including after target shutdown.
+Generic mutations cannot forge or delete the completion or retained floor.
+
+Six new native cases pass for successful release with retained occupancy,
+lost confirmation after peer seeding from a different voter, unstarted work,
+unreachable selected and other seed providers, and an actual S3 metadata worker
+that survives learner waiter loss and its deadline. The four admission cases
+also pass on the same frozen source. The full regression cohort is recorded
+above; these cases do not complete planner qualification.
+
 ## Next implementation milestone
 
-FO-04 next needs terminal resource release with actual physical work joins.
-Pin every affected physical owner, retain the latest consumed permit and exact
-completed attribution, and preserve disk/engine physical high water independently
-before removing active movement references. Then implement complete bounded
-final assignment and legal staged moves with one-node-loss restoration headroom.
-This admission increment does not complete automatic redistribution. FO-05
-through FO-10 retain their load policy, controller, maintenance, operator,
+Implement complete bounded final assignment and legal staged moves with
+one-node-loss restoration headroom. Successful-move release now supplies the
+terminal boundary for repeating healthy moves. Aborted or unstarted work and
+unreachable/rebooted owners still retain debt; their distinct cleanup/isolation
+path remains required. Automatic redistribution is unfinished. FO-05 through
+FO-10 retain their load policy, controller, maintenance, operator,
 capacity-scaling and deployed qualification scope.
 
 ## Historical implementation checkpoints

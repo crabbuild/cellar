@@ -613,7 +613,8 @@ the full probe cohort must remain within the five-second sample bound.
 Seed archive jobs retain a separate work count until their actual futures exit,
 including after their read waiter expires. Peer snapshot capture and transfer
 retain their existing source reservation. All owners must report no outstanding
-seed work, initializer or pending history registration. Locally completed
+seed work, initializer or pending history registration. The work counts are
+node-wide, so unrelated seed activity conservatively delays completion. Locally completed
 membership forbids a new seed grant for this already promoted learner. A retired
 voter can prove local completion without obtaining a new source quorum. A local
 physical inspection follows bounded host control and current trust validation,

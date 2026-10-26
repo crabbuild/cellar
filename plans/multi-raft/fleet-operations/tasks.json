@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c6674580f14b7a99808d2772395ccd29ec093e23",
+  "baseline_revision": "c7a1152b7366a799cc7fe41b1bbda6d63493cd0c",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -133,7 +133,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo01/completion-regression.json"
       ]
     },
     {
@@ -276,7 +277,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo02/completion-regression.json"
       ]
     },
     {
@@ -2159,7 +2161,8 @@
         ]
       ],
       "evidence": [
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json"
       ]
     },
     {
@@ -2648,7 +2651,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo04/movement-completion.json"
+      ]
     },
     {
       "id": "FO-05",
