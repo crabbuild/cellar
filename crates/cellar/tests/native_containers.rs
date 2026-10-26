@@ -396,6 +396,7 @@ async fn run() -> Result<()> {
         instance_type: Some("basic".into()),
         max_instances: None,
         runtime: Some("test-runtime".into()),
+        exposed_ports: Vec::new(),
     }];
     graph.primary.fence_image = Some(cellar::container::image_reference(&"b".repeat(64)));
     use sha2::{Digest, Sha256};
@@ -530,6 +531,7 @@ async fn run() -> Result<()> {
             instance_type: Some("standard-1".into()),
             max_instances: None,
             runtime: Some("updated-runtime".into()),
+            exposed_ports: Vec::new(),
         }],
         Some(cellar::container::image_reference(&"b".repeat(64))),
         Vec::new(),
@@ -614,6 +616,7 @@ async fn embedded_container_host(
                 instance_type: Some("basic".into()),
                 max_instances: None,
                 runtime: None,
+                exposed_ports: Vec::new(),
             }];
             graph.primary.fence_image = Some(cellar::container::image_reference(&"b".repeat(64)));
             let host = RuntimeManager::start(

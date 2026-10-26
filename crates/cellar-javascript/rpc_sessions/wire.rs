@@ -60,7 +60,8 @@ pub(super) fn markers(encoded: &str, count: usize, maximum: usize) -> Result<()>
             *kind == CloneValue::from("function")
                 || *kind == CloneValue::from("readable")
                 || *kind == CloneValue::from("writable")
-                || *kind == CloneValue::from("response"),
+                || *kind == CloneValue::from("response")
+                || *kind == CloneValue::from("request"),
             "invalid RPC delegate kind"
         );
     }
@@ -72,6 +73,8 @@ pub(super) fn markers(encoded: &str, count: usize, maximum: usize) -> Result<()>
         ensure!(seen.insert(*id), "duplicate RPC marker");
         if *kind == CloneValue::from("response") {
             super::response::validate(&graph, reference)?;
+        } else if *kind == CloneValue::from("request") {
+            super::request::validate(&graph, reference)?;
         } else {
             ensure!(
                 matches!(graph.objects.get(*id as usize), Some(Object::Object(properties)) if properties.is_empty()),
@@ -154,7 +157,9 @@ pub(super) fn inputs(encoded: &str, count: usize, maximum: usize) -> Result<()> 
         elements
             .iter()
             .all(|kind| *kind == CloneValue::from("readable")
-                || *kind == CloneValue::from("writable")),
+                || *kind == CloneValue::from("writable")
+                || *kind == CloneValue::from("response")
+                || *kind == CloneValue::from("request")),
         "RPC input callbacks require a separate profile"
     );
     Ok(())

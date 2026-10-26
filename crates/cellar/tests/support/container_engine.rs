@@ -32,6 +32,7 @@ pub struct Engine {
     pub destroy_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub destroy_entered: AtomicBool,
     pub fail_next_start: AtomicBool,
+    pub exit_on_sigterm: AtomicBool,
     pub refuse_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
@@ -39,6 +40,7 @@ pub struct Engine {
     pub networks: Mutex<HashMap<String, Value>>,
     pub execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     pub calls: Mutex<Vec<(String, String, Value)>>,
+    pub network_ip: Option<String>,
     pub http_port: u16,
     pub tcp_port: u16,
 }
@@ -192,7 +194,7 @@ impl Engine {
                     json!({
                         "State": {"Running": running},
                         "NetworkSettings": {
-                            "Networks": {"fixture": {"IPAddress": "127.0.0.1"}},
+                            "Networks": {"fixture": {"IPAddress": self.network_ip.as_deref().unwrap_or("127.0.0.1")}},
                             "Ports": {
                                 "8080/tcp": [{"HostPort": self.http_port.to_string()}],
                                 format!("{}/tcp", self.http_port): [{"HostPort": self.http_port.to_string()}],
@@ -215,6 +217,13 @@ impl Engine {
             if method == "DELETE" || query.contains("SIGKILL") || query.ends_with("=9") {
                 if let Some(sender) = self.containers.lock().unwrap().get(name) {
                     sender.send_replace(Some(137));
+                }
+            }
+            if self.exit_on_sigterm.load(Ordering::SeqCst)
+                && (query.contains("SIGTERM") || query.ends_with("=15"))
+            {
+                if let Some(sender) = self.containers.lock().unwrap().get(name) {
+                    sender.send_replace(Some(0));
                 }
             }
             if method == "DELETE" {

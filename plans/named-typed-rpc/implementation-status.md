@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | Merged baseline `b3c276bd` passes hosted typed-RPC lifecycle. Follow-up `8fa1acb0` fixes stale SDK/native test bootstrap signatures; its Python examples pass, while JS/Node CI now reaches a ten-second published-container module timeout. SDK and lifecycle rechecks remain pending. Local merged-head runtime, peer-fault and native typed-RPC results are recorded below; the older 744-case report is historical. |
-| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. The 48 generated-client peer-fault cases cover warm reconnect, committed reply loss and trusted method refusal across all 16 pairs. Broader call-local admission, capacity refusal and nested-provider paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
+| P0 — hosted verification | New-head hosted verification | Main includes #127 and #129 through `185c397a`. The receiver-admission follow-up passes the integrated local checks below and needs its own hosted results. Linux head `f0a717ee` verified all four published-module tests before exposing the second fixed-port WebSocket fixture. Later endpoint, SDK GIL/free-threaded and full JS verification remain pending. The older 744-case report is historical. |
+| P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Earlier broader/mixed V8 HTTP and V8/Node streaming runs failed under the original 250 ms handler budget. Current selected streaming/compatibility regressions pass on integrated main; these passes do not explain or close the earlier intermittent failures. Earlier Python counters point to the native cold-cell path. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cancellation suppression and process supervision. The 80 generated-client peer-fault cases cover warm reconnect, committed reply loss, trusted method refusal and stricter receiving byte/element limits across all 16 pairs. Broader slot/capacity admission, nested-provider and uncertain partial-submission paths remain. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
+| P0 | Resource bounds and parser correctness | Native typed-envelope admission borrows the body with a separate 1 KiB metadata bound; it checks receiving byte/element limits without a discarded owned request copy. V8 reserves request copies and completion capacity before native allocation. Descriptor admission bounds work before decoding. Finish other effective method/runtime/host/peer minima, retained copies, decoder/allocator/RSS accounting and semantic conformance; demonstrate broader bounded queues, reservations and memory under saturation, flood and disconnect. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -73,6 +73,107 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Receiving size refusal retains its exact-call proof without a body copy.**
+  A valid 128-byte message is admitted; a valid 129-byte message under the same
+  descriptor previously escaped `Catalog::refusal` as an outer
+  `InvalidArgument` error, losing its encoded refusal. The native
+  [envelope reader](../../crates/cellar-native/clone/bytes_envelope.rs) now
+  borrows its fixed private buffer, bounds metadata separately to 1 KiB and
+  retains clone versions 10–16 and the existing primitive/wrapper encodings.
+  Host catalog admission validates the borrowed Protobuf body before any owned
+  `Prepared` copy. Oversized bodies produce `ResourceExhausted/not_committed`
+  through the normal output path; the same check after a factory produces
+  `ResourceExhausted/unknown`. Malformed graphs, aliases, extra properties,
+  views and resizable/immutable buffers remain refused. Encoding uses the same
+  resource-exhaustion category for its byte ceiling.
+  The signed-peer matrix now has **80 cases**: all 16 caller/provider pairs
+  across reconnect, committed reply loss, method refusal, element refusal and
+  byte refusal. A receiving host snapshots 128-byte/four-element limits while
+  generated clients retain their default limits. The relay independently
+  validates its injected unknown fields against the source contract, isolates
+  the exceeded receiving limit, and preserves method, operation/request IDs,
+  scope and remaining deadline. Refusals enter no business handler and leave
+  state unchanged; two explicit same-ID retries and a changed-command conflict
+  prove one eventual mutation. Actual owner/epoch and transaction observations
+  guard against replay. Both native nodes and the relay join with zero relay
+  connections. The independent auditor rejects **ten** corrupted reports.
+  After integrating #127 and merged #129 through `185c397a`, all **81 native
+  tests, 60 core RPC tests, 35 qualifier guards, 76 V8/Node runtime tests, five
+  adapter integration tests and ten native typed/profile integration tests**
+  pass, as do the 65 JS RPC tests, strict TS checks and three SDK streaming
+  tests. Native, affected core/test, JS and qualifier Clippy checks pass. The
+  initial new encoder assertion needed `.err().expect(...)` because `RpcData`
+  has no `Debug`; the corrected assertion keeps the same required failure.
+  Qualification source/fixture hashes stay unchanged across all **3,632**
+  recorded files during the integrated run. Evidence:
+  `.cellar/rpc/receiver-main-peer-faults.json` (SHA-256
+  `9084da53d1dbfa85b07eae9654c1d0b5f0f74f468cde136e3f946306c58a35eb`),
+  `receiver-main-source-before.json`, `receiver-main-source-audit.json` and
+  `/tmp/cellar-rpc-receiver-*.log`. The original failure is preserved in
+  `/tmp/cellar-rpc-receiver-limit-red.log`; the initial assertion compile error
+  remains in `receiver-main-core.log`. This uses GIL CPython; other receiving
+  dimensions, runtime/slot admission, all-language full-profile calls, supported
+  Python modes, package identity and broader allocation/RSS qualification remain
+  open. It does not close T01–T19 or set `release_qualified`.
+
+- **V8 completion capacity survives byte saturation.** Two original regressions
+  show startup accepting no terminal headroom and a saturated result copying
+  8 KiB before reservation fails and stops the engine without a completion.
+  Embedded admission now reserves 128 bytes for its eventual terminal result.
+  Startup requires `max_bridge_bytes >= max_value_bytes + 128`; a larger result
+  must extend that reservation before its native String/Vec copy. Quota refusal
+  uses the reserved allowance for fixed `ResourceExhausted/unknown`; invalid or
+  oversized replies use `InvalidResponse/unknown`. Neither category claims
+  rollback. Native output proof and prepared-RPC completion remain on their
+  existing paths. Node keeps its independent framed-transport policy.
+  A real-isolate regression observes zero refused reply-copy bytes, keeps the
+  cell object alive for its next successful call and drains native bytes. Exact
+  1,024/1,025-byte UTF-8 results are call-local; byte/queue refusal and joined
+  queue shutdown release their completion reservations. All **72 runtime tests**
+  and all **five streaming, Node compatibility/restart and typed-RPC integration
+  tests** pass. Both-backend all-target Clippy and Node-only/embedded-only library
+  checks pass. The initial new queue fixture left exactly 128 bytes available
+  and failed its starvation guard; its corrected 1,279-byte pool leaves 127,
+  preserving that guard and the zero-retention assertions.
+  Evidence: `/tmp/cellar-rpc-v8-completion-red.log`,
+  `/tmp/cellar-rpc-completion-runtime.log` (initial fixture guard),
+  `/tmp/cellar-rpc-completion-runtime-green.log` and
+  `/tmp/cellar-rpc-completion-{integrations,clippy,node-only,embed-only}.log`.
+  Effective cross-layer minima, other adapters' copies, allocator/RSS accounting
+  and the full saturation/flood/disconnect matrix remain open.
+
+- **Published-container Linux correction verified; WebSocket follow-up pending.**
+  The unchanged published module declares container port 8080. Native Docker
+  routing on Linux uses the inspected container IP and that port, while macOS
+  uses published host-port mappings. The old mock advertises `127.0.0.1:8080`
+  on Linux but listens on an unrelated ephemeral port; readiness never succeeds.
+  Both hosted heads stop at the original ten-second `/container/alice` deadline,
+  while 100 original module-suite runs with two Tokio workers pass locally before
+  the fix. Those retries do not explain the failure; the platform-specific
+  routing and fixture metadata do. The fixed-port fixture now binds port 8080
+  on an isolated Linux loopback IP and reports that address in Engine inspection.
+  Other hosts retain the real published-port mapping. A new real-HTTP two-peer
+  regression checks endpoint isolation and Linux's declared port. The pinned
+  application, existing assertions and handler/client budgets are unchanged.
+  All four module tests, both V8/Node container integration tests, both native
+  container tests, the explicit Python container mode and the full GIL Python
+  bridge matrix pass locally. The latter includes HTTP/storage/SQL/alarm,
+  cancellation, restart, remote routing, handoff, shutdown and both process-kill/
+  disk-deletion watchdog recovery cases. JS all-target Clippy and the affected
+  native/Python test-target Clippy checks pass. Hosted JS run `40353259801` at
+  `f0a717ee` passes all four module tests, including the unchanged published
+  application and the two-peer endpoint regression. Typed-RPC lifecycle run
+  `40353259691` also passes. The JS job then fails the Workers WebSocket fixture's
+  first `/open`: that fixture also requests port 8080 but still starts its peer
+  on an ephemeral port. Use the same declared-port peer there; the original
+  WebSocket integration passes locally with its assertions and budgets intact.
+  Its Linux verification remains pending; this is the only other fixed-port
+  caller found in the compatibility fixtures.
+  Evidence: `.cellar/rpc/diagnostics/workers-module-repeat100/status.json` and
+  `/tmp/cellar-workers-port-*` and `/tmp/cellar-rpc-workers-websocket-port.log`.
+  The separate native 250 ms regression timing
+  failures remain unresolved.
 
 - **V8 admission now precedes native request allocation.** A real-isolate
   saturation regression first fails because an RPC refused by the aggregate

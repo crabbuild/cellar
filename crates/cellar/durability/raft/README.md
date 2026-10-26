@@ -770,6 +770,13 @@ learner, quorum, process and membership checks as an image seed. The first SQL
 write establishes a complete archive snapshot. Empty metadata supplies neither
 live quorum nor activation/removal authority.
 
+Each admitted publication batch runs on an execution-domain blocking worker
+that drives its asynchronous object I/O. Snapshot file disposal during retry,
+failure and completion stays on that worker, keeping the host driver available
+for request admission and Raft work. The existing producer limit bounds worker
+count; capture reservations remain charged through physical cleanup, and the
+driver joins publication workers before releasing their slots during shutdown.
+
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is
 persisted in the receipt; stronger retries wait without executing or proposing
@@ -939,8 +946,13 @@ recovery also checks `max_seed_recovery_bytes` before reading its complete set.
 Defaults retain the previous memory and disk bounds.
 
 This materialized path still copies and hashes complete images. Snapshot files
-and object parts use bounded I/O and explicit scratch admission; full-size
-recovery remains unqualified. The
+and object parts use bounded I/O and explicit scratch admission. The native
+materialized RustFS and direct-peer drills pass at 9,999,998,976 SQLite bytes
+with owner/local state loss, replacement-local new writes, restart and receipt
+verification on the documented two-volume layout. The
+[qualification record](../../../../plans/multi-raft/10gb-implementation.md#current-qualification)
+states its scope, timings and remaining fault/capacity checks; it establishes no
+recovery-time guarantee. The
 [large-cell recovery plan](../../../../plans/multi-raft/large-cell-recovery.md)
 specifies incremental immutable roots, bounded transfers, warm promotion and
 verified demand loading for fast cold activation, targeting Cloudflare's

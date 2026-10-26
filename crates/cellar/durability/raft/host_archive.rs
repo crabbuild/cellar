@@ -134,6 +134,25 @@ pub(super) fn next_scope<'a, T>(
 pub(crate) async fn publish(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
+    report: impl FnMut(usize, Completed) + Send + 'static,
+) -> bool {
+    // Keep every attempt-local snapshot close on the execution-domain worker,
+    // including retry/error cleanup. Completed cuts still release independently;
+    // the host retains the batch job until this physical owner has joined.
+    let producer = crate::asyncrt::try_blocking(move || {
+        crate::asyncrt::block_on(publish_owned(captured, verifier, report))
+    });
+    // A rejected or panicked worker drops its completion senders. The host's
+    // per-cut receivers then report Unconfirmed; neither path acknowledges S3.
+    match producer {
+        Ok(producer) => producer.await.unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+async fn publish_owned(
+    captured: Vec<Captured>,
+    verifier: ArchiveVerifier,
     mut report: impl FnMut(usize, Completed),
 ) -> bool {
     let mut pending = Vec::with_capacity(captured.len());

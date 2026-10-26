@@ -97,6 +97,7 @@ impl NodeRuntime {
         run_with(
             options,
             registrations,
+            EngineBackend::Node,
             host,
             move |runtime, source, starts, replies, ready| {
                 run(runtime, node, source, starts, replies, ready)
@@ -183,7 +184,8 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst ioSource = {};\n{}",
+        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}",
+        include_str!("rejections.js"),
         include_str!("budget.js"),
         include_str!("../runner.js"),
         include_str!("../delegates.js"),
@@ -191,6 +193,7 @@ fn run(
         include_str!("../rpc_writable.js"),
         include_str!("../rpc_inputs.js"),
         include_str!("../rpc_messages.js"),
+        include_str!("../rpc_requests.js"),
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );

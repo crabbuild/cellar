@@ -3,7 +3,7 @@
 // Private two-way input sessions over native returned-function leases. The
 // caller never needs a routable object identity. Its source stays in the
 // original invocation; the callee receives only bounded stream operations.
-({ transform, errorResult, reply, readables, writables }) => {
+({ transform, errorResult, reply, readables, writables, messages }) => {
   const PromiseClass = Promise;
   const Abort = globalThis.AbortController;
   const MapClass = Map;
@@ -49,16 +49,20 @@
     try {
       copied = transform(args, (value) => {
         let transfer, kind;
-        if (readables.isReadable(value)) {
+        if (messages?.isRequest(value) || messages?.isResponse(value)) {
+          transfer = messages;
+          kind = messages.isRequest(value) ? "request" : "response";
+        } else if (readables.isReadable(value)) {
           transfer = readables;
           kind = "readable";
         } else if (writables.isWritable(value)) {
           transfer = writables;
           kind = "writable";
         } else return value;
-        senders.push(transfer.send(value, context));
+        const sender = transfer.send(value, context);
+        senders.push(sender);
         kinds.push(kind);
-        const marker = Object.create(null);
+        const marker = sender.metadata ?? Object.create(null);
         markers.push(marker);
         return marker;
       });
@@ -79,6 +83,8 @@
           });
     if (!senders.length) return unwrap(await routed(encoded), context);
 
+    const commandLimit =
+      senders.length * 2 + kinds.filter((kind) => kind === "request").length;
     let reservation, controls, loop, closed, removeCleanup, transferFailure;
     const running = new SetClass();
     let abort;
@@ -162,7 +168,7 @@
               command.length !== 4 ||
               !Number.isSafeInteger(command[1]) ||
               !senders[command[1]] ||
-              running.size >= senders.length * 2
+              running.size >= commandLimit
             )
               throw new TypeError("Invalid RPC input command");
             const work = answer(command);
@@ -222,6 +228,7 @@
       value: encoded,
     });
     const maximum = Math.min(callerBudget, reservation.max_body_bytes);
+    let commandLimit = count * 2;
     let stopped = false,
       closing,
       waiter,
@@ -245,8 +252,14 @@
         });
       })());
     function enqueue(index, operation, argument) {
-      if (stopped) return PromiseClass.reject(fail());
-      if (pending.size >= count * 2)
+      if (stopped) {
+        // The session has revoked its queue and the original caller now owns
+        // source cleanup. Do not enqueue new cleanup commands into that queue.
+        if (["cancel", "abort", "dispose"].includes(operation))
+          return PromiseClass.resolve(null);
+        return PromiseClass.reject(fail());
+      }
+      if (pending.size >= commandLimit)
         return PromiseClass.reject(new ErrorClass("RPC input queue full"));
       if (++nextId > Number.MAX_SAFE_INTEGER)
         return PromiseClass.reject(fail());
@@ -265,16 +278,21 @@
     try {
       const graph = context._deserialize(encoded);
       const replacements = new MapClass();
+      commandLimit += graph[2].filter((kind) => kind === "request").length;
       const size = chunkBudget(maximum);
       for (let i = 0; i < count; i++) {
-        const readable = graph[2][i] === "readable";
+        const message = ["request", "response"].includes(graph[2][i]);
+        const readable = message || graph[2][i] === "readable";
         const transfer = readable ? readables : writables;
         // Reuse normal stream ownership, backpressure and cancellation handling.
         // Force a smaller payload grant for the additional input envelope.
         const budget = readable
           ? size + 128
           : Math.floor(((size + 64) * 4) / 3) + 128;
-        const value = transfer.receive(
+        const receive = message
+          ? (...args) => messages.receive(graph[1][i], ...args)
+          : transfer.receive;
+        const value = receive(
           (operation, argument) => enqueue(i, operation, argument),
           async () => {},
           (reason) => {
@@ -286,6 +304,10 @@
             return context._deserialize(copy);
           },
           budget,
+          {
+            watch: () => enqueue(i, "signal"),
+            cleanup: (close) => context._rpcCleanup(close),
+          },
         );
         received.push(value);
         replacements.set(graph[1][i], value.stream);

@@ -2,7 +2,7 @@
 
 #![cfg(feature = "node")]
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
 use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
 use std::{
@@ -189,8 +189,39 @@ fn unchanged_published_container_module_routes_named_and_singleton_objects() -> 
     )
 }
 
+#[tokio::test]
+async fn container_fixture_preserves_published_port_and_isolates_peers() -> Result<()> {
+    let first = peer::Peer::start_with_http_port(8080).await?;
+    let second = peer::Peer::start_with_http_port(8080).await?;
+    let endpoints = [&first, &second].map(|peer| {
+        format!(
+            "{}:{}",
+            peer.engine.network_ip.as_deref().unwrap(),
+            peer.engine.http_port
+        )
+    });
+    ensure!(
+        endpoints[0] != endpoints[1],
+        "container fixtures share a listener"
+    );
+    if cfg!(target_os = "linux") {
+        ensure!(first.engine.http_port == 8080 && second.engine.http_port == 8080);
+    }
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(2))
+        .build()?;
+    for endpoint in endpoints {
+        let response = client.get(format!("http://{endpoint}/")).send().await?;
+        ensure!(response.status() == 302);
+        ensure!(response.text().await? == "container response");
+    }
+    Ok(())
+}
+
 async fn container_routes(path: &Path, application: Arc<dyn Application>) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     let (node, address) = native::start_configured(path, application, |config, services, graph| {
         peer.configure(config, services, graph);
         graph.primary.options.do_classes = vec!["MyContainer".into()];
@@ -383,4 +414,131 @@ async fn alarm_queue_node(path: &Path, application: Arc<dyn Application>) -> Res
         matches!(outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out)
     );
     result
+}
+
+#[test]
+fn published_container_sleeps_wakes_and_joins_lifecycle_hooks() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    // Recreate both the language runtime and native host on the same SQLite
+    // state, so hook counters must survive activation and node replacement.
+    for previous_cycles in [0, 2] {
+        let source = Source::module()
+            .workers_lifetimes()
+            .events([EventKind::Fetch])
+            .cell_events(
+                "Counter",
+                [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
+            );
+        NodeRuntime::run(
+            Options::default(),
+            NodeOptions::new(fixture("container-lifecycle")?),
+            source,
+            |application| {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()?
+                    .block_on(lifecycle_round(
+                        directory.path(),
+                        application,
+                        previous_cycles,
+                    ))
+            },
+        )?;
+    }
+    Ok(())
+}
+
+async fn lifecycle_round(
+    path: &Path,
+    application: Arc<cellar_javascript::JavaScriptApplication>,
+    previous_cycles: u64,
+) -> Result<()> {
+    let peer = peer::Peer::start().await?;
+    // Model a process which handles SIGTERM and exits successfully. Other peer
+    // users retain the default signal behavior; no production hook is replaced.
+    peer.engine
+        .exit_on_sigterm
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let (node, address) =
+        native::start_configured(path, application.clone(), |config, services, graph| {
+            peer.configure(config, services, graph);
+            config.runtime.handler_budget = Duration::from_secs(5);
+        })
+        .await?;
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let result = async {
+        for cycle in previous_cycles + 1..=previous_cycles + 2 {
+            let response = client.get(format!("{address}/wake")).send().await?;
+            let status = response.status();
+            let body = response.text().await?;
+            ensure!(
+                status == 302 && body == "container response",
+                "wake {cycle}: {status} {body}"
+            );
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let response = client
+                        .get(format!("{address}/state"))
+                        .send()
+                        .await?
+                        .error_for_status()?;
+                    let state: serde_json::Value = response.json().await?;
+                    ensure!(
+                        state["starts"].as_u64().unwrap_or(0) <= cycle,
+                        "duplicate start hook: {state}"
+                    );
+                    if state["stops"] == cycle && state["alarm"].is_null() {
+                        ensure!(
+                            state["starts"] == cycle
+                                && state["expired"] == cycle
+                                && state["running"] == false
+                                && state["status"] == "stopped",
+                            "sleep {cycle}: {state}"
+                        );
+                        ensure!(
+                            state["lastStop"] == serde_json::json!({"exitCode":0,"reason":"exit"}),
+                            "stop hook: {state}"
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await
+            .context("published idle alarm did not finish its stop hook")??;
+        }
+        let calls = peer.engine.calls.lock().unwrap();
+        let signals = calls
+            .iter()
+            .filter(|(_, path, _)| path.ends_with("/kill?signal=15"))
+            .count();
+        ensure!(
+            signals == 2,
+            "idle policy did not issue exactly two SIGTERMs: {signals}"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let cleanup = client.get(format!("{address}/destroy")).send().await;
+    let shutdown = node.shutdown(ShutdownMode::Preserve).await;
+    let usage = application.bridge_usage();
+    result.with_context(|| format!("lifecycle bridge={usage:?}, shutdown={shutdown:?}"))?;
+    ensure!(cleanup?.status().is_success(), "lifecycle cleanup failed");
+    ensure!(
+        peer.engine.containers.lock().unwrap().is_empty(),
+        "lifecycle left owned engine resources"
+    );
+    ensure!(
+        matches!(shutdown?, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
+        "lifecycle did not drain"
+    );
+    ensure!(
+        usage.active_invocations == 0 && usage.retained_bytes == 0,
+        "lifecycle leaked: {usage:?}"
+    );
+    Ok(())
 }

@@ -4,8 +4,9 @@
 #![allow(clippy::disallowed_methods)]
 use crate::{JavaScriptApplication, Source};
 use anyhow::{ensure, Result};
+use std::cell::Cell;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering},
     mpsc, Arc,
 };
 use std::time::Duration;
@@ -42,7 +43,9 @@ pub struct Options {
     /// Maximum storage batch operations or live transport capabilities per invocation.
     pub max_batch_operations: usize,
     /// Shared budget for retained native bridge payloads. Node framing, partial
-    /// input and decoded attachments use this same pool. Node startup requires
+    /// input and decoded attachments use this same pool. V8 reserves 128 bytes
+    /// per admitted completion; startup requires max_value_bytes + 128 bytes.
+    /// Node startup requires
     /// enough capacity for one maximum value and its overlapping framed copies.
     pub max_bridge_bytes: usize,
     /// V8 heap limit, or Node old-space limit. This does not cap process RSS.
@@ -83,7 +86,7 @@ pub struct BridgeUsage {
     /// Native invocations still holding an admission permit.
     pub active_invocations: usize,
     /// Native invocation, operation and reply payload reservations, including
-    /// Node's queued/partial frames and decoded frame payloads.
+    /// Node's queued/partial frames, decoded payloads and V8 completion reserves.
     pub retained_bytes: usize,
 }
 
@@ -100,6 +103,9 @@ pub(crate) struct Start {
     pub owner: Life,
     pub sender: channel::Sender<Event>,
     pub _bytes: OwnedSemaphorePermit,
+    // One engine thread takes this once when publishing the terminal result.
+    // Cell moves with this owned message; no shared cross-thread access occurs.
+    pub _completion: Cell<Option<OwnedSemaphorePermit>>,
 }
 
 /// Engine-to-host messages; SDK effects execute on the receiving native future.
@@ -135,18 +141,29 @@ pub(crate) struct Reply {
     pub _bytes: OwnedSemaphorePermit,
 }
 
+#[derive(Clone, Copy)]
+enum StopReason {
+    Shutdown = 1,
+    Failure = 2,
+}
+
 pub(crate) struct Runtime {
     pub options: Options,
     pub permits: Arc<Semaphore>,
     pub bytes: Arc<Semaphore>,
     pub closed: AtomicBool,
+    // The first stop wins. A later host return cannot relabel a fatal timeout.
+    stop_reason: AtomicU8,
     pub stopped: watch::Sender<bool>,
     // Observe the actual native attachment-copy boundary in saturation tests.
     #[cfg(all(test, feature = "embed"))]
     attachment_copied: AtomicU64,
+    #[cfg(all(test, feature = "embed"))]
+    completion_copied: AtomicU64,
     next: AtomicU64,
     starts: mpsc::SyncSender<Start>,
     replies: mpsc::SyncSender<Reply>,
+    completion_bytes: usize,
 }
 
 impl Runtime {
@@ -184,6 +201,11 @@ impl Runtime {
             !self.closed.load(Ordering::Acquire),
             "JavaScript runtime stopped"
         );
+        if self.completion_bytes != 0 {
+            start
+                ._completion
+                .set(Some(self.reserve(self.completion_bytes)?));
+        }
         self.starts
             .try_send(start)
             .map_err(|_| anyhow::anyhow!("JavaScript admission exhausted"))
@@ -239,9 +261,26 @@ impl Runtime {
             .map_err(|_| anyhow::anyhow!("JavaScript reply capacity exhausted"))
     }
 
-    fn close(&self) {
+    fn record_stop(&self, reason: StopReason) {
+        let _ =
+            self.stop_reason
+                .compare_exchange(0, reason as u8, Ordering::AcqRel, Ordering::Acquire);
+    }
+
+    fn stop(&self, reason: StopReason) {
+        self.record_stop(reason);
         self.closed.store(true, Ordering::Release);
         self.stopped.send_replace(true);
+    }
+
+    #[cfg(feature = "embed")]
+    fn close(&self) {
+        self.stop(StopReason::Failure);
+    }
+
+    #[cfg(feature = "embed")]
+    fn shutdown_requested(&self) -> bool {
+        self.stop_reason.load(Ordering::Acquire) == StopReason::Shutdown as u8
     }
 }
 
@@ -284,6 +323,8 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
                 | "container.websocket.send_text"
                 | "container.websocket.send_binary"
                 | "container.websocket.close"
+                | "websocket.send"
+                | "websocket.close"
                 | "response.write"
                 | "response.finish"
                 | "workers.callback.finish"
@@ -304,6 +345,8 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
         "response.read"
             | "workers.rpc.invoke"
             | "response.closed"
+            | "websocket.next"
+            | "websocket.closed"
             | "cell.call"
             | "container.port.fetch"
             | "container.port.fetch_stream"
@@ -331,21 +374,44 @@ impl JavaScriptRuntime {
         source: Source,
         host: impl FnOnce(Arc<JavaScriptApplication>) -> Result<T>,
     ) -> Result<T> {
-        run_with(options, source, host, engine::run)
+        run_with(options, source, EngineBackend::Embedded, host, engine::run)
     }
 }
 
-struct Close(Arc<Runtime>);
+struct Close(Arc<Runtime>, StopReason);
+
+// A finite native result allowance remains reserved while an embedded handler
+// runs. Node owns its framed transport admission independently.
+const COMPLETION_BYTES: usize = 128;
+
+enum EngineBackend {
+    #[cfg(feature = "embed")]
+    Embedded,
+    #[cfg(feature = "node")]
+    Node,
+}
+
+impl EngineBackend {
+    fn completion_bytes(self) -> usize {
+        match self {
+            #[cfg(feature = "embed")]
+            Self::Embedded => COMPLETION_BYTES,
+            #[cfg(feature = "node")]
+            Self::Node => 0,
+        }
+    }
+}
 
 impl Drop for Close {
     fn drop(&mut self) {
-        self.0.close();
+        self.0.stop(self.1);
     }
 }
 
 fn run_with<T>(
     options: Options,
     source: Source,
+    backend: EngineBackend,
     host: impl FnOnce(Arc<JavaScriptApplication>) -> Result<T>,
     engine: impl FnOnce(
             Arc<Runtime>,
@@ -356,6 +422,7 @@ fn run_with<T>(
         ) -> Result<()>
         + Send,
 ) -> Result<T> {
+    let completion_bytes = backend.completion_bytes();
     source.validate()?;
     source.rpc.validate_bridge(options.max_value_bytes)?;
     ensure!(
@@ -371,10 +438,17 @@ fn run_with<T>(
         "invalid JavaScript operation limits"
     );
     ensure!(
-        options.max_value_bytes >= 128
+        options.max_value_bytes >= COMPLETION_BYTES
             && options.max_value_bytes <= options.max_bridge_bytes
             && options.max_bridge_bytes <= u32::MAX as usize,
         "invalid JavaScript byte limits"
+    );
+    ensure!(
+        options
+            .max_value_bytes
+            .checked_add(completion_bytes)
+            .is_some_and(|bytes| bytes <= options.max_bridge_bytes),
+        "JavaScript bridge byte budget cannot fit a maximum value and its completion"
     );
     ensure!(
         options.heap_bytes >= 8 * 1024 * 1024
@@ -393,19 +467,23 @@ fn run_with<T>(
         bytes: Arc::new(Semaphore::new(options.max_bridge_bytes)),
         options,
         closed: AtomicBool::new(false),
+        stop_reason: AtomicU8::new(0),
         stopped: watch::channel(false).0,
         #[cfg(all(test, feature = "embed"))]
         attachment_copied: AtomicU64::new(0),
+        #[cfg(all(test, feature = "embed"))]
+        completion_copied: AtomicU64::new(0),
         next: AtomicU64::new(1),
         starts,
         replies,
+        completion_bytes,
     });
     let (ready, startup) = mpsc::sync_channel(1);
     let worker_runtime = runtime.clone();
     let worker_source = source.clone();
     std::thread::scope(|threads| {
         let worker = threads.spawn(move || {
-            let _close = Close(worker_runtime.clone());
+            let _close = Close(worker_runtime.clone(), StopReason::Failure);
             engine(
                 worker_runtime.clone(),
                 worker_source,
@@ -415,7 +493,7 @@ fn run_with<T>(
             )
         });
 
-        let close = Close(runtime.clone());
+        let close = Close(runtime.clone(), StopReason::Shutdown);
         let result = match startup.recv() {
             Ok(Ok(())) => host(Arc::new(JavaScriptApplication::new(runtime, source))),
             _ => Err(anyhow::anyhow!(

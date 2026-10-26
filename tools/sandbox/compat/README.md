@@ -63,8 +63,11 @@ fixtures check native startup/teardown observations against the engine protocol
 peer and refuse foreign-cell property access. Root-event queued lifecycle tests
 cover blocked startup with storage progress, explicit destroy/monitor outcomes
 and submitted startup failures without replay. Node forwards incremental port
-and Worker/DO HTTP responses with native cancellation; embedded web globals,
-Worker/DO upgrade forwarding and callback-owned queued lifecycle remain incomplete. These tests
+and Worker/DO HTTP responses with native cancellation. Node/V8 concurrency-block
+controls retain the native input gate through acknowledgement and refuse inherited
+transactions and late continuation admission. Node additionally exercises published
+readiness errors, controls from `onStart`, and nonzero monitor/`onStop` parameters.
+Embedded web globals and complete lifecycle/fault qualification remain open. These tests
 qualify those paths only. The unchanged Container module now runs in the separate Node `workers_module`
 target: named/singleton/random routing, separate native container ownership,
 delayed destroy acknowledgement and explicit cleanup use an engine protocol
@@ -103,7 +106,7 @@ It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
 Passing it qualifies these routes for the pinned baseline. Generic stream inputs
 have a separate native fixture; SDK RPC uploads now have their own real-image
-scenario. SP-04 HTTP-message arguments, previews, restart/fencing and live-cloud
+scenario. SP-04 previews, restart/fencing and live-cloud
 requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
@@ -177,8 +180,8 @@ leave no native bridge reservations.
 This exercises the published Containers local WebSocketPair proxy and Cap'n Web
 session over Cellar's native port socket. It does not replace SDK transport code.
 New stream/WS tests retain explicit handshake budgets; existing image deadlines
-and assertions remain unchanged. Complete reconnect, abandoned-stream,
-Request transfer, HTTP-message arguments and fault qualification remain required.
+and assertions remain unchanged. Complete reconnect, abandoned-stream and
+fault qualification remain required.
 
 ## Returned RPC response fixture
 
@@ -186,5 +189,54 @@ Request transfer, HTTP-message arguments and fault qualification remain required
 responses returned from DO methods: metadata and aliases, a 3 KiB body through a
 2 KiB bridge budget, delivery before source release, errors after an accepted
 prefix, client cancellation and unconsumed-body disposal. Shutdown must drain
-application work and bridge reservations. Request/Response arguments and full
-HTTP-message compatibility remain pending.
+application work and bridge reservations. Full HTTP-message compatibility remains
+pending; the Request/argument slice below has separate evidence.
+
+## RPC Request and HTTP-message argument fixture
+
+`http-rpc.mjs` and `workers_messages` use real Node Request/Response classes over
+native CellRpc routing. The test sends 32 KiB + 17 binary bytes through an 8 KiB
+bridge limit, observes a prefix before releasing the source, then checks that EOF
+does not discard the live abort signal. It also checks HTTP argument aliases,
+Response metadata/body, pre-abort refusal before target mutation, a returned
+Request's later-event abort after storage proof, result-to-argument forwarding
+and unused-message cleanup.
+
+The owned protocol tests separately prove that a later abort waits for that
+caller's storage proof while source cancellation runs in its original scope.
+This is a bounded Node profile, not full Workers conformance or an embedded web
+bootstrap.
+
+
+## Published idle lifecycle and HTTP previews
+
+`container-lifecycle.mjs` observes the actual Containers idle alarm and hooks
+against the native engine peer. The peer models graceful SIGTERM exit; state
+and counters must survive sleep/wake, and explicit teardown must drain resources.
+
+`sandbox-preview.mjs` uses the unchanged Sandbox preview helper and matching
+image. It verifies binary HTTP forwarding, forged-header removal, invalid-token
+refusal, stale URLs after stop/replacement, explicit re-exposure and revocation.
+The image keeps its pinned digest; the host declares additional port 8080 with
+`exposed_ports`. No external domain or hosted account is contacted.
+
+See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
+wiring and the [resolved callback/alarm failure](../../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
+for the restored overlapping-barrier regression. The separate upgrade checks
+below extend that evidence; complete SDK conformance remains pending.
+
+## Worker/DO WebSocket upgrade forwarding
+
+`web-upgrade.mjs` and the `workers_upgrades` native target exercise real network
+upgrades through a Worker, a Durable Object and the container engine peer. They
+cover local pairs, native container endpoints, namespace acceptance, edited
+headers, native storage callbacks, text/binary frames, clean/abrupt close and a
+local receiver which never calls `accept()`. Native shutdown must drain work and
+leave zero bridge reservations and peer sockets.
+
+The preview image scenario also runs the unchanged `proxyToSandbox` helper
+against an HTTP/WebSocket echo service using Bun 1.3.12 already present in the
+pinned image. It checks both directions, forged-header removal, clean/abrupt
+disconnect and explicit preview re-exposure. No SDK replacement, extra dependency
+installation or image rebuild is involved. These selected Node paths do not
+qualify hibernation or the complete slow-peer/ownership/remote-node fault profile.

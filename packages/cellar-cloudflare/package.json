@@ -13,6 +13,7 @@
     "./storage": { "types": "./storage.d.ts", "default": "./storage.js" }
   },
   "files": [
+    "previews.md",
     "index.js",
     "workers.js",
     "storage.js",
@@ -22,6 +23,8 @@
     "container.js",
     "port.js",
     "websocket.js",
+    "websocket-upgrade.js",
+    "websocket-forward.js",
     "websocket-pair.js",
     "response.js",
     "output.js",

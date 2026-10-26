@@ -120,7 +120,7 @@ export function durableStorage(current, transaction = false) {
     },
     async getAlarm(value) {
       options(value, ["allowConcurrency"]);
-      return current()._sync("alarm.get");
+      return current()._call("alarm.get");
     },
     async setAlarm(time, value) {
       options(value, ["allowConcurrency", "allowUnconfirmed"]);
@@ -129,11 +129,11 @@ export function durableStorage(current, transaction = false) {
         throw new TypeError(
           "Alarm time must be nonnegative integral milliseconds",
         );
-      current()._sync("storage.apply", { alarm_at_ms: time });
+      await current()._call("storage.apply", { alarm_at_ms: time });
     },
     async deleteAlarm(value) {
       options(value, ["allowConcurrency", "allowUnconfirmed"]);
-      current()._sync("storage.apply", { delete_alarm: true });
+      await current()._call("storage.apply", { delete_alarm: true });
     },
     async deleteAll(value) {
       options(value, writeOptions);

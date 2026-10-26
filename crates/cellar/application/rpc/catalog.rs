@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use super::{decode_envelope, Code, Contract, Failure, Limits, Prepared};
+use super::{envelope, Code, Contract, Failure, Limits, Prepared};
 use crate::engine_api::RpcData;
 use anyhow::{ensure, Result};
 use std::{collections::BTreeMap, sync::Arc};
@@ -112,9 +112,19 @@ impl Catalog {
         };
         let contract = entries.get(method);
         let limits = contract.map(|c| c.limits()).unwrap_or_default();
-        let (digest, bytes) = decode_envelope(args, limits.max_message_bytes)?;
+        let (digest, bytes) = envelope::view(args)?;
         let rejection = match contract {
-            Some(contract) => Prepared::new(contract.clone(), method, digest.clone(), bytes).err(),
+            Some(contract) if contract.digest() != digest => {
+                Some(Failure::refused(Code::ContractMismatch))
+            }
+            Some(contract) => {
+                // Host admission needs only a borrowed preflight, not an owned
+                // Prepared value that would immediately discard its body copy.
+                let method = contract
+                    .method(method)
+                    .expect("catalog entries come from their contract");
+                contract.validate_message(&method.input, bytes).err()
+            }
             None => Some(Failure::refused(Code::MethodNotFound)),
         };
         rejection

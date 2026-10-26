@@ -49,7 +49,7 @@ elif a[0] not in ('tag','pull'): sys.exit(12)
         let artifact = executable_identity(&executable, current_target())?;
         let config: ApplicationConfig = serde_json::from_value(json!({
             "script_name":"sandbox", "application_version":"code-v1", "cells":["Sandbox"],
-            "containers":[{"class_name":"Sandbox", "image":"registry.invalid/app:test", "instance_type":"basic", "max_instances":4, "runtime":"runsc"}],
+            "containers":[{"class_name":"Sandbox", "image":"registry.invalid/app:test", "instance_type":"basic", "max_instances":4, "runtime":"runsc", "exposed_ports":[8080]}],
         }))?;
         assert!(config.manifest(vec![artifact.clone()]).is_err());
         let staged = directory.path().join("package");
@@ -58,6 +58,14 @@ elif a[0] not in ('tag','pull'): sys.exit(12)
         let primary = config.stage_manifest(vec![artifact.clone()], directory.path(), &staged)?;
         assert_eq!(primary.container_images.len(), 2);
         assert_eq!(primary.containers[0].runtime.as_deref(), Some("runsc"));
+        assert_eq!(primary.containers[0].exposed_ports, vec![8080]);
+        assert!(primary.required_features.iter().any(|feature| feature == "container-ports-v1"));
+        let mut no_ports_gate = primary.clone();
+        no_ports_gate.required_features.retain(|feature| feature != "container-ports-v1");
+        assert!(validate_execution_manifest(&no_ports_gate).is_err());
+        let mut invalid_ports = primary.clone();
+        invalid_ports.containers[0].exposed_ports = vec![0];
+        assert!(validate_execution_manifest(&invalid_ports).is_err());
         assert!(primary.container_images.iter().any(|image| Some(&image.image) == primary.fence_image.as_ref()));
         let repeat = config.stage_manifest(vec![artifact], directory.path(), &staged)?;
         assert_eq!(repeat.version, primary.version);

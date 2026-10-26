@@ -3,6 +3,7 @@
 import { idDescriptor, nativeId } from "./id.js";
 import { fetchRequest } from "./http.js";
 import { streamedResponse } from "./response.js";
+import { forwardedWebSocket } from "./websocket-forward.js";
 
 // This initial namespace facade is event-owned, just like the native SDK
 // context supplied to it. Activation-owned environment bindings are a separate
@@ -78,12 +79,20 @@ export function namespaceBinding(current, binding) {
                 undefined,
                 (frame, _context, signal, request) => {
                   if (frame.websocket) {
-                    context
-                      ._call("response.cancel", { id: frame.forward })
-                      .catch(() => {});
-                    throw new TypeError(
-                      "Namespace WebSocket upgrades require an upgrade-capable profile",
-                    );
+                    try {
+                      return forwardedWebSocket(frame, context, current);
+                    } catch (error) {
+                      context
+                        ._call("response.cancel", { id: frame.forward })
+                        .catch(() => {});
+                      const failure = new Error(
+                        "WebSocket upgrade response unavailable",
+                        { cause: error },
+                      );
+                      failure.code = "Ambiguous";
+                      failure.outcome = "unknown";
+                      throw failure;
+                    }
                   }
                   return streamedResponse(
                     { ...frame, stream: frame.forward },

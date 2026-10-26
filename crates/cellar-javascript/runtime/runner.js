@@ -16,13 +16,15 @@
   makeRpcWritables,
   makeRpcInputs,
   makeRpcMessages,
+  makeRpcRequests,
+  currentCallbackHost,
 ) => {
   "use strict";
   const delegates = makeDelegates(
     makeRpcStreams(),
     makeRpcWritables(),
     makeRpcInputs,
-    makeRpcMessages,
+    (readables) => makeRpcMessages(readables, makeRpcRequests),
   );
 
   // Capture these builtins before importing/evaluating application code.
@@ -441,6 +443,7 @@
           "container.response.cancel",
           "container.websocket.receive",
           "websocket.next",
+          "websocket.closed",
           "response.read",
           "response.cancel",
           "response.closed",
@@ -513,6 +516,8 @@
                   "workers.rpc.invoke",
                   "response.read",
                   "response.closed",
+                  "websocket.next",
+                  "websocket.closed",
                   "container.port.fetch",
                   "container.port.fetch_stream",
                   "container.response.read",
@@ -585,6 +590,7 @@
                 "container.response.cancel",
                 "container.websocket.receive",
                 "websocket.next",
+                "websocket.closed",
                 "response.read",
                 "response.cancel",
                 "response.closed",
@@ -960,7 +966,23 @@
           error.outcome = "not_committed";
           throw error;
         }
+        const scope = currentCallbackHost();
+        if (scope !== null) {
+          const callback = lifetimes.get(id).containerCallbacks?.get(scope);
+          if (!callback || callback.closing)
+            throw rpcFailure("ContextExpired", "not_committed");
+        }
         return synchronous("workers.container.admit", { operation, input });
+      },
+      _containerControl(pending) {
+        const scope = currentCallbackHost();
+        if (scope === null) return;
+        const callback = lifetimes.get(id)?.containerCallbacks?.get(scope);
+        if (!callback || callback.closing)
+          throw rpcFailure("ContextExpired", "not_committed");
+        callback.controls.add(pending);
+        const release = () => callback.controls.delete(pending);
+        pending.then(release, release);
       },
       _revoked() {
         if (
@@ -1064,6 +1086,11 @@
           id,
           (async () => {
             const token = await call("workers.callback.begin", { kind });
+            const lifetime = lifetimes.get(id);
+            const callbacks =
+              lifetime && (lifetime.containerCallbacks ??= new MapClass());
+            const boundary = { controls: new SetClass(), closing: false };
+            callbacks?.set(token.id, boundary);
             let result,
               success = false;
             try {
@@ -1072,9 +1099,20 @@
                   throw new ErrorClass("ContextMismatch");
                 return context(id, identity, activation, contracts);
               };
-              result = await scopedHost(id, token.id, () => callback(current));
+              result = await scopedHost(id, token.id, async () => {
+                try {
+                  return await callback(current);
+                } finally {
+                  // Void controls retain this native callback until their
+                  // provider acknowledgement or failure. Do not admit new
+                  // controls from continuations after the callback returned.
+                  boundary.closing = true;
+                  await allSettled([...boundary.controls]);
+                }
+              });
               success = true;
             } finally {
+              callbacks?.delete(token.id);
               await call("workers.callback.finish", { id: token.id, success });
             }
             return result;
@@ -1354,7 +1392,10 @@
 
       // Forward the native capability without consuming its body or upgrade.
       if (invocation.kind === "fetch" && result?.forward !== undefined) {
-        return stringify({ forward: result.forward });
+        return stringify({
+          forward: result.forward,
+          ...(result.headers === undefined ? {} : { headers: result.headers }),
+        });
       }
 
       if (invocation.kind === "fetch" && result?.chunks !== undefined) {
@@ -1387,8 +1428,12 @@
         if (result.run) {
           // Workers consume events in this retained invocation. Hibernating
           // cells omit run and receive separate native WebSocket callbacks.
-          await ctx._call("response.upgrade", response);
-          await result.run(ctx.websocket(result.websocket), ctx);
+          try {
+            await ctx._call("response.upgrade", response);
+            await result.run(ctx.websocket(result.websocket), ctx);
+          } finally {
+            if (typeof result.cancel === "function") await result.cancel();
+          }
           result = { streamed: true };
         } else {
           result = response;

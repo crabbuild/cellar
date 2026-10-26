@@ -326,12 +326,42 @@ fn exercise(
                     ensure!(queued.await??["queued"] == true);
                     peer.engine.fail_next_start.store(true, std::sync::atomic::Ordering::SeqCst);
                     ensure!(request(&client, &address, "alice/queued-failure").await?["failure"] == true);
+                    let (release_callback, callback_startup) = tokio::sync::watch::channel(false);
+                    *peer.engine.startup_gate.lock().unwrap() = Some(callback_startup);
+                    peer.engine.start_entered.store(false, std::sync::atomic::Ordering::SeqCst);
+                    let callback_client = client.clone();
+                    let callback_address = address.clone();
+                    let mut callback = tokio::spawn(async move { request(&callback_client, &callback_address, "alice/callback-void").await });
+                    let entered = tokio::time::timeout(Duration::from_secs(3), async {
+                        while !peer.engine.start_entered.load(std::sync::atomic::Ordering::SeqCst) {
+                            tokio::task::yield_now().await;
+                        }
+                    });
+                    cellar::asyncrt::select! {
+                        result = &mut callback => anyhow::bail!("callback completed before startup: {:?}", result?),
+                        result = entered => result.context("callback startup did not reach engine")?,
+                    }
+                    let refused = request(&client, &address, "callback-release").await?;
+                    ensure!(refused["code"] == "ContextExpired" && refused["outcome"] == "not_committed", "returned callback continuation admitted a control: {refused}");
+                    let admitted = calls.load(std::sync::atomic::Ordering::SeqCst);
+                    let read_client = client.clone();
+                    let read_address = address.clone();
+                    let read = tokio::spawn(async move { request(&read_client, &read_address, "alice/queued-progress").await });
+                    tokio::time::sleep(Duration::from_millis(75)).await;
+                    ensure!(!callback.is_finished() && !read.is_finished() && calls.load(std::sync::atomic::Ordering::SeqCst) == admitted, "void callback released its native input gate before acknowledgement");
+                    release_callback.send_replace(true);
+                    ensure!(callback.await??["callback"] == "complete");
+                    read.await??;
+                    ensure!(peer.engine.calls.lock().unwrap().iter().filter(|(_, path, _)| path.ends_with("/kill?signal=15")).count() == 1, "refused callback controls reached the engine");
                     #[cfg(feature = "node")]
                     let http_profile = matches!(_backend, Backend::Node);
                     #[cfg(not(feature = "node"))]
                     let http_profile = false;
                     ensure!(request(&client, &address, "alice/ports").await?["ports"] == http_profile);
+                    ensure!(peer.engine.calls.lock().unwrap().iter().filter(|(_, path, _)| path.ends_with("/kill?signal=12")).count() == if http_profile { 2 } else { 0 }, "published onStart controls did not reach the engine exactly once per run");
                     ensure!(request(&client, &address, "bob/read").await?["configuration"].is_null());
+                    ensure!(request(&client, &address, "bob/idle-alarm").await?["idle"] == true);
+                    ensure!(request(&client, &address, "bob/read").await?["configuration"].is_null(), "a cleared idle alarm prevented a later request");
                 }
                 "sandbox" => {
                     let before = request(&client, &address, "alice/status").await?;

@@ -74,6 +74,7 @@ fn start_scope(
         "object":object,"class":object.map(|_| "Counter")}).to_string();
     runtime
         .start(Start {
+            _completion: Default::default(),
             body: None,
             budget_source: None,
             id,
@@ -424,5 +425,97 @@ fn pending_socket_output_allows_storage_but_not_overlapping_mutations() -> Resul
             Ok(())
         })?;
     }
+    Ok(())
+}
+
+#[test]
+fn shutdown_interrupts_guest_continuation_after_native_wait() -> Result<()> {
+    for backend in modes() {
+        let before = Instant::now();
+        let app = run(
+            backend,
+            Options {
+                turn_timeout: Duration::from_secs(2),
+                ..Default::default()
+            },
+            "try { ctx._sync('storage.apply', {puts:{x:1}}); } catch {} while (true) {}",
+            |app| {
+                let (_, mut receive) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+                let Event::Operation { name, .. } = event(&mut receive) else {
+                    anyhow::bail!("native submission missing");
+                };
+                assert_eq!(name, "storage.apply");
+                // The host stops without acknowledging the possible mutation.
+                // Even a continuation that catches cancellation must be joined.
+                Ok(app)
+            },
+        )?;
+        assert!(before.elapsed() < Duration::from_secs(5));
+        let usage = app.bridge_usage();
+        assert!(usage.stopped);
+        assert_eq!(usage.active_invocations, 0);
+        assert_eq!(usage.retained_bytes, 0);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn ordinary_node_profile_keeps_floating_rejections_fatal() -> Result<()> {
+    let result = run(
+        Backend::Node,
+        Options::default(),
+        "Promise.reject(new Error('floating application failure')); return new Promise(() => {});",
+        |application| {
+            let active = Arc::new(AtomicBool::new(true));
+            let (_, mut receive) = start(&application.runtime, active.clone());
+            let until = Instant::now() + Duration::from_secs(5);
+            loop {
+                match receive.try_recv() {
+                    Err(channel::error::TryRecvError::Disconnected) => break,
+                    Err(channel::error::TryRecvError::Empty) => {}
+                    Ok(_) => anyhow::bail!("floating rejection unexpectedly completed"),
+                }
+                ensure!(
+                    Instant::now() < until,
+                    "ordinary Node rejection did not stop the runtime"
+                );
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            active.store(false, Ordering::Release);
+            Ok(())
+        },
+    );
+    ensure!(
+        result.is_err(),
+        "Workers rejection handling leaked into the ordinary Node profile"
+    );
+    Ok(())
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn runtime_failure_cannot_be_relabelled_by_later_host_shutdown() -> Result<()> {
+    let result = run(
+        Backend::Embedded,
+        Options {
+            turn_timeout: Duration::from_secs(2),
+            ..Default::default()
+        },
+        "try { ctx._sync('storage.apply', {puts:{x:1}}); } catch {} while (true) {}",
+        |application| {
+            let (_, mut receive) = start(&application.runtime, Arc::new(AtomicBool::new(true)));
+            ensure!(matches!(event(&mut receive), Event::Operation { .. }));
+            // A failed runtime may interrupt a guest just like a requested
+            // stop. Returning from the host afterwards must not hide failure.
+            application.runtime.close();
+            Ok(())
+        },
+    );
+    let failure = result.expect_err("runtime failure became successful shutdown");
+    ensure!(
+        failure.to_string().contains("runtime failure"),
+        "wrong interruption cause: {failure:#}"
+    );
     Ok(())
 }

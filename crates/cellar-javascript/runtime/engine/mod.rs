@@ -4,6 +4,7 @@
 //! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;
 mod codec;
+mod completion;
 use anyhow::Context as _;
 use std::{
     cell::RefCell,
@@ -17,6 +18,7 @@ use std::{
 enum Interruption {
     RequestedShutdown,
     ExecutionBudget,
+    RuntimeFailure,
 }
 
 #[derive(Default)]
@@ -49,6 +51,9 @@ fn v8_failure(
             Some(Interruption::RequestedShutdown) => return RequestedShutdown.into(),
             Some(Interruption::ExecutionBudget) => {
                 return anyhow::anyhow!("JavaScript engine turn exceeded execution budget")
+            }
+            Some(Interruption::RuntimeFailure) => {
+                return anyhow::anyhow!("JavaScript interrupted by runtime failure")
             }
             None => {}
         }
@@ -269,6 +274,20 @@ fn current_activation(
         }
     }
     rv.set(v8::Number::new(scope, invocation as f64).into());
+}
+
+// Private continuation metadata for joining callback-owned void controls.
+// This supplies no authority; every native operation still checks its scope.
+fn current_callback(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    if let Some((_, Some(callback), _)) = continuation(scope) {
+        rv.set(v8::Number::new(scope, callback as f64).into());
+    } else {
+        rv.set(v8::null(scope).into());
+    }
 }
 
 fn operation(
@@ -587,11 +606,20 @@ pub(super) fn run(
             let cause = if Instant::now() >= end {
                 Interruption::ExecutionBudget
             } else if watchdog_runtime.closed.load(Ordering::Acquire) {
-                Interruption::RequestedShutdown
+                if watchdog_runtime.shutdown_requested() {
+                    Interruption::RequestedShutdown
+                } else {
+                    Interruption::RuntimeFailure
+                }
             } else {
                 continue;
             };
             state.interruption.get_or_insert(cause);
+            if cause == Interruption::ExecutionBudget {
+                // Record failure before V8 unwinds; a later host return cannot
+                // relabel an observed budget expiry as requested shutdown.
+                watchdog_runtime.record_stop(StopReason::Failure);
+            }
             handle.terminate_execution();
             watchdog_runtime.close();
         }
@@ -640,6 +668,8 @@ pub(super) fn run(
         .context("JavaScript clone decoder initialization failed")?;
     let scoped = v8::Function::new(scope, scoped_callback)
         .context("JavaScript callback scope initialization failed")?;
+    let current_callback = v8::Function::new(scope, current_callback)
+        .context("JavaScript callback metadata initialization failed")?;
     let factory = script(scope, include_str!("../runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     let delegates = script(scope, include_str!("../delegates.js"))?;
@@ -647,6 +677,7 @@ pub(super) fn run(
     let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
     let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
     let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
+    let rpc_requests = script(scope, include_str!("../rpc_requests.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -666,6 +697,8 @@ pub(super) fn run(
                 rpc_writables,
                 rpc_inputs,
                 rpc_messages,
+                rpc_requests,
+                current_callback.into(),
             ],
         )
         .context("JavaScript facade initialization failed")?;
@@ -762,7 +795,10 @@ pub(super) fn run(
                         payload: "null".into(),
                         body: None,
                         failed: true,
-                        _bytes: runtime.reserve(4)?,
+                        _bytes: start
+                            ._completion
+                            .take()
+                            .context("V8 completion reservation missing")?,
                     });
                     continue;
                 }
@@ -861,48 +897,22 @@ pub(super) fn run(
             let failed = rejected || unsettled || backgrounds.get(&id) == Some(&2.0);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
-            let (payload, body) = if failed {
-                // Only a fixed category may leave an entered RPC handler.
-                // Never stringify exceptions or inspect application objects.
-                let payload = if rejected && !unsettled && result.is_string() {
-                    let value = v8::Local::<v8::String>::try_from(result)
-                        .context("RPC failure category must be a string")?;
-                    if value.length() <= 64 {
-                        cellar_guest::rpc_failure::payload(&value.to_rust_string_lossy(turn))
-                            .unwrap_or("null")
-                    } else {
-                        "null"
-                    }
-                } else {
-                    "null"
-                };
-                (payload.into(), None)
-            } else if result.is_uint8_array() {
-                // A malformed application reply is a call failure, not an
-                // engine failure. Missing bytes become InvalidResponse/unknown
-                // at the native RPC boundary, after any committed writes.
-                (
-                    "null".into(),
-                    super::binary::copy(turn, result, runtime.options.max_value_bytes)
-                        .unwrap_or(None),
-                )
+            let outcome = if rejected && !unsettled {
+                completion::Outcome::Rejected(result)
+            } else if failed {
+                completion::Outcome::Failed
             } else {
-                let result = v8::Local::<v8::String>::try_from(result)
-                    .context("JavaScript completion must be encoded")?;
-                ensure!(
-                    result.length() <= runtime.options.max_value_bytes,
-                    "JavaScript completion exceeds limit"
-                );
-                (result.to_rust_string_lossy(turn), None)
+                completion::Outcome::Resolved(result)
             };
-            let bytes = runtime.reserve(value_size(&payload, body.as_deref())?)?;
-            // +1 completion slot is reserved independently of operation capacity.
-            let _ = invocation.start.sender.try_send(Event::Complete {
-                payload,
-                body,
-                failed,
-                _bytes: bytes,
-            });
+            let reservation = invocation
+                .start
+                ._completion
+                .take()
+                .context("V8 completion reservation missing")?;
+            // Both the mailbox slot and its small error payload are reserved
+            // independently of capacity held by ordinary operations.
+            let completed = completion::event(turn, &runtime, outcome, reservation);
+            let _ = invocation.start.sender.try_send(completed);
             finished.push(id);
         }
         for id in &finished {

@@ -17,14 +17,18 @@ for (const [fixture, platform] of [
   ["container", "neutral"],
   ["module", "neutral"],
   ["container-module", "neutral"],
+  ["container-lifecycle", "node"],
   ["sandbox", "node"],
   ["sandbox-module", "node"],
   ["sandbox-rpc", "node"],
+  ["sandbox-preview", "node"],
   ["web-streams", "node"],
   ["web-writable", "node"],
   ["web-inputs", "node"],
   ["web-websocket", "node"],
+  ["web-upgrade", "node"],
   ["web-messages", "node"],
+  ["http-rpc", "node"],
 ]) {
   for (const format of platform === "node" ? ["esm"] : ["iife", "esm"]) {
     const result = await build({

@@ -461,6 +461,7 @@ impl JavaScriptApplication {
             "JavaScript invocation exceeds value budget"
         );
         self.runtime.start(Start {
+            _completion: Default::default(),
             budget_source: Some(cellar::sdk::rpc::BudgetSource::capture(&context)?),
             id: invocation,
             _bytes: self.runtime.reserve(charge)?,
@@ -583,26 +584,6 @@ impl JavaScriptApplication {
                     if !active.load(Ordering::Acquire) {
                         continue;
                     }
-                    if callback_scope.is_some()
-                        && matches!(
-                            name.as_str(),
-                            "workers.container.admit" | "workers.container.perform"
-                        )
-                    {
-                        // A closed callback cannot own a queued effect; transaction
-                        // output proof also cannot precede the callback's commit.
-                        self.runtime.respond_parts(
-                            invocation,
-                            id,
-                            cellar_guest::failure::result_parts(
-                                &name,
-                                Err(anyhow::Error::new(cellar_guest::failure::Validation)),
-                                self.runtime.options.max_value_bytes,
-                            )?,
-                            synchronous,
-                        )?;
-                        continue;
-                    }
                     let context = context.clone();
                     let state = state.clone();
                     let callbacks = callbacks.clone();
@@ -629,6 +610,18 @@ impl JavaScriptApplication {
                                 };
                                 match scope {
                                     Err(error) => Err(error),
+                                    // A transaction cannot prove its own commit
+                                    // while awaiting an external container effect.
+                                    Ok(Some(scope))
+                                        if scope.is_transaction()
+                                            && matches!(
+                                                name.as_str(),
+                                                "workers.container.admit"
+                                                    | "workers.container.perform"
+                                            ) =>
+                                    {
+                                        Err(anyhow::Error::new(cellar_guest::failure::Validation))
+                                    }
                                     Ok(scope) => {
                                         let scoped_context = context.clone();
                                         let operation_name = name.clone();

@@ -387,6 +387,79 @@ async fn verify_payloads(
     Ok(())
 }
 
+fn record_version_read_start(
+    phase: &str,
+    receipt: &CommandReceipt,
+    schema: [u8; 32],
+) -> Result<std::time::Instant> {
+    eprintln!(
+        "full-native stage=version-read-start phase={phase} required={:?}",
+        receipt.version
+    );
+    let started = std::time::Instant::now();
+    let wall_ms = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    let observed = public_node::version_keys()?.verify(
+        &receipt.version_token,
+        &receipt.version.scope,
+        schema,
+        wall_ms,
+    );
+    // Observe the supplied token without replacing it or changing admission.
+    eprintln!(
+        "full-native read-token-observation phase={phase} wall_ms={wall_ms} result={:?}",
+        observed.map(|version| version.position)
+    );
+    Ok(started)
+}
+
+async fn record_read_refusal(
+    phase: &str,
+    error: &anyhow::Error,
+    cluster: &cluster::Cluster,
+    scope: &GroupScope,
+    required: Option<&CommittedVersion>,
+) {
+    // Sample before fixture teardown joins background image work. These are
+    // observations, never an alternative read proof or a retry of the failure.
+    // A stopped/unresponsive member cannot hold failure reporting indefinitely.
+    for (index, service) in cluster.services.iter().enumerate() {
+        // Owner cancellation removes its service from the cluster layout.
+        // Resolve each observer from its current service rather than zipping
+        // the original handle order with a shortened/replacement inventory.
+        let status = match service.cell(scope.namespace, &scope.cell) {
+            Ok(handle) => Some(tokio::time::timeout(Duration::from_secs(2), handle.status()).await),
+            Err(binding) => {
+                eprintln!("full-native query-probe-binding-failed phase={phase} worker={index} error={binding:?}");
+                None
+            }
+        };
+        let resources = service.resource_usage();
+        let performance = service.performance();
+        let operations = performance
+            .operations
+            .iter()
+            .filter(|operation| {
+                operation.name.starts_with("sql_") || operation.name == "snapshot_encode"
+            })
+            .map(|operation| {
+                (
+                    operation.name,
+                    operation.started,
+                    operation.succeeded,
+                    operation.failed,
+                    operation.abandoned,
+                    operation.sum_us,
+                )
+            })
+            .collect::<Vec<_>>();
+        eprintln!("full-native query-refused phase={phase} worker={index} error={error:#} required={required:?} status={status:?} groups={:?} sql={:?} performance_available={} performance_saturated={} operation_fields=(name,started,succeeded,failed,abandoned,sum_us) operations={operations:?}", resources.groups, resources.sql, performance.available, performance.saturated);
+    }
+}
+
 async fn drill(
     source: PathBuf,
     workdir: PathBuf,
@@ -491,30 +564,16 @@ async fn drill(
     )
     .await;
     if let Err(error) = &first_read_result {
-        // Preserve the state before failure unwinds the cluster and joins slow
-        // archive work. A shutdown stack alone cannot identify why a read failed.
-        for (index, (handle, service)) in handles.iter().zip(&cluster.services).enumerate() {
-            let status = handle.status().await;
-            let resources = service.resource_usage();
-            let performance = service.performance();
-            let operations = performance
-                .operations
-                .iter()
-                .filter(|operation| {
-                    matches!(
-                        operation.name,
-                        "sql_queue"
-                            | "sql_query"
-                            | "sql_other"
-                            | "sql_archive_capture"
-                            | "snapshot_encode"
-                    )
-                })
-                .collect::<Vec<_>>();
-            eprintln!("full-native first-read-refused worker={index} error={error:#} status={status:?} groups={:?} sql={:?} operations={operations:?}", resources.groups, resources.sql);
-        }
+        record_read_refusal(
+            "first-read",
+            error,
+            &cluster,
+            &registration.birth.scope,
+            None,
+        )
+        .await;
     }
-    first_read_result?;
+    first_read_result.context("initial full-size linearizable read")?;
     eprintln!(
         "full-native stage=first-read duration_s={:.3}",
         first_read.elapsed().as_secs_f64()
@@ -849,6 +908,13 @@ async fn drill(
         calls[3].load(Ordering::SeqCst) == 1,
         "restored owner did not execute exactly one new callback"
     );
+    eprintln!(
+        "full-native stage=cold-owner-write-ack duration_s={:.3} elapsed_s={:.3}",
+        cold_write.elapsed().as_secs_f64(),
+        started.elapsed().as_secs_f64()
+    );
+    let local_started =
+        record_version_read_start("cold-owner-after-write", &resumed, definitions[3].schema)?;
     let local = read(
         &learner,
         definitions[3].get.clone(),
@@ -856,7 +922,22 @@ async fn drill(
         payload_bytes,
         QueryConsistency::AtLeast(resumed.version_token),
     )
-    .await?;
+    .await;
+    eprintln!(
+        "full-native stage=version-read-finished phase=cold-owner-after-write accepted={} duration_s={:.3}",
+        local.is_ok(), local_started.elapsed().as_secs_f64()
+    );
+    if let Err(error) = &local {
+        record_read_refusal(
+            "cold-owner-after-write",
+            error,
+            &cluster,
+            &resumed.version.scope,
+            Some(&resumed.version),
+        )
+        .await;
+    }
+    let local = local.context("read the recovered owner's newly acknowledged version")?;
     ensure!(local.served_by == target.member);
     eprintln!(
         "full-native stage=cold-owner-first-write duration_s={:.3}",
@@ -988,7 +1069,12 @@ async fn drill(
         "full-native stage=restart-first-write duration_s={:.3}",
         restart_write.elapsed().as_secs_f64()
     );
-    verify_payloads(
+    let payload_started = record_version_read_start(
+        "restart-payload-verification",
+        &written,
+        definitions[3].schema,
+    )?;
+    let verified = verify_payloads(
         restored,
         definitions[3].get.clone(),
         13,
@@ -997,14 +1083,32 @@ async fn drill(
         QueryConsistency::AtLeast(written.version_token),
         target.member,
     )
-    .await?;
+    .await;
+    eprintln!(
+        "full-native stage=version-read-finished phase=restart-payload-verification accepted={} duration_s={:.3}",
+        verified.is_ok(),
+        payload_started.elapsed().as_secs_f64()
+    );
+    if let Err(error) = &verified {
+        record_read_refusal(
+            "restart-payload-verification",
+            error,
+            &cluster,
+            &written.version.scope,
+            Some(&written.version),
+        )
+        .await;
+    }
+    verified.context("verify replacement-local payloads at the new restart write version")?;
+    eprintln!("full-native stage=restart-payloads-verified");
     let retried = restored
         .command(
             definitions[3].increment.clone(),
             0_u64.to_be_bytes().to_vec(),
             restarted_options,
         )
-        .await?;
+        .await
+        .context("reconcile new receipt after replacement restart write")?;
     ensure!(retried.result == written.result && retried.version == written.version);
     ensure!(retried.id == written.id && retried.durability == written.durability);
     ensure!(calls[3].load(Ordering::SeqCst) == 2);

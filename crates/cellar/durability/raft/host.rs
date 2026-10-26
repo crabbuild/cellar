@@ -3171,7 +3171,7 @@ impl Driver {
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
                 let succeeded =
-                    super::host_archive::publish(pending, verifier, |number, completed| {
+                    super::host_archive::publish(pending, verifier, move |number, completed| {
                         if let Some(sender) = senders.get_mut(number).and_then(Option::take) {
                             let _ = sender.send(completed);
                         }

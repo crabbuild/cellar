@@ -1,0 +1,102 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+import { getSandbox, proxyToSandbox, Sandbox } from "@cloudflare/sandbox";
+import { workersApplication } from "../../../../packages/cellar-cloudflare/index.js";
+
+class PreviewProbe extends Sandbox {
+  // Stop the runtime without revoking durable preview authorization. Published
+  // monitor/state/onStop code must invalidate its current-runtime activation.
+  async stopForPreview() {
+    const monitor = this.monitor;
+    await this.ctx.container.destroy();
+    await monitor;
+    // Regression: the SDK's prior alarm can resume while this extra gate is
+    // active. Its asynchronous alarm update must yield instead of blocking the
+    // language thread that needs to finish the native callback.
+    await this.ctx.blockConcurrencyWhile(async () => {});
+    await this.syncPendingStoppedEvents();
+  }
+}
+
+const server = `
+  Bun.serve({
+    port: 8080, hostname: '0.0.0.0',
+    async fetch(request, server) {
+      const url = new URL(request.url);
+      const headers = {
+        'x-preview-method': request.method,
+        'x-preview-path': url.pathname + url.search,
+        'x-preview-host': request.headers.get('x-forwarded-host') ?? '',
+        'x-preview-internal': [...request.headers.keys()].some(k => k.startsWith('x-sandbox-preview-')) ? 'leaked' : 'clean'
+      };
+      if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        if (server.upgrade(request, { headers })) return;
+        return new Response('upgrade declined', { status: 426 });
+      }
+      return new Response(await request.arrayBuffer(), { status: 207, headers });
+    },
+    websocket: { message(socket, message) { socket.send(message); } }
+  });
+`;
+
+export default workersApplication(
+  {
+    Sandbox: PreviewProbe,
+    default: {
+      async fetch(request, env) {
+        try {
+          // The actual SDK helper parses the preview hostname, strips forged
+          // internal headers and lets Sandbox validate token + runtime identity.
+          const preview = await proxyToSandbox(request, env);
+          if (preview) return preview;
+          const sandbox = getSandbox(env.Sandbox, "preview");
+          const url = new URL(request.url);
+          if (url.pathname === "/setup") {
+            const process = await sandbox.startProcess(
+              "bun -e " + JSON.stringify(server.replaceAll("\n", " ")),
+            );
+            await process.waitForPort(8080, { mode: "tcp", timeout: 10000 });
+            return Response.json(
+              await sandbox.exposePort(8080, { hostname: "preview.test" }),
+            );
+          }
+          if (url.pathname === "/stop") {
+            await sandbox.stopForPreview();
+            return new Response(null, { status: 204 });
+          }
+          if (url.pathname === "/wake") {
+            const result = await sandbox.exec("printf awake");
+            return new Response(result.stdout);
+          }
+          if (url.pathname === "/expose")
+            return Response.json(
+              await sandbox.exposePort(8080, { hostname: "preview.test" }),
+            );
+          if (url.pathname === "/unexpose") {
+            await sandbox.unexposePort(8080);
+            return new Response(null, { status: 204 });
+          }
+          if (url.pathname === "/ports")
+            return Response.json(await sandbox.getExposedPorts("preview.test"));
+          if (url.pathname === "/destroy") {
+            await sandbox.destroy();
+            return new Response(null, { status: 204 });
+          }
+          return new Response("missing", { status: 404 });
+        } catch (error) {
+          console.error("Sandbox preview request failed", error);
+          return Response.json(
+            {
+              name: error?.name,
+              message: error?.message,
+              code: error?.code,
+              outcome: error?.outcome,
+            },
+            { status: 500 },
+          );
+        }
+      },
+    },
+  },
+  { namespaces: { Sandbox: "Sandbox" }, containers: ["Sandbox"] },
+);

@@ -10,7 +10,7 @@
   "scripts": {
     "format": "node format.mjs --write",
     "format:check": "node format.mjs --check",
-    "test": "node --test build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs cloudflare-ports.test.mjs cloudflare-http.test.mjs cloudflare-output.test.mjs cloudflare-package.test.mjs delegates.test.mjs rpc-streams.test.mjs rpc-writable.test.mjs rpc-inputs.test.mjs rpc-responses.test.mjs cloudflare-websocket.test.mjs"
+    "test": "node --test node-rejections.test.mjs build.test.mjs node-package.test.mjs node-build.test.mjs containers.test.mjs cloudflare-ports.test.mjs cloudflare-http.test.mjs cloudflare-storage.test.mjs cloudflare-output.test.mjs cloudflare-package.test.mjs delegates.test.mjs rpc-streams.test.mjs rpc-writable.test.mjs rpc-inputs.test.mjs rpc-responses.test.mjs rpc-requests.test.mjs rpc-http-inputs.test.mjs cloudflare-websocket.test.mjs cloudflare-upgrade.test.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.10"
