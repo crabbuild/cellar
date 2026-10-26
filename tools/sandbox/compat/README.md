@@ -219,5 +219,21 @@ The image keeps its pinned digest; the host declares additional port 8080 with
 
 See the [preview guide](../../../packages/cellar-cloudflare/previews.md) for app
 wiring and the [resolved callback/alarm failure](../../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
-for the restored overlapping-barrier regression. HTTP preview acceptance does
-not qualify Worker/DO upgraded routing or complete SDK conformance.
+for the restored overlapping-barrier regression. The separate upgrade checks
+below extend that evidence; complete SDK conformance remains pending.
+
+## Worker/DO WebSocket upgrade forwarding
+
+`web-upgrade.mjs` and the `workers_upgrades` native target exercise real network
+upgrades through a Worker, a Durable Object and the container engine peer. They
+cover local pairs, native container endpoints, namespace acceptance, edited
+headers, native storage callbacks, text/binary frames, clean/abrupt close and a
+local receiver which never calls `accept()`. Native shutdown must drain work and
+leave zero bridge reservations and peer sockets.
+
+The preview image scenario also runs the unchanged `proxyToSandbox` helper
+against an HTTP/WebSocket echo service using Bun 1.3.12 already present in the
+pinned image. It checks both directions, forged-header removal, clean/abrupt
+disconnect and explicit preview re-exposure. No SDK replacement, extra dependency
+installation or image rebuild is involved. These selected Node paths do not
+qualify hibernation or the complete slow-peer/ownership/remote-node fault profile.

@@ -234,14 +234,24 @@ impl Session {
         self.check(context)?;
         if let Some(id) = value.get("forward").and_then(Value::as_str) {
             ensure!(!self.streaming(), "response already started");
+            let headers: Option<Vec<(String, String)>> = value
+                .get("headers")
+                .map(|headers| serde_json::from_value(headers.clone()))
+                .transpose()?;
+            if let Some(headers) = &headers {
+                values::headers(headers)?;
+            }
             self.cancellations.lock().unwrap().remove(id);
-            return Ok(Some(Output::Http(
-                self.responses
-                    .lock()
-                    .unwrap()
-                    .remove(id)
-                    .context("unknown response capability")?,
-            )));
+            let mut response = self
+                .responses
+                .lock()
+                .unwrap()
+                .remove(id)
+                .context("unknown response capability")?;
+            if let Some(headers) = headers {
+                response.headers = headers;
+            }
+            return Ok(Some(Output::Http(response)));
         }
         if self.streaming() {
             ensure!(
@@ -501,7 +511,14 @@ impl Session {
                 let socket = self.socket(context, &value)?;
                 match name {
                     "websocket.accept" => {
-                        if value["hibernating"] == true {
+                        ensure!(
+                            value.get("polled").is_none_or(Value::is_boolean),
+                            Validation
+                        );
+                        if value["polled"] == true {
+                            ensure!(value["hibernating"] != true, Validation);
+                            socket.accept_polled(context)?;
+                        } else if value["hibernating"] == true {
                             socket.accept_hibernating(
                                 context,
                                 serde_json::from_value(value["tags"].clone())
@@ -535,6 +552,9 @@ impl Session {
                         serde_json::from_value(value["code"].clone()).context(Validation)?,
                         field(&value, "reason")?,
                     )?,
+                    "websocket.closed" => {
+                        return socket_event(socket.closed(context).await?, limits.max_body_bytes)
+                    }
                     "websocket.next" => {
                         return socket_event(socket.next(context).await?, limits.max_body_bytes)
                     }

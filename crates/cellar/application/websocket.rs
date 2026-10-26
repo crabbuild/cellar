@@ -65,9 +65,24 @@ pub(crate) struct SocketState {
     upgrade_headers: Option<Vec<(String, String)>>,
     url: Option<String>,
     polled: bool,
+    event_owner: Option<Weak<EventState>>,
     pull: Option<ws::WsPullQueue>,
     transferred: bool,
     attachment: Option<Vec<u8>>,
+}
+
+impl SocketState {
+    fn check_event(&self, context: &Context) -> Result<()> {
+        if let Some(owner) = &self.event_owner {
+            anyhow::ensure!(
+                owner
+                    .upgrade()
+                    .is_some_and(|original| Arc::ptr_eq(&original, &context.state)),
+                "WebSocket belongs to another or retired event"
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Owner {
@@ -116,6 +131,11 @@ impl WebSocketPair {
 }
 
 impl WebSocket {
+    fn check(&self, context: &Context) -> Result<()> {
+        self.owner.check(context)?;
+        self.state.lock().unwrap().check_event(context)
+    }
+
     pub fn ready_state(&self) -> ReadyState {
         let state = self.state.lock().unwrap();
         if state.closed {
@@ -201,7 +221,7 @@ impl WebSocket {
     /// Regular cell sockets retain residency. Stateless sockets receive their
     /// inbound events through `next` and remain owned by the opening request.
     pub fn accept(&self, context: &Context) -> Result<()> {
-        self.owner.check(context)?;
+        self.check(context)?;
         let mut state = self.state.lock().unwrap();
         if state.accepted {
             return Ok(());
@@ -224,10 +244,30 @@ impl WebSocket {
         Ok(())
     }
 
+    /// Accept a server endpoint whose frames are pulled by the opening event.
+    ///
+    /// Unlike an invocation-delivered cell socket, this endpoint needs its
+    /// original event driver to stay alive and is not hibernatable. Cell output
+    /// still passes through that driver's native durability and ownership gates.
+    pub fn accept_polled(&self, context: &Context) -> Result<()> {
+        self.check(context)?;
+        let mut state = self.state.lock().unwrap();
+        if state.accepted {
+            anyhow::ensure!(state.polled, "WebSocket already uses invocation delivery");
+            return Ok(());
+        }
+        host::prepare_worker_handoff(&context.io, self.id);
+        state.pull = ws::ws_pull().lock().unwrap().get(&self.id).cloned();
+        state.polled = true;
+        state.event_owner = Some(Arc::downgrade(&context.state));
+        state.accepted = true;
+        Ok(())
+    }
+
     /// Hibernation metadata lives in the host and survives eviction of the
     /// cell instance. Facet routes retain their original opening proof.
     pub fn accept_hibernating(&self, context: &Context, tags: Vec<String>) -> Result<()> {
-        self.owner.check(context)?;
+        self.check(context)?;
         let identity = context
             .identity
             .as_ref()
@@ -235,6 +275,10 @@ impl WebSocket {
         let facet =
             host::dialing_facet(&context.io, &identity.scope).map_err(anyhow::Error::msg)?;
         let mut state = self.state.lock().unwrap();
+        anyhow::ensure!(
+            state.event_owner.is_none(),
+            "event-owned polled servers cannot hibernate"
+        );
         host::accept(self.id, &identity.scope, tags);
         if let Some(facet) = facet {
             ws::ws_attach_facet(self.id, &identity.scope, facet);
@@ -260,7 +304,7 @@ impl WebSocket {
     }
 
     fn send(&self, context: &Context, frame: ws::WsOut) -> Result<()> {
-        self.owner.check(context)?;
+        self.check(context)?;
         let state = self.state.lock().unwrap();
         anyhow::ensure!(
             state.accepted && !state.closed && !state.closing && !state.connecting,
@@ -271,7 +315,7 @@ impl WebSocket {
     }
 
     pub fn close(&self, context: &Context, code: u16, reason: impl Into<String>) -> Result<()> {
-        self.owner.check(context)?;
+        self.check(context)?;
         anyhow::ensure!(
             (1000..=1014).contains(&code) && ![1004, 1005, 1006].contains(&code)
                 || (3000..=4999).contains(&code),
@@ -291,7 +335,7 @@ impl WebSocket {
     }
 
     pub fn serialize_attachment(&self, context: &Context, value: &StructuredValue) -> Result<()> {
-        self.owner.check(context)?;
+        self.check(context)?;
         let bytes = cellar_native::clone::encode(value)?;
         let mut state = self.state.lock().unwrap();
         if state.accepted {
@@ -302,7 +346,7 @@ impl WebSocket {
     }
 
     pub fn deserialize_attachment(&self, context: &Context) -> Result<Option<StructuredValue>> {
-        self.owner.check(context)?;
+        self.check(context)?;
         self.state
             .lock()
             .unwrap()
@@ -313,7 +357,7 @@ impl WebSocket {
     }
 
     pub fn tags(&self, context: &Context) -> Result<Vec<String>> {
-        self.owner.check(context)?;
+        self.check(context)?;
         let registry = ws::ws_registry();
         let registry = registry.lock().unwrap();
         let meta = registry
@@ -325,14 +369,14 @@ impl WebSocket {
     }
 
     pub fn auto_response_timestamp(&self, context: &Context) -> Result<Option<f64>> {
-        self.owner.check(context)?;
+        self.check(context)?;
         Ok(host::auto_response_timestamp(self.id))
     }
 
-    /// Only stateless server sockets have a pull queue; cell sockets enter
-    /// through the ordinary WebSocket invocation protocol.
-    pub fn next(&self, context: &Context) -> HandlerFuture<SocketEvent> {
-        let prepared = self.owner.check(context).and_then(|()| {
+    /// Observe transport retirement independently of a blocked frame consumer.
+    /// Only an endpoint using event-owned pull delivery supports this wait.
+    pub fn closed(&self, context: &Context) -> HandlerFuture<SocketEvent> {
+        let prepared = self.check(context).and_then(|()| {
             anyhow::ensure!(
                 context.identity.is_none() || self.state.lock().unwrap().polled,
                 "cell sockets receive WebSocket invocations"
@@ -354,6 +398,44 @@ impl WebSocket {
         let state = self.state.clone();
         Box::pin(async move {
             owner.check(&context)?;
+            state.lock().unwrap().check_event(&context)?;
+            let event = match prepared? {
+                Some(queue) => queue.closed().await,
+                None => SocketEvent::Close(1006, String::new(), false),
+            };
+            owner.check(&context)?;
+            state.lock().unwrap().check_event(&context)?;
+            state.lock().unwrap().closed = true;
+            Ok(event)
+        })
+    }
+
+    /// Stateless and explicitly polled server sockets receive frames through
+    /// their opening event; ordinary cell sockets use WebSocket invocations.
+    pub fn next(&self, context: &Context) -> HandlerFuture<SocketEvent> {
+        let prepared = self.check(context).and_then(|()| {
+            anyhow::ensure!(
+                context.identity.is_none() || self.state.lock().unwrap().polled,
+                "cell sockets receive WebSocket invocations"
+            );
+            anyhow::ensure!(
+                self.state.lock().unwrap().accepted,
+                "WebSocket is not accepted"
+            );
+            Ok(self
+                .state
+                .lock()
+                .unwrap()
+                .pull
+                .clone()
+                .or_else(|| ws::ws_pull().lock().unwrap().get(&self.id).cloned()))
+        });
+        let context = context.clone();
+        let owner = self.owner.clone();
+        let state = self.state.clone();
+        Box::pin(async move {
+            owner.check(&context)?;
+            state.lock().unwrap().check_event(&context)?;
             let event = match prepared? {
                 Some(queue) => queue
                     .lock()
@@ -364,6 +446,7 @@ impl WebSocket {
                 None => SocketEvent::Close(1006, "socket is not registered".into(), false),
             };
             owner.check(&context)?;
+            state.lock().unwrap().check_event(&context)?;
             if matches!(&event, SocketEvent::Close(..)) {
                 state.lock().unwrap().closed = true;
             }
@@ -379,7 +462,7 @@ impl Upgrade {
         headers: Vec<(String, String)>,
     ) -> Result<HttpResponse> {
         let socket = self.0;
-        socket.owner.check(context)?;
+        socket.check(context)?;
         let mut state = socket.state.lock().unwrap();
         anyhow::ensure!(
             state.accepted,
@@ -387,12 +470,16 @@ impl Upgrade {
         );
         anyhow::ensure!(!state.transferred, "WebSocket upgrade already transferred");
         let websocket = match &context.identity {
+            _ if state.polled => HttpResponseWebSocket::Worker(
+                host::transfer_worker_handoff(&context.io, socket.id, true)
+                    .ok_or_else(|| anyhow!("polled WebSocket handoff is not registered"))?,
+            ),
             Some(identity) => HttpResponseWebSocket::Cell(
                 host::cell_target(&context.io, socket.id, &identity.scope)
                     .map_err(anyhow::Error::msg)?,
             ),
             None => HttpResponseWebSocket::Worker(
-                host::transfer_worker_handoff(&context.io, socket.id)
+                host::transfer_worker_handoff(&context.io, socket.id, false)
                     .ok_or_else(|| anyhow!("WebSocket handoff is not registered"))?,
             ),
         };
@@ -463,9 +550,9 @@ impl Context {
         let context = self.clone();
         Box::pin(async move {
             let mut guard = guard;
-            socket.owner.check(&context)?;
+            socket.check(&context)?;
             binding.await?;
-            socket.owner.check(&context)?;
+            socket.check(&context)?;
             socket.state.lock().unwrap().connecting = false;
             guard.completed = true;
             Ok(socket)
@@ -666,9 +753,9 @@ impl Context {
         let context = self.clone();
         Box::pin(async move {
             let mut guard = guard;
-            socket.owner.check(&context)?;
+            socket.check(&context)?;
             let open = opening.await?;
-            socket.owner.check(&context)?;
+            socket.check(&context)?;
             if let Some(declined) = open.declined {
                 return Ok(UpgradeResponse::Declined(HttpResponse {
                     status: declined.status,

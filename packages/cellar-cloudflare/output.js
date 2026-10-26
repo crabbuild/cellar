@@ -1,14 +1,30 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { headerPairs, httpLimit } from "./http.js";
+import { encodeWebSocketResponse } from "./websocket-upgrade.js";
+import { cancelUntransferredWebSocket } from "./websocket.js";
 
 /** Convert a web Response without consuming its body before the native head. */
 export function encodeStreamResponse(response, context) {
-  if (!(response instanceof Response) || response.webSocket) {
-    throw new TypeError(
-      "Expected an HTTP Response without a WebSocket upgrade",
-    );
-  }
+  if (!(response instanceof Response))
+    throw new TypeError("Expected an HTTP Response");
+  if (response.webSocket)
+    return (async () => {
+      try {
+        return await encodeWebSocketResponse(
+          response,
+          context,
+          headerPairs(response.headers),
+        );
+      } catch (error) {
+        // A failed head must not retain an accepted local peer forever. A
+        // foreign or already-transferred endpoint is never cancelled here.
+        try {
+          await cancelUntransferredWebSocket(response.webSocket, context);
+        } catch {}
+        throw error;
+      }
+    })();
   if (response.bodyUsed) {
     const error = new TypeError(
       "The returned Response body has already been used",

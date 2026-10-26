@@ -93,7 +93,10 @@ pub async fn execute_with_signal(
             .fetch_stream(context, value, options, signal, &state.transport)
             .await;
     }
-    if matches!(name, "response.closed" | "response.read") {
+    if matches!(
+        name,
+        "response.closed" | "response.read" | "websocket.next" | "websocket.closed"
+    ) {
         let call = state.transport.execute(context, name, value, options);
         return match signal {
             None => call.await,
@@ -171,6 +174,7 @@ pub fn is_read(name: &str) -> bool {
             | "kv.get"
             | "kv.list"
             | "websocket.next"
+            | "websocket.closed"
             | "response.read"
             | "response.cancel"
             | "response.closed"

@@ -97,6 +97,12 @@ Asynchronous alarm controls yield while native callback admission is held. The
 [overlapping callback/alarm regression](../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
 passes with the original stop barrier; the complete callback profile remains open.
 
-HTTP previews are a selected local profile. Worker/DO WebSocket upgrade
-forwarding, tunnels, bucket mounts, complete abrupt-disconnect/ownership fault
-qualification and Sandbox 1.x require separate evidence.
+The same published preview helper now forwards WebSocket upgrades through Worker,
+Durable Object and container boundaries. The pinned-image fixture runs a small
+HTTP/WebSocket echo service using its included Bun 1.3.12; it checks text/binary
+frames, routing-header removal, clean close and abrupt disconnect before and
+after explicit re-exposure. It does not replace the SDK or change the image.
+
+These are selected Node preview paths. Tunnels, bucket mounts, full slow-peer,
+ownership-loss and remote-node qualification, hibernation and Sandbox 1.x require
+separate evidence.

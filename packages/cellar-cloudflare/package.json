@@ -23,6 +23,8 @@
     "container.js",
     "port.js",
     "websocket.js",
+    "websocket-upgrade.js",
+    "websocket-forward.js",
     "websocket-pair.js",
     "response.js",
     "output.js",

@@ -262,6 +262,7 @@ struct WsPullSendState {
 #[derive(Clone)]
 pub struct WsPullSender {
     state: Arc<std::sync::Mutex<WsPullSendState>>,
+    closed: tokio::sync::watch::Sender<Option<(u16, String, bool)>>,
     #[cfg(all(test, cellar_internal_tests))]
     queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
     capacity: Arc<tokio::sync::Semaphore>,
@@ -272,6 +273,7 @@ pub struct WsPullReceiver {
     capacity: Arc<tokio::sync::Semaphore>,
     retirement: tokio::sync::watch::Sender<bool>,
     retired: tokio::sync::watch::Receiver<bool>,
+    closed: tokio::sync::watch::Receiver<Option<(u16, String, bool)>>,
     #[cfg(all(test, cellar_internal_tests))]
     queued_bytes: Arc<std::sync::atomic::AtomicUsize>,
 }
@@ -282,8 +284,10 @@ pub fn ws_pull_channel() -> (WsPullSender, WsPullReceiver) {
     let queued_bytes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let capacity = Arc::new(tokio::sync::Semaphore::new(WS_PULL_QUEUE_MAX_BYTES));
     let (retirement, retired) = tokio::sync::watch::channel(false);
+    let (closed, closure) = tokio::sync::watch::channel(None);
     (
         WsPullSender {
+            closed,
             state: Arc::new(std::sync::Mutex::new(WsPullSendState {
                 tx,
                 terminal_sent: false,
@@ -293,6 +297,7 @@ pub fn ws_pull_channel() -> (WsPullSender, WsPullReceiver) {
             capacity: capacity.clone(),
         },
         WsPullReceiver {
+            closed: closure,
             rx,
             capacity,
             retirement,
@@ -370,6 +375,7 @@ impl WsPullSender {
     /// owns capacity. Closing the semaphore wakes every sender that still waits
     /// for capacity, so a stopped isolate cannot keep a host socket task alive.
     pub fn send_close(&self, code: u16, reason: String, was_clean: bool) -> Result<(), WsPull> {
+        let closure = (code, reason.clone(), was_clean);
         let frame = WsPull::Close(code, reason, was_clean);
         #[cfg(all(test, cellar_internal_tests))]
         let bytes = frame.queue_bytes();
@@ -378,6 +384,7 @@ impl WsPullSender {
             return Err(frame);
         }
         state.terminal_sent = true;
+        self.closed.send_replace(Some(closure));
         self.capacity.close();
         #[cfg(all(test, cellar_internal_tests))]
         self.queued_bytes
@@ -444,11 +451,23 @@ pub(crate) struct WsPullQueueState {
     receiver: tokio::sync::Mutex<WsPullReceiver>,
     capacity: Arc<tokio::sync::Semaphore>,
     retirement: tokio::sync::watch::Sender<bool>,
+    closed: tokio::sync::watch::Receiver<Option<(u16, String, bool)>>,
 }
 
 impl WsPullQueueState {
     pub(crate) async fn lock(&self) -> tokio::sync::MutexGuard<'_, WsPullReceiver> {
         self.receiver.lock().await
+    }
+
+    pub(crate) async fn closed(&self) -> WsPull {
+        let mut closed = self.closed.clone();
+        let mut retired = self.retirement.subscribe();
+        let closure = crate::asyncrt::select_biased! { "a terminal frame preserves its metadata across transport retirement";
+            result = closed.wait_for(Option::is_some) => result.ok().and_then(|value| value.clone()),
+            _ = retired.wait_for(|retired| *retired) => self.closed.borrow().clone(),
+        };
+        let (code, reason, clean) = closure.unwrap_or_else(|| (1006, String::new(), false));
+        WsPull::Close(code, reason, clean)
     }
 
     fn retire(&self) {
@@ -470,6 +489,7 @@ pub fn ws_pull_register(id: u64, rx: WsPullReceiver) {
         Arc::new(WsPullQueueState {
             capacity: rx.capacity.clone(),
             retirement: rx.retirement.clone(),
+            closed: rx.closed.clone(),
             receiver: tokio::sync::Mutex::new(rx),
         }),
     );
@@ -485,6 +505,47 @@ pub fn ws_pull_unregister(id: u64) {
 #[cfg(all(test, not(cellar_internal_tests)))]
 mod retirement_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn close_observation_preserves_queued_frames_without_waiting_for_the_reader() {
+        let id = ws_next_id();
+        let (sender, receiver) = ws_pull_channel();
+        ws_pull_register(id, receiver);
+        let queue = ws_pull().lock().unwrap().get(&id).unwrap().clone();
+        assert!(sender
+            .send(WsPull::Binary(vec![0; WS_PULL_QUEUE_MAX_BYTES]))
+            .await
+            .is_ok());
+        let pending = sender.send(WsPull::Text("blocked".into()));
+        let mut pending = std::pin::pin!(pending);
+        assert!(futures_util::poll!(&mut pending).is_pending());
+        let mut reader = queue.lock().await;
+        let closed = queue.closed();
+        let mut closed = std::pin::pin!(closed);
+        assert!(futures_util::poll!(&mut closed).is_pending());
+        assert!(sender.send_close(3001, "peer".into(), true).is_ok());
+        assert!(matches!(closed.await, WsPull::Close(3001, reason, true) if reason == "peer"));
+        assert!(pending.await.is_err());
+        assert!(matches!(reader.recv().await, Some(WsPull::Binary(_))));
+        assert!(
+            matches!(reader.recv().await, Some(WsPull::Close(3001, reason, true)) if reason == "peer")
+        );
+        ws_pull_unregister(id);
+        assert!(matches!(queue.closed().await, WsPull::Close(3001, _, true)));
+    }
+
+    #[tokio::test]
+    async fn close_observation_reports_abrupt_retirement_without_a_terminal_frame() {
+        let id = ws_next_id();
+        let (_sender, receiver) = ws_pull_channel();
+        ws_pull_register(id, receiver);
+        let queue = ws_pull().lock().unwrap().get(&id).unwrap().clone();
+        ws_pull_unregister(id);
+        assert!(matches!(
+            queue.closed().await,
+            WsPull::Close(1006, _, false)
+        ));
+    }
 
     #[tokio::test]
     async fn unregister_releases_backpressure_with_a_retained_reader() {

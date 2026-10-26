@@ -66,7 +66,8 @@ returned HTTP responses also preserve metadata and streamed body ownership.
 Node Request/Response RPC arguments and Request results also pass their native
 slice. The published HTTP preview helper now passes binary forwarding, token
 checks, stale-runtime refusal and explicit re-exposure against the pinned image.
-Full lifetime/fault and upgraded-preview qualification remain open.
+Worker/DO upgrade forwarding and selected WebSocket preview round trips also pass.
+Full lifetime/upgrade/fault qualification remains open.
 See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start

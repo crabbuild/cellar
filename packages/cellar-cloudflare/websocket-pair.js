@@ -75,6 +75,7 @@ export function installSocketGlobals(current) {
               { id: "local-pair" },
               adapter,
               authority,
+              owner,
             );
             localSockets.add(socket);
             return socket;

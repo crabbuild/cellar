@@ -893,6 +893,7 @@ async fn exercise_preview(
             response.bytes().await?.as_ref() == [0_u8, 255, 42],
             "preview changed binary bytes"
         );
+        preview_websocket(&routed, preview.clone(), &hostname, false).await?;
         ensure!(
             routed.get(wrong).send().await?.status().as_u16() == 404,
             "invalid preview token reached the service"
@@ -942,6 +943,7 @@ async fn exercise_preview(
             routed.get(preview.clone()).send().await?.status().as_u16() == 207,
             "explicit re-exposure did not activate the new runtime"
         );
+        preview_websocket(&routed, preview.clone(), &hostname, true).await?;
         client
             .get(format!("{address}/unexpose"))
             .send()
@@ -957,5 +959,54 @@ async fn exercise_preview(
     let destroyed = client.get(format!("{address}/destroy")).send().await;
     result?;
     destroyed?.error_for_status()?;
+    Ok(())
+}
+
+async fn preview_websocket(
+    client: &reqwest::Client,
+    url: url::Url,
+    hostname: &str,
+    abrupt: bool,
+) -> Result<()> {
+    use fastwebsockets::{Frame, OpCode, Role, WebSocket};
+    let response = client
+        .get(url)
+        .header("connection", "upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-version", "13")
+        .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .header("x-sandbox-preview-token", "forged")
+        .header("x-sandbox-preview-port", "3000")
+        .send()
+        .await?;
+    ensure!(
+        response.status().as_u16() == 101,
+        "SDK preview upgrade: {}",
+        response.text().await?
+    );
+    ensure!(
+        response.headers()["x-preview-host"] == hostname
+            && response.headers()["x-preview-internal"] == "clean",
+        "WebSocket preview leaked routing headers"
+    );
+    let mut socket = WebSocket::after_handshake(response.upgrade().await?, Role::Client);
+    for (opcode, bytes) in [
+        (OpCode::Text, b"preview".to_vec()),
+        (OpCode::Binary, vec![0, 255, 42]),
+    ] {
+        socket
+            .write_frame(Frame::new(true, opcode, None, bytes.clone().into()))
+            .await?;
+        let frame = tokio::time::timeout(Duration::from_secs(5), socket.read_frame()).await??;
+        ensure!(
+            frame.opcode == opcode && frame.payload.as_ref() == bytes,
+            "preview changed WebSocket bytes"
+        );
+    }
+    if !abrupt {
+        socket
+            .write_frame(Frame::close(1000, b"preview done"))
+            .await?;
+    }
     Ok(())
 }
