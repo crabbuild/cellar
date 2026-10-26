@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000",
+  "revision": "c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -12,11 +12,11 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "a164cf31787cf826d958fdc31a19b64896b6dba4949be5ec66c6fbbfd7dafdaf"
+      "sha256": "bc6c543c02ed8a966672f8fe9aafa0c5676ffbc59bac99a943ada30e4e5c20c9"
     },
     {
       "path": "Cargo.toml",
-      "sha256": "0ffecc96c1e03eeafa183d3d6382a0c00d12bc8f8f43b8a61048a8d684387bbc"
+      "sha256": "7dd0572d6b33d8a2084d5718c5135bf8d1014fc112ba110c06c85f60c5e69e59"
     },
     {
       "path": "crates/cellar-admin/api.rs",
@@ -56,11 +56,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "f8a9e3af3ed2670e669f721593269f4127ab09df6f73bbaa2862e300d60be5ee"
+      "sha256": "819a2f514c88d6a14313bb003935b3f2726fc2a01e5944a9834864e8f93694b0"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "9d410f18e169feb8d71cabe371492efb416ab34e4852c58c0df190d9a5c25f91"
+      "sha256": "9e8df2b10dcb349420373656af1195448fbba7e3b20fb3b5b92366bb651af3cf"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -272,7 +272,7 @@
     },
     {
       "path": "crates/cellar/node/mod.rs",
-      "sha256": "cdb43a4dc797fb08395c4ce1504e68f365979a97f0f56224baf6abf4719e3883"
+      "sha256": "c824a189e38135e9704c046cd9a632fccc750d12a3d31cd9557e9982765376c6"
     },
     {
       "path": "crates/cellar/node/network/management.rs",
@@ -328,5 +328,5 @@
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Reviewed main d3206c92 and exact-boot isolation for successful obsolete-voter repairs. Full durable membership still governs placement/quorum while network routes omit quarantined endpoints. Terminal isolated-node removal, owned controller execution, assignment generation and operator workflows remain unfinished; automatic fleet management stays default-off. Local source qualification is retained outside runtime data. No deployed RustFS, enforced Colima resources, TPS/p99 or soak qualification. Behavioral source 3834c560e1215f7555ec796a50265df7f1a497f6 passes 426 affected core/host cases. Final test-only filesystem successor bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000 passes three focused isolation cases, host all-target Clippy and repository checks. Production/configuration hashes are unchanged; broad regression was not repeated for the test-only correction."
+  "review_note": "Reviewed main 80026d16 and typed terminal isolated-node removal. Behavioral merge 7ca741d46894a8744a54efe3410eb0b44a5898f0 completes 429 core/host cases across retained initial/resumed runs on unchanged binaries. Test-only successors d5705f39249fbf7bc312460daa2b33dc67df56b7 and c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88 preserve production/configuration hashes and pass six required archive cases, four SQLite binding tests, three native typed-RPC cases, all-target Clippy and repository checks. Combined 435 fleet/core cases cover all 141 FO-03 requirements. Initial permit failures remain unestablished after 20 differential repetitions and a passing full-suite rerun; no assertion, deadline or stack was relaxed. Broad regression was not repeated for unrelated fixture corrections. Primary artifacts remain outside runtime data. FO-01 through FO-03 are complete at local adapter boundaries; FO-04 and FO-07 remain in progress. Resumable execution, assignment generation, rolling maintenance, operator/capacity workflows and deployed RustFS/Colima performance, faults and soak remain unfinished. Automatic fleet management stays default-off."
 }

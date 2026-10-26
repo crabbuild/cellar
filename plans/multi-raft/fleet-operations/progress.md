@@ -1,10 +1,65 @@
 # Fleet operations implementation progress
 
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
-complete at their documented local adapter boundaries.** FO-04 is in progress;
-FO-05 through FO-10 remain pending. Automatic redistribution, operator commands,
-managed maintenance and resize are not delivered. The task manifest is the
-package-status source of truth. Historical sections below record earlier states.
+complete at their documented local adapter boundaries.** FO-04 and FO-07 are in
+progress; FO-05, FO-06 and FO-08 through FO-10 remain pending. Automatic
+redistribution, operator commands, managed maintenance and resize are not
+delivered. The task manifest is the package-status source of truth. Historical sections below record earlier states.
+
+## Terminal isolated-node removal delivery
+
+Source `cfda0e7823c72f49a10b90967104af077be19dae` adds a distinct terminal path for nodes
+with admitted deployment isolation. `begin_isolated_finalization` validates the
+exact quarantined boot and journal after complete survivor/archive verification;
+it requires no RPC to the unavailable node and produces no graceful stop selector.
+`complete_isolated_evacuation` renews current inventory, survivor quorum and
+process proofs before one CAS records the isolation receipt, preserves the
+quarantined disk/engine tombstone, marks Removed and releases the exact shared
+disruption slot. The reachable closure-based path retains its signed proof and
+public API. Typed selector/journal checks prevent switching evidence kinds on a
+retry.
+
+Three native cases pass on the frozen implementation: actual resource-backed S3
+replacement through movement settlement, physical replay and terminal removal;
+a later survivor failure; and a later incomplete namespace. The composed case
+also covers lost finalization/removal replies, adapter recreation, rejection of
+graceful proof substitution, admission of the next node operation, retry of the
+old receipt without releasing the new slot, retained storage and subsequent
+business writes. Primary source/binary artifacts are outside runtime data in
+`qualification/fleet-operations/isolated-removal-v1/`. The pre-merge source
+passes all 429 affected core/host cases and all-target Clippy plus repository
+checks in `isolated-removal-v2/`.
+
+Main `80026d16e951ecea785a817cbbd8b305a8f2d63e` was then integrated through
+merge source `7ca741d46894a8744a54efe3410eb0b44a5898f0`. The fleet Raft and consensus API files are unchanged by
+the merge; shared application, node, storage and binding changes are included.
+The unchanged merged binaries complete **429 core/host cases** across the
+initial and resumed runs: enrollment 129, catalog 12,
+permits 25, directory 16, host 32, execution 21, reads 22 and Raft units 172.
+Integration checks then caught an ignored authorizer-installation result in a
+new-main SQLite test and an old typed-RPC test-helper call. Successors
+`d5705f39249fbf7bc312460daa2b33dc67df56b7` and `c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88`
+correct those fixtures while preserving all production Rust and Cargo inputs.
+
+The SQLite successor passes six targeted empty-archive/publication-origin cases
+and four binding tests. The final RPC fixture successor passes all three native
+typed-RPC cases, all-target Clippy with warnings denied, formatting, layout,
+dependency and documentation checks. The combined **435 fleet/core cases
+cover all 141 required FO-03 cases**. The broad cohort was not repeated for these
+unrelated test-only corrections. Frozen inputs, immutable binaries, logs and audit
+remain outside runtime data in `isolated-removal-main-v3/`,
+`isolated-removal-main-resume-v6/`, `isolated-removal-archive-v4/`,
+`isolated-removal-compat-v7/` and `isolated-removal-permit-repro-v5/`. The original integration-check failures are retained. Two initial permit cases failed with startup
+readiness and no-leader outcomes. The same binaries pass 20 exact differential
+repetitions and all 25 permit cases without changes; their cause remains
+unestablished and the original failure is retained. No
+assertion, timeout or stack bound was relaxed.
+
+FO-07 is now in progress for this delivered evacuation boundary. Rolling restart,
+resize, reversible admission gates, cancellation and complete operator/controller
+orchestration remain unfinished. Deployment isolation still comes from trusted
+platform evidence supplied by the caller; no independent platform integration or
+RustFS/Colima performance qualification is claimed.
 
 ## Isolated-node repair delivery
 
@@ -44,8 +99,9 @@ checkout-private `qualification/fleet-operations/isolation-v5/` and
 the Clippy failure are retained separately. No assertion, timeout or stack bound
 was relaxed. No deployed RustFS, enforced Colima limits, throughput/latency or
 soak is claimed.
-Terminal isolated-node removal, deployment fencing integration and an automatic
-controller remain separate delivery work.
+At that source, terminal isolated-node removal, deployment fencing integration
+and an automatic controller remained separate work. The terminal path above is
+the newer delivery; platform integration and automatic orchestration remain pending.
 
 ## Merged-main host qualification
 
@@ -286,28 +342,26 @@ witnesses; they are not live movement, TPS or resource-envelope qualification.
 
 ## Next feature priorities
 
-1. Complete terminal removal for a node with admitted external isolation. Own
-   current complete inventory, stable RF3 survivor proofs and archive replay;
-   retain the quarantined disk/engine and release the shared disruption slot only
-   in a terminal CAS. Movement completion alone cannot authorize another node
-   evacuation. Also implement separate cleanup rules for aborted/unstarted moves.
-2. Deliver an owned resumable move executor around resource-backed admission,
+1. Deliver an owned resumable move executor around resource-backed admission,
    learner seeding, joint completion and terminal settlement. Persist effect
    identity/cursor, reconcile ambiguous replies and revalidate each next permit.
    Start with explicit verified layouts; optional workload balancing need not
-   delay this execution path.
-3. Collect complete authenticated fleet inputs and generate final assignments
+   delay this execution path. Include distinct cleanup for unstarted/aborted
+   work and reconciliation of changed boots without freeing uncertain resources.
+2. Collect complete authenticated fleet inputs and generate final assignments
    from topology intent and measured role costs. Preserve retained bindings,
    physical headroom, keep-sets, failure domains and bounded recovery witnesses.
    Add load-aware leader balancing and cooldown as an optional policy layer.
-4. Expose add/drain/maintenance/remove and capacity scaling through the operator
-   API/CLI, then qualify RustFS/Colima at enforced resources with foreground
-   TPS/p99 and fault recovery. Automatic redistribution remains default-off.
+3. Deliver rolling maintenance/restart/resize and expose add/drain/remove plus
+   capacity scaling through the operator API/CLI. Reconcile cancellation with
+   committed moves and physical worker ownership before reporting completion.
+4. Qualify RustFS/Colima at enforced resources with foreground TPS/p99, repeated
+   node failures and soak. Automatic redistribution remains default-off.
 
-FO-04 remains in progress. FO-05 through FO-10 retain their load policy,
-controller, maintenance, operator, capacity-scaling and deployed qualification
-scope. The isolated-owner movement boundary closes repeated repair settlement;
-it does not complete terminal isolated-node removal or an automatic controller.
+FO-04 and FO-07 remain in progress. FO-05, FO-06 and FO-08 through FO-10 retain
+their load policy, controller, operator, capacity-scaling and deployed qualification
+scope. Repeated isolated-owner repair settlement and terminal node removal now
+have explicit adapter paths; automatic fleet orchestration remains unfinished.
 
 ## Historical implementation checkpoints
 

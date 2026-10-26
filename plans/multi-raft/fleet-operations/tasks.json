@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "bdb20e2bcaf7e2be4e5ba52d1bfc6ef7d5ede000",
+  "baseline_revision": "c5f40e8cb7e24f91b2cb5e9b0a4f71fb1680bd88",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2165,7 +2165,8 @@
       "evidence": [
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/completion-merged-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/isolated-removal-regression.json"
       ]
     },
     {
@@ -2945,7 +2946,7 @@
     {
       "id": "FO-07",
       "title": "Prove restart readiness and complete node evacuation",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "FO-06"
       ],
@@ -2957,11 +2958,16 @@
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/records.rs",
         "crates/cellar/node/embedded.rs",
-        "crates/cellar/node/lifecycle.rs"
+        "crates/cellar/node/lifecycle.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/fencing.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/terminal.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/mod.rs",
+        "crates/cellar/tests/support/raft_evacuation_verification.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
-        "crates/cellar/tests/native_raft_fleet_maintenance.rs"
+        "crates/cellar/tests/native_raft_fleet_maintenance.rs",
+        "crates/cellar/tests/support/raft_isolated_removal.rs"
       ],
       "steps": [
         "Implement separate restart and evacuation lifecycle transitions with durable operator intent.",
@@ -2969,7 +2975,8 @@
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
         "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot.",
-        "Separate monotonic absence closure from expiring health proofs; reconcile lost stop replies before releasing disruption ownership."
+        "Separate monotonic absence closure from expiring health proofs; reconcile lost stop replies before releasing disruption ownership.",
+        "Complete terminal isolated-node evacuation through a distinct admitted isolation selector and receipt. Preserve complete inventory, fresh RF3 survivor and physical archive replay checks; quarantine remains permanent, retained storage is not reclaimed, and the exact shared disruption slot is released only by the terminal CAS. Reconcile finalization/removal lost replies before live prerequisites and reject proof-kind rebinding."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -3118,6 +3125,35 @@
             "F07",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_isolated_removal_repairs_replays_and_releases_slot",
+          "oracle": "Actual resource-backed replacement of a physically joined obsolete node settles, replays archive coverage, finalizes and removes using admitted isolation. Lost finalization/removal replies reconcile after adapter recreation; typed graceful/isolation selector rebinding refuses. The next node operation is admitted, and retrying the old receipt cannot release its new slot. Retained engine and quarantine remain.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_removal_failed_survivor_keeps_slot",
+          "oracle": "A survivor failure after positive verification refuses terminal isolated removal and keeps the shared disruption slot.",
+          "invariants": [
+            "F01",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_removal_changed_inventory_keeps_slot",
+          "oracle": "A later incomplete namespace invalidates prior verification and blocks isolated-node terminal completion.",
+          "invariants": [
+            "F04",
+            "F05",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3144,7 +3180,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        ".cellar/raft-perf/fleet-operations/implementation/fo07/isolated-removal.json"
+      ]
     },
     {
       "id": "FO-08",
