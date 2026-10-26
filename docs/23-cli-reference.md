@@ -70,6 +70,22 @@ alone does not prove application drain. See the [supervisor contract and service
 template](../tools/python/README.md#process-supervision) for policy,
 supported platforms and qualification commands.
 
+## Managed Raft replica placement
+
+The dedicated `cellar` binary exposes `raft fleet status`, `rebalance`, and
+`operation status|progress|wait|cancel`. Connect it to the authenticated admin
+server with `--fleet`, `--admin-url` (or `CELLAR_ADMIN_URL`) and a token from
+`CELLAR_ADMIN_TOKEN` or `--token-file`. First read fleet status; all operation
+commands require its `--catalog-id` generation pin. Rebalance also requires an
+explicit `--keep` node set, policy file, operation ID and expected root revision.
+
+Use the [runnable keep-set workflow](../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
+for complete syntax, response phases, permissions and exact retry rules. These
+commands operate on an already enrolled fleet with an explicitly started
+node-owned topology controller. Admission, historical placement convergence and
+cancelled partial work have distinct results. Wait expiry leaves work running.
+Node add/activate/maintenance/resize/remove commands remain unfinished.
+
 ## Offline typed RPC checks
 
 Check a generated contract before packaging an application:

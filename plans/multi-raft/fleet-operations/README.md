@@ -4,12 +4,14 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. FO-01 through FO-03 are complete; FO-04 is in progress. Complete fleet
-management APIs and operator commands remain delivery targets. `tasks.json` retains
-exact package status. Successful movement completion and a pure staged-topology
-verifier are delivered; automatic assignment and the resumable controller remain
-unfinished. The next healing prerequisite is isolation-backed completion for
-unreachable original voters, whose movement debt currently remains charged.
+with local verification. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07
+and FO-08 are in progress. Healthy assignment and the explicit resumable topology
+controller are implemented. The operator SDK/admin/CLI now exposes keep-set
+rebalance, status, progress, wait and cancellation. Complete node lifecycle
+commands remain delivery targets. `tasks.json` retains exact package status.
+The next priorities are scalable convergence, controller-driven failure recovery
+using the existing trusted-isolation and movement-settlement APIs, and guarded
+maintenance/rejoin. Unconfirmed closure keeps movement debt charged.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware
 leadership balancing, and operator-controlled node addition, maintenance and
@@ -41,7 +43,7 @@ Read these documents in order:
    sequencing and user-visible completion proofs.
 6. [Implementation plan](implementation-plan.md): deliverable work packages,
    dependencies, code ownership and acceptance gates.
-7. [Operator workflows](operator-workflows.md): future CLI contract and safe
+7. [Operator workflows](operator-workflows.md): delivered keep-set commands, remaining CLI contract, and safe
    add, restart, evacuate, return and remove procedures.
 8. [Qualification](qualification.md): failure matrix, performance gates and
    completion evidence.

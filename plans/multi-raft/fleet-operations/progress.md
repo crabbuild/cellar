@@ -1,12 +1,63 @@
 # Fleet operations implementation progress
 
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
-complete at their documented local adapter boundaries.** FO-04, FO-06 and FO-07 are in
-progress; FO-05 and FO-08 through FO-10 remain pending. Healthy desired
-placement now has an explicit owned convergence service. Operator commands,
-failure-driven recovery, managed maintenance and resize remain unfinished.
+complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07 and
+FO-08 are in progress; FO-05, FO-09 and FO-10 remain pending. Healthy desired
+placement has an explicit owned convergence service and authenticated operator
+SDK/admin/CLI access. Complete node lifecycle commands, failure-driven recovery,
+managed maintenance and resize remain unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Operator SDK, admin API and CLI delivery
+
+`cellar::sdk::fleet_operations::RaftFleetControl`, authenticated admin routes
+under `/api/v1/fleets/{fleet}/raft`, and the dedicated `cellar raft fleet` CLI
+expose keep-set rebalance, operation status, paginated movement admissions,
+wait and cancellation. The existing-root server connection verifies the complete
+namespace inventory without initializing roots or starting a controller.
+The [runnable workflow](operator-workflows.md#delivered-keep-set-workflow) documents
+configuration, permissions, catalog pins, exact retries and result phases.
+
+Mutations require a catalog-generation digest, exact request ID and expected
+root revision. Separate topology/cancellation grants precede durable audit;
+server authentication supplies the principal. An existing audit request still
+reconciles the real catalog, and a late failed retry cannot downgrade a confirmed
+admission. Wait expiry leaves durable intent unchanged. Historical convergence,
+cancelled partial work and physical resource release remain distinct.
+
+Rust source `4051b2baa61f8b7b6c719d0fc1f39e7e72dd3420` passes **484 selected
+native cases across the recorded cohort and unchanged read rerun**, including
+all 141 required FO-03 cases, three CLI cases and two real five-node operator
+scenarios, plus **20 admin tests**. The operator scenarios use two live RF3
+histories, actual CLI child processes and authenticated TCP admin requests;
+they verify lost replies, canonical retries, permissions, catalog mismatch,
+pagination, partial cancellation and SQL values 7 to 12 to 21. Two pre-existing
+process-test child entrypoints remain ignored for direct execution.
+
+The first read cohort passed 20 of 22 cases; two failed during startup deadlines.
+Both cases passed in isolation on candidate and published control binaries,
+and the complete unchanged 22-case read rerun passed. Their cause remains
+unproven. Original failures are retained and no startup budget was increased.
+A separate fenced-movement probe reproduced a rejected activation with a charged
+pending initializer and no physical history. That test now checks physical
+absence throughout initializer exit, then requires zero slots before settlement;
+production behavior, fencing and activation budgets are unchanged.
+
+All-target host/admin Clippy with warnings denied, Rust format/layout, native
+dependency and documentation checks, ten plan tests, manifest validation and
+88-anchor preflight pass. The audit matches all 1,431 Rust/Cargo/configuration
+inputs to the committed source and checks retained executables and output
+hashes. JavaScript formatting (80 sources), 34 affected JavaScript fixture tests
+and console TypeScript checking pass. Primary artifacts and failed attempts are
+outside runtime data in checkout-private
+`qualification/fleet-operations/operator-final-v2/`.
+
+FO-08 remains in progress: node add/activate/drain/stop/remove/resize, dry-run
+and rolling maintenance commands are unfinished. Failure-driven controller
+recovery, leader/load policy, retirement and deployed RustFS/Colima resource,
+performance, fault and soak qualification remain open. The local correctness
+fixtures do not establish 500/1,500-group capacity or foreground TPS/p99.
 
 ## Durable desired placement and owned convergence
 
@@ -78,30 +129,41 @@ all target checks.
 
 ## Next feature delivery order
 
-1. **Operator access (FO-08):** expose the implemented begin/status/paginated
-   progress/cancel transitions through authenticated SDK management, admin and
-   CLI entry points. Preserve exact request identity, revision conflicts and
-   unknown outcomes. Deliver a runnable add-capacity and keep-set contraction
-   workflow; do not advertise commands backed only by this design.
-2. **Scalable convergence (FO-04/FO-06):** avoid a complete fleet walk after
-   every settled move. At the default 500 ms interval, a 500-history walk alone
+Keep-set operator access is delivered at the boundary above. Extend the same
+catalog-pinned audit and permission surface as lifecycle features become usable;
+add/activate/drain/stop/remove/resize and dry-run commands remain unfinished.
+
+1. **Scalable convergence (FO-04/FO-06), next implementation priority:** avoid a
+   complete fleet walk after every settled move. At the default 500 ms interval, a 500-history walk alone
    takes about 250 seconds before I/O; this is a pacing lower bound, not a
    deployed timing measurement. Reuse verified configuration only across an
    exact journal-confirmed controller-owned transition; invalidate it on external
    birth, membership, boot or policy changes. Renew node capacity and the moved
    group's quorum observations. Verify 500-group collection/convergence cost
-   before enabling automation; do not trade away proof freshness.
-3. **Failure recovery (FO-06/FO-07):** integrate trusted exact-boot isolation or
-   joined old-domain closure with survivor quorum and repair. Exercise a dead
-   voter, changed process and lost reply. A timeout never authorizes replacement
-   or releases retained storage; unavailable quorum remains explicitly blocked.
-4. **Maintenance (FO-07/FO-08):** finish readiness, guarded stop, verified rejoin
-   and one-at-a-time rolling maintenance on the same operation/audit surface.
-   Add cancellation with partial effects before resize workflows.
-5. **Capacity lifecycle (FO-09):** add effective profile reconciliation, retained
+   before enabling automation; do not trade away proof freshness. At five nodes
+   and 500 histories, the current service/input/planning reservations total
+   22,511,168 bytes (about 21.5 MiB) before probe work, exceeding the default
+   16 MiB control pool. This is a calculated admission bound, not measured RSS;
+   large-group host configuration must account for it. Measure retained/probe
+   memory and resident-group limits, and provide an explicit fit/refusal before
+   qualifying 1-vCPU/3-GiB use.
+2. **Failure recovery (FO-06/FO-07):** automate failure classification, spare
+   selection and repair admission using the existing exact-boot isolation and
+   movement-settlement APIs. Trusted isolation already allows verified obsolete
+   seed-owner closure; the three-history native test exercises it beyond the
+   active movement-book limit. The remaining gap is the controller-driven
+   recovery workflow and its trusted deployment isolation provider. Exercise a
+   dead voter, changed process and lost reply under continued writes. A timeout
+   cannot substitute for isolation evidence; unavailable quorum remains blocked.
+3. **Lifecycle operator workflows (FO-07/FO-08):** connect node registration,
+   capacity activation and evacuation/removal to their real node-owned adapters.
+   Finish readiness, guarded stop, verified rejoin and one-at-a-time rolling
+   maintenance on the same operation/audit surface. Add cancellation with partial
+   effects before resize workflows.
+4. **Capacity lifecycle (FO-09):** add effective profile reconciliation, retained
    state fit, safe resize and committed cell retirement. Placement completion
    alone cannot authorize deleting a node, volume or retained replica.
-6. **Scale and performance (FO-05/FO-10):** measure 500/1,500-group convergence,
+5. **Scale and performance (FO-05/FO-10):** measure 500/1,500-group convergence,
    scheduling cost and foreground TPS/p99 at enforced limits, then improve the
    measured bottleneck. The present collector recollects all histories after
    every move and paces each history by the service interval; large-fleet
@@ -110,8 +172,8 @@ all target checks.
 
 These are feature slices across the existing package boundaries. FO-03 is
 complete at its documented enrollment/admission boundary; it is not the next
-implementation target. FO-04, FO-06 and FO-07 stay in progress until their full
-acceptance conditions pass. Full SDK CI remains a release gate. Healthy desired
+implementation target. FO-04, FO-06, FO-07 and FO-08 stay in progress until their
+full acceptance conditions pass. Full SDK CI remains a release gate. Healthy desired
 placement does not yet deliver failure-driven auto-healing or node removal.
 
 ## Owned topology collection and generated-move delivery
