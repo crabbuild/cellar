@@ -442,6 +442,7 @@
           "container.response.cancel",
           "container.websocket.receive",
           "websocket.next",
+          "websocket.closed",
           "response.read",
           "response.cancel",
           "response.closed",
@@ -514,6 +515,8 @@
                   "workers.rpc.invoke",
                   "response.read",
                   "response.closed",
+                  "websocket.next",
+                  "websocket.closed",
                   "container.port.fetch",
                   "container.port.fetch_stream",
                   "container.response.read",
@@ -586,6 +589,7 @@
                 "container.response.cancel",
                 "container.websocket.receive",
                 "websocket.next",
+                "websocket.closed",
                 "response.read",
                 "response.cancel",
                 "response.closed",
@@ -1355,7 +1359,10 @@
 
       // Forward the native capability without consuming its body or upgrade.
       if (invocation.kind === "fetch" && result?.forward !== undefined) {
-        return stringify({ forward: result.forward });
+        return stringify({
+          forward: result.forward,
+          ...(result.headers === undefined ? {} : { headers: result.headers }),
+        });
       }
 
       if (invocation.kind === "fetch" && result?.chunks !== undefined) {
@@ -1388,8 +1395,12 @@
         if (result.run) {
           // Workers consume events in this retained invocation. Hibernating
           // cells omit run and receive separate native WebSocket callbacks.
-          await ctx._call("response.upgrade", response);
-          await result.run(ctx.websocket(result.websocket), ctx);
+          try {
+            await ctx._call("response.upgrade", response);
+            await result.run(ctx.websocket(result.websocket), ctx);
+          } finally {
+            if (typeof result.cancel === "function") await result.cancel();
+          }
           result = { streamed: true };
         } else {
           result = response;
