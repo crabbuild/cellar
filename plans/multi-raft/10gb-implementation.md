@@ -40,6 +40,23 @@ work. The architecture and product policy are in
 
 ## Work in progress
 
+### Restoration priorities
+
+1. Close the failing public-host recovery path first. Reproduce the preserved
+   full-size `VersionUnavailable` with operation-specific context, fix its
+   owning boundary, and verify replacement-local payloads, promotion, a new
+   committed write, retained receipts and another restart. Keep request
+   deadlines and publication proofs unchanged while diagnosing the refusal.
+2. Bring extent snapshots, peer seeds and object-store recovery through the
+   same acceptance path before enabling public extent selection. Metadata-only
+   roots and locally passing command tests do not establish remote recovery.
+3. Qualify owner process loss and erased local state with actual near-quota
+   compressible/incompressible databases, corruption and capacity failures.
+   Record first-read/first-write work and memory separately from correctness.
+
+The active follow-up stays focused on these gates. UI/demo changes and unrelated
+refactors do not advance restoration qualification.
+
 - Added a file-backed v0.5.2 physical snapshot codec with a disk-spooled page
   index. Source reads and decoded destination writes are bounded at 64 KiB.
   The default codec uses 64 KiB buffers; explicitly admitted large archives use
