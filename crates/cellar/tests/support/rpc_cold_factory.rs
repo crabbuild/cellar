@@ -216,13 +216,9 @@ async fn exercise(stop: Stop) -> Result<()> {
     )?;
     // This probe has its own explicit parent policy. The child's 200 ms budget
     // must expire first; existing bridge fixtures retain their 250 ms defaults.
-    let (node, base) = native::start_configured(
-        directory.path(),
-        Arc::new(app),
-        vec!["Counter".into()],
-        vec![("COUNTERS".into(), "Counter".into())],
-        |config| config.runtime.handler_budget = Duration::from_secs(3),
-    )
+    let (node, base) = native::start_configured(directory.path(), Arc::new(app), |config, _, _| {
+        config.runtime.handler_budget = Duration::from_secs(3)
+    })
     .await?;
     let release = Release(factory.clone());
     let result = async {
