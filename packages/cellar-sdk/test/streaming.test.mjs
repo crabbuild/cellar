@@ -3,6 +3,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { addAbortListener } from "node:events";
+import { serialize, deserialize } from "node:v8";
 import {
   sseEvent,
   sseResponse,
@@ -29,15 +31,16 @@ test("SSE preserves multiline data and rejects field injection", () => {
 });
 
 test("shared runtime awaits native backpressure before pulling the next chunk", { timeout: 5000 }, async () => {
-  const factory = (0, eval)(
+  const runtimeFactory = name => (0, eval)(
     readFileSync(
       new URL(
-        "../../../crates/cellar-javascript/runtime/runner.js",
+        `../../../crates/cellar-javascript/runtime/${name}`,
         import.meta.url,
       ),
       "utf8",
     ),
   );
+  const factory = runtimeFactory("runner.js");
   let unblock;
   let signalFirstWrite;
   const firstWrite = new Promise(resolve => {
@@ -61,7 +64,19 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
 
     // The private bridge carries JSON metadata and an optional raw attachment.
     return [JSON.stringify({ ok: true, value: null }), undefined];
-  })(
+  },
+    () => { throw new Error("Unexpected synchronous bridge call"); },
+    () => 1,
+    serialize,
+    bytes => deserialize(Buffer.from(bytes)),
+    (_id, _scope, callback) => callback(),
+    addAbortListener,
+    runtimeFactory("delegates.js"),
+    runtimeFactory("rpc_streams.js"),
+    runtimeFactory("rpc_writable.js"),
+    runtimeFactory("rpc_inputs.js"),
+    runtimeFactory("rpc_messages.js"),
+  )(
     {
       fetch: () =>
         streamResponse(
@@ -75,6 +90,7 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
     },
     JSON.stringify({ events: ["fetch"], cells: {} }),
     4,
+    16,
   );
   const completion = runner.dispatch(
     1,

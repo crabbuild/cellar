@@ -23,6 +23,13 @@ export interface RequestData {
   body: string;
 }
 
+/** Cancellation surface accepted by container ports without requiring DOM types. */
+export interface ContainerAbortSignal {
+  readonly aborted: boolean;
+  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
 /** Handler return value. Use response() or jsonResponse() to construct it. */
 export interface ResponseData {
   status: number;
@@ -219,9 +226,9 @@ export interface Container {
   port(port: number): {
     waitReady(timeout_ms?: number): Promise<null>;
     /** Abort stops waiting; submitted HTTP effects may already have occurred. */
-    fetch(request: RequestData, options?: { signal?: AbortSignal }): Promise<Response>;
+    fetch(request: RequestData, options?: { signal?: ContainerAbortSignal }): Promise<Response>;
     /** Bounded prefix and chunks; cancel or finish reading within this event. */
-    fetchStream(request: RequestData, options?: { signal?: AbortSignal }): Promise<ContainerResponse>;
+    fetchStream(request: RequestData, options?: { signal?: ContainerAbortSignal }): Promise<ContainerResponse>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
       | {
