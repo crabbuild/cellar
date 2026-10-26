@@ -2,6 +2,7 @@
 
 //! Composed remote execution. No application traffic drives membership progress.
 use super::*;
+use anyhow::Context;
 
 async fn reserved(
     s: &Setup,
@@ -131,7 +132,9 @@ async fn remote_s3_case() -> Result<()> {
     s.f.store
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
-    let phases = finish(&s, &request, &observer).await?;
+    let phases = finish(&s, &request, &observer)
+        .await
+        .context("execute remote movement")?;
     ensure!(
         phases.contains(&FleetMovementPhase::Reserved)
             && phases.contains(&FleetMovementPhase::Seeding)
@@ -144,6 +147,17 @@ async fn remote_s3_case() -> Result<()> {
     let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let cut = catalog.read(TIMEOUT).await?;
     ensure!(catalog.pending_movements(&cut, TIMEOUT).await?.is_empty());
+    discover(
+        &s.f,
+        &[
+            &s.nodes[0].host,
+            &s.nodes[1].host,
+            &s.nodes[2].host,
+            &s.target,
+            &observer,
+        ],
+    )
+    .await?;
     let other = s.request(1, 231, cut.revision()).await?;
     catalog
         .reserve_resources(
@@ -153,8 +167,36 @@ async fn remote_s3_case() -> Result<()> {
             std::slice::from_ref(&s.namespace),
             TIMEOUT,
         )
-        .await?;
+        .await
+        .context("admit later capacity after settlement")?;
     let next = catalog.read(TIMEOUT).await?;
+    let target = s.target.cell(
+        movement.resources.group.namespace,
+        &movement.resources.group.cell,
+    )?;
+    let live = [cells[p].clone(), cells[(p + 2) % 3].clone(), target.clone()];
+    let leader = primary(&s.f, &live).await?;
+    let receipt = live[leader]
+        .command(
+            s.f.definition.increment.clone(),
+            5_i64.to_be_bytes().to_vec(),
+            public_node::archived_options(2)?,
+        )
+        .await?;
+    ensure!(receipt.durability == Durability::S3);
+    let restored = target
+        .query(
+            s.f.definition.get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(restored.served_by == movement.plan.replacement.member);
+    ensure!(i64::from_be_bytes(restored.result.as_slice().try_into()?) == 12);
+    ensure!(restored.version.covers(&receipt.version)?);
     joined(s.target_node).await?;
     let retry = catalog
         .reconcile_movement(&next, &request, &observer, TIMEOUT)
@@ -173,9 +215,9 @@ async fn remote_s3_case() -> Result<()> {
     write_read(
         &s.f,
         &[cells[p].clone(), cells[(p + 2) % 3].clone()],
-        2,
-        5,
-        12,
+        3,
+        9,
+        21,
     )
     .await?;
     joined(observer_node).await?;
