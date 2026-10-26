@@ -38,7 +38,7 @@ Changing a script, class or entity name can therefore select different state.
 
 ```text
 COUNTERS      ─┐                  ┌─ demo → SQLite count
-              ├→ Counter namespace
+               ├→ Counter namespace
 COUNTER_ALIAS ─┘                  └─ beta → separate SQLite count
 
 OTHER_COUNTERS → OtherCounter namespace → demo → separate SQLite count
