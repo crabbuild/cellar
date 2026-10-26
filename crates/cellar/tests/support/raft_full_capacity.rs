@@ -1006,6 +1006,24 @@ async fn drill(
         "full-native stage=restart-payload-verification-start required={:?}",
         written.version
     );
+    let payload_started = std::time::Instant::now();
+    let token_wall_ms = u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis(),
+    )?;
+    let token_observation = public_node::version_keys()?.verify(
+        &written.version_token,
+        &written.version.scope,
+        definitions[3].schema,
+        token_wall_ms,
+    );
+    // Observe the exact supplied token without changing server admission or
+    // substituting a different consistency level when the native read refuses.
+    eprintln!(
+        "full-native restart-token-observation wall_ms={token_wall_ms} result={:?}",
+        token_observation.map(|version| version.position)
+    );
     let verified = verify_payloads(
         restored,
         definitions[3].get.clone(),
@@ -1016,6 +1034,11 @@ async fn drill(
         target.member,
     )
     .await;
+    eprintln!(
+        "full-native stage=restart-payload-verification-finished accepted={} duration_s={:.3}",
+        verified.is_ok(),
+        payload_started.elapsed().as_secs_f64()
+    );
     if let Err(error) = &verified {
         record_read_refusal(
             "restart-payload-verification",
