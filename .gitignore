@@ -39,3 +39,8 @@ console-audit.sqlite*
 /examples/streaming/app.bundle.js*
 /examples/streaming/dist/
 !/examples/streaming/package-lock.json
+
+# Reproducible binding example builds.
+/examples/bindings/app.bundle.js*
+/examples/bindings/dist/
+!/examples/bindings/package-lock.json

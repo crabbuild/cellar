@@ -322,6 +322,8 @@ cargo build --locked -p cellar-javascript --features embed --bin cellar-javascri
 # Streaming application (also compiled by crate-wide tests)
 npm ci --prefix examples/streaming --ignore-scripts
 npm run --prefix examples/streaming build
+npm ci --prefix examples/bindings --ignore-scripts
+npm run --prefix examples/bindings build
 
 # Node reference application
 npm ci --prefix examples/node --ignore-scripts

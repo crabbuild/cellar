@@ -13,6 +13,10 @@ and identity configuration must match the compiled classes.
 
 ![Interactive routing flow](diagrams/routing-flow.svg)
 
+Try the [runnable binding examples](../examples/bindings/README.md) for namespace
+aliases, independent cell identities and configuration-only rebinding in Rust,
+Python, JavaScript and TypeScript.
+
 ## Route authority
 
 The actor resolves ownership and can dispatch locally or through an

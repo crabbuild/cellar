@@ -105,3 +105,8 @@ required-features = ["embed"]
 name = "cellar-streaming-python"
 path = "../../examples/streaming/python.rs"
 required-features = ["embed"]
+
+[[bin]]
+name = "cellar-bindings-python"
+path = "../../examples/bindings/python.rs"
+required-features = ["embed"]

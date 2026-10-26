@@ -11,6 +11,10 @@ The [streaming walkthrough](streaming/README.md) implements the same SSE progres
 feed and worker/cell WebSocket echo in Rust, Python, JavaScript and TypeScript.
 It includes a Node client and a restart check for the durable message count.
 
+The [binding walkthrough](bindings/README.md) runs in Rust, Python, JavaScript
+and TypeScript. It demonstrates binding aliases, named-cell and class isolation,
+concurrent updates, restart recovery and changing a binding target.
+
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
 The [Python example](python/README.md) uses an optional PyO3 adapter in a native

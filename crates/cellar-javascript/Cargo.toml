@@ -63,3 +63,13 @@ required-features = ["embed"]
 name = "cellar-streaming-node"
 path = "../../examples/streaming/node.rs"
 required-features = ["node"]
+
+[[bin]]
+name = "cellar-bindings-node"
+path = "../../examples/bindings/node.rs"
+required-features = ["node"]
+
+[[bin]]
+name = "cellar-bindings-javascript"
+path = "../../examples/bindings/javascript.rs"
+required-features = ["embed"]

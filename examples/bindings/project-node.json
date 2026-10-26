@@ -1,0 +1,34 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-javascript",
+  "binary": "cellar-bindings-node",
+  "profile": "dev",
+  "features": [
+    "node"
+  ],
+  "primary": {
+    "script_name": "bindings-example",
+    "application_version": "v1",
+    "cells": [
+      "Counter",
+      "OtherCounter"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTERS",
+        "class_name": "Counter"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTER_ALIAS",
+        "class_name": "Counter"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "OTHER_COUNTERS",
+        "class_name": "OtherCounter"
+      }
+    ]
+  }
+}
