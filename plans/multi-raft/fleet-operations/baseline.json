@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "795d4a355e51ed23ce7f3be7bce938a79560684d",
+  "revision": "1074f8eaf2f3e457902d757bb6a3011f724679ee",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -60,7 +60,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "6b5f1a2ecf589d1315b05fc39d7ca4081308db1d97317fd46de79bab415e3631"
+      "sha256": "6fddeba4aa06ee39ce8ef2e3b216ffd6e528414c096b36dd8f3fc9ff4f7567bd"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -96,7 +96,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/catalog_wire.rs",
-      "sha256": "6dc32c8efc9e5320fd3ce73ee160f3d1513607b94b946e24c71362ab9fd4746e"
+      "sha256": "b2e947e84380f8d712d96794bae1aae8c4f572727e57cd07b70bab7b384bf4b2"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
