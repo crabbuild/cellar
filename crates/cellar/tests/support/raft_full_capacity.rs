@@ -787,18 +787,29 @@ async fn drill(
         QueryConsistency::Stale,
         target.member,
     )
-    .await?;
+    .await
+    .context("cold replacement payload verification before promotion")?;
+    eprintln!(
+        "full-native stage=cold-payloads-verified elapsed_s={:.3}",
+        started.elapsed().as_secs_f64()
+    );
     ensure!(
         repair_step(&handles[replacement], plan.id, RepairStep::PromoteAndRemove)
-            .await?
+            .await
+            .context("promote recovered replacement into joint membership")?
             .phase
             == RepairPhase::Joint
     );
     ensure!(
         repair_step(&handles[replacement], plan.id, RepairStep::FinishJoint)
-            .await?
+            .await
+            .context("finish recovered replacement joint membership")?
             .phase
             == RepairPhase::Complete
+    );
+    eprintln!(
+        "full-native stage=cold-promoted elapsed_s={:.3}",
+        started.elapsed().as_secs_f64()
     );
     read(
         &learner,
@@ -807,7 +818,8 @@ async fn drill(
         payload_bytes,
         QueryConsistency::Linearizable,
     )
-    .await?;
+    .await
+    .context("linearizable read on promoted replacement")?;
     let status = handles[replacement].status().await?;
     handles[replacement]
         .transfer_leadership(
@@ -818,8 +830,11 @@ async fn drill(
             },
             Duration::from_secs(60),
         )
-        .await?;
-    ready(std::slice::from_ref(&learner), None).await?;
+        .await
+        .context("transfer leadership to recovered replacement")?;
+    ready(std::slice::from_ref(&learner), None)
+        .await
+        .context("recovered replacement command readiness after leadership transfer")?;
     let cold_write = std::time::Instant::now();
     let resumed = learner
         .command(
@@ -827,7 +842,8 @@ async fn drill(
             0_u64.to_be_bytes().to_vec(),
             command_options(2, 3)?,
         )
-        .await?;
+        .await
+        .context("first new command on recovered replacement")?;
     ensure!(resumed.result == 12_u64.to_be_bytes());
     ensure!(
         calls[3].load(Ordering::SeqCst) == 1,

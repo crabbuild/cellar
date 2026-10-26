@@ -623,8 +623,17 @@ The subsequent 9,999,998,976-byte run uses the preflight's source-bound
 `d5f12630` release, retains the prior full-size input hash and uses a fresh RustFS
 prefix with unchanged requests, deadlines and proof checks. Read-only process disk-I/O
 counters supplement phase/RSS observations; they do not alter the target binary
-or establish transferred bytes or a controlled performance comparison. Its
-outcome remains pending.
+or establish transferred bytes or a controlled performance comparison. It failed
+after 4,080.31 seconds with `VersionUnavailable`, with 91,586,560-byte maximum
+RSS. Warm takeover, owner-state erasure, receipt retry and quota cleanup/reuse
+passed. The archive selected the required index/term 9/4 after a 931.957-second
+wait; a completely empty replacement subsequently served a local historical
+read after 912.264 seconds. The run did not reach the replacement's first-write
+or restart proof. Its coarse log does not identify which intervening operation
+returned `VersionUnavailable`; the fixture now adds operation-specific error
+context and stage markers for payload verification and promotion. Requests,
+deadlines and assertions are unchanged. This is a failed full-size recovery
+qualification, not a passing capacity or recovery-time result.
 
 ## Remaining work
 
