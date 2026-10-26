@@ -157,14 +157,30 @@ async fn retained_case() -> Result<()> {
             .await,
         Err(FleetCatalogError::PayloadConflict)
     ));
-    ensure!(started.cells[started.source]
+    let before_retry = started.cells[started.source]
+        .status()
+        .await?
+        .membership_revision;
+    let retried = started.cells[started.source]
         .begin_managed_repair(
             started.permit.clone(),
             started.movement.plan.clone(),
-            TIMEOUT
+            TIMEOUT,
         )
-        .await
-        .is_err());
+        .await?;
+    ensure!(retried.phase == RepairPhase::Aborted && retried.plan == started.movement.plan);
+    ensure!(
+        started.cells[started.source]
+            .status()
+            .await?
+            .membership_revision
+            == before_retry
+    );
+    let consumed = started.cells[started.source]
+        .fleet_membership_status()
+        .await?
+        .context("missing terminal membership")?;
+    ensure!(consumed.phase == Some(FleetPermitPhase::Aborted) && consumed.consumed_sequence == 1);
     ensure!(started.cells[started.source]
         .advance_managed_repair(
             started.permit.clone(),
