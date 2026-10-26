@@ -85,6 +85,15 @@ class Counter:
         await port.wait_ready(1000)
         response = await port.fetch(Request("https://untrusted.invalid/path?query=yes"))
         assert (response.status, response.body) == (302, b"container response")
+        streamed = await port.fetch_stream(Request("http://container/stream-body"))
+        assert streamed.status == 200
+        first = streamed.body or await streamed.read()
+        assert first == b"\x00\xff*"
+        await streamed.cancel()
+        await streamed.cancel()
+        finite = await port.fetch_stream(Request("http://container/finite"))
+        chunks = [chunk async for chunk in finite.chunks()]
+        assert b"".join(chunks) == b"container response"
         socket = await container.port(int(await ctx.var("TCP_PORT"))).connect()
         await socket.write(b"\x00\xff*")
         await socket.close_write()

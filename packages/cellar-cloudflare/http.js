@@ -135,6 +135,7 @@ export async function fetchRequest(
   context,
   dispatch,
   beforeDispatch = async () => {},
+  decode = decodeResponse,
 ) {
   webRuntime();
   const request = new Request(input, init);
@@ -142,7 +143,11 @@ export async function fetchRequest(
   await beforeDispatch();
   const frame = await encodeRequest(request, context);
   try {
-    return decodeResponse(await dispatch(frame, request.signal), context);
+    return decode(
+      await dispatch(frame, request.signal),
+      context,
+      request.signal,
+    );
   } catch (error) {
     if (error.code === "Cancelled" && request.signal.aborted)
       throw request.signal.reason;

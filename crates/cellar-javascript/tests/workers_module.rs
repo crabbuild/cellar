@@ -88,13 +88,14 @@ async fn module_round(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
-    let value: serde_json::Value = client
-        .get(format!("{address}/alice/count"))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let count_response = client.get(format!("{address}/alice/count")).send().await?;
+    let count_status = count_response.status();
+    let count_body = count_response.text().await?;
+    ensure!(
+        count_status.is_success(),
+        "module count (restart={restart}): {count_status}: {count_body}"
+    );
+    let value: serde_json::Value = serde_json::from_str(&count_body)?;
     ensure!(value["count"] == if restart { 3 } else { 1 });
     ensure!(value["marker"] == "javascript-test");
     let parallel: serde_json::Value = client
@@ -121,13 +122,14 @@ async fn module_round(
         .json()
         .await?;
     ensure!(borrowed["code"] == "ContextMismatch" && borrowed["outcome"] == "not_committed");
-    let value: serde_json::Value = client
-        .get(format!("{address}/alice/count"))
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
+    let count_response = client.get(format!("{address}/alice/count")).send().await?;
+    let count_status = count_response.status();
+    let count_body = count_response.text().await?;
+    ensure!(
+        count_status.is_success(),
+        "module count (restart={restart}): {count_status}: {count_body}"
+    );
+    let value: serde_json::Value = serde_json::from_str(&count_body)?;
     ensure!(value["count"] == if restart { 4 } else { 2 });
     let lost = client
         .get(format!("{address}/alice/lost-response"))

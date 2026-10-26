@@ -177,6 +177,16 @@ export interface ContainerFileMetadata {
 }
 
 /** Root-cell provider control. Native execution requires a declared image. */
+/** An event-owned HTTP head/prefix and pull reader. Empty chunks are not EOF. */
+export interface ContainerResponse {
+  readonly status: number;
+  readonly headers: Headers;
+  readonly body: Uint8Array;
+  read(): Promise<Uint8Array | null>;
+  chunks(): AsyncIterable<Uint8Array>;
+  cancel(): Promise<void>;
+}
+
 export interface Container {
   capabilities(): Promise<Readonly<ContainerCapabilities>>;
   running(): Promise<boolean>;
@@ -210,6 +220,8 @@ export interface Container {
     waitReady(timeout_ms?: number): Promise<null>;
     /** Abort stops waiting; submitted HTTP effects may already have occurred. */
     fetch(request: RequestData, options?: { signal?: AbortSignal }): Promise<Response>;
+    /** Bounded prefix and chunks; cancel or finish reading within this event. */
+    fetchStream(request: RequestData, options?: { signal?: AbortSignal }): Promise<ContainerResponse>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
       | { upgraded: true; protocol: string; socket: ContainerWebSocket }

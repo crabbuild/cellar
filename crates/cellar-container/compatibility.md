@@ -20,6 +20,7 @@ a language facade does not grant provider support.
 | Binary file read/write | Yes; engine archives | Yes | Yes |
 | File stat / direct-child list | Yes; bounded archive scan | Yes | Yes; helper |
 | Port readiness / HTTP forwarding | Yes | No | No |
+| Incremental HTTP response reads / cancellation | Yes; [stream contract](streams.md) | No | No |
 | Raw TCP / WebSocket forwarding | Yes | No | No |
 | Synchronous running / queued lifecycle opt-ins | Yes | No | No |
 | PTY / resize, snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |

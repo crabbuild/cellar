@@ -20,7 +20,7 @@ none of the rows is a runtime compatibility pass. Requalify changed inputs.
 | `ctx.storage.kv.get` / `put` and async storage `get` / `put` / `delete` | Native KV snapshots and atomic batches | Correct missing values, supported serialization, multi-key operations and API-level limits |
 | Storage `transaction`, alarms, `sync` | Native synchronous checked batches, alarms and durability proof | Callback transaction semantics, rollback/conflict behavior, alarm delivery and published package scheduling |
 | Stable `ctx.container.running` property and synchronous queued `start` | Authoritative synchronous snapshot; bounded one-shot admission and native run identity | Root-event startup/monitor/destroy slices execute in Node/V8; callback-owned queues, package hooks and complete stopped-state recovery remain required |
-| Container `getTcpPort`, HTTP/WS forwarding and readiness | Native port, TCP and WS capabilities; buffered Node port facade and abortable native fetch | Embedded web globals, streaming/upgrade conversion, port switching and complete timeout/abort behavior |
+| Container `getTcpPort`, HTTP/WS forwarding and readiness | Native port, TCP and WS capabilities; incremental Node port responses, bounded upload and abortable native fetch | Embedded web globals, streamed RPC/Worker forwarding, upgrade conversion, port switching and complete timeout behavior |
 | Background monitor/lifetime work | Native cancellation, ownership, inactivity and cleanup | Workers `waitUntil`/event lifetime behavior without detached native SDK work |
 | Outbound interception and `ctx.exports.ContainerProxy` | Native internet policy | Interception/proxy implementation or explicit profile refusal; no silent policy bypass |
 | Sandbox Cap'n Web `RpcSession`, `RpcTarget` and HTTP transport | Native streaming and WS transport | Actual package RPC sessions, target lifetime, stream errors and cleanup |
@@ -42,7 +42,14 @@ ownership, epoch, operation/byte budgets and durability/output gates.
 | Sandbox `/serve` | Real `startProcess` with a persistent Node HTTP process | Pinned SDK/image starts the process and returns its function-bearing object through native RPC |
 | Sandbox `/processes` | Real `listProcesses`, durable process/runtime identity and response conversion | A later request discovers the same live process; restart/fencing qualification remains pending |
 
-The baseline additionally needs streamed command output, preview routing, HTTP
+An additional probe subclasses the published Sandbox class and consumes its real
+`execStream()` through the pinned image. A file handshake releases the command
+only after stdout is observed, then verifies final stdout/stderr and exit code 7.
+This proves incremental port consumption inside the object; the SDK remains
+unchanged. Returning streams over RPC and forwarding Worker response bodies remain
+unqualified.
+
+The baseline additionally needs preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,
 bucket mounts, backup/snapshot helpers and outbound credentials require separate
 routing/storage/credential policy. They cannot inherit a pass from basic exec.

@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { fetchRequest } from "./http.js";
+import { streamedResponse } from "./response.js";
 
 /** An activation-owned port; native routing grants only this port's authority. */
 export function containerPort(current, port, beforeFetch) {
@@ -17,12 +18,15 @@ export function containerPort(current, port, beforeFetch) {
         context,
         (request, signal) =>
           context._call(
-            "workers.container.fetch",
+            "workers.container.fetch_stream",
             { port, request },
             undefined,
             signal,
           ),
         () => beforeFetch(context),
+        // A response reader keeps this event's context, even if the activation
+        // later handles another event with colliding local resource IDs.
+        (frame, _context, signal) => streamedResponse(frame, context, signal),
       );
     },
   };

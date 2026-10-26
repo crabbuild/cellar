@@ -29,6 +29,7 @@ enum Resource {
     Exec(Arc<containers::Exec>),
     Socket(Arc<sockets::Socket>),
     WebSocket(websocket::WebSocket),
+    Response(Arc<crate::response::Reader>),
 }
 
 impl Resources {
@@ -70,6 +71,22 @@ impl Resources {
             Resource::WebSocket(socket) => Ok(socket),
             _ => bail!("resource is not a WebSocket"),
         }
+    }
+
+    fn response(&self, value: &Value) -> Result<Arc<crate::response::Reader>> {
+        match self.get(value)? {
+            Resource::Response(reader) => Ok(reader),
+            _ => bail!("resource is not an HTTP response"),
+        }
+    }
+
+    fn remove(&self, value: &Value) -> Result<Option<Resource>> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .handles
+            .remove(values::field(value, "id")?))
     }
 
     fn socket(&self, value: &Value) -> Result<Arc<sockets::Socket>> {
@@ -188,7 +205,7 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
             port(value)?;
             timeout(value)?;
         }
-        "container.port.fetch" => {
+        "container.port.fetch" | "container.port.fetch_stream" => {
             port(value)?;
             values::input(&value["request"], limits.max_body_bytes)?;
         }
@@ -222,7 +239,9 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         "container.exec.write" | "container.socket.write" => {
             bytes(value, limits.max_body_bytes)?;
         }
-        "container.exec.read_stdout"
+        "container.response.read"
+        | "container.response.cancel"
+        | "container.exec.read_stdout"
         | "container.exec.read_stderr"
         | "container.exec.close_stdin"
         | "container.exec.wait"
@@ -238,6 +257,7 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
     if name.starts_with("container.exec.")
         || name.starts_with("container.socket.")
         || name.starts_with("container.websocket.")
+        || name.starts_with("container.response.")
         || name == "container.release"
     {
         values::field(value, "id")?;
@@ -349,7 +369,10 @@ pub(crate) async fn execute(
                 .await?;
             Ok(Value::Null)
         }
-        "container.port.fetch" => {
+        "container.port.fetch" | "container.port.fetch_stream" => {
+            if name.ends_with("fetch_stream") {
+                resources.available().context(Validation)?;
+            }
             let request = values::input(&value["request"], limits.max_body_bytes)?;
             let response = container
                 .port(context, port(&value)?)?
@@ -364,7 +387,44 @@ pub(crate) async fn execute(
                     },
                 )
                 .await?;
-            values::response(response, limits.max_body_bytes).await
+            if name.ends_with("fetch_stream") {
+                let (mut head, reader) =
+                    crate::response::Reader::open(response, limits.max_body_bytes)?;
+                head["stream"] = match reader {
+                    Some(reader) => json!(resources.insert(Resource::Response(Arc::new(reader)))),
+                    None => Value::Null,
+                };
+                Ok(head)
+            } else {
+                values::response(response, limits.max_body_bytes).await
+            }
+        }
+        "container.response.read" => {
+            let reader = resources.response(&value).context(Validation)?;
+            let result = reader.read(limits.max_body_bytes).await;
+            if result.as_ref().map_or(true, |frame| frame["done"] == true) {
+                reader.cancel();
+                resources.remove(&value)?;
+            }
+            result
+        }
+        "container.response.cancel" => {
+            // Cancellation is idempotent after EOF or a concurrent cancelled read.
+            let resource = resources
+                .0
+                .lock()
+                .unwrap()
+                .handles
+                .get(values::field(&value, "id")?)
+                .cloned();
+            if let Some(resource) = resource {
+                let Resource::Response(reader) = resource else {
+                    bail!(Validation)
+                };
+                reader.cancel();
+                resources.remove(&value)?;
+            }
+            Ok(Value::Null)
         }
         "container.port.connect_websocket" => {
             resources.available().context(Validation)?;
@@ -512,6 +572,7 @@ pub(crate) async fn execute(
             match resource {
                 Resource::Socket(socket) => socket.close(context).await?,
                 Resource::WebSocket(socket) => socket.close(context, 1000, "")?,
+                Resource::Response(reader) => reader.cancel(),
                 Resource::Exec(_) => {}
             }
             Ok(Value::Null)

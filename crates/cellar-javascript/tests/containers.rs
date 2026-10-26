@@ -34,7 +34,7 @@ fn exercise(application: Arc<dyn Application>, provider: Arc<peer::AuditedProvid
             let (node, address) = native::start_configured(directory.path(), application,
                 |config, services, graph| peer.configure(config, services, graph)).await?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
-            for path in ["all", "borrow", "leak", "cancel"] {
+            for path in ["all", "borrow", "leak-stream", "borrow-stream", "leak", "cancel", "streams-limit"] {
                 let started = tokio::time::Instant::now();
                 let response = client.get(format!("{address}/{path}")).send().await?;
                 let status = response.status();
@@ -46,16 +46,24 @@ fn exercise(application: Arc<dyn Application>, provider: Arc<peer::AuditedProvid
                     ensure!(status.is_success() && body == "ok", "{path}: {status}: {body}");
                 }
                 tokio::time::timeout(Duration::from_secs(3), async {
-                    while peer.websockets.load(Ordering::SeqCst) != 0 { tokio::time::sleep(Duration::from_millis(10)).await; }
+                    while peer.websockets.load(Ordering::SeqCst) != 0 || peer.pending_http.load(Ordering::SeqCst) != 0 { tokio::time::sleep(Duration::from_millis(10)).await; }
                 }).await?;
             }
-            for part in ["head", "body"] {
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while peer.pending_http.load(Ordering::SeqCst) != 0 { tokio::task::yield_now().await; }
+            }).await?;
+            for part in ["head", "body", "stream"] {
             let pending_client = client.clone();
             let pending_address = address.clone();
             let pending = tokio::spawn(async move { pending_client.get(format!("{pending_address}/cancel-port-{part}")).send().await });
             tokio::time::timeout(Duration::from_secs(3), async {
                 while peer.pending_http.load(Ordering::SeqCst) == 0 { tokio::task::yield_now().await; }
             }).await?;
+            if part == "stream" {
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while provider.pending_reads.load(Ordering::SeqCst) == 0 { tokio::task::yield_now().await; }
+                }).await?;
+            }
             ensure!(!pending.is_finished(), "HTTP abort returned before native cancellation");
             ensure!(client.get(format!("{address}/abort-port")).send().await?.status().is_success());
             let response = pending.await??;

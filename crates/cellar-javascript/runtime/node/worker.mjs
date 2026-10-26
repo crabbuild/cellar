@@ -180,6 +180,7 @@ function operation(
       "workers.rpc",
       "workers.fetch",
       "workers.container.fetch",
+      "workers.container.fetch_stream",
     ].includes(name) &&
     ![
       "clock.now",
@@ -213,6 +214,8 @@ function operation(
       "container.exec.read_stderr",
       "container.exec.wait",
       "container.socket.read",
+      "container.response.read",
+      "container.response.cancel",
       "container.websocket.receive",
     ].includes(name);
 
@@ -282,8 +285,11 @@ function operation(
     ![
       "cell.call",
       "container.port.fetch",
+      "container.port.fetch_stream",
+      "container.response.read",
       "workers.fetch",
       "workers.container.fetch",
+      "workers.container.fetch_stream",
     ].includes(name)
   )
     return promise;

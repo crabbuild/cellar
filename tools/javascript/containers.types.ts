@@ -74,6 +74,16 @@ async function control(ctx: Context) {
   await port.fetch(request("http://container/hello"), {
     signal: new AbortController().signal,
   });
+  const streamed = await port.fetchStream(request("http://container/events"), {
+    signal: new AbortController().signal,
+  });
+  const nextChunk: Uint8Array | null = await streamed.read();
+  void nextChunk;
+  for await (const chunk of streamed.chunks()) {
+    const bytes: Uint8Array = chunk;
+    void bytes;
+  }
+  await streamed.cancel();
   const text: string = response.text();
   void text;
   const socket = await port.connect();

@@ -438,6 +438,40 @@ class ContainerWebSocket:
         await self._context._call("container.release", id=self._id)
 
 
+class ContainerResponse:
+    """Event-owned HTTP prefix and pull reader. Finish or cancel in this event."""
+
+    def __init__(self, context: Context, value: dict) -> None:
+        self._context, self._id = context, value["stream"]
+        self.status = value["status"]
+        self.headers = tuple(tuple(pair) for pair in value["headers"])
+        self.body = base64.b64decode(value["body"])
+        self._ended = self._id is None
+
+    async def read(self) -> bytes | None:
+        if self._ended:
+            return None
+        value = await self._context._call("container.response.read", id=self._id)
+        self._ended = value["done"]
+        return None if self._ended else base64.b64decode(value["body"])
+
+    async def cancel(self) -> None:
+        if not self._ended:
+            self._ended = True
+            await self._context._call("container.response.cancel", id=self._id)
+
+    async def chunks(self):
+        try:
+            if self.body:
+                yield self.body
+            while not self._ended:
+                chunk = await self.read()
+                if chunk is not None:
+                    yield chunk
+        finally:
+            await self.cancel()
+
+
 class ContainerPort:
     def __init__(self, context: Context, port: int) -> None:
         self._context, self._port = context, port
@@ -448,6 +482,10 @@ class ContainerPort:
     async def fetch(self, request: Request) -> Response:
         value = await self._context._call("container.port.fetch", port=self._port, request=request._wire())
         return Response(base64.b64decode(value["body"]), value["status"], value["headers"])
+
+    async def fetch_stream(self, request: Request) -> ContainerResponse:
+        value = await self._context._call("container.port.fetch_stream", port=self._port, request=request._wire())
+        return ContainerResponse(self._context, value)
 
     async def connect_websocket(self, url: str, headers: Headers = ()) -> ContainerWebSocket | Response:
         value = await self._context._call("container.port.connect_websocket", port=self._port, url=url, headers=list(headers))

@@ -38,6 +38,32 @@ pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Res
         Fetch => {
             binary(&value["body"], limit)?;
         }
+        FetchStream => {
+            binary(&value["body"], limit)?;
+            ensure!(
+                value["status"]
+                    .as_u64()
+                    .is_some_and(|status| (200..=599).contains(&status)),
+                "invalid response status"
+            );
+            let headers: Vec<(String, String)> = serde_json::from_value(value["headers"].clone())?;
+            crate::values::headers(&headers)?;
+            let stream = value
+                .get("stream")
+                .context("missing response stream handle")?;
+            ensure!(
+                stream.is_null() || stream.as_str().is_some_and(|id| !id.is_empty()),
+                "invalid response stream handle"
+            );
+        }
+        ReadResponse => {
+            let size = binary(&value["body"], limit)?;
+            let done = value["done"]
+                .as_bool()
+                .context("invalid response completion")?;
+            ensure!(!done || size == 0, "completed response has body bytes");
+        }
+        CancelResponse => ensure!(value.is_null(), "response cancellation must return null"),
         ConnectWebSocket if value["upgraded"] == false => {
             binary(&value["response"]["body"], limit)?;
         }
@@ -77,5 +103,28 @@ mod tests {
             1
         )
         .is_err());
+    }
+
+    #[test]
+    fn provider_response_stream_frames_require_bounded_bytes_and_explicit_eof() {
+        assert!(validate(Operation::ReadResponse, &json!({"done":false,"body":""}), 0).is_ok());
+        for frame in [
+            json!({"body":""}),
+            json!({"done":true,"body":"AA=="}),
+            json!({"done":false,"body":"!!!!"}),
+            json!({"done":false,"body":"AAAA"}),
+        ] {
+            assert!(validate(Operation::ReadResponse, &frame, 2).is_err());
+        }
+        let mut head = json!({"status":200,"headers":[],"body":"","stream":"1"});
+        assert!(validate(Operation::FetchStream, &head, 2).is_ok());
+        let mut missing = head.clone();
+        missing.as_object_mut().unwrap().remove("stream");
+        assert!(validate(Operation::FetchStream, &missing, 2).is_err());
+        head["stream"] = json!(false);
+        assert!(validate(Operation::FetchStream, &head, 2).is_err());
+        head["stream"] = Value::Null;
+        head["status"] = json!(101);
+        assert!(validate(Operation::FetchStream, &head, 2).is_err());
     }
 }

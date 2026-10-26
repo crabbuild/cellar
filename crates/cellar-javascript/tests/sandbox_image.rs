@@ -14,6 +14,8 @@ use std::{
     time::Duration,
 };
 
+#[path = "support/image_provider.rs"]
+mod image_provider;
 #[path = "support/native.rs"]
 mod native;
 
@@ -98,6 +100,7 @@ fn published_sandbox_exec_files_and_processes_use_the_pinned_image() -> Result<(
     let images = Images::configured()?;
     let directory = tempfile::tempdir()?;
     let source = Source::module()
+        .container_provider(Arc::new(image_provider::DiagnosticNative))
         .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events(
@@ -321,6 +324,27 @@ async fn exercise_routes(client: &reqwest::Client, address: &str) -> Result<()> 
             .iter()
             .any(|p| p["id"] == id && matches!(p["status"].as_str(), Some("running" | "starting"))),
         "background process did not survive a later request: {processes}"
+    );
+    let streamed = request(client, address, "/__stream", &[]).await?;
+    ensure!(
+        streamed["released"] == true,
+        "SDK did not deliver stdout before command completion: {streamed}"
+    );
+    let events = streamed["events"].as_array().context("SDK stream events")?;
+    ensure!(
+        events.iter().any(|event| event["type"] == "stdout"
+            && event["data"]
+                .as_str()
+                .is_some_and(|data| data.contains("cellar-last")))
+            && events.iter().any(|event| event["type"] == "stderr"
+                && event["data"]
+                    .as_str()
+                    .is_some_and(|data| data.contains("cellar-stderr"))),
+        "SDK lost final stdout/stderr: {streamed}"
+    );
+    ensure!(
+        events.iter().any(|event| event["exitCode"] == 7),
+        "SDK lost command exit: {streamed}"
     );
     Ok(())
 }

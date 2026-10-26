@@ -3,6 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { containerPort } from "../../packages/cellar-cloudflare/port.js";
+import { streamedResponse } from "../../packages/cellar-cloudflare/response.js";
 
 function fixture(limit = 4) {
   const requests = [];
@@ -12,13 +13,15 @@ function fixture(limit = 4) {
       assert.equal(name, "workers.http.limits");
       return { max_body_bytes: limit };
     },
+    _decode: (body) => Uint8Array.from(Buffer.from(body, "base64")),
     _encode: (body) => Buffer.from(body).toString("base64"),
     _call: async (name, { port, request }, body, signal) => {
-      assert.equal(name, "workers.container.fetch");
+      assert.equal(name, "workers.container.fetch_stream");
       assert.equal(body, undefined);
       assert.ok(signal instanceof AbortSignal);
       requests.push({ port, ...request });
       return {
+        stream: null,
         status: 302,
         headers: [["location", "https://unrelated.invalid"]],
         body: Uint8Array.of(0, 255),
@@ -114,4 +117,139 @@ test("retained ports cannot borrow retired invocation authority", async () => {
   retire();
   await assert.rejects(port.fetch("http://container/"), /ContextMismatch/);
   assert.deepEqual(requests, []);
+});
+
+function streamFixture(chunks) {
+  const calls = [];
+  const controller = new AbortController();
+  let pending;
+  let admitted = true;
+  const context = {
+    _decode: (body) => Uint8Array.from(Buffer.from(body, "base64")),
+    async _call(name, { id }, _body, signal) {
+      if (!admitted) throw new Error("ContextMismatch");
+      calls.push(name);
+      assert.equal(id, "response-1");
+      if (name === "container.response.cancel") {
+        pending?.({ done: true, body: "" });
+        return null;
+      }
+      assert.equal(name, "container.response.read");
+      assert.equal(signal, controller.signal);
+      const chunk = chunks.shift();
+      if (chunk === undefined)
+        return new Promise((resolve) => {
+          pending = resolve;
+        });
+      return {
+        done: chunk === null,
+        body: chunk === null ? "" : Buffer.from(chunk).toString("base64"),
+      };
+    },
+  };
+  const response = streamedResponse(
+    {
+      status: 200,
+      headers: [["x-test", "stream"]],
+      body: "AP8=",
+      stream: "response-1",
+    },
+    context,
+    controller.signal,
+  );
+  return {
+    response,
+    calls,
+    controller,
+    retire: () => {
+      admitted = false;
+    },
+  };
+}
+
+test("port responses pull on demand, preserve binary prefixes and empty chunks, and finish BYOB reads", async () => {
+  const { response, calls } = streamFixture([[], [42, 255], null]);
+  assert.deepEqual(calls, []);
+  assert.equal(response.headers.get("x-test"), "stream");
+  const reader = response.body.getReader({ mode: "byob" });
+  assert.deepEqual(
+    (await reader.read(new Uint8Array(8))).value,
+    Uint8Array.of(0, 255),
+  );
+  assert.deepEqual(calls, []);
+  assert.deepEqual(
+    (await reader.read(new Uint8Array(8))).value,
+    Uint8Array.of(42, 255),
+  );
+  assert.deepEqual(calls, [
+    "container.response.read",
+    "container.response.read",
+  ]);
+  assert.equal((await reader.read(new Uint8Array(8))).done, true);
+  reader.releaseLock();
+  assert.deepEqual(calls, Array(3).fill("container.response.read"));
+});
+
+test("abort after headers cancels a pending native pull and preserves the caller reason", async () => {
+  const { response, calls, controller } = streamFixture([]);
+  const reader = response.body.getReader();
+  await reader.read();
+  const pending = reader.read();
+  await Promise.resolve();
+  assert.deepEqual(calls, ["container.response.read"]);
+  const reason = new Error("cancel running Sandbox stream");
+  controller.abort(reason);
+  await assert.rejects(pending, (error) => error === reason);
+  await assert.rejects(reader.read(), (error) => error === reason);
+  assert.deepEqual(calls, [
+    "container.response.read",
+    "container.response.cancel",
+  ]);
+});
+
+test("early consumer cancellation releases once and retained bodies reject retired authority", async () => {
+  const early = streamFixture([]);
+  await early.response.body.cancel();
+  early.controller.abort();
+  assert.deepEqual(early.calls, ["container.response.cancel"]);
+  const retained = streamFixture([[42]]);
+  const reader = retained.response.body.getReader();
+  await reader.read();
+  retained.retire();
+  await assert.rejects(reader.read(), /ContextMismatch/);
+  assert.deepEqual(retained.calls, []);
+});
+
+test("an activation-owned port cannot move a response reader into a later event", async () => {
+  const calls = [];
+  let context;
+  const original = {
+    _sync: () => ({ max_body_bytes: 4 }),
+    _encode: (body) => Buffer.from(body).toString("base64"),
+    _decode: (body) => Uint8Array.from(Buffer.from(body, "base64")),
+    async _call(name) {
+      calls.push(name);
+      if (name === "workers.container.fetch_stream")
+        return { status: 200, headers: [], body: "", stream: "1" };
+      assert.ok(
+        ["container.response.read", "container.response.cancel"].includes(name),
+      );
+      throw new Error("original event retired");
+    },
+  };
+  context = original;
+  const port = containerPort(
+    () => context,
+    3000,
+    async () => {},
+  );
+  const response = await port.fetch("http://container/");
+  context = {
+    _call: () => assert.fail("reader borrowed a later event's handle table"),
+  };
+  await assert.rejects(
+    response.body.getReader().read(),
+    /original event retired/,
+  );
+  assert.ok(calls.includes("container.response.read"));
 });

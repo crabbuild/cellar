@@ -418,6 +418,8 @@
           "container.exec.read_stderr",
           "container.exec.wait",
           "container.socket.read",
+          "container.response.read",
+          "container.response.cancel",
           "container.websocket.receive",
           "websocket.next",
           "response.read",
@@ -489,8 +491,11 @@
                 [
                   "cell.call",
                   "container.port.fetch",
+                  "container.port.fetch_stream",
+                  "container.response.read",
                   "workers.fetch",
                   "workers.container.fetch",
+                  "workers.container.fetch_stream",
                 ].includes(name)
               )
                 [pending, cancel] = admitted;
@@ -550,6 +555,8 @@
                 "container.exec.read_stderr",
                 "container.exec.wait",
                 "container.socket.read",
+                "container.response.read",
+                "container.response.cancel",
                 "container.websocket.receive",
                 "websocket.next",
                 "response.read",
@@ -672,6 +679,55 @@
                 options.signal,
               ),
             ),
+          fetchStream: async (value, options = {}) => {
+            const result = await call(
+              "container.port.fetch_stream",
+              { port, request: value },
+              undefined,
+              options.signal,
+            );
+            const id = result.stream;
+            let ended = id === null;
+            const cancel = async () => {
+              if (ended) return;
+              ended = true;
+              await call("container.response.cancel", { id });
+            };
+            const read = async () => {
+              if (ended) return null;
+              try {
+                const chunk = await call(
+                  "container.response.read",
+                  { id },
+                  undefined,
+                  options.signal,
+                );
+                ended = chunk.done;
+                return chunk.done ? null : decode(chunk.body);
+              } catch (error) {
+                await cancel().catch(() => {});
+                throw error;
+              }
+            };
+            return freeze({
+              status: result.status,
+              headers: freeze(result.headers.map((pair) => freeze(pair))),
+              body: decode(result.body),
+              read,
+              async *chunks() {
+                try {
+                  if (result.body) yield decode(result.body);
+                  while (!ended) {
+                    const chunk = await read();
+                    if (chunk !== null) yield chunk;
+                  }
+                } finally {
+                  await cancel();
+                }
+              },
+              cancel,
+            });
+          },
           connect: async () =>
             resource("socket", await call("container.port.connect", { port })),
           connectWebSocket: async (url, headers = []) => {

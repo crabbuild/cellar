@@ -8,7 +8,7 @@ Rust hosts can supply another backend without changing the guest API.
 
 [Quick start](#quick-start) · [Provider matrix](compatibility.md) · [Capabilities](#discover-capabilities) ·
 [Lifecycle](#two-lifecycle-interfaces) · [Files](files.md) · [Add a provider](#add-a-provider) ·
-[Wire reference](#bridge-protocol-version-1)
+[HTTP streams](streams.md) · [Wire reference](#bridge-protocol-version-1)
 
 ## Native containers, this adapter, or Workers?
 
@@ -55,8 +55,9 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 | Dynamic Worker isolates, PTY and snapshots | Planned features; the current operation set does not implement them | [Implementation ledger](../../plans/sandbox-provider-progress.md) |
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
-background-process discovery and teardown routes pass. Streaming, previews and
-fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
+background-process discovery and teardown routes pass. A published `execStream()`
+probe also receives output before command completion. Streamed RPC/Worker
+forwarding, previews and fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
 
 ## Quick start
 
@@ -264,7 +265,9 @@ it does not establish whether an accepted command stopped or rolled back.
 | Cancellation API | Usage |
 | --- | --- |
 | Rust | `Session::execute_with_signal` with a native abort signal |
-| JS / TS buffered port fetch | `port.fetch(request, { signal })` |
+| JS / TS port fetch / streamed reads | `port.fetch(request, { signal })` or `port.fetchStream(request, { signal })` |
+
+See [HTTP response streams](streams.md) for incremental reads, limits and cleanup.
 
 The runtime keeps reservations until native cancellation completes. Dropping a
 native HTTP future cancels its connection/body work; custom providers must honor
@@ -326,7 +329,8 @@ applications use the language facade instead of constructing these messages.
 | Discovery / lifecycle | `container.capabilities`, `.start`, `.monitor` | Capabilities, run token or exit code |
 | Commands | `container.exec`, `.exec_output` | Process handle or bounded output |
 | Process streams | `container.exec.read_stdout`, `.write` | Base64 bytes or `null` |
-| Ports | `container.port.fetch`, `.connect` | Buffered HTTP response or socket handle |
+| Ports | `container.port.fetch`, `.fetch_stream`, `.connect` | Buffered response, streamed head or socket handle |
+| HTTP response streams | `container.response.read`, `.cancel` | One bounded chunk / EOF, or local consumer release |
 | Sockets / WebSockets | `container.socket.read`, `container.websocket.receive` | Bytes or a typed event |
 
 Binary wire values use standard padded base64. Python exposes `bytes`; JS/TS

@@ -10,6 +10,7 @@ mod files;
 mod native;
 mod queued;
 mod remote_http;
+mod response;
 mod results;
 mod values;
 pub mod vercel;
@@ -24,7 +25,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-/// Bounded binary bodies and combined buffered exec output.
+/// Bounded binary bodies, individual response chunks and combined exec output.
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub max_body_bytes: usize,
@@ -86,6 +87,9 @@ pub enum Operation {
     KillExec,
     WaitPort,
     Fetch,
+    FetchStream,
+    ReadResponse,
+    CancelResponse,
     Connect,
     ConnectWebSocket,
     ReadSocket,
@@ -122,6 +126,9 @@ impl Operation {
         Self::KillExec,
         Self::WaitPort,
         Self::Fetch,
+        Self::FetchStream,
+        Self::ReadResponse,
+        Self::CancelResponse,
         Self::Connect,
         Self::ConnectWebSocket,
         Self::ReadSocket,
@@ -158,6 +165,9 @@ impl Operation {
             "container.exec.kill" => Ok(Self::KillExec),
             "container.port.wait_ready" => Ok(Self::WaitPort),
             "container.port.fetch" => Ok(Self::Fetch),
+            "container.port.fetch_stream" => Ok(Self::FetchStream),
+            "container.response.read" => Ok(Self::ReadResponse),
+            "container.response.cancel" => Ok(Self::CancelResponse),
             "container.port.connect" => Ok(Self::Connect),
             "container.port.connect_websocket" => Ok(Self::ConnectWebSocket),
             "container.socket.read" => Ok(Self::ReadSocket),
@@ -196,6 +206,9 @@ impl Operation {
             Self::KillExec => "container.exec.kill",
             Self::WaitPort => "container.port.wait_ready",
             Self::Fetch => "container.port.fetch",
+            Self::FetchStream => "container.port.fetch_stream",
+            Self::ReadResponse => "container.response.read",
+            Self::CancelResponse => "container.response.cancel",
             Self::Connect => "container.port.connect",
             Self::ConnectWebSocket => "container.port.connect_websocket",
             Self::ReadSocket => "container.socket.read",
@@ -223,6 +236,8 @@ impl Operation {
                 | Self::WaitExec
                 | Self::ReadSocket
                 | Self::ReceiveWebSocket
+                | Self::ReadResponse
+                | Self::CancelResponse
         )
     }
 }

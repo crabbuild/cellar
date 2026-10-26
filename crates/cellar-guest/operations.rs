@@ -93,15 +93,28 @@ pub async fn execute_with_signal(
             .execute_with_signal(context, name, value, options, signal)
             .await;
     }
-    if matches!(name, "container.port.fetch" | "workers.container.fetch") {
-        if name == "workers.container.fetch" {
+    if matches!(
+        name,
+        "container.port.fetch"
+            | "container.port.fetch_stream"
+            | "container.response.read"
+            | "workers.container.fetch"
+            | "workers.container.fetch_stream"
+    ) {
+        if name.starts_with("workers.container.") {
             ensure!(state.workers_lifetimes, crate::failure::Validation);
         }
         return state
             .containers
             .execute_with_signal(
                 context,
-                crate::containers::Operation::Fetch,
+                match name {
+                    "container.port.fetch_stream" | "workers.container.fetch_stream" => {
+                        crate::containers::Operation::FetchStream
+                    }
+                    "container.response.read" => crate::containers::Operation::ReadResponse,
+                    _ => crate::containers::Operation::Fetch,
+                },
                 value,
                 &crate::containers::Limits {
                     max_body_bytes: options.max_body_bytes,

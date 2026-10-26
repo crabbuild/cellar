@@ -802,3 +802,73 @@ handler budget in an intermediate full-suite run. Three unchanged standalone
 runs and the final full-suite run pass; the latency cause remains unproven.
 No deadline or assertion was relaxed. This repeats the earlier timing caveat and
 is not evidence that the broader deadline/fault qualification is resolved.
+
+### Incremental port responses and published Sandbox streaming
+
+The common provider vocabulary now includes `FetchStream`, `ReadResponse` and
+`CancelResponse`. Native keeps the HTTP head and bounded prefix separate from
+its body stream. Each pull has a byte limit, concurrent reads refuse, EOF frees
+the handle, and cancellation drops the response consumer. Response handles share
+the existing 64-resource invocation limit. Original event authority is checked
+before and after reads; a retained response cannot borrow a later event's handle
+table. Dropping the event releases abandoned consumers.
+
+| Application surface | Implemented path |
+| --- | --- |
+| Rust | The shared `Session` operations, including native abort signals |
+| Python | `port.fetch_stream()`, `read()`, `chunks()` and `cancel()` |
+| JavaScript / TypeScript | `port.fetchStream()`, typed pull/iterator/cancel methods and read abort signals |
+| Optional Cloudflare facade | `getTcpPort().fetch()` returns a demand-driven web byte stream, including BYOB and abort after headers |
+
+The [stream guide](../crates/cellar-container/streams.md) documents the wire
+frames, lifecycle, limits and four-language usage. Upload bodies remain bounded
+and buffered. Cancelling output cannot establish command termination or HTTP
+rollback. E2B/Vercel do not advertise these new operations.
+
+The real-image fixture extends the published `Sandbox` class with a probe that
+calls its unchanged `execStream()` and published SSE parser. A command writes its
+first stdout event and waits for a file; only the reader's observation of that
+event allows a second SDK command to create the file. The reader then observes
+final stdout, stderr and exit code 7. This passes against the pinned 0.12.9 SDK
+and linux/amd64 image digest already recorded in the manifest. The original
+upstream exec/file/process routes also pass, followed by explicit destroy,
+complete host drain and no remaining owned containers.
+
+This is incremental port consumption inside the object. Streamed RPC return
+values, Worker response forwarding, previews, upgrades, fault/ownership
+qualification and the complete SP-02/SP-04 profiles remain pending. Live E2B and
+Vercel account qualification is deferred at the user's request; Cloudflare and
+the common framework remain the current priority. The full SP-01–SP-10 goal is
+active and incomplete.
+
+
+During the stricter real-image rerun, native startup refused before the stream
+probe: the fence helper exited 137. Test-only provider diagnostics exposed the
+native chain, and the task-owned VM's kernel log confirmed a memory-cgroup OOM
+kill of `nft` under its 16 MiB cap. The VM retained 22 Cellar fence tables from
+prior namespaces. The one-shot helper now has a bounded 64 MiB memory/swap
+allowance; CPU, capabilities, rules, validation and refusal on fence failure stay
+intact. The stricter image test passes against the same ruleset without deleting
+fences or relaxing deadlines. Much larger rulesets remain unqualified.
+
+The image probe specifically requires a stdout event before releasing the file
+gate, and separate stdout/stderr data events for final output. SDK start records
+repeat the command text and cannot satisfy these checks. Test-only native
+provider diagnostics preserve the production guest error envelope's privacy.
+
+Validation passes 20 provider unit tests (including strict stream-frame checks),
+16 shared guest tests, all four provider integrations and five adapter doctests.
+Node and embedded V8 pass finite/pending HTTP reads, the shared handle cap,
+pre-dispatch refusal, pending-read abort, stale-reader refusal and abandoned
+connection cleanup. CPython passes its new finite/pending stream facade checks.
+All three Worker-module regressions, all three native engine/package tests, the
+stricter published SDK/image probe, 29 JS/tool/type checks and four compatibility
+inventory checks pass. Strict adapter all-target Clippy and native-host library
+Clippy pass. Format/layout covers 1,095 Rust files and 58 owned JS/TS sources;
+documentation references, guide links and native-only dependency checks pass.
+
+An intermediate Worker-module count request returned HTTP 500 without a backend
+cause in the original diagnostic. The test now retains status/body/restart
+context on failure; the final run passes at its unchanged budget. That original
+cause remains unproven. No deadline or assertion was weakened; the image output
+assertions were strengthened to distinguish data events from SDK start records.

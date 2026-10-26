@@ -114,6 +114,30 @@ impl Peer {
                                         .boxed();
                                     return Ok(Response::builder().status(200).body(body)?);
                                 }
+                                if request.uri().path() == "/stream-body" {
+                                    use futures_util::StreamExt;
+                                    pending_requests.fetch_add(1, Ordering::SeqCst);
+                                    let connected = Connected(pending_requests);
+                                    let first =
+                                        futures_util::stream::iter([Ok::<_, std::io::Error>(
+                                            hyper::body::Frame::data(Bytes::from_static(&[
+                                                0, 255, 42,
+                                            ])),
+                                        )]);
+                                    let rest = futures_util::stream::once(async move {
+                                        let _connected = connected;
+                                        std::future::pending::<
+                                            Result<hyper::body::Frame<Bytes>, std::io::Error>,
+                                        >()
+                                        .await
+                                    });
+                                    return Ok(Response::builder()
+                                        .status(200)
+                                        .header("x-stream", "head-before-eof")
+                                        .body(BodyExt::boxed(StreamBody::new(
+                                            first.chain(rest),
+                                        )))?);
+                                }
                                 if request.uri().path() == "/ws" {
                                     let (response, upgrade) =
                                         fastwebsockets::upgrade::upgrade(&mut request)?;
@@ -235,6 +259,7 @@ impl Peer {
 pub struct AuditedProvider {
     pub calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
     pub sessions: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub pending_reads: Arc<AtomicUsize>,
 }
 
 impl cellar_guest::containers::Provider for AuditedProvider {
@@ -268,6 +293,7 @@ impl cellar_guest::containers::Provider for AuditedProvider {
         Box::new(AuditedSession {
             inner: cellar_guest::containers::Native.open(),
             calls: self.calls.clone(),
+            pending_reads: self.pending_reads.clone(),
         })
     }
 }
@@ -275,6 +301,7 @@ impl cellar_guest::containers::Provider for AuditedProvider {
 struct AuditedSession {
     inner: Box<dyn cellar_guest::containers::ProviderSession>,
     calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pending_reads: Arc<AtomicUsize>,
 }
 
 impl cellar_guest::containers::ProviderSession for AuditedSession {
@@ -300,6 +327,14 @@ impl cellar_guest::containers::ProviderSession for AuditedSession {
         limits: &'a cellar_guest::containers::Limits,
     ) -> cellar_guest::containers::ProviderFuture<'a> {
         self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.inner.execute(context, operation, input, limits)
+        Box::pin(async move {
+            let _pending = if operation == cellar_guest::containers::Operation::ReadResponse {
+                self.pending_reads.fetch_add(1, Ordering::SeqCst);
+                Some(Connected(self.pending_reads.clone()))
+            } else {
+                None
+            };
+            self.inner.execute(context, operation, input, limits).await
+        })
     }
 }

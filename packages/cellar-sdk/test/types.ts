@@ -53,3 +53,16 @@ class Room implements Cell {
 
 const room: Cell = new Room();
 void room;
+
+async function consumeContainerStream(ctx: Context, signal: AbortSignal) {
+  const response = await ctx.container.port(3000).fetchStream(request("http://container/events"), { signal });
+  const status: number = response.status;
+  const next: Uint8Array | null = await response.read();
+  for await (const bytes of response.chunks()) {
+    const owned: Uint8Array = bytes;
+    void owned;
+  }
+  await response.cancel();
+  return { status, next };
+}
+void consumeContainerStream;

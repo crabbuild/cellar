@@ -54,20 +54,29 @@ export class Counter {
       this.portSignal.listener?.();
       return ok();
     }
+    if (req.url.endsWith("/borrow-stream")) {
+      await rejects(() => this.oldStream.read(), "not_committed");
+      return ok();
+    }
     if (req.url.endsWith("/borrow")) {
       await rejects(() => this.old.running(), "not_committed");
       return ok();
     }
     const c = ctx.container;
-    const profile = await rejects(
-      () =>
-        ctx._call("workers.container.fetch", {
-          port: 8080,
-          request: request("http://container/profile-refused"),
-        }),
-      "not_committed",
-    );
-    check(profile.code === "ValidationError", "Workers profile required");
+    for (const operation of [
+      "workers.container.fetch",
+      "workers.container.fetch_stream",
+    ]) {
+      const profile = await rejects(
+        () =>
+          ctx._call(operation, {
+            port: 8080,
+            request: request("http://container/profile-refused"),
+          }),
+        "not_committed",
+      );
+      check(profile.code === "ValidationError", "Workers profile required");
+    }
     const capabilities = await c.capabilities();
     check(capabilities.synchronous_running, "declared synchronous observation");
     check(capabilities.queued_lifecycle, "declared queued lifecycle");
@@ -92,13 +101,46 @@ export class Counter {
       });
     check(ctx._sync("workers.container.running"), "native provider snapshot");
     const http = c.port(Number(await ctx.variable("HTTP_PORT")));
+    if (req.url.endsWith("/leak-stream")) {
+      this.oldStream = await http.fetchStream(
+        request("http://container/stream-body"),
+      );
+      return ok();
+    }
+    if (req.url.endsWith("/streams-limit")) {
+      const streams = [];
+      try {
+        for (let i = 0; i < 64; i++)
+          streams.push(
+            await http.fetchStream(request("http://container/stream-body")),
+          );
+        const refused = await rejects(
+          () => http.fetchStream(request("http://container/stream-body")),
+          "not_committed",
+        );
+        check(refused.code === "ValidationError", "response handle quota");
+        await rejects(() => c.exec(["echo-stdin"]), "not_committed");
+      } finally {
+        for (const stream of streams) await stream.cancel();
+      }
+      const next = await http.fetchStream(
+        request("http://container/stream-body"),
+      );
+      await next.cancel();
+      await c.destroy();
+      return ok();
+    }
     if (
       req.url.endsWith("/cancel-port-head") ||
-      req.url.endsWith("/cancel-port-body")
+      req.url.endsWith("/cancel-port-body") ||
+      req.url.endsWith("/cancel-port-stream")
     ) {
-      const pendingUrl = req.url.endsWith("/cancel-port-body")
-        ? "http://container/pending-body"
-        : "http://container/pending-head";
+      const streaming = req.url.endsWith("/cancel-port-stream");
+      const pendingUrl = streaming
+        ? "http://container/stream-body"
+        : req.url.endsWith("/cancel-port-body")
+          ? "http://container/pending-body"
+          : "http://container/pending-head";
       const signal = {
         aborted: true,
         addEventListener(_name, listener) {
@@ -115,10 +157,25 @@ export class Counter {
       check(refused.code === "Cancelled", "pre-abort keeps cancellation code");
       signal.aborted = false;
       this.portSignal = signal;
+      let responseStream;
+      if (streaming) {
+        responseStream = await http.fetchStream(request(pendingUrl), {
+          signal,
+        });
+        check(responseStream.status === 200, "stream head before EOF");
+        const first = responseStream.body.length
+          ? responseStream.body
+          : await responseStream.read();
+        check(first.join(",") === "0,255,42", "binary first chunk before EOF");
+      }
       const cancelled = await rejects(
-        () => http.fetch(request(pendingUrl), { signal }),
+        () =>
+          streaming
+            ? responseStream.read()
+            : http.fetch(request(pendingUrl), { signal }),
         "unknown",
       );
+      if (streaming) await responseStream.cancel();
       check(
         cancelled.code === "Cancelled",
         "native abort keeps cancellation code",
@@ -148,6 +205,15 @@ export class Counter {
       }
       return ok();
     }
+    const streamed = await http.fetchStream(request("http://container/finite"));
+    check(streamed.status === 302, "streamed redirect head");
+    const streamedBytes = [];
+    for await (const bytes of streamed.chunks()) streamedBytes.push(...bytes);
+    check(
+      String.fromCharCode(...streamedBytes) === "container response",
+      "finite streamed body",
+    );
+    await streamed.cancel();
     this.old = c;
     const filePath = "/tmp/cellar-?é.bin";
     let refusedText = false;

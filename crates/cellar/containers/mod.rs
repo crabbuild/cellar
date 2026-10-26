@@ -206,6 +206,11 @@ table inet __TABLE__ {
 /// speaks from the host side of the bridge.
 const ICC_OPTION: &str = "com.docker.network.bridge.enable_icc";
 
+// nft caches daemon-wide rules while applying a host's fence. A 16 MiB helper
+// can be OOM-killed after repeated host namespaces, before installing any rules.
+// Keep the one-shot helper bounded, with room for that existing ruleset.
+const FENCE_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
+
 /// How a cell stop treats its container.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Release {
@@ -1095,7 +1100,7 @@ impl ContainerEngine {
             "Cmd": ["sh", "-c", "printf '%s' \"$CELLAR_NFT\" | nft -f -"],
             "Labels": { "cellar.node": self.node, "cellar.host": self.names.key, "cellar.fence": "1" },
             "HostConfig": { "NetworkMode": "host", "CapAdd": ["NET_ADMIN"],
-                "NanoCpus": 62500000u64, "Memory": 16777216u64, "MemorySwap": 16777216u64 },
+                "NanoCpus": 62500000u64, "Memory": FENCE_MEMORY_BYTES, "MemorySwap": FENCE_MEMORY_BYTES },
         });
         let created = self
             .docker

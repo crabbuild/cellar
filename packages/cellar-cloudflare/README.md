@@ -163,7 +163,7 @@ This API slice does not establish full Workers stream conformance.
 | `signal(signal)` | Admits an ordered control; returns `void` |
 | `monitor()` | `Promise<void>`; nonzero exits reject with `exitCode` |
 | `destroy(reason?)` | Acknowledges cleanup; monitors resolve or receive the explicit reason |
-| `getTcpPort(port).fetch(input, init?)` | Bounded buffered HTTP after admitted startup; native cancellation |
+| `getTcpPort(port).fetch(input, init?)` | Bounded upload, incremental byte response/BYOB reads after admitted startup; native cancellation |
 
 Providers must opt into `synchronous_running` and `queued_lifecycle`. Native
 admission permits at most 64 tickets, with aggregate JSON inputs bounded by the
@@ -232,7 +232,7 @@ quotas and unknown-outcome reporting still apply.
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Sleep/wake, complete hooks/timeouts, streaming/upgrades, Sandbox previews and
+Sleep/wake, complete hooks/timeouts, streamed RPC/Worker forwarding and upgrades, Sandbox previews and
 the remaining SDK/image fault qualification
 remain required, along with hosted providers.
 
