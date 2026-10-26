@@ -8,24 +8,33 @@ package-status source of truth. Historical sections below record earlier states.
 
 ## Current qualification and artifact retention
 
-Frozen source `55b7776f0e7f75d91531628ca925c2167332d41c`, including main's SQLite
-upgrade, passes all 141 required FO-03 cases and the full seven-suite cohort:
-enrollment 113, catalog 12, permits 25, archive 58, snapshot 46, directory 16
-and Raft units 166, **436 passed** total. Two snapshot subprocess fixtures remain
-ignored in direct execution and run through passing parent crash matrices.
-All-target Clippy with warnings denied, formatting, layout, native dependencies,
-documentation and ten plan validator tests pass. All 1,203 Rust files and 21
-Cargo/configuration inputs match the qualified commit. Executable copies,
-command/log hashes and source/scope audits are retained externally under this
-checkout's unique target at `qualification/fleet-operations/terminal-v11/`.
-Small required logs and completion records are mirrored into ignored `.cellar`
-paths for the plan validator. FO-01/FO-02 also use the fresh passing commands.
+Behavioral source `07315b2c16c6ddad33118bd0a2afdf82230b2cfa`, including latest
+main's local-store WAL fix and resource-backed membership admission, passes all
+141 required FO-03 cases and seven complete suites: enrollment 117, catalog 12,
+permits 25, archive 58, snapshot 46, directory 16 and Raft units 166, **440 passed**.
+The local-store suite adds four passed cases and native cell limits adds five.
+Two snapshot helper fixtures are intentionally ignored directly and run through
+passing parent crash matrices.
 
-The operator confirmed cleaning local artifacts during an earlier run. Older
-`.cellar/raft-perf` logs and binaries are unavailable; historical descriptions
-do not replace them. Primary artifacts now live outside runtime data. The
-current qualification is fresh verification. No raw files under
-`plans/multi-raft/evidence/` are added to this PR.
+That run stopped at formatting in the new movement test. Formatting successor
+`397c70c384d5777fffb94563748902cb39b87db0` changes only that fixture's layout;
+its bytes exactly equal rustfmt output from the behavioral source. All production
+Rust and Cargo/configuration inputs are identical. The four movement cases,
+all-target Clippy with warnings denied, formatting, layout, native dependencies
+and docs pass on the successor. The full 440-test cohort was not repeated for
+this formatting-only change. A duplicate source-anchor/output declaration was
+then corrected in plan metadata; validation, source preflight and all ten plan
+validator tests pass in the published metadata successor.
+
+All 1,206 Rust files and 21 Cargo/configuration inputs are frozen with their
+respective source pins. Primary logs, immutable executables, hashes and the
+formatting audit are retained outside runtime data at
+`qualification/fleet-operations/movement-v4/`, `movement-format-v5/` and
+`movement-package-v6/` under this checkout's unique target. Small logs and exact
+completion records are mirrored into ignored `.cellar/raft-perf` paths. Failed
+formatting, fixture and metadata attempts remain separately retained and are
+not counted as passing checks. Earlier artifacts deleted by operator cleanup
+are unavailable. No files under `plans/multi-raft/evidence/` are added to this PR.
 
 ## Completed FO-03 lifecycle
 
@@ -82,15 +91,38 @@ failure are retained outside runtime data; no failed attempt is counted as a
 passing cohort. Temporary diagnostic logs were removed. This establishes
 independent publication progress, not a fleet TPS or latency qualification.
 
+## FO-04 resource-backed membership admission
+
+`reserve_movement` combines an exact RepairPlan and source with the resource
+request. It owns target physical inventory and source safe ReadIndex under one
+original deadline. Stable RF3, current boot/process/engine, exact history and
+birth/schema, latest settled permit, member high water and staged voter failure
+domains must agree. One CAS installs the target debit, bounded active book and
+exact membership permit. The opaque result still requires actual group
+consumption and learner initialization. Generic writes cannot mint a linked
+permit or delete/replace one while its resource debit remains active. Exact
+canonical journal reconciliation precedes current probes, including after target
+shutdown and adapter recreation.
+
+Four native cases cover S3 seed through joint completion and a following write,
+lost CAS confirmation and exact retry, minority refusal, and two independent
+writers racing for the last target slot. The loser installs neither debit nor
+permit; another request refuses at the engine-slot capacity boundary. Each
+writer owns its snapshot. Hosts use an independent control adapter and install
+the winning cut before the next capacity decision. Fixture ownership,
+backpressure and stale-cut failures are retained; no production admission check
+was relaxed to make the cases pass.
+
 ## Next implementation milestone
 
-FO-04 must link each capacity debit to its exact membership permit in one CAS,
-execute a real learner seed/joint transition, and release active movement debt
-only after terminal quorum proof and physical work joins. Retain physical high
-water independently of active rows before allowing release. Then implement the
-complete bounded final assignment and legal staged moves with one-node-loss
-restoration headroom. The pure ledger and resource-only admission are existing
-infrastructure; they do not complete automatic redistribution.
+FO-04 next needs terminal resource release with actual physical work joins.
+Pin every affected physical owner, retain the latest consumed permit and exact
+completed attribution, and preserve disk/engine physical high water independently
+before removing active movement references. Then implement complete bounded
+final assignment and legal staged moves with one-node-loss restoration headroom.
+This admission increment does not complete automatic redistribution. FO-05
+through FO-10 retain their load policy, controller, maintenance, operator,
+capacity-scaling and deployed qualification scope.
 
 ## Historical implementation checkpoints
 
