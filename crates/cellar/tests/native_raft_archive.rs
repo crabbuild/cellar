@@ -2363,7 +2363,7 @@ async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result
         ensure!(completed.try_recv().is_err());
         Ok::<_, anyhow::Error>(number)
     };
-    let (result, already_joined) = tokio::select! {
+    let (result, already_joined) = cellar::asyncrt::select! {
         result = progress => (result, None),
         result = &mut batch => (Err(anyhow::anyhow!("batch finished before the stalled payload released: {result:?}")), Some(result)),
     };
