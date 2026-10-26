@@ -119,6 +119,15 @@ async fn restart_case() -> Result<()> {
         .await?;
     wait(&s, || evidence.active.load(Ordering::Acquire) == 1).await?;
     let other = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+    let closed_owner = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let closed_catalog = Fixture::open_catalog(&closed_owner, s.f.store.clone())?;
+    closed_owner.shutdown().await;
+    ensure!(matches!(
+        closed_catalog
+            .start_movement_service(observer.clone(), evidence.clone(), options())
+            .await,
+        Err(FleetCatalogError::Closed)
+    ));
     ensure!(matches!(
         other
             .start_movement_service(observer.clone(), evidence.clone(), options())

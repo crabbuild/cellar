@@ -72,6 +72,21 @@ impl MovementServiceWork {
             .control_budget
             .acquire(2 * ROOT_LIMIT)
             .ok_or(FleetCatalogError::Overloaded)?;
+        // Use the enrolled node's installed client, never a caller's alternate
+        // backend with the same descriptive fleet identity. Periodic I/O has a
+        // private turn under the node's domain, so it cannot occupy foreground
+        // catalog admission or outlive the node's joined job set.
+        let source = &host.catalog.inner;
+        self.catalog = FleetCatalog {
+            inner: Arc::new(Inner {
+                bucket: source.bucket.clone(),
+                domain: self.observer.handle.domain.clone(),
+                prefix: source.prefix.clone(),
+                cluster: source.cluster,
+                incarnation: source.incarnation,
+                turn: Mutex::new(()),
+            }),
+        };
         let (stop, wait) = watch::channel(false);
         *slot = Some(stop);
         self.memory = Some(memory);

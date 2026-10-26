@@ -135,9 +135,13 @@ impl FleetCatalog {
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
         options.validate()?;
-        if !self.inner.domain.same_owner(&observer.handle.domain) {
-            return Err(FleetCatalogError::Invalid("movement service domain"));
-        }
+        // A retained capability cannot start new work after its original owner
+        // closes. The receiving node independently selects its installed fleet
+        // client and binds the actual worker to its own execution domain.
+        self.inner
+            .domain
+            .mono_ms()
+            .map_err(|_| FleetCatalogError::Closed)?;
         let timeout = options.turn_timeout;
         let (stop, wait) = watch::channel(false);
         let (done, finished) = watch::channel(false);
@@ -147,21 +151,8 @@ impl FleetCatalog {
             done: finished,
             status: view,
         };
-        // Periodic I/O must not occupy a foreground adapter's catalog turn.
-        // The node singleton and retained metadata debit bound this extra owner.
-        let source = &self.inner;
-        let catalog = FleetCatalog {
-            inner: Arc::new(Inner {
-                bucket: source.bucket.clone(),
-                domain: source.domain.clone(),
-                prefix: source.prefix.clone(),
-                cluster: source.cluster,
-                incarnation: source.incarnation,
-                turn: Mutex::new(()),
-            }),
-        };
         let work = MovementServiceWork::new(
-            catalog,
+            self.clone(),
             observer.clone(),
             evidence,
             options,

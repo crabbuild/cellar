@@ -1008,8 +1008,11 @@ deployment occupancy evidence under the remaining turn deadline. The provider
 must retain evidence needed to resolve a historical settlement; inability to
 measure current occupancy is an error, never evidence of zero use. The origin
 may have zero business groups. A second service on the same origin is refused,
-including through another catalog adapter. The catalog and origin must belong
-to the same execution domain and rooted fleet.
+including through another catalog adapter. The supplied catalog must still have
+a live owner and match the node's rooted fleet. After that check, the node uses
+its own installed backend client and a private catalog turn bound to the node's
+execution domain. Caller and node may have different domains; periodic I/O
+cannot occupy the caller's foreground catalog turn.
 
 The service first reconstructs active membership reservations. It performs at
 most one reconciliation attempt per round, with one original deadline covering
