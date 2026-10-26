@@ -126,6 +126,7 @@ struct InvocationState {
     start: Start,
     operations: usize,
     pending: HashMap<u64, PendingOperation>,
+    response: Option<u64>,
     mutation: bool,
 }
 
@@ -182,9 +183,15 @@ fn run(
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
     let script = format!(
-        "const makeBudgets = ({});\nconst makeRunner = ({});\n{}",
+        "const makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst ioSource = {};\n{}",
         include_str!("budget.js"),
         include_str!("../runner.js"),
+        include_str!("../delegates.js"),
+        include_str!("../rpc_streams.js"),
+        include_str!("../rpc_writable.js"),
+        include_str!("../rpc_inputs.js"),
+        include_str!("../rpc_messages.js"),
+        serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );
     let mut command = Command::new(&node.executable);
@@ -220,11 +227,14 @@ fn run(
         "entry": node.entry,
         "descriptor": source.descriptor().to_string(),
         "maximum": runtime.options.max_objects,
+        "lifetimeLimit": runtime.options.max_batch_operations,
         "valueLimit": runtime.options.max_value_bytes,
+        "cloneLimit": runtime.options.max_body_bytes.min(runtime.options.max_value_bytes),
         "bridgeLimit": runtime.options.max_bridge_bytes,
         "pendingLimit": runtime.options.max_pending_operations,
         "operationLimit": runtime.options.max_operations,
-        "invocationLimit": runtime.options.max_invocations
+        "invocationLimit": runtime.options.max_invocations,
+        "synchronousTimeout": node.heartbeat_timeout.as_millis()
     });
     let mut stdin = process.0.stdin.take().context("Node stdin missing")?;
     let config = serde_json::to_vec(&config)?;
@@ -407,6 +417,7 @@ fn run(
                         start,
                         operations: 0,
                         pending: HashMap::new(),
+                        response: None,
                         mutation: false,
                     },
                 );
@@ -500,6 +511,16 @@ fn run(
                     last_operation = id;
                     let name = string(&message, "name")?;
                     let payload = string(&message, "payload")?;
+                    let callback_scope = message
+                        .get("callback_scope")
+                        .filter(|value| !value.is_null())
+                        .map(|_| number(&message, "callback_scope"))
+                        .transpose()?;
+                    let synchronous = message
+                        .get("synchronous")
+                        .map(|v| v.as_bool().context("invalid Node synchronous flag"))
+                        .transpose()?
+                        .unwrap_or(false);
                     let size = value_size(payload, body.as_deref())?;
                     let Some(state) = invocations.get_mut(&invocation) else {
                         reject(&mut transport, invocation, id, "ContextExpired")?;
@@ -507,17 +528,28 @@ fn run(
                     };
                     // Recheck authority and limits in Rust even though the worker
                     // also enforces them before sending an operation.
-                    let mutation = !cellar_guest::operations::is_read(name);
+                    let mutation = requires_mutation_slot(name);
+                    let completion = name == "workers.lifetime.response";
+                    let ordinary_pending = state.pending.len()
+                        - usize::from(
+                            state
+                                .response
+                                .is_some_and(|id| state.pending.contains_key(&id)),
+                        );
                     let refusal = if !state.start.active.load(Ordering::Acquire)
                         || !state.start.owner.load(Ordering::Acquire)
                     {
                         Some("ContextExpired")
+                    } else if synchronous && !supports_synchronous(name) {
+                        Some("UnsupportedOperation")
                     } else if (name == "cell.call") != body.is_some() {
                         Some("ValidationError")
                     } else if name.len() > 64 || size > runtime.options.max_value_bytes {
                         Some("ValueLimit")
-                    } else if state.operations >= runtime.options.max_operations
-                        || state.pending.len() >= runtime.options.max_pending_operations
+                    } else if (completion && state.response.is_some())
+                        || (!completion
+                            && (state.operations >= runtime.options.max_operations
+                                || ordinary_pending >= runtime.options.max_pending_operations))
                     {
                         Some("OperationLimit")
                     } else if mutation && state.mutation {
@@ -557,8 +589,8 @@ fn run(
                         reject(&mut transport, invocation, id, "BridgeLimit")?;
                         continue;
                     };
-                    let cancellation =
-                        (name == "cell.call").then(cellar::sdk::web::AbortController::new);
+                    let cancellation = super::supports_operation_cancellation(name)
+                        .then(cellar::sdk::web::AbortController::new);
                     if state
                         .start
                         .sender
@@ -566,6 +598,9 @@ fn run(
                             id,
                             name: name.into(),
                             payload: payload.into(),
+                            callback_scope,
+                            blocking: synchronous,
+                            synchronous: None,
                             body,
                             signal: cancellation.as_ref().map(|controller| controller.signal()),
                             budget,
@@ -576,7 +611,11 @@ fn run(
                         reject(&mut transport, invocation, id, "OperationLimit")?;
                         continue;
                     }
-                    state.operations += 1;
+                    if completion {
+                        state.response = Some(id);
+                    } else {
+                        state.operations += 1;
+                    }
                     state.pending.insert(
                         id,
                         PendingOperation {

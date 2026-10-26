@@ -158,10 +158,7 @@ pub(crate) async fn invoke(
             .scope,
         &method,
     )?;
-    let bytes = match &args {
-        crate::engine_api::RpcData::Json(s) => s.len(),
-        crate::engine_api::RpcData::Structured(b) => b.len(),
-    };
+    let bytes = args.payload_bytes();
     ensure!(bytes <= 1024, "state sample request exceeds limit");
     let body = crate::application::decode_rpc(&args)?.to_json()?;
     ensure!(

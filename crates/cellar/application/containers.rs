@@ -3,14 +3,63 @@
 //! Cell-owned containers. Handles may be retained by a cell; every operation
 //! requires its current executing context. Mutations wait for durability.
 
-use super::{http, sockets, websocket, Context, HandlerFuture};
+pub use super::container_bindings::{
+    BindingCheckpoint, BindingIntent, BindingJournal, BindingObservation, BindingRecord,
+    MAX_BINDINGS, MAX_BINDING_BYTES,
+};
+use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
+pub use host::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 use std::{
     future::Future,
     sync::{Arc, Weak},
     time::Duration,
 };
+
+/// Authority for a host-selected external container or sandbox provider.
+/// It belongs to one root-cell event; providers must enforce their own remote
+/// instance fencing and isolation in addition to this local authority.
+pub struct ProviderAuthority {
+    authority: InvocationAuthority,
+}
+
+impl Context {
+    /// Obtain event authority without requiring a local Docker deployment.
+    pub fn container_provider_authority(&self) -> Result<ProviderAuthority> {
+        let authority = self.invocation_authority()?;
+        anyhow::ensure!(
+            self.identity().is_some(),
+            "stateless handlers have no container"
+        );
+        anyhow::ensure!(
+            self.facet().is_none(),
+            "containers must be controlled by their root cell"
+        );
+        Ok(ProviderAuthority { authority })
+    }
+}
+
+impl ProviderAuthority {
+    pub fn check(&self, context: &Context) -> Result<()> {
+        self.authority.check(context)
+    }
+
+    /// Await the native container durability/output gate before a provider effect.
+    pub fn before_effect(&self, context: &Context) -> HandlerFuture<()> {
+        if let Err(error) = self.check(context) {
+            return Box::pin(async move { Err(error) });
+        }
+        let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Container);
+        let context = context.clone();
+        Box::pin(async move {
+            host_gates::await_egress_gate(gate)
+                .await
+                .map_err(anyhow::Error::msg)?;
+            context.check_turn()
+        })
+    }
+}
 
 /// Options for the container's root process. Internet access defaults to off.
 #[derive(Clone, Debug, Default)]
@@ -75,6 +124,56 @@ impl Context {
 }
 
 impl Container {
+    /// Read one regular file. The engine resolves container symlinks; archive
+    /// links, directories and oversized/truncated data refuse. No host extraction.
+    pub fn read_file(
+        &self,
+        context: &Context,
+        path: FilePath,
+        max_bytes: usize,
+    ) -> HandlerFuture<Vec<u8>> {
+        self.effect(context, move |engine, cell| async move {
+            engine.read_file(&cell, path, max_bytes).await
+        })
+    }
+
+    /// Create/replace a regular file in an existing directory. Permissions are
+    /// limited to 0o777. This is not an atomic or transactional write; a lost
+    /// response or cancellation cannot establish whether it was applied.
+    pub fn write_file(
+        &self,
+        context: &Context,
+        path: FilePath,
+        data: Vec<u8>,
+        mode: u32,
+    ) -> HandlerFuture<()> {
+        self.effect(context, move |engine, cell| async move {
+            engine.write_file(&cell, path, data, mode).await
+        })
+    }
+
+    /// Obtain engine metadata under the current activation and output gate.
+    pub fn stat_file(&self, context: &Context, path: FilePath) -> HandlerFuture<FileMetadata> {
+        self.effect(context, move |engine, cell| async move {
+            engine.stat_file(&cell, path).await
+        })
+    }
+
+    /// List direct children, sorted by name. Native scans a bounded archive of
+    /// the directory tree and refuses oversized trees rather than returning a
+    /// partial listing. Byte and entry limits both apply.
+    pub fn list_files(
+        &self,
+        context: &Context,
+        path: FilePath,
+        max_bytes: usize,
+        max_entries: usize,
+    ) -> HandlerFuture<Vec<FileMetadata>> {
+        self.effect(context, move |engine, cell| async move {
+            engine.list_files(&cell, path, max_bytes, max_entries).await
+        })
+    }
+
     fn check(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         self.engine.check_owner()?;
@@ -166,12 +265,9 @@ impl Container {
         }
         let owner = self.clone();
         let context = context.clone();
+        let waiting = owner.engine.monitor(&owner.cell, run);
         Box::pin(async move {
-            let result = owner
-                .engine
-                .monitor(&owner.cell, run)
-                .await
-                .map_err(anyhow::Error::msg);
+            let result = waiting.await.map_err(anyhow::Error::msg);
             owner.check(&context)?;
             result
         })
@@ -339,6 +435,26 @@ impl Port {
             owner.check(&context)?;
             cancellation.disarm();
             head.into_http().map_err(anyhow::Error::msg)
+        })
+    }
+
+    /// Open an event-owned WebSocket whose frames are consumed with `next`.
+    /// The original event closes the socket on completion or cancellation.
+    pub fn connect_websocket(
+        &self,
+        context: &Context,
+        url: &str,
+        headers: http::Headers,
+    ) -> HandlerFuture<websocket::UpgradeResponse> {
+        let prepared = self.url(context, url);
+        let owner = self.owner.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let response = context
+                .container_websocket_polled(prepared?, headers)
+                .await?;
+            owner.check(&context)?;
+            Ok(response)
         })
     }
 

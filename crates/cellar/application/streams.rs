@@ -117,14 +117,28 @@ impl Context {
     /// Use this in an owned producer registered with `wait_until_byte_stream`;
     /// keeping a producer alive alone does not prove its post-response writes.
     pub async fn write_stream_chunk(&self, writer: &ByteWriter, bytes: Vec<u8>) -> Result<()> {
+        self.stream_output_gate().await?;
+        writer.write(bytes).await?;
+        self.check_turn()?;
+        Ok(())
+    }
+
+    /// Publish a clean response EOF only after proving writes made after the
+    /// final chunk. Independent background work may continue after this close.
+    pub async fn finish_stream(&self, writer: &ByteWriter) -> Result<()> {
+        self.stream_output_gate().await?;
+        writer.close().await?;
+        self.check_turn()?;
+        Ok(())
+    }
+
+    async fn stream_output_gate(&self) -> Result<()> {
         self.check_turn()?;
         let gate =
             crate::host_gates::egress_gate_request(&self.io, cellar_logic::Channel::Response);
         crate::host_gates::await_egress_gate(gate)
             .await
             .map_err(anyhow::Error::msg)?;
-        self.check_turn()?;
-        writer.write(bytes).await?;
         self.check_turn()?;
         Ok(())
     }

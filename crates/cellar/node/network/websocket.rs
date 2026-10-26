@@ -523,6 +523,7 @@ async fn local_websocket_pipe(
     if reply
         .send(Ok(crate::ws_registry::OutboundWsOpen {
             protocol: None,
+            headers: None,
             declined: None,
         }))
         .is_err()
@@ -614,6 +615,7 @@ async fn worker_websocket_pipe(
     if reply
         .send(Ok(crate::ws_registry::OutboundWsOpen {
             protocol: None,
+            headers: None,
             declined: None,
         }))
         .is_err()
@@ -671,6 +673,7 @@ async fn tunnel_websocket_pipe(
     if reply
         .send(Ok(crate::ws_registry::OutboundWsOpen {
             protocol: None,
+            headers: None,
             declined: None,
         }))
         .is_err()
@@ -811,6 +814,7 @@ pub(crate) async fn outbound_websocket_task(
             };
             let _ = reply.send(Ok(crate::ws_registry::OutboundWsOpen {
                 protocol: None,
+                headers: None,
                 declined: Some(declined),
             }));
             return Ok(());
@@ -823,6 +827,23 @@ pub(crate) async fn outbound_websocket_task(
             let _ = reply.send(Err(anyhow::anyhow!(
                 "outbound WebSocket handshake timed out after {}ms",
                 timeout.as_millis()
+            )));
+            return Ok(());
+        }
+    };
+    let headers = connection
+        .headers
+        .iter()
+        .map(|(name, value)| {
+            String::from_utf8(value.as_bytes().to_vec())
+                .map(|value| (name.as_str().to_owned(), value))
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let headers = match headers {
+        Ok(headers) => headers,
+        Err(_) => {
+            let _ = reply.send(Err(anyhow::anyhow!(
+                "WebSocket response headers are not UTF-8"
             )));
             return Ok(());
         }
@@ -866,6 +887,7 @@ pub(crate) async fn outbound_websocket_task(
     if reply
         .send(Ok(crate::ws_registry::OutboundWsOpen {
             protocol,
+            headers: Some(headers),
             declined: None,
         }))
         .is_err()

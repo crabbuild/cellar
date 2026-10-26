@@ -1883,6 +1883,10 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         failure
                     });
                 }
+                if rpc_lease::is_leased(response.headers())? {
+                    anyhow::ensure!(!event_call, "event RPC requires a finite value reply");
+                    return rpc_lease::receive(response.into_body()).await;
+                }
                 let body = event_reply::receive(
                     response.into_body(),
                     event_call,
@@ -2741,6 +2745,15 @@ pub(crate) async fn dispatch_forwarded_rpc(
             }
         };
         match result {
+            Ok(crate::engine_api::RpcData::Leased { value, lease }) => {
+                match rpc_lease::response(*value, lease) {
+                    Ok(reply) => peer_response(reply),
+                    Err(_) => peer_response(response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "invalid leased RPC reply",
+                    )),
+                }
+            }
             Ok(crate::engine_api::RpcData::Json(json)) => peer_response(
                 Response::builder()
                     .status(StatusCode::OK)
@@ -2799,6 +2812,8 @@ pub(crate) async fn dispatch_forwarded_rpc(
 mod management;
 #[path = "network/peer_tunnel.rs"]
 mod peer_tunnel;
+#[path = "network/rpc_lease.rs"]
+mod rpc_lease;
 #[path = "network/websocket.rs"]
 mod websocket;
 use websocket::{handle_websocket, outbound_websocket_task, reply_without_upgrade};

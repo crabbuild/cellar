@@ -22,10 +22,19 @@ impl std::fmt::Display for RemoteError {
 impl std::error::Error for RemoteError {}
 
 pub fn decode_response(bytes: &[u8]) -> Result<StructuredValue> {
+    decode_response_with_limits(bytes, clone::Limits::default())
+}
+
+/// Bound both successful graphs and remote error graphs before decoding them.
+pub fn decode_response_with_limits(bytes: &[u8], limits: clone::Limits) -> Result<StructuredValue> {
+    ensure!(
+        bytes.len() <= limits.bytes,
+        "RPC response exceeds byte limit"
+    );
     match bytes.first() {
-        Some(0xff) => clone::decode(bytes),
+        Some(0xff) => clone::decode_with_limits(bytes, limits),
         Some(0) => {
-            let value = clone::decode(&bytes[1..])?;
+            let value = clone::decode_with_limits(&bytes[1..], limits)?;
             let Value::Reference(root) = value.root else {
                 bail!("invalid RPC error envelope")
             };

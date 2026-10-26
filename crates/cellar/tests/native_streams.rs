@@ -47,6 +47,11 @@ struct Probe {
     retirement_done: Notify,
     old: Mutex<Option<Context>>,
     readable: Mutex<Option<ByteReadable>>,
+    hold_finish: AtomicBool,
+    fail_finish: AtomicBool,
+    finish_entered: Notify,
+    finish_release: Notify,
+    finish_acks: AtomicUsize,
 }
 
 struct Never(Arc<Probe>);
@@ -137,6 +142,29 @@ impl Cell for Source {
                     assert_eq!(error.to_string(), "The HTTP body was dropped");
                     storage.put_json("discarded", &json!(true))?;
                     probe.discarded.notify_one();
+                    Ok(())
+                })?;
+                return Ok(Output::Http(
+                    Response::from_byte_stream(200, &pipe.readable, &Headers::new())?
+                        .into_http(&context)?,
+                ));
+            }
+            if path == "/finish" || path == "/finish-error" {
+                let pipe = IdentityTransformStream::new();
+                let writer = pipe.writable.get_writer()?;
+                let producer = context.clone();
+                let probe = self.0.clone();
+                let storage = self.1.clone();
+                let fail = path == "/finish-error";
+                context.wait_until_byte_stream(&pipe.readable, async move {
+                    producer
+                        .write_stream_chunk(&writer, b"last".to_vec())
+                        .await?;
+                    storage.put_json("after-final-chunk", &json!(true))?;
+                    probe.fail_finish.store(fail, Ordering::SeqCst);
+                    probe.hold_finish.store(true, Ordering::SeqCst);
+                    producer.finish_stream(&writer).await?;
+                    probe.finish_acks.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 })?;
                 return Ok(Output::Http(
@@ -278,6 +306,20 @@ async fn run() -> Result<()> {
     let gate_adapter = cellar::asyncrt::spawn(async move {
         while let Some(gate) = cellar::asyncrt::select_biased! {"stream proof adapter stops";_=gate_stop.changed()=>None,gate=gates.recv()=>gate,}
         {
+            if gate.ticket.channel == cellar_logic::Channel::Response
+                && gate.ticket.position.is_some()
+                && p.hold_finish.swap(false, Ordering::SeqCst)
+            {
+                p.finish_entered.notify_one();
+                p.finish_release.notified().await;
+                let result = if p.fail_finish.swap(false, Ordering::SeqCst) {
+                    Err(cellar_logic::RequestError::DurabilityUnproven)
+                } else {
+                    Ok(())
+                };
+                let _ = gate.reply.send(result);
+                continue;
+            }
             if gate.ticket.channel == cellar_logic::Channel::CellRpc
                 && gate.ticket.position.is_some()
                 && p.hold.swap(false, Ordering::SeqCst)
@@ -349,6 +391,36 @@ async fn run() -> Result<()> {
     );
     probe.produced.notified().await;
     assert_eq!(probe.acks.load(Ordering::SeqCst), 2);
+    for path in ["/finish", "/finish-error"] {
+        let mut response = call(&runtime, path).await?;
+        let stream = response.stream.as_mut().unwrap();
+        assert_eq!(
+            stream.next().await.unwrap().map_err(anyhow::Error::msg)?,
+            b"last"
+        );
+        probe.finish_entered.notified().await;
+        assert!(
+            cellar::asyncrt::timeout(Duration::from_millis(50), stream.next())
+                .await
+                .is_err(),
+            "EOF escaped its final-write proof gate"
+        );
+        probe.finish_release.notify_one();
+        if path == "/finish-error" {
+            assert!(stream
+                .next()
+                .await
+                .unwrap()
+                .unwrap_err()
+                .contains("DurabilityUnproven"));
+        }
+        assert!(stream.next().await.is_none());
+    }
+    assert_eq!(
+        probe.finish_acks.load(Ordering::SeqCst),
+        1,
+        "failed EOF proof acknowledged success"
+    );
     let response = call(&runtime, "/discard").await?;
     drop(response);
     probe.discarded.notified().await;

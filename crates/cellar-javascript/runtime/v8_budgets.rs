@@ -11,11 +11,7 @@ fn ids(scope: &mut v8::PinScope, args: &v8::FunctionCallbackArguments) -> Option
 }
 
 fn authority(scope: &mut v8::PinScope, invocation: u64) -> Result<Shared, &'static str> {
-    if scope
-        .get_continuation_preserved_embedder_data()
-        .number_value(scope)
-        != Some(invocation as f64)
-    {
+    if super::continuation(scope).map(|(id, _, _)| id) != Some(invocation) {
         return Err("ContextMismatch");
     }
     let state = scope

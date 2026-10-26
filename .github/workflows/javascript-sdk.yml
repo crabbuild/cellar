@@ -6,12 +6,15 @@ on:
     paths:
       - 'crates/**'
       - 'packages/cellar-sdk/**'
+      - 'packages/cellar-cloudflare/**'
       - 'examples/javascript/**'
       - 'examples/node/**'
       - 'examples/streaming/**'
+      - 'examples/bindings/**'
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
       - 'tools/javascript/**'
+      - 'tools/sandbox/**'
       - 'tools/rpc/**'
       - 'tools/cellar-rpc-codegen/**'
       - 'proto/**'
@@ -41,15 +44,18 @@ jobs:
       - name: Locked npm build
         run: |
           npm ci --prefix tools/javascript --ignore-scripts
+          npm run --prefix tools/javascript format:check
           npm ci --prefix examples/javascript --ignore-scripts
           npm ci --prefix examples/node --ignore-scripts
           npm ci --prefix examples/streaming --ignore-scripts
+          npm ci --prefix examples/bindings --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
           npm run --prefix examples/streaming build
+          npm run --prefix examples/bindings build
           npm run --prefix examples/pi-agent build
           npm test --prefix examples/pi-agent
           npm run --prefix examples/vercel-agent build
@@ -63,12 +69,23 @@ jobs:
           npm test --prefix tools/rpc
           npm run --prefix tools/rpc typecheck
           npm run --prefix tools/rpc build
+      - name: Published sandbox compatibility input identities
+        run: |
+          node tools/sandbox/e2b/check.mjs
+          node --test tools/sandbox/e2b/check.test.mjs
+          node tools/sandbox/vercel/check.mjs
+          node --test tools/sandbox/vercel/check.test.mjs
+          python3 tools/sandbox/vercel/helper_test.py
+          npm ci --ignore-scripts --prefix tools/sandbox/compat
+          npm run inventory --prefix tools/sandbox/compat
+          npm test --prefix tools/sandbox/compat
+          node tools/sandbox/compat/build.mjs
       - name: Chat UI desktop and mobile behavior
         run: |
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
           npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
-        run: cargo test --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
+        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
       - name: Node-only feature
         run: cargo test --locked -p cellar-javascript --no-default-features --features node
       - name: Runtime archive and admission boundaries
@@ -131,7 +148,7 @@ jobs:
           if-no-files-found: ignore
       - name: Quality and engine boundaries
         run: |
-          cargo clippy --locked -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
+          cargo clippy --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
           cargo format --check
           cargo check-layout
           python3 tools/check_native_dependencies.py
@@ -141,6 +158,10 @@ jobs:
       - name: Runnable streaming examples and restart
         run: |
           python3 examples/streaming/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
+            --backend rust --backend node-js --backend node-ts --backend v8
+      - name: Runnable binding examples, restart and rebinding
+        run: |
+          python3 examples/bindings/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
             --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
         run: |

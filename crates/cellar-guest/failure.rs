@@ -81,17 +81,8 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
     Ok(String::from_utf8(output.bytes)?)
 }
 
-/// Attached only to validation completed before any native effect starts.
-#[derive(Debug)]
-pub struct Validation;
-
-impl std::fmt::Display for Validation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("invalid Cellar operation")
-    }
-}
-
-impl std::error::Error for Validation {}
+/// Proven pre-effect container and guest validation refusal.
+pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
     if let Some(failure) = error.downcast_ref::<cellar::sdk::rpc::Failure>() {
@@ -99,7 +90,18 @@ pub fn envelope(name: &str, error: &Error) -> Value {
         // handler must still sanitize any escaping failure to unknown effects.
         return json!({"ok":false,"error":failure.code(),"code":failure.code(),"outcome":failure.outcome()});
     }
-    let (code, outcome) = if error.is::<crate::storage::Conflict>() {
+    let (code, outcome) = if let Some(cancelled) =
+        error.downcast_ref::<cellar_container::Cancelled>()
+    {
+        (
+            "Cancelled",
+            if cancelled.before_dispatch() {
+                "not_committed"
+            } else {
+                "unknown"
+            },
+        )
+    } else if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
     } else if error.is::<Validation>() {
         ("ValidationError", "not_committed")
@@ -142,6 +144,19 @@ fn submitted(name: &str) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn container_validation_preserves_proven_refusal() {
+        let error = anyhow::Error::new(cellar_container::Validation);
+        assert_eq!(
+            envelope("container.start", &error)["outcome"],
+            "not_committed"
+        );
+        assert_eq!(
+            envelope("container.start", &anyhow::anyhow!("lost response"))["outcome"],
+            "unknown"
+        );
+    }
 
     #[test]
     fn rpc_binary_results_charge_raw_bytes_and_preserve_unknown_failures() {

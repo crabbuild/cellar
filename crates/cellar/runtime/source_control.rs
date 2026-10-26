@@ -259,10 +259,7 @@ pub(crate) async fn invoke(
         anyhow::bail!("source operator requires RPC");
     };
     anyhow::ensure!(method == METHOD, "invalid source operator method");
-    let size = match &args {
-        crate::engine_api::RpcData::Json(value) => value.len(),
-        crate::engine_api::RpcData::Structured(value) => value.len(),
-    };
+    let size = args.payload_bytes();
     anyhow::ensure!(
         size <= MAX_RPC_BYTES,
         "source operator arguments are too large"

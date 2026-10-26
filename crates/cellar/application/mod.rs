@@ -9,13 +9,17 @@ use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 mod admission;
+mod authority;
 pub use admission::ApplicationOverloaded;
+pub use authority::InvocationAuthority;
+pub use concurrency::CallbackScope;
 pub mod assets;
 pub mod blob;
 pub mod cache;
 pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
+mod container_bindings;
 pub mod containers;
 pub mod cron;
 pub mod event_stream;
@@ -61,6 +65,7 @@ pub fn decode_rpc(data: &RpcData) -> Result<cellar_native::clone::StructuredValu
             cellar_native::clone::StructuredValue::from_json(serde_json::from_str(json)?)
         }
         RpcData::Structured(bytes) => cellar_native::clone::decode(bytes),
+        RpcData::Leased { .. } => anyhow::bail!("RPC value requires an owned session decoder"),
     }
 }
 
@@ -72,9 +77,28 @@ pub fn encode_rpc(value: &cellar_native::clone::StructuredValue) -> Result<RpcDa
 
 /// Read a response, retaining the original remote error envelope on failure.
 pub fn decode_rpc_result(data: &RpcData) -> Result<cellar_native::clone::StructuredValue> {
+    decode_rpc_result_with_limits(data, cellar_native::clone::Limits::default())
+}
+
+/// Bound routed results before materializing either a value or a remote error.
+pub fn decode_rpc_result_with_limits(
+    data: &RpcData,
+    limits: cellar_native::clone::Limits,
+) -> Result<cellar_native::clone::StructuredValue> {
     match data {
-        RpcData::Json(_) => decode_rpc(data),
-        RpcData::Structured(bytes) => cellar_native::rpc::decode_response(bytes),
+        RpcData::Json(json) => {
+            anyhow::ensure!(
+                json.len() <= limits.bytes,
+                "RPC response exceeds byte limit"
+            );
+            let value = decode_rpc(data)?;
+            cellar_native::clone::encode_with_limits(&value, limits)?;
+            Ok(value)
+        }
+        RpcData::Structured(bytes) => {
+            cellar_native::rpc::decode_response_with_limits(bytes, limits)
+        }
+        RpcData::Leased { .. } => anyhow::bail!("RPC result requires an owned session decoder"),
     }
 }
 

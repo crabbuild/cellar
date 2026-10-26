@@ -47,6 +47,7 @@ Each framework crate has a README with its purpose, entry points and validation:
 | Crate | Start here when you need to |
 | --- | --- |
 | [cellar](../crates/cellar/README.md) | Build an application or own its node lifecycle |
+| [cellar-container](../crates/cellar-container/README.md) | Add container or sandbox providers shared by Rust and language adapters |
 | [cellar-axum](../crates/cellar-axum/README.md) | Use Axum handlers, external ingress or OpenAPI |
 | [cellar-admin](../crates/cellar-admin/README.md) | Run or embed the fleet management console |
 | [cellar-logic](../crates/cellar-logic/README.md) | Change pure runtime decisions and state transitions |

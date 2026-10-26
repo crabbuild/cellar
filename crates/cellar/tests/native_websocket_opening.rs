@@ -129,6 +129,10 @@ impl Cell for Root {
                         .await
                     {
                         Ok(socket) => {
+                            assert_eq!(
+                                socket.upgrade_headers(),
+                                Some(vec![("x-opening".into(), "preserved".into())])
+                            );
                             *self.0.socket.lock().unwrap() = Some(socket);
                             output(json!(true))
                         }
@@ -272,6 +276,7 @@ async fn run() -> Result<()> {
                 .reply
                 .send(Ok(OutboundWsOpen {
                     protocol: Some("chat.v1".into()),
+                    headers: Some(vec![("x-opening".into(), "preserved".into())]),
                     declined: None,
                 }))
                 .ok()

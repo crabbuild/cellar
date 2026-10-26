@@ -3,6 +3,7 @@
 //! Embedded V8 pump. Isolate handles and promise resolvers stay on this thread;
 //! native SDK work crosses bounded channels back to its owning invocation.
 use super::*;
+mod codec;
 use anyhow::Context as _;
 use std::{
     cell::RefCell,
@@ -57,13 +58,18 @@ fn v8_failure(
 
 struct InvocationState {
     start: Start,
+    retained: bool,
+    activation: Option<u64>,
     promise: Option<v8::Global<v8::Promise>>,
     operations: usize,
     pending: usize,
+    response: bool,
+    response_pending: bool,
     mutation: bool,
 }
 
 struct Operation {
+    completion: bool,
     invocation: u64,
     mutation: bool,
     resolver: v8::Global<v8::PromiseResolver>,
@@ -134,8 +140,74 @@ struct State {
 // V8 callbacks share state only within the isolate thread. Never hold a borrow
 // across application JavaScript, including property access or value conversion.
 type Shared = Rc<RefCell<State>>;
-#[path = "v8_budgets.rs"]
+#[path = "../v8_budgets.rs"]
 mod budget_controls;
+
+fn continuation(scope: &mut v8::PinScope) -> Option<(u64, Option<u64>, bool)> {
+    let current = scope.get_continuation_preserved_embedder_data();
+    if let Ok(number) = v8::Local::<v8::Number>::try_from(current) {
+        return Some((number.value() as u64, None, false));
+    }
+    let frame = v8::Local::<v8::Array>::try_from(current).ok()?;
+    let invocation = frame.get_index(scope, 0)?;
+    let callback = frame.get_index(scope, 1)?;
+    let synchronous = frame.get_index(scope, 2)?.is_true();
+    Some((
+        v8::Local::<v8::Number>::try_from(invocation).ok()?.value() as u64,
+        Some(v8::Local::<v8::Number>::try_from(callback).ok()?.value() as u64),
+        synchronous,
+    ))
+}
+
+fn scoped_callback(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some((invocation, _, _)) = continuation(scope) else {
+        return refuse(scope, "ContextExpired");
+    };
+    let Ok(requested) = v8::Local::<v8::Number>::try_from(args.get(0)) else {
+        return refuse(scope, "ContextMismatch");
+    };
+    if requested.value() != invocation as f64 {
+        return refuse(scope, "ContextMismatch");
+    }
+    let Ok(callback_scope) = v8::Local::<v8::Number>::try_from(args.get(1)) else {
+        return refuse(scope, "ValidationError");
+    };
+    let value = callback_scope.value();
+    if !value.is_finite() || value < 1.0 || value.fract() != 0.0 || value > 9_007_199_254_740_991.0
+    {
+        return refuse(scope, "ValidationError");
+    }
+    let Ok(callback) = v8::Local::<v8::Function>::try_from(args.get(2)) else {
+        return refuse(scope, "ValidationError");
+    };
+    let previous = scope.get_continuation_preserved_embedder_data();
+    let invocation = v8::Number::new(scope, invocation as f64);
+    let synchronous = v8::Boolean::new(scope, args.get(3).is_true());
+    let frame = v8::Array::new_with_elements(
+        scope,
+        &[invocation.into(), callback_scope.into(), synchronous.into()],
+    );
+    scope.set_continuation_preserved_embedder_data(frame.into());
+    let undefined = v8::undefined(scope);
+    let result = callback.call(scope, undefined.into(), &[]);
+    scope.set_continuation_preserved_embedder_data(previous);
+    if let Some(result) = result {
+        if synchronous.is_true() && result.is_promise() {
+            if let Some(text) =
+                v8::String::new(scope, "transactionSync callback must not return a Promise")
+            {
+                let error = v8::Exception::type_error(scope, text);
+                scope.throw_exception(error);
+            }
+            return;
+        }
+        rv.set(result);
+    }
+}
 
 fn refuse(scope: &v8::PinScope, message: &str) {
     if let Some(text) = v8::String::new(scope, message) {
@@ -144,28 +216,101 @@ fn refuse(scope: &v8::PinScope, message: &str) {
     }
 }
 
+// Once submitted, an unavailable synchronous result cannot prove rollback.
+fn unknown(scope: &v8::PinScope, rv: &mut v8::ReturnValue) {
+    if let Some(payload) = v8::String::new(
+        scope,
+        r#"{"ok":false,"code":"ContextExpired","outcome":"unknown"}"#,
+    ) {
+        rv.set(payload.into());
+    }
+}
+
+// A Workers Durable Object state lives across events, while its SDK authority
+// does not. Reacquire only the current continuation's own native activation.
+fn current_activation(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    let Some((invocation, callback_scope, _)) = continuation(scope) else {
+        return refuse(scope, "ContextExpired");
+    };
+    let requested = if args.length() == 0 {
+        None
+    } else {
+        let Ok(requested) = v8::Local::<v8::Number>::try_from(args.get(0)) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        Some(requested.value())
+    };
+    let Some(shared) = scope.get_slot::<Shared>().cloned() else {
+        return;
+    };
+    let state = shared.borrow();
+    let Some(active) = state.invocations.get(&invocation) else {
+        return refuse(scope, "ContextExpired");
+    };
+    if state.runtime.closed.load(Ordering::Acquire)
+        || !active.start.active.load(Ordering::Acquire)
+        || !active.start.owner.load(Ordering::Acquire)
+    {
+        return refuse(scope, "ContextExpired");
+    }
+    if requested.is_some_and(|requested| active.activation.map(|id| id as f64) != Some(requested)) {
+        return refuse(scope, "ContextMismatch");
+    }
+    if args.length() > 1 {
+        let Ok(expected) = v8::Local::<v8::Number>::try_from(args.get(1)) else {
+            return refuse(scope, "ContextMismatch");
+        };
+        if callback_scope.map(|id| id as f64) != Some(expected.value()) {
+            return refuse(scope, "ContextMismatch");
+        }
+    }
+    rv.set(v8::Number::new(scope, invocation as f64).into());
+}
+
 fn operation(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
     mut rv: v8::ReturnValue,
+) {
+    dispatch_operation(scope, args, &mut rv, false);
+}
+
+fn synchronous(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    dispatch_operation(scope, args, &mut rv, true);
+}
+
+fn dispatch_operation(
+    scope: &mut v8::PinScope,
+    args: v8::FunctionCallbackArguments,
+    rv: &mut v8::ReturnValue,
+    synchronous: bool,
 ) {
     let Some(state) = scope.get_slot::<Shared>().cloned() else {
         return;
     };
     // Promise continuations carry their invocation ID. A facade saved by another
     // invocation must not borrow the currently executing call's authority.
-    let current = scope.get_continuation_preserved_embedder_data();
-    let Some(current) = current.number_value(scope) else {
+    let Some((invocation, callback_scope, synchronous_callback)) = continuation(scope) else {
         return refuse(scope, "ContextExpired");
     };
     let Some(requested) = args.get(0).number_value(scope) else {
         return refuse(scope, "ContextMismatch");
     };
-    if current != requested {
+    if invocation as f64 != requested {
         return refuse(scope, "ContextMismatch");
     }
+    if synchronous_callback && !synchronous {
+        return refuse(scope, "UnsupportedOperation");
+    }
 
-    let invocation = current as u64;
     // Require primitive strings: no user conversion while native state is borrowed.
     let Ok(name) = v8::Local::<v8::String>::try_from(args.get(1)) else {
         return refuse(scope, "ValidationError");
@@ -179,6 +324,10 @@ fn operation(
     }
     let name = name.to_rust_string_lossy(scope);
     let payload = payload.to_rust_string_lossy(scope);
+    if synchronous && !supports_synchronous(&name) {
+        return refuse(scope, "UnsupportedOperation");
+    }
+    let shared = state.clone();
     let body = match super::binary::copy(scope, args.get(3), limit) {
         Ok(body) => body,
         Err(_) => return refuse(scope, "ValidationError"),
@@ -218,12 +367,18 @@ fn operation(
     }
     if name == "$rpc_budget" {
         drop(state);
-        return budget_controls::begin(scope, invocation, rv);
+        return budget_controls::begin(scope, invocation, *rv);
     }
 
-    let mutation = !cellar_guest::operations::is_read(&name);
-    if active.pending >= runtime.options.max_pending_operations
-        || active.operations >= runtime.options.max_operations
+    let mutation = requires_mutation_slot(&name);
+    let completion = name == "workers.lifetime.response";
+    // Exactly one publication can use the reserved completion slot even when
+    // ordinary SDK work has exhausted its pending or total-operation budget.
+    if (completion && active.response)
+        || (!completion
+            && (active.pending - usize::from(active.response_pending)
+                >= runtime.options.max_pending_operations
+                || active.operations >= runtime.options.max_operations))
     {
         return refuse(scope, "OperationLimit");
     }
@@ -243,7 +398,14 @@ fn operation(
     let Some(resolver) = v8::PromiseResolver::new(scope) else {
         return refuse(scope, "RuntimeFailed");
     };
-    let cancellation = (name == "cell.call").then(cellar::sdk::web::AbortController::new);
+    let (synchronous_sender, synchronous_reply) = if synchronous {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        (Some(sender), Some(receiver))
+    } else {
+        (None, None)
+    };
+    let cancellation =
+        super::supports_operation_cancellation(&name).then(cellar::sdk::web::AbortController::new);
     let cancel = if cancellation.is_some() {
         let data = v8::Number::new(scope, id as f64);
         let Some(cancel) = v8::Function::builder(cancel_operation)
@@ -263,6 +425,9 @@ fn operation(
             id,
             name,
             payload,
+            callback_scope,
+            blocking: synchronous,
+            synchronous: synchronous_sender,
             body,
             signal: cancellation.as_ref().map(|controller| controller.signal()),
             budget,
@@ -273,13 +438,68 @@ fn operation(
         return refuse(scope, "OperationLimit");
     }
 
-    active.operations += 1;
+    if completion {
+        active.response = true;
+        active.response_pending = true;
+    } else {
+        active.operations += 1;
+    }
     active.pending += 1;
     active.mutation |= mutation;
+    if let Some(receive) = synchronous_reply {
+        let life = active.start.active.clone();
+        let owner = active.start.owner.clone();
+        // Release isolate state before blocking; no runtime thread touches cell
+        // storage. The host future still owns all SDK authority and effects.
+        drop(state);
+        let until = Instant::now() + runtime.options.turn_timeout;
+        let reply = loop {
+            if runtime.closed.load(Ordering::Acquire)
+                || !life.load(Ordering::Acquire)
+                || !owner.load(Ordering::Acquire)
+                || Instant::now() >= until
+            {
+                life.store(false, Ordering::Release);
+                return unknown(scope, rv);
+            }
+            match receive.recv_timeout(Duration::from_millis(1)) {
+                Ok(reply) => break reply,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                    life.store(false, Ordering::Release);
+                    return unknown(scope, rv);
+                }
+            }
+        };
+        if reply.invocation != invocation || reply.id != id {
+            runtime.close();
+            return unknown(scope, rv);
+        }
+        if !life.load(Ordering::Acquire) || !owner.load(Ordering::Acquire) {
+            life.store(false, Ordering::Release);
+            return unknown(scope, rv);
+        }
+        {
+            let mut state = shared.borrow_mut();
+            if let Some(active) = state.invocations.get_mut(&invocation) {
+                active.pending -= 1;
+                if mutation {
+                    active.mutation = false;
+                }
+            }
+        }
+        let Some(payload) = v8::String::new(scope, &reply.payload) else {
+            runtime.close();
+            return unknown(scope, rv);
+        };
+        rv.set(payload.into());
+        return;
+    }
     let promise = resolver.get_promise(scope);
     state.operations.insert(
         id,
         Operation {
+            completion,
             invocation,
             mutation,
             resolver: v8::Global::new(scope, resolver),
@@ -387,12 +607,44 @@ pub(super) fn run(
     )?;
     let host =
         v8::Function::new(scope, operation).context("JavaScript bridge initialization failed")?;
-    let factory = script(scope, include_str!("runner.js"))?;
+    let synchronous = v8::Function::new(scope, synchronous)
+        .context("JavaScript synchronous bridge initialization failed")?;
+    let current = v8::Function::new(scope, current_activation)
+        .context("JavaScript activation bridge initialization failed")?;
+    let encode = v8::Function::new(scope, codec::encode)
+        .context("JavaScript clone encoder initialization failed")?;
+    let decode = v8::Function::new(scope, codec::decode)
+        .context("JavaScript clone decoder initialization failed")?;
+    let scoped = v8::Function::new(scope, scoped_callback)
+        .context("JavaScript callback scope initialization failed")?;
+    let factory = script(scope, include_str!("../runner.js"))?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
+    let delegates = script(scope, include_str!("../delegates.js"))?;
+    let rpc_streams = script(scope, include_str!("../rpc_streams.js"))?;
+    let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
+    let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
+    let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
-        .call(scope, undefined.into(), &[host.into()])
+        .call(
+            scope,
+            undefined.into(),
+            &[
+                host.into(),
+                synchronous.into(),
+                current.into(),
+                encode.into(),
+                decode.into(),
+                scoped.into(),
+                undefined.into(),
+                delegates,
+                rpc_streams,
+                rpc_writables,
+                rpc_inputs,
+                rpc_messages,
+            ],
+        )
         .context("JavaScript facade initialization failed")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     script(scope, &source.code)?;
@@ -400,16 +652,24 @@ pub(super) fn run(
     let descriptor = v8::String::new(scope, &source.descriptor().to_string())
         .context("JavaScript descriptor failed")?;
     let maximum = v8::Number::new(scope, runtime.options.max_objects as f64);
+    let lifetime_limit = v8::Number::new(scope, runtime.options.max_batch_operations as f64);
     let runner = factory
         .call(
             scope,
             undefined.into(),
-            &[app, descriptor.into(), maximum.into()],
+            &[
+                app,
+                descriptor.into(),
+                maximum.into(),
+                lifetime_limit.into(),
+            ],
         )
         .context("JavaScript registrations are invalid")?;
     let runner = v8::Local::<v8::Object>::try_from(runner)?;
     let dispatch = v8::Global::new(scope, function(scope, runner, "dispatch")?);
     let retire = v8::Global::new(scope, function(scope, runner, "retire")?);
+    let cancel = v8::Global::new(scope, function(scope, runner, "cancel")?);
+    let background = v8::Global::new(scope, function(scope, runner, "background")?);
     watch.lock().unwrap().deadline = None;
     let _ = ready.send(Ok(()));
     loop {
@@ -439,6 +699,9 @@ pub(super) fn run(
                         .get_mut(&reply.invocation)
                         .is_some_and(|inv| {
                             inv.pending -= 1;
+                            if operation.completion {
+                                inv.response_pending = false;
+                            }
                             if operation.mutation {
                                 inv.mutation = false;
                             }
@@ -489,10 +752,14 @@ pub(super) fn run(
             state.borrow_mut().invocations.insert(
                 id,
                 InvocationState {
+                    retained: source.workers_lifetimes && payload["kind"] != "rpc",
+                    activation: payload["object"].as_u64(),
                     start,
                     promise: None,
                     operations: 0,
                     pending: 0,
+                    response: false,
+                    response_pending: false,
                     mutation: false,
                 },
             );
@@ -518,6 +785,28 @@ pub(super) fn run(
             ));
         }
 
+        let mut backgrounds = HashMap::new();
+        if source.workers_lifetimes {
+            // Drop the RefCell borrow before calling JS, including its private
+            // query: user-modified builtins must never reenter borrowed state.
+            let ids: Vec<_> = state.borrow().invocations.keys().copied().collect();
+            turn.set_continuation_preserved_embedder_data(undefined.into());
+            for id in ids {
+                let background = v8::Local::new(turn, &background);
+                let token = v8::Number::new(turn, id as f64);
+                let result = background
+                    .call(turn, undefined.into(), &[token.into()])
+                    .ok_or_else(|| {
+                        v8_failure(turn, &watch, "JavaScript background state query failed")
+                    })?;
+                let status = v8::Local::<v8::Number>::try_from(result)?.value();
+                ensure!(
+                    matches!(status, 0.0 | 1.0 | 2.0),
+                    "invalid JavaScript background state"
+                );
+                backgrounds.insert(id, status);
+            }
+        }
         let mut finished = Vec::new();
         for (&id, invocation) in &state.borrow().invocations {
             if !invocation.start.active.load(Ordering::Acquire)
@@ -536,10 +825,17 @@ pub(super) fn run(
             if promise.state() == v8::PromiseState::Pending {
                 continue;
             }
-            // A handler must await its SDK operations before reporting completion.
+            // A Workers dispatcher can resolve before a derived continuation
+            // registers more native I/O. Complete only after this full V8
+            // checkpoint has no owned jobs or unresolved operations.
+            if invocation.retained
+                && (invocation.pending != 0 || backgrounds.get(&id) == Some(&0.0))
+            {
+                continue;
+            }
             let rejected = promise.state() == v8::PromiseState::Rejected;
             let unsettled = invocation.pending != 0 || state.borrow().budgets.has(id);
-            let failed = rejected || unsettled;
+            let failed = rejected || unsettled || backgrounds.get(&id) == Some(&2.0);
             invocation.start.active.store(false, Ordering::Release);
             let result = promise.result(turn);
             let (payload, body) = if failed {
@@ -585,6 +881,15 @@ pub(super) fn run(
                 _bytes: bytes,
             });
             finished.push(id);
+        }
+        for id in &finished {
+            let cancel = v8::Local::new(turn, &cancel);
+            let id = v8::Number::new(turn, *id as f64);
+            cancel
+                .call(turn, undefined.into(), &[id.into()])
+                .ok_or_else(|| {
+                    v8_failure(turn, &watch, "JavaScript lifetime cancellation failed")
+                })?;
         }
         let abandoned = {
             let mut state = state.borrow_mut();

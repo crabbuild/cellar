@@ -1,0 +1,99 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
+# Durable provider binding journal
+
+[Container guide](README.md) · [Provider responsibilities](providers.md)
+
+A remote sandbox can outlive the event which created it. The host needs durable
+identity and intent before submitting work, including when a response is lost.
+`cellar::sdk::containers::BindingJournal` stores those records in reserved cell
+SQLite tables. It is a host API; guest KV/SQL cannot forge or erase its records.
+
+This is the persistence contract for remote providers. It does not install a
+cloud backend, schedule orphan cleanup or supply remote fencing by itself.
+
+## Record and checkpoint
+
+| Field | Meaning |
+| --- | --- |
+| Host binding name | ASCII letters/digits/`-_.`, 1–128 bytes; selected by trusted provider configuration |
+| `provider` | Backend identity; no credentials |
+| `configuration_digest` | 64 lowercase hex characters; provider hashes its effective configuration |
+| `parameters_digest` | 64 lowercase hex characters; hash of the original create parameters, separate from host configuration |
+| `generation` | Positive, monotonically increasing resource generation within this binding |
+| `request_id` | 32 lowercase hex characters; one stable create identity within a generation |
+| `resource_id` | Nullable opaque backend resource ID; once known, it cannot change or be forgotten in that generation |
+| `intent` | `Running` or `Deleted` |
+| `observation` | `Pending` or `Confirmed`; a lost response remains pending |
+| Checkpoint `revision` | Compare-and-exchange version, incremented by each accepted write |
+| Checkpoint `activation_epoch` | Provenance of the local activation which wrote it; **not a distributed fencing token** |
+
+Keep API keys, access tokens and user environment secrets outside this journal.
+Its fixed record format has no arbitrary credential/configuration payload.
+
+## Reserve before creating
+
+```rust,no_run
+use cellar::sdk::{containers::{BindingCheckpoint, BindingJournal, BindingRecord}, Context};
+
+async fn reserve(
+    ctx: &Context,
+    record: BindingRecord,
+) -> anyhow::Result<BindingCheckpoint> {
+    let journal = BindingJournal::open(ctx, "builds")?;
+    // `None` means this binding must not exist. An existing pending create
+    // requires reconciliation; a second call cannot silently replace it.
+    journal.compare_exchange(ctx, None, record).await
+}
+```
+
+The initial record has generation `1`, running intent, pending observation and
+no resource ID. The future commits the reservation and waits for the required
+native durability proof. Submit the external create only after it succeeds.
+If another event changes the revision while the future waits, it returns an
+error. An error after writing can leave a retained pending reservation.
+
+## Lifecycle rules
+
+| Step | Journal action | Provider obligation |
+| --- | --- | --- |
+| Create | Reserve pending running intent with a stable request ID | Await durability, then submit once |
+| Acknowledged create | Record resource ID and confirmed running observation | Check current authority and correlate the provider result |
+| Lost create response | Retain the pending record | Observe/reconcile the original request; do not infer absence or replay |
+| Delete | Record pending deletion intent | Await durability before deleting or fencing the resource |
+| Acknowledged deletion | Record confirmed deletion | Supply backend evidence that the generation is retired |
+| Replacement | Start generation + 1 with a fresh request ID | Requires confirmed retirement; configuration/provider may now change |
+
+Before using a resource ID, verify its provider and configuration digest against
+the host configuration and correlate backend metadata with its request ID.
+Include the provider account/tenant identity in that digest without storing its
+credentials. Configuration changes require retiring the old generation through
+the original provider before starting a replacement.
+
+Within a generation, provider, configuration/parameter digests and request identity are
+immutable. Deletion intent cannot be reversed, confirmed work cannot become
+pending again except when beginning deletion, and a retired generation cannot
+be reopened. Tombstones retain their revisions and count toward the capacity.
+
+E2B's [v2 create contract](https://github.com/e2b-dev/E2B/blob/main/spec/openapi.yml)
+provides optional idempotency keys with a finite retention period. Retrying after
+expiry can create another resource. A stored request ID alone is therefore not
+permission to replay an unresolved creation indefinitely.
+
+## Authority, storage and recovery
+
+| Boundary | Behavior |
+| --- | --- |
+| Handle | Exactly one original root-cell invocation; reacquire for later events |
+| Transactions | Refuse use inside application storage transactions; fixed internal savepoints support native autocommit and implicit batches |
+| Atomicity | A failed revision/transition does not partially replace a record or initialize a partial schema |
+| Durability | Every successful update awaits native storage sync and rechecks the current checkpoint before returning |
+| Business clear | `storage.delete_all()` preserves journal records and markers, including unresolved creates |
+| Recovery | Retain records across node restart; refuse unsupported, incomplete or invalid retained schemas before admission |
+| Bounds | At most 64 named records per cell and 16 KiB per encoded record; resource IDs at most 4,096 bytes |
+
+Local invocation checks protect access to the journal. They cannot revoke a
+mutation already accepted by a remote service. Providers still need service- or
+broker-enforced fencing, leases/expiry, reconciliation and orphan cleanup.
+A confirmed journal observation records evidence from the provider; it does not
+prove that a remote instance is still running at a later time.

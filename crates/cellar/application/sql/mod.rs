@@ -392,6 +392,9 @@ impl DatabaseCell {
             _ => anyhow::bail!("SQL cell has no RPC method {method}"),
         };
         match args {
+            RpcData::Leased { .. } => {
+                anyhow::bail!("leased RPC arguments are not supported by this value-only service")
+            }
             RpcData::Json(_) => Ok(RpcData::Json(serde_json::to_string(&result)?)),
             RpcData::Structured(_) => {
                 encode_rpc(&cellar_native::clone::StructuredValue::from_json(result)?)

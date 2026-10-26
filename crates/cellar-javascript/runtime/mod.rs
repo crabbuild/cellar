@@ -108,6 +108,11 @@ pub(crate) enum Event {
         id: u64,
         name: String,
         payload: String,
+        callback_scope: Option<u64>,
+        blocking: bool,
+        // Embedded synchronous calls have a private reply slot. Node routes
+        // its replies through the existing authenticated transport.
+        synchronous: Option<mpsc::SyncSender<Reply>>,
         body: Option<Vec<u8>>,
         signal: Option<cellar::sdk::web::AbortSignal>,
         budget: Option<cellar::sdk::rpc::CallBudget>,
@@ -186,14 +191,41 @@ impl Runtime {
         self.reply_parts(invocation, id, (payload, None))
     }
 
+    pub fn respond(
+        &self,
+        invocation: u64,
+        id: u64,
+        payload: String,
+        synchronous: Option<mpsc::SyncSender<Reply>>,
+    ) -> Result<()> {
+        self.respond_parts(invocation, id, (payload, None), synchronous)
+    }
+
+    #[cfg(test)]
     pub fn reply_parts(
         &self,
         invocation: u64,
         id: u64,
-        (payload, body): (String, Option<Vec<u8>>),
+        parts: (String, Option<Vec<u8>>),
     ) -> Result<()> {
+        self.respond_parts(invocation, id, parts, None)
+    }
+
+    pub fn respond_parts(
+        &self,
+        invocation: u64,
+        id: u64,
+        (payload, body): (String, Option<Vec<u8>>),
+        synchronous: Option<mpsc::SyncSender<Reply>>,
+    ) -> Result<()> {
+        ensure!(
+            synchronous.is_none() || body.is_none(),
+            "synchronous replies cannot carry attachments"
+        );
         let bytes = self.reserve(value_size(&payload, body.as_deref())?)?;
-        self.replies
+        synchronous
+            .as_ref()
+            .unwrap_or(&self.replies)
             .try_send(Reply {
                 invocation,
                 id,
@@ -208,6 +240,78 @@ impl Runtime {
         self.closed.store(true, Ordering::Release);
         self.stopped.send_replace(true);
     }
+}
+
+/// Synchronous compatibility calls run on the original native invocation. Keep
+/// this allowlist local and finite: waiting on network/container I/O would block
+/// the language event loop and could deadlock application-to-application calls.
+pub(crate) fn supports_synchronous(name: &str) -> bool {
+    cellar_guest::workers::supports_synchronous(name)
+        || matches!(
+            name,
+            "clock.now"
+                | "storage.read"
+                | "storage.apply"
+                | "storage.sql"
+                | "alarm.get"
+                | "workers.callback.start_sync"
+                | "workers.callback.finish_sync"
+                | "workers.rpc.dup"
+        )
+}
+
+// Completion may wake the next native transaction before its reply is observed
+// by JS. Native callback guards/queues serialize effects; this control wait must
+// not occupy the JS mutation slot. Failure classification still treats finish
+// as a mutation because its commit acknowledgement can be lost. Workers routed
+// calls also have independent native futures/output gates. They may overlap,
+// without being classified as reads or taking the local storage mutation slot.
+// Body output may await consumer backpressure while independent waitUntil work
+// writes storage. Its native gate proves earlier writes; it does not own the
+// cell's mutation slot. Storage sync is likewise an output barrier, not a
+// SQLite mutation; parallel frame proofs must not refuse one another. Output
+// failures retain uncertain effect provenance. Container WebSocket output is
+// likewise independent: a received frame may trigger a storage write before
+// its matching send acknowledgement arrives. Native socket output gates remain.
+pub(crate) fn requires_mutation_slot(name: &str) -> bool {
+    !name.starts_with("workers.rpc.")
+        && !matches!(
+            name,
+            "storage.sync"
+                | "container.websocket.send_text"
+                | "container.websocket.send_binary"
+                | "container.websocket.close"
+                | "response.write"
+                | "response.finish"
+                | "workers.callback.finish"
+                | "workers.callback.finish_sync"
+                | "workers.container.perform"
+                | "workers.rpc"
+                | "workers.fetch"
+                | "workers.fetch_stream"
+                | "workers.container.fetch"
+                | "workers.container.fetch_stream"
+        )
+        && !cellar_guest::operations::is_read(name)
+}
+
+pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
+    matches!(
+        name,
+        "response.read"
+            | "workers.rpc.invoke"
+            | "response.closed"
+            | "cell.call"
+            | "container.port.fetch"
+            | "container.port.fetch_stream"
+            | "container.response.read"
+            | "container.port.connect_websocket"
+            | "container.websocket.receive"
+            | "workers.fetch"
+            | "workers.fetch_stream"
+            | "workers.container.fetch"
+            | "workers.container.fetch_stream"
+    )
 }
 
 /// Process bootstrap. Every call owns a joined engine and watchdog. V8's global
@@ -348,6 +452,10 @@ pub(crate) fn value_size(payload: &str, body: Option<&[u8]>) -> Result<usize> {
 #[cfg(all(test, feature = "embed"))]
 #[path = "../runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../synchronous_runtime_tests.rs"]
+mod synchronous_tests;
 
 #[cfg(test)]
 mod attachment_tests;

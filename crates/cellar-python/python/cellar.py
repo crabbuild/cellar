@@ -344,6 +344,246 @@ class Storage:
         await self.apply(delete_alarm=True)
 
 
+@dataclass(frozen=True)
+class ContainerCapabilities:
+    """Declared operations and limits; querying does not start a sandbox."""
+    format: int
+    provider: str
+    environment: str
+    operations: tuple[str, ...]
+    max_body_bytes: int
+    max_resources: int | None
+    synchronous_running: bool
+    queued_lifecycle: bool
+    fencing: str
+
+
+@dataclass(frozen=True)
+class ContainerExecOutput:
+    exit_code: int
+    stdout: bytes
+    stderr: bytes
+
+
+class ContainerExec:
+    """Invocation-owned streams; drain stdout and stderr concurrently."""
+    def __init__(self, context: Context, resource_id: str) -> None:
+        self._context, self._id = context, resource_id
+
+    async def read_stdout(self) -> bytes:
+        return base64.b64decode(await self._context._call("container.exec.read_stdout", id=self._id))
+
+    async def read_stderr(self) -> bytes:
+        return base64.b64decode(await self._context._call("container.exec.read_stderr", id=self._id))
+
+    async def write(self, data: bytes) -> None:
+        await self._context._call("container.exec.write", id=self._id, data=base64.b64encode(data).decode())
+
+    async def close_stdin(self) -> None:
+        await self._context._call("container.exec.close_stdin", id=self._id)
+
+    async def wait(self) -> int:
+        return await self._context._call("container.exec.wait", id=self._id)
+
+    async def kill(self, signal: int = 9) -> None:
+        await self._context._call("container.exec.kill", id=self._id, signal=signal)
+
+    async def release(self) -> None:
+        """Release streams without killing the process."""
+        await self._context._call("container.release", id=self._id)
+
+
+class ContainerSocket:
+    def __init__(self, context: Context, resource_id: str) -> None:
+        self._context, self._id = context, resource_id
+
+    async def read(self) -> bytes:
+        """An empty chunk marks EOF."""
+        return base64.b64decode(await self._context._call("container.socket.read", id=self._id))
+
+    async def write(self, data: bytes) -> None:
+        await self._context._call("container.socket.write", id=self._id, data=base64.b64encode(data).decode())
+
+    async def close_write(self) -> None:
+        await self._context._call("container.socket.close_write", id=self._id)
+
+    async def close(self) -> None:
+        await self._context._call("container.socket.close", id=self._id)
+
+    async def release(self) -> None:
+        await self._context._call("container.release", id=self._id)
+
+
+class ContainerWebSocket:
+    """Event-owned outbound WebSocket, closed when the invocation ends."""
+    def __init__(self, context: Context, resource_id: str, protocol: str, headers: Headers = ()) -> None:
+        self._context, self._id, self.protocol = context, resource_id, protocol
+        self.headers = tuple(tuple(pair) for pair in headers)
+
+    async def receive(self) -> dict[str, Any]:
+        value = await self._context._call("container.websocket.receive", id=self._id)
+        if value["type"] == "binary":
+            value["data"] = base64.b64decode(value["data"])
+        return value
+
+    async def send_text(self, text: str) -> None:
+        await self._context._call("container.websocket.send_text", id=self._id, text=text)
+
+    async def send_binary(self, data: bytes) -> None:
+        await self._context._call("container.websocket.send_binary", id=self._id, data=base64.b64encode(data).decode())
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        await self._context._call("container.websocket.close", id=self._id, code=code, reason=reason)
+
+    async def release(self) -> None:
+        await self._context._call("container.release", id=self._id)
+
+
+class ContainerResponse:
+    """Event-owned HTTP prefix and pull reader. Finish or cancel in this event."""
+
+    def __init__(self, context: Context, value: dict) -> None:
+        self._context, self._id = context, value["stream"]
+        self.status = value["status"]
+        self.headers = tuple(tuple(pair) for pair in value["headers"])
+        self.body = base64.b64decode(value["body"])
+        self._ended = self._id is None
+
+    async def read(self) -> bytes | None:
+        if self._ended:
+            return None
+        value = await self._context._call("container.response.read", id=self._id)
+        self._ended = value["done"]
+        return None if self._ended else base64.b64decode(value["body"])
+
+    async def cancel(self) -> None:
+        if not self._ended:
+            self._ended = True
+            await self._context._call("container.response.cancel", id=self._id)
+
+    async def chunks(self):
+        try:
+            if self.body:
+                yield self.body
+            while not self._ended:
+                chunk = await self.read()
+                if chunk is not None:
+                    yield chunk
+        finally:
+            await self.cancel()
+
+
+class ContainerPort:
+    def __init__(self, context: Context, port: int) -> None:
+        self._context, self._port = context, port
+
+    async def wait_ready(self, timeout_ms: int = 10000) -> None:
+        await self._context._call("container.port.wait_ready", port=self._port, timeout_ms=timeout_ms)
+
+    async def fetch(self, request: Request) -> Response:
+        value = await self._context._call("container.port.fetch", port=self._port, request=request._wire())
+        return Response(base64.b64decode(value["body"]), value["status"], value["headers"])
+
+    async def fetch_stream(self, request: Request) -> ContainerResponse:
+        value = await self._context._call("container.port.fetch_stream", port=self._port, request=request._wire())
+        return ContainerResponse(self._context, value)
+
+    async def connect_websocket(self, url: str, headers: Headers = ()) -> ContainerWebSocket | Response:
+        value = await self._context._call("container.port.connect_websocket", port=self._port, url=url, headers=list(headers))
+        if value["upgraded"]:
+            return ContainerWebSocket(self._context, value["id"], value["protocol"], value["headers"])
+        response = value["response"]
+        return Response(base64.b64decode(response["body"]), response["status"], response["headers"])
+
+    async def connect(self) -> ContainerSocket:
+        resource_id = await self._context._call("container.port.connect", port=self._port)
+        return ContainerSocket(self._context, resource_id)
+
+
+@dataclass(frozen=True)
+class ContainerFileMetadata:
+    name: str
+    kind: str
+    size: int
+    mode: int
+    modified_ms: int | None
+    link_target: str | None
+
+    @classmethod
+    def _from_wire(cls, value: dict) -> ContainerFileMetadata:
+        return cls(value["name"], value["kind"], value["size"], value["mode"],
+                   value.get("modified_ms"), value.get("link_target"))
+
+
+class Container:
+    """Control a root cell's configured provider through native ownership gates."""
+    def __init__(self, context: Context) -> None:
+        self._context = context
+
+    async def capabilities(self) -> ContainerCapabilities:
+        value = await self._context._call("container.capabilities")
+        return ContainerCapabilities(value["format"], value["provider"], value["environment"],
+            tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
+            value["synchronous_running"], value["queued_lifecycle"], value["fencing"])
+
+    async def running(self) -> bool:
+        return await self._context._call("container.running")
+
+    async def start(self, *, entrypoint: list[str] | None = None, env: Headers = (),
+                    enable_internet: bool = False, labels: Headers = ()) -> str:
+        return await self._context._call("container.start", options=dict(
+            entrypoint=entrypoint, env=list(env), enable_internet=enable_internet, labels=list(labels)))
+
+    async def monitor(self) -> int:
+        return await self._context._call("container.monitor")
+
+    async def destroy(self) -> None:
+        await self._context._call("container.destroy")
+
+    async def signal(self, signal: int) -> None:
+        await self._context._call("container.signal", signal=signal)
+
+    async def set_inactivity_timeout(self, timeout_ms: int) -> None:
+        await self._context._call("container.set_inactivity_timeout", timeout_ms=timeout_ms)
+
+    async def exec(self, cmd: list[str], *, env: Headers = (), cwd: str | None = None,
+                   user: str | None = None, combined: bool = False) -> ContainerExec:
+        resource_id = await self._context._call("container.exec", options=dict(
+            cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined))
+        return ContainerExec(self._context, resource_id)
+
+    async def exec_output(self, cmd: list[str], *, max_bytes: int = 1048576,
+                          env: Headers = (), cwd: str | None = None,
+                          user: str | None = None, combined: bool = False) -> ContainerExecOutput:
+        value = await self._context._call("container.exec_output", max_bytes=max_bytes,
+            options=dict(cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined))
+        return ContainerExecOutput(value["exit_code"], base64.b64decode(value["stdout"]), base64.b64decode(value["stderr"]))
+
+    def port(self, port: int) -> ContainerPort:
+        return ContainerPort(self._context, port)
+
+    async def read_file(self, path: str, *, max_bytes: int = 1048576) -> bytes:
+        """Read a bounded regular file from an absolute container path."""
+        value = await self._context._call("container.file.read", path=path, max_bytes=max_bytes)
+        return base64.b64decode(value)
+
+    async def write_file(self, path: str, data: bytes, *, mode: int = 0o644) -> None:
+        """Create/replace a file in an existing directory; not transactional."""
+        await self._context._call("container.file.write", path=path,
+            data=base64.b64encode(data).decode("ascii"), mode=mode)
+
+    async def stat_file(self, path: str) -> ContainerFileMetadata:
+        value = await self._context._call("container.file.stat", path=path)
+        return ContainerFileMetadata._from_wire(value)
+
+    async def list_files(self, path: str, *, max_bytes: int = 1048576,
+                         max_entries: int = 128) -> tuple[ContainerFileMetadata, ...]:
+        """List direct children; oversized archives/listings refuse in full."""
+        value = await self._context._call("container.file.list", path=path,
+                                         max_bytes=max_bytes, max_entries=max_entries)
+        return tuple(ContainerFileMetadata._from_wire(entry) for entry in value)
+
+
 class _Cell:
     def __init__(self, context: Context, binding: str, name: str) -> None:
         self._context, self._binding, self._name = context, binding, name
@@ -453,6 +693,10 @@ class Context:
         # A handle retains its invocation, but the invocation must not retain
         # the handle: that cycle otherwise delays every request's reclamation.
         return Storage(self)
+
+    @property
+    def container(self) -> Container:
+        return Container(self)
 
     def _check(self):
         if asyncio.get_running_loop() is not self._loop:

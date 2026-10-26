@@ -68,7 +68,7 @@ For 32-client small echoes, median host-plus-child CPU was 1.02 cores (V8) and 1
 
 ## Follow-up priorities
 
-1. **Investigate V8 pump fairness and failure diagnostics.** The [engine](../crates/cellar-javascript/runtime/engine.rs) installs one deadline before admitting a batch of invocations and running microtasks. Batch work, garbage collection and OS scheduling can consume the shared budget. This is a code-based hypothesis consistent with the first failure, not a CPU-profile attribution or proof of the second failure's cause. Preserve the reason for a failed dispatch.
+1. **Investigate V8 pump fairness and failure diagnostics.** The [engine](../crates/cellar-javascript/runtime/engine/mod.rs) installs one deadline before admitting a batch of invocations and running microtasks. Batch work, garbage collection and OS scheduling can consume the shared budget. This is a code-based hypothesis consistent with the first failure, not a CPU-profile attribution or proof of the second failure's cause. Preserve the reason for a failed dispatch.
 2. **Replace fixed polling with wake-driven scheduling.** Both engine pumps sleep for 1 ms each iteration. Nested cell/storage calls cross multiple rounds. This is a candidate contributor to low-concurrency latency, not a measured attribution.
 3. **Profile buffered codecs.** Bodies traverse base64/JSON; the common SDK encodes base64 in JavaScript. Test binary/native codecs while preserving limits and failure contracts.
 4. **Handle hot-cell contention explicitly.** This fixture intentionally does not retry. Real applications need serialization, atomic server-side operations, or bounded retries only after proven `not_committed` conflicts. Unknown mutation outcomes must not be blindly retried.

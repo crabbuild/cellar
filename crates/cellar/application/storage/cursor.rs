@@ -49,6 +49,35 @@ impl SqlCursor {
         &self.columns
     }
 
+    /// Retained column/row buffers and error text, for adapter payload quotas.
+    /// This excludes SQLite VM/page-cache allocations and is not an RSS limit.
+    pub fn buffered_bytes(&self) -> usize {
+        let columns = self.columns.iter().fold(
+            self.columns
+                .capacity()
+                .saturating_mul(std::mem::size_of::<String>()),
+            |total, name| total.saturating_add(name.capacity()),
+        );
+        let row = self.prefetched.as_ref().map_or(0, |row| {
+            row.iter().fold(
+                row.capacity()
+                    .saturating_mul(std::mem::size_of::<SqlValue>()),
+                |total, value| {
+                    total.saturating_add(match value {
+                        SqlValue::Text(value) => value.capacity(),
+                        SqlValue::Blob(value) => value.capacity(),
+                        _ => 0,
+                    })
+                },
+            )
+        });
+        let error = self
+            .deferred_error
+            .as_ref()
+            .map_or(0, |error| error.to_string().len());
+        columns.saturating_add(row).saturating_add(error)
+    }
+
     pub fn rows_read(&self) -> u64 {
         self.rows_read
     }

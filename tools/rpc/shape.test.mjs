@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { testBudget, testBudgetControl } from "./test-budgets.mjs";
+import { testRunner } from "./test-runner.mjs";
 import { readFileSync } from "node:fs";
-import { Script } from "node:vm";
 import { createFileRegistry, fromBinary } from "@bufbuild/protobuf";
 import { FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt";
 import { verifyCodecs } from "../../packages/cellar-sdk/rpc/shape.js";
@@ -94,10 +94,8 @@ test("a stale client fails before its allocating encoder or transport is called"
 
 test("the real runner supplies codec identity and limits to a consumer-only app", async () => {
   const {contract} = fixture("counter");
-  const text = readFileSync(new URL("../../crates/cellar-javascript/runtime/runner.js",import.meta.url),"utf8");
-  const factory = new Script(`(${text})`).runInThisContext();
   let submitted = 0;
-  const runner = factory((id,name,payload,body) => {
+  const runner = testRunner((id,name,payload,body) => {
     assert.equal(id,1);
     if (name === "$check") return;
     if (name === "$rpc_budget") return testBudgetControl();
@@ -119,10 +117,8 @@ test("the real runner supplies codec identity and limits to a consumer-only app"
 test("the real runner enforces native layout limits before a guest submits", async () => {
   const {contract} = fixture("counter");
   contract.limits.max_decoded_slots = 4; // IncrementRequest with two fields needs five.
-  const text = readFileSync(new URL("../../crates/cellar-javascript/runtime/runner.js",import.meta.url),"utf8");
-  const factory = new Script(`(${text})`).runInThisContext();
   let submitted = 0;
-  const runner = factory((_id,name) => {
+  const runner = testRunner((_id,name) => {
     if (name === "$check") return;
     if (name === "$rpc_budget") return testBudgetControl();
     submitted++;

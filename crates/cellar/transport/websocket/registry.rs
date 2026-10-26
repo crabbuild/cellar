@@ -51,6 +51,7 @@ pub struct DeclinedUpgrade {
 /// What an outbound handshake produced.
 pub struct OutboundWsOpen {
     pub protocol: Option<String>,
+    pub headers: Option<Vec<(String, String)>>,
     pub declined: Option<DeclinedUpgrade>,
 }
 

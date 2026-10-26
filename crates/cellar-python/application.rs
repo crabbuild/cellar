@@ -53,6 +53,7 @@ impl EventKind {
 /// Python source included in the compiled host, with explicitly registered cells.
 #[derive(Clone)]
 pub struct Source {
+    containers: cellar_guest::containers::Adapter,
     pub(crate) rpc: Catalog,
     pub(crate) code: String,
     pub(crate) filename: String,
@@ -67,6 +68,7 @@ pub struct Source {
 impl Source {
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            containers: Default::default(),
             rpc: Catalog::new(),
             code: code.into(),
             filename: filename.into(),
@@ -134,6 +136,16 @@ impl Source {
             .entry(class.into())
             .or_default()
             .insert(event, keys.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Select a trusted container/sandbox backend before starting the runtime.
+    /// Omission uses Cellar's native Docker/Podman provider.
+    pub fn container_provider(
+        mut self,
+        provider: Arc<dyn cellar_guest::containers::Provider>,
+    ) -> Self {
+        self.containers = cellar_guest::containers::Adapter::new(provider);
         self
     }
 
@@ -282,6 +294,8 @@ impl PythonApplication {
         cell: Option<(u64, String, Life)>,
         state: State,
     ) -> Result<Output> {
+        let mut state = state;
+        state.containers = self.source.containers.session();
         let _permit =
             self.runtime
                 .permits
@@ -628,6 +642,7 @@ impl Application for PythonApplication {
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await?;
@@ -648,6 +663,7 @@ impl Application for PythonApplication {
                     transport: Default::default(),
                     queue: None,
                     scheduled,
+                    ..Default::default()
                 },
             )
             .await
@@ -701,6 +717,7 @@ impl Cell for PythonCell {
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await

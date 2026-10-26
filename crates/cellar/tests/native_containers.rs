@@ -5,7 +5,7 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/html.rs"]
 mod fixture;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::{
     application::{
         containers::*, http, sockets, Cell, Context, HandlerFuture, Invocation, Output, Registry,
@@ -15,7 +15,7 @@ use cellar::{
     generation::Generation,
     runtime::RuntimeManager,
 };
-use http_body_util::{BodyExt, Full};
+use http_body_util::Full;
 use hyper::{
     body::{Bytes, Incoming},
     Request as HttpRequest, Response,
@@ -34,6 +34,10 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{mpsc, watch},
 };
+
+#[path = "support/container_engine.rs"]
+mod container_engine;
+use container_engine::Engine;
 
 #[derive(Default)]
 struct Probe {
@@ -84,6 +88,39 @@ impl Cell for Root {
                 "/foreign" => {
                     let retained = self.0.container.lock().unwrap().clone().unwrap();
                     json!(retained.running(&context).is_err())
+                }
+                "/files" => {
+                    let path = FilePath::new("/tmp/cellar-?é.bin")?;
+                    container
+                        .write_file(&context, path.clone(), vec![0, 255, 42], 0o640)
+                        .await?;
+                    assert_eq!(
+                        container.read_file(&context, path.clone(), 3).await?,
+                        [0, 255, 42]
+                    );
+                    assert!(container
+                        .read_file(&context, path.clone(), 2)
+                        .await
+                        .is_err());
+                    let metadata = container.stat_file(&context, path).await?;
+                    assert_eq!(
+                        (
+                            metadata.name.as_str(),
+                            metadata.kind,
+                            metadata.mode,
+                            metadata.size
+                        ),
+                        ("cellar-?é.bin", FileKind::File, 0o640, 3)
+                    );
+                    let listing = container
+                        .list_files(&context, FilePath::new("/tmp")?, 4096, 1)
+                        .await?;
+                    assert_eq!(listing.len(), 1);
+                    assert!(container
+                        .list_files(&context, FilePath::new("/tmp")?, 2, 1)
+                        .await
+                        .is_err());
+                    json!(true)
                 }
                 "/exec" => {
                     let process = container
@@ -196,6 +233,16 @@ impl Cell for Root {
                 "/destroy-refused" => json!(container.destroy(&context).await.is_err()),
                 "/running" => json!(container.running(&context)?),
                 "/monitor" => json!(container.monitor(&context).await?),
+                "/monitor-restart" => {
+                    let previous = container.monitor(&context);
+                    container.destroy(&context).await?;
+                    container.start(&context, Default::default()).await?;
+                    let code = tokio::time::timeout(Duration::from_secs(1), previous)
+                        .await
+                        .context("previous run's monitor was replaced by the new run")??;
+                    container.destroy(&context).await?;
+                    json!(code == 137)
+                }
                 "/monitor-empty" => json!(container.monitor(&context).await.is_err()),
                 _ => return Err(anyhow!("unknown scenario {path}")),
             };
@@ -203,240 +250,6 @@ impl Cell for Root {
                 http::Response::from_json(&value)?.into_http(&context)?,
             ))
         })
-    }
-}
-
-#[derive(Default)]
-struct Engine {
-    refuse_remove: AtomicBool,
-    app_image_loaded: AtomicBool,
-    containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
-    labels: Mutex<HashMap<String, Value>>,
-    networks: Mutex<HashMap<String, Value>>,
-    execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    calls: Mutex<Vec<(String, String, Value)>>,
-    http_port: u16,
-    tcp_port: u16,
-}
-
-impl Engine {
-    async fn answer(
-        self: Arc<Self>,
-        mut request: HttpRequest<Incoming>,
-    ) -> Result<Response<Full<Bytes>>> {
-        let path = request
-            .uri()
-            .path()
-            .strip_prefix("/v1.43")
-            .unwrap_or(request.uri().path())
-            .to_string();
-        let query = request.uri().query().unwrap_or("").to_string();
-        let method = request.method().as_str().to_string();
-        let body = request.body_mut().collect().await?.to_bytes();
-        let body: Value = if path == "/images/load" {
-            json!({"bytes":body.len()})
-        } else if body.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&body)?
-        };
-        self.calls
-            .lock()
-            .unwrap()
-            .push((method.clone(), format!("{path}?{query}"), body.clone()));
-        let mut status = 200;
-        let value = if path == "/containers/json" {
-            let filters = url::form_urlencoded::parse(query.as_bytes())
-                .find(|(key, _)| key == "filters")
-                .unwrap()
-                .1;
-            let filters: Value = serde_json::from_str(&filters)?;
-            let labels = self.labels.lock().unwrap();
-            let containers = self.containers.lock().unwrap();
-            json!(containers
-                .keys()
-                .filter(
-                    |name| filters["label"].as_array().unwrap().iter().all(|filter| {
-                        let (key, value) = filter.as_str().unwrap().split_once('=').unwrap();
-                        labels
-                            .get(*name)
-                            .and_then(|labels| labels.get(key))
-                            .and_then(Value::as_str)
-                            == Some(value)
-                    })
-                )
-                .map(|name| json!({"Id":name}))
-                .collect::<Vec<_>>())
-        } else if path == "/images/load" {
-            self.app_image_loaded.store(true, Ordering::SeqCst);
-            json!({"stream":"Loaded image"})
-        } else if path.starts_with("/images/") {
-            if path
-                == format!(
-                    "/images/{}/json",
-                    cellar::container::image_reference(&"a".repeat(64))
-                )
-                && !self.app_image_loaded.load(Ordering::SeqCst)
-            {
-                status = 404;
-            }
-            json!({"Config":{}})
-        } else if path == "/networks/create" {
-            self.networks
-                .lock()
-                .unwrap()
-                .insert(body["Name"].as_str().unwrap().into(), body.clone());
-            json!({"Id":body["Name"]})
-        } else if path.starts_with("/networks/") && method == "GET" {
-            match self
-                .networks
-                .lock()
-                .unwrap()
-                .get(path.trim_start_matches("/networks/"))
-                .cloned()
-            {
-                Some(network) => network,
-                None => {
-                    status = 404;
-                    json!({})
-                }
-            }
-        } else if path == "/containers/create" {
-            if query.is_empty() {
-                json!({"Id":"fence"})
-            } else {
-                let name = query.strip_prefix("name=").unwrap().to_string();
-                self.labels
-                    .lock()
-                    .unwrap()
-                    .insert(name.clone(), body["Labels"].clone());
-                self.containers
-                    .lock()
-                    .unwrap()
-                    .insert(name.clone(), watch::channel(None).0);
-                json!({"Id":name})
-            }
-        } else if path == "/containers/fence/wait" {
-            json!({"StatusCode":0})
-        } else if path.ends_with("/wait") {
-            let name = path
-                .trim_start_matches("/containers/")
-                .trim_end_matches("/wait");
-            let sender = self.containers.lock().unwrap().get(name).cloned().unwrap();
-            let mut receiver = sender.subscribe();
-            let code = loop {
-                if let Some(code) = *receiver.borrow_and_update() {
-                    break code;
-                }
-                receiver.changed().await?;
-            };
-            json!({"StatusCode":code})
-        } else if path.starts_with("/containers/") && path.ends_with("/json") {
-            let name = path
-                .trim_start_matches("/containers/")
-                .trim_end_matches("/json");
-            let running = self
-                .containers
-                .lock()
-                .unwrap()
-                .get(name)
-                .map(|sender| sender.borrow().is_none());
-            match running {
-                Some(running) => {
-                    json!({
-                        "State": {"Running": running},
-                        "NetworkSettings": {
-                            "Networks": {"fixture": {"IPAddress": "127.0.0.1"}},
-                            "Ports": {
-                                format!("{}/tcp", self.http_port): [{"HostPort": self.http_port.to_string()}],
-                                format!("{}/tcp", self.tcp_port): [{"HostPort": self.tcp_port.to_string()}]
-                            }
-                        }
-                    })
-                }
-                None => {
-                    status = 404;
-                    json!({})
-                }
-            }
-        } else if path.starts_with("/containers/")
-            && (method == "DELETE" || path.ends_with("/kill"))
-        {
-            let name = path
-                .trim_start_matches("/containers/")
-                .trim_end_matches("/kill");
-            if method == "DELETE" || query.contains("SIGKILL") || query.ends_with("=9") {
-                if let Some(sender) = self.containers.lock().unwrap().get(name) {
-                    sender.send_replace(Some(137));
-                }
-            }
-            if method == "DELETE" {
-                if self.refuse_remove.load(Ordering::SeqCst) {
-                    status = 500;
-                } else {
-                    self.labels.lock().unwrap().remove(name);
-                    self.containers.lock().unwrap().remove(name);
-                }
-            }
-            json!({})
-        } else if path.starts_with("/containers/") && path.ends_with("/exec") {
-            let mut execs = self.execs.lock().unwrap();
-            let id = format!("exec{}", execs.len() + 1);
-            execs.insert(id.clone(), Arc::new(AtomicBool::new(false)));
-            json!({"Id":id})
-        } else if path.starts_with("/exec/") && path.ends_with("/json") {
-            let id = path.trim_start_matches("/exec/").trim_end_matches("/json");
-            let ended = self
-                .execs
-                .lock()
-                .unwrap()
-                .get(id)
-                .unwrap()
-                .load(Ordering::SeqCst);
-            json!({"Pid":77,"Running":!ended,"ExitCode":7})
-        } else if path.starts_with("/exec/") && path.ends_with("/start") && body["Detach"] == false
-        {
-            let id = path.trim_start_matches("/exec/").trim_end_matches("/start");
-            let ended = self.execs.lock().unwrap().get(id).unwrap().clone();
-            let upgrade = hyper::upgrade::on(&mut request);
-            tokio::spawn(async move {
-                let mut stream = TokioIo::new(upgrade.await.unwrap());
-                let mut stdin = Vec::new();
-                stream.read_to_end(&mut stdin).await.unwrap();
-                for (channel, bytes) in [(1u8, stdin.as_slice()), (2, b"stderr".as_slice())] {
-                    let mut header = [0u8; 8];
-                    header[0] = channel;
-                    header[4..].copy_from_slice(&(bytes.len() as u32).to_be_bytes());
-                    if stream.write_all(&header).await.is_err()
-                        || stream.write_all(bytes).await.is_err()
-                    {
-                        break;
-                    }
-                }
-                ended.store(true, Ordering::SeqCst);
-                let _ = stream.shutdown().await;
-            });
-            return Ok(Response::builder()
-                .status(101)
-                .header("connection", "Upgrade")
-                .header("upgrade", "tcp")
-                .body(Full::new(Bytes::new()))?);
-        } else {
-            json!({"Id":"network"})
-        };
-        Ok(Response::builder()
-            .status(status)
-            .header("content-type", "application/json")
-            .body(Full::new(Bytes::from(serde_json::to_vec(&value)?)))?)
-    }
-
-    fn app_creates(&self) -> usize {
-        self.calls
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, path, _)| path.starts_with("/containers/create?name="))
-            .count()
     }
 }
 
@@ -655,6 +468,7 @@ async fn run() -> Result<()> {
     probe.hold.store(false, Ordering::SeqCst);
     assert_eq!(call(&host, "Sandbox:test", "/start").await?["run"], 1);
     assert_eq!(call(&host, "Sandbox:test", "/retained").await?, true);
+    assert_eq!(call(&host, "Sandbox:test", "/files").await?, true);
     let context = probe.context.lock().unwrap().clone().unwrap();
     assert!(probe
         .container
@@ -753,6 +567,7 @@ async fn run() -> Result<()> {
         assert_eq!(updated_create.2["Image"], updated_image);
         assert_eq!(updated_create.2["HostConfig"]["Runtime"], "updated-runtime");
     }
+    assert_eq!(call(&host, "Sandbox:test", "/monitor-restart").await?, true);
     engine
         .release("Sandbox:test", cellar::container::Release::Destroy)
         .await?;

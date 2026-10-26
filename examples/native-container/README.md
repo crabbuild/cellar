@@ -33,6 +33,8 @@ export DOCKER_HOST="$(docker context inspect --format '{{.Endpoints.docker.Host}
 
 Use a reachable `unix://` socket. For Podman, provide its running service socket
 as `DOCKER_HOST`. The fence needs the engine's Linux network/iptables support.
+Its one-shot helper has a 64 MiB memory cap, including room for nftables' existing
+ruleset. Startup refuses if the helper cannot install the fence.
 Follow [AGENTS.md](../../AGENTS.md) for the Cargo target directory. No cloud
 bucket is required for this walkthrough.
 

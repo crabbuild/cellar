@@ -789,6 +789,9 @@ impl Broker {
             _ => return Err(error(format!("Queue cell has no RPC method {method}"))),
         };
         match args {
+            RpcData::Leased { .. } => {
+                anyhow::bail!("leased RPC arguments are not supported by this value-only service")
+            }
             RpcData::Json(_) => Ok(RpcData::Json(result.to_string())),
             RpcData::Structured(_) => encode_rpc(&StructuredValue::from_json(result)?),
         }

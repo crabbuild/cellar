@@ -598,6 +598,9 @@ impl Cell for InstanceCell {
                     }
                     match result {
                         Ok(value) => Ok(Output::Rpc(match args {
+                            RpcData::Leased { .. } => {
+                                anyhow::bail!("workflow arguments must be value-only")
+                            }
                             RpcData::Structured(_) => encode_rpc(&value)?,
                             RpcData::Json(_) => {
                                 RpcData::Json(serde_json::to_string(&value.to_json()?)?)
