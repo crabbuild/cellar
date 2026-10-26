@@ -17,6 +17,7 @@
   makeRpcInputs,
   makeRpcMessages,
   makeRpcRequests,
+  currentCallbackHost,
 ) => {
   "use strict";
   const delegates = makeDelegates(
@@ -965,7 +966,23 @@
           error.outcome = "not_committed";
           throw error;
         }
+        const scope = currentCallbackHost();
+        if (scope !== null) {
+          const callback = lifetimes.get(id).containerCallbacks?.get(scope);
+          if (!callback || callback.closing)
+            throw rpcFailure("ContextExpired", "not_committed");
+        }
         return synchronous("workers.container.admit", { operation, input });
+      },
+      _containerControl(pending) {
+        const scope = currentCallbackHost();
+        if (scope === null) return;
+        const callback = lifetimes.get(id)?.containerCallbacks?.get(scope);
+        if (!callback || callback.closing)
+          throw rpcFailure("ContextExpired", "not_committed");
+        callback.controls.add(pending);
+        const release = () => callback.controls.delete(pending);
+        pending.then(release, release);
       },
       _revoked() {
         if (
@@ -1069,6 +1086,11 @@
           id,
           (async () => {
             const token = await call("workers.callback.begin", { kind });
+            const lifetime = lifetimes.get(id);
+            const callbacks =
+              lifetime && (lifetime.containerCallbacks ??= new MapClass());
+            const boundary = { controls: new SetClass(), closing: false };
+            callbacks?.set(token.id, boundary);
             let result,
               success = false;
             try {
@@ -1077,9 +1099,20 @@
                   throw new ErrorClass("ContextMismatch");
                 return context(id, identity, activation, contracts);
               };
-              result = await scopedHost(id, token.id, () => callback(current));
+              result = await scopedHost(id, token.id, async () => {
+                try {
+                  return await callback(current);
+                } finally {
+                  // Void controls retain this native callback until their
+                  // provider acknowledgement or failure. Do not admit new
+                  // controls from continuations after the callback returned.
+                  boundary.closing = true;
+                  await allSettled([...boundary.controls]);
+                }
+              });
               success = true;
             } finally {
+              callbacks?.delete(token.id);
               await call("workers.callback.finish", { id: token.id, success });
             }
             return result;

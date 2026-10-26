@@ -63,8 +63,11 @@ fixtures check native startup/teardown observations against the engine protocol
 peer and refuse foreign-cell property access. Root-event queued lifecycle tests
 cover blocked startup with storage progress, explicit destroy/monitor outcomes
 and submitted startup failures without replay. Node forwards incremental port
-and Worker/DO HTTP responses with native cancellation; embedded web globals,
-Worker/DO upgrade forwarding and callback-owned queued lifecycle remain incomplete. These tests
+and Worker/DO HTTP responses with native cancellation. Node/V8 concurrency-block
+controls retain the native input gate through acknowledgement and refuse inherited
+transactions and late continuation admission. Node additionally exercises published
+readiness errors, controls from `onStart`, and nonzero monitor/`onStop` parameters.
+Embedded web globals and complete lifecycle/fault qualification remain open. These tests
 qualify those paths only. The unchanged Container module now runs in the separate Node `workers_module`
 target: named/singleton/random routing, separate native container ownership,
 delayed destroy acknowledgement and explicit cleanup use an engine protocol

@@ -92,7 +92,9 @@ Ordinary Node applications retain Node's fatal unhandled-rejection behavior.
 The published Containers idle alarm also uses the native lifecycle: `sleepAfter`
 expires, `onActivityExpired` signals the process, its monitor records exit and
 `onStop` completes before a later wake. Start/stop hooks may persist DO state.
-Queued container controls inside transaction/block callbacks remain unsupported.
+Concurrency callbacks may issue queued controls; the native input gate remains
+held until those controls settle. Transaction callbacks, including nested blocks,
+still refuse admission before effects.
 Asynchronous alarm controls yield while native callback admission is held. The
 [overlapping callback/alarm regression](../../plans/sandbox-provider-progress.md#resolved-callbackalarm-qualification-failure)
 passes with the original stop barrier; the complete callback profile remains open.

@@ -96,7 +96,7 @@ export interface DurableObjectState {
   waitUntil(promise: Promise<unknown>): void;
   abort(): never;
 }
-/** Experimental root-event controls; full callback and streaming profiles are pending. */
+/** Event-owned controls. Concurrency callbacks join controls; transactions refuse them. */
 export interface DurableObjectContainer {
   readonly running: boolean;
   start(options?: {

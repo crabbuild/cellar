@@ -519,8 +519,35 @@ Worker/DO upgrade responses use the separate transfer path above.
 
 Providers must opt into `synchronous_running` and `queued_lifecycle`. Native
 admission permits at most 64 tickets, with aggregate JSON inputs bounded by the
-host body limit. Tickets are invocation-owned and consumed once. Queued lifecycle
-inside transactions and `blockConcurrencyWhile` currently refuses before effects.
+host body limit. Tickets are invocation-owned and consumed once.
+
+| Calling boundary | Queued controls |
+| --- | --- |
+| Root event | Ordered within the original event |
+| `blockConcurrencyWhile` | Start/signal remain `void`; the native input gate stays held until accepted controls settle. `destroy` can be awaited inside the block |
+| Nested concurrency block | Retains its own callback through control completion |
+| Transaction, including a block nested inside one | Refuses before admission; the transaction cannot supply its own commit proof while awaiting a container effect |
+| Continuation after the callback body returned | Refuses new admission, even while an earlier accepted control is still pending |
+
+```javascript
+await this.ctx.blockConcurrencyWhile(async () => {
+  this.ctx.storage.kv.put("phase", "starting");
+  this.ctx.container.start(); // void; native durability still precedes startup
+}); // startup acknowledgement/failure has settled before this block releases
+
+await this.ctx.blockConcurrencyWhile(async () => {
+  await this.ctx.container.destroy();
+  this.ctx.storage.kv.put("phase", "stopped");
+});
+```
+
+A void control's failure remains attached to the event's control sequence;
+joining the callback does not turn it into success or replay it. Observe startup
+through a port/readiness operation or `monitor`, and use explicit `destroy` to
+recover a failed sequence. Callback failure cannot roll back a submitted effect.
+Reads such as `monitor()` still carry the callback in which they were created;
+settle them inside that callback before returning. Joining void controls does
+not promote other callback-owned work into root-event authority.
 
 For local HTTP previews, use the published SDK's `proxyToSandbox` and
 `exposePort` with explicit domain and container-port configuration. The
@@ -593,12 +620,13 @@ quotas and unknown-outcome reporting still apply.
 | Native returned-response fixture | HTTP metadata/aliases, incremental default-source byte bodies, prefix before error, client disconnect and unused-body disposal |
 | Native HTTP-message RPC fixture | Request results and Request/Response arguments, alias preservation, incremental binary bodies and live abort after EOF |
 | Published idle lifecycle fixture | Sleep/wake across runtime/host recreation, persisted hook counts, graceful SIGTERM exit and joined cleanup |
+| Published callback/hook fixture | Node/V8 concurrency-block controls, void-control input-gate retention, nested transaction refusal, late-continuation refusal and constructor/idle alarm boundaries; Node readiness `onError`, controls from `onStart`, nonzero monitor/`onStop` parameters and hook storage |
 | SDK HTTP preview image fixture | Binary forwarding, token and routing-header checks, stopped/replaced-runtime refusal, re-exposure, revocation and overlapping callback/alarm regression |
 | Native returned-stream fixtures | Bounded BYOB pulls and writable frames, mixed transform pairs, delayed sink/close acknowledgements, failures preserving accepted prefixes, held background jobs, abandoned imports and later-event refusal |
 
 The engine peer is a test server, not a running container image. The complete
 published SDK/image baseline retains `conformance: not_run` in the input manifest.
-Complete hooks/timeouts and callback-owned controls, the remaining SDK/image
+Complete hook/timeouts and callback failure/cancellation qualification, the remaining SDK/image
 upgrade and fault qualification, and hosted providers remain required.
 
 ```sh

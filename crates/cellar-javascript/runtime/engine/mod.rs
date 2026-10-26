@@ -276,6 +276,20 @@ fn current_activation(
     rv.set(v8::Number::new(scope, invocation as f64).into());
 }
 
+// Private continuation metadata for joining callback-owned void controls.
+// This supplies no authority; every native operation still checks its scope.
+fn current_callback(
+    scope: &mut v8::PinScope,
+    _args: v8::FunctionCallbackArguments,
+    mut rv: v8::ReturnValue,
+) {
+    if let Some((_, Some(callback), _)) = continuation(scope) {
+        rv.set(v8::Number::new(scope, callback as f64).into());
+    } else {
+        rv.set(v8::null(scope).into());
+    }
+}
+
 fn operation(
     scope: &mut v8::PinScope,
     args: v8::FunctionCallbackArguments,
@@ -677,6 +691,8 @@ pub(super) fn run(
         .context("JavaScript clone decoder initialization failed")?;
     let scoped = v8::Function::new(scope, scoped_callback)
         .context("JavaScript callback scope initialization failed")?;
+    let current_callback = v8::Function::new(scope, current_callback)
+        .context("JavaScript callback metadata initialization failed")?;
     let factory = script(scope, include_str!("../runner.js"), &watch, "runner")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
     let delegates = script(scope, include_str!("../delegates.js"), &watch, "delegates")?;
@@ -730,6 +746,7 @@ pub(super) fn run(
                 rpc_inputs,
                 rpc_messages,
                 rpc_requests,
+                current_callback.into(),
             ],
         )
         .context("JavaScript facade initialization failed")?;
