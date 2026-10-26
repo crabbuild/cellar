@@ -56,8 +56,9 @@ adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 
 **Tested Sandbox baseline:** 0.12.9 SDK + matching image; unchanged exec, file,
 background-process discovery and teardown routes pass. A published `execStream()`
-probe also receives output before command completion. Streamed RPC
-transfers, previews and fault qualification remain open. See the [evidence ledger](../../plans/sandbox-provider-progress.md#returned-functions-and-live-sandbox-processes).
+probe also forwards output through Worker/DO HTTP responses before command
+completion. RPC stream transfers, previews and fault qualification remain open.
+See the [evidence ledger](../../plans/sandbox-provider-progress.md#worker-and-durable-object-http-response-forwarding).
 
 ## Quick start
 
@@ -225,10 +226,10 @@ uncertain startup needs explicit reconciliation or cleanup.
 
 The Workers path requires `Source::workers_lifetimes()` and both provider opt-ins.
 It currently refuses queued lifecycle calls inside transaction and
-`blockConcurrencyWhile` callbacks before effects. Node supports buffered port
-forwarding, and the unchanged pinned Container example runs against an engine
-protocol peer. Streaming/upgrades, complete package lifecycle and real-image
-acceptance remain pending; see the
+`blockConcurrencyWhile` callbacks before effects. Node supports incremental port
+and Worker/DO HTTP forwarding; the pinned Container example runs against an engine protocol peer,
+and the Sandbox baseline also passes matching-image HTTP streaming. Upgrades
+and complete package lifecycle/fault acceptance remain pending; see the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
 ## Understand lifetime and failure outcomes

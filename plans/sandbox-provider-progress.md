@@ -905,7 +905,7 @@ streaming, and the published SDK/image test. Node's existing SSE/WS test passes;
 embedded V8's existing SSE/WS test passes in its diagnostic run. Frontend/tool
 checks pass 37 tests, including packed-package import and cleanup/error cases.
 All 16 shared guest tests, affected-adapter all-target Clippy and native-host
-library Clippy pass. Rust format/layout checks cover 1,097 sources, JS formatting
+library Clippy pass. Rust format/layout checks cover 1,104 sources after merging main, JS formatting
 covers 62 owned sources, and documentation plus the native-only dependency guard
 pass.
 The full SP-01–SP-10 goal remains active: RPC stream transfers, upgrades, previews,
@@ -918,3 +918,11 @@ separately reproduced container-monitor body hang. The original SSE/V8 failures
 remain unproven; V8 now distinguishes execution termination at those call sites,
 and its diagnostic rerun passed at the unchanged 100 ms pump budget. No deadline
 or assertion was relaxed and no timing fix is claimed.
+
+The branch was merged with main `0c23ae0b` after its SQLite and Node transport
+hardening landed. The sole conflict combined test-host configuration helpers;
+default test policies remain unchanged. Post-merge validation passes all seven
+selected Node/V8 HTTP/WS, Worker-module and authority tests, native EOF proof,
+and both pinned-image scenarios (SDK HTTP streams plus portable files). Both
+image scenarios drain their native/application work; no owned containers remain.
+Format/layout, documentation and the native-only dependency guard pass again.

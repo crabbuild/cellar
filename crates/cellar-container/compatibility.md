@@ -48,7 +48,7 @@ establish automatic cleanup on owner loss or node shutdown.
 | Profile | Evidence | Still required |
 | --- | --- | --- |
 | Native portable API | Native-host peers, language integrations and separate real Docker image file/command acceptance | Broader Podman/platform and fault qualification |
-| Local Cloudflare baseline | Pinned Containers `0.3.7` and Sandbox `0.12.9`; published package constructors and basic unchanged Sandbox/image routes | Full hooks, sleep/wake, streaming, previews, RPC/lifetime and failure qualification |
+| Local Cloudflare baseline | Pinned Containers `0.3.7` and Sandbox `0.12.9`; published package constructors, unchanged basic Sandbox/image routes and in-object/Worker/DO HTTP `execStream()` probes | Full hooks, sleep/wake, RPC stream transfers, upgrades, previews, lifetimes and failure qualification |
 | E2B | Pinned protocol sources; native host/restart peer and CPython/Node/V8 fixtures | Live VM/account, expiry, ownership takeover, orphan cleanup and stronger fencing |
 | Vercel | Pinned SDK `3.9.0` protocol sources; native host/restart peer, actual local helper and CPython/Node/V8 fixtures | Live VM/image/account, expiry, takeover, orphan cleanup and stronger fencing |
 | Daytona, Modal, Sandbox 1.x, Dynamic Workers, hosted Cloudflare | Planned targets | Dedicated implementations and independent qualification |

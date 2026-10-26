@@ -45,9 +45,10 @@ ownership, epoch, operation/byte budgets and durability/output gates.
 An additional probe subclasses the published Sandbox class and consumes its real
 `execStream()` through the pinned image. A file handshake releases the command
 only after stdout is observed, then verifies final stdout/stderr and exit code 7.
-This proves incremental port consumption inside the object; the SDK remains
-unchanged. Returning streams over RPC and forwarding Worker response bodies remain
-unqualified.
+The test also forwards the SDK SSE body through DO and Worker fetches to an
+external HTTP client, which must receive stdout before an independent request
+releases the command. The SDK remains unchanged. Returning streams as RPC values
+remains unqualified.
 
 The baseline additionally needs preview routing, HTTP
 and RPC failure paths, shutdown and teardown tests required by SP-04. Tunnels,

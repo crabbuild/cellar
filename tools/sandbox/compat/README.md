@@ -62,21 +62,21 @@ SQLite and an activation-bound synchronous provider running property. Node/V8
 fixtures check native startup/teardown observations against the engine protocol
 peer and refuse foreign-cell property access. Root-event queued lifecycle tests
 cover blocked startup with storage progress, explicit destroy/monitor outcomes
-and submitted startup failures without replay. The Node port facade adds bounded
-buffered HTTP with native cancellation; embedded web globals, streaming/upgrades
-and callback-owned queued lifecycle remain incomplete. These tests qualify
-those paths only. The
-unchanged Container module now runs in the separate Node `workers_module`
+and submitted startup failures without replay. Node forwards incremental port
+and Worker/DO HTTP responses with native cancellation; embedded web globals,
+upgrades and callback-owned queued lifecycle remain incomplete. These tests
+qualify those paths only. The unchanged Container module now runs in the separate Node `workers_module`
 target: named/singleton/random routing, separate native container ownership,
 delayed destroy acknowledgement and explicit cleanup use an engine protocol
-peer. Actual image execution, complete sleep/wake/hooks, Sandbox HTTP/RPC and
-cloud providers remain required. The source inventory continues to report
-`conformance: not_run` for that complete baseline.
+peer. The separate image target below qualifies selected Sandbox HTTP/RPC paths;
+complete sleep/wake/hooks and cloud-provider qualification remain required. The
+source inventory continues to report `conformance: not_run` for that complete baseline.
 
 ## Run the pinned image through Cellar
 
 The opt-in `sandbox_image` integration target uses the **unchanged** pinned
-Sandbox application and published SDK. Its wrapper adds only a teardown route.
+Sandbox application and published SDK. Its wrapper adds teardown and explicit
+stream probes; the original application routes remain unchanged.
 Cellar starts the real image through its selected native engine; no protocol
 peer supplies command or file results.
 
@@ -101,8 +101,8 @@ removes only that host's empty, labelled bridges so repeated runs cannot exhaust
 the daemon's subnet pool.
 It shuts down its node after application failures too. This test does not remove
 unrelated daemon resources; use a disposable daemon for network/fence isolation.
-Passing it qualifies these routes for the pinned baseline, not the full SP-04
-streaming, preview, restart/fencing or live-cloud requirements.
+Passing it qualifies these routes for the pinned baseline; SP-04 RPC stream
+transfer, preview, restart/fencing and live-cloud requirements remain incomplete.
 
 The same `sandbox_image` test target also contains a **separate portable-file
 scenario**. It uses Cellar's `ctx.container` file API against the real image,
@@ -118,11 +118,13 @@ scenario does not substitute for the unchanged published SDK route test.
 | `/write`, then a later `/exec` | Real write/read and exact JSON-encoded file contents, including the trailing newline, match assertions |
 | `/serve` | Actual background process starts and its function-bearing result crosses native leased RPC |
 | `/processes` | A later request finds the same process ID with a running/starting status |
+| In-object `execStream()` | A stdout event arrives before release; final stdout/stderr data events and exit code 7 follow |
+| Worker/DO HTTP `execStream()` | A network client receives actual SDK SSE stdout before a second HTTP request releases the command; final data events and exit code 7 follow |
 | Teardown / shutdown | Explicit SDK destroy removes owned containers; serialized alarm callbacks allow native cell/application drainage without a timeout |
 
 **The complete opt-in route test passes.** RPC functions retain their original
 native event and use bounded, revocable handles; methods remain on SDK return
-objects. The source inventory keeps its broader streaming/preview/fault baseline
+objects. The source inventory keeps its broader RPC-stream/preview/fault baseline
 at `conformance: not_run`.
 
 In the local Colima run, automatic VM ports initially collided with an unrelated
