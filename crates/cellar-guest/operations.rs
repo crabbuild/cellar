@@ -67,16 +67,100 @@ pub async fn call_bytes_in_budget(
     Ok(call.await?)
 }
 
+#[derive(Default)]
 pub struct State {
+    /// This event has a native-owned Workers background driver.
+    pub workers_lifetimes: bool,
+    pub workers: crate::workers::State,
+    pub containers: crate::containers::Session,
     pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
+}
+
+/// Only explicitly qualified operations receive a private cancellation signal.
+pub async fn execute_with_signal(
+    context: &Context,
+    state: &State,
+    name: &str,
+    value: Value,
+    options: &Limits,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+) -> Result<Value> {
+    if name == "workers.fetch_stream" {
+        return state
+            .workers
+            .fetch_stream(context, value, options, signal, &state.transport)
+            .await;
+    }
+    if matches!(name, "response.closed" | "response.read") {
+        let call = state.transport.execute(context, name, value, options);
+        return match signal {
+            None => call.await,
+            Some(signal) => {
+                cellar::asyncrt::select_biased! { "cancellation revokes a response waiter before an undelivered reply";
+                    _ = signal.cancelled() => Err(cellar::sdk::rpc::Failure::new(cellar::sdk::rpc::Code::Cancelled).into()),
+                    result = call => result,
+                }
+            }
+        };
+    }
+    if name == "workers.fetch" {
+        return state
+            .workers
+            .execute_with_signal(context, name, value, options, signal)
+            .await;
+    }
+    if matches!(
+        name,
+        "container.port.fetch"
+            | "container.port.fetch_stream"
+            | "container.response.read"
+            | "container.port.connect_websocket"
+            | "container.websocket.receive"
+            | "workers.container.fetch"
+            | "workers.container.fetch_stream"
+    ) {
+        if name.starts_with("workers.container.") {
+            ensure!(state.workers_lifetimes, crate::failure::Validation);
+        }
+        return state
+            .containers
+            .execute_with_signal(
+                context,
+                match name {
+                    "container.port.fetch_stream" | "workers.container.fetch_stream" => {
+                        crate::containers::Operation::FetchStream
+                    }
+                    "container.response.read" => crate::containers::Operation::ReadResponse,
+                    "container.port.connect_websocket" => {
+                        crate::containers::Operation::ConnectWebSocket
+                    }
+                    "container.websocket.receive" => crate::containers::Operation::ReceiveWebSocket,
+                    _ => crate::containers::Operation::Fetch,
+                },
+                value,
+                &crate::containers::Limits {
+                    max_body_bytes: options.max_body_bytes,
+                },
+                signal.as_ref(),
+            )
+            .await;
+    }
+    ensure!(signal.is_none(), crate::failure::Validation);
+    execute(context, state, name, value, options).await
 }
 
 /// Only operations known to have no business effects may overlap a mutation.
 /// Arbitrary SQL and nested fetches are conservatively mutation-class operations.
 /// Python's bounded reply adapter implements `storage.read_many` separately.
 pub fn is_read(name: &str) -> bool {
+    if name.starts_with("workers.") {
+        return crate::workers::is_read(name);
+    }
+    if let Ok(operation) = crate::containers::Operation::parse(name) {
+        return operation.is_read();
+    }
     matches!(
         name,
         "clock.now"
@@ -88,6 +172,8 @@ pub fn is_read(name: &str) -> bool {
             | "kv.list"
             | "websocket.next"
             | "response.read"
+            | "response.cancel"
+            | "response.closed"
     )
 }
 
@@ -123,6 +209,23 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name == "workers.fetch_stream" {
+        return state
+            .workers
+            .fetch_stream(context, value, options, None, &state.transport)
+            .await;
+    }
+    if name.starts_with("workers.container.") {
+        return crate::containers::workers(context, state, name, value, options).await;
+    }
+    if name.starts_with("workers.") {
+        return state.workers.execute(context, name, value, options).await;
+    }
+    if name.starts_with("container.") {
+        values::check_depth(&value).context(crate::failure::Validation)?;
+        ensure!(value.is_object(), crate::failure::Validation);
+        return crate::containers::execute(context, &state.containers, name, value, options).await;
+    }
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"
         || name.starts_with("response.")

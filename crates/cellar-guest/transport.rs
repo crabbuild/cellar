@@ -11,14 +11,17 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::sdk::{
     streams::{ByteReadable, ByteWriter, IdentityTransformStream},
     websocket::{Message, SocketEvent, Upgrade, WebSocket},
-    Context, Invocation, Output,
+    Context, Invocation, InvocationAuthority, Output,
 };
 use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex, OnceLock,
+    },
 };
 use tokio::sync::{oneshot, watch};
 
@@ -28,9 +31,12 @@ type Head = oneshot::Sender<Result<Output>>;
 /// every use still passes the native activation/turn checks.
 #[derive(Default)]
 pub struct Session {
+    authority: OnceLock<InvocationAuthority>,
     head: Mutex<Option<Head>>,
     pipe: Option<(ByteReadable, ByteWriter)>,
     streaming: Mutex<bool>,
+    body_started: AtomicBool,
+    body_finished: AtomicBool,
     sockets: Mutex<HashMap<u64, WebSocket>>,
     upgrades: Mutex<HashMap<u64, Upgrade>>,
     responses: Mutex<HashMap<String, cellar::engine_api::HttpResponse>>,
@@ -46,6 +52,25 @@ where
     F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
     Fut: Future<Output = Result<Output>> + Send + 'static,
 {
+    serve_with_lifetime(context, make, false).await
+}
+
+/// Retain a Workers-compatible producer through native background work even if
+/// its request or response consumer disconnects. Response writes still observe
+/// their own backpressure/cancellation; independent background jobs may finish.
+pub async fn serve_retained<F, Fut>(context: &Context, make: F) -> Result<Output>
+where
+    F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Output>> + Send + 'static,
+{
+    serve_with_lifetime(context, make, true).await
+}
+
+async fn serve_with_lifetime<F, Fut>(context: &Context, make: F, retained: bool) -> Result<Output>
+where
+    F: FnOnce(Arc<Session>) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Output>> + Send + 'static,
+{
     let pipe = IdentityTransformStream::new();
     let writer = pipe.writable.get_writer()?;
     let (head, mut receive) = oneshot::channel();
@@ -54,11 +79,33 @@ where
         pipe: Some((pipe.readable.clone(), writer)),
         ..Default::default()
     });
+    let producer_context = context.clone();
     let mut driver = Box::pin(async move {
+        struct Producer(ByteReadable, bool);
+
+        impl Drop for Producer {
+            fn drop(&mut self) {
+                if !self.1 {
+                    self.0.error(cellar::sdk::web::AbortReason::error(
+                        "guest response producer failed or stopped",
+                    ));
+                }
+            }
+        }
+        let mut producer = Producer(owned.pipe.as_ref().unwrap().0.clone(), false);
         let writer = &owned.pipe.as_ref().unwrap().1;
-        let result = cellar::asyncrt::select_biased! { "disconnect revokes streaming invocation authority";
-            _ = writer.closed() => bail!("guest response consumer closed"),
-            result = make(owned.clone()) => result,
+        let result = if retained {
+            make(owned.clone()).await
+        } else {
+            cellar::asyncrt::select_biased! { "disconnect revokes streaming invocation authority";
+                _ = async {
+                    // Producer EOF is distinct from consumer cancellation.
+                    if writer.closed().await.is_ok() {
+                        std::future::pending::<()>().await;
+                    }
+                } => bail!("guest response consumer closed"),
+                result = make(owned.clone()) => result,
+            }
         };
         let head = owned.head.lock().unwrap().take();
         if let Some(head) = head {
@@ -66,7 +113,14 @@ where
         } else {
             result?;
         }
-        writer.close().await?;
+        if !owned.body_finished.load(Ordering::Acquire) {
+            if owned.body_started.load(Ordering::Acquire) {
+                producer_context.finish_stream(writer).await?;
+            } else {
+                writer.close().await?;
+            }
+        }
+        producer.1 = true;
         Ok(())
     });
 
@@ -80,6 +134,11 @@ where
         }
     }
     let mut cancel = Cancel(pipe.readable.clone(), true);
+    if retained {
+        context.wait_until(driver)?;
+        cancel.1 = false;
+        return receive.await.context("guest response producer stopped")?;
+    }
     // Before the response head, poll SDK operations through the actual handler
     // future. Wrappers that pause/cancel that future must retain control. Only
     // a streaming response or upgrade transfers the remaining driver to the
@@ -99,11 +158,80 @@ where
 }
 
 impl Session {
+    fn check(&self, context: &Context) -> Result<()> {
+        let candidate = context.invocation_authority()?;
+        self.authority.get_or_init(|| candidate).check(context)
+    }
+
+    pub(crate) fn response_capacity(&self, context: &Context, limits: &Limits) -> Result<()> {
+        self.check(context)?;
+        ensure!(
+            self.cancellations.lock().unwrap().len() < limits.max_batch_operations,
+            Validation
+        );
+        Ok(())
+    }
+
+    pub(crate) fn retain_response(
+        &self,
+        context: &Context,
+        response: cellar::engine_api::HttpResponse,
+        limits: &Limits,
+    ) -> Result<Value> {
+        self.check(context)?;
+        values::headers(&response.headers)?;
+        let mut cancellations = self.cancellations.lock().unwrap();
+        let mut responses = self.responses.lock().unwrap();
+        ensure!(
+            cancellations.len() < limits.max_batch_operations,
+            "response capability limit"
+        );
+        let retained = responses.values().fold(0usize, |total, response| {
+            total.saturating_add(response.body.len())
+        });
+        ensure!(
+            retained.saturating_add(response.body.len()) <= limits.max_body_bytes,
+            "response prefixes exceed body limit"
+        );
+        let id = self
+            .sequence
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .to_string();
+        let metadata = json!({"forward":id,"status":response.status,"headers":response.headers,"body":STANDARD.encode(&response.body),"stream":response.stream.is_some(),"websocket":response.websocket.is_some()});
+        cancellations.insert(id.clone(), watch::channel(false).0);
+        responses.insert(id, response);
+        Ok(metadata)
+    }
+
+    /// Publish a completed response while the original driver drains background
+    /// work. A disconnected consumer does not revoke unrelated native jobs.
+    pub fn publish(&self, output: Result<Output>) -> Result<()> {
+        if let Some(head) = self.head.lock().unwrap().take() {
+            let _ = head.send(output);
+        } else {
+            ensure!(
+                matches!(output, Ok(Output::Done) | Err(_)),
+                "response already published"
+            );
+            if output.is_err() {
+                if let Some((readable, _)) = &self.pipe {
+                    // Fail the body immediately while independent retained
+                    // work drains under the original invocation authority.
+                    readable.error(cellar::sdk::web::AbortReason::error(
+                        "guest response producer failed",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn streaming(&self) -> bool {
         *self.streaming.lock().unwrap()
     }
 
     pub fn output(&self, context: &Context, value: &Value) -> Result<Option<Output>> {
+        self.check(context)?;
         if let Some(id) = value.get("forward").and_then(Value::as_str) {
             ensure!(!self.streaming(), "response already started");
             self.cancellations.lock().unwrap().remove(id);
@@ -152,13 +280,23 @@ impl Session {
         value: Value,
         limits: &Limits,
     ) -> Result<Value> {
+        self.check(context)?;
         values::check_depth(&value).context(Validation)?;
+        let result = self.execute_inner(context, name, value, limits).await;
+        self.check(context)?;
+        result
+    }
+
+    async fn execute_inner(
+        &self,
+        context: &Context,
+        name: &str,
+        value: Value,
+        limits: &Limits,
+    ) -> Result<Value> {
         match name {
             "cell.fetch_stream" | "http.fetch_stream" => {
-                ensure!(
-                    self.cancellations.lock().unwrap().len() < limits.max_batch_operations,
-                    Validation
-                );
+                self.response_capacity(context, limits)?;
                 let request =
                     values::input(&value["request"], limits.max_body_bytes).context(Validation)?;
                 let response = if name == "cell.fetch_stream" {
@@ -178,30 +316,7 @@ impl Session {
                         })
                         .await?
                 };
-                let retained = self
-                    .responses
-                    .lock()
-                    .unwrap()
-                    .values()
-                    .fold(0usize, |total, response| {
-                        total.saturating_add(response.body.len())
-                    });
-                ensure!(
-                    retained.saturating_add(response.body.len()) <= limits.max_body_bytes,
-                    "response prefixes exceed body limit"
-                );
-                values::headers(&response.headers)?;
-                let id = self
-                    .sequence
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                    .to_string();
-                let metadata = json!({"forward":id,"status":response.status,"headers":response.headers,"body":STANDARD.encode(&response.body),"stream":response.stream.is_some(),"websocket":response.websocket.is_some()});
-                self.cancellations
-                    .lock()
-                    .unwrap()
-                    .insert(id.clone(), watch::channel(false).0);
-                self.responses.lock().unwrap().insert(id, response);
-                Ok(metadata)
+                self.retain_response(context, response, limits)
             }
             "response.read" => {
                 let id = field(&value, "id")?;
@@ -264,6 +379,29 @@ impl Session {
                 *self.streaming.lock().unwrap() = true;
                 Ok(Value::Null)
             }
+            "response.finish" => {
+                ensure!(
+                    self.body_started.load(Ordering::Acquire),
+                    "response body has not started"
+                );
+                if !self.body_finished.load(Ordering::Acquire) {
+                    context
+                        .finish_stream(&self.pipe.as_ref().unwrap().1)
+                        .await?;
+                    self.body_finished.store(true, Ordering::Release);
+                }
+                Ok(Value::Null)
+            }
+            "response.closed" => {
+                ensure!(
+                    self.body_started.load(Ordering::Acquire),
+                    "response body has not started"
+                );
+                let writer = &self.pipe.as_ref().context("streaming requires fetch")?.1;
+                // Both a clean close and a consumer cancellation end production.
+                let _ = writer.closed().await;
+                Ok(Value::Null)
+            }
             "response.start" => {
                 ensure!(!self.streaming(), "response already started");
                 // Validate headers/status before publishing the head.
@@ -272,6 +410,7 @@ impl Session {
                         .context(Validation)?;
                 let (readable, _) = self.pipe.as_ref().context("streaming requires fetch")?;
                 response.stream = Some(cellar::sdk::streams::http_byte_stream(readable)?);
+                self.body_started.store(true, Ordering::Release);
                 let head = self
                     .head
                     .lock()

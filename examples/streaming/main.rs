@@ -37,7 +37,7 @@ fn progress(context: &Context) -> Result<Output> {
         producer
             .write_stream_chunk(&writer, b"event: done\ndata: complete\n\n".to_vec())
             .await?;
-        writer.close().await?;
+        producer.finish_stream(&writer).await?;
         Ok(())
     })?;
 

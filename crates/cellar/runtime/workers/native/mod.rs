@@ -1479,6 +1479,10 @@ impl NativeWorker {
             native.delivery_gate = None;
             native.wake = None;
         }
+        // A timeout retires the native handler between turns. Drain its
+        // event-owned sockets here while storage is installed, so IoContext's
+        // final drop cannot attempt to sample a close-frame gate off-turn.
+        entry.context.close_sockets();
     }
 
     pub(crate) fn finish_alarm(&self, entry: &mut InFlight) -> Result<Option<u64>> {

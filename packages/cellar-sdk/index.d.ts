@@ -90,6 +90,151 @@ export interface Identity {
   epoch: string;
 }
 
+/** Provider configuration metadata; querying it does not start a sandbox. */
+export interface ContainerCapabilities {
+  readonly format: 1;
+  readonly provider: string;
+  readonly environment: "unspecified" | "linux" | "worker_isolate";
+  readonly fencing:
+    | "unspecified"
+    | "native_cell"
+    | "local_checks_and_expiry"
+    | "provider_enforced";
+  readonly operations: readonly string[];
+  readonly max_body_bytes: number;
+  readonly max_resources: number | null;
+  /** Provider offers an authoritative snapshot without backend I/O. */
+  readonly synchronous_running: boolean;
+  /** Synchronous admission and event-owned startup/signal/destroy controls. */
+  readonly queued_lifecycle: boolean;
+}
+
+export interface ContainerStartOptions {
+  entrypoint?: string[];
+  env?: [string, string][];
+  enable_internet?: boolean;
+  labels?: [string, string][];
+}
+
+export interface ContainerExecOptions {
+  cmd: string[];
+  env?: [string, string][];
+  cwd?: string;
+  user?: string;
+  combined?: boolean;
+}
+
+export interface ContainerExecOutput {
+  exit_code: number;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+}
+
+/** Invocation-owned process streams. Drain stdout and stderr concurrently. */
+export interface ContainerExec {
+  readStdout(): Promise<Uint8Array>;
+  readStderr(): Promise<Uint8Array>;
+  write(bytes: Uint8Array): Promise<null>;
+  closeStdin(): Promise<null>;
+  wait(): Promise<number>;
+  kill(signal?: number): Promise<null>;
+  /** Release streams without killing the process. */
+  release(): Promise<null>;
+}
+
+export type ContainerWebSocketEvent =
+  | { type: "open"; protocol: string }
+  | { type: "text"; text: string }
+  | { type: "binary"; data: Uint8Array }
+  | { type: "close"; code: number; reason: string; clean: boolean };
+
+/** Event-owned outbound WebSocket, closed when the invocation ends. */
+export interface ContainerWebSocket {
+  receive(): Promise<ContainerWebSocketEvent>;
+  sendText(text: string): Promise<null>;
+  sendBinary(bytes: Uint8Array): Promise<null>;
+  close(code?: number, reason?: string): Promise<null>;
+  release(): Promise<null>;
+}
+
+export interface ContainerSocket {
+  /** An empty chunk marks EOF. */
+  read(): Promise<Uint8Array>;
+  write(bytes: Uint8Array): Promise<null>;
+  closeWrite(): Promise<null>;
+  close(): Promise<null>;
+  release(): Promise<null>;
+}
+
+/** Portable filesystem metadata; nullable fields are explicitly unknown. */
+export interface ContainerFileMetadata {
+  readonly name: string;
+  readonly kind: "file" | "directory" | "symlink" | "other";
+  readonly size: number;
+  readonly mode: number;
+  readonly modified_ms: number | null;
+  readonly link_target: string | null;
+}
+
+/** Root-cell provider control. Native execution requires a declared image. */
+/** An event-owned HTTP head/prefix and pull reader. Empty chunks are not EOF. */
+export interface ContainerResponse {
+  readonly status: number;
+  readonly headers: Headers;
+  readonly body: Uint8Array;
+  read(): Promise<Uint8Array | null>;
+  chunks(): AsyncIterable<Uint8Array>;
+  cancel(): Promise<void>;
+}
+
+export interface Container {
+  capabilities(): Promise<Readonly<ContainerCapabilities>>;
+  running(): Promise<boolean>;
+  /** Opaque run identity, represented as a string to avoid integer rounding. */
+  start(options?: ContainerStartOptions): Promise<string>;
+  monitor(): Promise<number>;
+  destroy(): Promise<null>;
+  signal(signal: number): Promise<null>;
+  /** Integral milliseconds, at most one day. */
+  setInactivityTimeout(timeout_ms: number): Promise<null>;
+  exec(options: ContainerExecOptions): Promise<ContainerExec>;
+  /** Combined stdout/stderr limit cannot exceed the host body limit. */
+  execOutput(options: ContainerExecOptions, max_bytes?: number): Promise<ContainerExecOutput>;
+  /** Canonical absolute UTF-8 container path; bounded regular-file content. */
+  readFile(path: string, max_bytes?: number): Promise<Uint8Array>;
+  /** Existing parent directory; permissions only (0o000–0o777). A lost reply
+   * does not establish whether this non-transactional write was applied. */
+  writeFile(
+    path: string,
+    data: Uint8Array,
+    options?: { mode?: number },
+  ): Promise<null>;
+  statFile(path: string): Promise<Readonly<ContainerFileMetadata>>;
+  /** Direct children; refuses a listing that exceeds either budget. Native
+   * scans a bounded archive of the directory tree, including descendant data. */
+  listFiles(
+    path: string,
+    options?: { max_bytes?: number; max_entries?: number },
+  ): Promise<readonly Readonly<ContainerFileMetadata>[]>;
+  port(port: number): {
+    waitReady(timeout_ms?: number): Promise<null>;
+    /** Abort stops waiting; submitted HTTP effects may already have occurred. */
+    fetch(request: RequestData, options?: { signal?: AbortSignal }): Promise<Response>;
+    /** Bounded prefix and chunks; cancel or finish reading within this event. */
+    fetchStream(request: RequestData, options?: { signal?: AbortSignal }): Promise<ContainerResponse>;
+    connect(): Promise<ContainerSocket>;
+    connectWebSocket(url: string, headers?: Headers): Promise<
+      | {
+          upgraded: true;
+          protocol: string;
+          readonly headers: Headers;
+          socket: ContainerWebSocket;
+        }
+      | { upgraded: false; response: Response }
+    >;
+  };
+}
+
 /**
  * Invocation-scoped authority supplied by the Rust host.
  *
@@ -101,6 +246,8 @@ export interface Context {
   /** Null for application-level handlers outside a cell. */
   readonly identity: Readonly<Identity> | null;
 
+  /** Invocation-scoped control of this cell’s declared container. */
+  readonly container: Container;
   /** Fetch an outbound response without buffering its complete body. */
   fetchStream(request: RequestData): Promise<LiveResponse>;
 
@@ -220,6 +367,8 @@ export interface QueueBatch {
  * The host must explicitly register each implemented handler.
  */
 export interface Cell {
+  /** Native value-only RPC; requires EventKind::CellRpc on the Rust host. */
+  cell_rpc?(event: { readonly method: string; readonly args: unknown[] }, context: Context): unknown | Promise<unknown>;
   fetch?(
     request: Request,
     context: Context,

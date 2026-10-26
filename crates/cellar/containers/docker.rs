@@ -13,7 +13,7 @@
 
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::Incoming;
 use hyper::header::{CONNECTION, CONTENT_TYPE, HOST, UPGRADE};
 use hyper::{Request, Response, StatusCode};
@@ -58,6 +58,44 @@ impl Reply {
 }
 
 impl Docker {
+    /// Bounded archive traffic. The request owns its connection, so dropping
+    /// it cancels unfinished upload/download work. Archives never touch host FS.
+    pub(crate) async fn archive(
+        &self,
+        method: &str,
+        path: &str,
+        body: Bytes,
+        maximum: usize,
+    ) -> anyhow::Result<(Reply, Option<String>)> {
+        let mut request = self.request(method, path, body)?;
+        request
+            .headers_mut()
+            .insert(CONTENT_TYPE, "application/x-tar".parse()?);
+        self.exchange(request, |response| async move {
+            let status = response.status();
+            let stat = response
+                .headers()
+                .get("x-docker-container-path-stat")
+                .map(|header| {
+                    anyhow::ensure!(
+                        header.as_bytes().len() <= 16384,
+                        "container stat header exceeds limit"
+                    );
+                    Ok::<_, anyhow::Error>(header.to_str()?.to_owned())
+                })
+                .transpose()?;
+            let body = Limited::new(response.into_body(), maximum)
+                .collect()
+                .await
+                .map_err(|error| {
+                    anyhow!("container archive exceeds byte budget or could not be read: {error}")
+                })?
+                .to_bytes();
+            Ok((Reply { status, body }, stat))
+        })
+        .await
+    }
+
     pub fn new(socket: impl Into<PathBuf>) -> Self {
         Self {
             socket: socket.into(),

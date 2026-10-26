@@ -1,0 +1,16 @@
+{
+  "name": "@cellar/sandbox-conformance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "@cloudflare/sandbox": "0.12.9"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "inventory": "node inventory.mjs",
+    "test": "node --test inventory.test.mjs"
+  }
+}

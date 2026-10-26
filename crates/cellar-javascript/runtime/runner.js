@@ -3,57 +3,153 @@
 // Shared SDK facade for embedded V8 and Node. This file is a factory expression:
 // the Rust bootstrap evaluates or embeds it, then supplies the private host call.
 // Keep the expression free of a trailing semicolon for embedding in parentheses.
-(host, addAbortListener) => {
+(
+  host,
+  synchronousHost,
+  currentHost,
+  encodeClone,
+  decodeClone,
+  scopedHost,
+  addAbortListener,
+  makeDelegates,
+  makeRpcStreams,
+  makeRpcWritables,
+  makeRpcInputs,
+  makeRpcMessages,
+) => {
   "use strict";
+  const delegates = makeDelegates(
+    makeRpcStreams(),
+    makeRpcWritables(),
+    makeRpcInputs,
+    makeRpcMessages,
+  );
 
   // Capture these builtins before importing/evaluating application code.
-  const parse = JSON.parse,
-    stringify = JSON.stringify,
-    freeze = Object.freeze;
-  const entries = Object.entries,
-    isArray = Array.isArray;
-  const MapClass = Map,
-    ErrorClass = Error;
+  const parse = JSON.parse;
+  const stringify = JSON.stringify;
+  const freeze = Object.freeze;
+  const entries = Object.entries;
+  const isArray = Array.isArray;
+  const MapClass = Map;
+  const WeakMapClass = WeakMap;
+  const SetClass = Set;
+  const PromiseClass = Promise;
+  const resolve = Promise.resolve.bind(Promise);
+  const race = Promise.race.bind(Promise);
+  const allSettled = Promise.allSettled.bind(Promise);
+  const lifetimes = new MapClass();
+  function track(id, promise, report = false) {
+    const state = lifetimes.get(id);
+    if (!state) return promise;
+    if (report && state.reported + state.retained >= state.limit) {
+      const error = new ErrorClass("waitUntil job quota exceeded");
+      error.name = "QuotaExceededError";
+      throw error;
+    }
+    if (report) state.reported++;
+    const settled = resolve(promise);
+    state.jobs.add(settled);
+    const release = () => {
+      state.jobs.delete(settled);
+      if (report) state.reported--;
+    };
+    settled.then(release, () => {
+      release();
+      if (report) state.failed = true;
+    });
+    return promise;
+  }
+  async function drain(id) {
+    const state = lifetimes.get(id);
+    if (!state) return;
+    while (lifetimes.get(id) === state) {
+      if (state.jobs.size) {
+        await race([allSettled([...state.jobs]), state.cancelled]);
+      } else if (state.cleanups.size) {
+        const cleanups = [...state.cleanups];
+        state.cleanups.clear();
+        const results = await allSettled(
+          cleanups.map((close) => resolve().then(close)),
+        );
+        if (results.some((result) => result.status === "rejected"))
+          state.failed = true;
+      } else return;
+    }
+  }
+  const ErrorClass = Error;
+  const apply = Reflect.apply;
+  const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+  const typedArrayTag = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    Symbol.toStringTag,
+  ).get;
+  const typedArrayBytes = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "byteLength",
+  ).get;
+  const typedArrayOffset = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "byteOffset",
+  ).get;
+  const typedArrayBuffer = Object.getOwnPropertyDescriptor(
+    typedArrayPrototype,
+    "buffer",
+  ).get;
   const budgetKeys = new WeakMap();
   const rpcKey = Symbol.for("cellar.rpc");
-  const apply = Reflect.apply,
-    own = Object.getOwnPropertyDescriptor;
+  const own = Object.getOwnPropertyDescriptor;
   const rpcFailures = freeze({
-    InvalidArgument:'{"rpc_error":"InvalidArgument"}', MethodNotFound:'{"rpc_error":"MethodNotFound"}',
-    ContractMismatch:'{"rpc_error":"ContractMismatch"}', ResourceExhausted:'{"rpc_error":"ResourceExhausted"}',
-    ContextExpired:'{"rpc_error":"ContextExpired"}', Cancelled:'{"rpc_error":"Cancelled"}',
-    DeadlineExceeded:'{"rpc_error":"DeadlineExceeded"}', Unavailable:'{"rpc_error":"Unavailable"}',
-    OwnershipLost:'{"rpc_error":"OwnershipLost"}', DurabilityUnproven:'{"rpc_error":"DurabilityUnproven"}',
-    InvalidResponse:'{"rpc_error":"InvalidResponse"}', Internal:'{"rpc_error":"Internal"}',
+    InvalidArgument: '{"rpc_error":"InvalidArgument"}',
+    MethodNotFound: '{"rpc_error":"MethodNotFound"}',
+    ContractMismatch: '{"rpc_error":"ContractMismatch"}',
+    ResourceExhausted: '{"rpc_error":"ResourceExhausted"}',
+    ContextExpired: '{"rpc_error":"ContextExpired"}',
+    Cancelled: '{"rpc_error":"Cancelled"}',
+    DeadlineExceeded: '{"rpc_error":"DeadlineExceeded"}',
+    Unavailable: '{"rpc_error":"Unavailable"}',
+    OwnershipLost: '{"rpc_error":"OwnershipLost"}',
+    DurabilityUnproven: '{"rpc_error":"DurabilityUnproven"}',
+    InvalidResponse: '{"rpc_error":"InvalidResponse"}',
+    Internal: '{"rpc_error":"Internal"}',
   });
   function handlerFailure(error) {
     try {
       // Read a data property without invoking code/outcome/message getters.
       const descriptor = own(error, "code");
       const value = descriptor && own(descriptor, "value");
-      const category = value && typeof value.value === "string" && value.value.length <= 32 && own(rpcFailures, value.value);
+      const category =
+        value &&
+        typeof value.value === "string" &&
+        value.value.length <= 32 &&
+        own(rpcFailures, value.value);
       if (category) return category.value;
-    } catch { /* A proxy trap cannot manufacture outcome evidence. */ }
+    } catch {
+      /* A proxy trap cannot manufacture outcome evidence. */
+    }
     return rpcFailures.Internal;
   }
   // Node supplies events.addAbortListener, which resists stopImmediatePropagation.
   // Closed V8 bundles may supply a standard AbortController polyfill.
   const dispose = Symbol.dispose;
-  const subscribe = addAbortListener ? ((signal, listener) => {
-    let subscription;
-    const onAbort = () => {
-      listener();
-      // A synthetic abort event must not consume Node's one-shot protected
-      // subscription. Native Node snapshots listeners for each dispatch.
-      if (!signal.aborted) subscription = addAbortListener(signal, onAbort);
-    };
-    subscription = addAbortListener(signal, onAbort);
-    return () => subscription[dispose]();
-  }) : ((signal, listener) => {
-    const add = signal.addEventListener, remove = signal.removeEventListener;
-    apply(add, signal, ["abort", listener]);
-    return () => apply(remove, signal, ["abort", listener]);
-  });
+  const subscribe = addAbortListener
+    ? (signal, listener) => {
+        let subscription;
+        const onAbort = () => {
+          listener();
+          // A synthetic abort event must not consume Node's one-shot protected
+          // subscription. Native Node snapshots listeners for each dispatch.
+          if (!signal.aborted) subscription = addAbortListener(signal, onAbort);
+        };
+        subscription = addAbortListener(signal, onAbort);
+        return () => subscription[dispose]();
+      }
+    : (signal, listener) => {
+        const add = signal.addEventListener,
+          remove = signal.removeEventListener;
+        apply(add, signal, ["abort", listener]);
+        return () => apply(remove, signal, ["abort", listener]);
+      };
 
   function rpcFailure(code, outcome) {
     const error = new ErrorClass(code);
@@ -88,7 +184,7 @@
     }
 
     if (isArray(value)) {
-      return value.map(v => json(v, depth + 1));
+      return value.map((v) => json(v, depth + 1));
     }
 
     if (
@@ -140,6 +236,12 @@
 
   // Encode each bounded body or socket frame for the JSON bridge.
   function encode(bytes) {
+    if (!(bytes instanceof Uint8Array)) {
+      const error = new ErrorClass("ValidationError");
+      error.code = "ValidationError";
+      error.outcome = "not_committed";
+      throw error;
+    }
     let result = "";
 
     for (let i = 0; i < bytes.length; i += 3) {
@@ -185,16 +287,86 @@
     const body = decode(value.body);
     const text = () =>
       decodeURIComponent(
-        Array.from(body, b => "%" + b.toString(16).padStart(2, "0")).join(""),
+        Array.from(body, (b) => "%" + b.toString(16).padStart(2, "0")).join(""),
       );
 
     return freeze({ ...value, body, text, json: () => json(parse(text())) });
   }
 
+  // Optional Workers crypto resolves the current event rather than capturing
+  // the cell that first installed the global. Only these pure-value operations
+  // have this global lifetime; ordinary saved SDK contexts still expire.
+  const crypto = freeze({
+    getRandomValues(array) {
+      const type = apply(typedArrayTag, array, []);
+      if (
+        ![
+          "Int8Array",
+          "Uint8Array",
+          "Uint8ClampedArray",
+          "Int16Array",
+          "Uint16Array",
+          "Int32Array",
+          "Uint32Array",
+          "BigInt64Array",
+          "BigUint64Array",
+        ].includes(type)
+      ) {
+        const error = new ErrorClass("Expected an integer typed array");
+        error.name = "TypeMismatchError";
+        throw error;
+      }
+      const length = apply(typedArrayBytes, array, []);
+      if (length > 65536) {
+        const error = new ErrorClass("Random-values quota exceeded");
+        error.name = "QuotaExceededError";
+        throw error;
+      }
+      const invocation = context(currentHost(), null, null);
+      const bytes = decode(
+        invocation._sync("workers.crypto.random", { length }),
+      );
+      new Uint8Array(
+        apply(typedArrayBuffer, array, []),
+        apply(typedArrayOffset, array, []),
+        length,
+      ).set(bytes);
+      return array;
+    },
+    randomUUID: () =>
+      context(currentHost(), null, null)._sync("workers.crypto.uuid"),
+    get subtle() {
+      throw new ErrorClass("Unsupported Workers API: crypto.subtle");
+    },
+  });
+
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
-  function context(id, identity, contracts) {
-    const call = async (name, value = {}, body, signal, budget) => {
+  function context(id, identity, activation, contracts = {}) {
+    const retain = (make) => {
+      if (
+        (activation === null ? currentHost() : currentHost(activation)) !== id
+      )
+        throw rpcFailure("ContextMismatch", "not_committed");
+      const state = lifetimes.get(id);
+      if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+      if (state.reported + state.retained >= state.limit)
+        throw rpcFailure("OperationLimit", "not_committed");
+      state.retained++;
+      let pending;
+      try {
+        pending = resolve(make());
+      } catch (error) {
+        state.retained--;
+        throw error;
+      }
+      const release = () => {
+        state.retained--;
+      };
+      pending.then(release, release);
+      return track(id, pending);
+    };
+    const invoke = (name, value, synchronous) => {
       let encoded, pending;
 
       try {
@@ -206,85 +378,411 @@
         throw error;
       }
 
-      let unsubscribe, cancel;
-      let submitted = false, cancelled = false, invalidSignal = false;
-      // Subscribe before admission. The native cancellation capability belongs
-      // only to this operation; its signal may fire in another JS continuation.
+      // Synchronous admission failures occur before the operation is submitted.
       try {
-        if (signal !== undefined) {
-          const onAbort = () => {
-            let aborted = true;
-            try {
-              aborted = signal.aborted;
-              if (typeof aborted !== "boolean") throw new TypeError();
-            } catch { invalidSignal = true; }
-            if (aborted || invalidSignal) {
-              cancelled = true;
-              cancel?.();
-            }
-          };
-          try {
-            unsubscribe = subscribe(signal, onAbort);
-            onAbort();
-          } catch {
-            throw rpcFailure("InvalidArgument", "not_committed");
-          }
-          if (invalidSignal) throw rpcFailure("InvalidArgument", "not_committed");
-          if (cancelled) throw rpcFailure("Cancelled", "not_committed");
-        }
+        pending = (synchronous ? synchronousHost : host)(id, name, encoded);
+      } catch (error) {
+        error.code = error.message;
+        error.outcome ??= "not_committed";
+        throw error;
+      }
 
-        // Synchronous admission failures precede submission. RPC admission
-        // returns a private [promise, cancel] pair; other operations keep their
-        // existing promise shape. No cancellation authority crosses JSON.
-        try {
-          const key = budget === undefined ? undefined : budgetKeys.get(budget);
-          if (budget !== undefined && key === undefined) throw new ErrorClass("ContextMismatch");
-          const admitted = host(id, name, encoded, body, key);
-          if (name === "cell.call") [pending, cancel] = admitted;
-          else pending = admitted;
-          submitted = true;
-        } catch (error) {
-          error.code = error.message;
-          error.outcome = "not_committed";
-          throw error;
-        }
-        if (cancelled) cancel();
+      return synchronous
+        ? finish(name, pending)
+        : track(
+            id,
+            pending.then((reply) => finish(name, reply)),
+          );
+    };
 
-        // Always await the original native acknowledgement. A local Promise
-        // race would release the waiter before mutation/byte admission settles.
-        const [metadata, replyBody] = await pending;
-        if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
-        const result = parse(metadata);
+    const finish = (name, reply) => {
+      const result = parse(reply);
 
-        if (!result.ok) {
-          throw rpcFailure(result.code, result.outcome);
-        }
+      if (!result.ok) {
+        const error = new ErrorClass(result.code);
+        error.code = result.code;
+        error.outcome = result.outcome;
+        throw error;
+      }
 
-        if (name === "cell.call") {
-          if (replyBody instanceof Uint8Array) return replyBody;
-          throw rpcFailure("InvalidResponse", "unknown");
-        }
-
-        // A result that cannot be represented safely may follow a committed write.
-        // Refusing it must not imply that the native mutation rolled back.
-        try {
-          return json(result.value);
-        } catch {
-          const read = [
-            "clock.now", "storage.read", "alarm.get", "var", "kv.get", "kv.list",
-            "websocket.next", "response.read",
-          ].includes(name);
-          throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
-        }
-      } finally {
-        try { unsubscribe?.(); }
-        catch { throw rpcFailure("InvalidArgument", submitted ? "unknown" : "not_committed"); }
+      // A result that cannot be represented safely may follow a committed write.
+      // Refusing that result must not imply that the native mutation rolled back.
+      try {
+        return json(result.value);
+      } catch {
+        const read = [
+          "clock.now",
+          "workers.crypto.random",
+          "workers.crypto.uuid",
+          "workers.identity",
+          "workers.namespace",
+          "workers.http.limits",
+          "workers.variable",
+          "workers.container.running",
+          "workers.container.admit",
+          "workers.container.discard",
+          "workers.callback.begin",
+          "workers.sql.size",
+          "workers.kv.get",
+          "workers.kv.list",
+          "storage.read",
+          "alarm.get",
+          "var",
+          "kv.get",
+          "kv.list",
+          "container.capabilities",
+          "container.running",
+          "container.monitor",
+          "container.exec.read_stdout",
+          "container.exec.read_stderr",
+          "container.exec.wait",
+          "container.socket.read",
+          "container.response.read",
+          "container.response.cancel",
+          "container.websocket.receive",
+          "websocket.next",
+          "response.read",
+          "response.cancel",
+          "response.closed",
+        ].includes(name);
+        const error = new ErrorClass(read ? "HostError" : "Ambiguous");
+        error.code = error.message;
+        error.outcome = "unknown";
+        throw error;
       }
     };
 
+    const call = (name, value = {}, body, signal, budget, soft = false) =>
+      (soft ? resolve : (promise) => track(id, promise))(
+        (async () => {
+          let encoded, pending;
+
+          try {
+            encoded = stringify(json(value));
+          } catch {
+            const error = new ErrorClass("ValidationError");
+            error.code = "ValidationError";
+            error.outcome = "not_committed";
+            throw error;
+          }
+
+          let unsubscribe, cancel;
+          let submitted = false,
+            cancelled = false,
+            invalidSignal = false;
+          // Subscribe before admission. The native cancellation capability belongs
+          // only to this operation; its signal may fire in another JS continuation.
+          try {
+            if (signal !== undefined) {
+              const onAbort = () => {
+                let aborted = true;
+                try {
+                  aborted = signal.aborted;
+                  if (typeof aborted !== "boolean") throw new TypeError();
+                } catch {
+                  invalidSignal = true;
+                }
+                if (aborted || invalidSignal) {
+                  cancelled = true;
+                  cancel?.();
+                }
+              };
+              try {
+                unsubscribe = subscribe(signal, onAbort);
+                onAbort();
+              } catch {
+                throw rpcFailure("InvalidArgument", "not_committed");
+              }
+              if (invalidSignal)
+                throw rpcFailure("InvalidArgument", "not_committed");
+              if (cancelled) throw rpcFailure("Cancelled", "not_committed");
+            }
+
+            // Synchronous admission failures precede submission. Qualified
+            // cancellable operations return a private [promise, cancel] pair;
+            // no cancellation authority crosses JSON.
+            try {
+              const key =
+                budget === undefined ? undefined : budgetKeys.get(budget);
+              if (budget !== undefined && key === undefined)
+                throw new ErrorClass("ContextMismatch");
+              const admitted = host(id, name, encoded, body, key);
+              if (
+                [
+                  "cell.call",
+                  "workers.rpc.invoke",
+                  "response.read",
+                  "response.closed",
+                  "container.port.fetch",
+                  "container.port.fetch_stream",
+                  "container.response.read",
+                  "container.port.connect_websocket",
+                  "container.websocket.receive",
+                  "workers.fetch",
+                  "workers.fetch_stream",
+                  "workers.container.fetch",
+                  "workers.container.fetch_stream",
+                ].includes(name)
+              )
+                [pending, cancel] = admitted;
+              else pending = admitted;
+              submitted = true;
+            } catch (error) {
+              error.code = error.message;
+              error.outcome = "not_committed";
+              throw error;
+            }
+            if (cancelled) cancel();
+
+            // Always await the original native acknowledgement. A local Promise
+            // race would release the waiter before mutation/byte admission settles.
+            const [metadata, replyBody] = await pending;
+            if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
+            const result = parse(metadata);
+
+            if (!result.ok) {
+              throw rpcFailure(result.code, result.outcome);
+            }
+
+            if (name === "cell.call") {
+              if (replyBody instanceof Uint8Array) return replyBody;
+              throw rpcFailure("InvalidResponse", "unknown");
+            }
+
+            // A result that cannot be represented safely may follow a committed write.
+            // Refusing it must not imply that the native mutation rolled back.
+            try {
+              return json(result.value);
+            } catch {
+              const read = [
+                "clock.now",
+                "workers.crypto.random",
+                "workers.crypto.uuid",
+                "workers.identity",
+                "workers.namespace",
+                "workers.http.limits",
+                "workers.variable",
+                "workers.container.running",
+                "workers.container.admit",
+                "workers.container.discard",
+                "workers.callback.begin",
+                "workers.sql.size",
+                "workers.kv.get",
+                "workers.kv.list",
+                "storage.read",
+                "alarm.get",
+                "var",
+                "kv.get",
+                "kv.list",
+                "container.capabilities",
+                "container.running",
+                "container.monitor",
+                "container.exec.read_stdout",
+                "container.exec.read_stderr",
+                "container.exec.wait",
+                "container.socket.read",
+                "container.response.read",
+                "container.response.cancel",
+                "container.websocket.receive",
+                "websocket.next",
+                "response.read",
+                "response.cancel",
+                "response.closed",
+              ].includes(name);
+              throw rpcFailure(read ? "HostError" : "Ambiguous", "unknown");
+            }
+          } finally {
+            try {
+              unsubscribe?.();
+            } catch {
+              throw rpcFailure(
+                "InvalidArgument",
+                submitted ? "unknown" : "not_committed",
+              );
+            }
+          }
+        })(),
+      );
+
+    const synchronous = (name, value = {}) => invoke(name, value, true);
+
+    const resource = (kind, resourceId) => {
+      const operation = (method, args = {}) =>
+        call(`container.${kind}.${method}`, { ...args, id: resourceId });
+      const common = {
+        release: () => call("container.release", { id: resourceId }),
+      };
+      return freeze(
+        kind === "exec"
+          ? {
+              ...common,
+              readStdout: async () => decode(await operation("read_stdout")),
+              readStderr: async () => decode(await operation("read_stderr")),
+              write: (bytes) => operation("write", { data: encode(bytes) }),
+              closeStdin: () => operation("close_stdin"),
+              wait: () => operation("wait"),
+              kill: (signal = 9) => operation("kill", { signal }),
+            }
+          : kind === "websocket"
+            ? {
+                ...common,
+                receive: async () => {
+                  const event = await operation("receive");
+                  return freeze(
+                    event.type === "binary"
+                      ? { ...event, data: decode(event.data) }
+                      : event,
+                  );
+                },
+                sendText: (text) => operation("send_text", { text }),
+                sendBinary: (bytes) =>
+                  operation("send_binary", { data: encode(bytes) }),
+                close: (code = 1000, reason = "") =>
+                  operation("close", { code, reason }),
+              }
+            : {
+                ...common,
+                read: async () => decode(await operation("read")),
+                write: (bytes) => operation("write", { data: encode(bytes) }),
+                closeWrite: () => operation("close_write"),
+                close: () => operation("close"),
+              },
+      );
+    };
+
+    const container = freeze({
+      capabilities: async () => {
+        const value = await call("container.capabilities");
+        return freeze({ ...value, operations: freeze(value.operations) });
+      },
+      running: () => call("container.running"),
+      start: (options = {}) => call("container.start", { options }),
+      monitor: () => call("container.monitor"),
+      destroy: () => call("container.destroy"),
+      signal: (signal) => call("container.signal", { signal }),
+      setInactivityTimeout: (timeout_ms) =>
+        call("container.set_inactivity_timeout", { timeout_ms }),
+      exec: async (options) =>
+        resource("exec", await call("container.exec", { options })),
+      execOutput: async (options, max_bytes = 1048576) => {
+        const output = await call("container.exec_output", {
+          options,
+          max_bytes,
+        });
+        return freeze({
+          ...output,
+          stdout: decode(output.stdout),
+          stderr: decode(output.stderr),
+        });
+      },
+      readFile: async (path, max_bytes = 1048576) =>
+        decode(await call("container.file.read", { path, max_bytes })),
+      writeFile: (path, data, { mode = 0o644 } = {}) => {
+        if (!(data instanceof Uint8Array)) {
+          throw new TypeError("Container file data must be Uint8Array");
+        }
+        return call("container.file.write", { path, data: encode(data), mode });
+      },
+      statFile: async (path) =>
+        freeze(await call("container.file.stat", { path })),
+      listFiles: async (
+        path,
+        { max_bytes = 1048576, max_entries = 128 } = {},
+      ) =>
+        freeze(
+          (
+            await call("container.file.list", { path, max_bytes, max_entries })
+          ).map((value) => freeze(value)),
+        ),
+      port: (port) =>
+        freeze({
+          waitReady: (timeout_ms = 10000) =>
+            call("container.port.wait_ready", { port, timeout_ms }),
+          fetch: async (value, options = {}) =>
+            request(
+              await call(
+                "container.port.fetch",
+                { port, request: value },
+                undefined,
+                options.signal,
+              ),
+            ),
+          fetchStream: async (value, options = {}) => {
+            const result = await call(
+              "container.port.fetch_stream",
+              { port, request: value },
+              undefined,
+              options.signal,
+            );
+            const id = result.stream;
+            let ended = id === null;
+            const cancel = async () => {
+              if (ended) return;
+              ended = true;
+              await call("container.response.cancel", { id });
+            };
+            const read = async () => {
+              if (ended) return null;
+              try {
+                const chunk = await call(
+                  "container.response.read",
+                  { id },
+                  undefined,
+                  options.signal,
+                );
+                ended = chunk.done;
+                return chunk.done ? null : decode(chunk.body);
+              } catch (error) {
+                await cancel().catch(() => {});
+                throw error;
+              }
+            };
+            return freeze({
+              status: result.status,
+              headers: freeze(result.headers.map((pair) => freeze(pair))),
+              body: decode(result.body),
+              read,
+              async *chunks() {
+                try {
+                  if (result.body) yield decode(result.body);
+                  while (!ended) {
+                    const chunk = await read();
+                    if (chunk !== null) yield chunk;
+                  }
+                } finally {
+                  await cancel();
+                }
+              },
+              cancel,
+            });
+          },
+          connect: async () =>
+            resource("socket", await call("container.port.connect", { port })),
+          connectWebSocket: async (url, headers = []) => {
+            const result = await call("container.port.connect_websocket", {
+              port,
+              url,
+              headers,
+            });
+            return freeze(
+              result.upgraded
+                ? {
+                    upgraded: true,
+                    protocol: result.protocol,
+                    headers: freeze(result.headers.map((pair) => freeze(pair))),
+                    socket: resource("websocket", result.id),
+                  }
+                : { upgraded: false, response: request(result.response) },
+            );
+          },
+        }),
+    });
+
+    // These objects contain bridge calls, never native storage handles. Binding
+    // lookup and effect execution remain in the original Rust invocation.
     // Socket facades carry opaque IDs, never native handles. Each operation
     // resolves its authority through the current Rust invocation.
-    const socket = id =>
+    const socket = (id) =>
       freeze({
         id,
         accept: (options = {}) =>
@@ -294,7 +792,7 @@
             tags: [],
             ...options,
           }),
-        send: data =>
+        send: (data) =>
           call(
             "websocket.send",
             typeof data === "string"
@@ -316,7 +814,8 @@
                 },
           );
         },
-        setAttachment: value => call("websocket.attachment.set", { id, value }),
+        setAttachment: (value) =>
+          call("websocket.attachment.set", { id, value }),
         getAttachment: () => call("websocket.attachment.get", { id }),
         tags: () => call("websocket.tags", { id }),
         autoResponseTimestamp: () =>
@@ -326,7 +825,7 @@
 
     // Keep the native response capability intact so callers can either forward
     // it directly or pull chunks without buffering the complete response.
-    const liveResponse = result => {
+    const liveResponse = (result) => {
       const id = result.forward;
 
       return freeze({
@@ -361,21 +860,31 @@
       [rpcKey]: freeze({
         check: () => host(id, "$check", "{}"),
         budget: () => {
-          const wrap = control => {
-            const budget = freeze({__proto__:null, remaining:control[1], limit:control[2], release:control[3]});
+          const wrap = (control) => {
+            const budget = freeze({
+              __proto__: null,
+              remaining: control[1],
+              limit: control[2],
+              release: control[3],
+            });
             budgetKeys.set(budget, control[0]);
             return budget;
           };
           const control = host(id, "$rpc_budget", "{}");
-          return typeof control?.then === "function" ? control.then(wrap) : wrap(control);
+          return typeof control?.then === "function"
+            ? control.then(wrap)
+            : wrap(control);
         },
-        verify: method => {
+        verify: (method) => {
           try {
             const contract = contracts[method.digest];
             method.verify(contract);
-            return freeze({maxMessageBytes:contract.limits.max_message_bytes,
-              maxDepth:contract.limits.max_depth, maxElements:contract.limits.max_elements,
-              maxDecodedSlots:contract.limits.max_decoded_slots});
+            return freeze({
+              maxMessageBytes: contract.limits.max_message_bytes,
+              maxDepth: contract.limits.max_depth,
+              maxElements: contract.limits.max_elements,
+              maxDecodedSlots: contract.limits.max_decoded_slots,
+            });
           } catch {
             const error = new ErrorClass("ContractMismatch");
             error.code = "ContractMismatch";
@@ -383,11 +892,12 @@
             throw error;
           }
         },
-        call: (metadata, body, signal, budget) => call("cell.call", metadata, body, signal, budget),
+        call: (metadata, body, signal, budget) =>
+          call("cell.call", metadata, body, signal, budget),
       }),
-      fetchStream: async value =>
+      fetchStream: async (value) =>
         liveResponse(await call("http.fetch_stream", { request: value })),
-      acceptWebSocket: async response =>
+      acceptWebSocket: async (response) =>
         socket(
           (
             await call("websocket.from_response", {
@@ -396,8 +906,200 @@
           ).id,
         ),
       // Private hooks used by dispatch while retaining this invocation.
+      _crypto: crypto,
+      _current() {
+        const active = lifetimes.get(currentHost());
+        if (!active?.context)
+          throw rpcFailure("ContextExpired", "not_committed");
+        return active.context;
+      },
       _call: call,
-      _encode: data => encode(bytes(data)),
+      _rpcSoftCall(name, value, signal) {
+        if (name !== "workers.rpc.invoke")
+          throw new TypeError("Invalid RPC session operation");
+        return call(name, value, undefined, signal, undefined, true);
+      },
+      _rpcCleanup(close) {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state || state.cleanups.size >= state.limit)
+          throw rpcFailure("OperationLimit", "not_committed");
+        state.cleanups.add(close);
+        return () => state.cleanups.delete(close);
+      },
+      _containerState(owner) {
+        const lifetime = lifetimes.get(id);
+        if (!lifetime) {
+          const error = new ErrorClass(
+            "Queued containers require Workers lifetimes",
+          );
+          error.code = "UnsupportedOperation";
+          error.outcome = "not_committed";
+          throw error;
+        }
+        // Activation getters may create a new context facade after interleaved
+        // events. Store queue ordering on the actual invocation lifetime rather
+        // than using a facade object's identity as the invocation identity.
+        const states = (lifetime.containerStates ??= new WeakMapClass());
+        let state = states.get(owner);
+        if (!state) {
+          state = { tail: undefined, failure: undefined };
+          states.set(owner, state);
+        }
+        return state;
+      },
+      _containerAdmit(operation, input) {
+        if (!lifetimes.has(id)) {
+          const error = new ErrorClass(
+            "Queued containers require Workers lifetimes",
+          );
+          error.code = "UnsupportedOperation";
+          error.outcome = "not_committed";
+          throw error;
+        }
+        return synchronous("workers.container.admit", { operation, input });
+      },
+      _revoked() {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+        return state.cancelled.then(() => {
+          throw rpcFailure("ContextExpired", "unknown");
+        });
+      },
+      _containerMonitor(make) {
+        if (
+          (activation === null ? currentHost() : currentHost(activation)) !== id
+        )
+          throw rpcFailure("ContextMismatch", "not_committed");
+        const state = lifetimes.get(id);
+        if (!state) throw rpcFailure("UnsupportedOperation", "not_committed");
+        if (state.reported + state.retained >= state.limit) {
+          const error = rpcFailure("OperationLimit", "not_committed");
+          error.name = "QuotaExceededError";
+          throw error;
+        }
+        state.retained++;
+        let pending;
+        try {
+          pending = resolve(make());
+        } catch (error) {
+          state.retained--;
+          throw error;
+        }
+        const release = () => {
+          state.retained--;
+        };
+        pending.then(release, release);
+        // The wrapper may await a destroy acknowledgement in another event
+        // after its native read completed. Retain that entire monitor promise.
+        return track(id, pending);
+      },
+      _waitUntil(promise) {
+        try {
+          if (
+            (activation === null ? currentHost() : currentHost(activation)) !==
+            id
+          )
+            throw new ErrorClass("ContextMismatch");
+        } catch (error) {
+          error.code = error.message;
+          error.outcome = "not_committed";
+          throw error;
+        }
+        if (!lifetimes.has(id))
+          throw new ErrorClass("Workers lifetimes are not enabled");
+        track(id, promise, true);
+      },
+      // Optional Workers state has activation lifetime. This getter deliberately
+      // grants no authority to a foreign cell, retired activation, cancelled
+      // event, or ambient code outside an admitted native continuation.
+      _activation: () => {
+        let cachedId, cached;
+        const current = () => {
+          let invocation;
+          try {
+            invocation = currentHost(activation);
+          } catch (error) {
+            error.code = error.message;
+            error.outcome = "not_committed";
+            throw error;
+          }
+          if (invocation !== cachedId) {
+            cachedId = invocation;
+            cached = context(invocation, identity, activation, contracts);
+          }
+          return cached;
+        };
+        current();
+        return current;
+      },
+      _sync: synchronous,
+      _callbackSync(callback) {
+        if (typeof callback !== "function")
+          throw new TypeError("Expected a callback");
+        const token = synchronous("workers.callback.start_sync", {});
+        let success = false;
+        try {
+          const result = scopedHost(id, token.id, callback, true);
+          success = true;
+          return result;
+        } finally {
+          synchronous("workers.callback.finish_sync", {
+            id: token.id,
+            success,
+          });
+        }
+      },
+      _callback(kind, callback) {
+        if (typeof callback !== "function")
+          throw new TypeError("Expected a callback");
+        return track(
+          id,
+          (async () => {
+            const token = await call("workers.callback.begin", { kind });
+            let result,
+              success = false;
+            try {
+              const current = () => {
+                if (currentHost(activation, token.id) !== id)
+                  throw new ErrorClass("ContextMismatch");
+                return context(id, identity, activation, contracts);
+              };
+              result = await scopedHost(id, token.id, () => callback(current));
+              success = true;
+            } finally {
+              await call("workers.callback.finish", { id: token.id, success });
+            }
+            return result;
+          })(),
+        );
+      },
+      _serialize: (value) => encode(encodeClone(value)),
+      _deserialize: (value) => decodeClone(decode(value)),
+      _rpcResult: (value, closed) =>
+        delegates.result(
+          value,
+          context(id, identity, activation, contracts),
+          closed,
+        ),
+      _rpcCall: (request, args) =>
+        delegates.call(
+          request,
+          args,
+          context(id, identity, activation, contracts),
+        ),
+      _rpcDecode: (reply) =>
+        delegates.reply(reply, context(id, identity, activation, contracts)),
+      _rpcRetain: retain,
+      _decode: decode,
+      _encode: (data) => encode(bytes(data)),
 
       websocket: socket,
       websocketPair: async () => socket((await call("websocket.pair")).id),
@@ -406,16 +1108,17 @@
       websockets: async (tag = null) =>
         (await call("websocket.list", { tag })).map(socket),
       getWebSocketAutoResponse: () => call("websocket.auto_response.get"),
-      setWebSocketAutoResponse: pair =>
+      setWebSocketAutoResponse: (pair) =>
         call("websocket.auto_response", { pair }),
 
       identity: identity && freeze(identity),
       now: () => call("clock.now"),
-      variable: name => call("var", { name }),
+      variable: (name) => call("var", { name }),
+      container,
 
       storage: freeze({
-        read: key => call("storage.read", { key }),
-        apply: batch => call("storage.apply", batch),
+        read: (key) => call("storage.read", { key }),
+        apply: (batch) => call("storage.apply", batch),
         sync: () => call("storage.sync"),
         sql: (sql, params = []) => call("storage.sql", { sql, params }),
         getAlarm: () => call("alarm.get"),
@@ -423,11 +1126,11 @@
 
       cell: (binding, name) =>
         freeze({
-          fetch: async value =>
+          fetch: async (value) =>
             request(
               await call("cell.fetch", { binding, name, request: value }),
             ),
-          fetchStream: async value =>
+          fetchStream: async (value) =>
             liveResponse(
               await call("cell.fetch_stream", {
                 binding,
@@ -437,29 +1140,29 @@
             ),
         }),
 
-      kv: binding =>
+      kv: (binding) =>
         freeze({
-          get: key => call("kv.get", { binding, key }),
+          get: (key) => call("kv.get", { binding, key }),
           put: (key, value, options = {}) =>
             call("kv.put", { binding, key, value, ...options }),
-          delete: key => call("kv.delete", { binding, key }),
+          delete: (key) => call("kv.delete", { binding, key }),
           list: (options = {}) =>
             call("kv.list", { binding, prefix: "", ...options }),
         }),
 
-      sql: binding =>
+      sql: (binding) =>
         freeze({
           query: (sql, params = []) =>
             call("sql.query", { binding, sql, params }),
         }),
 
-      queue: binding =>
+      queue: (binding) =>
         freeze({
           send: (body, options = {}) =>
             call("queue.send", { binding, body, ...options }),
         }),
 
-      settle: options => call("queue.settle", options),
+      settle: (options) => call("queue.settle", options),
       noRetry: () => call("cron.no_retry"),
     });
   }
@@ -467,9 +1170,9 @@
   // Validate only the explicitly declared handlers before signaling readiness.
   // Objects are cached by activation ID; retirement discards activation-local
   // JavaScript state without changing the cell's durable Rust-owned storage.
-  return (app, descriptor, maximum) => {
-    const declared = parse(descriptor),
-      objects = new MapClass(),
+  return (app, descriptor, maximum, lifetimeLimit) => {
+    const declared = parse(descriptor);
+    const objects = new MapClass(),
       rpc = new MapClass();
     const contracts = declared.rpc_contracts ?? {};
     // Keep trusted native schema data immutable when passing it to generated
@@ -506,19 +1209,30 @@
     }
     for (const [name, methods] of entries(services)) {
       const registration = app.rpc?.[name]?.methods;
-      if (!registration || Object.keys(registration).length !== Object.keys(methods).length) {
+      if (
+        !registration ||
+        Object.keys(registration).length !== Object.keys(methods).length
+      ) {
         throw new ErrorClass("RPC methods differ from native registration");
       }
       const table = new MapClass();
       for (const [wire, native] of entries(methods)) {
         const rule = registration[wire];
-        const handler = rule && own(app.cells[name].prototype, rule.handler)?.value;
-        if (!rule || rule.digest !== native.digest || rule.input !== native.input ||
-            rule.output !== native.output || typeof handler !== "function" ||
-            typeof rule.decode !== "function" || typeof rule.encode !== "function") {
+        const handler =
+          rule && own(app.cells[name].prototype, rule.handler)?.value;
+        if (
+          !rule ||
+          rule.digest !== native.digest ||
+          rule.input !== native.input ||
+          rule.output !== native.output ||
+          typeof handler !== "function" ||
+          typeof rule.decode !== "function" ||
+          typeof rule.encode !== "function"
+        ) {
           throw new ErrorClass("RPC contract differs from native registration");
         }
-        if (typeof rule.verify !== "function") throw new ErrorClass("Missing RPC codec verification");
+        if (typeof rule.verify !== "function")
+          throw new ErrorClass("Missing RPC codec verification");
         rule.verify(contracts[native.digest]);
         const limits = freeze({
           maxMessageBytes: native.limits.max_message_bytes,
@@ -526,116 +1240,230 @@
           maxElements: native.limits.max_elements,
           maxDecodedSlots: native.limits.max_decoded_slots,
         });
-        table.set(wire, freeze({handler, decode:rule.decode, encode:rule.encode, limits}));
+        table.set(
+          wire,
+          freeze({ handler, decode: rule.decode, encode: rule.encode, limits }),
+        );
       }
       rpc.set(name, table);
     }
 
-    return freeze({
-      failurePayload(error) {
-        if (typeof error === "string") {
-          for (const [, payload] of entries(rpcFailures)) if (payload === error) return payload;
-        }
-        return "null";
-      },
-      async dispatch(id, payload, body) {
-        const invocation = parse(payload);
-        const ctx = context(id, invocation.identity, contracts);
-        let rule, argument;
-        if (invocation.kind === "rpc") {
-          rule = rpc.get(invocation.class)?.get(invocation.event.method);
-          if (!rule || !(body instanceof Uint8Array)) throw new ErrorClass("InvalidRpcInvocation");
-          argument = rule.decode(body, rule.limits);
-        } else if (body !== undefined) {
-          throw new ErrorClass("UnexpectedAttachment");
-        }
-        let target = app;
+    async function dispatch(id, payload, body) {
+      const invocation = parse(payload);
+      const ctx = context(
+        id,
+        invocation.identity,
+        invocation.object,
+        contracts,
+      );
+      const lifetime = lifetimes.get(id);
+      if (lifetime) lifetime.context = ctx;
+      let rule, argument;
+      if (invocation.kind === "rpc") {
+        rule = rpc.get(invocation.class)?.get(invocation.event.method);
+        if (!rule || !(body instanceof Uint8Array))
+          throw new ErrorClass("InvalidRpcInvocation");
+        argument = rule.decode(body, rule.limits);
+      } else if (body !== undefined) {
+        throw new ErrorClass("UnexpectedAttachment");
+      }
 
-        if (invocation.object !== null) {
-          target = objects.get(invocation.object);
+      let target = app;
 
-          if (!target) {
-            if (objects.size >= maximum) {
-              throw new ErrorClass("ObjectLimit");
+      if (invocation.object !== null) {
+        target = objects.get(invocation.object);
+
+        if (!target) {
+          if (objects.size >= maximum) {
+            throw new ErrorClass("ObjectLimit");
+          }
+
+          target = new app.cells[invocation.class]();
+          objects.set(invocation.object, target);
+        }
+      }
+
+      if (rule) {
+        let result;
+        try {
+          result = await apply(rule.handler, target, [argument, ctx]);
+        } catch (error) {
+          throw handlerFailure(error);
+        }
+        try {
+          const encoded = rule.encode(result, rule.limits);
+          if (!(encoded instanceof Uint8Array))
+            throw new ErrorClass("InvalidResponse");
+          return encoded;
+        } catch {
+          // Missing response bytes become InvalidResponse/unknown in native
+          // code. Never forward codec text or a claimed rollback outcome.
+          return "null";
+        }
+      }
+
+      let event =
+        invocation.kind === "fetch"
+          ? request(invocation.event)
+          : json(invocation.event);
+
+      if (invocation.kind === "websocket_message") {
+        event = freeze({
+          ...event,
+          data: event.body === undefined ? event.text : decode(event.body),
+        });
+      }
+
+      if (invocation.kind === "cell_rpc") {
+        const args = ctx._deserialize(event.args);
+        if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
+        if (event.method === "__cellar_workers_rpc_inputs") {
+          return stringify(
+            await delegates.accept(args, ctx, (method, args) =>
+              target.cell_rpc(freeze({ method, args }), ctx),
+            ),
+          );
+        }
+        let value;
+        try {
+          value = await target.cell_rpc(
+            freeze({ method: event.method, args }),
+            ctx,
+          );
+        } catch (error) {
+          // Remote throws are successful native RPC responses. Preserve the
+          // thrown value and own data properties, without leaking its stack.
+          const properties = Object.create(null);
+          if (error instanceof ErrorClass) {
+            properties.name = error.name;
+            for (const [key, value] of entries(error)) {
+              if (key !== "stack") properties[key] = value;
             }
-
-            target = new app.cells[invocation.class]();
-            objects.set(invocation.object, target);
           }
-        }
-
-        if (rule) {
-          let result;
-          try { result = await apply(rule.handler, target, [argument, ctx]); }
-          catch (error) { throw handlerFailure(error); }
-          try {
-            const encoded = rule.encode(result, rule.limits);
-            if (!(encoded instanceof Uint8Array)) throw new ErrorClass("InvalidResponse");
-            return encoded;
-          } catch {
-            // Missing response bytes become InvalidResponse/unknown in native
-            // code. Never forward codec text or a claimed rollback outcome.
-            return "null";
-          }
-        }
-
-        let event =
-          invocation.kind === "fetch"
-            ? request(invocation.event)
-            : json(invocation.event);
-
-        if (invocation.kind === "websocket_message") {
-          event = freeze({
-            ...event,
-            data: event.body === undefined ? event.text : decode(event.body),
+          return stringify({
+            value: ctx._serialize([error, properties]),
+            error: true,
           });
         }
+        // Encoding can fail after the handler committed writes. Such a
+        // failure is a lost result, not a business exception from the method.
+        return stringify(await ctx._rpcResult(value));
+      }
 
-        let result = await target[invocation.kind](event, ctx);
+      let result = await target[invocation.kind](event, ctx);
 
-        // Forward the native capability without consuming its body or upgrade.
-        if (invocation.kind === "fetch" && result?.forward !== undefined) {
-          return stringify({ forward: result.forward });
-        }
+      // Forward the native capability without consuming its body or upgrade.
+      if (invocation.kind === "fetch" && result?.forward !== undefined) {
+        return stringify({ forward: result.forward });
+      }
 
-        if (invocation.kind === "fetch" && result?.chunks !== undefined) {
-          // Publish headers before pulling the producer. Each awaited write
-          // preserves native backpressure and keeps invocation authority alive.
+      if (invocation.kind === "fetch" && result?.chunks !== undefined) {
+        // Publish headers before pulling the producer. Each awaited write
+        // preserves native backpressure and keeps invocation authority alive.
+        try {
           await ctx._call("response.start", {
             status: result.status,
             headers: result.headers,
             body: "",
           });
-
           for await (const chunk of result.chunks) {
             await ctx._call("response.write", { body: ctx._encode(chunk) });
           }
-
-          result = { streamed: true };
-        } else if (
-          invocation.kind === "fetch" &&
-          result?.websocket !== undefined
-        ) {
-          const response = {
-            websocket: result.websocket,
-            headers: result.headers ?? [],
-          };
-
-          if (result.run) {
-            // Workers consume events in this retained invocation. Hibernating
-            // cells omit run and receive separate native WebSocket callbacks.
-            await ctx._call("response.upgrade", response);
-            await result.run(ctx.websocket(result.websocket), ctx);
-            result = { streamed: true };
-          } else {
-            result = response;
-          }
+          await ctx._call("response.finish");
+        } finally {
+          // A failed head must release a web reader even before iteration starts.
+          if (typeof result.cancel === "function") await result.cancel();
         }
+        result = { streamed: true };
+      } else if (
+        invocation.kind === "fetch" &&
+        result?.websocket !== undefined
+      ) {
+        const response = {
+          websocket: result.websocket,
+          headers: result.headers ?? [],
+        };
 
-        // Non-HTTP handlers complete without an application return value.
-        return stringify(json(invocation.kind === "fetch" ? result : null));
+        if (result.run) {
+          // Workers consume events in this retained invocation. Hibernating
+          // cells omit run and receive separate native WebSocket callbacks.
+          await ctx._call("response.upgrade", response);
+          await result.run(ctx.websocket(result.websocket), ctx);
+          result = { streamed: true };
+        } else {
+          result = response;
+        }
+      }
+
+      // Non-HTTP handlers complete without an application return value.
+      return stringify(json(invocation.kind === "fetch" ? result : null));
+    }
+
+    return freeze({
+      failurePayload(error) {
+        if (typeof error === "string") {
+          for (const [, payload] of entries(rpcFailures))
+            if (payload === error) return payload;
+        }
+        return "null";
       },
-
+      async dispatch(id, payload, body) {
+        if (!declared.workers_lifetimes || parse(payload).kind === "rpc")
+          return dispatch(id, payload, body);
+        let cancel;
+        const cancelled = new PromiseClass((done) => {
+          cancel = done;
+        });
+        const state = {
+          jobs: new SetClass(),
+          cleanups: new SetClass(),
+          reported: 0,
+          retained: 0,
+          limit: lifetimeLimit,
+          failed: false,
+          cancel,
+          cancelled,
+        };
+        lifetimes.set(id, state);
+        let encoded = "null",
+          failed = false;
+        try {
+          encoded = await dispatch(id, payload, body);
+        } catch {
+          failed = true;
+        }
+        const publish = (value) =>
+          context(id, null, null)._call("workers.lifetime.response", value);
+        try {
+          await publish({ value: encoded, failed });
+        } catch {
+          failed = true;
+          // A refused oversized result must not abandon accepted background
+          // work. A compact error can use publication capacity if the first
+          // attempt was refused before admission. Both hosts admit it once.
+          try {
+            await publish({ value: "null", failed: true });
+          } catch {}
+        }
+        await drain(id);
+        if (failed || state.failed)
+          throw new ErrorClass("Workers event/background work failed");
+        // The backend owns final cleanup after a full microtask checkpoint.
+        // Derived continuations may register more SDK work after this resolves.
+        return "null";
+      },
+      drain,
+      background(id) {
+        const state = lifetimes.get(id);
+        return !state ? 1 : state.jobs.size ? 0 : state.failed ? 2 : 1;
+      },
+      cancel(id) {
+        const state = lifetimes.get(id);
+        if (state) {
+          lifetimes.delete(id);
+          state.cancel();
+        }
+      },
       retire(id) {
         objects.delete(id);
       },

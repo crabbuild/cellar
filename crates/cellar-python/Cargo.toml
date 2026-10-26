@@ -50,20 +50,31 @@ pyo3-build-config = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+cellar-container.workspace = true
+tar.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+bytes.workspace = true
+url.workspace = true
 fastwebsockets.workspace = true
 async-trait.workspace = true
-bytes.workspace = true
 object_store.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 rusqlite.workspace = true
 tempfile.workspace = true
 tikv-jemallocator.workspace = true
 tracing-subscriber.workspace = true
-url.workspace = true
 
 [[test]]
 name = "typed_rpc"
 path = "tests/typed_rpc.rs"
+harness = false
+required-features = ["embed"]
+
+[[test]]
+name = "e2b"
+path = "tests/e2b.rs"
 harness = false
 required-features = ["embed"]
 
@@ -104,6 +115,12 @@ required-features = ["embed"]
 [[bin]]
 name = "cellar-streaming-python"
 path = "../../examples/streaming/python.rs"
+required-features = ["embed"]
+
+[[test]]
+name = "vercel"
+path = "tests/vercel.rs"
+harness = false
 required-features = ["embed"]
 
 [[bin]]

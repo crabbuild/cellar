@@ -35,6 +35,7 @@ struct Signals {
     factories: AtomicUsize,
     old_storage: Mutex<Option<Storage>>,
     old_context: Mutex<Option<Context>>,
+    old_callback: Mutex<Option<cellar::application::CallbackScope>>,
     initialized: AtomicBool,
     child_dropped: AtomicBool,
     invocations: AtomicUsize,
@@ -88,6 +89,56 @@ impl Cell for Counter {
                 return Err(anyhow!("expected fetch"));
             };
             match url::Url::parse(&request.url)?.path() {
+                "/callback-scope" => {
+                    assert!(context.callback_scope().is_err());
+                    let (ready, receive) = tokio::sync::oneshot::channel();
+                    let (finish, receive_finish) = tokio::sync::oneshot::channel();
+                    let work = context.block_concurrency_while(move |context| async move {
+                        let _ = ready.send(context.callback_scope()?);
+                        receive_finish.await?;
+                        Ok(())
+                    });
+                    let scope = receive.await?;
+                    scope.run_sync(&context, || {
+                        context.storage()?.put_json("scoped-inline", &true.into())?;
+                        assert!(context.callback_scope().is_ok());
+                        Ok(())
+                    })?;
+                    let callback_context = context.clone();
+                    scope
+                        .run(&context, async move {
+                            callback_context
+                                .storage()?
+                                .put_json("scoped", &true.into())?;
+                            callback_context
+                                .block_concurrency_while(|context| async move {
+                                    assert!(context.callback_scope().is_ok());
+                                    context.storage()?.put_json("scoped-child", &true.into())?;
+                                    Ok(())
+                                })
+                                .await?;
+                            Ok(())
+                        })
+                        .await?;
+                    let _ = finish.send(());
+                    work.await?;
+                    assert!(scope.run(&context, async { Ok(()) }).await.is_err());
+                    assert!(scope.run_sync(&context, || Ok(())).is_err());
+                    *self.signals.old_callback.lock().unwrap() = Some(scope);
+                    Ok(response("callback scope checked"))
+                }
+                "/callback-stale" => {
+                    assert!(self
+                        .signals
+                        .old_callback
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .check(&context)
+                        .is_err());
+                    Ok(response("callback stale refused"))
+                }
                 "/read" => {
                     assert!(self.signals.initialized.load(Ordering::Acquire));
                     Ok(response(
@@ -376,6 +427,14 @@ async fn run() -> Result<()> {
     assert_waiting(&mut initializing).await;
     signals.release.notify_one();
     assert_eq!(initializing.await??.body, b"1");
+    assert_eq!(
+        fetch(&runtime, "/callback-scope").await?.body,
+        b"callback scope checked"
+    );
+    assert_eq!(
+        fetch(&runtime, "/callback-stale").await?.body,
+        b"callback stale refused"
+    );
     assert_eq!(
         runtime
             .fetch_worker("http://worker/".into(), "GET".into(), vec![], vec![])

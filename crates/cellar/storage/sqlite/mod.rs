@@ -22,6 +22,7 @@ mod command;
 pub(crate) use command::CommandDatabase;
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
+pub(crate) mod container_bindings;
 mod event_schema;
 #[cfg(test)]
 mod identity_tests;
@@ -405,6 +406,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox::check_schema(c)?;
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
+    container_bindings::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema")?;
     event_schema::stream_state(c)?;
     event_schema::check_version(c, "__sys_event_catalog_schema")?;
@@ -445,6 +447,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
         outbox::restore_schema(c)?;
         outbox_control::restore_schema(c)?;
         inbox::restore_schema(c)?;
+        container_bindings::restore_schema(c)?;
         transaction.commit()?;
         Ok(())
     })();
@@ -4316,6 +4319,7 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
                     if table == "__sys_event_source"
                         || table.starts_with("__sys_outbox")
                         || table.starts_with("__sys_inbox")
+                        || table.starts_with("__sys_container_bind")
                         || table.starts_with("__sys_stream")
                         || table.starts_with("__sys_event_catalog")
                     {

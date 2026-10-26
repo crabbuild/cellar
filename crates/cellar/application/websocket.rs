@@ -21,6 +21,13 @@ pub struct WebSocketPair {
 
 pub struct Upgrade(WebSocket);
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutboundAuthority {
+    Network,
+    Container,
+    ContainerEvent,
+}
+
 /// An outbound HTTP upgrade preserves a server's ordinary declined response.
 pub enum UpgradeResponse {
     Upgraded(WebSocket),
@@ -55,6 +62,7 @@ pub(crate) struct SocketState {
     closing: bool,
     connecting: bool,
     protocol: String,
+    upgrade_headers: Option<Vec<(String, String)>>,
     url: Option<String>,
     polled: bool,
     pull: Option<ws::WsPullQueue>,
@@ -123,6 +131,12 @@ impl WebSocket {
 
     pub fn protocol(&self) -> String {
         self.state.lock().unwrap().protocol.clone()
+    }
+
+    /// Response headers from a network upgrade. Locally bound and tunneled
+    /// sockets return None when their opening did not carry that metadata.
+    pub fn upgrade_headers(&self) -> Option<Vec<(String, String)>> {
+        self.state.lock().unwrap().upgrade_headers.clone()
     }
 
     pub fn url(&self) -> Option<String> {
@@ -259,7 +273,8 @@ impl WebSocket {
     pub fn close(&self, context: &Context, code: u16, reason: impl Into<String>) -> Result<()> {
         self.owner.check(context)?;
         anyhow::ensure!(
-            code == 1000 || (3000..=4999).contains(&code),
+            (1000..=1014).contains(&code) && ![1004, 1005, 1006].contains(&code)
+                || (3000..=4999).contains(&code),
             "WebSocket close code {code} is not permitted"
         );
         let reason = reason.into();
@@ -503,7 +518,13 @@ impl Context {
         headers: Vec<(String, String)>,
         want_response: bool,
     ) -> HandlerFuture<UpgradeResponse> {
-        self.open_websocket_with_authority(url, protocols, headers, want_response, false)
+        self.open_websocket_with_authority(
+            url,
+            protocols,
+            headers,
+            want_response,
+            OutboundAuthority::Network,
+        )
     }
 
     pub(super) fn container_websocket(
@@ -517,7 +538,33 @@ impl Context {
                 .unwrap_or_default(),
             Err(error) => return Box::pin(async move { Err(error.into()) }),
         };
-        self.open_websocket_with_authority(url, protocols, headers.entries().collect(), true, true)
+        self.open_websocket_with_authority(
+            url,
+            protocols,
+            headers.entries().collect(),
+            true,
+            OutboundAuthority::Container,
+        )
+    }
+
+    pub(super) fn container_websocket_polled(
+        &self,
+        url: String,
+        headers: cellar_native::web::Headers,
+    ) -> HandlerFuture<UpgradeResponse> {
+        let protocols = match headers.get("sec-websocket-protocol") {
+            Ok(value) => value
+                .map(|value| value.split(',').map(|p| p.trim().into()).collect())
+                .unwrap_or_default(),
+            Err(error) => return Box::pin(async move { Err(error.into()) }),
+        };
+        self.open_websocket_with_authority(
+            url,
+            protocols,
+            headers.entries().collect(),
+            true,
+            OutboundAuthority::ContainerEvent,
+        )
     }
 
     fn open_websocket_with_authority(
@@ -526,11 +573,12 @@ impl Context {
         protocols: Vec<String>,
         headers: Vec<(String, String)>,
         want_response: bool,
-        container: bool,
+        authority: OutboundAuthority,
     ) -> HandlerFuture<UpgradeResponse> {
+        let polled = authority == OutboundAuthority::ContainerEvent;
         let prepared = (|| -> Result<_> {
             self.check_turn()?;
-            if !container {
+            if authority == OutboundAuthority::Network {
                 match self.worker_config.egress {
                     EgressPolicy::Deny => anyhow::bail!(
                         "This worker is not permitted to access the internet via global functions."
@@ -569,11 +617,14 @@ impl Context {
                 );
             }
             let id = ws::ws_next_id();
-            let scope = self
-                .identity
-                .as_ref()
-                .map(|identity| identity.scope.clone())
-                .unwrap_or_default();
+            let scope = if polled {
+                String::new()
+            } else {
+                self.identity
+                    .as_ref()
+                    .map(|identity| identity.scope.clone())
+                    .unwrap_or_default()
+            };
             let opening = host::connect(
                 self.io.clone(),
                 id,
@@ -585,15 +636,22 @@ impl Context {
             )?;
             let socket = WebSocket {
                 id,
-                owner: Owner::new(self),
+                owner: if polled {
+                    Owner::Event(Arc::downgrade(&self.state))
+                } else {
+                    Owner::new(self)
+                },
                 state: Arc::new(Mutex::new(SocketState {
                     accepted: true,
                     connecting: true,
+                    polled,
                     url: (!want_response).then_some(url),
                     ..SocketState::default()
                 })),
             };
-            socket.cache(self);
+            if !polled {
+                socket.cache(self);
+            }
             Ok((socket, opening))
         })();
         let (socket, opening) = match prepared {
@@ -626,6 +684,7 @@ impl Context {
                 let mut state = socket.state.lock().unwrap();
                 state.connecting = false;
                 state.protocol = open.protocol.unwrap_or_default();
+                state.upgrade_headers = open.headers;
             }
             guard.completed = true;
             Ok(UpgradeResponse::Upgraded(socket))

@@ -241,10 +241,7 @@ pub(crate) async fn invoke(
         .scope
         .clone();
     authority.validate_target(&scope, &method)?;
-    let bytes = match &args {
-        crate::engine_api::RpcData::Json(s) => s.len(),
-        crate::engine_api::RpcData::Structured(b) => b.len(),
-    };
+    let bytes = args.payload_bytes();
     ensure!(
         bytes <= MAX_RPC_BYTES,
         "inventory RPC arguments exceed bounds"

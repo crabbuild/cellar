@@ -7,7 +7,7 @@
 mod tests;
 
 use crate::runtime::{Event, Life, Runtime, Start};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{
     queue,
     rpc::{Catalog, Contract, Prepared},
@@ -32,6 +32,9 @@ use std::{
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Fetch,
+    /// Native cell RPC, with structured arguments and results.
+    #[serde(rename = "cell_rpc")]
+    CellRpc,
     Alarm,
     Queue,
     Scheduled,
@@ -47,6 +50,7 @@ impl EventKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Fetch => "fetch",
+            Self::CellRpc => "cell_rpc",
             Self::Alarm => "alarm",
             Self::Queue => "queue",
             Self::Scheduled => "scheduled",
@@ -63,6 +67,8 @@ impl EventKind {
 /// `Source::module` describes registrations for an external Node module.
 #[derive(Clone)]
 pub struct Source {
+    pub(crate) workers_lifetimes: bool,
+    containers: cellar_guest::containers::Adapter,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
@@ -82,6 +88,8 @@ impl Source {
     /// `code` must define `CellarApp`, as emitted by the Cellar npm build tool.
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            workers_lifetimes: false,
+            containers: Default::default(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
@@ -139,8 +147,26 @@ impl Source {
         self
     }
 
+    /// Select a trusted container/sandbox backend before starting the runtime.
+    /// Omission uses Cellar's native Docker/Podman provider.
+    pub fn container_provider(
+        mut self,
+        provider: Arc<dyn cellar_guest::containers::Provider>,
+    ) -> Self {
+        self.containers = cellar_guest::containers::Adapter::new(provider);
+        self
+    }
+
+    /// Enable native-owned Workers event/background lifetimes. This selects
+    /// lifetime semantics only, not a complete Workers API compatibility profile.
+    pub fn workers_lifetimes(mut self) -> Self {
+        self.workers_lifetimes = true;
+        self
+    }
+
     pub(crate) fn descriptor(&self) -> Value {
         let mut descriptor = json!({
+            "workers_lifetimes": self.workers_lifetimes,
             "events": self.events,
             "cells": self.cell_events
         });
@@ -199,6 +225,7 @@ impl Source {
 pub struct JavaScriptApplication {
     pub(crate) runtime: Arc<Runtime>,
     source: Arc<Source>,
+    rpc_sessions: Arc<crate::rpc_sessions::Registry>,
 }
 
 impl JavaScriptApplication {
@@ -206,6 +233,7 @@ impl JavaScriptApplication {
         Self {
             runtime,
             source: Arc::new(source),
+            rpc_sessions: Default::default(),
         }
     }
 
@@ -234,16 +262,57 @@ impl JavaScriptApplication {
         cell: Option<(u64, String, Life)>,
         mut state: State,
     ) -> Result<Output> {
+        if matches!(&event, Invocation::CellRpc { method, .. } if method == crate::rpc_sessions::METHOD)
+        {
+            let Invocation::CellRpc { args, .. } = event else {
+                anyhow::bail!("invalid delegate event")
+            };
+            ensure!(
+                self.source.workers_lifetimes,
+                "Workers result sessions are not enabled"
+            );
+            let object = cell
+                .as_ref()
+                .map(|cell| cell.0)
+                .context("delegate requires an activation")?;
+            ensure!(
+                self.source
+                    .supports(cell.as_ref().map(|cell| cell.1.as_str()), "cell_rpc"),
+                "delegate requires a declared cell RPC handler"
+            );
+            return self
+                .rpc_sessions
+                .dispatch(&context, object, args, &self.runtime)
+                .await
+                .map(Output::Rpc);
+        }
+        let retained = self.source.workers_lifetimes
+            && !matches!(&event, Invocation::CellRpc { .. }
+            if context.identity().is_some_and(|identity| self.source.rpc.classes().any(|class| class == identity.class)));
+        state.workers_lifetimes = retained;
         if matches!(event, Invocation::Fetch(_)) && state.queue.is_none() {
             let app = self.clone();
             let producer = context.clone();
-            return cellar_guest::transport::serve(&context, move |session| async move {
+            let make = move |session| async move {
                 state.transport = session;
-                app.run_inner(producer, event, cell, state).await
+                app.run_inner(producer, event, cell, state, None).await
+            };
+            return if retained {
+                cellar_guest::transport::serve_retained(&context, make).await
+            } else {
+                cellar_guest::transport::serve(&context, make).await
+            };
+        }
+        if retained {
+            let app = self.clone();
+            let producer = context.clone();
+            return crate::lifetime::serve(&context, move |reply| async move {
+                app.run_inner(producer, event, cell, state, Some(reply))
+                    .await
             })
             .await;
         }
-        self.run_inner(context, event, cell, state).await
+        self.run_inner(context, event, cell, state, None).await
     }
 
     async fn run_inner(
@@ -252,7 +321,12 @@ impl JavaScriptApplication {
         event: Invocation,
         cell: Option<(u64, String, Life)>,
         state: State,
+        reply: Option<crate::lifetime::Reply>,
     ) -> Result<Output> {
+        let mut state = state;
+        state.containers = self.source.containers.session();
+        let state = Arc::new(state);
+        let callbacks = Arc::new(crate::callbacks::Callbacks::default());
         let _permit = self
             .runtime
             .permits
@@ -279,6 +353,24 @@ impl JavaScriptApplication {
             )
         } else {
             match event {
+                Invocation::CellRpc { method, args }
+                    if context.identity().is_some_and(|identity| {
+                        !self
+                            .source
+                            .rpc
+                            .classes()
+                            .any(|class| class == identity.class)
+                    }) =>
+                {
+                    (
+                        "cell_rpc",
+                        cellar_guest::workers::rpc::request(
+                            method,
+                            args,
+                            self.runtime.options.max_body_bytes,
+                        )?,
+                    )
+                }
                 Invocation::CellRpc { method, args } => {
                     let identity = context
                         .identity()
@@ -336,6 +428,13 @@ impl JavaScriptApplication {
         let (object, class, owner) = cell
             .map(|(object, class, life)| (Some(object), Some(class), life))
             .unwrap_or((None, None, Arc::new(AtomicBool::new(true))));
+        let rpc_session = Arc::new(crate::rpc_sessions::Session::new(
+            self.rpc_sessions.clone(),
+            &context,
+            object,
+            owner.clone(),
+            self.runtime.options.clone(),
+        )?);
         ensure!(
             self.source.supports(class.as_deref(), kind),
             "undeclared JavaScript event {kind}"
@@ -369,11 +468,12 @@ impl JavaScriptApplication {
             body,
             sender,
             active: active.clone(),
-            owner,
+            owner: owner.clone(),
         })?;
 
         let mut stopped = self.runtime.stopped.subscribe();
         let mut pending = FuturesUnordered::new();
+        let mut published = false;
         loop {
             ensure!(!*stopped.borrow(), "JavaScript runtime stopped");
             // All futures stay inside this invocation and its original native
@@ -381,8 +481,8 @@ impl JavaScriptApplication {
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("JavaScript runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded) = result.expect("nonempty native operation set");
-                    self.runtime.reply_parts(invocation, id, encoded?)?;
+                    let (id, encoded, synchronous) = result.expect("nonempty native operation set");
+                    self.runtime.respond_parts(invocation, id, encoded?, synchronous)?;
                     continue;
                 },
                 event = receive.recv() => event,
@@ -397,6 +497,84 @@ impl JavaScriptApplication {
                     id,
                     name,
                     payload,
+                    callback_scope,
+                    blocking,
+                    synchronous,
+                    body,
+                    signal: _,
+                    budget: _,
+                    _bytes,
+                } if name == "workers.lifetime.response" => {
+                    let result = (|| -> Result<Value> {
+                        ensure!(
+                            self.source.workers_lifetimes
+                                && kind != "rpc"
+                                && body.is_none()
+                                && !published
+                                && !blocking
+                                && callback_scope.is_none(),
+                            cellar_guest::failure::Validation
+                        );
+                        let input: Value = serde_json::from_str(&payload)
+                            .context(cellar_guest::failure::Validation)?;
+                        ensure!(
+                            input.as_object().is_some_and(|value| value.len() == 2),
+                            cellar_guest::failure::Validation
+                        );
+                        let encoded = input["value"]
+                            .as_str()
+                            .context(cellar_guest::failure::Validation)?;
+                        let value: Value = serde_json::from_str(encoded)
+                            .context(cellar_guest::failure::Validation)?;
+                        let failed = input["failed"]
+                            .as_bool()
+                            .context(cellar_guest::failure::Validation)?;
+                        let output = if failed {
+                            Err(anyhow::anyhow!("JavaScript handler failed"))
+                        } else {
+                            self.output(&context, kind, &state, &rpc_session, value)
+                        };
+                        rpc_session.discard_unpublished();
+                        if let Some(reply) = &reply {
+                            crate::lifetime::publish(reply, output);
+                        } else {
+                            state.transport.publish(output)?;
+                        }
+                        published = true;
+                        Ok(Value::Null)
+                    })();
+                    self.runtime.respond(
+                        invocation,
+                        id,
+                        cellar_guest::failure::result(
+                            &name,
+                            result,
+                            self.runtime.options.max_value_bytes,
+                        )?,
+                        synchronous,
+                    )?;
+                }
+                event if matches!(&event, Event::Operation { name, .. } if name == "workers.callback.start_sync") =>
+                {
+                    crate::callbacks::Pump {
+                        runtime: &self.runtime,
+                        context: &context,
+                        state: &state,
+                        callbacks: &callbacks,
+                        receive: &mut receive,
+                        active: &active,
+                        owner: &owner,
+                        invocation,
+                    }
+                    .serve(event)?;
+                }
+                Event::Operation {
+                    id,
+                    name,
+                    payload,
+                    callback_scope,
+                    blocking: _,
+                    synchronous,
                     body,
                     signal,
                     budget,
@@ -405,55 +583,136 @@ impl JavaScriptApplication {
                     if !active.load(Ordering::Acquire) {
                         continue;
                     }
-                    let context = &context;
-                    let state = &state;
+                    if callback_scope.is_some()
+                        && matches!(
+                            name.as_str(),
+                            "workers.container.admit" | "workers.container.perform"
+                        )
+                    {
+                        // A closed callback cannot own a queued effect; transaction
+                        // output proof also cannot precede the callback's commit.
+                        self.runtime.respond_parts(
+                            invocation,
+                            id,
+                            cellar_guest::failure::result_parts(
+                                &name,
+                                Err(anyhow::Error::new(cellar_guest::failure::Validation)),
+                                self.runtime.options.max_value_bytes,
+                            )?,
+                            synchronous,
+                        )?;
+                        continue;
+                    }
+                    let context = context.clone();
+                    let state = state.clone();
+                    let callbacks = callbacks.clone();
+                    let runtime = self.runtime.clone();
+                    let catalog = self.source.rpc.clone();
+                    let rpc_session = rpc_session.clone();
+                    let rpc_enabled = self.source.workers_lifetimes;
                     let mut operation = Box::pin(async move {
                         // The reservation is retained by the native future even
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
                         let result = match serde_json::from_str::<Value>(&payload) {
                             Ok(payload) => {
-                                async {
-                                    if name == "cell.call" {
-                                        use anyhow::Context as _;
-                                        let digest = payload
-                                            .get("contract_digest")
-                                            .and_then(Value::as_str)
-                                            .context("missing RPC contract digest")
-                                            .context(cellar_guest::failure::Validation)?;
-                                        let contract = self
-                                            .source
-                                            .rpc
-                                            .contract(digest)
-                                            .context("unregistered RPC contract")
-                                            .context(cellar_guest::failure::Validation)?;
-                                        let body = body
-                                            .context("RPC call requires a byte attachment")
-                                            .context(cellar_guest::failure::Validation)?;
-                                        let bytes = operations::call_bytes_in_budget(
-                                            context, contract, payload, body, signal, budget,
-                                        )
-                                        .await?;
-                                        return Ok((Value::Null, Some(bytes)));
+                                // A parent can be draining an unawaited child
+                                // after its JS callback returned. Completion is
+                                // owned by this invocation and the named child;
+                                // it must not borrow the already closed parent.
+                                let scope = if name == "workers.callback.finish" {
+                                    Ok(None)
+                                } else {
+                                    callback_scope
+                                        .map(|id| callbacks.scope(&context, id))
+                                        .transpose()
+                                };
+                                match scope {
+                                    Err(error) => Err(error),
+                                    Ok(scope) => {
+                                        let scoped_context = context.clone();
+                                        let operation_name = name.clone();
+                                        let options = runtime.options.clone();
+                                        let scope_id = id;
+                                        let future = async move {
+                                            if operation_name == "cell.call" {
+                                                let digest = payload
+                                                    .get("contract_digest")
+                                                    .and_then(Value::as_str)
+                                                    .context("missing RPC contract digest")
+                                                    .context(cellar_guest::failure::Validation)?;
+                                                let contract = catalog
+                                                    .contract(digest)
+                                                    .context("unregistered RPC contract")
+                                                    .context(cellar_guest::failure::Validation)?;
+                                                let bytes = body
+                                                    .context("RPC call requires a byte attachment")
+                                                    .context(cellar_guest::failure::Validation)?;
+                                                let result = operations::call_bytes_in_budget(
+                                                    &scoped_context,
+                                                    contract,
+                                                    payload,
+                                                    bytes,
+                                                    signal,
+                                                    budget,
+                                                )
+                                                .await?;
+                                                return Ok((Value::Null, Some(result)));
+                                            }
+                                            ensure!(
+                                                body.is_none(),
+                                                cellar_guest::failure::Validation
+                                            );
+                                            if rpc_enabled
+                                                && callback_scope.is_none()
+                                                && (operation_name == "workers.rpc"
+                                                    || operation_name.starts_with("workers.rpc."))
+                                            {
+                                                rpc_session
+                                                    .execute(
+                                                        &scoped_context,
+                                                        &operation_name,
+                                                        payload,
+                                                        signal,
+                                                    )
+                                                    .await
+                                                    .map(|value| (value, None))
+                                            } else if operation_name
+                                                .starts_with("workers.callback.")
+                                            {
+                                                callbacks
+                                                    .execute(
+                                                        &scoped_context,
+                                                        &operation_name,
+                                                        payload,
+                                                        scope_id,
+                                                        options.max_batch_operations,
+                                                    )
+                                                    .await
+                                                    .map(|value| (value, None))
+                                            } else {
+                                                operations::execute_with_signal(
+                                                    &scoped_context,
+                                                    &state,
+                                                    &operation_name,
+                                                    payload,
+                                                    &cellar_guest::Limits {
+                                                        max_body_bytes: options.max_body_bytes,
+                                                        max_batch_operations: options
+                                                            .max_batch_operations,
+                                                    },
+                                                    signal,
+                                                )
+                                                .await
+                                                .map(|value| (value, None))
+                                            }
+                                        };
+                                        match scope {
+                                            Some(scope) => scope.run(&context, future).await,
+                                            None => future.await,
+                                        }
                                     }
-                                    ensure!(body.is_none(), cellar_guest::failure::Validation);
-                                    operations::execute(
-                                        context,
-                                        state,
-                                        &name,
-                                        payload,
-                                        &cellar_guest::Limits {
-                                            max_body_bytes: self.runtime.options.max_body_bytes,
-                                            max_batch_operations: self
-                                                .runtime
-                                                .options
-                                                .max_batch_operations,
-                                        },
-                                    )
-                                    .await
-                                    .map(|value| (value, None))
                                 }
-                                .await
                             }
                             Err(error) => Err(anyhow::Error::from(error)
                                 .context(cellar_guest::failure::Validation)),
@@ -461,9 +720,9 @@ impl JavaScriptApplication {
                         let encoded = cellar_guest::failure::result_parts(
                             &name,
                             result,
-                            self.runtime.options.max_value_bytes,
+                            runtime.options.max_value_bytes,
                         );
-                        (id, encoded)
+                        (id, encoded, synchronous)
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -473,9 +732,9 @@ impl JavaScriptApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded)) => {
-                            self.runtime.reply_parts(invocation, id, encoded?)?
-                        }
+                        std::task::Poll::Ready((id, encoded, synchronous)) => self
+                            .runtime
+                            .respond_parts(invocation, id, encoded?, synchronous)?,
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
@@ -502,27 +761,47 @@ impl JavaScriptApplication {
                     let value: Value = serde_json::from_str(&payload).map_err(|_| {
                         anyhow::anyhow!("JavaScript handler completion decoding failed")
                     })?;
-                    return if kind == "fetch" {
-                        if let Some(output) = state
-                            .transport
-                            .output(&context, &value)
-                            .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
-                        {
-                            return Ok(output);
-                        }
-                        // Serde and HTTP conversion errors may quote malformed
-                        // application values. Native ingress formats the full
-                        // handler error chain, so replace it at this boundary.
-                        values::output(&context, &value, self.runtime.options.max_body_bytes)
-                            .map(Output::Http)
-                            .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
-                    } else {
+                    return if published {
                         Ok(Output::Done)
+                    } else {
+                        self.output(&context, kind, &state, &rpc_session, value)
                     };
                 }
             }
         }
         anyhow::bail!("JavaScript invocation channel closed before completion")
+    }
+
+    fn output(
+        &self,
+        context: &Context,
+        kind: &str,
+        state: &State,
+        rpc_session: &crate::rpc_sessions::Session,
+        value: Value,
+    ) -> Result<Output> {
+        if kind == "fetch" {
+            if let Some(output) = state
+                .transport
+                .output(context, &value)
+                .map_err(|_| anyhow::anyhow!("invalid guest transport response"))?
+            {
+                return Ok(output);
+            }
+            // Serde and HTTP conversion errors may quote malformed
+            // application values. Native ingress formats the full
+            // handler error chain, so replace it at this boundary.
+            values::output(context, &value, self.runtime.options.max_body_bytes)
+                .map(Output::Http)
+                .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
+        } else if kind == "cell_rpc" {
+            rpc_session
+                .output(value)
+                .map(Output::Rpc)
+                .map_err(|_| anyhow::anyhow!("JavaScript RPC response conversion failed"))
+        } else {
+            Ok(Output::Done)
+        }
     }
 }
 
@@ -578,6 +857,7 @@ impl Application for JavaScriptApplication {
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await?;
@@ -598,6 +878,7 @@ impl Application for JavaScriptApplication {
                     transport: Default::default(),
                     queue: None,
                     scheduled,
+                    ..Default::default()
                 },
             )
             .await
@@ -617,6 +898,7 @@ impl Application for JavaScriptApplication {
             application: Arc::new(Self {
                 runtime: self.runtime.clone(),
                 source: self.source.clone(),
+                rpc_sessions: self.rpc_sessions.clone(),
             }),
             object: self.runtime.id()?,
             class: identity.class.clone(),
@@ -651,6 +933,7 @@ impl Cell for JavaScriptCell {
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,
+                        ..Default::default()
                     },
                 )
                 .await

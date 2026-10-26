@@ -1,0 +1,65 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 670" role="img" aria-labelledby="title description">
+  <title id="title">A container control call, from application to provider</title>
+  <desc id="description">The application calls its invocation-local session. The session validates inputs and authority, waits for the required durability proof of earlier cell writes, and dispatches to the selected provider. After the provider replies, the session rechecks authority and validates reply bounds before returning. A lost reply does not prove rollback.</desc>
+  <defs>
+    <style>
+      text { font-family: 'SF Mono', 'Cascadia Code', monospace; fill: #f1f5f9; }
+      .title { font-size: 22px; font-weight: 700; }
+      .actor { font-size: 17px; font-weight: 600; text-anchor: middle; }
+      .label { font-size: 15px; text-anchor: middle; }
+      .note { font-size: 14px; fill: #cbd5e1; }
+      .lifeline { stroke: #475569; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .call { fill: none; stroke: #34d399; stroke-width: 2; marker-end: url(#arrow); }
+      .return { fill: none; stroke: #94a3b8; stroke-width: 2; stroke-dasharray: 6 4; marker-end: url(#return); }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/>
+    </marker>
+    <marker id="return" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polyline points="0 0, 10 3.5, 0 7" fill="none" stroke="#94a3b8" stroke-width="1.5"/>
+    </marker>
+  </defs>
+  <rect width="100%" height="100%" fill="#0f172a"/>
+  <rect width="100%" height="100%" fill="url(#grid)"/>
+
+  <line class="lifeline" x1="140" y1="145" x2="140" y2="585"/>
+  <line class="lifeline" x1="480" y1="145" x2="480" y2="585"/>
+  <line class="lifeline" x1="820" y1="145" x2="820" y2="585"/>
+  <path class="call" d="M 140 195 H 480"/>
+  <path class="call" d="M 480 240 H 540 V 265 H 480"/>
+  <path class="call" d="M 480 315 H 540 V 340 H 480"/>
+  <path class="call" d="M 480 395 H 820"/>
+  <path class="return" d="M 820 455 H 480"/>
+  <path class="call" d="M 480 495 H 540 V 520 H 480"/>
+  <path class="return" d="M 480 570 H 140"/>
+
+  <rect x="40" y="95" width="200" height="50" rx="7" fill="#0f172a"/>
+  <rect x="40" y="95" width="200" height="50" rx="7" fill="#083344" fill-opacity="0.6" stroke="#22d3ee"/>
+  <rect x="370" y="95" width="220" height="50" rx="7" fill="#0f172a"/>
+  <rect x="370" y="95" width="220" height="50" rx="7" fill="#064e3b" fill-opacity="0.4" stroke="#34d399"/>
+  <rect x="720" y="95" width="200" height="50" rx="7" fill="#0f172a"/>
+  <rect x="720" y="95" width="200" height="50" rx="7" fill="#78350f" fill-opacity="0.3" stroke="#fbbf24"/>
+
+  <text class="actor" x="140" y="126">Application</text>
+  <text class="actor" x="480" y="126">Native Session</text>
+  <text class="actor" x="820" y="126">Provider</text>
+  <text class="label" x="310" y="181">1. Control call</text>
+  <text class="label" x="710" y="244">2. Validate inputs,</text>
+  <text class="label" x="710" y="267">capabilities, authority</text>
+  <text class="label" x="710" y="319">3. Wait for durability</text>
+  <text class="label" x="710" y="342">of earlier cell writes</text>
+  <text class="label" x="650" y="381">4. Execute backend effect</text>
+  <text class="label" x="650" y="441">Acknowledgement / failure</text>
+  <text class="label" x="710" y="499">5. Recheck authority</text>
+  <text class="label" x="710" y="522">and bounded reply</text>
+  <text class="label" x="310" y="556">6. Return result / error</text>
+
+  <text class="title" x="32" y="40">What happens when a control call runs?</text>
+  <text class="note" x="32" y="66">All SDK effects retain the original native invocation's authority.</text>
+  <rect x="32" y="610" width="896" height="30" rx="5" fill="#881337" fill-opacity="0.4"/>
+  <text class="note" x="48" y="630">After dispatch, a lost or invalid reply can leave an unknown mutation outcome.</text>
+</svg>

@@ -70,10 +70,7 @@ async fn checked(app: &AppHandle, request: Request<Incoming>) -> anyhow::Result<
     let (_, result) =
         futures_util::future::join(super::dispatch_rpc_call(app.clone(), call), receiver).await;
     let data = result??;
-    let size = match &data {
-        crate::engine_api::RpcData::Json(s) => s.len(),
-        crate::engine_api::RpcData::Structured(b) => b.len(),
-    };
+    let size = data.payload_bytes();
     anyhow::ensure!(size <= 64 << 10, "encoded event state reply exceeds bounds");
     let value = crate::application::decode_rpc_result(&data)?.to_json()?;
     let sample: crate::event_state::StateSample = serde_json::from_value(

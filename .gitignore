@@ -19,6 +19,7 @@ console-audit.sqlite*
 /examples/javascript/app.bundle.js*
 !/examples/javascript/package-lock.json
 !/tools/javascript/package-lock.json
+!/tools/sandbox/compat/package-lock.json
 !/tools/rpc/package-lock.json
 /tools/rpc/dist/
 /examples/node/dist/
@@ -39,6 +40,9 @@ console-audit.sqlite*
 /examples/streaming/app.bundle.js*
 /examples/streaming/dist/
 !/examples/streaming/package-lock.json
+
+# Optional published sandbox runtime conformance bundles.
+/tools/sandbox/compat/dist/
 
 # Reproducible binding example builds.
 /examples/bindings/app.bundle.js*

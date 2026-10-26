@@ -23,7 +23,7 @@ function start(signal, subscribe) {
     assert.equal(Object.hasOwn(JSON.parse(payload), "signal"), false);
     admitted++;
     return [acknowledgement, () => { cancelled++; }];
-  }, subscribe)({async fetch(_request, ctx) {
+  }, undefined, undefined, undefined, undefined, undefined, subscribe)({async fetch(_request, ctx) {
     context = ctx;
     try {
       const response = await CounterClient.bind(ctx, "COUNTERS", "alice").getCount({}, {signal});
