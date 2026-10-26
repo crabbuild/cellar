@@ -1,18 +1,16 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { Script } from "node:vm";
+import { testRunner } from "../javascript/test-runner.mjs";
 
-const factory = new Script(`(${readFileSync(new URL("../../crates/cellar-javascript/runtime/runner.js", import.meta.url), "utf8")})`).runInThisContext();
 const wire = "test.Counter/Fail";
 
 async function failure(error) {
   class Counter { async fail() { throw error; } }
   const rule = {digest:"a".repeat(64), input:"test.Request", output:"test.Response", handler:"fail",
     decode:() => ({}), encode:() => new Uint8Array(), verify() {}};
-  const runner = factory(() => { throw Error("unexpected SDK operation"); })({cells:{Counter}, rpc:{Counter:{methods:{[wire]:rule}}}},
+  const runner = testRunner(() => { throw Error("unexpected SDK operation"); })({cells:{Counter}, rpc:{Counter:{methods:{[wire]:rule}}}},
     JSON.stringify({events:[], cells:{Counter:[]}, rpc:{Counter:{[wire]:{...rule,limits:{}}}}}), 1);
   try {
     await runner.dispatch(1, JSON.stringify({kind:"rpc",identity:null,object:1,class:"Counter",event:{method:wire}}), new Uint8Array());

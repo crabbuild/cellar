@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
+import { testRunner } from "../../../tools/javascript/test-runner.mjs";
 import {
   sseEvent,
   sseResponse,
@@ -29,15 +29,6 @@ test("SSE preserves multiline data and rejects field injection", () => {
 });
 
 test("shared runtime awaits native backpressure before pulling the next chunk", { timeout: 5000 }, async () => {
-  const factory = (0, eval)(
-    readFileSync(
-      new URL(
-        "../../../crates/cellar-javascript/runtime/runner.js",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
-  );
   let unblock;
   let signalFirstWrite;
   const firstWrite = new Promise(resolve => {
@@ -45,7 +36,7 @@ test("shared runtime awaits native backpressure before pulling the next chunk", 
   });
   let pulled = 0;
   const calls = [];
-  const runner = factory(async (id, name, payload) => {
+  const runner = testRunner(async (id, name, payload) => {
     calls.push([name, JSON.parse(payload)]);
 
     // Hold the first write to emulate a native consumer applying backpressure.

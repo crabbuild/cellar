@@ -1,5 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+import type { RpcAbortSignal } from "./rpc/client.js";
+
 /**
  * Values accepted by the Cellar bridge.
  *
@@ -219,9 +221,9 @@ export interface Container {
   port(port: number): {
     waitReady(timeout_ms?: number): Promise<null>;
     /** Abort stops waiting; submitted HTTP effects may already have occurred. */
-    fetch(request: RequestData, options?: { signal?: AbortSignal }): Promise<Response>;
+    fetch(request: RequestData, options?: { signal?: RpcAbortSignal }): Promise<Response>;
     /** Bounded prefix and chunks; cancel or finish reading within this event. */
-    fetchStream(request: RequestData, options?: { signal?: AbortSignal }): Promise<ContainerResponse>;
+    fetchStream(request: RequestData, options?: { signal?: RpcAbortSignal }): Promise<ContainerResponse>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
       | {

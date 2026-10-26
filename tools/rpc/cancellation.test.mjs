@@ -2,20 +2,18 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { Script } from "node:vm";
 import { addAbortListener } from "node:events";
 import test from "node:test";
 import { testBudgetControl } from "./test-budgets.mjs";
+import { testRunner } from "../javascript/test-runner.mjs";
 import { CounterClient } from "./fixtures/generated/javascript/counter_cellar.js";
 
 const contract = JSON.parse(readFileSync(new URL("./fixtures/generated/rpc.json", import.meta.url)));
-const source = readFileSync(new URL("../../crates/cellar-javascript/runtime/runner.js", import.meta.url), "utf8");
 
 function start(signal, subscribe) {
   let resolve, current = 1, admitted = 0, cancelled = 0, context;
   const acknowledgement = new Promise(ready => { resolve = ready; });
-  const factory = new Script(`(${source})`).runInThisContext();
-  const runner = factory((invocation, name, payload) => {
+  const runner = testRunner((invocation, name, payload) => {
     if (invocation !== current) throw Error("ContextMismatch");
     if (name === "$check") return;
     if (name === "$rpc_budget") return testBudgetControl();
@@ -23,7 +21,7 @@ function start(signal, subscribe) {
     assert.equal(Object.hasOwn(JSON.parse(payload), "signal"), false);
     admitted++;
     return [acknowledgement, () => { cancelled++; }];
-  }, undefined, undefined, undefined, undefined, undefined, subscribe)({async fetch(_request, ctx) {
+  }, subscribe)({async fetch(_request, ctx) {
     context = ctx;
     try {
       const response = await CounterClient.bind(ctx, "COUNTERS", "alice").getCount({}, {signal});
