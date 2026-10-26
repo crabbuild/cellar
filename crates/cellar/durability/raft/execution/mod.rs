@@ -164,6 +164,7 @@ pub(crate) fn query_registered_controlled(
         published.application_digest(),
         limits,
     )?;
+    tracing::debug!(target: "cellar::raft::query", phase = "open_start", index = published.position().index.get());
     let database = crate::storage::open_immutable_generation(
         published.pin(),
         crate::storage::ImmutableQueryOptions {
@@ -172,6 +173,7 @@ pub(crate) fn query_registered_controlled(
         },
     )
     .map_err(storage)?;
+    tracing::debug!(target: "cellar::raft::query", phase = "open_complete", index = published.position().index.get());
     if let Some(cancel) = cancel {
         database
             .connection()
@@ -182,9 +184,11 @@ pub(crate) fn query_registered_controlled(
         scope: published.scope().clone(),
         position: published.position(),
     };
-    let result = class
-        .invoke_query(contract, &version, &database, input)
-        .map_err(storage)?;
+    let result = class.invoke_query(contract, &version, &database, input);
+    tracing::debug!(target: "cellar::raft::query", phase = "callback_complete", index = published.position().index.get(), accepted = result.is_ok());
+    drop(database);
+    tracing::debug!(target: "cellar::raft::query", phase = "close_complete", index = published.position().index.get());
+    let result = result.map_err(storage)?;
     if result.len() > limits.max_result_bytes {
         return Err(ExecutionError::Refused(CommandFailure::Overloaded));
     }

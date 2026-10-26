@@ -1107,6 +1107,7 @@ impl Cell {
                 control,
                 source_deadline,
             } => {
+                tracing::debug!(target: "cellar::raft::query", phase = "worker_entered");
                 if control.cancelled()
                     || source_deadline.is_some_and(|deadline| !control.before(deadline))
                 {
@@ -1117,6 +1118,7 @@ impl Cell {
                     .queryable()
                     .map_err(super::execution::storage)?
                     .ok_or(ExecutionError::Refused(CommandFailure::VersionUnavailable))?;
+                tracing::debug!(target: "cellar::raft::query", phase = "image_selected", index = published.position().index.get());
                 let version = cellar_logic::consensus::CommittedVersion {
                     scope: published.scope().clone(),
                     position: published.position(),

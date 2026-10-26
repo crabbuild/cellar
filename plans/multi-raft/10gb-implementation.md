@@ -952,3 +952,27 @@ cancellation removes the original service from the cluster vector; pairing its
 old handles with the shorter service list could mislabel status and miss the
 replacement. The observer follows the current scope/service binding, records
 binding failures explicitly and preserves the original read error.
+
+### Query boundary after the producer correction
+
+Frozen `106a961f` passes the actual 272 MiB RustFS drill in 45.78 seconds and
+the four ordinary large-image cases, but its full-size RustFS run still fails
+after 3,194.82 seconds (94,765,056 bytes maximum resident set). It verifies the
+9,999,998,976-byte payload, promotes the empty replacement and acknowledges a
+new command after 425.045 seconds. The following 60-second read fails with
+`VersionUnavailable`. The version token is valid and the leader has applied
+index 13/term 5. SQL telemetry records four queries started and three completed;
+the read remains inside its SQL action. Thus the proven archive cleanup defect
+is insufficient to explain or fix full-size qualification.
+
+The log contains no null bytes and matches its recorded hash. Native sampling
+timed out without producing stack files. The next probes distinguish image
+selection, immutable open, callback execution and connection close. A dedicated
+ignored test of the same immutable opener and SQL after a write to the real
+10 GB fixture passes in 42.85 seconds overall; open/query/close takes 0.010
+seconds. This isolates a working physical query boundary, not the concurrent
+fleet failure. Optional retained worker directories permit direct inspection
+after a diagnostic failure; read deadlines and all recovery assertions remain
+unchanged. All four workers and RustFS used one external USB SSD in the failed
+run, so independent worker volumes are a separate contention experiment, not a
+proven cause or recovery-time improvement.
