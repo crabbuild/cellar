@@ -184,3 +184,7 @@ harness = false
 [[bin]]
 name = "cellar-streaming-example"
 path = "../../examples/streaming/main.rs"
+
+[[bin]]
+name = "cellar-bindings-example"
+path = "../../examples/bindings/main.rs"
