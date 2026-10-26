@@ -3,6 +3,7 @@
 //! Trusted fixture isolation is exercised after an actual physical join. This
 //! does not qualify a production deployment's external fencing mechanism.
 use super::*;
+use sha2::{Digest, Sha256};
 
 async fn isolate(
     s: &Setup,
