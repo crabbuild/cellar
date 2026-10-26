@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle CI, both durable Python agent modes and free-threaded FastAPI pass. JS/Node reaches adapter/real-node tests. The GIL SDK job passes packaging but fails the native large-binding test's 60-second deadline; free-threaded SDK remains queued. The frame-accounting change passes a fresh 696-case recheck; the following control-decoder change still needs broader runtime qualification. |
+| P0 — hosted verification | Remaining broad SDK gates | On `38bfbb96`, lifecycle, JS/Node and Python example CI pass; both SDK variants fail the native large-binding test's 60-second deadline. A controlled WAL-recycling regression now fails before the idle-connection fix and passes afterward; the original workload falls from 46.98 to 3.77 seconds locally. Require hosted verification on the fix. The frame-accounting change passes a fresh 696-case recheck; control-decoder and WAL-lifetime changes still need broader runtime qualification. |
 | P0 | Cross-adapter deadline and regression timing | Direct Python queue admission and the decoder's separate read-only activation have controlled regressions under unchanged budgets. Broader V8 HTTP and V8/Node streaming commands still fail; the V8 HTTP failure retains a 250 ms handler timeout and clean host drain. Earlier Python counters point to the native cold-cell path. Passing retries do not close these failures or establish one shared cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve whole-call budgets, 55 deadline cases, 128 proof-wait cases, 80 cycle cases, 96 provenance cases and 96 Node/V8 lifecycle cases. The Python follow-up covers cooperative cancellation suppression, forced host cutoff and persistent suppression with process supervision. Next close forced guest peer retries and broader call-local peer/admission evidence. Retain incomplete-shutdown failures while guest work remains, expired authority, zero native reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Raw descriptor admission now bounds allocations/work before decoding, rejects unresolved/unknown attributes and enforces the pinned declaration depth. Message definitions borrow the decoded tree instead of cloning nested subtrees. Canonical artifacts and real runtime checks pass. Close remaining semantic conformance; audit effective method/runtime/host/peer minima, retained binary copies and decoder allocations; demonstrate bounded queues, reservations and memory under saturation, flood and disconnect. |
@@ -74,6 +74,44 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Development storage preserves the WAL index between operation connections.**
+  The original lifted-limit workload completes all 1,002 blob puts and drains
+  application work in **3.770 seconds**, versus **46.975 seconds** before the
+  fix. Its blob-seeding phase falls from **36.535 to 0.290 seconds**. The
+  original 60-second deadline, large values, batch sizes, FULL synchronization,
+  automatic checkpoints and writer admission remain unchanged. All five
+  native cell-limit tests and all four public local-store tests pass. This
+  local result still requires verification on the hosted SDK failure path.
+- The public bucket regression writes an 8 MiB object above SQLite's default
+  automatic-checkpoint threshold, then performs tiny writes through a surviving
+  clone. It fails before the fix because the WAL generation does not recycle.
+  After the fix, header salts change and the file does not grow beyond its
+  prior large-write size. Reopening preserves every exact object and ETag;
+  conditional updates apply and stale updates fail. The implementation shares
+  one idle connection, with no active statement or transaction, across clones;
+  every operation retains its own connection and existing native I/O lifetime.
+- A process-local I/O probe isolates the mechanism with linked SQLite 3.53.2:
+  64 tiny writes after a 26 MiB write read **3,523,078,400 bytes** with all
+  connections closed between operations, versus **792,832 bytes** with one
+  idle connection. Both retain FULL sync and exact data. Rebuilding the WAL
+  index loses checkpoint progress and repeats large recovery/checkpoint work.
+  The probe and hashes are in ignored
+  `.cellar/rpc/node-frame-budget/wal-reopen-result.json`. Public-boundary
+  red/green logs use `/tmp/cellar-rpc-wal-recycle-`. The cell-limit fixture now
+  retains bounded phase names/timings, completed blob count, pending work and
+  its disposable store on failure, and joins its execution domain on errors.
+- The WAL-lifetime follow-up passes **18 local-store library tests**, the
+  multi-store CAS/pagination test and **30 native integration tests** (one
+  pre-existing Raft test remains ignored). V8/Node pass **49 library tests**,
+  both HTTP/restart targets, both live streaming targets and both typed-RPC
+  tests. Embedded GIL Python passes **31 library tests** and its streaming and
+  typed-RPC executables. Affected native, JavaScript and Python Clippy, the full
+  qualifier build and standard format/layout/dependency/docs checks pass.
+  Source hashes remain unchanged during that validation pipeline. Commands,
+  exit codes and logs are recorded in ignored
+  `.cellar/rpc/wal-index-validation-status.json`. These passes do not establish
+  the historical V8 watchdog/native cold-timing failures' exact causes. The
+  combined 696-case rerun and hosted verification remain next.
 - **Node control decoding now has allocation-free shape and string admission.**
   The private protocol admits at most 16 scalar fields with distinct literal
   ASCII keys of at most 64 bytes and numeric tokens of at most 32 bytes.
@@ -110,9 +148,10 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   `lifted_bindings_persist_large_values_batches_and_pages` at its original
   **60-second** deadline, after embedded Python packaging succeeds. The same
   all-feature native integration command passes all five tests locally in
-  **46.94 seconds**. There is no phase evidence in the hosted failure and no
-  proven cause or fix. Preserve its workload/limits and add bounded phase
-  observations before changing the implementation or fixture.
+  **46.94 seconds**. The free-threaded SDK job **121299416570** fails the same
+  test at 60.88 seconds. Neither hosted failure has phase evidence. The later
+  local phase probe and controlled WAL-recycling fix above preserve the
+  workload/limits; a passing hosted rerun is still required.
 - **Native Node framing now uses the runtime's payload byte pool.** Three
   controlled transport regressions fail against the old implementation:
   incoming input bypasses aggregate admission, input coexists with queued
