@@ -2195,7 +2195,10 @@
         "crates/cellar/tests/support/raft_retirement_native.rs",
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/durability/raft/storage_genesis_tests.rs",
-        "crates/cellar/durability/raft/storage_lifecycle_tests.rs"
+        "crates/cellar/durability/raft/storage_lifecycle_tests.rs",
+        "crates/cellar/durability/raft/fleet_catalog/permits.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/terminal.rs",
+        "crates/cellar/durability/raft/host_fleet_observation.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_placement.rs",
@@ -2207,7 +2210,9 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/admission.rs",
         "crates/cellar/tests/support/raft_resource_native.rs",
         "crates/cellar/durability/raft/physical_inventory.rs",
-        "crates/cellar/durability/raft/physical_inventory_tests.rs"
+        "crates/cellar/durability/raft/physical_inventory_tests.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/movement.rs",
+        "crates/cellar/tests/support/raft_movement_native.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2218,7 +2223,8 @@
         "Produce a complete final assignment and a legal bounded move DAG; reconcile materialization without double-crediting physical resources.",
         "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority.",
         "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution.",
-        "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation."
+        "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation.",
+        "Atomically link exact membership intent to its target debit and active book, using owned fresh source ReadIndex and target physical inventory. Reconcile the canonical combined intent before live prerequisites; protect linked permits against generic replacement. Actual group consumption and target initialization remain mandatory."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2392,6 +2398,54 @@
             "F07",
             "F08"
           ]
+        },
+        {
+          "name": "fleet_movement_atomic_permit_drives_native_replacement",
+          "oracle": "One root CAS installs the debit, book and exact membership permit. Consume it through a real S3-seeded learner, complete joint membership and write through the new RF3. Generic deletion cannot release its unresolved resource debit.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_lost_reply_reconciles_exact_permit",
+          "oracle": "Lose successful CAS confirmation, shut down the target and recreate the catalog adapter. Exact retry returns the original applied permit without new probes; changed membership intent conflicts.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_minority_cannot_reserve_capacity_or_permit",
+          "oracle": "With only one original voter alive, fresh source ReadIndex cannot authorize admission. Neither debit nor membership permit appears and the empty target stays uninitialized.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_concurrent_last_slot_is_atomic",
+          "oracle": "Hold one independent adapter at CAS while another reserves the final target slot for a different live group. Only the winner installs both debit and permit; the loser leaves neither projection. A fresh attempt cannot consume that occupied reservation.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -2496,6 +2550,18 @@
           "--locked",
           "physical_inventory::tests",
           "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "--",
+          "fleet_movement_",
           "--test-threads=1"
         ]
       ],

@@ -28,8 +28,25 @@ impl FleetCatalog {
         namespaces: &[NamespaceCatalog],
         timeout: Duration,
     ) -> Result<FleetResourceAdmission> {
+        self.reserve_resource_request(
+            snapshot,
+            Request::new(self, request)?,
+            observer,
+            namespaces,
+            timeout,
+        )
+        .await
+    }
+
+    pub(super) async fn reserve_resource_request(
+        &self,
+        snapshot: &FleetSnapshot,
+        canonical: Request,
+        observer: &RaftCells,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetResourceAdmission> {
         self.check_snapshot(snapshot)?;
-        let canonical = Request::new(self, request)?;
         if namespaces.len() > namespaces::MAX_NAMESPACES {
             return Err(FleetCatalogError::Limit);
         }
@@ -48,7 +65,7 @@ impl FleetCatalog {
                     }
                 }
                 if current.token != snapshot.token
-                    || request.identity.expected_revision != snapshot.revision()
+                    || canonical.identity.expected_revision != snapshot.revision()
                 {
                     return Err(FleetCatalogError::Conflict);
                 }
@@ -93,15 +110,12 @@ impl FleetCatalog {
             .checked_sub(observation.sample_age_ms)
             .ok_or(FleetCatalogError::Unconfirmed)?;
         self.require_resource_age(probe_started)?;
+        let source = self
+            .observe_resource_source(snapshot, &canonical, observer, &deadline)
+            .await?;
         self.run(deadline.remaining()?, async {
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
-            }
-            // Low-level/legacy permits do not contain resource attribution.
-            // Refuse unknown debt instead of silently treating it as free. The
-            // typed permit consumer must link it before concurrent execution.
-            if snapshot.head.tables[FleetTable::Admissions.slot()].is_some() {
-                return Err(resource_error(LedgerError::Incomplete));
             }
             self.check_resource_birth_debt(snapshot, target.node(), &observation)
                 .await?;
@@ -109,19 +123,24 @@ impl FleetCatalog {
                 .inventory
                 .as_ref()
                 .ok_or(resource_error(LedgerError::Incomplete))?;
+            let history = self.history_inner(snapshot, &canonical.group).await?;
+            let scope = history
+                .binding()
+                .scope()
+                .map_err(|_| FleetCatalogError::Corrupt("resource scope"))?;
             if inventory
-                .history(&request.group)
+                .history(&scope)
                 .map_err(|_| FleetCatalogError::Corrupt("resource destination scope"))?
                 .is_some()
             {
                 return Err(FleetCatalogError::Invalid("occupied resource destination"));
             }
-            let history = self.history_inner(snapshot, &canonical.group).await?;
             if *history.state() != FleetHistoryState::Live {
                 return Err(FleetCatalogError::Conflict);
             }
             let mut book = self.resource_book(snapshot).await?;
             let rows = self.resource_rows(snapshot, &book).await?;
+            self.check_resource_permits(snapshot, &rows).await?;
             if rows.iter().any(|row| row.request.group == canonical.group) {
                 return Err(FleetCatalogError::Conflict);
             }
@@ -138,6 +157,8 @@ impl FleetCatalog {
                 target.epoch(),
                 physical,
                 inventory.digest(),
+                self.resource_permit(snapshot, &canonical, source.as_ref())
+                    .await?,
             )?;
             let row_bytes = record.encode()?;
             if let Some((_, old)) = &previous {
@@ -148,16 +169,26 @@ impl FleetCatalog {
                 }
             }
             book.rows.push(Reference {
-                id: request.identity.id,
+                id: canonical.identity.id,
                 digest: hash(&row_bytes),
             });
             book.rows.sort_by_key(|row| row.id);
-            let mutation = self.resource_mutation(&canonical, row_bytes, &book)?;
+            let mutation = self.resource_mutation(&record, row_bytes, &book)?;
             let committed = self
-                .commit_checked(snapshot, &mutation, || {
-                    deadline.remaining()?;
-                    self.require_resource_age(probe_started)
-                })
+                .commit_with_disruption(
+                    snapshot,
+                    &mutation,
+                    None,
+                    canonical.movement.is_some(),
+                    || {
+                        deadline.remaining()?;
+                        self.require_resource_age(probe_started)?;
+                        if let Some(source) = &source {
+                            self.require_resource_age(source.started)?;
+                        }
+                        Ok(())
+                    },
+                )
                 .await?;
             let applied = self
                 .resource_applied(&committed.snapshot, &mutation)
@@ -175,11 +206,12 @@ impl FleetCatalog {
 
     fn resource_mutation(
         &self,
-        request: &Request,
+        record: &Record,
         row: Vec<u8>,
         book: &Book,
     ) -> Result<FleetMutation> {
-        let mutation = FleetMutation {
+        let request = &record.request;
+        let mut mutation = FleetMutation {
             id: request.identity.id,
             operation: request.identity.operation,
             expected_revision: request.identity.expected_revision,
@@ -197,6 +229,17 @@ impl FleetCatalog {
                 },
             ],
         };
+        if let Some(permit) = &record.permit {
+            mutation.changes.push(FleetChange {
+                table: FleetTable::Admissions,
+                key: request.group.clone(),
+                value: Some(
+                    permit
+                        .encode()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?,
+                ),
+            });
+        }
         mutation.validate()?;
         Ok(mutation)
     }
@@ -301,14 +344,14 @@ impl FleetCatalog {
         Ok(physical)
     }
 
-    fn resource_now(&self) -> Result<u64> {
+    pub(super) fn resource_now(&self) -> Result<u64> {
         self.inner
             .domain
             .mono_ms()
             .map_err(|_| FleetCatalogError::Closed)
     }
 
-    fn require_resource_age(&self, started: u64) -> Result<()> {
+    pub(super) fn require_resource_age(&self, started: u64) -> Result<()> {
         if self
             .resource_now()?
             .checked_sub(started)

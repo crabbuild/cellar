@@ -570,7 +570,21 @@ another history. Any occupied binding for the prospective learner's exact
 history refuses, including a retired or unregistered engine history.
 An in-progress initializer also refuses. The accepted resource row retains the
 canonical inventory digest alongside its exact boot/profile and input-root cut.
-Typed membership-permit integration remains required before general movement.
+`reserve_movement` adds an exact `RepairPlan` and source node to the resource
+request. It owns a fresh source safe-ReadIndex under the same original deadline
+as the target probe. It checks stable RF3 configuration, the latest settled
+permit, membership revision, member high water, exact history/birth/schema,
+source boot/process/engine and all staged voter failure domains. One root CAS
+installs the resource row, movement book and matching membership permit.
+The returned opaque authorization still requires group consumption and actual
+learner initialization. A minority source cannot authorize this admission.
+
+Resource-linked permits cannot be deleted or replaced by generic mutations.
+Every existing admission must have exact resource attribution; unknown costs
+refuse further work. The canonical journal request binds both resource evidence
+and the complete movement intent. Exact retries can return the original permit
+after target shutdown or adapter recreation; they grant no current health lease.
+The complete final/staged placement and failure-headroom planner remains pending.
 
 Exact committed retries reconcile from the permanent request journal before
 live probes, including after exclusion, target shutdown and adapter recreation.
@@ -808,7 +822,7 @@ response alone is not a fleet completion certificate.
 Cellar-owned markers stay at 1. Membership and intent records require an explicit
 nullable `fleet` field. Birth records also require an explicit nullable
 `cancelled_by` field; the namespace protocol identity ends in
-`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1`.
+`/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1`.
 Node records require an explicit nullable `boot` field; Finalizing is a boot-refusing
 state. The engine requires a separate `cellar-node-lifecycle` record, initialized
 atomically with a new engine root. Resume refuses a missing record rather than

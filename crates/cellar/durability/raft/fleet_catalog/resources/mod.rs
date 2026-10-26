@@ -1,9 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Root-CAS resource debits. This component grants no membership or release
-//! authority. Physical measurements remain distinct from deployment attestation.
+//! Root-CAS resource debits and exact resource-backed membership admission.
+//! Physical measurements remain distinct from deployment attestation; release
+//! requires a separate terminal proof boundary.
 mod admission;
+mod movement;
 mod records;
+
+pub use movement::{FleetMovementAdmission, FleetMovementRequest};
 
 use super::*;
 use crate::raft::fleet_stop::BootBinding;

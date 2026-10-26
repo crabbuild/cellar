@@ -6,6 +6,9 @@ use super::super::capacity_tests::{attestation, joined};
 use super::*;
 use cellar_logic::raft_fleet::{LedgerError, ResourceKind};
 
+#[path = "raft_movement_native.rs"]
+mod movement_tests;
+
 struct Setup {
     f: Fixture,
     nodes: Vec<Running>,

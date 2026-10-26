@@ -82,6 +82,13 @@ pub struct FleetPermitAuthorization {
 }
 
 impl FleetPermitAuthorization {
+    pub(super) fn admitted(permit: FleetMembershipPermit, minimum_trust_revision: u64) -> Self {
+        Self {
+            permit,
+            minimum_trust_revision,
+        }
+    }
+
     pub(crate) fn minimum_trust_revision(&self) -> u64 {
         self.minimum_trust_revision
     }

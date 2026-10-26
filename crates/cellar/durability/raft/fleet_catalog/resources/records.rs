@@ -1,8 +1,10 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded append-only active book and exact journal-linked debit records.
+use super::movement::Movement;
 use super::*;
 use crate::raft::fleet_catalog::histories::validate_request;
+use crate::raft::member_state::FleetMembershipPermit;
 
 pub(super) const ROW_KIND: u8 = 61;
 const BOOK_KIND: u8 = 62;
@@ -14,6 +16,8 @@ pub(super) struct Request {
     pub group: String,
     pub attestation: FleetResourceAttestation,
     pub peak: FleetResourceBounds,
+    #[serde(deserialize_with = "required_nullable")]
+    pub movement: Option<Movement>,
 }
 
 impl Request {
@@ -29,12 +33,13 @@ impl Request {
             group,
             attestation: request.attestation.clone(),
             peak: request.peak,
+            movement: None,
         };
         value.validate(catalog)?;
         Ok(value)
     }
 
-    fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
+    pub fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         validate_request(&self.identity)?;
         self.attestation.validate()?;
         super::super::records::validate_key(&self.group)?;
@@ -46,8 +51,23 @@ impl Request {
         {
             return Err(FleetCatalogError::Invalid("resource request"));
         }
+        if let Some(movement) = &self.movement {
+            movement.validate()?;
+            let plan = movement.plan()?;
+            if plan.replacement.node.bytes() != self.attestation.boot.node
+                || plan.replacement.disk.bytes() != self.attestation.boot.disk
+            {
+                return Err(FleetCatalogError::Invalid("resource target mismatch"));
+            }
+        }
         Ok(())
     }
+}
+
+fn required_nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<T>, D::Error> {
+    Option::<T>::deserialize(decoder)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -59,6 +79,8 @@ struct WireRecord {
     capacity_epoch: u64,
     physical: FleetResourceBounds,
     inventory_digest: [u8; 32],
+    #[serde(deserialize_with = "required_nullable")]
+    permit: Option<FleetMembershipPermit>,
 }
 
 #[derive(Clone)]
@@ -69,6 +91,7 @@ pub(super) struct Record {
     pub physical: FleetResourceBounds,
     pub inventory_digest: [u8; 32],
     pub node: NodeId,
+    pub permit: Option<FleetMembershipPermit>,
 }
 
 impl Record {
@@ -79,6 +102,7 @@ impl Record {
         capacity_epoch: u64,
         physical: FleetResourceBounds,
         inventory_digest: [u8; 32],
+        permit: Option<FleetMembershipPermit>,
     ) -> Result<Self> {
         let node = NodeId::new(request.attestation.boot.node)
             .map_err(|_| FleetCatalogError::Invalid("resource node"))?;
@@ -89,6 +113,7 @@ impl Record {
             physical,
             inventory_digest,
             node,
+            permit,
         };
         record.validate(catalog)?;
         Ok(record)
@@ -96,6 +121,27 @@ impl Record {
 
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         self.request.validate(catalog)?;
+        match (&self.request.movement, &self.permit) {
+            (None, None) => (),
+            (Some(movement), Some(permit)) => {
+                permit
+                    .check_plan(&movement.plan()?)
+                    .map_err(|_| FleetCatalogError::Corrupt("resource permit plan"))?;
+                if permit.id() != self.request.identity.id
+                    || permit.operation() != self.request.identity.operation
+                    || permit
+                        .binding()
+                        .key()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource permit scope"))?
+                        != self.request.group
+                    || permit.binding().catalog() != catalog.birth_owner()?.catalog
+                    || permit.binding().fleet() != catalog.inner.incarnation
+                {
+                    return Err(FleetCatalogError::Corrupt("resource permit identity"));
+                }
+            }
+            _ => return Err(FleetCatalogError::Corrupt("resource permit pairing")),
+        }
         if self.input_root == [0; 32]
             || self.inventory_digest == [0; 32]
             || self.node.bytes() != self.request.attestation.boot.node
@@ -118,13 +164,14 @@ impl Record {
                 capacity_epoch: self.capacity_epoch,
                 physical: self.physical,
                 inventory_digest: self.inventory_digest,
+                permit: self.permit.clone(),
             },
-            4096,
+            8192,
         )
     }
 
     pub fn decode(catalog: &FleetCatalog, bytes: &[u8]) -> Result<Self> {
-        let wire: WireRecord = decode(ROW_KIND, bytes, 4096)?;
+        let wire: WireRecord = decode(ROW_KIND, bytes, 8192)?;
         if wire.format != 1 {
             return Err(FleetCatalogError::Corrupt("resource format"));
         }
@@ -137,6 +184,7 @@ impl Record {
             physical: wire.physical,
             inventory_digest: wire.inventory_digest,
             node,
+            permit: wire.permit,
         };
         record.validate(catalog)?;
         Ok(record)
@@ -193,14 +241,39 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
+        movement: bool,
     ) -> Result<()> {
+        if mutation
+            .changes
+            .iter()
+            .any(|c| c.table == FleetTable::Admissions)
+        {
+            let book = self.resource_book(snapshot).await?;
+            let rows = self.resource_rows(snapshot, &book).await?;
+            for row in &rows {
+                if let Some(permit) = &row.permit {
+                    let expected = permit
+                        .encode()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?;
+                    if mutation.changes.iter().any(|c| {
+                        c.table == FleetTable::Admissions
+                            && c.key == row.request.group
+                            && c.value.as_deref() != Some(expected.as_slice())
+                    }) {
+                        return Err(FleetCatalogError::Invalid(
+                            "resource-linked permit replacement",
+                        ));
+                    }
+                }
+            }
+        }
         if !mutation.changes.iter().any(|c| {
             c.table == FleetTable::Policy && c.key == BOOK_KEY
                 || c.table == FleetTable::Operations && c.key.starts_with(ROW_PREFIX)
         }) {
             return Ok(());
         }
-        if mutation.changes.len() != 2 {
+        if !(2..=3).contains(&mutation.changes.len()) {
             return Err(FleetCatalogError::Invalid("resource mutation"));
         }
         let row = &mutation.changes[0];
@@ -217,6 +290,25 @@ impl FleetCatalog {
             .as_deref()
             .ok_or(FleetCatalogError::Invalid("resource deletion"))?;
         let record = Record::decode(self, row_bytes)?;
+        match &record.permit {
+            None if mutation.changes.len() == 2 => (),
+            Some(permit) if movement && mutation.changes.len() == 3 => {
+                let change = &mutation.changes[2];
+                if change.table != FleetTable::Admissions
+                    || change.key != record.request.group
+                    || change.value.as_deref()
+                        != Some(
+                            permit
+                                .encode()
+                                .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?
+                                .as_slice(),
+                        )
+                {
+                    return Err(FleetCatalogError::Invalid("resource permit mutation"));
+                }
+            }
+            _ => return Err(FleetCatalogError::Invalid("resource permit authority")),
+        }
         if record.request.identity.id != mutation.id
             || record.request.identity.operation != mutation.operation
             || record.request.identity.principal != mutation.principal
@@ -250,6 +342,49 @@ impl FleetCatalog {
         Ok(())
     }
 
+    pub(super) async fn check_resource_permits(
+        &self,
+        snapshot: &FleetSnapshot,
+        rows: &[Record],
+    ) -> Result<()> {
+        let mut cursor = None;
+        let mut count = 0u64;
+        loop {
+            let page = self
+                .inner
+                .scan(
+                    snapshot.head.tables[FleetTable::Admissions.slot()],
+                    cursor.as_ref(),
+                    128,
+                )
+                .await?;
+            for entry in page.entries {
+                count = count
+                    .checked_add(1)
+                    .filter(|count| *count <= HISTORY_LIMIT)
+                    .ok_or(FleetCatalogError::Limit)?;
+                let mut attributed = false;
+                for row in rows {
+                    if row.request.group == entry.key {
+                        if let Some(permit) = &row.permit {
+                            attributed = permit
+                                .encode()
+                                .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?
+                                == entry.value;
+                        }
+                    }
+                }
+                if !attributed {
+                    return Err(resource_error(LedgerError::Incomplete));
+                }
+            }
+            cursor = page.next;
+            if cursor.is_none() {
+                return Ok(());
+            }
+        }
+    }
+
     pub(super) async fn resource_book(&self, snapshot: &FleetSnapshot) -> Result<Book> {
         match self
             .inner
@@ -281,7 +416,7 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != 2
+            || mutation.changes.len() != if request.movement.is_some() { 3 } else { 2 }
             || mutation.changes[0].table != FleetTable::Operations
             || mutation.changes[0].key != row_key(request.identity.id)
             || mutation.changes[1].table != FleetTable::Policy
@@ -296,6 +431,21 @@ impl FleetCatalog {
         let record = Record::decode(self, bytes)?;
         if record.request != *request {
             return Err(FleetCatalogError::PayloadConflict);
+        }
+        if let Some(permit) = &record.permit {
+            let change = &mutation.changes[2];
+            if change.table != FleetTable::Admissions
+                || change.key != request.group
+                || change.value.as_deref()
+                    != Some(
+                        permit
+                            .encode()
+                            .map_err(|_| FleetCatalogError::Corrupt("resource permit"))?
+                            .as_slice(),
+                    )
+            {
+                return Err(FleetCatalogError::Corrupt("resource request permit"));
+            }
         }
         let book = Book::decode(
             self,

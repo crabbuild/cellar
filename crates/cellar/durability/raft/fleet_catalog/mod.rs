@@ -38,7 +38,8 @@ pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub use resources::{
-    FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
+    FleetMovementAdmission, FleetMovementRequest, FleetResourceAdmission, FleetResourceAttestation,
+    FleetResourceBounds, FleetResourceRequest,
 };
 
 use records::{CommitRecord, Head, Pin};
@@ -332,17 +333,18 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
-        self.commit_with_disruption(snapshot, mutation, None, check)
+        self.commit_with_disruption(snapshot, mutation, None, false, check)
             .await
     }
 
-    // Only the terminal verifier calls with a release. The public generic
-    // mutation path cannot turn serialized receipt bytes into this authority.
+    // Only owned proof paths supply terminal release or movement authority.
+    // Generic mutations cannot acquire either from serialized receipt bytes.
     async fn commit_with_disruption(
         &self,
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
         release: Option<[u8; 32]>,
+        movement: bool,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
         let bytes = encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?;
@@ -358,7 +360,8 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
-        self.check_resource_mutation(snapshot, mutation).await?;
+        self.check_resource_mutation(snapshot, mutation, movement)
+            .await?;
         self.inner
             .create_exact(&format!("requests/{key}"), &bytes, REQUEST_LIMIT)
             .await?;

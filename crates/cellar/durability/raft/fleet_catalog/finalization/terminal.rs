@@ -350,7 +350,7 @@ impl FleetCatalog {
             let mutation = record.mutation()?;
             mutation.validate()?;
             let committed = self
-                .commit_with_disruption(snapshot, &mutation, Some(record.disruption), || {
+                .commit_with_disruption(snapshot, &mutation, Some(record.disruption), false, || {
                     deadline.remaining()?;
                     let now = self
                         .inner

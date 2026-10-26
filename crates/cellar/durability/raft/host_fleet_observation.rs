@@ -163,6 +163,10 @@ impl FleetMembershipObservation {
         self.applied
     }
 
+    pub(crate) fn member_high_water(&self) -> u64 {
+        self.membership.high_water()
+    }
+
     pub fn membership_revision(&self) -> LogIndex {
         self.membership.revision()
     }
