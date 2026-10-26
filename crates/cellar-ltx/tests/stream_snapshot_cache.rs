@@ -194,12 +194,18 @@ fn cache_advice_preserves_compressed_sqlite_bytes_and_physical_proofs() {
             let files = files(&root, mode);
             let scratch = pool();
             let mut source = DirectFileSystem.open(&source_path).unwrap();
-            let encoded = stream_snapshot::encode_admitted_in(
+            let profile = if mode == 0 {
+                stream_snapshot::IoProfile::Compact
+            } else {
+                stream_snapshot::IoProfile::Buffered
+            };
+            let encoded = stream_snapshot::encode_admitted_with_io_profile_in(
                 &files,
                 root.path(),
                 image,
                 Limits::default(),
                 &scratch,
+                profile,
                 |offset, length| source.read_exact_at(offset, length),
             )
             .unwrap();
@@ -222,7 +228,8 @@ fn cache_advice_preserves_compressed_sqlite_bytes_and_physical_proofs() {
                 Limits::default(),
                 &scratch,
             )
-            .unwrap();
+            .unwrap()
+            .with_io_profile(profile);
             let mut offset = 0;
             while offset < metadata.encoded_length {
                 let length = (metadata.encoded_length - offset).min(65536) as usize;

@@ -48,6 +48,11 @@ pub type HostDirIterator = Box<dyn Iterator<Item = io::Result<HostDirEntry>> + S
 /// Retains an exclusive OS/virtual-filesystem lock until its owner drops it.
 pub type HostFileLock = Box<dyn Send + Sync>;
 
+/// Largest caller-owned sequential window accepted by the file adapter.
+/// This is independent of logical image size and grants no data proof.
+pub const MAX_IO_WINDOW_BYTES: usize = 4 * 1024 * 1024;
+const FALLBACK_IO_BYTES: usize = 64 * 1024;
+
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
     /// Request reduced OS cache retention for a large sequential scratch file.
@@ -63,6 +68,32 @@ pub trait HostFileIo: Send {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>>;
+
+    /// Fill an already admitted caller buffer. Existing providers retain their
+    /// 64 KiB operation bound; native providers may override without allocating
+    /// another complete window. The caller discards the buffer after any error.
+    fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        window_range(offset, output.len())?;
+        for (index, chunk) in output.chunks_mut(FALLBACK_IO_BYTES).enumerate() {
+            let bytes =
+                self.read_exact_at(offset + (index * FALLBACK_IO_BYTES) as u64, chunk.len())?;
+            if bytes.len() != chunk.len() {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+            chunk.copy_from_slice(&bytes);
+        }
+        Ok(())
+    }
+
+    /// Write an already admitted caller buffer. An error may follow a partial
+    /// write; it never establishes whether the complete window reached storage.
+    fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        for chunk in bytes.chunks(FALLBACK_IO_BYTES) {
+            self.write_all(chunk)?;
+        }
+        Ok(())
+    }
 
     fn sync_all(&mut self) -> io::Result<()>;
 
@@ -83,6 +114,16 @@ pub trait HostFileIo: Send {
             "file truncation is unsupported",
         ))
     }
+}
+
+fn window_range(offset: u64, length: usize) -> io::Result<()> {
+    if length > MAX_IO_WINDOW_BYTES || offset.checked_add(length as u64).is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "file I/O window bound",
+        ));
+    }
+    Ok(())
 }
 
 /// One open file owned by an injected filesystem.
@@ -130,6 +171,26 @@ impl HostFile {
 
     pub fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
         let result = self.inner.read_exact_at(offset, len);
+        self.record_activity(result)
+    }
+
+    /// Read into bounded caller-owned storage; discard all output on error.
+    pub fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        window_range(offset, output.len())?;
+        if output.is_empty() {
+            return Ok(());
+        }
+        let result = self.inner.read_exact_into_at(offset, output);
+        self.record_activity(result)
+    }
+
+    /// The caller retains this bounded window and handles uncertain failures.
+    pub fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let result = self.inner.write_all_window(bytes);
         self.record_activity(result)
     }
 
@@ -352,6 +413,18 @@ struct DirectFile {
 
 #[allow(clippy::disallowed_methods)]
 impl HostFileIo for DirectFile {
+    fn read_exact_into_at(&mut self, offset: u64, output: &mut [u8]) -> io::Result<()> {
+        use std::io::{Read as _, Seek as _, SeekFrom};
+        window_range(offset, output.len())?;
+        self.file.seek(SeekFrom::Start(offset))?;
+        self.file.read_exact(output)
+    }
+
+    fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
+        window_range(0, bytes.len())?;
+        std::io::Write::write_all(&mut self.file, bytes)
+    }
+
     fn advise_streaming(&mut self) -> io::Result<()> {
         #[cfg(target_os = "macos")]
         {

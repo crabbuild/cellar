@@ -6,6 +6,7 @@
 mod decode;
 mod encode;
 mod file;
+mod io_profile;
 mod scratch;
 
 use crate::apply::ImageState;
@@ -14,6 +15,8 @@ use crate::ltx::{self, Header, Trailer};
 use std::io;
 
 pub use file::{Download, SnapshotFile};
+pub(crate) use io_profile::IoOptions;
+pub use io_profile::IoProfile;
 pub(crate) use scratch::Reservation as ScratchReservation;
 pub use scratch::{ScratchLimits, ScratchPool, ScratchUsage};
 
@@ -109,7 +112,31 @@ pub fn encode(
     limits: Limits,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
-    encode::encode(filesystem, None, image, limits, None, None, read)
+    encode_with_io_profile(filesystem, image, limits, IoProfile::Compact, read)
+}
+
+/// Encode with explicit codec memory admission supplied by the caller.
+/// The image source still receives at most 64 KiB per request. Providers without
+/// native window operations retain the same 64 KiB physical fallback.
+pub fn encode_with_io_profile(
+    filesystem: &dyn FileSystem,
+    image: ImageState,
+    limits: Limits,
+    profile: IoProfile,
+    read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
+) -> Result<SnapshotFile, Error> {
+    encode::encode(
+        filesystem,
+        None,
+        image,
+        limits,
+        None,
+        IoOptions {
+            profile,
+            activity: None,
+        },
+        read,
+    )
 }
 
 /// Encode using anonymous scratch files on an explicitly owned filesystem
@@ -121,7 +148,15 @@ pub fn encode_in(
     limits: Limits,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
-    encode::encode(filesystem, Some(directory), image, limits, None, None, read)
+    encode::encode(
+        filesystem,
+        Some(directory),
+        image,
+        limits,
+        None,
+        IoOptions::default(),
+        read,
+    )
 }
 
 /// Encode under a shared node disk reservation acquired before file creation.
@@ -134,7 +169,40 @@ pub fn encode_admitted_in(
     scratch: &ScratchPool,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
-    encode_observed_in(filesystem, directory, image, limits, scratch, None, read)
+    encode_admitted_with_io_profile_in(
+        filesystem,
+        directory,
+        image,
+        limits,
+        scratch,
+        IoProfile::Compact,
+        read,
+    )
+}
+
+/// Encode under shared disk admission and an explicit caller-admitted codec
+/// memory profile. Reservation precedes file creation and source I/O.
+pub fn encode_admitted_with_io_profile_in(
+    filesystem: &dyn FileSystem,
+    directory: &std::path::Path,
+    image: ImageState,
+    limits: Limits,
+    scratch: &ScratchPool,
+    profile: IoProfile,
+    read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
+) -> Result<SnapshotFile, Error> {
+    encode_observed_in(
+        filesystem,
+        directory,
+        image,
+        limits,
+        scratch,
+        IoOptions {
+            profile,
+            activity: None,
+        },
+        read,
+    )
 }
 
 pub(crate) fn encode_observed_in(
@@ -143,7 +211,7 @@ pub(crate) fn encode_observed_in(
     image: ImageState,
     limits: Limits,
     scratch: &ScratchPool,
-    activity: Option<crate::host::IoActivity>,
+    io: IoOptions,
     read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
     encode::encode(
@@ -152,7 +220,7 @@ pub(crate) fn encode_observed_in(
         image,
         limits,
         Some(scratch),
-        activity,
+        io,
         read,
     )
 }
@@ -187,10 +255,11 @@ struct Cursor {
     end: u64,
     buffer: Vec<u8>,
     at: usize,
+    window: usize,
 }
 
 impl Cursor {
-    fn new(position: u64, end: u64) -> Result<Self, Error> {
+    fn new(position: u64, end: u64, profile: IoProfile) -> Result<Self, Error> {
         if position > end {
             return Err(Error::Invalid("file region"));
         }
@@ -199,6 +268,7 @@ impl Cursor {
             end,
             buffer: Vec::new(),
             at: 0,
+            window: profile.buffer_bytes(),
         })
     }
 
@@ -214,11 +284,9 @@ impl Cursor {
         let mut output = Vec::with_capacity(count);
         while output.len() < count {
             if self.at == self.buffer.len() {
-                let amount = (self.end - self.position).min(BUFFER_BYTES as u64) as usize;
-                self.buffer = file.read_exact_at(self.position, amount)?;
-                if self.buffer.len() != amount {
-                    return Err(io::ErrorKind::UnexpectedEof.into());
-                }
+                let amount = (self.end - self.position).min(self.window as u64) as usize;
+                self.buffer.resize(amount, 0);
+                file.read_exact_into_at(self.position, &mut self.buffer)?;
                 self.at = 0;
             }
             let amount = (count - output.len()).min(self.buffer.len() - self.at);
@@ -234,11 +302,9 @@ impl Cursor {
             return Err(Error::Invalid("short index varint"));
         }
         if self.at == self.buffer.len() {
-            let amount = (self.end - self.position).min(BUFFER_BYTES as u64) as usize;
-            self.buffer = file.read_exact_at(self.position, amount)?;
-            if self.buffer.len() != amount {
-                return Err(io::ErrorKind::UnexpectedEof.into());
-            }
+            let amount = (self.end - self.position).min(self.window as u64) as usize;
+            self.buffer.resize(amount, 0);
+            file.read_exact_into_at(self.position, &mut self.buffer)?;
             self.at = 0;
         }
         let byte = self.buffer[self.at];
@@ -278,4 +344,52 @@ fn put_varint(bytes: &mut Vec<u8>, mut value: u64) {
         value >>= 7;
     }
     bytes.push(value as u8);
+}
+
+// Unix fixture files support the sparse prefix without allocating four GiB.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_varints_cross_io_windows_above_four_gib_and_refuse_invalid_suffixes() {
+        let mut maximum = vec![255; 9];
+        maximum.push(1);
+        for profile in [IoProfile::Compact, IoProfile::Buffered] {
+            for (suffix, expected) in [
+                (maximum.clone(), Some(u64::MAX)),
+                (vec![128], None),
+                (vec![128, 0], None),
+                (vec![255; 10], None),
+            ] {
+                let mut bytes = vec![85; profile.buffer_bytes() - 1];
+                let prefix_length = bytes.len();
+                bytes.extend_from_slice(&suffix);
+                let offset = (1_u64 << 32) + 8192;
+                let mut file = crate::DirectFileSystem.temporary_file(None).unwrap();
+                for (index, chunk) in bytes.chunks(BUFFER_BYTES).enumerate() {
+                    file.write_all_at(offset + (index * BUFFER_BYTES) as u64, chunk)
+                        .unwrap();
+                }
+                let end = offset + bytes.len() as u64;
+                let mut cursor = Cursor::new(offset, end, profile).unwrap();
+                let mut remaining = prefix_length;
+                while remaining != 0 {
+                    let count = remaining.min(BUFFER_BYTES);
+                    assert_eq!(cursor.exact(&mut file, count).unwrap(), vec![85; count]);
+                    remaining -= count;
+                }
+                // The first varint byte is the last byte in the first window.
+                // Continuation bytes must refill without changing the u64 cut.
+                match expected {
+                    Some(value) => {
+                        assert_eq!(cursor.varint(&mut file).unwrap(), value);
+                        assert_eq!(cursor.position, end);
+                    }
+                    None => assert!(cursor.varint(&mut file).is_err()),
+                }
+                assert!(cursor.position <= end);
+            }
+        }
+    }
 }

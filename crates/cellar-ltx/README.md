@@ -95,7 +95,20 @@ that is later truncated. No intermediate pin is exposed. Archive recovery uses
 retiring each previous batch only after its successor is sealed.
 
 `stream_snapshot` encodes and verifies full v0.5.2 images using anonymous files,
-64 KiB I/O buffers and a disk-spooled page index. Logical image quotas extend to
+bounded I/O buffers and a disk-spooled page index. Its default `IoProfile::Compact`
+uses 64 KiB buffers. Explicit `IoProfile::Buffered` uses 2 MiB sequential codec
+buffers under the caller's memory admission; `max_working_bytes()` bounds the
+codec-owned buffers separately from caller-owned source and transport windows.
+Both profiles produce identical encoded bytes and run the same integrity checks.
+Source callbacks and decoded destination writes remain bounded at 64 KiB.
+`HostFile` accepts caller-owned read/write windows through 4 MiB; native files
+operate directly on those buffers, while existing injected providers retain a
+64 KiB fallback. `SnapshotFile::read_into` and `Download::append_window` use this
+contract without allocating another complete transport window. Uncertain partial
+writes poison the download just as ordinary appends do. The native archive
+selects the buffered codec for actual logical images of at least 256 MiB within
+its existing physical working-memory reservation. Compression and configured
+maximum quotas do not select it. Logical image quotas extend to
 decimal 10 GB independently of command-delta decode budgets. Offsets stay `u64`;
 the reserved SQLite lock page is omitted from LTX and represented by canonical
 zeros in the full physical image digest. `Download` owns ordered scratch writes

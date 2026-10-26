@@ -1089,15 +1089,37 @@ async fn decimal_ten_gb_peer_restores_native_serving_after_owner_and_local_state
 }
 
 async fn rustfs_drill(from_s3: bool) -> Result<()> {
+    rustfs_drill_at_quota(
+        from_s3,
+        QUOTA,
+        std::env::var_os("CELLAR_LARGE_IMAGE_FIXTURE").map(PathBuf::from),
+    )
+    .await
+}
+
+/// Exercise the actual buffered-archive threshold before the full 10 GB drill.
+/// This fixture always creates its own SQLite image; an unrelated retained
+/// ten-gigabyte fixture cannot silently replace this preflight's geometry.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires workspace disk and RustFS/AWS credentials; actual 272 MiB SQLite image"]
+async fn buffered_archive_rustfs_recovers_after_owner_and_local_state_loss() -> Result<()> {
+    rustfs_drill_at_quota(true, 272 * 1024 * 1024, None).await
+}
+
+async fn rustfs_drill_at_quota(
+    from_s3: bool,
+    quota: u64,
+    supplied_fixture: Option<PathBuf>,
+) -> Result<()> {
     let workdir = PathBuf::from(std::env::var_os("CELLAR_LARGE_IMAGE_WORKDIR").context("workdir")?);
     let fixture_directory = tempfile::tempdir_in(&workdir)?;
-    let source = match std::env::var_os("CELLAR_LARGE_IMAGE_FIXTURE") {
-        Some(path) => PathBuf::from(path),
+    let source = match supplied_fixture {
+        Some(path) => path,
         None => {
             let path = fixture_directory.path().to_path_buf();
             let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
             let source = domain
-                .blocking(move || make_template(&path, QUOTA, true))?
+                .blocking(move || make_template(&path, quota, true))?
                 .await??;
             domain.shutdown().await;
             source
@@ -1117,7 +1139,7 @@ async fn rustfs_drill(from_s3: bool) -> Result<()> {
     drill(
         source,
         workdir,
-        QUOTA,
+        quota,
         Arc::new(object_store::prefix::PrefixStore::new(store, prefix)),
         from_s3,
         std::env::var_os("CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR").map(PathBuf::from),

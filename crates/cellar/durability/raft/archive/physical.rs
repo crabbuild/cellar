@@ -22,6 +22,16 @@ pub(super) const READ_BYTES: usize = READ_WINDOW * PART_BYTES + 2 * 64 * 1024;
 // Each upload holds either its owned PUT buffer or a bounded GET buffer plus
 // one response chunk. Reuse the existing physical working-memory allowance.
 const _: () = assert!(2 * UPLOAD_WINDOW <= READ_WINDOW);
+const _: () = assert!(stream_snapshot::IoProfile::Buffered.max_working_bytes() <= READ_BYTES);
+const _: () = assert!(PART_BYTES <= cellar_ltx::host::MAX_IO_WINDOW_BYTES);
+
+pub(super) fn io_profile(image_bytes: u64) -> stream_snapshot::IoProfile {
+    if image_bytes >= 256 * 1024 * 1024 {
+        stream_snapshot::IoProfile::Buffered
+    } else {
+        stream_snapshot::IoProfile::Compact
+    }
+}
 
 /// Exact read-back confirmations bind every stored part/index to this local
 /// encoded stream. Retaining it avoids another download of the same bytes;
@@ -136,11 +146,8 @@ impl CellArchive {
                 let read = self
                     .host
                     .run_blocking(move || {
-                        let mut bytes = Vec::with_capacity(length);
-                        while bytes.len() < length {
-                            let n = (length - bytes.len()).min(64 * 1024);
-                            bytes.extend_from_slice(&source.chunk(offset + bytes.len() as u64, n)?);
-                        }
+                        let mut bytes = vec![0; length];
+                        source.read_into(offset, &mut bytes)?;
                         let mut hash = hash;
                         hash.update(&bytes);
                         let object = ObjectRef::new(ObjectKind::SnapshotPart, &bytes, None);
@@ -301,6 +308,7 @@ impl CellArchive {
                     limits,
                     &scratch,
                 )
+                .map(|download| download.with_io_profile(io_profile(metadata.image.length)))
             })
             .await
             .map_err(ArchiveError::Worker)?
@@ -330,9 +338,7 @@ impl CellArchive {
                 .host
                 .run_blocking(move || {
                     let _retention = retention;
-                    for (i, chunk) in bytes.chunks(64 * 1024).enumerate() {
-                        download.append(offset + (i * 64 * 1024) as u64, chunk)?;
-                    }
+                    download.append_window(offset, &bytes)?;
                     Ok::<_, stream_snapshot::Error>(download)
                 })
                 .await

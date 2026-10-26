@@ -11,19 +11,21 @@ struct Writer<'a> {
     length: u64,
     maximum: u64,
     hash: Sha256,
+    window: usize,
 }
 
 impl<'a> Writer<'a> {
-    fn new(file: &'a mut HostFile, maximum: u64) -> Result<Self, Error> {
+    fn new(file: &'a mut HostFile, maximum: u64, profile: IoProfile) -> Result<Self, Error> {
         if file.file_len()? != 0 {
             return Err(Error::Invalid("nonempty encoder destination"));
         }
         Ok(Self {
             file,
-            buffer: Vec::with_capacity(BUFFER_BYTES),
+            buffer: Vec::with_capacity(profile.buffer_bytes()),
             length: 0,
             maximum,
             hash: Sha256::new(),
+            window: profile.buffer_bytes(),
         })
     }
 
@@ -38,10 +40,10 @@ impl<'a> Writer<'a> {
         self.hash.update(bytes);
         self.length = length;
         while !bytes.is_empty() {
-            let n = bytes.len().min(BUFFER_BYTES - self.buffer.len());
+            let n = bytes.len().min(self.window - self.buffer.len());
             self.buffer.extend_from_slice(&bytes[..n]);
             bytes = &bytes[n..];
-            if self.buffer.len() == BUFFER_BYTES {
+            if self.buffer.len() == self.window {
                 self.flush()?;
             }
         }
@@ -50,7 +52,7 @@ impl<'a> Writer<'a> {
 
     fn flush(&mut self) -> Result<(), Error> {
         if !self.buffer.is_empty() {
-            self.file.write_all(&self.buffer)?;
+            self.file.write_all_window(&self.buffer)?;
             self.buffer.clear();
         }
         Ok(())
@@ -68,7 +70,7 @@ pub(super) fn encode(
     image: ImageState,
     limits: Limits,
     scratch: Option<&ScratchPool>,
-    activity: Option<crate::host::IoActivity>,
+    io: IoOptions,
     mut read: impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
 ) -> Result<SnapshotFile, Error> {
     limits.image(image)?;
@@ -90,11 +92,11 @@ pub(super) fn encode(
         .transpose()?;
     let mut body_file = super::file::open_spool(filesystem, directory, image.length)?;
     let mut index_file = super::file::open_spool(filesystem, directory, image.length)?;
-    body_file.set_io_activity(activity.clone());
-    index_file.set_io_activity(activity);
+    body_file.set_io_activity(io.activity.clone());
+    index_file.set_io_activity(io.activity);
     let metadata = {
-        let mut output = Writer::new(&mut body_file, limits.max_encoded_bytes)?;
-        let mut index = Writer::new(&mut index_file, limits.max_encoded_bytes)?;
+        let mut output = Writer::new(&mut body_file, limits.max_encoded_bytes, io.profile)?;
+        let mut index = Writer::new(&mut index_file, limits.max_encoded_bytes, io.profile)?;
         let mut file_crc = Crc64::new();
         let header_bytes = header(image).marshal();
         output.write(&header_bytes)?;
@@ -160,7 +162,7 @@ pub(super) fn encode(
         file_crc.update(&terminator);
         index.write(&[0])?;
         let (index_length, _) = index.finish()?;
-        let mut cursor = Cursor::new(0, index_length)?;
+        let mut cursor = Cursor::new(0, index_length, io.profile)?;
         while cursor.position < cursor.end {
             let n = (cursor.end - cursor.position).min(BUFFER_BYTES as u64) as usize;
             let bytes = cursor.exact(&mut index_file, n)?;
@@ -186,5 +188,11 @@ pub(super) fn encode(
     if let Some(reservation) = &mut reservation {
         reservation.shrink(metadata.encoded_length, 1)?;
     }
-    Ok(SnapshotFile::new(body_file, metadata, limits, reservation))
+    Ok(SnapshotFile::new(
+        body_file,
+        metadata,
+        limits,
+        reservation,
+        io.profile,
+    ))
 }

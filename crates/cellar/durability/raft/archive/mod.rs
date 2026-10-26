@@ -335,11 +335,12 @@ impl CommittedArchiveCut {
     ) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
         self.image
             .pin()
-            .snapshot_with_activity(
+            .snapshot_with_io_profile(
                 stream_snapshot::Limits {
                     max_image_bytes: limits.max_image_bytes,
                     max_encoded_bytes: limits.max_snapshot_bytes,
                 },
+                physical::io_profile(self.image.pin().state().length),
                 activity,
             )
             .map_err(ArchiveError::Images)
@@ -870,7 +871,7 @@ impl CellArchive {
         &self,
         cut: &CommittedArchiveCut,
     ) -> Result<PreparedManifest, ArchiveError> {
-        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length);
+        tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length, io_profile = ?physical::io_profile(cut.image.pin().state().length));
         let input = cut.clone();
         let limits = self.limits;
         let activity = self.activity.clone();

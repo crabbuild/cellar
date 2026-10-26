@@ -13,6 +13,7 @@ pub(super) fn verify(
     metadata: Metadata,
     limits: Limits,
     destination: Option<&mut HostFile>,
+    profile: IoProfile,
 ) -> Result<(), Error> {
     metadata.validate(limits)?;
     let length = metadata.encoded_length;
@@ -58,8 +59,8 @@ pub(super) fn verify(
     if actual_trailer.post_apply_checksum != image.checksum {
         return Err(Error::Invalid("snapshot checksum binding"));
     }
-    let mut index = Cursor::new(index_at, size_at)?;
-    let mut frames = Cursor::new(HEADER_SIZE as u64, index_at)?;
+    let mut index = Cursor::new(index_at, size_at, profile)?;
+    let mut frames = Cursor::new(HEADER_SIZE as u64, index_at, profile)?;
     let mut file_crc = Crc64::new();
     file_crc.update(&header_bytes);
     let mut encoded_hash = Sha256::new();
@@ -137,7 +138,7 @@ pub(super) fn verify(
     file_crc.update(&terminator);
     encoded_hash.update(&terminator);
     let mut index_bytes_hash = Sha256::new();
-    let mut tail = Cursor::new(index_at, size_at)?;
+    let mut tail = Cursor::new(index_at, size_at, profile)?;
     while tail.position < tail.end {
         let n = (tail.end - tail.position).min(BUFFER_BYTES as u64) as usize;
         let bytes = tail.exact(file, n)?;

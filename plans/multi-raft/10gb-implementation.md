@@ -41,8 +41,12 @@ work. The architecture and product policy are in
 ## Work in progress
 
 - Added a file-backed v0.5.2 physical snapshot codec with a disk-spooled page
-  index. Source reads, index buffers, transfer appends and encoded-file writes
-  are bounded at 64 KiB. The codec omits the reserved SQLite lock page from LTX
+  index. Source reads and decoded destination writes are bounded at 64 KiB.
+  The default codec uses 64 KiB buffers; explicitly admitted large archives use
+  2 MiB codec buffers and existing 4 MiB transport windows. Native files operate
+  directly on these windows, with a 64 KiB fallback for existing providers.
+  No profile changes encoded bytes or removes integrity checks. The codec omits
+  the reserved SQLite lock page from LTX
   while binding canonical zero bytes into the complete physical image digest.
 - Added independent logical and encoded size limits using u64 byte offsets.
   Frame/index/image/encoded integrity remains mandatory before physical output
@@ -98,6 +102,36 @@ work. The architecture and product policy are in
 
 ## Validation so far
 
+- The bounded-I/O follow-up passes 858 ordinary cases: 605 host library,
+  68 archive, four native large-image, 27 native LTX, 22 native read,
+  44 snapshot and 88 LTX unit/integration cases. Eight native and two LTX
+  qualification/child entries remain ignored by their parent invocations.
+  Tests compare exact encoded bytes across compact/buffered profiles and native
+  and 64 KiB fallback providers, restore incompressible SQLite overflow data at
+  three page sizes, preserve scratch ownership after uncertain window writes,
+  and reject forged transport/physical data. Native sparse reads and index
+  varints cross 4 GiB offsets and codec-window boundaries; truncated,
+  noncanonical and overflowing varints fail closed. Real compressed SQLite
+  images above 256 MiB retain exact identity and integrity across cache policies
+  and buffer profiles. Rust 1.98.1 library/test Clippy, no-default-feature LTX
+  all-target checks, native-only/no-Python libraries, formatting/layout (1,059
+  files), native dependencies and documentation checks pass. The added actual
+  272 MiB RustFS recovery/write/restart preflight still requires explicit
+  execution, followed by a new source-bound full-size run. Ordinary tests and
+  smaller geometry do not qualify production 10 GB recovery or an RTO.
+- The frozen `bbdc6b2a` production RustFS drill at 9,999,998,976 SQLite bytes
+  failed its unchanged deadline after 2,567.14 seconds (59,375,616-byte maximum
+  RSS). Owner-state erasure, warm takeover/read/write, retained-receipt retry
+  and quota cleanup/reuse passed. Repair admitted required index 9 in 0.894
+  seconds. The subsequent 1,800-second archive wait retained selected head
+  index/term 2/2. There was one index-2 encoder, followed by an index-9 encoder;
+  both uploads were confirmed, but index 9 reached neither independent replay
+  completion nor confirmed head selection before failure. A read-only RustFS
+  inventory found 4,813 objects totaling 20,116,303,274 bytes and independently
+  authenticated the selected 327-byte head envelope at 2/2. Uploaded bytes do
+  not establish a recovery head. No cold restore, replacement write or restart
+  was reached. Concurrent validation load and cache state were not controlled;
+  these timings do not establish an RTO or a controlled performance comparison.
 - The release-mode physical codec drill passed at the exact page-rounded quota:
   9,999,998,976 SQLite bytes and 10,083,173,257 encoded bytes. It exercised
   incompressible overflow data, offsets above 4 GiB, the reserved lock page,

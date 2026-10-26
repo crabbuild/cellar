@@ -333,6 +333,17 @@ impl GenerationPin {
         limits: crate::stream_snapshot::Limits,
         activity: Option<crate::host::IoActivity>,
     ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
+        self.snapshot_with_io_profile(limits, crate::stream_snapshot::IoProfile::Compact, activity)
+    }
+
+    /// Encode with explicit codec memory admission supplied by the caller.
+    /// Physical identity, scratch ownership and source-read bounds are unchanged.
+    pub fn snapshot_with_io_profile(
+        &self,
+        limits: crate::stream_snapshot::Limits,
+        profile: crate::stream_snapshot::IoProfile,
+        activity: Option<crate::host::IoActivity>,
+    ) -> Result<crate::stream_snapshot::SnapshotFile, GenerationError> {
         let mut name = self
             .inner
             .directory
@@ -350,7 +361,7 @@ impl GenerationPin {
             self.state(),
             limits,
             &self.inner.snapshot_scratch,
-            activity,
+            crate::stream_snapshot::IoOptions { profile, activity },
             |offset, length| {
                 reader
                     .read_exact_at(offset, length)

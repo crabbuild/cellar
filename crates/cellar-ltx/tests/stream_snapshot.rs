@@ -13,6 +13,10 @@ use sha2::{Digest, Sha256};
 mod bounded_files;
 
 fn database(page_size: u32) -> Vec<u8> {
+    database_with_payload(page_size, "zeroblob(262144)")
+}
+
+fn database_with_payload(page_size: u32, payload: &str) -> Vec<u8> {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source.sqlite");
     let connection = rusqlite::Connection::open(&path).unwrap();
@@ -20,11 +24,11 @@ fn database(page_size: u32) -> Vec<u8> {
         .pragma_update(None, "page_size", page_size)
         .unwrap();
     connection
-        .execute_batch(
+        .execute_batch(&format!(
             "CREATE TABLE items(id INTEGER PRIMARY KEY, value BLOB);
-        INSERT INTO items VALUES(1,zeroblob(262144));
-        INSERT INTO items VALUES(2,x'616263');",
-        )
+        INSERT INTO items VALUES(1,{payload});
+        INSERT INTO items VALUES(2,x'616263');"
+        ))
         .unwrap();
     drop(connection);
     std::fs::read(path).unwrap()
@@ -71,7 +75,17 @@ fn contents(file: &SnapshotFile) -> Vec<u8> {
 }
 
 fn receive(bytes: &[u8], metadata: Metadata) -> SnapshotFile {
-    let mut download = Download::new(&DirectFileSystem, metadata, Limits::default()).unwrap();
+    receive_with_profile(bytes, metadata, stream_snapshot::IoProfile::Compact)
+}
+
+fn receive_with_profile(
+    bytes: &[u8],
+    metadata: Metadata,
+    profile: stream_snapshot::IoProfile,
+) -> SnapshotFile {
+    let mut download = Download::new(&DirectFileSystem, metadata, Limits::default())
+        .unwrap()
+        .with_io_profile(profile);
     let mut offset = 0;
     for chunk in bytes.chunks(64 * 1024) {
         download.append(offset, chunk).unwrap();
@@ -175,8 +189,16 @@ fn transport_digest_cannot_replace_physical_frame_index_or_image_proofs() {
             encoded_digest: Sha256::digest(&bytes).into(),
             ..snapshot.metadata()
         };
-        let received = receive(&bytes, metadata);
-        assert!(received.verify().is_err(), "corrupt offset {offset} passed");
+        for profile in [
+            stream_snapshot::IoProfile::Compact,
+            stream_snapshot::IoProfile::Buffered,
+        ] {
+            let received = receive_with_profile(&bytes, metadata, profile);
+            assert!(
+                received.verify().is_err(),
+                "corrupt offset {offset} passed with {profile:?}"
+            );
+        }
     }
     let metadata = Metadata {
         image: ImageState {
@@ -366,6 +388,132 @@ fn generation_publication_rereads_snapshot_output_before_returning_a_pin() {
     let pin = store.prepare_snapshot(id, &snapshot).unwrap();
     assert_eq!(pin.state(), image);
     drop(pin);
+    assert_eq!(files.metrics.active_handles.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn buffered_codec_and_bulk_transport_preserve_exact_bytes_and_sqlite_contents() {
+    use std::sync::{atomic::Ordering, Arc};
+    use stream_snapshot::IoProfile;
+    // Random overflow pages cross both 2 MiB codec and 4 MiB transport windows.
+    for page_size in [512, 4096, 65536] {
+        let bytes = database_with_payload(page_size, "randomblob(5242880)");
+        let image = state(&bytes, page_size, true);
+        let root = tempfile::tempdir().unwrap();
+        let files = bounded_files::BoundedFiles {
+            directory: root.path().into(),
+            metrics: Arc::default(),
+        };
+        let compact = encode(&bytes, image);
+        let canonical = contents(&compact);
+        assert!(canonical.len() > cellar_ltx::host::MAX_IO_WINDOW_BYTES);
+        for filesystem in [&DirectFileSystem as &dyn FileSystem, &files] {
+            let buffered = stream_snapshot::encode_with_io_profile(
+                filesystem,
+                image,
+                Limits::default(),
+                IoProfile::Buffered,
+                |offset, length| {
+                    assert!(length <= 65536, "codec changed its source-read contract");
+                    Ok(bytes[offset as usize..offset as usize + length].to_vec())
+                },
+            )
+            .unwrap();
+            assert_eq!(buffered.metadata(), compact.metadata());
+            buffered.verify().unwrap();
+            let mut download = Download::new(&files, buffered.metadata(), Limits::default())
+                .unwrap()
+                .with_io_profile(IoProfile::Buffered);
+            let mut offset = 0;
+            for expected in canonical.chunks(cellar_ltx::host::MAX_IO_WINDOW_BYTES) {
+                let mut window = vec![0; expected.len()];
+                buffered.read_into(offset, &mut window).unwrap();
+                assert_eq!(window, expected);
+                download.append_window(offset, &window).unwrap();
+                offset += window.len() as u64;
+            }
+            let received = download.finish().unwrap();
+            received.verify().unwrap();
+            let path = root.path().join("buffered.sqlite");
+            let mut target = files.create_read_write(&path).unwrap();
+            assert_eq!(received.write_image(&mut target).unwrap(), image);
+            target.sync_all().unwrap();
+            drop(target);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            let db = rusqlite::Connection::open(&path).unwrap();
+            assert_eq!(
+                db.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+                    .unwrap(),
+                "ok"
+            );
+            assert_eq!(
+                db.query_row("SELECT length(value) FROM items WHERE id=1", [], |row| row
+                    .get::<_, u64>(
+                    0
+                ))
+                .unwrap(),
+                5242880
+            );
+            drop(db);
+            std::fs::remove_file(path).unwrap();
+        }
+        assert!(files.metrics.max_read.load(Ordering::Relaxed) <= 65536);
+        assert!(files.metrics.max_write.load(Ordering::Relaxed) <= 65536);
+        assert_eq!(files.metrics.active_handles.load(Ordering::Acquire), 0);
+    }
+}
+
+#[test]
+fn bulk_transport_bounds_partial_writes_and_scratch_lifetime_remain_enforced() {
+    use std::sync::{atomic::Ordering, Arc};
+    use stream_snapshot::{IoProfile, ScratchLimits, ScratchPool, ScratchUsage};
+    let bytes = database_with_payload(4096, "randomblob(2097152)");
+    let snapshot = encode(&bytes, state(&bytes, 4096, false));
+    let root = tempfile::tempdir().unwrap();
+    let files = bounded_files::BoundedFiles {
+        directory: root.path().into(),
+        metrics: Arc::default(),
+    };
+    let metadata = snapshot.metadata();
+    let pool = ScratchPool::new(ScratchLimits {
+        max_bytes: metadata.encoded_length,
+        max_files: 1,
+    })
+    .unwrap();
+    let mut download = Download::new_admitted_in(
+        &files,
+        Some(root.path()),
+        metadata,
+        Limits::default(),
+        &pool,
+    )
+    .unwrap()
+    .with_io_profile(IoProfile::Buffered);
+    let mut first = vec![0; 1048576];
+    snapshot.read_into(0, &mut first).unwrap();
+    assert!(snapshot.read_into(0, &mut []).is_err());
+    assert!(snapshot.read_into(u64::MAX, &mut first).is_err());
+    assert!(snapshot
+        .read_into(metadata.encoded_length, &mut first)
+        .is_err());
+    let mut excessive = vec![0; cellar_ltx::host::MAX_IO_WINDOW_BYTES + 1];
+    assert!(snapshot.read_into(0, &mut excessive).is_err());
+    assert!(download.append_window(0, &excessive).is_err());
+    assert!(download.append_window(1, &first).is_err());
+    assert!(download.append(0, &first).is_err());
+    files.metrics.fail_append.store(true, Ordering::Release);
+    assert!(download.append_window(0, &first).is_err());
+    assert!(
+        download.append_window(0, &first).is_err(),
+        "uncertain prefix was reused"
+    );
+    assert_eq!(
+        pool.usage().unwrap().reserved_bytes,
+        metadata.encoded_length
+    );
+    assert_eq!(files.metrics.active_handles.load(Ordering::Acquire), 1);
+    assert!(download.finish().is_err());
+    assert_eq!(pool.usage().unwrap(), ScratchUsage::default());
     assert_eq!(files.metrics.active_handles.load(Ordering::Acquire), 0);
 }
 

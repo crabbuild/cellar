@@ -31,6 +31,7 @@ pub struct SnapshotFile {
     storage: Arc<Storage>,
     metadata: Metadata,
     limits: Limits,
+    profile: IoProfile,
 }
 
 // Fields drop in declaration order: close the file before refunding its charge.
@@ -56,6 +57,7 @@ impl SnapshotFile {
         metadata: Metadata,
         limits: Limits,
         reservation: Option<ScratchReservation>,
+        profile: IoProfile,
     ) -> Self {
         Self {
             storage: Arc::new(Storage {
@@ -64,11 +66,31 @@ impl SnapshotFile {
             }),
             metadata,
             limits,
+            profile,
         }
     }
 
     pub fn metadata(&self) -> Metadata {
         self.metadata
+    }
+
+    /// Fill a caller-owned transport window of at most 4 MiB. A failed read
+    /// exposes no proof; the caller must discard the entire output buffer.
+    pub fn read_into(&self, offset: u64, output: &mut [u8]) -> Result<(), Error> {
+        if output.is_empty()
+            || output.len() > crate::host::MAX_IO_WINDOW_BYTES
+            || offset
+                .checked_add(output.len() as u64)
+                .is_none_or(|end| end > self.metadata.encoded_length)
+        {
+            return Err(Error::Limit);
+        }
+        self.storage
+            .file
+            .lock()
+            .map_err(|_| Error::Invalid("poisoned snapshot owner"))?
+            .read_exact_into_at(offset, output)?;
+        Ok(())
     }
 
     /// Read on the owning blocking domain; no read allocates over 64 KiB.
@@ -105,7 +127,13 @@ impl SnapshotFile {
             .file
             .lock()
             .map_err(|_| Error::Invalid("poisoned snapshot owner"))?;
-        super::decode::verify(&mut file, self.metadata, self.limits, Some(destination))?;
+        super::decode::verify(
+            &mut file,
+            self.metadata,
+            self.limits,
+            Some(destination),
+            self.profile,
+        )?;
         Ok(self.metadata.image)
     }
 
@@ -115,7 +143,7 @@ impl SnapshotFile {
             .file
             .lock()
             .map_err(|_| Error::Invalid("poisoned snapshot owner"))?;
-        super::decode::verify(&mut file, self.metadata, self.limits, None)
+        super::decode::verify(&mut file, self.metadata, self.limits, None, self.profile)
     }
 }
 
@@ -129,9 +157,17 @@ pub struct Download {
     received: u64,
     hash: Sha256,
     failed: bool,
+    profile: IoProfile,
 }
 
 impl Download {
+    /// Select codec-owned buffers under the caller's explicit memory admission.
+    /// This changes no transport, data-identity or physical verification proof.
+    pub fn with_io_profile(mut self, profile: IoProfile) -> Self {
+        self.profile = profile;
+        self
+    }
+
     pub fn new(
         filesystem: &dyn FileSystem,
         metadata: Metadata,
@@ -181,21 +217,32 @@ impl Download {
             received: 0,
             hash: Sha256::new(),
             failed: false,
+            profile: IoProfile::Compact,
         })
     }
 
     pub fn append(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error> {
+        self.append_bounded(offset, bytes, BUFFER_BYTES)
+    }
+
+    /// Append an already admitted transport window. Providers retain their
+    /// 64 KiB fallback; any uncertain partial write poisons this owner.
+    pub fn append_window(&mut self, offset: u64, bytes: &[u8]) -> Result<(), Error> {
+        self.append_bounded(offset, bytes, crate::host::MAX_IO_WINDOW_BYTES)
+    }
+
+    fn append_bounded(&mut self, offset: u64, bytes: &[u8], maximum: usize) -> Result<(), Error> {
         if self.failed
             || offset != self.received
             || bytes.is_empty()
-            || bytes.len() > BUFFER_BYTES
+            || bytes.len() > maximum
             || offset
                 .checked_add(bytes.len() as u64)
                 .is_none_or(|n| n > self.metadata.encoded_length)
         {
             return Err(Error::Invalid("download order or bound"));
         }
-        if let Err(error) = self.file.write_all(bytes) {
+        if let Err(error) = self.file.write_all_window(bytes) {
             self.failed = true;
             return Err(error.into());
         }
@@ -219,6 +266,7 @@ impl Download {
             self.metadata,
             self.limits,
             self.reservation,
+            self.profile,
         ))
     }
 }
