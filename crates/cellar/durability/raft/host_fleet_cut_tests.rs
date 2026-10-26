@@ -10,7 +10,7 @@ fn position(index: u64, term: u64) -> LogPosition {
 fn marker() -> CommittedImage {
     CommittedImage {
         name: "image-1".into(),
-        digest: [7; 32],
+        commitment: [7; 32].into(),
         length: 4096,
         ltx_epoch: 1,
         txid: 1,
@@ -73,7 +73,7 @@ fn publication_requires_exact_applied_marker() {
         Publication::Image(_)
     ));
     let mut different = visible.clone();
-    different.digest = [8; 32];
+    different.commitment = [8; 32].into();
     assert_eq!(
         Publication::capture(&durable, Some((&different, position(2, 1)))).unwrap(),
         Publication::Pending
@@ -99,6 +99,27 @@ fn publication_requires_exact_applied_marker() {
         Publication::Empty
     );
     assert!(Publication::capture(&empty, Some((&visible, position(2, 1)))).is_err());
+}
+
+#[test]
+fn publication_refuses_extent_root_as_materialized_digest() {
+    use crate::application::consensus::ImageCommitment;
+    use cellar_ltx::internal::{ExtentRootReference, ImageRoot};
+
+    let mut rooted = marker();
+    rooted.commitment = ImageCommitment::Extents(
+        ExtentRootReference::new(ImageRoot::from_bytes([7; 32]), 144).unwrap(),
+    );
+    let durable = DurableApply {
+        position: position(5, 2),
+        image: Some(rooted.clone()),
+    };
+    for visible in [&rooted, &marker()] {
+        assert_eq!(
+            Publication::capture(&durable, Some((visible, position(2, 1)))),
+            Err(CommandFailure::UnsupportedCapability)
+        );
+    }
 }
 
 #[test]

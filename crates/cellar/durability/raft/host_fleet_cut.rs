@@ -91,14 +91,14 @@ impl Publication {
             (None, Some(_)) => Err(CommandFailure::CorruptState),
             (Some(_), None) => Ok(Self::Pending),
             (Some(durable), Some((visible, position))) if durable == visible => Ok(Self::Image(
-                FleetPublishedImage::new(position, marker_state(durable))?,
+                FleetPublishedImage::new(position, marker_state(durable)?)?,
             )),
             // Installing an equivalent snapshot can change the local generation
             // name at the same cut before its publication handoff completes.
             // Preserve the exact-marker requirement without calling it empty
             // or falsely reporting corruption during that legitimate handoff.
             (Some(durable), Some((visible, _)))
-                if marker_state(durable) == marker_state(visible) =>
+                if marker_state(durable)? == marker_state(visible)? =>
             {
                 Ok(Self::Pending)
             }
@@ -127,15 +127,21 @@ impl Publication {
     }
 }
 
-fn marker_state(image: &CommittedImage) -> ImageState {
-    ImageState {
+fn marker_state(image: &CommittedImage) -> Result<ImageState, CommandFailure> {
+    Ok(ImageState {
         epoch: image.ltx_epoch,
         txid: TXID(image.txid),
         checksum: image.checksum,
         page_size: image.page_size,
         length: image.length,
-        digest: image.digest,
-    }
+        // Fleet archive replay currently verifies materialized images. An
+        // extent root belongs to a different hash domain and cannot supply
+        // the full-image digest required by this publication proof.
+        digest: image
+            .commitment
+            .sha256()
+            .map_err(|_| CommandFailure::UnsupportedCapability)?,
+    })
 }
 
 /// Historical proof that a published image (or canonical empty state) covers
