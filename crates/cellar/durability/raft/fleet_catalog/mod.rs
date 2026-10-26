@@ -49,7 +49,8 @@ pub use resources::{
 pub use resources::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyEvidence, FleetTopologyServiceInputs, FleetTopologyServiceStatus,
+    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
+    FleetTopologyServiceStatus,
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,

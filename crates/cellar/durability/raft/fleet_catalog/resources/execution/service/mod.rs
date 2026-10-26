@@ -82,6 +82,39 @@ impl FleetMovementServiceOptions {
     }
 }
 
+/// Explicit bounds for active topology collection, independent of movement and
+/// idle polling. The soft quantum is checked between complete history proofs;
+/// every proof retains the movement turn's original remaining deadline.
+#[derive(Clone, Debug)]
+pub struct FleetTopologyCollectionOptions {
+    pub interval: Duration,
+    pub max_histories_per_round: usize,
+    pub quantum: Duration,
+}
+
+impl Default for FleetTopologyCollectionOptions {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_millis(50),
+            max_histories_per_round: 16,
+            quantum: Duration::from_millis(100),
+        }
+    }
+}
+
+impl FleetTopologyCollectionOptions {
+    fn validate(&self) -> Result<()> {
+        if !(Duration::from_millis(50)..=Duration::from_secs(60)).contains(&self.interval)
+            || !(1..=16).contains(&self.max_histories_per_round)
+            || self.quantum < Duration::from_millis(1)
+            || self.quantum > Duration::from_millis(250)
+        {
+            return Err(FleetCatalogError::Invalid("topology collection bounds"));
+        }
+        Ok(())
+    }
+}
+
 /// Diagnostic outcome of the last attempt, never a membership or capacity proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FleetMovementServiceFailure {
@@ -171,7 +204,9 @@ impl FleetCatalog {
 
     /// Explicit default-off controller for rooted topology operations. Existing
     /// admitted work has priority. New collection, one move admission and
-    /// terminal completion/cancellation are paced by the same owned worker.
+    /// terminal completion/cancellation are paced by the same owned worker. This
+    /// entry point retains one history per round at `options.interval`; use
+    /// `start_topology_service_with_collection` for explicit collection bounds.
     pub async fn start_topology_service(
         &self,
         observer: RaftCells,
@@ -179,10 +214,37 @@ impl FleetCatalog {
         topology_evidence: Arc<dyn FleetTopologyEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
+        let collection = FleetTopologyCollectionOptions {
+            interval: options.interval,
+            max_histories_per_round: 1,
+            quantum: Duration::from_millis(100),
+        };
+        self.start_topology_service_with_collection(
+            observer,
+            movement_evidence,
+            topology_evidence,
+            options,
+            collection,
+        )
+        .await
+    }
+
+    /// Start topology execution with separately bounded active collection.
+    /// Idle polling, admitted movement pacing and failure backoff still use
+    /// `options`; collection never accelerates a failed or idle round.
+    pub async fn start_topology_service_with_collection(
+        &self,
+        observer: RaftCells,
+        movement_evidence: Arc<dyn FleetMovementEvidence>,
+        topology_evidence: Arc<dyn FleetTopologyEvidence>,
+        options: FleetMovementServiceOptions,
+        collection: FleetTopologyCollectionOptions,
+    ) -> Result<FleetMovementService> {
+        collection.validate()?;
         self.start_fleet_service(
             observer,
             movement_evidence,
-            Some(topology_evidence),
+            Some((topology_evidence, collection)),
             options,
         )
         .await
@@ -192,7 +254,10 @@ impl FleetCatalog {
         &self,
         observer: RaftCells,
         evidence: Arc<dyn FleetMovementEvidence>,
-        topology: Option<Arc<dyn FleetTopologyEvidence>>,
+        topology: Option<(
+            Arc<dyn FleetTopologyEvidence>,
+            FleetTopologyCollectionOptions,
+        )>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
         options.validate()?;

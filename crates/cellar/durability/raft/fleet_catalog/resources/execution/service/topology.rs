@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! One incremental collection or root decision per paced empty-book round.
+//! Bounded incremental collection or one root decision per empty-book round.
 use super::*;
-use crate::raft::budget::Permit;
+use crate::raft::budget::{Budget, Permit};
 use crate::raft::fleet_catalog::deadline::Deadline;
 use sha2::{Digest, Sha256};
 
@@ -10,6 +10,55 @@ struct Collection {
     revision: u64,
     verification: FleetTopologyVerification,
     memory: Arc<Vec<Permit>>,
+}
+
+// The time quantum is checked between complete history proofs. It never
+// replaces their original deadline or interrupts a partially verified history.
+
+impl Collection {
+    async fn advance(
+        &mut self,
+        catalog: &FleetCatalog,
+        deadline: &Deadline<'_>,
+        status: &watch::Sender<FleetMovementServiceStatus>,
+        options: &FleetTopologyCollectionOptions,
+    ) -> Result<bool> {
+        let started = catalog.resource_now()?;
+        for _ in 0..options.max_histories_per_round {
+            let advanced = self.verification.verify_next(deadline.remaining()?).await?;
+            status.send_modify(|s| {
+                if let Some(t) = &mut s.topology {
+                    t.histories_checked = self.verification.histories_checked();
+                }
+            });
+            if !advanced {
+                return Ok(false);
+            }
+            if catalog.resource_now()?.saturating_sub(started) >= options.quantum.as_millis() as u64
+            {
+                return Ok(true);
+            }
+        }
+        Ok(true)
+    }
+}
+
+// The worker already owns two root buffers. Reject an intrinsic retained-memory
+// misfit independently of transient pool occupancy. This lower-bound check does
+// not promise enough headroom for subsequent live metadata and physical probes.
+pub(super) fn reserve_collection_memory(
+    budget: &Arc<Budget>,
+    bytes: usize,
+    retained: usize,
+) -> Result<Permit> {
+    let needed = (2 * ROOT_LIMIT)
+        .checked_add(retained)
+        .and_then(|n| n.checked_add(bytes))
+        .ok_or(FleetCatalogError::Limit)?;
+    if needed > budget.capacity().0 {
+        return Err(FleetCatalogError::Limit);
+    }
+    budget.acquire(bytes).ok_or(FleetCatalogError::Overloaded)
 }
 
 struct Candidate {
@@ -20,6 +69,7 @@ struct Candidate {
 
 pub(super) struct TopologyService {
     evidence: Arc<dyn FleetTopologyEvidence>,
+    collection_options: FleetTopologyCollectionOptions,
     collection: Option<Collection>,
     candidate: Option<Candidate>,
     last_operation: Option<[u8; 16]>,
@@ -27,14 +77,24 @@ pub(super) struct TopologyService {
 }
 
 impl TopologyService {
-    pub fn new(evidence: Arc<dyn FleetTopologyEvidence>) -> Self {
+    pub fn new(
+        evidence: Arc<dyn FleetTopologyEvidence>,
+        collection_options: FleetTopologyCollectionOptions,
+    ) -> Self {
         Self {
             evidence,
+            collection_options,
             collection: None,
             candidate: None,
             last_operation: None,
             terminal: false,
         }
+    }
+
+    pub fn collection_delay(&self) -> Option<Duration> {
+        self.collection
+            .as_ref()
+            .map(|_| self.collection_options.interval)
     }
 
     pub fn interrupt(&mut self) {
@@ -185,11 +245,7 @@ impl TopologyService {
                 )
                 .and_then(|n| n.checked_add(histories.checked_mul(4096)?))
                 .ok_or(FleetCatalogError::Limit)?;
-            let input = observer
-                .handle
-                .control_budget
-                .acquire(input_bytes)
-                .ok_or(FleetCatalogError::Overloaded)?;
+            let input = reserve_collection_memory(&observer.handle.control_budget, input_bytes, 0)?;
             let inputs = self
                 .evidence
                 .refresh(&operation, deadline.remaining()?)
@@ -207,11 +263,11 @@ impl TopologyService {
                 .checked_mul(28 * 1024)
                 .and_then(|n| n.checked_add(actions.checked_mul(48)?))
                 .ok_or(FleetCatalogError::Limit)?;
-            let planning = observer
-                .handle
-                .control_budget
-                .acquire(planning_bytes)
-                .ok_or(FleetCatalogError::Overloaded)?;
+            let planning = reserve_collection_memory(
+                &observer.handle.control_budget,
+                planning_bytes,
+                input_bytes,
+            )?;
             let memory = Arc::new(vec![input, planning]);
             let verification = catalog
                 .prepare_topology_verification(
@@ -240,16 +296,10 @@ impl TopologyService {
             .collection
             .as_mut()
             .ok_or(FleetCatalogError::Conflict)?;
-        let advanced = collection
-            .verification
-            .verify_next(deadline.remaining()?)
-            .await?;
-        status.send_modify(|s| {
-            if let Some(t) = &mut s.topology {
-                t.histories_checked = collection.verification.histories_checked();
-            }
-        });
-        if advanced {
+        if collection
+            .advance(catalog, deadline, status, &self.collection_options)
+            .await?
+        {
             return Ok(());
         }
         let inputs = self

@@ -55,7 +55,8 @@ pub use crate::raft::fleet_catalog::{
 pub use crate::raft::fleet_catalog::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
     FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyEvidence, FleetTopologyServiceInputs, FleetTopologyServiceStatus,
+    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
+    FleetTopologyServiceStatus,
 };
 pub use crate::raft::fleet_catalog::{
     FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,

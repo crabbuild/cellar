@@ -47,8 +47,15 @@ impl MovementServiceWork {
         }
     }
 
-    pub(super) fn set_topology(&mut self, evidence: Option<Arc<dyn FleetTopologyEvidence>>) {
-        self.topology = evidence.map(super::topology::TopologyService::new);
+    pub(super) fn set_topology(
+        &mut self,
+        evidence: Option<(
+            Arc<dyn FleetTopologyEvidence>,
+            FleetTopologyCollectionOptions,
+        )>,
+    ) {
+        self.topology = evidence
+            .map(|(evidence, options)| super::topology::TopologyService::new(evidence, options));
     }
 
     pub(crate) fn admit(&mut self, host: &FleetHostAuthorization) -> Result<()> {
@@ -142,7 +149,11 @@ impl MovementServiceWork {
                         status.consecutive_round_failures = 0;
                         status.last_round_failure = None;
                     });
-                    self.options.interval.as_millis() as u64
+                    self.topology
+                        .as_ref()
+                        .and_then(|t| t.collection_delay())
+                        .unwrap_or(self.options.interval)
+                        .as_millis() as u64
                 }
                 Err(FleetCatalogError::Closed) => return,
                 Err(error) => {

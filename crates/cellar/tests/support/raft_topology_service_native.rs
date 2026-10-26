@@ -7,12 +7,18 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 #[path = "raft_operator_native.rs"]
 mod operator_cases;
 
+#[path = "raft_topology_collection_native.rs"]
+mod collection_cases;
+
 struct Inputs {
     hosts: Vec<(NodeId, RaftCells)>,
     namespace: NamespaceCatalog,
     histories: Vec<GroupScope>,
     hold: AtomicBool,
     wrong_keep: AtomicBool,
+    pause_before_planning: AtomicBool,
+    paused_planning: AtomicBool,
+    planning_service: std::sync::Mutex<Option<std::sync::Weak<FleetMovementService>>>,
     calls: AtomicUsize,
     active: Arc<AtomicUsize>,
     cancelled: Arc<AtomicUsize>,
@@ -48,10 +54,36 @@ impl Inputs {
             histories: f.s.proposals.iter().map(|p| p.scope.clone()).collect(),
             hold: AtomicBool::new(false),
             wrong_keep: AtomicBool::new(false),
+            pause_before_planning: AtomicBool::new(false),
+            paused_planning: AtomicBool::new(false),
+            planning_service: std::sync::Mutex::new(None),
             calls: AtomicUsize::new(0),
             active: Arc::new(AtomicUsize::new(0)),
             cancelled: Arc::new(AtomicUsize::new(0)),
         })
+    }
+
+    fn planning_is_paused(&self) -> bool {
+        if !self.pause_before_planning.load(Ordering::Acquire) {
+            return false;
+        }
+        let service = self
+            .planning_service
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade);
+        let paused = service.is_some_and(|service| {
+            service
+                .status()
+                .topology
+                .as_ref()
+                .is_some_and(|s| s.histories_checked == self.histories.len() as u64)
+        });
+        if paused {
+            self.paused_planning.store(true, Ordering::Release);
+        }
+        paused
     }
 
     fn attestation(
@@ -92,7 +124,7 @@ impl FleetTopologyEvidence for Inputs {
                 finished: false,
             };
             let result = async {
-                while self.hold.load(Ordering::Acquire) {
+                while self.hold.load(Ordering::Acquire) || self.planning_is_paused() {
                     cellar::asyncrt::sleep(Duration::from_millis(10)).await;
                 }
                 let mut nodes = Vec::new();
@@ -269,11 +301,12 @@ async fn automatic() -> Result<()> {
         .fail_fleet_confirmation
         .store(true, Ordering::Release);
     let service = caller
-        .start_topology_service(
+        .start_topology_service_with_collection(
             f.s.nodes[0].host.clone(),
             evidence.clone(),
             evidence.clone(),
             options(),
+            FleetTopologyCollectionOptions::default(),
         )
         .await?;
     starter.shutdown().await;

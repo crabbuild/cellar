@@ -103,3 +103,67 @@ fn fleet_service_backoff_saturates_and_bounds_jitter() {
         FleetMovementServiceFailure::Rejected
     );
 }
+
+#[test]
+fn fleet_topology_memory_misfit_is_limit() {
+    use super::topology::reserve_collection_memory;
+    use crate::raft::budget::Budget;
+    let pool = Budget::new(16 * 1024 * 1024, 16);
+    let service = pool.acquire(2 * ROOT_LIMIT).unwrap();
+    // Five nodes/500 histories: real retained input and planning charges.
+    let input_bytes = 5_718_016;
+    let input = reserve_collection_memory(&pool, input_bytes, 0).unwrap();
+    assert!(matches!(
+        reserve_collection_memory(&pool, 14_696_000, input_bytes),
+        Err(FleetCatalogError::Limit)
+    ));
+    assert_eq!(pool.usage().0, 2 * ROOT_LIMIT + input_bytes);
+    drop(input);
+    assert_eq!(pool.usage().0, 2 * ROOT_LIMIT);
+    assert!(matches!(
+        reserve_collection_memory(&pool, usize::MAX, 0),
+        Err(FleetCatalogError::Limit)
+    ));
+    drop(service);
+    assert_eq!(pool.usage(), (0, 0));
+}
+
+#[test]
+fn fleet_topology_memory_pressure_preserves_owned_reservations() {
+    use super::topology::reserve_collection_memory;
+    use crate::raft::budget::Budget;
+    let pool = Budget::new(64 * 1024 * 1024, 16);
+    let service = pool.acquire(2 * ROOT_LIMIT).unwrap();
+    let pressure = pool.acquire(50 * 1024 * 1024).unwrap();
+    let input_bytes = 5_718_016;
+    let input = reserve_collection_memory(&pool, input_bytes, 0).unwrap();
+    let before = pool.usage();
+    assert!(matches!(
+        reserve_collection_memory(&pool, 14_696_000, input_bytes),
+        Err(FleetCatalogError::Overloaded)
+    ));
+    assert_eq!(pool.usage(), before);
+    drop(pressure);
+    let planning = reserve_collection_memory(&pool, 14_696_000, input_bytes).unwrap();
+    assert_eq!(pool.usage().0, 22_511_168);
+    drop(planning);
+    drop(input);
+    drop(service);
+    assert_eq!(pool.usage(), (0, 0));
+}
+
+#[test]
+fn fleet_topology_collection_bounds_preserve_proof_budget_and_poll_floor() {
+    let mut collection = FleetTopologyCollectionOptions::default();
+    assert!(collection.validate().is_ok());
+    collection.interval = Duration::from_millis(49);
+    assert!(collection.validate().is_err());
+    collection.interval = Duration::from_millis(50);
+    collection.max_histories_per_round = 17;
+    assert!(collection.validate().is_err());
+    collection.max_histories_per_round = 16;
+    collection.quantum = Duration::ZERO;
+    assert!(collection.validate().is_err());
+    collection.quantum = Duration::from_millis(251);
+    assert!(collection.validate().is_err());
+}

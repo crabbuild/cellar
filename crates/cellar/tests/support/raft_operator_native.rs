@@ -294,11 +294,12 @@ async fn converge() -> Result<()> {
     let service =
         f.s.f
             .catalog
-            .start_topology_service(
+            .start_topology_service_with_collection(
                 f.s.nodes[0].host.clone(),
                 evidence.clone(),
                 evidence,
                 options(),
+                FleetTopologyCollectionOptions::default(),
             )
             .await?;
     let mut wait_args = op_args("wait", &begin.operation_id);

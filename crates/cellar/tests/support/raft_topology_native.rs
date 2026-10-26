@@ -20,7 +20,11 @@ struct Scenario {
 
 impl Scenario {
     async fn new(materialize: bool) -> Result<Self> {
-        let s = Box::pin(Setup::with_capacity(true, 8))
+        Self::with_histories(materialize, 2).await
+    }
+
+    async fn with_histories(materialize: bool, histories: u8) -> Result<Self> {
+        let s = Box::pin(Setup::with_histories(true, 8, histories))
             .await
             .context("topology base setup")?;
         let (root, node, host) = s.f.peer_host(8).await.context("topology spare setup")?;
