@@ -135,6 +135,7 @@ impl FleetCatalog {
                 match kind {
                     Settlement::Complete => FleetMovementPhase::Complete,
                     Settlement::Fenced => FleetMovementPhase::Fenced,
+                    Settlement::Aborted => FleetMovementPhase::Aborted,
                 },
                 true,
                 snapshot.revision(),
@@ -190,8 +191,9 @@ impl FleetCatalog {
                 MovementAction::Promote { revision }
             }
             FleetMovementPhase::Joint => MovementAction::Finish { revision },
-            FleetMovementPhase::Aborted => return Ok(progress(phase, false, snapshot.revision())),
-            FleetMovementPhase::Complete | FleetMovementPhase::Fenced => {
+            FleetMovementPhase::Complete
+            | FleetMovementPhase::Fenced
+            | FleetMovementPhase::Aborted => {
                 // Every attempt removes the same exact active row. On an
                 // ambiguous reply the next turn first reads its permanent
                 // receipt, including after all caller-local state was lost.
@@ -216,6 +218,15 @@ impl FleetCatalog {
                 let observed = match phase {
                     FleetMovementPhase::Complete => self
                         .complete_movement(snapshot, &settlement, observer, deadline.remaining()?)
+                        .await?
+                        .observed_revision(),
+                    FleetMovementPhase::Aborted => self
+                        .settle_aborted_movement(
+                            snapshot,
+                            &settlement,
+                            observer,
+                            deadline.remaining()?,
+                        )
                         .await?
                         .observed_revision(),
                     _ => self

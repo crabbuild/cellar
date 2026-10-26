@@ -223,13 +223,8 @@ impl MovementServiceWork {
                     entry.status.phase = Some(progress.phase);
                     entry.status.consecutive_failures = 0;
                     entry.status.last_failure = None;
-                    entry.status.needs_operator = progress.phase == FleetMovementPhase::Aborted;
-                    let wait = if entry.status.needs_operator {
-                        self.options.retry_max_interval
-                    } else {
-                        self.options.interval
-                    };
-                    entry.next_at = now.saturating_add(wait.as_millis() as u64);
+                    entry.status.needs_operator = false;
+                    entry.next_at = now.saturating_add(self.options.interval.as_millis() as u64);
                 }
                 Err(FleetCatalogError::Closed) => return Err(FleetCatalogError::Closed),
                 Err(error) => {

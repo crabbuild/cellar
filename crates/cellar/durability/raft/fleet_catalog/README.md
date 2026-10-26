@@ -120,7 +120,7 @@ Ordinary `bootstrap_member` can only resume an already enrolled managed group;
 it refuses fresh or bare genesis before creating local group state or a member
 claim. Managed host startup and `activate_managed_initial_member` use the guarded path described below.
 
-This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1`; use fresh fleet
+This experimental protocol hard-cuts to `/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1`; use fresh fleet
 roots, fresh namespaces, fresh engine directories and matching binaries. Fleet heads require the current
 protocol digest, and their permanent genesis pin binds it. Missing or earlier
 protocol state refuses initialization and reads; there is no compatibility reader.
@@ -646,9 +646,9 @@ records remain. Exact retries reconcile before live prerequisites, including
 after a later reservation or destination shutdown; a fenced receipt cannot be
 retried through the successful-replacement API. Seeding, joint or aborted work,
 unreachable or changed owners, isolation and uncertain physical work retain
-their debt through this path. Aborted/rebooted cleanup, complete assignment
-planning and automatic reconciliation remain subsequent implementation work.
-Neither settlement grants deletion or a capacity lease.
+their debt through this path. Aborted work has the distinct settlement boundary
+below. Changed-boot cleanup, complete assignment planning and new automatic
+admission remain subsequent work. No settlement grants deletion or a capacity lease.
 
 ### Resumable execution of admitted moves
 
@@ -689,10 +689,10 @@ settlement; physical probes add independent lower bounds. The executor performs
 one settlement attempt per turn, and callers must pace retries instead of
 spinning. An ambiguous attempt cannot erase a different reservation: every CAS
 removes only the exact original book reference and retains the physical floor.
-Seeding/joint work resumes; an Aborted result remains unsettled until its separate
-physical cleanup boundary is delivered. This explicit API does not yet provide
-an automatic polling service, admission/assignment generation, workload policy
-or operator maintenance orchestration. Automatic management remains default-off.
+Seeding/joint work resumes. Aborted work uses its distinct terminal proof and
+retains any learner history in physical capacity accounting. The owned polling
+service below paces these turns. Admission/assignment generation, workload policy
+and operator maintenance orchestration remain separate work. Startup stays explicit.
 
 ### Isolated obsolete owners
 
@@ -1026,8 +1026,9 @@ phases only affect scheduling order.
 At most two reservations are retained locally. A disappeared resource-book row
 does not prove success: the worker retains it until reconciliation verifies its
 permanent terminal receipt. New work waits for a local slot if an older outcome
-is still uncertain. Aborted work remains unsettled and is reported as needing
-operator attention. Invalid/rebound evidence cannot consume a permit. The
+is still uncertain. Aborted work also needs its exact terminal quorum/physical
+proof; unavailable prerequisites retain its debit. Invalid/rebound evidence cannot
+consume a permit. The
 service never admits another move, invents a placement, frees debt after a
 timeout or repairs a lost quorum.
 
@@ -1043,6 +1044,37 @@ in the origin's existing control pool; physical/transport work uses its existing
 separate bounded admission.
 
 This is automatic execution of already admitted work. Failure-driven admission,
-complete assignment collection/planning, optional workload policy, aborted or
+complete assignment collection/planning, optional workload policy,
 changed-boot cleanup, operator commands and deployed qualification remain
 separate delivery boundaries. Startup remains explicit and default-off.
+
+
+## Aborted-movement settlement
+
+`settle_aborted_movement` releases the active work slot for the exact consumed
+permit only after all three original seed owners independently observe its
+committed `Aborted` phase and stable original RF3 configuration. Each observation
+binds the exact plan, permit sequence, birth/schema, physical boot and current
+rooted history. These terminal observations precede complete physical-inventory
+and seed-worker/initializer-exit samples on every owner and the destination.
+Unavailable/changed boots or unfinished work retain the reservation.
+
+The destination may be empty or retain the exact admitted learner history. A
+removed learner need not receive the abort commit index, so its local phase is
+not a terminal quorum proof. All original seed owners must have applied the
+abort and stopped physical seeding; they can no longer authorize that learner.
+The target's actual engine occupancy, deployment evidence and installed pools
+raise its monotonic physical floor. The old learner history is retained and
+remains an occupied placement target. Settlement does not reclaim its storage,
+restart it as a voter or qualify a smaller resource profile.
+
+The distinct `FleetAbortedMovementCompletion` reports `retained_target()` as a
+historical observation. Successful replacement and unused fenced cancellation
+cannot reinterpret this receipt. The common root CAS records the exact outcome,
+retains the permit/debit/journals and physical floor, and removes only the exact
+active reservation. Lost confirmation and later revisions reconcile the same
+receipt before live prerequisites. `reconcile_movement` and the owned service
+also drive this terminal boundary; they do not decide to abort a move themselves.
+Changed-boot/unavailable-owner settlement and deployment isolation integration
+remain separate work. The receipt schema hard-cuts to `/aborted-movement-1` with
+numeric markers still 1; use fresh matching coordination/data roots and engines.

@@ -139,12 +139,13 @@ impl FleetCatalog {
         Ok(())
     }
 
-    pub(super) async fn check_fenced_owner(
+    pub(super) async fn check_cancelled_owner(
         &self,
         snapshot: &FleetSnapshot,
         row: &Record,
         owner: &super::super::movement::MovementOwner,
         sample: &RaftPeerFleetMembershipObservation,
+        settlement: Settlement,
     ) -> Result<()> {
         let permit = row.permit.as_ref().ok_or_else(invalid)?;
         let proof = sample.membership();
@@ -168,6 +169,21 @@ impl FleetCatalog {
             .iter()
             .map(|owner| owner.member)
             .collect::<BTreeSet<_>>();
+        let repair = proof.repair_status().map_err(|_| invalid())?;
+        let (phase, valid_repair) = match settlement {
+            Settlement::Fenced => (
+                FleetPermitPhase::Fenced,
+                repair.is_none_or(|s| !s.phase.active()),
+            ),
+            Settlement::Aborted => {
+                let plan = row.request.movement.as_ref().ok_or_else(invalid)?.plan()?;
+                (
+                    FleetPermitPhase::Aborted,
+                    repair.is_some_and(|s| s.phase == RepairPhase::Aborted && s.plan == plan),
+                )
+            }
+            Settlement::Complete => return Err(invalid()),
+        };
         if !owner.matches(boot)?
             || proof.replica().node.bytes() != owner.node
             || proof.replica().member.get() != owner.member
@@ -178,11 +194,8 @@ impl FleetCatalog {
             || proof.schema_digest() != history.schema_digest()
             || status.permit.as_ref() != Some(permit)
             || status.consumed_sequence != permit.sequence()
-            || status.phase != Some(FleetPermitPhase::Fenced)
-            || proof
-                .repair_status()
-                .map_err(|_| invalid())?
-                .is_some_and(|s| s.phase.active())
+            || status.phase != Some(phase)
+            || !valid_repair
             || expected.len() != 3
             || voters != expected
             || conf.voters().len() != 3
@@ -196,13 +209,14 @@ impl FleetCatalog {
         Ok(())
     }
 
-    pub(super) async fn check_fenced_movement(
+    pub(super) async fn check_cancelled_movement(
         &self,
         snapshot: &FleetSnapshot,
         row: &Record,
         target: &RaftPeerNodeObservation,
         sources: &[OwnerClosure],
         quorums: &[RaftPeerFleetMembershipObservation],
+        settlement: Settlement,
     ) -> Result<()> {
         let permit = row.permit.as_ref().ok_or_else(invalid)?;
         let latest = self
@@ -221,16 +235,23 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Unconfirmed);
         }
+        let target_role = match settlement {
+            Settlement::Fenced => PhysicalRole::EmptyTarget,
+            Settlement::Aborted => PhysicalRole::AbortedTarget {
+                member: permit.replacement().map_err(|_| invalid())?.member.get(),
+            },
+            Settlement::Complete => return Err(invalid()),
+        };
         self.check_movement_physical(
             snapshot,
             row,
             target,
             &row.request.attestation.boot,
-            PhysicalRole::EmptyTarget,
+            target_role,
         )
         .await?;
         for ((owner, closure), quorum) in owners.iter().zip(sources).zip(quorums) {
-            self.check_fenced_owner(snapshot, row, owner, quorum)
+            self.check_cancelled_owner(snapshot, row, owner, quorum, settlement)
                 .await?;
             let OwnerClosure::Observed(sample) = closure else {
                 return Err(FleetCatalogError::Unconfirmed);
@@ -248,7 +269,7 @@ impl FleetCatalog {
                 row,
                 sample,
                 boot,
-                PhysicalRole::FencedOwner {
+                PhysicalRole::CancelledOwner {
                     member: owner.member,
                 },
             )
@@ -282,7 +303,15 @@ impl FleetCatalog {
         let physical = inventory.history(&scope).map_err(|_| invalid())?;
         let matches = match (role, physical) {
             (PhysicalRole::EmptyTarget, None) => true,
-            (PhysicalRole::FencedOwner { member }, Some(h)) => {
+            (PhysicalRole::AbortedTarget { .. }, None) => true,
+            (
+                PhysicalRole::CancelledOwner { member } | PhysicalRole::AbortedTarget { member },
+                Some(h),
+            ) => {
+                // A removed learner may never receive the abort commit index.
+                // Every original voter has already fenced new seed grants;
+                // worker exit and exact retained identity suffice here. The
+                // destination's occupied slot remains in its physical floor.
                 h.birth_digest() == history.birth_digest() && h.member().get() == member
             }
             (PhysicalRole::Completed { member, sequence }, Some(h)) => {

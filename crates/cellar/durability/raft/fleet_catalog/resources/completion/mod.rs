@@ -16,11 +16,13 @@ use records::{Completion, Floor};
 pub(super) enum Settlement {
     Complete,
     Fenced,
+    Aborted,
 }
 
 enum PhysicalRole {
     Completed { member: u64, sequence: u64 },
-    FencedOwner { member: u64 },
+    CancelledOwner { member: u64 },
+    AbortedTarget { member: u64 },
     EmptyTarget,
 }
 
@@ -49,12 +51,39 @@ pub struct FleetMovementCompletion {
     applied: u64,
     observed: u64,
     isolated_sources: Vec<[u8; 16]>,
+    retained_target: bool,
 }
 
 /// Historical settlement of an unused, quorum-fenced permit. This is distinct
 /// from successful replica replacement and never grants storage reclamation.
 pub struct FleetFencedMovementCompletion {
     inner: FleetMovementCompletion,
+}
+
+/// Historical settlement of a quorum-aborted learner. A retained destination
+/// history remains charged to capacity; this receipt grants no storage cleanup.
+pub struct FleetAbortedMovementCompletion {
+    inner: FleetMovementCompletion,
+}
+
+impl FleetAbortedMovementCompletion {
+    pub fn reservation(&self) -> [u8; 16] {
+        self.inner.reservation()
+    }
+
+    pub fn applied_revision(&self) -> u64 {
+        self.inner.applied_revision()
+    }
+
+    pub fn observed_revision(&self) -> u64 {
+        self.inner.observed_revision()
+    }
+
+    /// Exact local learner history was present at settlement. It may still be
+    /// behind the abort; all original seed owners must already have applied it.
+    pub fn retained_target(&self) -> bool {
+        self.inner.retained_target
+    }
 }
 
 impl FleetFencedMovementCompletion {
@@ -143,6 +172,23 @@ impl FleetCatalog {
             .map(|inner| FleetFencedMovementCompletion { inner })
     }
 
+    /// Settle the exact consumed permit only after every original seed owner
+    /// observes its committed abort and then proves physical seed-worker exit.
+    /// The destination must be empty or retain only this exact learner binding;
+    /// its occupied engine and storage remain charged by the monotonic floor.
+    /// Missing/changed boots and in-flight work preserve the active debit.
+    pub async fn settle_aborted_movement(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetMovementCompletionRequest,
+        observer: &RaftCells,
+        timeout: Duration,
+    ) -> Result<FleetAbortedMovementCompletion> {
+        self.settle_movement(snapshot, request, observer, timeout, Settlement::Aborted)
+            .await
+            .map(|inner| FleetAbortedMovementCompletion { inner })
+    }
+
     async fn settle_movement(
         &self,
         snapshot: &FleetSnapshot,
@@ -165,6 +211,7 @@ impl FleetCatalog {
                             applied,
                             observed: current.revision(),
                             isolated_sources: record.isolated_sources.clone(),
+                            retained_target: record.retained_target,
                         }));
                     }
                 }
@@ -222,7 +269,7 @@ impl FleetCatalog {
         let probe_started = self.resource_now()?;
         let quorum_node = match settlement {
             Settlement::Complete => row.node,
-            Settlement::Fenced => row
+            Settlement::Fenced | Settlement::Aborted => row
                 .request
                 .movement
                 .as_ref()
@@ -241,8 +288,8 @@ impl FleetCatalog {
         // Fence application must precede worker-exit samples on every possible
         // seed provider. No provider can grant a new seed for this sequence
         // afterward; already running work still has to exit physically.
-        let mut fenced_owners = Vec::new();
-        if settlement == Settlement::Fenced {
+        let mut cancelled_owners = Vec::new();
+        if settlement != Settlement::Complete {
             for owner in row.seed_owners.as_ref().ok_or_else(invalid)? {
                 let node = NodeId::new(owner.node).map_err(|_| invalid())?;
                 let sample = if node == quorum_node {
@@ -260,10 +307,10 @@ impl FleetCatalog {
                 };
                 self.run(
                     deadline.remaining()?,
-                    self.check_fenced_owner(snapshot, &row, owner, &sample),
+                    self.check_cancelled_owner(snapshot, &row, owner, &sample, settlement),
                 )
                 .await?;
-                fenced_owners.push(sample);
+                cancelled_owners.push(sample);
             }
         }
         let target = observer
@@ -319,7 +366,7 @@ impl FleetCatalog {
                 OwnerClosure::Observed(sample) => Some(sample.sample_age_ms),
                 OwnerClosure::Isolated(_) => None,
             }))
-            .chain(fenced_owners.iter().map(|sample| sample.sample_age_ms()))
+            .chain(cancelled_owners.iter().map(|sample| sample.sample_age_ms()))
             .any(|age| age > MAX_SAMPLE_AGE_MS)
         {
             return Err(FleetCatalogError::Unconfirmed);
@@ -333,9 +380,16 @@ impl FleetCatalog {
                     self.check_movement_completion(snapshot, &row, &quorum, &target, &sources)
                         .await?;
                 }
-                Settlement::Fenced => {
-                    self.check_fenced_movement(snapshot, &row, &target, &sources, &fenced_owners)
-                        .await?;
+                Settlement::Fenced | Settlement::Aborted => {
+                    self.check_cancelled_movement(
+                        snapshot,
+                        &row,
+                        &target,
+                        &sources,
+                        &cancelled_owners,
+                        settlement,
+                    )
+                    .await?;
                 }
             }
             let current = &target.view;
@@ -392,7 +446,7 @@ impl FleetCatalog {
                             }
                         }
                     }
-                    for sample in &fenced_owners {
+                    for sample in &cancelled_owners {
                         digests.extend_from_slice(&sample.membership().replica().node.bytes());
                         digests.extend_from_slice(
                             &sample
@@ -413,6 +467,13 @@ impl FleetCatalog {
                         OwnerClosure::Observed(_) => None,
                     })
                     .collect(),
+                retained_target: target
+                    .inventory
+                    .as_ref()
+                    .ok_or(FleetCatalogError::Unconfirmed)?
+                    .history(&scope)
+                    .map_err(|_| invalid())?
+                    .is_some(),
                 membership_revision: quorum.membership().membership_revision().get(),
                 barrier: quorum.membership().barrier().get(),
                 physical,
@@ -472,6 +533,7 @@ impl FleetCatalog {
                 applied,
                 observed: committed.snapshot.revision(),
                 isolated_sources: record.isolated_sources,
+                retained_target: record.retained_target,
             })
         })
         .await

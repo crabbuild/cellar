@@ -7,7 +7,8 @@ mod admission;
 mod completion;
 mod execution;
 pub use completion::{
-    FleetFencedMovementCompletion, FleetMovementCompletion, FleetMovementCompletionRequest,
+    FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
+    FleetMovementCompletionRequest,
 };
 pub(crate) use execution::MovementServiceWork;
 pub use execution::{

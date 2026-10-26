@@ -41,6 +41,7 @@ pub(super) struct Completion {
     pub target_inventory: [u8; 32],
     pub source_inventory: [u8; 32],
     pub isolated_sources: Vec<[u8; 16]>,
+    pub retained_target: bool,
     pub membership_revision: u64,
     pub barrier: u64,
     pub physical: FleetResourceBounds,
@@ -65,7 +66,9 @@ impl Completion {
             .contains(&[0; 32])
             || value.membership_revision == 0
             || value.isolated_sources.len() > 1
-            || value.settlement == Settlement::Fenced && !value.isolated_sources.is_empty()
+            || value.settlement != Settlement::Complete && !value.isolated_sources.is_empty()
+            || value.settlement == Settlement::Complete && !value.retained_target
+            || value.settlement == Settlement::Fenced && value.retained_target
             || value.isolated_sources.contains(&[0; 16])
             || value.barrier < value.membership_revision
             || value.physical.high_water(value.request.attestation.used) != value.physical

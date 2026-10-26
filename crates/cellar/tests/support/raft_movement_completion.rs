@@ -4,6 +4,8 @@
 use super::*;
 use cellar::application::consensus::verification::FleetSnapshot;
 
+#[path = "raft_movement_aborted.rs"]
+mod aborted;
 #[path = "raft_movement_fenced.rs"]
 mod fenced;
 

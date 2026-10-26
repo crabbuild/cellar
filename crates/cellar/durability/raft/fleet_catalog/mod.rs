@@ -42,9 +42,9 @@ pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub(crate) use resources::MovementServiceWork;
 pub use resources::{
-    FleetFencedMovementCompletion, FleetMovementAdmission, FleetMovementCompletion,
-    FleetMovementCompletionRequest, FleetMovementRequest, FleetResourceAdmission,
-    FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
+    FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementAdmission,
+    FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementRequest,
+    FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,

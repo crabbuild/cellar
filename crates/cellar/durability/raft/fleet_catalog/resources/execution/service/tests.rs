@@ -60,20 +60,27 @@ fn fleet_service_retains_missing_work_until_proven_settlement() {
 
 #[test]
 fn fleet_service_joint_priority_preserves_other_work_fairness() {
-    let mut schedule = schedule::Schedule::default();
-    schedule.refresh(vec![pending(10), pending(11)]);
-    schedule.entries[1].status.phase = Some(FleetMovementPhase::Joint);
-    assert_eq!(
-        (0..4)
-            .map(|_| schedule.select(0).unwrap())
-            .collect::<Vec<_>>(),
-        vec![1, 1, 1, 0]
-    );
-    schedule.entries[1].next_at = 100;
-    assert_eq!(schedule.select(99), Some(0));
-    schedule.entries[0].next_at = 200;
-    assert_eq!(schedule.select(99), None);
-    assert_eq!(schedule.select(100), Some(1));
+    for phase in [
+        FleetMovementPhase::Joint,
+        FleetMovementPhase::Complete,
+        FleetMovementPhase::Fenced,
+        FleetMovementPhase::Aborted,
+    ] {
+        let mut schedule = schedule::Schedule::default();
+        schedule.refresh(vec![pending(10), pending(11)]);
+        schedule.entries[1].status.phase = Some(phase);
+        assert_eq!(
+            (0..4)
+                .map(|_| schedule.select(0).unwrap())
+                .collect::<Vec<_>>(),
+            vec![1, 1, 1, 0]
+        );
+        schedule.entries[1].next_at = 100;
+        assert_eq!(schedule.select(99), Some(0));
+        schedule.entries[0].next_at = 200;
+        assert_eq!(schedule.select(99), None);
+        assert_eq!(schedule.select(100), Some(1));
+    }
 }
 
 #[test]

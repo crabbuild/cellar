@@ -3,7 +3,7 @@
 //! Committed cancellation, physical absence and exact terminal reconciliation.
 use super::*;
 
-async fn reserve(
+pub(super) async fn reserve(
     s: &Setup,
     cells: &[RaftCellHandle],
 ) -> Result<(usize, FleetMovementRequest, FleetPermitAuthorization)> {

@@ -42,15 +42,15 @@ pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::fleet_catalog::{
-    fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
-    FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
-    FleetFencedMovementCompletion, FleetGroupAuthorization, FleetHostAuthorization,
-    FleetIsolationAttestation, FleetMovementAdmission, FleetMovementCompletion,
-    FleetMovementCompletionRequest, FleetMovementExecutionRequest, FleetMovementPhase,
-    FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility, FleetNodeIsolation,
-    FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState, FleetPendingMovement,
-    FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission,
-    FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
+    fleet_capacity_profile_digest, FleetAbortedMovementCompletion, FleetCapacityAction,
+    FleetCapacityAdmission, FleetCapacityAttestation, FleetCapacityAuthorization,
+    FleetCapacityRequest, FleetFencedMovementCompletion, FleetGroupAuthorization,
+    FleetHostAuthorization, FleetIsolationAttestation, FleetMovementAdmission,
+    FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementExecutionRequest,
+    FleetMovementPhase, FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility,
+    FleetNodeIsolation, FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState,
+    FleetPendingMovement, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
+    FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_catalog::{
     FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,

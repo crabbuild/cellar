@@ -57,6 +57,7 @@ impl Schedule {
                     FleetMovementPhase::Joint
                         | FleetMovementPhase::Complete
                         | FleetMovementPhase::Fenced
+                        | FleetMovementPhase::Aborted
                 )
             )
         });
