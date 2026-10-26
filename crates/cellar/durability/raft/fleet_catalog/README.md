@@ -593,29 +593,63 @@ ambiguous result still requires exact journal reconciliation. Generic metadata
 mutations cannot delete or replace earlier resource rows or reset their book.
 
 `FleetResourceAdmission` is historical debit acceptance, not a capacity lease,
-membership permit or learner-initialization capability. No release API is
-provided: terminal group proof, physical joins and atomic permit/resource release
-remain controller work. No business acknowledgement calls this component.
+membership permit or learner-initialization capability. No business
+acknowledgement calls this component.
+
+### Successful movement completion
+
+`complete_movement` owns a new target safe ReadIndex and complete physical
+observations of the target and all three original voters. Admission pins every
+possible seed provider's exact boot and member, even when the learner selects a
+different source from admission's quorum observer. Completion requires the exact latest permit, locally
+durable Complete phase at its consumed sequence on all four owners, stable RF3 with
+the replacement present and obsolete member absent, current enrollment and
+failure-domain separation. The original deadline covers every probe and CAS;
+the full probe cohort must remain within the five-second sample bound.
+
+Seed archive jobs retain a separate work count until their actual futures exit,
+including after their read waiter expires. Peer snapshot capture and transfer
+retain their existing source reservation. All owners must report no outstanding
+seed work, initializer or pending history registration. Locally completed
+membership forbids a new seed grant for this already promoted learner. A retired
+voter can prove local completion without obtaining a new source quorum. A local
+physical inspection follows bounded host control and current trust validation,
+so the controller may run on either endpoint.
+
+One root CAS records a permanent completion receipt, advances an independent
+physical high-water floor and removes only the exact original reservation from
+the bounded active book. It retains the consumed permit and original debit and
+request journals. Subsequent admission charges that floor plus all remaining
+unresolved work; moving a replica never credits retained source slots or bytes.
+Generic mutations cannot forge or erase a completion or floor. Exact committed
+retries reconcile before live prerequisites, including after target shutdown;
+changed request payloads refuse.
+
+This boundary completes successful moves only. Aborted or unstarted moves,
+unreachable/rebooted owners and uncertain physical work retain their debt. Their
+terminal cleanup, complete assignment planner and automatic reconciliation remain
+subsequent implementation work. Completion is not a deletion or capacity lease.
 
 ## Complete physical history observation
 
 `RaftCells::inspect_peer_physical_inventory` uses the authenticated node-control
 route and an explicit MAC-bound request mode. It does not need a business-cell
 registration, Actor lease, SQL image or live Raft quorum. Its compact sorted
-entries contain the full-scope digest, immutable birth digest and physical member
-ID from the append-only engine catalog. Retired and unattached histories remain
+entries contain the full-scope digest, immutable birth digest, physical member
+ID and locally completed permit sequence from the append-only engine catalog
+and durable per-group cache. Retired and unattached histories remain
 present. Unknown local histories still consume the reported physical slots.
 
 The snapshot is bounded to 4,096 durable histories. Its maximum binary body is
-311,341 bytes and fits the existing 1-MiB node/peer metadata reservation. Host
+344,109 bytes and fits the existing 1-MiB node/peer metadata reservation. Host
 response ownership also reserves 1 MiB before capture and retains that charge
 through SDK delivery or cancellation. Ordinary node observations retain their
 smaller response reservation and omit inventory explicitly. Omission is not an
 empty inventory. The inventory codec checks counts, exact length, ordering,
 duplicate/zero identities and pending-initializer accounting before admission.
 
-The driver captures immutable entries under one engine-catalog lock and checks
-the accompanying node counts. A racing sync that produces a mixed count cut
+The driver captures entries under one engine-catalog lock with short per-group
+cache reads, then checks the accompanying node counts. A racing sync that produces a mixed count cut
 refuses. The pending initializer is explicit even after its slot becomes durable;
 it cannot disappear as apparently unused capacity. No lock crosses asynchronous
 work. The receiver's original budget includes header residence. Retained SDK

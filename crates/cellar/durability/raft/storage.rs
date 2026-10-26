@@ -449,8 +449,9 @@ impl ReplicaLog {
             .collect())
     }
 
-    /// Read only immutable occupied identities under one catalog lock. This
-    /// catalog is append-only for an engine instance; retired bindings remain.
+    /// Read occupied identities and locally durable completed membership under
+    /// the engine catalog lock and short per-group cache reads. This catalog is
+    /// append-only for an engine instance; retired bindings remain.
     pub(crate) fn physical_inventory(
         &self,
         pending: Option<&GroupScope>,

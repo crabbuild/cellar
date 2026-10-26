@@ -2212,7 +2212,11 @@
         "crates/cellar/durability/raft/physical_inventory.rs",
         "crates/cellar/durability/raft/physical_inventory_tests.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/movement.rs",
-        "crates/cellar/tests/support/raft_movement_native.rs"
+        "crates/cellar/tests/support/raft_movement_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/completion/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/completion/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/completion/proofs.rs",
+        "crates/cellar/tests/support/raft_movement_completion.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2224,7 +2228,8 @@
         "Implement boot/process/profile-scoped conservative resource accounting, monotonic attributed materialization and bounded unresolved movement debt. Preserve physical high water until a separate terminal-proof release boundary; a pure ledger grants no catalog admission authority.",
         "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution.",
         "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation.",
-        "Atomically link exact membership intent to its target debit and active book, using owned fresh source ReadIndex and target physical inventory. Reconcile the canonical combined intent before live prerequisites; protect linked permits against generic replacement. Actual group consumption and target initialization remain mandatory."
+        "Atomically link exact membership intent to its target debit and active book, using owned fresh source ReadIndex and target physical inventory. Reconcile the canonical combined intent before live prerequisites; protect linked permits against generic replacement. Actual group consumption and target initialization remain mandatory.",
+        "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Unstarted, aborted, unreachable and rebooted owners remain charged until their distinct terminal boundary is implemented."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2443,6 +2448,84 @@
             "F02",
             "F03",
             "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_completion_reuses_slot_preserves_floor",
+          "oracle": "Complete a real S3-seeded RF3 replacement using the original source as observer. Release its active reservation, refuse generic receipt/floor deletion, admit another history into spare capacity, retain the occupied engine slot, reconcile after a later root and execute another durable write.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_completion_lost_reply_survives_target_shutdown",
+          "oracle": "Complete a replacement seeded by a different voter from the admission quorum source using the target as observer; lose successful CAS confirmation, physically shut down the target, recreate the adapter and reconcile the original completion before live probes. Changed occupancy payload conflicts.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_completion_unstarted_retains_debt",
+          "oracle": "An admitted but unstarted move cannot complete or release its last target slot. No completion receipt/root advance occurs, another debit refuses, and original RF3 writes still succeed.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_completion_unreachable_source_retains_debt",
+          "oracle": "After successful RF3 replacement, physically shut down the original source. The surviving target quorum cannot substitute for that original physical owner; completion refuses without advancing the root or installing a receipt.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_seed_waiter_loss_retains_physical_worker",
+          "oracle": "Hold actual S3 metadata I/O on a different voter from admission\u2019s selected source, observe the source seed worker, drop the learner waiter and exceed its original deadline. The source remains physically busy until the gate releases; no completion can free debt, and the count drains only after real I/O exits.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_movement_completion_unreachable_other_seed_owner_retains_debt",
+          "oracle": "After completed RF3 replacement, physically stop a retired original voter different from the selected quorum source. Independently establish surviving target quorum; completion still refuses without root advancement because every possible seed provider must prove physical exit.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F06",
+            "F07",
             "F08",
             "F10"
           ]

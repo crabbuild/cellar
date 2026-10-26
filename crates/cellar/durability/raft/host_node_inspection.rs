@@ -20,6 +20,51 @@ impl Driver {
         minimum_revision: u64,
         physical: bool,
     ) {
+        // Physical accounting also serves the local controller. It goes through
+        // the same host turn, trust validation and delivery reservation, without
+        // manufacturing a self-to-self authenticated transport route.
+        if physical && node == self.log.limits().node {
+            let Some(bytes) = self
+                .control_budget
+                .acquire(crate::raft::physical_inventory::RESPONSE_BYTES)
+            else {
+                reply_node(
+                    &mut request,
+                    Ok(Response::PeerNodeInspection(Err(
+                        InspectionError::Overloaded,
+                    ))),
+                );
+                return;
+            };
+            let result = self
+                .physical_node_observation()
+                .map_err(|error| match error {
+                    CommandFailure::Overloaded => InspectionError::Overloaded,
+                    _ => InspectionError::Unavailable,
+                })
+                .and_then(|(view, inventory)| {
+                    self.transport
+                        .validate_fleet_node_observation(&view, minimum_revision)?;
+                    let sample_age_ms = self
+                        .log
+                        .domain()
+                        .mono_ms()
+                        .ok()
+                        .and_then(|now| now.checked_sub(request.started))
+                        .ok_or(InspectionError::Unavailable)?;
+                    Ok(Box::new(RaftPeerNodeObservation {
+                        view,
+                        inventory: Some(Box::new(inventory)),
+                        sample_age_ms,
+                    }))
+                });
+            node_control::reply_node_charged(
+                &mut request,
+                Ok(Response::PeerNodeInspection(result)),
+                Some(bytes),
+            );
+            return;
+        }
         let admitted = (|| {
             if self.options.managed.is_none() {
                 return Err(InspectionError::Refused);

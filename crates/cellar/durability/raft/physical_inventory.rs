@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 const MAX_GROUPS: usize = 4096;
 const PREFIX: usize = 45;
-const ENTRY_BYTES: usize = 72;
+const ENTRY_BYTES: usize = 80;
 
 pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
 
@@ -29,9 +29,16 @@ pub struct RaftPhysicalHistory {
     scope: [u8; 32],
     birth: [u8; 32],
     member: MemberId,
+    completed_sequence: u64,
 }
 
 impl RaftPhysicalHistory {
+    /// Locally durable Complete phase for this birth/history. A fresh quorum
+    /// must independently bind the exact permit at this consumed sequence.
+    pub fn completed_sequence(&self) -> u64 {
+        self.completed_sequence
+    }
+
     pub fn scope_digest(&self) -> [u8; 32] {
         self.scope
     }
@@ -75,6 +82,7 @@ impl RaftPhysicalInventory {
             digest.update(history.scope);
             digest.update(history.birth);
             digest.update(history.member.get().to_be_bytes());
+            digest.update(history.completed_sequence.to_be_bytes());
         }
         digest.finalize().into()
     }
@@ -95,10 +103,9 @@ impl RaftPhysicalInventory {
     pub(crate) fn validate(&self, view: &RaftHostObservation) -> Result<(), TransportError> {
         super::node_inspection_wire::validate(view)?;
         if self.histories.len() > MAX_GROUPS
-            || self
-                .histories
-                .iter()
-                .any(|h| h.scope == [0; 32] || h.birth == [0; 32])
+            || self.histories.iter().any(|h| {
+                h.scope == [0; 32] || h.birth == [0; 32] || h.completed_sequence >= u64::MAX - 2
+            })
             || self.histories.windows(2).any(|w| w[0].scope >= w[1].scope)
             || self.initializing == Some([0; 32])
         {
@@ -139,10 +146,23 @@ pub(crate) fn capture(
         if scope != &group.identity().scope || group.birth_digest == [0; 32] {
             return Err(LogError::WrongIdentity);
         }
+        let completed_sequence = group
+            .read()?
+            .membership
+            .fleet_status()
+            .filter(|status| {
+                status.phase == Some(super::member_state::FleetPermitPhase::Complete)
+                    && status
+                        .permit
+                        .as_ref()
+                        .is_some_and(|permit| permit.sequence() == status.consumed_sequence)
+            })
+            .map_or(0, |status| status.consumed_sequence);
         histories.push(RaftPhysicalHistory {
             scope: scope_digest(scope)?,
             birth: group.birth_digest,
             member: group.identity().member,
+            completed_sequence,
         });
     }
     histories.sort_by_key(|h| h.scope);
@@ -175,6 +195,7 @@ pub(crate) fn encode(
         bytes.extend_from_slice(&history.scope);
         bytes.extend_from_slice(&history.birth);
         bytes.extend_from_slice(&history.member.get().to_be_bytes());
+        bytes.extend_from_slice(&history.completed_sequence.to_be_bytes());
     }
     Ok(bytes)
 }
@@ -213,12 +234,15 @@ pub(crate) fn decode(
         let mut birth = [0; 32];
         birth.copy_from_slice(&row[32..64]);
         let mut member = [0; 8];
-        member.copy_from_slice(&row[64..]);
+        member.copy_from_slice(&row[64..72]);
+        let mut sequence = [0; 8];
+        sequence.copy_from_slice(&row[72..80]);
         histories.push(RaftPhysicalHistory {
             scope,
             birth,
             member: MemberId::new(u64::from_be_bytes(member))
                 .map_err(|_| TransportError::Identity)?,
+            completed_sequence: u64::from_be_bytes(sequence),
         });
     }
     let inventory = RaftPhysicalInventory {

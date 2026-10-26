@@ -895,6 +895,7 @@ async fn initialize(
     let (sender, requests) = mailbox::channel(options.max_requests);
     let (control_sender, controls) = mailbox::channel(options.max_control_requests);
     let control_budget = Budget::new(options.max_control_bytes, options.max_control_requests);
+    let seed_archive_work = Budget::new(0, options.max_control_requests);
     let (close, closes) = mpsc::unbounded_channel();
     let closed = Arc::new(AtomicBool::new(false));
     let closing = Arc::new(AtomicBool::new(false));
@@ -998,6 +999,7 @@ async fn initialize(
             read_sequence: 0,
             budget,
             control_budget,
+            seed_archive_work,
             local,
             snapshot_limits,
             snapshot_source: None,
@@ -1304,6 +1306,7 @@ struct Driver {
     read_sequence: u64,
     budget: Arc<Budget>,
     control_budget: Arc<Budget>,
+    seed_archive_work: Arc<Budget>,
 }
 
 fn reply(request: &mut Request, result: Result<Response, CommandFailure>) {
@@ -1447,8 +1450,14 @@ impl Driver {
                         }
                         if *kind == super::transport::seeds::SeedKind::S3 {
                             let archive = cell.archive.clone().with_read_retention(charge.clone());
+                            let Some(work) = self.seed_archive_work.acquire(0) else {
+                                self.finish_read(&id, Err(CommandFailure::Overloaded));
+                                continue;
+                            };
                             read.phase = ReadPhase::Executing;
                             self.jobs.push(Box::pin(async move {
+                                // Ownership survives expiry/removal of the read waiter.
+                                let _work = work;
                                 Job::SeedArchive {
                                     id,
                                     result: Box::new(archive.recovery_metadata().await),

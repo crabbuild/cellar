@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Bounded append-only active book and exact journal-linked debit records.
-use super::movement::Movement;
+use super::movement::{Movement, MovementOwner};
 use super::*;
 use crate::raft::fleet_catalog::histories::validate_request;
 use crate::raft::member_state::FleetMembershipPermit;
@@ -81,6 +81,8 @@ struct WireRecord {
     inventory_digest: [u8; 32],
     #[serde(deserialize_with = "required_nullable")]
     permit: Option<FleetMembershipPermit>,
+    #[serde(deserialize_with = "required_nullable")]
+    seed_owners: Option<Vec<MovementOwner>>,
 }
 
 #[derive(Clone)]
@@ -92,6 +94,7 @@ pub(super) struct Record {
     pub inventory_digest: [u8; 32],
     pub node: NodeId,
     pub permit: Option<FleetMembershipPermit>,
+    pub seed_owners: Option<Vec<MovementOwner>>,
 }
 
 impl Record {
@@ -102,8 +105,12 @@ impl Record {
         capacity_epoch: u64,
         physical: FleetResourceBounds,
         inventory_digest: [u8; 32],
-        permit: Option<FleetMembershipPermit>,
+        movement: Option<super::movement::MovementProof>,
     ) -> Result<Self> {
+        let (permit, seed_owners) = match movement {
+            Some(proof) => (Some(proof.permit), Some(proof.owners)),
+            None => (None, None),
+        };
         let node = NodeId::new(request.attestation.boot.node)
             .map_err(|_| FleetCatalogError::Invalid("resource node"))?;
         let record = Self {
@@ -114,6 +121,7 @@ impl Record {
             inventory_digest,
             node,
             permit,
+            seed_owners,
         };
         record.validate(catalog)?;
         Ok(record)
@@ -121,9 +129,32 @@ impl Record {
 
     fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         self.request.validate(catalog)?;
-        match (&self.request.movement, &self.permit) {
-            (None, None) => (),
-            (Some(movement), Some(permit)) => {
+        match (&self.request.movement, &self.permit, &self.seed_owners) {
+            (None, None, None) => (),
+            (Some(movement), Some(permit), Some(owners)) => {
+                let mut nodes = std::collections::BTreeSet::new();
+                let source = movement.source()?;
+                if owners.len() != 3
+                    || owners.windows(2).any(|w| w[0].member >= w[1].member)
+                    || !owners.iter().any(|o| o.boot.node == source.bytes())
+                {
+                    return Err(FleetCatalogError::Corrupt("resource seed owners"));
+                }
+                for owner in owners {
+                    cellar_logic::consensus::MemberId::new(owner.member)
+                        .map_err(|_| FleetCatalogError::Corrupt("resource source member"))?;
+                    owner
+                        .boot
+                        .validate()
+                        .map_err(|_| FleetCatalogError::Corrupt("resource source boot"))?;
+                    if owner.boot.catalog != self.request.attestation.boot.catalog
+                        || owner.boot.fleet != self.request.attestation.boot.fleet
+                        || owner.boot.node == self.request.attestation.boot.node
+                        || !nodes.insert(owner.boot.node)
+                    {
+                        return Err(FleetCatalogError::Corrupt("resource source owner"));
+                    }
+                }
                 permit
                     .check_plan(&movement.plan()?)
                     .map_err(|_| FleetCatalogError::Corrupt("resource permit plan"))?;
@@ -165,6 +196,7 @@ impl Record {
                 physical: self.physical,
                 inventory_digest: self.inventory_digest,
                 permit: self.permit.clone(),
+                seed_owners: self.seed_owners.clone(),
             },
             8192,
         )
@@ -185,6 +217,7 @@ impl Record {
             inventory_digest: wire.inventory_digest,
             node,
             permit: wire.permit,
+            seed_owners: wire.seed_owners,
         };
         record.validate(catalog)?;
         Ok(record)
@@ -219,7 +252,7 @@ impl Book {
         encode(BOOK_KIND, self, 4096)
     }
 
-    fn decode(catalog: &FleetCatalog, bytes: &[u8]) -> Result<Self> {
+    pub(super) fn decode(catalog: &FleetCatalog, bytes: &[u8]) -> Result<Self> {
         let book: Self = decode(BOOK_KIND, bytes, 4096)?;
         if book.format != 1
             || book.catalog != catalog.birth_owner()?.catalog
@@ -241,8 +274,14 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
-        movement: bool,
+        movement: Authority,
     ) -> Result<()> {
+        if self
+            .check_resource_completion_mutation(snapshot, mutation, movement)
+            .await?
+        {
+            return Ok(());
+        }
         if mutation
             .changes
             .iter()
@@ -292,7 +331,7 @@ impl FleetCatalog {
         let record = Record::decode(self, row_bytes)?;
         match &record.permit {
             None if mutation.changes.len() == 2 => (),
-            Some(permit) if movement && mutation.changes.len() == 3 => {
+            Some(permit) if movement == Authority::Admission && mutation.changes.len() == 3 => {
                 let change = &mutation.changes[2];
                 if change.table != FleetTable::Admissions
                     || change.key != record.request.group
@@ -375,7 +414,18 @@ impl FleetCatalog {
                     }
                 }
                 if !attributed {
-                    return Err(resource_error(LedgerError::Incomplete));
+                    let permit = FleetMembershipPermit::decode(&entry.value)
+                        .map_err(|_| resource_error(LedgerError::Incomplete))?;
+                    let row = self
+                        .admitted_resource(snapshot, permit.id())
+                        .await
+                        .map_err(|_| resource_error(LedgerError::Incomplete))?;
+                    if row.request.group != entry.key
+                        || row.permit.as_ref() != Some(&permit)
+                        || !self.resource_is_completed(snapshot, &row).await?
+                    {
+                        return Err(resource_error(LedgerError::Incomplete));
+                    }
                 }
             }
             cursor = page.next;

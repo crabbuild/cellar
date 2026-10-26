@@ -164,6 +164,7 @@ struct Body {
     dormant_histories: u32,
     pending_history_registrations: u32,
     unattached_engine_histories: u32,
+    seed_workers: u32,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -258,6 +259,7 @@ pub(crate) fn encode(view: &RaftHostObservation) -> Result<Vec<u8>, TransportErr
         dormant_histories: view.dormant_histories,
         pending_history_registrations: view.pending_history_registrations,
         unattached_engine_histories: view.unattached_engine_histories,
+        seed_workers: view.seed_workers,
     };
     let bytes = serde_json::to_vec(&body).map_err(|_| TransportError::Protocol)?;
     if bytes.len() > MAX_BODY {
@@ -305,6 +307,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Box<RaftHostObservation>, Transport
         dormant_histories: body.dormant_histories,
         pending_history_registrations: body.pending_history_registrations,
         unattached_engine_histories: body.unattached_engine_histories,
+        seed_workers: body.seed_workers,
     };
     validate(&view)?;
     Ok(Box::new(view))

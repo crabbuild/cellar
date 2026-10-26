@@ -78,6 +78,10 @@ impl Movement {
         Ok(())
     }
 
+    pub fn source(&self) -> Result<NodeId> {
+        NodeId::new(self.source).map_err(|_| invalid())
+    }
+
     pub fn plan(&self) -> Result<RepairPlan> {
         Ok(RepairPlan {
             id: ProposalId::new(self.plan).map_err(|_| invalid())?,
@@ -95,6 +99,18 @@ impl Movement {
 
 fn invalid() -> FleetCatalogError {
     FleetCatalogError::Invalid("resource membership intent")
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MovementOwner {
+    pub boot: BootBinding,
+    pub member: u64,
+}
+
+pub(super) struct MovementProof {
+    pub permit: FleetMembershipPermit,
+    pub owners: Vec<MovementOwner>,
 }
 
 pub(super) struct Source {
@@ -178,7 +194,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         request: &Request,
         source: Option<&Source>,
-    ) -> Result<Option<FleetMembershipPermit>> {
+    ) -> Result<Option<MovementProof>> {
         let Some(movement) = &request.movement else {
             return Ok(None);
         };
@@ -272,6 +288,7 @@ impl FleetCatalog {
         let destination = self.host_from(snapshot, plan.replacement.node).await?;
         let mut nodes = BTreeSet::from([destination.node()]);
         let mut hosts = BTreeSet::from([destination.physical_host()]);
+        let mut owners = Vec::with_capacity(3);
         for member in voters {
             let node = match proof.joined_member(member).map_err(|_| invalid())? {
                 Some((joined, _)) => joined.node,
@@ -286,6 +303,10 @@ impl FleetCatalog {
                 .map_err(|_| invalid())?,
             };
             let voter = self.host_from(snapshot, node).await?;
+            owners.push(MovementOwner {
+                boot: voter.boot_binding()?,
+                member: member.get(),
+            });
             if !nodes.insert(node)
                 || snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts
                     && !hosts.insert(voter.physical_host())
@@ -297,8 +318,9 @@ impl FleetCatalog {
             .consumed_sequence
             .checked_add(1)
             .ok_or(FleetCatalogError::Limit)?;
-        Ok(Some(
-            FleetMembershipPermit::new(
+        Ok(Some(MovementProof {
+            owners,
+            permit: FleetMembershipPermit::new(
                 history.binding.clone(),
                 sequence,
                 ProposalId::new(request.identity.id).map_err(|_| invalid())?,
@@ -306,6 +328,6 @@ impl FleetCatalog {
                 &plan,
             )
             .map_err(|_| invalid())?,
-        ))
+        }))
     }
 }

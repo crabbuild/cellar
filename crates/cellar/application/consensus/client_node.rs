@@ -229,7 +229,8 @@ impl RaftCells {
 
     /// Obtain complete physical engine occupancy over authenticated node
     /// control, including unregistered and retired histories. No business cell
-    /// or Raft quorum is required. The response retains no health/absence lease.
+    /// or Raft quorum is required. A local target uses the same bounded host
+    /// control path and trust checks. The response retains no health/absence lease.
     pub fn inspect_peer_physical_inventory(
         &self,
         node: cellar_logic::consensus::NodeId,

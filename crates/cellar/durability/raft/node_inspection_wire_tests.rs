@@ -61,6 +61,7 @@ pub(crate) fn view() -> RaftHostObservation {
         dormant_histories: 0,
         pending_history_registrations: 0,
         unattached_engine_histories: 0,
+        seed_workers: 0,
     }
 }
 
@@ -86,6 +87,7 @@ fn node_metadata_rejects_missing_invalid_and_unbounded_fields() {
         "pending_history_registrations",
         "boot",
         "bounds",
+        "seed_workers",
     ] {
         let mut changed = original.clone();
         changed.as_object_mut().unwrap().remove(field);

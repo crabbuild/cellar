@@ -350,15 +350,21 @@ impl FleetCatalog {
             let mutation = record.mutation()?;
             mutation.validate()?;
             let committed = self
-                .commit_with_disruption(snapshot, &mutation, Some(record.disruption), false, || {
-                    deadline.remaining()?;
-                    let now = self
-                        .inner
-                        .domain
-                        .mono_ms()
-                        .map_err(|_| FleetCatalogError::Closed)?;
-                    verification.check_terminal_freshness(now)
-                })
+                .commit_with_disruption(
+                    snapshot,
+                    &mutation,
+                    Some(record.disruption),
+                    super::super::resources::Authority::None,
+                    || {
+                        deadline.remaining()?;
+                        let now = self
+                            .inner
+                            .domain
+                            .mono_ms()
+                            .map_err(|_| FleetCatalogError::Closed)?;
+                        verification.check_terminal_freshness(now)
+                    },
+                )
                 .await?;
             let applied = record
                 .applied(self, &committed.snapshot)

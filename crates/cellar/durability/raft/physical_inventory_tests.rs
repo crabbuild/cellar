@@ -27,6 +27,7 @@ fn occupied(count: usize) -> (RaftHostObservation, RaftPhysicalInventory) {
                 scope: digest,
                 birth: [8; 32],
                 member: MemberId::new(i as u64).unwrap(),
+                completed_sequence: i as u64,
             }
         })
         .collect();
@@ -50,10 +51,16 @@ fn physical_inventory_maximum_is_bounded_and_roundtrips() {
         assert_eq!(*decoded, inventory);
         assert_eq!(decoded.digest(), inventory.digest());
     }
+
     // Two bounded wire copies plus decoded identities and node metadata fit
     // the existing per-node/per-peer and new host-response reservations.
+    // Valid decoded node data has fixed fields and three profile strings of
+    // at most 64 bytes. Invalid node bodies refuse before allocating histories.
+    // Account for that bound while retaining the original 1 MiB reservation.
+    const NODE_DECODED_BOUND: usize = 16 * 1024;
+    assert!(std::mem::size_of::<RaftHostObservation>() + 3 * 64 < NODE_DECODED_BOUND);
     assert!(
-        2 * MAX_BODY + std::mem::size_of::<RaftPhysicalHistory>() * MAX_GROUPS + 32 * 1024
+        2 * MAX_BODY + std::mem::size_of::<RaftPhysicalHistory>() * MAX_GROUPS + NODE_DECODED_BOUND
             < RESPONSE_BYTES
     );
 }
@@ -82,7 +89,7 @@ fn physical_inventory_refuses_truncation_duplicates_and_invalid_counts() {
     assert!(encode(&node, &reverse).is_err());
     let mut zero = original.clone();
     let n = zero.len();
-    zero[n - 8..].fill(0);
+    zero[n - 16..n - 8].fill(0);
     assert!(decode(&zero).is_err());
     assert!(decode(&vec![0; MAX_BODY + 1]).is_err());
     let mut missing = node;
@@ -119,6 +126,7 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
             scope: digest,
             birth: [8; 32],
             member: MemberId::new(3).unwrap(),
+            completed_sequence: 0,
         }],
         initializing: None,
     };

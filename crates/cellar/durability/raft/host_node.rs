@@ -55,6 +55,9 @@ pub struct RaftHostObservation {
     /// Physical engine slots not attached as running cells, including retained
     /// or retired histories. This count never claims inventory completeness.
     pub unattached_engine_histories: u32,
+    /// Captures/transfers and metadata jobs retained until their owners exit.
+    /// Zero alone is not terminal membership or a reservation release grant.
+    pub seed_workers: u32,
 }
 
 /// Authenticated metadata from an exact remote process under the requested
@@ -175,10 +178,24 @@ impl Driver {
             dormant_histories: bounded(dormant)?,
             pending_history_registrations: u32::from(self.history_registration.is_some()),
             unattached_engine_histories: bounded(unattached)?,
+            seed_workers: bounded(
+                self.seed_archive_work
+                    .usage()
+                    .1
+                    .checked_add(
+                        self.transport
+                            .resource_observer()
+                            .capture()
+                            .ok_or(CommandFailure::Unavailable)?
+                            .snapshot_source
+                            .items,
+                    )
+                    .ok_or(CommandFailure::Overloaded)?,
+            )?,
         })
     }
 
-    fn physical_node_observation(
+    pub(super) fn physical_node_observation(
         &self,
     ) -> Result<super::super::physical_inventory::PhysicalNodeObservation, CommandFailure> {
         let inventory = self

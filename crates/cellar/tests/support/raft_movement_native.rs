@@ -381,3 +381,6 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     ensure!(s.target.observe_node(TIMEOUT).await?.node.groups == 0);
     s.close().await
 }
+
+#[path = "raft_movement_completion.rs"]
+mod completion_tests;

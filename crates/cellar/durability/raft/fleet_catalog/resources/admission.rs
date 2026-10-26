@@ -179,7 +179,11 @@ impl FleetCatalog {
                     snapshot,
                     &mutation,
                     None,
-                    canonical.movement.is_some(),
+                    if canonical.movement.is_some() {
+                        Authority::Admission
+                    } else {
+                        Authority::None
+                    },
                     || {
                         deadline.remaining()?;
                         self.require_resource_age(probe_started)?;
@@ -265,6 +269,7 @@ impl FleetCatalog {
         if request.peak.durable_bytes < view.node.profile.bytes_per_group {
             return Err(FleetCatalogError::Invalid("resource learner byte bound"));
         }
+        physical = physical.high_water(self.resource_floor(snapshot, &request.attestation).await?);
         let current_scope = capacity_scope(self, &request.attestation)?;
         let mut reservations = vec![];
         for row in rows

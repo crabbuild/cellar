@@ -38,8 +38,9 @@ pub(crate) use nodes::{FleetTrustReader, FleetTrustSnapshot};
 pub use permits::{FleetGroupAuthorization, FleetPermitAuthorization};
 pub use placement::FleetReplicaSeparation;
 pub use resources::{
-    FleetMovementAdmission, FleetMovementRequest, FleetResourceAdmission, FleetResourceAttestation,
-    FleetResourceBounds, FleetResourceRequest,
+    FleetMovementAdmission, FleetMovementCompletion, FleetMovementCompletionRequest,
+    FleetMovementRequest, FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds,
+    FleetResourceRequest,
 };
 
 use records::{CommitRecord, Head, Pin};
@@ -333,7 +334,7 @@ impl FleetCatalog {
         mutation: &FleetMutation,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
-        self.commit_with_disruption(snapshot, mutation, None, false, check)
+        self.commit_with_disruption(snapshot, mutation, None, resources::Authority::None, check)
             .await
     }
 
@@ -344,7 +345,7 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,
         release: Option<[u8; 32]>,
-        movement: bool,
+        movement: resources::Authority,
         check: impl FnOnce() -> Result<()>,
     ) -> Result<FleetCommit> {
         let bytes = encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?;

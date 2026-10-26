@@ -44,7 +44,8 @@ pub use cellar_logic::raft_placement::PlacementPolicy;
 pub use crate::raft::fleet_catalog::{
     fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
     FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
-    FleetGroupAuthorization, FleetHostAuthorization, FleetMovementAdmission, FleetMovementRequest,
+    FleetGroupAuthorization, FleetHostAuthorization, FleetMovementAdmission,
+    FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementRequest,
     FleetNodeEligibility, FleetNodeSpec, FleetNodeState, FleetPermitAuthorization,
     FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation,
     FleetResourceBounds, FleetResourceRequest,

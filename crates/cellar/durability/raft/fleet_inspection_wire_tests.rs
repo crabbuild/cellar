@@ -132,6 +132,7 @@ fn observation() -> LocalObservation {
         dormant_histories: 0,
         pending_history_registrations: 0,
         unattached_engine_histories: 0,
+        seed_workers: 0,
     });
     LocalObservation {
         node,

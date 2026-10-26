@@ -4,6 +4,15 @@
 //! Physical measurements remain distinct from deployment attestation; release
 //! requires a separate terminal proof boundary.
 mod admission;
+mod completion;
+pub use completion::{FleetMovementCompletion, FleetMovementCompletionRequest};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Authority {
+    None,
+    Admission,
+    Completion,
+}
 mod movement;
 mod records;
 
