@@ -47,6 +47,32 @@ impl Planning<'_, '_> {
         {
             return Err(FleetCatalogError::Invalid("isolated repair history bounds"));
         }
+        let rows = catalog
+            .run(deadline.remaining()?, async {
+                if catalog.inner.current().await?.token != cut.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let book = catalog.resource_book(cut).await?;
+                if book.rows.len() >= MAX_MOVES {
+                    return Err(FleetCatalogError::Resource(
+                        cellar_logic::raft_fleet::LedgerError::MovementLimit,
+                    ));
+                }
+                let rows = catalog.resource_rows(cut, &book).await?;
+                catalog.check_resource_permits(cut, &rows).await?;
+                let key = group
+                    .history
+                    .binding()
+                    .key()
+                    .map_err(|_| FleetCatalogError::Corrupt("isolated repair binding"))?;
+                if rows.iter().any(|r| r.request.group == key) {
+                    return Err(FleetCatalogError::Topology(
+                        cellar_logic::raft_fleet::TopologyError::UnsettledMovement,
+                    ));
+                }
+                Ok(rows)
+            })
+            .await?;
         let failed = NodeId::new(context.failed_boot.node)
             .map_err(|_| FleetCatalogError::Invalid("isolated repair node"))?;
         let sample = catalog
@@ -144,12 +170,6 @@ impl Planning<'_, '_> {
                 .inventory
                 .as_ref()
                 .ok_or(FleetCatalogError::InventoryIncomplete)?;
-            if inventory.initializing().is_some() {
-                if group.voters.contains_key(&node) {
-                    return Err(FleetCatalogError::InventoryIncomplete);
-                }
-                continue;
-            }
             if inventory
                 .history(&context.group)
                 .map_err(|_| FleetCatalogError::Corrupt("isolated repair physical scope"))?
@@ -170,28 +190,33 @@ impl Planning<'_, '_> {
                     "isolated repair learner byte bound",
                 ));
             }
-            let used = catalog
+            let charged = catalog
                 .run(deadline.remaining()?, async {
                     if catalog.inner.current().await?.token != cut.token {
                         return Err(FleetCatalogError::Conflict);
                     }
-                    Ok(input
-                        .attestation
-                        .used
-                        .high_water(FleetResourceBounds {
-                            engine_slots: view.node.groups,
-                            durable_bytes: view
-                                .node
-                                .reserved_bytes
-                                .max(qualified.used_durable_bytes),
-                            memory_bytes: runtime
-                                .bounded_buffer_bytes
-                                .max(qualified.used_memory_bytes),
-                        })
-                        .high_water(catalog.resource_floor(cut, &input.attestation).await?))
+                    catalog
+                        .charged_resource_inputs(cut, &input.attestation, qualified, view, &rows)
+                        .await
                 })
                 .await?;
-            let scope = super::super::admission::capacity_scope(catalog, &input.attestation)?;
+            if let Some(initializing) = inventory.initializing() {
+                let mut attributed = false;
+                for reservation in &charged.reservations {
+                    attributed |=
+                        crate::raft::physical_inventory::scope_digest(&reservation.group).map_err(
+                            |_| FleetCatalogError::Corrupt("isolated repair initializer scope"),
+                        )? == initializing;
+                }
+                if !attributed {
+                    if group.voters.contains_key(&node) {
+                        return Err(FleetCatalogError::InventoryIncomplete);
+                    }
+                    continue;
+                }
+            }
+            let scope = charged.scope;
+            let pending = charged.reservations.len();
             nodes.push(TopologyNode {
                 ledger: LedgerSnapshot {
                     scope,
@@ -218,9 +243,9 @@ impl Planning<'_, '_> {
                         scope,
                         sequence: cut.revision(),
                         observed_ms,
-                        physical: used.resources(),
+                        physical: charged.physical.resources(),
                     },
-                    reservations: vec![],
+                    reservations: charged.reservations,
                     complete: true,
                 },
                 host: hex::encode(host.physical_host().bytes()),
@@ -230,7 +255,8 @@ impl Planning<'_, '_> {
                 receives_replicas: host.capability_digest() == source_capabilities
                     && host.eligibility().receive_replicas
                     && capacity.receive_replicas()
-                    && super::super::admission::registration_room(view, 0)?
+                    && inventory.initializing().is_none()
+                    && super::super::admission::registration_room(view, pending)?
                     && !view.node.profile.draining,
             });
         }

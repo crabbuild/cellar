@@ -82,6 +82,7 @@ pub struct Store {
     pub corrupt_scratch_after_part_read: std::sync::Mutex<Option<std::sync::Arc<AtomicBool>>>,
     pub hold_archive_payloads: AtomicBool,
     pub active_payload_reads: AtomicUsize,
+    pub held_payload_reads: AtomicUsize,
     pub peak_payload_reads: AtomicUsize,
     pub payload_window_resume: tokio::sync::Notify,
     pub payload_size_delta: AtomicUsize,
@@ -579,6 +580,8 @@ impl ObjectStore for Store {
                 resumed.await;
             }
             if self.hold_next_payload.swap(false, Ordering::AcqRel) {
+                self.held_payload_reads.fetch_add(1, Ordering::AcqRel);
+                let _held = PayloadRead(&self.held_payload_reads);
                 *self.held_payload_path.lock().map_err(|_| failure())? = Some(path.clone());
                 self.payload_waiting.store(true, Ordering::Release);
                 self.payload_resume.notify_waiters();

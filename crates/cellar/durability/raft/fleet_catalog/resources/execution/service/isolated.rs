@@ -107,7 +107,7 @@ impl IsolatedRepairService {
                     .host_from_record(cut, active.admission().node())
                     .await?;
                 let isolated = catalog.confirm_node_isolation(cut, &host.record).await?;
-                if !catalog.resource_book(cut).await?.rows.is_empty() {
+                if catalog.resource_book(cut).await?.rows.len() >= super::super::super::MAX_MOVES {
                     return Err(FleetCatalogError::Resource(
                         cellar_logic::raft_fleet::LedgerError::MovementLimit,
                     ));

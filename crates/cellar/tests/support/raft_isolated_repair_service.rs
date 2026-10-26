@@ -6,6 +6,9 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::{future::Future, pin::Pin};
 
+#[path = "raft_isolated_repair_fairness.rs"]
+mod fairness;
+
 struct RepairFleet {
     s: Setup,
     _spare_root: tempfile::TempDir,
@@ -24,7 +27,11 @@ impl RepairFleet {
     }
 
     async fn with_isolation(extra: bool, isolated: bool) -> Result<Self> {
-        let mut s = Box::pin(Setup::with_histories(true, 6, 3)).await?;
+        Box::pin(Self::with_histories(extra, isolated, 3)).await
+    }
+
+    async fn with_histories(extra: bool, isolated: bool, histories: u8) -> Result<Self> {
+        let mut s = Box::pin(Setup::with_histories(true, 6, histories)).await?;
         let (spare_root, spare_node, spare) = s.f.peer_host(8).await?;
         if extra {
             let mut proposal = s.proposals[0].clone();

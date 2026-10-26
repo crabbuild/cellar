@@ -111,16 +111,17 @@ verbs remain unfinished.
    and chooses fresh compatible capacity; the callback cannot nominate a plan.
 4. Inspect `FleetMovementServiceStatus::isolated_repair` for checked/blocked
    groups and use the ordinary durable movement book/settlement APIs for admitted
-   effects. Unadmitted groups without quorum remain blocked while independent
-   majority groups can recover. A stalled admitted move currently blocks new
-   selection even when another movement slot is free. Service shutdown joins its
-   callbacks; admitted physical work retains its node owner and durable debt.
+   effects. Groups without quorum remain blocked. During an admitted move's
+   retry/backoff window, another majority group may use remaining movement
+   capacity while all original debt stays charged. A full book still blocks new
+   admission. Service shutdown joins its callbacks; admitted physical work
+   retains its node owner and durable debt.
 5. Perform complete evacuation/removal verification through the existing guarded
    lifecycle APIs before any storage release. A completed scan or three-voter
    replacement alone is insufficient. The service does not remove the node.
 
 The [component contract](../../../crates/cellar/durability/raft/fleet_catalog/README.md#owned-repair-after-trusted-node-isolation)
-describes ownership, freshness, capability and resource bounds. Run the six
+describes ownership, freshness, capability and resource bounds. Run the nine
 delivered native scenarios from the repository root, using the checkout-private
 target directory required by `AGENTS.md`:
 

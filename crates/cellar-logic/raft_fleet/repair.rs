@@ -41,8 +41,9 @@ fn pressure(total: Resources, capacity: Resources) -> (u128, u128) {
 /// Keep both surviving voters and choose a fresh eligible binding under all
 /// three resource bounds. The adapter supplies authenticated complete inputs
 /// and a permanent isolation proof; missing/stale samples never create failure.
-/// Existing admitted work must settle first. Equal pressure uses a stable
-/// per-history tie break, so independent controllers propose the same target.
+/// The current history must have no admitted work. Unrelated reservations stay
+/// charged, including old-boot debt; the adapter also enforces the global action
+/// bound. Equal pressure uses a stable per-history tie break.
 pub fn select_isolated_repair(
     view: &IsolatedRepairView,
     nodes: &[TopologyNode],
@@ -117,7 +118,12 @@ pub fn select_isolated_repair(
         {
             return Err(TopologyError::InvalidInput);
         }
-        if !node.ledger.reservations.is_empty() {
+        if node
+            .ledger
+            .reservations
+            .iter()
+            .any(|reservation| reservation.group == view.scope)
+        {
             return Err(TopologyError::UnsettledMovement);
         }
         ResourceLedger::restore(node.ledger.clone()).map_err(TopologyError::Ledger)?;
@@ -170,6 +176,9 @@ pub fn select_isolated_repair(
             Err(super::LedgerError::StaleObservation) => continue,
             Err(error) => return Err(TopologyError::Ledger(error)),
         };
+        if charge.active_moves >= node.ledger.policy.max_active_moves {
+            continue;
+        }
         let total = charge
             .total
             .checked_add(view.peak)

@@ -243,3 +243,90 @@ fn isolated_repair_refuses_overflow_instead_of_saturating_capacity() {
         Err(TopologyError::Ledger(LedgerError::ArithmeticOverflow))
     );
 }
+
+fn unrelated(node: &TopologyNode, group: &GroupScope, id: u8) -> Reservation {
+    let mut other = group.clone();
+    other.cell = format!("Counter:unrelated-{id}");
+    other.group = GroupId::new([id; 16]).unwrap();
+    Reservation {
+        id: ProposalId::new([id; 16]).unwrap(),
+        group: other,
+        scope: node.ledger.scope,
+        peak: bytes(1),
+        materialized: None,
+    }
+}
+
+#[test]
+fn isolated_repair_charges_unrelated_reservations_before_selection() {
+    let (v, mut n, p) = fixture();
+    n[3].receives_replicas = false;
+    let reservation = unrelated(&n[2], &v.scope, 71);
+    n[2].ledger.reservations.push(reservation);
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100)
+            .unwrap()
+            .replacement
+            .node,
+        id(4)
+    );
+    n[2].ledger.reservations[0].peak.durable_bytes = 80;
+    n[2].ledger.reservations[0].peak.memory_bytes = 80;
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100),
+        Err(TopologyError::RecoveryUnproven(v.failed))
+    );
+}
+
+#[test]
+fn isolated_repair_respects_existing_movement_slot_limit() {
+    let (v, mut n, p) = fixture();
+    n[3].receives_replicas = false;
+    n[2].ledger.reservations = vec![
+        unrelated(&n[2], &v.scope, 71),
+        unrelated(&n[2], &v.scope, 72),
+    ];
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100),
+        Err(TopologyError::RecoveryUnproven(v.failed))
+    );
+}
+
+#[test]
+fn isolated_repair_does_not_credit_old_boot_materialization() {
+    let (v, mut n, p) = fixture();
+    n[3].receives_replicas = false;
+    n[2].ledger.sample.physical = bytes(8);
+    let mut reservation = unrelated(&n[2], &v.scope, 71);
+    reservation.scope.boot = [99; 16];
+    reservation.scope.node.process = ProcessGeneration::new([99; 16]).unwrap();
+    reservation.materialized = Some(Materialization {
+        sequence: 1,
+        physical: bytes(1),
+    });
+    n[2].ledger.reservations.push(reservation);
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100),
+        Err(TopologyError::RecoveryUnproven(v.failed))
+    );
+    n[2].ledger.reservations[0].scope = n[2].ledger.scope;
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100)
+            .unwrap()
+            .replacement
+            .node,
+        id(4)
+    );
+}
+
+#[test]
+fn isolated_repair_refuses_rebound_unresolved_reservations() {
+    let (v, mut n, p) = fixture();
+    let mut reservation = unrelated(&n[2], &v.scope, 71);
+    reservation.scope.engine = EngineInstanceId::new([99; 16]).unwrap();
+    n[2].ledger.reservations.push(reservation);
+    assert_eq!(
+        select_isolated_repair(&v, &n, p, 100),
+        Err(TopologyError::Ledger(LedgerError::InvalidReservation))
+    );
+}

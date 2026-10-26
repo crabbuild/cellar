@@ -306,43 +306,14 @@ impl FleetCatalog {
         let qualified = capacity.attestation();
         let view = &observation.view;
         let runtime = &view.startup_bounds;
-        let mut physical = request.attestation.used.high_water(FleetResourceBounds {
-            engine_slots: view.node.groups,
-            durable_bytes: view.node.reserved_bytes.max(qualified.used_durable_bytes),
-            memory_bytes: runtime
-                .bounded_buffer_bytes
-                .max(qualified.used_memory_bytes),
-        });
         if request.peak.durable_bytes < view.node.profile.bytes_per_group {
             return Err(FleetCatalogError::Invalid("resource learner byte bound"));
         }
-        physical = physical.high_water(self.resource_floor(snapshot, &request.attestation).await?);
-        let current_scope = capacity_scope(self, &request.attestation)?;
-        let mut reservations = vec![];
-        for row in rows
-            .iter()
-            .filter(|row| row.node == view.node.identity.node)
-        {
-            let old_scope = capacity_scope(self, &row.request.attestation)?;
-            if old_scope.node.disk != current_scope.node.disk
-                || old_scope.engine != current_scope.engine
-            {
-                return Err(FleetCatalogError::Corrupt("resource engine rebinding"));
-            }
-            physical = physical.high_water(row.physical);
-            let history = self.history_inner(snapshot, &row.request.group).await?;
-            reservations.push(Reservation {
-                id: ProposalId::new(row.request.identity.id)
-                    .map_err(|_| FleetCatalogError::Corrupt("resource reservation identity"))?,
-                group: history
-                    .binding()
-                    .scope()
-                    .map_err(|_| FleetCatalogError::Corrupt("resource reservation scope"))?,
-                scope: old_scope,
-                peak: row.request.peak.resources(),
-                materialized: None,
-            });
-        }
+        let charged = self
+            .charged_resource_inputs(snapshot, &request.attestation, qualified, view, rows)
+            .await?;
+        let physical = charged.physical;
+        let current_scope = charged.scope;
         let now = self.resource_now()?;
         let mut ledger = ResourceLedger::restore(LedgerSnapshot {
             scope: current_scope,
@@ -372,7 +343,7 @@ impl FleetCatalog {
                 observed_ms: now,
                 physical: physical.resources(),
             },
-            reservations,
+            reservations: charged.reservations,
             complete: true,
         })
         .map_err(resource_error)?;

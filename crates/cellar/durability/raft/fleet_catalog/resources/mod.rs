@@ -8,6 +8,7 @@ mod bindings;
 mod completion;
 mod execution;
 mod intent;
+mod ledger;
 mod membership;
 mod repair;
 pub use completion::{

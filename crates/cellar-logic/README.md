@@ -93,13 +93,18 @@ the host proves permanent isolation of an exact boot and a surviving quorum. It
 preserves both surviving voters, excludes occupied/retired node bindings, checks
 resource/domain/keep bounds and ranks projected resource pressure with a stable
 per-history tie break. Stale spares are ineligible; both survivors need fresh
-complete ledgers. The selected member is above the live quorum's high-water.
+complete ledgers. Unrelated reservations retain their full scoped growth and
+movement slots when choosing another target; old-boot materialization receives
+no current-boot credit. The current history cannot have an active reservation.
+The selected member is above the live quorum's high-water.
 This bounded per-history choice is not a complete-fleet recovery witness and
 grants no authority to isolate, admit membership or release retained storage.
 
-These pure APIs require stable groups, fresh complete node ledgers and no unsettled
-reservations. The host owns authenticated collection, guarded resource/permit
-admission and movement execution. Source-side fixed worker pools must
+The full healthy-topology planners require stable groups, fresh complete node
+ledgers and no unsettled reservations. The required-repair selector accepts
+charged unrelated debt; the host independently enforces the global action bound
+and owns authenticated collection, guarded resource/permit admission and movement
+execution. Source-side fixed worker pools must
 already be included in physical bounds. A schedule dependency requires actual
 terminal completion before admitting its successor; a preview grants no permit,
 storage reclamation, node-removal certificate or future health lease.

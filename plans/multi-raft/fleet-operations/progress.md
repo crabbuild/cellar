@@ -11,7 +11,50 @@ resize remain unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
-## Controller-driven repair of an isolated node
+## Independent required repair with retained debt
+
+The required-repair controller now uses an admitted action's retry/backoff window
+for one independent selection turn when a local slot remains. Due admitted
+effects retain priority. The existing two-action global and per-node limits
+remain unchanged. Healthy topology collection keeps its stricter empty-book
+contract.
+
+The selector accepts unrelated reservations only through complete scoped
+ledgers. Shared charge construction gives planning and final atomic admission
+the same runtime/attested/floor high water and full unresolved peaks. Old-boot
+materialization cannot create credit; a rebound engine refuses progress. A
+reservation for the current history still prevents another admission. A busy
+initializer can remain on a surviving node only when a rooted charged row
+covers its exact history digest, and it cannot receive another learner.
+Physical settlement and joined worker-closure requirements remain unchanged.
+
+Three native scenarios now cover the missing workflow: a real receiver seed
+read held while another admission overlaps its initializer, two controllers
+racing the last slot and recreating their workers, and an uncertain admission
+fenced while a different real Seeding movement remains charged. They compare
+the old book/debit bytes after independent settlements, verify RF3 and S3 SQL
+continuity, then release and finish the original movement. A dedicated RAII
+counter proves the exact held read stays owned after its waiter is dropped.
+Four additional pure cases cover retained growth, slot exhaustion, old-boot
+credit and engine rebinding. The frozen implementation passes **77 distinct
+focused cases**: all 58 native resource/movement cases, fifteen pure selector
+cases and four service units. The three new native scenarios also pass as
+separate probes before the full cohort. The final native cohort took 386.42
+seconds. All-target host/logic Clippy with warnings denied passes. This is local
+correctness verification, not deployed failure, scale or throughput qualification.
+
+The first probe stopped before reaching fairness: the fixture tried immediate
+execution before peers installed the new permit cut. Targeted observations
+showed every peer at revision 26 while admission was at 27; the existing
+readiness barrier advanced all to 27. Test readers now use independent catalog
+clients so active RPCs cannot collide with their local admission mutex. This
+retains the same object-store root and CAS authority. A source-worker assertion
+was corrected to observe the receiver's actual retained read owner. No deadline,
+stack, quota, closure guard or correctness assertion was relaxed. Temporary
+diagnosis logs were removed; prior attempts and immutable binaries remain
+outside runtime data.
+
+## Initial isolated-node repair delivery
 
 `start_isolated_repair_service` now connects a rooted evacuation and permanent
 exact-boot isolation to automatic source/spare selection, atomic resource/permit
@@ -21,14 +64,14 @@ excludes occupied/retired bindings and respects capacity, headroom, rooted
 keep/domain policy and capability compatibility. Admission independently renews
 proofs and retains the selected reserve.
 
-The worker walks one immutable candidate index per pass and checks each history
+The initial worker walked one immutable candidate index per pass and checked each history
 against the current root. Admitted work runs first. It keeps its cursor on an
 admitted group until settlement removes the failed voter; minority or unconfirmed
 groups are recorded and skipped so independent majority groups can progress.
-Blocked passes back off. This fairness covers unadmitted histories: an already
-admitted stalled movement still blocks new selection until the book settles.
-Bounded required-repair concurrency with retained debt is the next controller
-delivery gap. A competing-turn fence CAS resolves prospective
+The initial fairness covered unadmitted histories; an admitted stalled movement
+blocked new selection until the book settled. The independent-repair delivery
+above removes that limitation within the existing bounds. A competing-turn fence
+CAS resolves prospective
 old-root admissions without granting membership, isolation or resource-release
 authority. Node stop and explicit service shutdown join callbacks and owned work.
 
@@ -281,28 +324,22 @@ all target checks.
 
 ## Next feature delivery order
 
-The isolated-node repair service delivers selection and admission beyond the
-previous manual movement primitives. FO-03 is complete at its documented
+The isolated-node repair service now delivers selection and admission with
+retained unrelated debt, beyond the previous manual movement primitives. FO-03 is complete at its documented
 boundary and is not the next implementation target. Keep-set operator access is
 also delivered. The next work should extend these usable boundaries:
 
-1. **Admitted repair fairness (FO-04/FO-06):** let an independent required repair
-   use remaining movement capacity while another admitted action is blocked.
-   Include every retained debit in fresh target ledgers, preserve original
-   ownership and proof boundaries, and prove the blocked action's debt remains
-   charged. The current strict empty-book selection is conservative but can
-   prevent independent recovery; the minority test covers unadmitted groups only.
-2. **Guarded lifecycle operator workflows (FO-07/FO-08):** connect the existing
+1. **Guarded lifecycle operator workflows (FO-07/FO-08):** connect the existing
    registration, typed capacity, evacuation, repair, stop and removal adapters to
    the catalog-pinned audit/permission surface. Deliver one end-to-end add/activate
    and evacuate/remove workflow, with exact retries and visible blocked debt,
    before adding resize. The repair cursor cannot stand in for terminal proof.
-3. **Failure policy and deployment isolation (FO-06/FO-07):** supply a real
+2. **Failure policy and deployment isolation (FO-06/FO-07):** supply a real
    trusted provider, conservative suspect/failed policy, concurrent-failure rules
    and restart/rejoin protection. A timeout cannot establish physical isolation;
    a lost quorum remains blocked. The new controller handles one rooted isolated
    node operation, not arbitrary simultaneous failure management.
-4. **Scalable convergence (FO-04/FO-06):** avoid complete recollection after every
+3. **Scalable convergence (FO-04/FO-06):** avoid complete recollection after every
    healthy-fleet move by retaining only journal-confirmed stable configuration;
    renew moved-group quorum and node capacity, and invalidate on external birth,
    membership, boot or policy changes. The explicit collection API removes the
@@ -310,11 +347,11 @@ also delivered. The next work should extend these usable boundaries:
    measurement. At five nodes/500 histories, existing retained planner charges
    total about 21.5 MiB before probes, above the default 16 MiB pool. This is a
    calculated admission bound, not measured RSS or a supported capacity claim.
-5. **Maintenance and capacity lifecycle (FO-07/FO-09):** deliver guarded stop,
+4. **Maintenance and capacity lifecycle (FO-07/FO-09):** deliver guarded stop,
    verified rejoin and one-at-a-time rolling maintenance, then effective profile
    reconciliation, retained-state fit, safe resize and committed cell retirement.
    Placement completion cannot authorize deleting retained storage.
-6. **Load/performance and release qualification (FO-05/FO-10):** measure the
+5. **Load/performance and release qualification (FO-05/FO-10):** measure the
    intended default configuration and enforced 1-vCPU/3-GiB RustFS/Colima topology
    at 500/1,500 histories. Diagnose the retained stress failure, then target
    measured scheduler, convergence and foreground TPS/p99 limits. Workload-aware

@@ -1297,21 +1297,30 @@ arbitrary compatible supersets need a richer capability proof. Deployment
 occupancy and resource bounds remain trusted inputs, not measured RSS or kernel
 limits. A timeout never establishes that a voter is isolated.
 
-Already admitted work runs first. The controller retains one immutable history
-cursor per pass, then renews each history and settled membership at the current
-root before deciding. A blocked history does not prevent another affected group
-with a surviving majority from repairing while the admitted book is empty.
-An already admitted stalled move currently blocks new selection; bounded
-concurrent required repair with retained debt remains a delivery gap.
-Blocked passes use bounded retry
-backoff. After admission the cursor remains on that history until settlement
-proves the isolated voter was replaced. Corrupt authoritative records fail the
+Due admitted effects run first. During a retry/backoff window, a free local slot
+can advance one independent required repair. Selection and final admission read
+the complete rooted book, keep every unresolved peak and retained floor charged
+under its original scope, and enforce the existing global and per-node bounds.
+Low observations and old-boot materialization cannot free debt. A full book or
+an active reservation for the current history prevents another admission.
+
+The controller retains one immutable history cursor per pass and renews each
+history and settled membership at the current root. A history with unfinished
+work is recorded and skipped so another majority group can receive a turn.
+Blocked passes back off; this pass delay does not replace admitted-work polling
+while local work remains. A survivor may have an unrelated pending initializer
+only when its digest is covered by a rooted charged reservation. That busy node
+cannot receive a new learner. Unknown initializers refuse progress. Physical
+settlement and worker-closure proofs remain unchanged; admission never grants
+permission to release another movement's resources. Healthy topology collection
+retains its empty-book requirements. Corrupt authoritative records fail the
 round rather than becoming an omitted history.
 
 An immutable prospective admission with an uncertain outcome is reconciled
 before replanning. After one competing-turn window, a descriptive
 `isolated-repair-fence/<operation>` root CAS may advance that exact root. The
-fence and the delayed old-root admission cannot both win. Its bytes grant no
+fence and the delayed old-root admission cannot both win, including when another
+debit remains in the book. Its bytes grant no
 membership, resource release or physical closure authority; admitted work stays
 in the ordinary durable movement book.
 
@@ -1319,6 +1328,6 @@ in the ordinary durable movement book.
 last blocked history/failure and cursor exhaustion. These are local diagnostics.
 Exhaustion does not certify current health, complete evacuation, terminal node
 removal or storage release. This mode handles one explicitly rooted isolated
-node operation. Admitted-work fairness, automatic failure classification, a
-production isolation provider, simultaneous-isolation policy, lifecycle CLI
+node operation. Automatic failure classification, a production isolation
+provider, simultaneous-isolation policy, lifecycle CLI
 integration and deployed scale/performance qualification remain open.

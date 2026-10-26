@@ -10,9 +10,11 @@ controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Complete node lifecycle
 commands remain delivery targets. `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
-isolation are implemented as an explicit SDK service. Automatic failure
+isolation are implemented as an explicit SDK service. Independent required
+repair can use a remaining slot during an admitted action's retry/backoff,
+without releasing that action's debt. Automatic failure
 classification and a production isolation provider remain unfinished. The next
-priorities are admitted-repair fairness, guarded lifecycle/operator workflows,
+priorities are guarded lifecycle/operator workflows,
 scalable convergence and maintenance/rejoin. Unconfirmed closure keeps movement
 debt charged.
 

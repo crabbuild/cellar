@@ -165,6 +165,7 @@ impl MovementServiceWork {
                     });
                     self.isolated
                         .as_ref()
+                        .filter(|_| self.schedule.entries.is_empty())
                         .and_then(|r| r.pass_delay(&self.options))
                         .or_else(|| self.topology.as_ref().and_then(|t| t.collection_delay()))
                         .unwrap_or(self.options.interval)
@@ -277,8 +278,15 @@ impl MovementServiceWork {
                     ));
                 }
             }
-        } else if self.schedule.entries.is_empty() {
-            if let Some(isolated) = &mut self.isolated {
+        } else {
+            // Due admitted effects always run first. A retry/backoff window
+            // may advance one independent repair while a local slot is free;
+            // its fresh root admission still counts every durable debit.
+            if let Some(isolated) = self
+                .isolated
+                .as_mut()
+                .filter(|_| self.schedule.entries.len() < super::super::super::MAX_MOVES)
+            {
                 isolated
                     .round(
                         &self.catalog,
@@ -290,7 +298,11 @@ impl MovementServiceWork {
                     )
                     .await?;
             }
-            if let Some(topology) = &mut self.topology {
+            if let Some(topology) = self
+                .topology
+                .as_mut()
+                .filter(|_| self.schedule.entries.is_empty())
+            {
                 topology
                     .round(
                         &self.catalog,
