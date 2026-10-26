@@ -27,6 +27,25 @@ async fn finished(mut node: cellar::sdk::Node, f: &Fixture) -> Result<()> {
     Ok(())
 }
 
+// Tests that require a positive local acceptance keep physical join separate
+// from the response-domain closure. The retained-waiter case below deliberately
+// exercises Closed and still requires actual signed post-join evidence.
+async fn accept_stop_before_join(
+    s: &Started,
+    gate: &Arc<fault::Gate>,
+    request: FleetStopRequest,
+) -> Result<FleetStopAcceptance> {
+    let join_hold = gate.arm(fault::HOLD_LOCK_DROP);
+    let accepted = s.observer_node.request_fleet_stop(request, TIMEOUT).await?;
+    ensure!(accepted.action() == FleetStopAction::Stop);
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, gate.entered.notified()))
+        .await??;
+    ensure!(!s.observer_node.is_closed());
+    drop(join_hold);
+    Ok(accepted)
+}
+
 async fn guarded() -> Result<(Started, Arc<fault::Gate>)> {
     let s = Box::pin(Started::new()).await?;
     let cut = s.f.catalog.read(TIMEOUT).await?;
@@ -88,21 +107,28 @@ async fn finalizing(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_incomplete_import() -> Result<()> {
-    let (s, _gate) = Box::pin(guarded()).await?;
+    let (s, gate) = Box::pin(guarded())
+        .await
+        .context("incomplete import: guarded restart")?;
     let (operation, admission) = finalizing(&s)
         .await
         .context("incomplete import: initial Finalizing")?;
     let stop_id = ProposalId::new([238; 16])?;
-    s.observer_node
-        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
-        .await?;
+    let accepted = accept_stop_before_join(&s, &gate, admission.stop_request(stop_id)?)
+        .await
+        .context("incomplete import: stop acceptance")?;
+    ensure!(accepted.action() == FleetStopAction::Stop && accepted.request() == stop_id.bytes());
     finished(s.observer_node, &s.f)
         .await
         .context("incomplete import: physical join")?;
     let (namespace, _) = initial_birth(&s.f)
         .await
         .context("incomplete import: namespace")?;
-    let root = s.f.catalog.read(TIMEOUT).await?;
+    let root =
+        s.f.catalog
+            .read(TIMEOUT)
+            .await
+            .context("incomplete import: rooted cut")?;
     s.f.catalog
         .verify_physical_closure(&root, operation, stop_id, TIMEOUT)
         .await
@@ -119,7 +145,9 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
         } else {
             peers[0]
         };
-        s.f.remote(&node.host, peer, root.revision()).await?;
+        s.f.remote(&node.host, peer, root.revision())
+            .await
+            .context("incomplete import: survivor trust")?;
     }
     let mut verification =
         s.f.catalog
@@ -168,7 +196,11 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
     .open_namespace(config)
     .await
     .context("incomplete import: extra namespace")?;
-    let root = s.f.catalog.read(TIMEOUT).await?;
+    let root =
+        s.f.catalog
+            .read(TIMEOUT)
+            .await
+            .context("incomplete import: rooted cut")?;
     s.f.catalog
         .declare_namespace(
             &root,
@@ -179,7 +211,11 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
         )
         .await
         .context("incomplete import: verify or declare")?;
-    let current = s.f.catalog.read(TIMEOUT).await?;
+    let current =
+        s.f.catalog
+            .read(TIMEOUT)
+            .await
+            .context("incomplete import: current cut")?;
     let removal = cellar::application::consensus::verification::FleetRemovalRequest {
         identity: FleetRequestIdentity {
             id: [240; 16],
@@ -254,7 +290,7 @@ async fn fleet_enrollment_incomplete_import() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_removal_failed_survivor_keeps_slot() -> Result<()> {
     use cellar::application::consensus::verification::FleetRemovalRequest;
-    let (mut s, _gate) = Box::pin(guarded()).await?;
+    let (mut s, gate) = Box::pin(guarded()).await?;
     let (operation, admission) = finalizing(&s).await?;
     let (namespace, _) = initial_birth(&s.f).await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
@@ -301,9 +337,7 @@ async fn fleet_removal_failed_survivor_keeps_slot() -> Result<()> {
         )
         .await?;
     let stop_id = ProposalId::new([238; 16])?;
-    s.observer_node
-        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
-        .await?;
+    accept_stop_before_join(&s, &gate, admission.stop_request(stop_id)?).await?;
     finished(s.observer_node, &s.f).await?;
     // All archive and quorum verification succeeded before this later failure.
     // The old positive observations cannot authorize terminal completion.
@@ -364,7 +398,7 @@ async fn fleet_removal_joined_closure_and_lost_reply() -> Result<()> {
     use cellar::application::consensus::verification::{
         FleetChange, FleetMutation, FleetRemovalRequest, FleetTable,
     };
-    let (s, _gate) = Box::pin(guarded()).await?;
+    let (s, gate) = Box::pin(guarded()).await?;
     let (operation, admission) = finalizing(&s).await?;
     let (namespace, _) = initial_birth(&s.f).await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
@@ -453,9 +487,7 @@ async fn fleet_removal_joined_closure_and_lost_reply() -> Result<()> {
             .await,
         Err(FleetCatalogError::Invalid(_))
     ));
-    s.observer_node
-        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
-        .await?;
+    accept_stop_before_join(&s, &gate, admission.stop_request(stop_id)?).await?;
     finished(s.observer_node, &s.f).await?;
     s.f.store
         .fail_fleet_confirmation
@@ -496,8 +528,56 @@ async fn fleet_removal_joined_closure_and_lost_reply() -> Result<()> {
     Ok(())
 }
 
+// A local stop may close its own response domain before the caller consumes
+// acceptance. Closed is then an ambiguous response, never non-admission proof.
+async fn retained_stop_waiter_reports_closed() -> Result<()> {
+    let (s, _gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let id = ProposalId::new([238; 16])?;
+    let mut pending = Box::pin(
+        s.observer_node
+            .request_fleet_stop(admission.stop_request(id)?, TIMEOUT),
+    );
+    ensure!(futures_util::poll!(pending.as_mut()).is_pending());
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while !s.observer_node.is_closed() {
+                cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+            }
+        }))
+        .await??;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(matches!(
+        s.f.catalog
+            .verify_physical_closure(&root, operation, id, TIMEOUT)
+            .await,
+        Err(FleetCatalogError::Unconfirmed)
+    ));
+    ensure!(matches!(pending.await, Err(FleetCatalogError::Closed)));
+    finished(s.observer_node, &s.f).await?;
+    ensure!(!s.f.domain.is_closed());
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let closure =
+        s.f.catalog
+            .verify_physical_closure(&root, operation, id, TIMEOUT)
+            .await?;
+    ensure!(
+        closure.request() == id.bytes()
+            && closure.operation() == operation.bytes()
+            && closure.process() == [137; 16]
+    );
+    write_read(&s.f, &s.cells, 1, 3, 3).await?;
+    ensure!(s.scratch.usage()?.generations == 0);
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_stop_waiter_loss_still_joins_and_signs() -> Result<()> {
+    retained_stop_waiter_reports_closed()
+        .await
+        .context("retained stop response")?;
     let (s, gate) = Box::pin(guarded()).await?;
     let (operation, admission) = finalizing(&s).await?;
     let id = ProposalId::new([238; 16])?;
