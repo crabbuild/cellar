@@ -1,5 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
+import type { RpcAbortSignal } from "./rpc/client.js";
+
 /**
  * Values accepted by the Cellar bridge.
  *
@@ -21,13 +23,6 @@ export interface RequestData {
 
   /** Base64-encoded bytes, not plain text. */
   body: string;
-}
-
-/** Cancellation surface accepted by container ports without requiring DOM types. */
-export interface ContainerAbortSignal {
-  readonly aborted: boolean;
-  addEventListener(type: "abort", listener: () => void, options?: { once?: boolean }): void;
-  removeEventListener(type: "abort", listener: () => void): void;
 }
 
 /** Handler return value. Use response() or jsonResponse() to construct it. */
@@ -226,9 +221,9 @@ export interface Container {
   port(port: number): {
     waitReady(timeout_ms?: number): Promise<null>;
     /** Abort stops waiting; submitted HTTP effects may already have occurred. */
-    fetch(request: RequestData, options?: { signal?: ContainerAbortSignal }): Promise<Response>;
+    fetch(request: RequestData, options?: { signal?: RpcAbortSignal }): Promise<Response>;
     /** Bounded prefix and chunks; cancel or finish reading within this event. */
-    fetchStream(request: RequestData, options?: { signal?: ContainerAbortSignal }): Promise<ContainerResponse>;
+    fetchStream(request: RequestData, options?: { signal?: RpcAbortSignal }): Promise<ContainerResponse>;
     connect(): Promise<ContainerSocket>;
     connectWebSocket(url: string, headers?: Headers): Promise<
       | {

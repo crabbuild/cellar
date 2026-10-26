@@ -3,11 +3,12 @@
 //! Copy exact views at the isolate boundary. No local handles cross an await.
 use anyhow::{ensure, Context as _, Result};
 
-pub(super) fn copy(
+/// Inspect a private, fixed view without allocating its native owned copy.
+pub(super) fn view<'s>(
     scope: &v8::PinScope,
-    value: v8::Local<v8::Value>,
+    value: v8::Local<'s, v8::Value>,
     maximum: usize,
-) -> Result<Option<Vec<u8>>> {
+) -> Result<Option<v8::Local<'s, v8::Uint8Array>>> {
     if value.is_null_or_undefined() {
         return Ok(None);
     }
@@ -27,12 +28,26 @@ pub(super) fn copy(
         !buffer.was_detached() && view.byte_length() <= maximum,
         "JavaScript attachment exceeds limit or is detached"
     );
+    Ok(Some(view))
+}
+
+/// Copy an inspected view. SDK operation callers reserve its byte charge first.
+pub(super) fn copy_view(view: Option<v8::Local<v8::Uint8Array>>) -> Result<Option<Vec<u8>>> {
+    let Some(view) = view else { return Ok(None) };
     let mut bytes = vec![0; view.byte_length()];
     ensure!(
         view.copy_contents(&mut bytes) == bytes.len(),
         "JavaScript attachment copy failed"
     );
     Ok(Some(bytes))
+}
+
+pub(super) fn copy(
+    scope: &v8::PinScope,
+    value: v8::Local<v8::Value>,
+    maximum: usize,
+) -> Result<Option<Vec<u8>>> {
+    copy_view(view(scope, value, maximum)?)
 }
 
 pub(super) fn value<'s>(

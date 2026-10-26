@@ -141,6 +141,9 @@ pub(crate) struct Runtime {
     pub bytes: Arc<Semaphore>,
     pub closed: AtomicBool,
     pub stopped: watch::Sender<bool>,
+    // Observe the actual native attachment-copy boundary in saturation tests.
+    #[cfg(all(test, feature = "embed"))]
+    attachment_copied: AtomicU64,
     next: AtomicU64,
     starts: mpsc::SyncSender<Start>,
     replies: mpsc::SyncSender<Reply>,
@@ -391,6 +394,8 @@ fn run_with<T>(
         options,
         closed: AtomicBool::new(false),
         stopped: watch::channel(false).0,
+        #[cfg(all(test, feature = "embed"))]
+        attachment_copied: AtomicU64::new(0),
         next: AtomicU64::new(1),
         starts,
         replies,
@@ -422,6 +427,14 @@ fn run_with<T>(
         let engine = worker
             .join()
             .map_err(|_| anyhow::anyhow!("JavaScript engine thread panicked"))?;
+        // An explicit host stop may interrupt dispatch or a microtask checkpoint.
+        // Preserve the host's result only for that typed cause; budget expiry,
+        // ordinary engine errors and panics still fail bootstrap.
+        #[cfg(feature = "embed")]
+        let engine = match engine {
+            Err(error) if error.is::<engine::RequestedShutdown>() => Ok(()),
+            result => result,
+        };
         match (result, engine) {
             (Ok(value), Ok(())) => Ok(value),
             (Err(error), Ok(())) => Err(error),

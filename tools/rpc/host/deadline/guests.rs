@@ -135,6 +135,7 @@ pub(super) async fn run(inner: Arc<Composite>) -> Result<Value> {
                 ("receiver-cap", source_url.as_str(), SOURCE, capped, "rust", capped, "5000", 1500),
                 ("nested", source_url.as_str(), SOURCE, "deadline-nested", guest, child, "400", 400),
             ] {
+                eprintln!("guest deadline: {guest}/{mode}");
                 let probe = &app.probes[observed];
                 probe.refusal.lock().unwrap().take();
                 let before = probe.entries.lock().unwrap().len();
@@ -146,7 +147,9 @@ pub(super) async fn run(inner: Arc<Composite>) -> Result<Value> {
                 let reply = request(&client, base, guest, "deadline", &[("target", target), ("name", name), ("timeout", timeout)]).await?;
                 ensure!(reply["node"] == ingress && reply["result"] == json!({"code":"DeadlineExceeded","outcome":"unknown"}) && reply["followup_writes"] == 0,
                     "{guest}/{mode} lost deadline/outcome/cleanup: {reply}");
-                let refused = refusal(probe).await?;
+                let refused = refusal(probe).await.with_context(|| format!(
+                    "{guest}/{mode}: entries before={before}, after={:?}, transaction_entered={}",
+                    probe.entries.lock().unwrap(), probe.checkpoint.load(Ordering::Acquire)))?;
                 ensure!(refused.child_binding && refused.new_storage && refused.cached_write && refused.commit, "{guest}/{mode} retained late native SDK authority: {refused:?}");
                 let entry = probe.entries.lock().unwrap().get(before).cloned().context("expired child never entered")?;
                 ensure!(entry.remaining_ms > 0 && entry.remaining_ms <= cap, "{guest}/{mode} extended the native receiver cap: {entry:?}");

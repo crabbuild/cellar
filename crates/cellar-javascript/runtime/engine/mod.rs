@@ -13,6 +13,49 @@ use std::{
     time::Instant,
 };
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Interruption {
+    RequestedShutdown,
+    ExecutionBudget,
+}
+
+#[derive(Default)]
+struct WatchState {
+    deadline: Option<Instant>,
+    // The first observed cause survives deadline clearing and host teardown.
+    interruption: Option<Interruption>,
+}
+
+/// Only an interrupted V8 boundary can produce this private marker. Bootstrap
+/// may join that requested stop without replacing the host's original result.
+#[derive(Debug)]
+pub(super) struct RequestedShutdown;
+
+impl std::fmt::Display for RequestedShutdown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("JavaScript interrupted by requested shutdown")
+    }
+}
+
+impl std::error::Error for RequestedShutdown {}
+
+fn v8_failure(
+    scope: &v8::PinScope,
+    watch: &Mutex<WatchState>,
+    message: &'static str,
+) -> anyhow::Error {
+    if scope.is_execution_terminating() {
+        match watch.lock().unwrap().interruption {
+            Some(Interruption::RequestedShutdown) => return RequestedShutdown.into(),
+            Some(Interruption::ExecutionBudget) => {
+                return anyhow::anyhow!("JavaScript engine turn exceeded execution budget")
+            }
+            None => {}
+        }
+    }
+    anyhow::anyhow!(message)
+}
+
 struct InvocationState {
     start: Start,
     retained: bool,
@@ -276,16 +319,16 @@ fn dispatch_operation(
         return refuse(scope, "ValidationError");
     };
     let limit = state.borrow().runtime.options.max_value_bytes;
-    if name.length() > 64 || payload.length() > limit {
+    let payload_bytes = payload.utf8_length(scope);
+    if name.length() > 64 || payload_bytes > limit {
         return refuse(scope, "ValueLimit");
     }
     let name = name.to_rust_string_lossy(scope);
-    let payload = payload.to_rust_string_lossy(scope);
     if synchronous && !supports_synchronous(&name) {
         return refuse(scope, "UnsupportedOperation");
     }
     let shared = state.clone();
-    let body = match super::binary::copy(scope, args.get(3), limit) {
+    let body = match super::binary::view(scope, args.get(3), limit) {
         Ok(body) => body,
         Err(_) => return refuse(scope, "ValidationError"),
     };
@@ -343,12 +386,27 @@ fn dispatch_operation(
         return refuse(scope, "ConcurrentMutation");
     }
 
-    let Ok(size) = value_size(&payload, body.as_deref()) else {
+    let Some(size) = payload_bytes.checked_add(body.as_ref().map_or(0, |view| view.byte_length()))
+    else {
         return refuse(scope, "ValueLimit");
     };
+    if size > limit {
+        return refuse(scope, "ValueLimit");
+    }
     let Ok(bytes) = runtime.reserve(size) else {
         return refuse(scope, "BridgeLimit");
     };
+    // Check liveness, operation admission and byte capacity before materializing
+    // either owned payload. The view is private/fixed and no JS runs here.
+    let payload = payload.to_rust_string_lossy(scope);
+    let body = match super::binary::copy_view(body) {
+        Ok(body) => body,
+        Err(_) => return refuse(scope, "ValidationError"),
+    };
+    #[cfg(test)]
+    runtime
+        .attachment_copied
+        .fetch_add(body.as_ref().map_or(0, Vec::len) as u64, Ordering::Relaxed);
     let Ok(id) = runtime.id() else {
         return refuse(scope, "OperationLimit");
     };
@@ -375,6 +433,14 @@ fn dispatch_operation(
     } else {
         None
     };
+    // The host can revoke these atomics while copies or resolver allocation run.
+    // Retain the post-copy authority check before publishing any native work.
+    if runtime.closed.load(Ordering::Acquire)
+        || !active.start.active.load(Ordering::Acquire)
+        || !active.start.owner.load(Ordering::Acquire)
+    {
+        return refuse(scope, "ContextExpired");
+    }
     if active
         .start
         .sender
@@ -508,21 +574,26 @@ pub(super) fn run(
     let handle = isolate.thread_safe_handle();
     // The watchdog holds this mutex only while observing/terminating the isolate;
     // clearing it synchronizes against termination of a subsequent idle turn.
-    let deadline = Arc::new(Mutex::new(None::<Instant>));
+    let watch = Arc::new(Mutex::new(WatchState::default()));
     let (end, watchdog_end) = mpsc::channel::<()>();
-    let watch_deadline = deadline.clone();
+    let watch_state = watch.clone();
     let watchdog_runtime = runtime.clone();
     let watchdog = std::thread::spawn(move || {
         while watchdog_end.recv_timeout(Duration::from_millis(2)).is_err() {
-            let deadline = watch_deadline.lock().unwrap();
-            if deadline.is_some_and(|end| {
-                watchdog_runtime.closed.load(Ordering::Acquire) || Instant::now() >= end
-            }) {
-                handle.terminate_execution();
-                if deadline.is_some() {
-                    watchdog_runtime.close();
-                }
-            }
+            let mut state = watch_state.lock().unwrap();
+            let Some(end) = state.deadline else { continue };
+            // Expiry wins if both conditions are observed together. A host
+            // shutdown cannot hide an already expired startup or turn budget.
+            let cause = if Instant::now() >= end {
+                Interruption::ExecutionBudget
+            } else if watchdog_runtime.closed.load(Ordering::Acquire) {
+                Interruption::RequestedShutdown
+            } else {
+                continue;
+            };
+            state.interruption.get_or_insert(cause);
+            handle.terminate_execution();
+            watchdog_runtime.close();
         }
     });
 
@@ -546,7 +617,7 @@ pub(super) fn run(
         objects: HashMap::new(),
     }));
     isolate.set_slot(state.clone());
-    *deadline.lock().unwrap() = Some(Instant::now() + runtime.options.startup_timeout);
+    watch.lock().unwrap().deadline = Some(Instant::now() + runtime.options.startup_timeout);
     v8::scope!(let scope, &mut isolate);
     let context = v8::Context::new(scope, Default::default());
     let scope = &mut v8::ContextScope::new(scope, context);
@@ -622,7 +693,7 @@ pub(super) fn run(
     let retire = v8::Global::new(scope, function(scope, runner, "retire")?);
     let cancel = v8::Global::new(scope, function(scope, runner, "cancel")?);
     let background = v8::Global::new(scope, function(scope, runner, "background")?);
-    *deadline.lock().unwrap() = None;
+    watch.lock().unwrap().deadline = None;
     let _ = ready.send(Ok(()));
     loop {
         if runtime.closed.load(Ordering::Acquire) {
@@ -633,7 +704,7 @@ pub(super) fn run(
         v8::scope!(let turn, parent);
         // One budget covers the entire pump pass, including all admitted calls
         // and the microtask checkpoint below. It is not a per-handler I/O timeout.
-        *deadline.lock().unwrap() = Some(Instant::now() + runtime.options.turn_timeout);
+        watch.lock().unwrap().deadline = Some(Instant::now() + runtime.options.turn_timeout);
         // Service replies before admission. Never wait for one invocation to finish.
         for reply in replies
             .try_iter()
@@ -718,16 +789,9 @@ pub(super) fn run(
             let token = v8::Number::new(turn, id as f64);
             turn.set_continuation_preserved_embedder_data(token.into());
             let dispatch = v8::Local::new(turn, &dispatch);
-            let result = dispatch.call(turn, undefined.into(), &[token.into(), value.into(), body]);
-            let result = result.ok_or_else(|| {
-                if turn.is_execution_terminating() {
-                    anyhow::anyhow!(
-                        "JavaScript engine turn exceeded execution budget during dispatch"
-                    )
-                } else {
-                    anyhow::anyhow!("JavaScript dispatch failed")
-                }
-            })?;
+            let result = dispatch
+                .call(turn, undefined.into(), &[token.into(), value.into(), body])
+                .ok_or_else(|| v8_failure(turn, &watch, "JavaScript dispatch failed"))?;
             let promise = v8::Local::<v8::Promise>::try_from(result)?;
             state.borrow_mut().invocations.get_mut(&id).unwrap().promise =
                 Some(v8::Global::new(turn, promise));
@@ -736,10 +800,13 @@ pub(super) fn run(
         // Clear ambient authority; queued continuations restore their own IDs.
         turn.set_continuation_preserved_embedder_data(undefined.into());
         turn.perform_microtask_checkpoint();
-        ensure!(
-            !turn.is_execution_terminating(),
-            "JavaScript engine turn exceeded execution budget"
-        );
+        if turn.is_execution_terminating() {
+            return Err(v8_failure(
+                turn,
+                &watch,
+                "JavaScript microtask checkpoint interrupted",
+            ));
+        }
 
         let mut backgrounds = HashMap::new();
         if source.workers_lifetimes {
@@ -752,7 +819,9 @@ pub(super) fn run(
                 let token = v8::Number::new(turn, id as f64);
                 let result = background
                     .call(turn, undefined.into(), &[token.into()])
-                    .context("JavaScript background state query failed")?;
+                    .ok_or_else(|| {
+                        v8_failure(turn, &watch, "JavaScript background state query failed")
+                    })?;
                 let status = v8::Local::<v8::Number>::try_from(result)?.value();
                 ensure!(
                     matches!(status, 0.0 | 1.0 | 2.0),
@@ -839,16 +908,11 @@ pub(super) fn run(
         for id in &finished {
             let cancel = v8::Local::new(turn, &cancel);
             let id = v8::Number::new(turn, *id as f64);
-            let cancelled = cancel.call(turn, undefined.into(), &[id.into()]);
-            ensure!(
-                cancelled.is_some(),
-                "{}",
-                if turn.is_execution_terminating() {
-                    "JavaScript engine turn exceeded execution budget during lifetime cancellation"
-                } else {
-                    "JavaScript lifetime cancellation failed"
-                }
-            );
+            cancel
+                .call(turn, undefined.into(), &[id.into()])
+                .ok_or_else(|| {
+                    v8_failure(turn, &watch, "JavaScript lifetime cancellation failed")
+                })?;
         }
         let abandoned = {
             let mut state = state.borrow_mut();
@@ -883,14 +947,17 @@ pub(super) fn run(
             let retire = v8::Local::new(turn, &retire);
             retire
                 .call(turn, undefined.into(), &[id.into()])
-                .context("JavaScript object retirement failed")?;
+                .ok_or_else(|| v8_failure(turn, &watch, "JavaScript object retirement failed"))?;
         }
-        *deadline.lock().unwrap() = None;
+        watch.lock().unwrap().deadline = None;
         std::thread::sleep(Duration::from_millis(1));
     }
     ensure!(
-        !scope.is_execution_terminating(),
-        "JavaScript runtime terminated"
+        watch.lock().unwrap().interruption != Some(Interruption::ExecutionBudget),
+        "JavaScript engine turn exceeded execution budget"
     );
+    if scope.is_execution_terminating() {
+        return Err(v8_failure(scope, &watch, "JavaScript runtime terminated"));
+    }
     Ok(())
 }
