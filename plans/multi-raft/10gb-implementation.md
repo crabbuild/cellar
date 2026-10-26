@@ -976,3 +976,34 @@ after a diagnostic failure; read deadlines and all recovery assertions remain
 unchanged. All four workers and RustFS used one external USB SSD in the failed
 run, so independent worker volumes are a separate contention experiment, not a
 proven cause or recovery-time improvement.
+
+### First complete full-size RustFS pass
+
+Frozen `faad0f58` completes the actual 9,999,998,976-byte RustFS drill with exit
+zero in 1,711.06 seconds. It verifies owner-state erasure, warm takeover, quota
+rejection/cleanup/reuse, object-store restoration onto an empty worker, payload
+hashes, promotion, new writes, version-bound reads, restart, receipt identity and
+joined shutdown. The node test process peaks at 110,968,832 resident bytes; this
+excludes the separate RustFS process and operating-system file cache.
+
+The empty-worker join and first local read take 134.63 seconds after archive
+confirmation. Its new write takes 27.75 seconds, followed by the required read
+in 8.009 seconds. The restarted owner acknowledges another new write in 27.12
+seconds and verifies its payloads at that exact version in 1.386 seconds. Both
+read deadlines remain 60 seconds. Odd-numbered workers use a separate local
+volume; the other workers and RustFS retain the original workspace volume.
+
+The query opens in under a millisecond; the observed delay is within SQL
+execution. An independent read-only query of the same physical image during the
+first read also takes seconds, consistent with storage pressure. This does not
+establish the specific cause of every historical failure. That diagnostic query
+can warm the file cache, so it is disabled before the restart/new-write checks.
+The raw log, result, executable/source hashes and probe history are preserved.
+
+Temporary query-phase instrumentation and the isolated diagnostic test are now
+removed. All 1,265 tracked Rust/Cargo build inputs exactly match `106a961f`.
+The clean repeat uses that already-frozen executable, identical to the failed
+single-volume run's executable, on the separate worker volumes with no external
+SQL reader or native sampler. Its result is pending. This remains an embedded
+node/domain recovery drill; hard OS-process kills, public extent recovery,
+fleet-capacity limits and recovery-time guarantees remain unqualified.

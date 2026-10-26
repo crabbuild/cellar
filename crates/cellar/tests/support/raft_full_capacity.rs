@@ -51,20 +51,11 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
             Ok(value.to_be_bytes().to_vec())
         })?
         .query("Read", [93; 32], |context, input| {
-            let started = std::time::Instant::now();
-            eprintln!(
-                "full-native query-phase=callback-start sample_bytes={}",
-                input.len()
-            );
             let (value, bytes): (u64, u64) = context.query_row(
                 "SELECT (SELECT value FROM counter),coalesce(sum(length(value)),0) FROM items",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
-            eprintln!(
-                "full-native query-phase=sql-complete value={value} duration_s={:.3}",
-                started.elapsed().as_secs_f64()
-            );
             let mut output = [value.to_be_bytes(), bytes.to_be_bytes()].concat();
             if !input.is_empty() {
                 ensure!(input.len() == 24, "invalid payload sample request");
@@ -76,10 +67,6 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
                     output.extend_from_slice(&Sha256::digest(payload));
                 }
             }
-            eprintln!(
-                "full-native query-phase=callback-complete value={value} duration_s={:.3}",
-                started.elapsed().as_secs_f64()
-            );
             Ok(output)
         })?;
     Ok(public_node::Counter {
@@ -482,7 +469,7 @@ async fn drill(
     secondary_workdir: Option<PathBuf>,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::archive=info,cellar::raft::query=debug")
+        .with_env_filter("cellar::raft::archive=info")
         // Stage observations use stderr too. Share its lock so concurrent
         // archive phases cannot split a stage line between stdout/stderr.
         .with_writer(std::io::stderr)
@@ -534,7 +521,7 @@ async fn drill(
             learners: vec![],
         },
     };
-    let mut roots = (0..4)
+    let roots = (0..4)
         .map(|index| {
             let directory = if index % 2 == 1 {
                 secondary_workdir.as_ref().unwrap_or(&workdir)
@@ -544,15 +531,6 @@ async fn drill(
             tempfile::tempdir_in(directory)
         })
         .collect::<std::io::Result<Vec<_>>>()?;
-    if std::env::var_os("CELLAR_LARGE_IMAGE_KEEP_WORKDIR").is_some() {
-        for (index, root) in roots.iter_mut().enumerate() {
-            root.disable_cleanup(true);
-            eprintln!(
-                "full-native retained-worker={index} directory={}",
-                root.path().display()
-            );
-        }
-    }
     let mut host = RaftHostOptions::default();
     host.execution.max_image_bytes = quota;
     host.execution.receipt_reserve_bytes = receipt_reserve;
@@ -1246,71 +1224,6 @@ async fn rustfs_drill(from_s3: bool) -> Result<()> {
 #[ignore = "requires workspace disk and RustFS/AWS credentials; actual 272 MiB SQLite image"]
 async fn buffered_archive_rustfs_recovers_after_owner_and_local_state_loss() -> Result<()> {
     rustfs_drill_at_quota(true, 272 * 1024 * 1024, None).await
-}
-
-/// Isolate the same physical query opener and SQL from Raft admission and
-/// archive transport. The supplied fixture is copied before any application
-/// writes; its immutable source remains unchanged.
-#[test]
-#[ignore = "requires the real 10 GB fixture and workspace disk"]
-fn decimal_ten_gb_immutable_query_after_write() -> Result<()> {
-    let source = PathBuf::from(std::env::var_os("CELLAR_LARGE_IMAGE_FIXTURE").context("fixture")?);
-    let work = PathBuf::from(std::env::var_os("CELLAR_LARGE_IMAGE_WORKDIR").context("workdir")?);
-    let root = tempfile::tempdir_in(work)?;
-    let started = std::time::Instant::now();
-    let (template, _, bytes, _) = prepared_template(&source, root.path(), QUOTA, 32 * 1024 * 1024)?;
-    let db = rusqlite::Connection::open(&template)?;
-    db.execute("UPDATE counter SET value=value+1", [])?;
-    drop(db);
-    let state = image_state(&template)?;
-    let mut limits = GenerationLimits::default();
-    limits.apply.decode.max_image_bytes = QUOTA;
-    limits.max_bytes = 2 * QUOTA;
-    let images = GenerationStore::open(
-        root.path().join("images"),
-        Arc::new(DirectFileSystem),
-        limits,
-    )?;
-    let pin = images.prepare_image_file(ImageId::new([1; 16])?, &template, state)?;
-    eprintln!(
-        "full-query stage=prepared elapsed_s={:.3}",
-        started.elapsed().as_secs_f64()
-    );
-    let query_started = std::time::Instant::now();
-    let query = cellar::storage::open_immutable_generation(
-        pin,
-        cellar::storage::ImmutableQueryOptions {
-            services: cellar_ltx::generation::ReadServices {
-                now_unix_millis: Arc::new(|| 0),
-                fill_random: Arc::new(|bytes| bytes.fill(17)),
-            },
-            sqlite_vec: false,
-        },
-    )?;
-    eprintln!(
-        "full-query stage=opened duration_s={:.3}",
-        query_started.elapsed().as_secs_f64()
-    );
-    let (value, actual): (u64, u64) = query.query_row(
-        "SELECT (SELECT value FROM counter),coalesce(sum(length(value)),0) FROM items",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    ensure!((value, actual) == (8, bytes));
-    eprintln!(
-        "full-query stage=queried duration_s={:.3}",
-        query_started.elapsed().as_secs_f64()
-    );
-    drop(query);
-    eprintln!(
-        "full-query stage=closed duration_s={:.3}",
-        query_started.elapsed().as_secs_f64()
-    );
-    ensure!(
-        query_started.elapsed() < Duration::from_secs(60),
-        "immutable query exceeds native read deadline"
-    );
-    Ok(())
 }
 
 async fn rustfs_drill_at_quota(
