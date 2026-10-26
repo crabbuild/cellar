@@ -375,6 +375,7 @@ impl Generation {
             })?;
         let bytes = events::encoding::json(definition, events::MAX_DEFINITION_BYTES)?;
         Ok(crate::host_channels::RpcCallReq {
+            reservation: None,
             parent_cancellation: None,
             signal: None,
             deadline_ms: None,

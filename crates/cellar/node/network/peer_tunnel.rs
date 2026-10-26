@@ -754,6 +754,7 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
             let reply = dispatch_forwarded_rpc(
                 app,
                 crate::runtime::RpcInvocation {
+                    reservation: None,
                     parent_cancellation: None,
                     signal: None,
                     deadline_ms,

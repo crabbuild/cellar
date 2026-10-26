@@ -1611,6 +1611,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
 
 async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
+        reservation,
         parent_cancellation,
         signal,
         deadline_ms,
@@ -1686,6 +1687,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                     .as_ref()
                                     .context("no cell runtime")?
                                     .rpc_with_authority(crate::runtime::RpcInvocation {
+                                        reservation: reservation.clone(),
                                         parent_cancellation: parent_cancellation.clone(),
                                         signal: signal.clone(),
                                         deadline_ms,

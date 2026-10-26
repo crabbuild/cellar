@@ -76,6 +76,7 @@ fn policy(requests: usize, cells: usize, budget: Duration) -> RuntimePolicy {
         max_cell_requests: requests,
         admission_wait: Duration::ZERO,
         handler_budget: budget,
+        ..RuntimePolicy::default()
     }
 }
 
@@ -366,6 +367,22 @@ async fn runtime_policy_rejects_invalid_limits_and_reconfiguration() -> Result<(
             ..Default::default()
         },
         RuntimePolicy {
+            max_outbound_rpc_requests: 0,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_outbound_rpc_requests: usize::MAX,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_outbound_rpc_bytes: 128 * 1024 - 1,
+            ..Default::default()
+        },
+        RuntimePolicy {
+            max_outbound_rpc_bytes: usize::MAX,
+            ..Default::default()
+        },
+        RuntimePolicy {
             handler_budget: Duration::ZERO,
             ..Default::default()
         },
@@ -407,6 +424,8 @@ fn library_runtime_policy_does_not_depend_on_process_environment() -> Result<()>
         .env("CELLAR_MAX_STATELESS_ISOLATES", "unusable")
         .env("CELLAR_MAX_REQUESTS", "unusable")
         .env("CELLAR_MAX_CELL_REQUESTS", "unusable")
+        .env("CELLAR_MAX_OUTBOUND_RPC_REQUESTS", "unusable")
+        .env("CELLAR_MAX_OUTBOUND_RPC_BYTES", "unusable")
         .env("CELLAR_ADMISSION_WAIT_MS", "unusable")
         .env("CELLAR_HANDLER_BUDGET_S", "unusable")
         .output()?;
@@ -431,6 +450,8 @@ fn command_line_policy_resolves_environment_once() -> Result<()> {
                 max_stateless_workers: 2,
                 max_stateless_requests: Some(7),
                 max_cell_requests: 11,
+                max_outbound_rpc_requests: 9,
+                max_outbound_rpc_bytes: 128 * 1024,
                 admission_wait: Duration::ZERO,
                 handler_budget: Duration::from_secs(3),
                 ..Default::default()
@@ -461,6 +482,8 @@ fn command_line_policy_resolves_environment_once() -> Result<()> {
         .env("CELLAR_MAX_STATELESS_ISOLATES", "2")
         .env("CELLAR_MAX_REQUESTS", "7")
         .env("CELLAR_MAX_CELL_REQUESTS", "11")
+        .env("CELLAR_MAX_OUTBOUND_RPC_REQUESTS", "9")
+        .env("CELLAR_MAX_OUTBOUND_RPC_BYTES", "131072")
         .env("CELLAR_ADMISSION_WAIT_MS", "0")
         .env("CELLAR_HANDLER_BUDGET_S", "3")
         .output()?;

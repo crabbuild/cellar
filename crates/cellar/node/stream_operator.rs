@@ -84,6 +84,7 @@ where
     };
     let (reply, receiver) = oneshot::channel();
     let call = RpcCallReq {
+        reservation: None,
         parent_cancellation: None,
         signal: None,
         deadline_ms: None,

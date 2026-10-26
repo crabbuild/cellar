@@ -124,6 +124,8 @@ pub mod host_service;
 pub mod host_services;
 #[path = "transport/http/policy.rs"]
 pub mod http_policy;
+#[path = "execution/outbound_rpc.rs"]
+mod outbound_rpc;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
 #[path = "transport/tcp/mod.rs"]

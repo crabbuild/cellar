@@ -11,6 +11,8 @@ use crate::engine_api::RequestBody;
 use crate::engine_api::RpcData;
 use crate::engine_api::{next_do_request_id, HttpResponse, RequestId};
 use crate::http_streams::RequestBodyGuard;
+#[doc(hidden)]
+pub use crate::outbound_rpc::Reservation as RpcReservation;
 use crate::ws_registry::OutboundWsReq;
 use anyhow::Result;
 pub use cellar_native::call_order::{CallChains, CallOrder, CallWait};
@@ -373,6 +375,9 @@ pub fn set_asset_call_tx(tx: tokio::sync::mpsc::UnboundedSender<AssetCallReq>) {
 /// A native Durable Object RPC call (`stub.someMethod(...args)`).
 /// Routing/activation is identical to fetch calls.
 pub struct RpcCallReq {
+    /// SDK submission ownership. Trusted host control requests use `None`.
+    #[doc(hidden)]
+    pub reservation: Option<RpcReservation>,
     #[doc(hidden)]
     pub parent_cancellation: Option<std::sync::Arc<crate::runtime::InvocationCancellation>>,
     #[doc(hidden)]

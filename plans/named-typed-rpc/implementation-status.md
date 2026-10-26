@@ -74,6 +74,67 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **SDK submission count and length-weighted byte admission precede queueing.**
+  Native SDK namespace calls previously entered an unbounded source queue and
+  routing futures before per-cell admission. A configured one-call policy's
+  boundary regression observed two queued requests. `RuntimePolicy` now pins
+  `max_outbound_rpc_requests` (default 128) and `max_outbound_rpc_bytes` (default
+  256 MiB; minimum 128 KiB) per execution domain across generations. Admission
+  tries both quotas before a source gate or queue wait, without a new waiter
+  queue. A valid typed request receives an encoded
+  `ResourceExhausted/not_committed` refusal for that unsubmitted child call;
+  entered handlers cannot use arbitrary propagated errors as rollback proof.
+  There is no automatic retry. The request, caller and local native driver share
+  one opaque reservation. Caller cancellation or queue draining cannot free it
+  while another owner retains work; an unconsumed reply retains it too.
+  Trusted direct host control requests and receiving peers keep separate
+  admission, leaving reply/shutdown progress independent of this source quota.
+  The byte charge is twice the encoded payload length, four times the combined
+  scope/name/method UTF-8 length and 64 KiB of control/frame allowance. It is not
+  an RSS or exact allocator measurement; spare/shared backing capacity, response
+  copies, guest heaps and peer ingress still require their own accounting.
+  The new **64-case source saturation matrix** uses every generated
+  Rust/Python/V8/Node caller/provider pair, local and signed-peer routing, with
+  independent count and byte policies. V8 uses generated TypeScript; Node uses
+  generated plain JavaScript. The count cases retain the default byte allowance;
+  byte cases retain the default 128-call quota. A native driver barrier observes
+  the real owner, scope, epoch and closed transaction before the original
+  provider. While held, the other generated client is refused without factory
+  or business entry. Release permits the original handler and proof path;
+  explicit same-ID retries apply the refused command once and preserve changed
+  command conflicts. Every case and joined node has zero source reservations.
+  The independent auditor rejects **ten** corrupted reports. The suite runs in
+  the combined qualifier and Linux lifecycle CI.
+  On merged main through `cc38acc3` (#130), **375 live cases** pass: source
+  saturation 64, signed-peer faults 80, failure provenance 96, dependency cycles
+  80 and deadlines 55. Both report auditors pass ten negative probes each.
+  All **71 core RPC-filter tests** (including nine SDK boundary tests), **18
+  native integration tests**, **35 qualifier guards**, **76 V8/Node unit tests**
+  and **six adapter integration tests** pass, including dedicated SSE/WebSocket,
+  Node npm/native-addon compatibility and typed RPC/restart checks. Affected
+  core/test and full qualifier Clippy checks pass; format/layout cover 1,189 Rust
+  files, the native-only dependency guard finds 466 packages with no JS engine,
+  and docs pass. The first Clippy invocation caught an unused test-harness
+  import and owned comparison; the corrected assertions preserve their meaning.
+  The first dependency-guard invocation lacked Cargo on PATH; the normal pinned
+  environment passes. Both failed invocation logs are retained.
+  Evidence: `.cellar/rpc/outbound-saturation.json` (SHA-256
+  `687b257082b99957a4eb836a3200a2e1789ea28974968667d974bc2514257fc0`),
+  `outbound-{peer-faults,provenance,cycles,deadline}.json`,
+  `outbound-source-before.json` and `outbound-source-audit.json`; all **3,637**
+  source/fixture hashes remain unchanged throughout these runs. The source
+  manifest SHA-256 is
+  `57f645d0b4a07cdbc43949c82836a570f244cdcc8bf6618ce72f0ac7e1818e7b`.
+  The original red boundary is `/tmp/cellar-rpc-submission-count-red.log`;
+  qualification/check logs are `/tmp/cellar-rpc-outbound-*.log`. This uses Rust
+  1.98.1, Node 24.13.1 and GIL CPython 3.14.6. New-head hosted checks remain
+  required; merged #130's typed-RPC lifecycle job passes. Successful streaming
+  and compatibility runs do not diagnose the prior intermittent failures.
+  Broader receiving-peer admission, effective limits, allocation/RSS and
+  flood/disconnect/cancellation saturation, full live Protobuf-profile calls,
+  supported Python modes and package identity remain open. T01–T19 and full
+  `release_qualified` remain open.
+
 - **Receiving size refusal retains its exact-call proof without a body copy.**
   A valid 128-byte message is admitted; a valid 129-byte message under the same
   descriptor previously escaped `Catalog::refusal` as an outer
@@ -2290,6 +2351,9 @@ must preserve the existing recovery, crash, proof and receipt evidence.
    semantics before invoking message generators. Verify effective
    method/runtime/host/peer minima, account for retained binary copies, and
    measure decoder allocations and RSS under saturation, flood and disconnect.
+   Preserve the 64 generated-client SDK source saturation cases and the
+   gate/queue/routing/undelivered-reply reservation tests. Their length-weighted
+   request allowance does not qualify receiving-peer or response allocations.
    Completion requires bounded queues and reservations that return to baseline
    after cleanup, while retaining graph, slot and control-budget guards.
 5. **P1: qualify the portable profile and supported runtimes.** Run real business

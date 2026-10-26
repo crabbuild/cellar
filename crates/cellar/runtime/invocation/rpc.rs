@@ -84,9 +84,33 @@ pub(crate) async fn call_scoped(
     };
     let submitted = AtomicBool::new(false);
     let operation = async {
+        let services = crate::asyncrt::services();
+        let reservation =
+            match services.reserve_outbound_rpc(&scope, name.as_deref(), &method, &args) {
+                Some(reservation) => reservation,
+                None if event_call => {
+                    return Err(crate::application::event_stream::DeliveryError::new(
+                        crate::application::event_stream::ErrorCode::Unavailable,
+                        "event RPC admission refused before submission",
+                    )
+                    .into());
+                }
+                None => {
+                    let code = if services.accepts_work() {
+                        crate::application::rpc::Code::ResourceExhausted
+                    } else {
+                        crate::application::rpc::Code::Unavailable
+                    };
+                    return match crate::application::rpc::unsubmitted_refusal(&args, code) {
+                        Some(reply) => Ok(reply),
+                        None => Err(crate::application::rpc::Failure::new(code).into()),
+                    };
+                }
+            };
         let (request_id, cancel, mut cancellation) = begin_call_cancellation();
         let (reply, receive) = tokio::sync::oneshot::channel();
         let call = RpcCallReq {
+            reservation: Some(reservation.clone()),
             parent_cancellation: call_scope.parent_cancellation,
             signal: call_scope.signal,
             deadline_ms: call_scope.deadline_ms,
@@ -143,6 +167,9 @@ pub(crate) async fn call_scoped(
             }
         })?;
         cancellation.disarm();
+        // A completed but unconsumed reply is still owned SDK work. The
+        // caller, queued request and local native driver share one ticket.
+        drop(reservation);
         result
     };
     if let Some(deadline_ms) = deadline_ms {

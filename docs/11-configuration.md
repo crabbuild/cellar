@@ -17,6 +17,8 @@ when you select the unrestricted profile.
 | `max_stateless_requests` | `Some(64)` | Admitted events per script pool; background work retains slots |
 | `max_cells_per_worker` | 32 | Residents sharing one worker |
 | `max_cell_requests` | 64 | Concurrent fetch/RPC admission per cell |
+| `max_outbound_rpc_requests` | 128 | SDK namespace RPCs retained across all host generations |
+| `max_outbound_rpc_bytes` | 256 MiB | Length-weighted SDK request/copy/control allowance; minimum 128 KiB |
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
 | `handler_budget` | 300 s | Handler response budget; excludes subsequent background/proof settlement |
 | `HttpPolicy.request_timeout` | 120 s | SDK HTTP deadline, including response-body consumption |
@@ -34,6 +36,23 @@ when you select the unrestricted profile.
 These are source defaults, not recommended production sizing. The structured
 decoder caps encoded values at 64 MiB, and loader budgets must not exceed it.
 Choose lower business-specific bounds where appropriate.
+
+SDK RPC submission reserves both host quotas before waiting for its source
+durability gate or entering the routing queue. Saturation refuses immediately.
+A valid typed call receives `ResourceExhausted/not_committed` for that refused
+child call; a caller's earlier writes keep their own outcome. There is no
+automatic replay. A reservation follows queued/routed work, any local native
+driver and an unconsumed reply until the last owner retires, including after
+caller cancellation. Reply and shutdown control paths do not acquire this quota.
+
+The byte allowance is twice the encoded payload length, four times the combined
+scope/name/method UTF-8 length, plus 64 KiB for bounded control/frame copies.
+It is not an RSS or exact allocator measurement: shared backing allocations,
+spare capacity, response buffers, guest heaps and peer ingress retain separate
+limits. Trusted direct host control requests use their existing admission.
+`domain.services().outbound_rpc_usage()` exposes the two sampled counters for
+cleanup checks. Configure quotas with `NodeConfig.runtime` or
+`domain.services().configure_runtime(...)` before the first submission.
 
 Install `ActorOptions` with `domain.services().configure_actor(&options)` before
 building generations to select a different operation deadline. Queue leases and
@@ -110,6 +129,7 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_REQUESTS` | Stateless admission limit; **unset is unbounded in the CLI** |
 | `CELLAR_MAX_STATELESS_ISOLATES` | Stateless worker count; CLI defaults to available parallelism |
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
+| `CELLAR_MAX_OUTBOUND_RPC_REQUESTS` / `CELLAR_MAX_OUTBOUND_RPC_BYTES` | Host SDK submission count / length-weighted byte allowance; defaults 128 / 268435456 |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |
 | `CELLAR_ASSET_CACHE_DIR` / `CELLAR_ASSET_CACHE_BYTES` | CLI captures cache directory and cleanup target once; default directory is `asset-cache` under the node data directory |
 | `CELLAR_MAX_ASSET_FILE_BYTES` | CLI captures the serving file ceiling; deployment builders use the same explicit environment adapter |

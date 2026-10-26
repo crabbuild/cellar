@@ -6,6 +6,48 @@ Implementation of [plan 009](../../plans/009-named-typed-rpc.md) is in progress.
 The [status ledger](../../plans/named-typed-rpc/implementation-status.md) records
 the delivered boundaries and remaining language/fleet tests.
 
+## SDK source saturation
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite saturation --report .cellar/rpc/saturation.json
+python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
+```
+
+This adds 64 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+local and authenticated peer routing, with independent host count and byte
+quotas. V8 uses the generated TypeScript binding; Node uses plain JavaScript.
+The byte case retains the default 128-call quota and reduces only the byte
+allowance to 128 KiB. The count case retains the default byte allowance.
+
+```text
+generated Rust holder ----> reserve SDK quota ----> native driver barrier
+                                  |                         |
+generated client ---------> quota exhausted                 | release
+                            ResourceExhausted                v
+                            not_committed           original provider + proof
+                                  |                         |
+                            no business entry         reservation retires
+                                  |
+                     explicit receipt retry --> one mutation + saved result
+```
+
+The barrier observes the real owner, scope, epoch and closed transaction before
+calling the original provider. While it holds capacity, a second generated
+client must be refused without constructing a provider or entering business
+code. After release, the holder finishes, reservations drain, and explicit
+same-ID retries apply the refused command once; a changed command conflicts.
+Every node joins, including after a failed assertion. The separate auditor
+checks coverage, authority, counts, quotas and zero retained reservations and
+rejects ten corrupted reports. The suite also runs in the combined qualifier
+and Linux lifecycle CI.
+
+These are SDK request reservations based on encoded lengths, not an RSS or
+exact allocator measurement. Native allocator spare/shared capacity, receiving
+peer queues, response copies, guest heaps, floods and cancellation/shutdown
+matrices still require their own qualification. See the host settings in
+[configuration](../../docs/11-configuration.md#library-defaults).
+
 ## Generate the shared contract
 
 Run from the repository root with the repository Rust environment, protoc 34.0

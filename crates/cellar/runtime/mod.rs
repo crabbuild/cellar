@@ -902,6 +902,7 @@ pub(crate) mod stream_control;
 pub use rpc_authority::{RpcAuthority, SourceAuthority};
 
 pub(crate) struct RpcInvocation {
+    pub reservation: Option<crate::host_channels::RpcReservation>,
     pub parent_cancellation: Option<Arc<InvocationCancellation>>,
     pub signal: Option<cellar_native::web::AbortSignal>,
     pub deadline_ms: Option<u64>,
@@ -2121,6 +2122,7 @@ impl RuntimeManager {
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         self.rpc_invocation(
             RpcInvocation {
+                reservation: None,
                 parent_cancellation: None,
                 signal: None,
                 deadline_ms: None,
@@ -2151,6 +2153,7 @@ impl RuntimeManager {
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         self.rpc_invocation(
             RpcInvocation {
+                reservation: call.reservation.clone(),
                 parent_cancellation: call.parent_cancellation.clone(),
                 signal: call.signal.clone(),
                 deadline_ms: call.deadline_ms,
@@ -2190,6 +2193,7 @@ impl RuntimeManager {
         mut cancel: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
         let RpcInvocation {
+            reservation,
             parent_cancellation,
             signal: _,
             deadline_ms,
@@ -2253,10 +2257,12 @@ impl RuntimeManager {
         };
         let reporter = self.alarm_reporter.clone();
         let driving = cancellation.clone();
-        let scheduled = spawn_host(
-            tokio::runtime::Handle::current(),
-            drive_cell_with_request_cancellation(isolate, job, Some(reporter), None, driving),
-        );
+        let scheduled = spawn_host(tokio::runtime::Handle::current(), async move {
+            // Constructed before scheduling: cancellation of the caller
+            // cannot return capacity while the native driver retains work.
+            let _reservation = reservation;
+            drive_cell_with_request_cancellation(isolate, job, Some(reporter), None, driving).await
+        });
         let result = match scheduled {
             Ok(_) => {
                 receive_cell_reply(
