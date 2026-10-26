@@ -40,6 +40,7 @@ pub struct Faults {
     pub synced_paths: Mutex<Vec<PathBuf>>,
     pub removed_paths: Mutex<Vec<PathBuf>>,
     pub before_directory_sync: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    pub before_snapshot_close: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     pub signal: Option<PathBuf>,
 }
 
@@ -62,6 +63,7 @@ impl Faults {
             synced_paths: Mutex::new(Vec::new()),
             removed_paths: Mutex::new(Vec::new()),
             before_directory_sync: Mutex::new(None),
+            before_snapshot_close: Mutex::new(None),
             signal,
         })
     }
@@ -101,6 +103,35 @@ struct File {
     path: PathBuf,
     faults: Arc<Faults>,
     image_output: bool,
+}
+
+impl Drop for File {
+    fn drop(&mut self) {
+        // The index spool is temporary too. Only hold the encoded snapshot's
+        // final file close. Unarmed fixtures perform no extra filesystem I/O.
+        if !self
+            .path
+            .extension()
+            .is_some_and(|extension| extension == "scratch")
+        {
+            return;
+        }
+        let hook = {
+            let mut hook = self.faults.before_snapshot_close.lock().unwrap();
+            if hook.is_none()
+                || !self
+                    .inner
+                    .read_exact_at(0, 4)
+                    .is_ok_and(|bytes| bytes == b"LTX1")
+            {
+                return;
+            }
+            hook.take()
+        };
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
 }
 
 impl FaultFileSystem {
