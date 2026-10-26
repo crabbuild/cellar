@@ -5,6 +5,7 @@
 use cellar_logic::consensus::{
     ClusterId, GroupId, GroupScope, IncarnationId, NamespaceId, ProposalId,
 };
+use cellar_ltx::internal::{ExtentRootReference, ImageRoot};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -16,7 +17,8 @@ const DIGEST_LEN: usize = 32;
 
 // Wire markers remain 1. The immutable namespace identity also binds member
 // metadata so incompatible binaries cannot attach to the same namespace.
-const PROTOCOL: &str = "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1";
+const PROTOCOL: &str =
+    "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1";
 
 /// Bounds apply before decoding the header or copying any payload. The LTX
 /// decoder must additionally enforce these bounds on actual decoded pages;
@@ -61,14 +63,87 @@ impl EnvelopeLimits {
     }
 }
 
-/// LTX position and independent full-image SHA-256. A NoChecksum LTX still
-/// requires this image digest to establish the exact base/result state.
+/// A complete image commitment. Hash domains and physical owners stay distinct;
+/// an extent root must never be interpreted as a full-file SHA-256 digest.
+/// Neither variant by itself establishes a local seal or native authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "WireCommitment", into = "WireCommitment")]
+pub enum ImageCommitment {
+    Sha256([u8; 32]),
+    Extents(ExtentRootReference),
+}
+
+impl ImageCommitment {
+    /// Materialized owners must refuse a root they cannot independently replay.
+    pub(crate) fn sha256(self) -> Result<[u8; 32], ProtocolError> {
+        match self {
+            Self::Sha256(digest) => Ok(digest),
+            Self::Extents(_) => Err(ProtocolError::Identity),
+        }
+    }
+
+    fn same_kind(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Sha256(_), Self::Sha256(_)) | (Self::Extents(_), Self::Extents(_))
+        )
+    }
+}
+
+impl From<[u8; 32]> for ImageCommitment {
+    fn from(digest: [u8; 32]) -> Self {
+        Self::Sha256(digest)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum WireCommitment {
+    #[serde(rename = "sha256")]
+    Sha256 { digest: String },
+    #[serde(rename = "extents")]
+    Extents { root: String, manifest_bytes: u32 },
+}
+
+impl From<ImageCommitment> for WireCommitment {
+    fn from(commitment: ImageCommitment) -> Self {
+        match commitment {
+            ImageCommitment::Sha256(digest) => Self::Sha256 {
+                digest: hex::encode(digest),
+            },
+            ImageCommitment::Extents(reference) => Self::Extents {
+                root: hex::encode(reference.root().bytes()),
+                manifest_bytes: reference.encoded_length(),
+            },
+        }
+    }
+}
+
+impl TryFrom<WireCommitment> for ImageCommitment {
+    type Error = ProtocolError;
+
+    fn try_from(value: WireCommitment) -> Result<Self, Self::Error> {
+        Ok(match value {
+            WireCommitment::Sha256 { digest } => Self::Sha256(decode_hex(&digest)?),
+            WireCommitment::Extents {
+                root,
+                manifest_bytes,
+            } => Self::Extents(
+                ExtentRootReference::new(ImageRoot::from_bytes(decode_hex(&root)?), manifest_bytes)
+                    .map_err(|_| ProtocolError::Identity)?,
+            ),
+        })
+    }
+}
+
+/// LTX position and independent image commitment. NoChecksum LTX still requires
+/// its exact base/result commitment and the corresponding physical verifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LtxImage {
     pub epoch: u64,
     pub txid: u64,
     pub checksum: u64,
-    pub image_digest: [u8; 32],
+    pub commitment: ImageCommitment,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -226,6 +301,7 @@ impl CellUpdate {
         if self.base.epoch == 0
             || self.base.epoch != self.result.epoch
             || self.result.txid <= self.base.txid
+            || !self.base.commitment.same_kind(self.result.commitment)
         {
             return Err(ProtocolError::Chain);
         }
@@ -364,7 +440,7 @@ struct WireImage {
     epoch: Decimal,
     txid: Decimal,
     checksum: Decimal,
-    image_digest: String,
+    commitment: ImageCommitment,
 }
 
 impl From<LtxImage> for WireImage {
@@ -373,7 +449,7 @@ impl From<LtxImage> for WireImage {
             epoch: image.epoch.into(),
             txid: image.txid.into(),
             checksum: image.checksum.into(),
-            image_digest: hex::encode(image.image_digest),
+            commitment: image.commitment,
         }
     }
 }
@@ -384,7 +460,7 @@ impl WireImage {
             epoch: self.epoch.value()?,
             txid: self.txid.value()?,
             checksum: self.checksum.value()?,
-            image_digest: decode_hex(&self.image_digest)?,
+            commitment: self.commitment,
         })
     }
 }

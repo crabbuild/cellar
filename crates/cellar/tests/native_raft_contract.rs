@@ -183,13 +183,13 @@ fn update() -> CellUpdate {
             epoch: 1,
             txid: 8,
             checksum: 0,
-            image_digest: [22; 32],
+            commitment: [22; 32].into(),
         },
         result: LtxImage {
             epoch: 1,
             txid: 10,
             checksum: 0,
-            image_digest: [23; 32],
+            commitment: [23; 32].into(),
         },
         files: vec![
             LtxUpdate {

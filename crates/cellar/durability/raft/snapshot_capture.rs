@@ -35,7 +35,7 @@ impl SnapshotCapture {
             .as_ref()
             .map(|image| {
                 images
-                    .adopt(marker_id(image)?, marker_state(image))
+                    .adopt(marker_id(image)?, marker_state(image)?)
                     .map_err(SnapshotError::Images)
             })
             .transpose()?;

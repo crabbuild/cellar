@@ -464,6 +464,26 @@ impl Db {
         Self::open_with_host_and_optional_vfs(path, host, vfs, CaptureDurability::Disposable)
     }
 
+    /// Avoid copying a disposable WAL back into a main file that will be
+    /// deleted on rebuild. Durable capture owners must retain ordinary close
+    /// behavior. The caller still joins all users before removing these files.
+    pub fn disable_disposable_close_checkpoint(&self) -> Result<()> {
+        if self.durability != CaptureDurability::Disposable {
+            return Err(Error::Other(
+                "close checkpoint policy requires disposable capture".into(),
+            ));
+        }
+        for connection in [&self.conn, &self.rtx_conn] {
+            connection
+                .set_db_config(
+                    rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+                    true,
+                )
+                .map_err(sql_err)?;
+        }
+        Ok(())
+    }
+
     fn open_with_host_and_optional_vfs(
         path: impl AsRef<Path>,
         host: crate::LtxHost,

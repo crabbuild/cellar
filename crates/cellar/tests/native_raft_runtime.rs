@@ -680,7 +680,7 @@ async fn snapshot_requires_verified_install() -> Result<()> {
     std::fs::File::open(&cluster.hosts[0].path)?.sync_all()?;
     let image = CommittedImage {
         name: "seed.fixture".into(),
-        digest: <sha2::Sha256 as sha2::Digest>::digest(bytes).into(),
+        commitment: <[u8; 32]>::from(<sha2::Sha256 as sha2::Digest>::digest(bytes)).into(),
         length: bytes.len() as u64,
         ltx_epoch: 1,
         txid: 5,

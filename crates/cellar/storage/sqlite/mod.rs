@@ -29,7 +29,9 @@ mod immutable;
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
-pub use immutable::{open_immutable_generation, ImmutableQuery, ImmutableQueryOptions};
+pub use immutable::{
+    open_immutable_extent_image, open_immutable_generation, ImmutableQuery, ImmutableQueryOptions,
+};
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
 #[cfg(test)]

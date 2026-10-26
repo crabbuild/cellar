@@ -119,9 +119,11 @@ work. The architecture and product policy are in
   `d5f12630` release passes its 12 MiB preflight in 9.39 seconds (47,595,520-byte
   maximum RSS) and the actual 272 MiB RustFS recovery/write/restart preflight
   in 48.54 seconds (89,866,240-byte maximum RSS). Its independently authenticated
-  selected archive head reaches index/term 9/4. A fresh full-size rerun is live
-  under the frozen `d5f12630` binary. Ordinary tests and smaller geometry do not
-  qualify production 10 GB recovery or an RTO.
+  selected archive head reaches index/term 9/4. The subsequent full-size rerun
+  under frozen `d5f12630` failed with `VersionUnavailable`; its precise scope
+  and the added diagnostic context are recorded below under buffered archive
+  preflight. Ordinary tests and smaller geometry do not qualify production
+  10 GB recovery or an RTO.
 - The frozen `bbdc6b2a` production RustFS drill at 9,999,998,976 SQLite bytes
   failed its unchanged deadline after 2,567.14 seconds (59,375,616-byte maximum
   RSS). Owner-state erasure, warm takeover/read/write, retained-receipt retry
@@ -635,7 +637,139 @@ context and stage markers for payload verification and promotion. Requests,
 deadlines and assertions are unchanged. This is a failed full-size recovery
 qualification, not a passing capacity or recovery-time result.
 
+## Extent-native integration in progress
+
+The isolated implementation branch adds explicit SHA-256/extent commitment
+variants to native update and engine-marker types. The physical image owner
+independently applies bounded LTX into changed extents, retains unchanged data,
+and verifies/syncs the complete local closure before returning a SQLite-image
+capability. The native verification applier still requires the exact persisted
+entry, runtime ticket and observed durable engine marker before publication;
+per-group cleanup cannot reconcile or reclaim another group's roots.
+
+A disposable extent-backed working file now derives its baseline from that
+capability and tracks actual main-file writes through SQLite's VFS. Independent
+observations reuse untouched subtrees across checkpoint resets while including
+both prior and current WAL extents. Small fixtures compare canonical roots with
+SQLite's pager and check partial writes, truncate/regrow, reader snapshots,
+corruption refusal and real write-failure poisoning in a joined isolated child.
+The current default LTX integration invocation passes 93 cases (three child or
+full-size entries remain ignored by their parent invocations). The native LTX,
+read and rooted-owner invocation passes 54 cases (two child entries remain
+ignored). Five explicit LTX unit cases and all 620 host-library cases also pass,
+for 772 ordinary passes in this checked scope. Native/LTX all-target Clippy passes
+with warnings denied, and the LTX no-default-feature all-target check passes.
+
+This branch is not a completed public SDK backend. SDK execution-owner selection,
+checkpoint capture continuity, node-wide private disk admission, authoritative
+reference reconciliation and authenticated peer/archive extent transport remain
+required. Full-size Root-backed commands and recovery are unqualified; the
+preceding materialized 10 GB result remains a failed qualification. These
+component results do not satisfy R4, R6 or R7 by themselves.
+
+The next private execution step shares one registered-command/receipt owner
+between materialized and extent physical adapters. A native test follows an
+actual registered callback through Raft application, the selected durable marker,
+receipt reconciliation, runtime/engine reopen with a new process identity and a
+subsequent command. This case does not kill or relaunch the OS process. It deletes
+the disposable SQL directory before reopening; the committed root remains the
+authority. On a cell with more than 24 MiB of application payload, both the
+second write and the first post-restart write hash one 4 MiB extent during image
+observation. These are logical work counters, not disk/network or recovery-time
+measurements. Closing the disposable writer leaves its WAL unbackfilled.
+
+Canonical empty roots now bootstrap SQLite, and actual WAL writes have an
+independent physical bound. A failed oversized insert rolls back to the original
+root; foreign files opened through the same VFS registration retain ordinary
+behavior. Hydration independently hashes the copied destination before SQL can
+observe it. Destination writes and truncation receive bounded read-back/size
+checks, with poisoning after failed verification. Five focused fault cases cover
+corrupt copies, corrupt or unreadable main/WAL writes, false-success truncation,
+failed size reads and exact prefix preservation after truncate/regrow. Source
+read failure keeps an unhydrated extent retryable only through a fresh verified
+read; no failed destination can be reused. Public node selection, aggregate
+private-file admission and remote recovery still need integration.
+
+This shared-executor checkpoint passes 801 ordinary cases: 105 LTX unit and
+integration cases, 620 host-library cases, 21 native execution, six rooted-owner,
+27 native LTX application and 22 native read cases. Seven child/full-size entries
+remain ignored by the parent invocations. Native/LTX all-target Clippy passes
+with warnings denied; LTX all-target checking without default features passes.
+Formatting/layout covers 1,078 Rust files; native dependencies, documentation,
+plan validation and all 19 plan-tool cases pass. These results cover the private
+shared owner and physical adapters, not public node selection, OS-process restart
+of the new command path, remote extent recovery or full-size qualification.
+
 ## Remaining work
+
+The private extent executor now reserves its complete disposable main/WAL/capture
+file-byte bound in the shared node extent inventory. Canonical private directories
+remain pinned through SQLite/VFS files and the creation handle. Cleanup removes
+files and syncs the parent before refund; partial cleanup and uncertain creation
+retain their charge and quarantine new admission. Opening the node after a real
+child-process exit discards disposable directories after a complete immutable
+inventory, retaining immutable objects and refusing symlinked private roots.
+The new native command case also checks that a retained diagnostic pin keeps the
+workspace charged after executor close, and that releasing it removes the SQL
+directory before engine reopen. Materialized private writers and the public node
+dispatcher still need this admission wiring.
+
+One parallel native receipt-maintenance run failed reopening its node directory
+with `operation would block`. Ten isolated repeats, five full parallel repeats
+and a serial suite subsequently passed on the unchanged source. A separate
+deterministic filesystem regression reproduced a concrete inherited-descriptor
+lock problem: an unrelated forked child could retain a closed owner's lock.
+Explicit owner-process unlock fixes that regression without changing assertions,
+retry rules or timing bounds. The original failure did not record the competing
+descriptor owner, so the precise cause of that individual occurrence is not
+proven by the reproducer.
+
+The admitted-workspace checkpoint passes 818 ordinary cases: 113 LTX unit and
+integration cases, 620 host-library cases, nine local-store/cell-limit cases,
+21 native execution, six rooted-owner, 27 native LTX application and 22 native
+read cases. Eight child/full-size entries remain ignored by parent invocations;
+the private-directory abrupt-exit parent explicitly launches and joins its child.
+All five additional parallel execution-suite runs after the lock fix pass.
+Native/LTX all-target Clippy with warnings denied, LTX all-target checking without
+default features, formatting/layout (1,082 Rust files), native dependencies,
+documentation and plan validation pass. The branch includes the active PR's
+`42be6037` main/WAL-index update. These tests do not qualify public node extent
+selection, materialized private-directory admission or full-size recovery.
+
+The SQL worker now has a physical image owner beneath the existing shared
+command/read controller. Its extent branch follows actual registered commands
+through staging, runtime application, marker-gated publication, receipt retry and
+runtime/engine reopen. Reopening creates a fresh read cache without opening or
+reserving a private writer. Writer activation admits a scope/history-bound
+workspace from the supplied shared node inventory; discard and joined shutdown
+release that owner. Extent capacity refusal maps to overload. SQLite progress
+hooks interrupt extent queries while the worker retains the image and reader
+reservation through callback completion.
+
+This integration exposed a real cloned-host panic in filesystem selection.
+`LtxHost::with_filesystem` now copies its configuration when shared, retaining
+injected clock/executor services and preserving each other clone's filesystem.
+A focused regression covers that contract. The three focused SQL-worker tests
+pass, including refusal to publish before the engine marker, committed reads
+after unsubmitted discard, workspace release, exact SQLite interruption, minimum
+version refusal, retained retries and a new command after reopen. These tests
+use small real databases and reopen within one OS process.
+
+The SQL-dispatch checkpoint passes 973 ordinary Rust cases: 623 host library,
+68 archive, 21 execution, 32 public host, 27 native LTX, 22 read, six rooted-owner,
+44 snapshot, 16 business-effect and 114 LTX unit/integration cases. Ten
+child/full-size entry points remain ignored by parent invocations; applicable
+crash parents ran. Native/LTX all-target Clippy with warnings denied,
+formatting/layout (1,084 Rust files), dependency/document checks, plan validation
+and all 19 plan-tool cases pass. This source precedes the later main RPC merge;
+these results are not evidence for that subsequent merge or full-size recovery.
+
+Public node configuration still selects materialized storage. Extent snapshot,
+seed, archive and business-effect operations refuse their unsupported physical
+contracts; this does not enable partial remote recovery. Node startup selection,
+complete reference reconciliation/GC, materialized private admission and remote
+extent transfer remain required before exposing this backend. Full-size recovery
+and performance qualification remain open.
 
 The completion checklist remains open. Full native 10 GB warm takeover, exact
 peer and RustFS recovery after local state loss, restart/retry reconciliation,
@@ -644,5 +778,6 @@ identity/lazy restoration still require implementation or qualification. COW
 avoids full copies on supported filesystems, but full-image SHA-256 scans and
 portable materialized copies remain on important paths; no
 large-cell recovery-time objective is claimed yet. PR #119 has merged; follow-up
-[PR #120](https://github.com/crabbuild/cellar/pull/120) contains the bounded
-snapshot foundation and remains open for this work.
+[PR #120](https://github.com/crabbuild/cellar/pull/120) merged the bounded
+snapshot foundation. Subsequent implementation must start from updated main and
+use a follow-up PR; the full goal remains active.

@@ -1463,7 +1463,11 @@ fn result_state(update: &CellUpdate) -> Result<ImageState, ArchiveError> {
         checksum: update.result.checksum,
         page_size: header.page_size,
         length: u64::from(header.commit) * u64::from(header.page_size),
-        digest: update.result.image_digest,
+        digest: update
+            .result
+            .commitment
+            .sha256()
+            .map_err(|_| ArchiveError::Corrupt("materialized archive commitment"))?,
     }
     .decode()
 }

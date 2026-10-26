@@ -4,9 +4,11 @@
 
 This is an implementation building block for
 [large-cell recovery](large-cell-recovery.md), exposed through the unstable LTX
-verification API. It now provides verified demand reads for actual SQLite.
-Native command execution, generation publication and archive recovery are not
-connected to this path yet. Existing full-image digest checks remain unchanged.
+verification API. It provides verified demand reads and disposable writable
+SQLite extent views. A native verification adapter also binds sealed image roots
+to exact runtime tickets and durable engine markers. Public SDK command dispatch
+and archive/peer recovery do not select this backend yet. Existing materialized
+image digest checks remain unchanged.
 Passing these component tests does not qualify fast native recovery.
 
 ## Identities and bounds
@@ -107,11 +109,15 @@ extent_file --test extent_tree --test stream_snapshot` for this ordinary scope.
 
 `internal::db::observe_extents` constructs a manifest from the actual committed
 main-file/WAL overlay. It consumes no proposed LTX bytes or caller-provided
-dirty-page list. Initial observation reads the image with 64 KiB buffers.
-Subsequent observations reuse immutable subtrees only for the same live database
-owner, history/schema/epoch and page geometry, after matching the complete
-previous committed WAL prefix with SHA-256. WAL resets or replaced prefixes
-force full observation. Reopening or rebuilding a writer invalidates its token.
+dirty-page list. Ordinary VFS providers initially read the image with 64 KiB
+buffers. Their subsequent observations reuse immutable subtrees only for the same
+live database owner, history/schema/epoch and page geometry, after matching the
+complete previous committed WAL prefix with SHA-256; WAL resets force full
+observation. The extent workspace instead supplies its sealed initial root and
+actual main-file mutation sequence through the live SQLite file handle. Across
+a reset, it rereads prior/current WAL extents and actual main-file changes,
+retaining unchanged subtrees. Reopening invalidates the prior database token; a
+new extent workspace must start from its own independently sealed base.
 New/changed partial extent boundaries and truncated suffixes remain explicit.
 
 The live SQLite WAL index fixes the committed frame count, database geometry,
@@ -140,16 +146,96 @@ small ordinary fixtures, not native 10 GB first-write measurements. Three WAL
 index tests exercise both copies, corruption of every byte, unsupported layouts,
 page geometry, salts, byte order and final-frame checksum.
 
-Observation is neither destination sealing nor publication authority. A future
-native generation owner must provide an authenticated initial base for demand
-reads without rescanning a new cold writer. Its checkpoint protocol must preserve
-incremental continuity; the conservative reset fallback above still scans the
-image. Persistent extent inventory and authenticated object-store extent
-placement remain required. Execution, envelopes, generation markers, snapshots and
-archives must switch together. The current anonymous file owner is disposable
-data material, not a persistent cell generation or admission proof. A Merkle root
-must never be relabeled as the existing flat SHA-256 to avoid that coordinated
-change. None of this prototype is connected to native recovery yet.
+Observation is neither destination sealing nor publication authority. Physical
+image preparation independently applies bounded LTX files into new extents,
+verifies and syncs their local closure, validates SQLite geometry and canonical
+lock-page bytes, and compares the exact result root. Native publication additionally
+requires the exact engine-selected marker and runtime ticket. Public SDK writer
+selection, checkpoint capture, aggregate private-file disk admission, authenticated
+extent placement and remote installation still need integration. A Merkle root
+must never be relabeled as a flat SHA-256.
+
+## Disposable extent working images
+
+`ExtentWorkspace` exclusively creates one disposable sparse main file and wraps
+the injected SQLite VFS. An `Arc<SealedImageRoot>` retains its exact initial
+source. Reads and partial writes fault only the necessary 4 MiB extents, through
+the separately admitted verified cache. WAL, SHM, file locking and checkpoints
+use the base VFS. Working main files are not recovery authorities. The caller
+must admit private disk capacity, use this VFS for every connection, exclude
+external writes and remove the main file, sidecars and capture metadata after
+all connections close.
+
+One fixed slot per possible extent records hydration and actual main-file
+mutation sequence: 2,385 slots at the decimal 10 GB quota, independent of SQLite
+page size. There is no per-page hydration set on this path. The tracker serializes
+faults with checkpoint writes; it never retargets a live main file to a newer
+logical WAL head. Truncation permanently bounds access to the old source, so
+regrowth observes zeros rather than resurrecting removed bytes. Hydration hashes
+the authenticated source prefix and independently reads the disposable destination
+before exposing that extent to SQLite. Main-file and WAL writes also check their
+destination bytes in at most 64 KiB reads; truncation verifies the resulting size.
+Failed destination mutation or verification poisons the workspace, including failed size reads:
+a caller cannot freeze or reuse an uncertain working image. Advisory sizing cannot
+bypass tracked writes or the image quota.
+
+A canonical sealed empty root can bootstrap SQLite without materializing an image.
+Existing WAL, SHM or journal sidecars refuse admission before main-file creation.
+Physical WAL writes and truncations have a separate configurable bound, at most
+512 MiB, checked inside the VFS before I/O. Only the exact workspace WAL receives
+that bound; foreign files opened through the registration retain ordinary behavior.
+
+The private execution owner now has materialized and extent image adapters beneath
+the same command validation, SQL policy, receipt reconciliation, uncertainty and
+authority gates. Its extent writer captures committed WAL updates, then prepares
+an independently verified immutable result before Raft publication. It requests
+rebuilding at a 256 MiB WAL high-water mark, retaining the 512 MiB physical guard,
+and disables close-time checkpoints on its disposable connections. Closing such a
+writer must not backfill the whole working image before discarding it. The public
+node dispatcher does not select this adapter yet; public-node admission wiring,
+global extent references and remote placement remain required integration work.
+
+The extent adapter now acquires a `NodeWorkspace` from its shared node extent
+inventory before opening SQLite. Canonical `w-<id>` directories live inside that
+inventory's exclusive lock. Their complete main/WAL/capture file-byte ceiling and
+control-file headroom share the immutable extent/root byte budget. These are
+conservative file-byte reservations, not measurements of filesystem blocks or a
+kernel quota. The adapter validates the reservation's owner and exact limits;
+its VFS enforces main/WAL limits before writes, and capture enforces an aggregate
+encoded-byte ceiling before creating its output files.
+
+Every VFS file retains the directory reservation. The last pin closes creation
+and SQLite handles before bounded deletion, directory sync and refund. Partial
+cleanup, uncertain creation or a failed deletion sync retains the whole charge
+and quarantines further node admission. Restart first inventories all immutable
+names, then discards bounded canonical private directories under the exclusive
+lock. It never mutates a directory during its inventory enumeration, follows a
+private-directory symlink, or restores a cell from disposable SQL bytes. This
+admission is wired into the private extent executor; the public dispatcher and
+materialized private writer still require integration with this policy.
+
+The direct filesystem lock guard explicitly unlocks when its creating process
+drops the final owner, then closes the file. Closing a descriptor alone can leave
+the lock held by a forked child's inherited descriptor before exec/exit. A Unix
+regression holds such a child live and checks immediate reacquisition; the
+previous guard fails that case. The guard checks the current OS process ID at
+this filesystem boundary so an inherited guard cannot unlock a live parent's
+lock. This physical lock behavior supplies no Raft ownership or output proof.
+
+The observation API obtains this capability from SQLite's actual main file,
+not from a supplied VFS name or dirty-page list. It checks main sequence and the
+WAL cut again after reading. Root histories, schema, epoch and page geometry
+must match. On a discontinuous WAL, prior WAL extents are included even when
+main-file writes were absent, so disappearing frames cannot leave an unexamined
+old logical root. Ordinary VFS providers retain their conservative full fallback.
+
+`extent_workspace` exercises actual 512/4,096/65,536-byte SQLite pages, 8/40 MiB
+payloads, one-extent hot opens, partial physical writes, quota refusal,
+truncate/regrow, retained reader snapshots and registered-file lifetime. Its
+checkpoint fixture keeps at least five extents: opening auto-vacuum control
+metadata can touch three extents, so a smaller image may have no unchanged subtree.
+Oracle comparisons use SQLite's serialized pager only in these small tests.
+These cases do not establish a 10 GB SDK first-write or recovery-time result.
 
 ## Verified demand reads through SQLite
 
@@ -274,8 +360,8 @@ an abrupt-exit child at root-file sync before directory
 sync; reopening keeps the explicitly selected old root and reclaims the orphan
 candidate only after reference reconciliation. This is one small component
 process-exit cut, not native marker atomicity, power-loss or full-size recovery
-qualification. Native COW writes, marker/archive selection and policy-specific
-local/remote durability closure still need implementation.
+qualification. Public SDK COW writer selection, archive integration and
+policy-specific remote durability closure still need implementation.
 
 The combined component scope passes 77 ordinary LTX cases (the final owner
 invocation adds the panic case to the preceding all-integration pass), with two

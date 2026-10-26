@@ -457,6 +457,7 @@ async fn initialize(
                 host: ltx_host(),
                 services: read_services(),
                 images: options.images,
+                rooted: None,
                 snapshot_scratch: service.log.snapshot_scratch(),
                 execution: options.execution,
             };

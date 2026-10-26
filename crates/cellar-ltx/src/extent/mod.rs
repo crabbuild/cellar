@@ -7,3 +7,4 @@ pub(crate) mod file;
 pub(crate) mod image;
 pub(crate) mod store;
 pub(crate) mod tree;
+pub(crate) mod working;
