@@ -342,6 +342,17 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
         )
         .await?
         .is_some());
+    // Install the winning cut before requesting a fresh capacity decision.
+    discover(
+        &s.f,
+        &[
+            &s.nodes[0].host,
+            &s.nodes[1].host,
+            &s.nodes[2].host,
+            &s.target,
+        ],
+    )
+    .await?;
     let mut retry = s.request(0, 214, current.revision()).await?;
     retry.identity.expected_revision = current.revision();
     let (_, mut request) = movement(&s, &first_cells, 214).await?;
