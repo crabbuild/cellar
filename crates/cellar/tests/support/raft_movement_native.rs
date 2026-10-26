@@ -268,6 +268,8 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     let (p, mut second) = movement(&s, &second_cells, 212).await?;
     let other = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
     let cut = s.f.catalog.read(TIMEOUT).await?;
+    let other_cut = other.read(TIMEOUT).await?;
+    ensure!(other_cut.revision() == cut.revision());
     second.resources = s.request(1, 212, cut.revision()).await?;
     second.plan.expected_revision = second_cells[p].status().await?.membership_revision;
     let first_key = s.f.catalog.group_binding(&first.resources.group)?.key()?;
@@ -288,7 +290,7 @@ async fn fleet_movement_concurrent_last_slot_is_atomic() -> Result<()> {
     s.waiting().await?;
     let winner = other
         .reserve_movement(
-            &cut,
+            &other_cut,
             &second,
             &s.nodes[0].host,
             std::slice::from_ref(&s.namespace),
