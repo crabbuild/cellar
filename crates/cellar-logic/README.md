@@ -65,6 +65,22 @@ The pure ledger grants no membership or catalog authority. Authenticated resourc
 sampling, atomic catalog reservation admission and planner/controller integration
 remain separate fleet implementation work.
 
+`raft_fleet::preview_topology` verifies an explicit complete RF3 assignment. It
+constructs a serial schedule with per-step domain/quorum and seed-peak checks,
+retains every source's physical footprint, and searches for a complete direct
+RF3 restoration witness after each kept-node loss. It pins exact capacity scopes
+and input/policy revisions. One shared work limit covers all searches; exhaustion
+returns no partial preview. `RecoveryUnproven` means no direct restoration witness,
+not proof that every possible reshuffle is infeasible.
+
+This pure API requires stable groups, fresh complete node ledgers and no unsettled
+reservations. It verifies caller-proposed layouts; automatic layout generation,
+load/leadership scoring, owned authenticated input collection and resumable
+execution remain separate delivery work. Source-side fixed worker pools must
+already be included in physical bounds. A schedule dependency requires actual
+terminal completion before admitting its successor; a preview grants no permit,
+storage reclamation, node-removal certificate or future health lease.
+
 Startup inventory confirmation is node work, independent of callers joining
 its owner reads. Cancelling a caller leaves a queued confirmation in place.
 Preserve shutdown and node fencing retire both queued and in-flight confirmation

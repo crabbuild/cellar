@@ -2222,7 +2222,11 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/completion/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/completion/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/completion/proofs.rs",
-        "crates/cellar/tests/support/raft_movement_completion.rs"
+        "crates/cellar/tests/support/raft_movement_completion.rs",
+        "crates/cellar-logic/raft_fleet/topology/mod.rs",
+        "crates/cellar-logic/raft_fleet/topology/schedule.rs",
+        "crates/cellar-logic/raft_fleet/topology/recovery.rs",
+        "crates/cellar-logic/tests/raft_fleet_topology.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2235,7 +2239,8 @@
         "Add journal-linked root-CAS resource debits using current typed capacity, owned authenticated probes and explicit deployment occupancy attestation. Preserve old-scope and unmaterialized genesis debt, refuse unknown permit attribution and prevent generic deletion/reset. Link the physical inventory producer, typed membership permit and terminal release before general fleet redistribution.",
         "Use complete bounded authenticated physical engine inventory to attribute original voters and retained/retired slots without per-history application registration or quorum. Persist the inventory digest, reject occupied destinations and pending initialization, and preserve response memory/age through delivery and cancellation.",
         "Atomically link exact membership intent to its target debit and active book, using owned fresh source ReadIndex and target physical inventory. Reconcile the canonical combined intent before live prerequisites; protect linked permits against generic replacement. Actual group consumption and target initialization remain mandatory.",
-        "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Unstarted, aborted, unreachable and rebooted owners remain charged until their distinct terminal boundary is implemented."
+        "Complete successful resource-backed moves using fresh terminal target quorum, exact physical boot of the target and every original voter that could serve a seed and durable consumed sequence, joined seed/initializer ownership and one receipt/floor/book CAS. Retain original rows and independent monotonic physical floors; exact historical retries precede live checks. Unstarted, aborted, unreachable and rebooted owners remain charged until their distinct terminal boundary is implemented.",
+        "Verify explicit complete RF3 topology proposals in the pure core. Search legal direct serial move orders under seed peaks and retained source occupancy, then complete direct restoration witnesses for each kept-node loss. Share one bounded search budget; distinguish search exhaustion, direct-path refusal and unproven restoration. Stable groups and unsettled-free fresh complete inputs are prerequisites. Automatic final assignment and owned adapter collection/execution remain separate work."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",

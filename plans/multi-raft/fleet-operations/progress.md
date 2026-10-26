@@ -196,15 +196,52 @@ that survives learner waiter loss and its deadline. The four admission cases
 also pass on the same frozen source. The full regression cohort is recorded
 above; these cases do not complete planner qualification.
 
-## Next implementation milestone
+## FO-04 explicit topology verifier
 
-Implement complete bounded final assignment and legal staged moves with
-one-node-loss restoration headroom. Successful-move release now supplies the
-terminal boundary for repeating healthy moves. Aborted or unstarted work and
-unreachable/rebooted owners still retain debt; their distinct cleanup/isolation
-path remains required. Automatic redistribution is unfinished. FO-05 through
-FO-10 retain their load policy, controller, maintenance, operator,
-capacity-scaling and deployed qualification scope.
+The pure `raft_fleet::preview_topology` API accepts a complete proposed RF3
+assignment and final keep-set, then searches for a legal serial sequence of
+direct replacements. It checks every intermediate stable triple and target seed
+peak. Completion adds retained target occupancy; no source slot, byte or memory
+is credited. Exact boot/process/profile scopes and the rooted input/policy
+revisions remain in the witness. Serial dependencies require actual terminal
+movement completion before the next real permit.
+
+Each kept node has a separate loss scenario. All groups retain their two healthy
+voters while bounded search assigns fresh eligible recovery bindings. The entire
+restoration assignment and its staged path must fit before the verifier returns.
+One work limit covers every search. Exhaustion returns no partial preview;
+`RecoveryUnproven` means no direct witness was found, not global infeasibility
+across arbitrary survivor reshuffles. Inputs must be stable and complete, with
+fresh node ledgers and no unsettled reservations. Adapter-owned authentication
+and current health remain required; this pure result grants no authority.
+
+The verification fixtures cover the symmetric 500-cell five-to-six assignment
+(250 replacements), five-to-four evacuation (300 replacements), retained source
+slots, every final-node loss, staging deadlocks, alternate move orders, recovery
+backtracking across disk/memory limits, retired bindings, exclusion, stale and
+incomplete inputs, exhausted search and arithmetic overflow. A small exhaustive
+matrix covers 400 old/new voter-triple pairs. These are executable mathematical
+witnesses; they are not live movement, TPS or resource-envelope qualification.
+
+## Next feature priorities
+
+1. Generate complete final assignments from topology intent and measured role
+   costs, then consume the verifier through owned authenticated fleet inputs.
+   Respect retired bindings, pressure deadband/cooldown and explicit keep-sets;
+   do not interpret an unproven direct recovery as universal infeasibility.
+2. Build the resumable controller around resource-backed admission and terminal
+   completion. Persist cursor/effect identity, reconcile ambiguous replies, and
+   revalidate each group and capacity scope before admitting its next permit.
+3. Deliver operator add/drain/maintenance/remove workflows on that controller.
+   Add aborted/unstarted cleanup and unreachable/rebooted-owner isolation; those
+   cases currently retain debt and cannot be silently released.
+4. Qualify the integrated workflows on RustFS/Colima at enforced resources, then
+   measure foreground TPS/p99 and fault recovery. Automatic redistribution stays
+   default-off until its acceptance gates pass.
+
+FO-04 remains in progress. FO-05 through FO-10 retain their load policy,
+controller, maintenance, operator, capacity-scaling and deployed qualification
+scope. Passing the pure verifier does not complete those features.
 
 ## Historical implementation checkpoints
 

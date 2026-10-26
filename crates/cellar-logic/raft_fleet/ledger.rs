@@ -20,7 +20,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    fn checked_add(self, rhs: Self) -> Result<Self, LedgerError> {
+    pub(super) fn checked_add(self, rhs: Self) -> Result<Self, LedgerError> {
         Ok(Self {
             engine_slots: self
                 .engine_slots
@@ -37,13 +37,13 @@ impl Resources {
         })
     }
 
-    fn covers(self, rhs: Self) -> bool {
+    pub(super) fn covers(self, rhs: Self) -> bool {
         self.engine_slots >= rhs.engine_slots
             && self.durable_bytes >= rhs.durable_bytes
             && self.memory_bytes >= rhs.memory_bytes
     }
 
-    fn subtract(self, rhs: Self) -> Self {
+    pub(super) fn subtract(self, rhs: Self) -> Self {
         // Every caller first proves the componentwise covers relation.
         Self {
             engine_slots: self.engine_slots - rhs.engine_slots,
@@ -52,7 +52,7 @@ impl Resources {
         }
     }
 
-    fn high_water(self, other: Self) -> Self {
+    pub(super) fn high_water(self, other: Self) -> Self {
         Self {
             engine_slots: self.engine_slots.max(other.engine_slots),
             durable_bytes: self.durable_bytes.max(other.durable_bytes),
