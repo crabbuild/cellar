@@ -25,6 +25,19 @@ pub async fn start_with(
     classes: Vec<String>,
     bindings: Vec<(String, String)>,
 ) -> Result<(Node, String)> {
+    start_configured(path, application, classes, bindings, |_| {}).await
+}
+
+/// Select a policy for a focused host-boundary test while preserving defaults
+/// for the existing language-adapter tests.
+#[allow(dead_code)]
+pub async fn start_configured(
+    path: &Path,
+    application: Arc<dyn Application>,
+    classes: Vec<String>,
+    bindings: Vec<(String, String)>,
+    configure: impl FnOnce(&mut NodeConfig),
+) -> Result<(Node, String)> {
     let name = "javascript-test";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -65,6 +78,7 @@ pub async fn start_with(
     );
     config.maintenance.rebalance = false;
     config.runtime.handler_budget = Duration::from_millis(250);
+    configure(&mut config);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);

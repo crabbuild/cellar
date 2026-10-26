@@ -14,6 +14,9 @@ use std::{
 #[path = "../../cellar-javascript/tests/support/native.rs"]
 mod native;
 
+#[path = "support/rpc_cold_factory.rs"]
+mod cold_factory;
+
 #[allow(dead_code)]
 #[path = "../../../tools/rpc/fixtures/generated/rust/example.counter.v1.rs"]
 mod generated;

@@ -67,7 +67,7 @@ pub fn open_immutable_generation(
             "cannot enable defensive immutable SQLite"
         );
     }
-    connection.authorizer(Some(authorize_query));
+    connection.authorizer(Some(authorize_query))?;
     Ok(ImmutableQuery { database })
 }
 

@@ -2,6 +2,7 @@
 
 //! Cross-file descriptor semantics shared by startup and every generator.
 
+mod admission;
 mod imports;
 mod symbols;
 
@@ -15,6 +16,14 @@ use prost_types::FileDescriptorSet;
 const MAX_NAME_BYTES: usize = 1024;
 const MAX_SYMBOL_BYTES: usize = 16 * 1024 * 1024;
 const MAX_SYMBOLS: usize = 100_000;
+
+// Pinned protoc accepts 31 message levels, including the top-level message.
+// Declaration nesting is separate from the 64-level business-message budget.
+pub(super) const MAX_MESSAGE_DEPTH: usize = 30;
+
+pub(super) fn preflight(bytes: &[u8]) -> Result<()> {
+    admission::preflight(bytes)
+}
 
 pub(super) fn validate(set: &FileDescriptorSet) -> Result<()> {
     let imports = imports::Imports::new(&set.file)?;
