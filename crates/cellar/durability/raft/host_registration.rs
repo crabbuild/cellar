@@ -208,6 +208,7 @@ impl Driver {
                 host: ltx_host(),
                 services: read_services(),
                 images: self.options.images,
+                snapshot_scratch: self.log.snapshot_scratch(),
                 execution: self.options.execution,
             };
             self.local.bindings.insert(Binding {

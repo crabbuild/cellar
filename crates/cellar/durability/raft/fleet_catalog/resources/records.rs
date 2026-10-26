@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Bounded append-only active book and exact journal-linked debit records.
+//! Bounded active movement book and permanent journal-linked debit records.
 use super::movement::{Movement, MovementOwner};
 use super::*;
 use crate::raft::fleet_catalog::histories::validate_request;
