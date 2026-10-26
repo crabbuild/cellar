@@ -52,14 +52,26 @@ impl Drop for Connected {
 
 impl Peer {
     pub async fn start() -> Result<Self> {
+        Self::start_on_port(None).await
+    }
+
+    /// Published applications keep their declared container port. Linux reaches
+    /// that port on the inspected IP; other hosts use Docker's port mapping.
+    pub async fn start_with_http_port(port: u16) -> Result<Self> {
+        anyhow::ensure!(port != 0, "container fixture port must be nonzero");
+        Self::start_on_port(Some(port)).await
+    }
+
+    async fn start_on_port(port: Option<u16>) -> Result<Self> {
         let directory = tempfile::Builder::new()
             .prefix("cellar-container-peer-")
             .tempdir_in("/tmp")?;
         let socket = directory.path().join("engine.sock");
         let engine_listener = tokio::net::UnixListener::bind(&socket)?;
-        let http = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let tcp = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let http = http_listener(port).await?;
+        let tcp = tokio::net::TcpListener::bind((http.local_addr()?.ip(), 0)).await?;
         let engine = Arc::new(Engine {
+            network_ip: Some(http.local_addr()?.ip().to_string()),
             http_port: http.local_addr()?.port(),
             tcp_port: tcp.local_addr()?.port(),
             ..Default::default()
@@ -251,6 +263,28 @@ impl Peer {
             ("TCP_PORT".into(), self.engine.tcp_port.to_string()),
         ]);
     }
+}
+
+async fn http_listener(port: Option<u16>) -> Result<tokio::net::TcpListener> {
+    #[cfg(target_os = "linux")]
+    if let Some(port) = port {
+        // Give concurrent fixtures distinct container IPs without reserving a
+        // shared host port. Linux routes the full 127/8 range to loopback.
+        for _ in 0..16 {
+            let seed = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let unique = seed.local_addr()?.port();
+            let ip = std::net::Ipv4Addr::new(127, 1, (unique >> 8) as u8, unique as u8);
+            match tokio::net::TcpListener::bind((ip, port)).await {
+                Ok(listener) => return Ok(listener),
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        anyhow::bail!("could not reserve an isolated container fixture address");
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = port;
+    Ok(tokio::net::TcpListener::bind("127.0.0.1:0").await?)
 }
 
 /// A third-party provider delegates to native while auditing actual dispatch.

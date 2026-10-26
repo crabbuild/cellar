@@ -189,8 +189,39 @@ fn unchanged_published_container_module_routes_named_and_singleton_objects() -> 
     )
 }
 
+#[tokio::test]
+async fn container_fixture_preserves_published_port_and_isolates_peers() -> Result<()> {
+    let first = peer::Peer::start_with_http_port(8080).await?;
+    let second = peer::Peer::start_with_http_port(8080).await?;
+    let endpoints = [&first, &second].map(|peer| {
+        format!(
+            "{}:{}",
+            peer.engine.network_ip.as_deref().unwrap(),
+            peer.engine.http_port
+        )
+    });
+    ensure!(
+        endpoints[0] != endpoints[1],
+        "container fixtures share a listener"
+    );
+    if cfg!(target_os = "linux") {
+        ensure!(first.engine.http_port == 8080 && second.engine.http_port == 8080);
+    }
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(2))
+        .build()?;
+    for endpoint in endpoints {
+        let response = client.get(format!("http://{endpoint}/")).send().await?;
+        ensure!(response.status() == 302);
+        ensure!(response.text().await? == "container response");
+    }
+    Ok(())
+}
+
 async fn container_routes(path: &Path, application: Arc<dyn Application>) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     let (node, address) = native::start_configured(path, application, |config, services, graph| {
         peer.configure(config, services, graph);
         graph.primary.options.do_classes = vec!["MyContainer".into()];
