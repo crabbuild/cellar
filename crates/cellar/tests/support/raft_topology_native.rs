@@ -258,7 +258,7 @@ async fn delivery(long_walk: bool) -> Result<()> {
             // rooted topology, and real admission/seed must include those writes.
             f.s.f
                 .domain
-                .run(cellar::asyncrt::sleep(Duration::from_millis(5100)))
+                .run(async { cellar::asyncrt::sleep(Duration::from_millis(5100)).await })
                 .await?;
             ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
         }
