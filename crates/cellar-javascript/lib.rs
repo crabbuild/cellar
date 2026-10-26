@@ -13,6 +13,12 @@
 #[cfg(any(feature = "embed", feature = "node"))]
 mod application;
 #[cfg(any(feature = "embed", feature = "node"))]
+mod callbacks;
+#[cfg(any(feature = "embed", feature = "node"))]
+mod lifetime;
+#[cfg(any(feature = "embed", feature = "node"))]
+mod rpc_sessions;
+#[cfg(any(feature = "embed", feature = "node"))]
 mod runtime;
 #[cfg(any(feature = "embed", feature = "node"))]
 pub use application::{EventKind, JavaScriptApplication, Source};

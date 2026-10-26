@@ -85,6 +85,38 @@ BOM handling and incremental state. Inputs are bounded by `max_value_bytes`;
 native decoder handles have a separate `max_text_decoders` cap and follow their
 JS owners. Fixed private byte storage is required at this native boundary.
 
+## Cell-owned Docker and Podman containers
+
+Both backends expose `ctx.container`: lifecycle, exec with binary streams and
+bounded output, readiness, buffered port HTTP, TCP and event-owned WebSockets.
+TypeScript declarations live in `@cellar/sdk`; JavaScript uses the same facade.
+All effects run through the original native Rust invocation and its durability
+and ownership gates. Reacquire facades in each event; do not retain them on the
+cell object for reuse by later invocations.
+
+See the [cross-language container guide](../../docs/09-integrations.md#apis-in-each-language)
+for deployment declarations, examples, byte limits, runtime prerequisites and
+the comparison with celld. This API does not implement the Cloudflare Sandbox
+SDK. The application engine and the container's own runtime remain separate.
+
+## Optional Cloudflare runtime work
+
+The experimental [Cloudflare runtime package](../../packages/cellar-cloudflare/README.md)
+now provides activation-owned DO storage, native sync/async transaction and
+critical-section callbacks, constructor admission and event-owned
+namespace/method RPC above the native operation boundary. Native CellRpc calls
+retain structured graphs and typed remote errors in both engines, with explicit
+visibility and clone limits. This partial profile includes TypeScript declarations;
+automatic environment bindings and returned RPC targets remain required.
+Published Containers 0.3.7 constructor/scheduling
+methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
+and metadata recovery execute in Node. These are constructor/storage fixtures
+using a stopped-provider view. They do not qualify the unchanged upstream HTTP/
+RPC applications, container startup/monitor/hooks, the Sandbox image or a cloud
+provider. Real-node fixtures verify native input admission and failure/reset;
+full versioned lifetime/deadline profiles and remaining runtime APIs stay
+in the [delivery ledger](../../plans/sandbox-provider-progress.md).
+
 ## Write an application
 
 Export application-level handlers and a `cells` map of named classes. The Rust
@@ -97,6 +129,7 @@ Export application-level handlers and a `cells` map of named classes. The Rust
 | Application `scheduled` | `scheduled(event, ctx)` | `.events([EventKind::Scheduled])` |
 | Cell `fetch` | `fetch(request, ctx)` | `.cell("Counter")` |
 | Cell `alarm` | `alarm(event, ctx)` | `.cell_events("Counter", [EventKind::Fetch, EventKind::Alarm])` when both handlers exist |
+| Cell `cell_rpc` | `cell_rpc({ method, args }, ctx)` | `.cell_events("Counter", [EventKind::CellRpc])` |
 
 Pass all application event kinds together to `Source::events`; it sets the event
 list rather than appending. Constructors take no arguments and receive no SDK
@@ -322,6 +355,8 @@ cargo build --locked -p cellar-javascript --features embed --bin cellar-javascri
 # Streaming application (also compiled by crate-wide tests)
 npm ci --prefix examples/streaming --ignore-scripts
 npm run --prefix examples/streaming build
+npm ci --prefix examples/bindings --ignore-scripts
+npm run --prefix examples/bindings build
 
 # Node reference application
 npm ci --prefix examples/node --ignore-scripts
@@ -367,11 +402,30 @@ admitting calls, and Rust independently checks invocation and activation
 liveness. SDK futures remain in the original native handler. JavaScript receives
 owned values and a private call facade, never a Rust context or storage handle.
 
+The optional compatibility runtime also has an internal synchronous bridge for
+local SQL, storage batches/reads, alarms and the native clock. Those calls still
+execute in the original Rust invocation and share the asynchronous operation,
+byte and mutation limits. Embedded V8 waits on a private bounded reply slot;
+Node uses a private I/O worker with a bounded shared reply buffer and a shared
+queue budget. Node old-space limits apply per isolate, including this worker;
+they do not bound total process memory. The application event-loop watchdog
+stays active during a wait.
+This plumbing is preparation for the
+[Cloudflare compatibility profile](../../plans/sandbox-provider-progress.md),
+not a published Workers/DO API or full package compatibility. Normal Cellar
+application code continues to use the typed asynchronous storage facade.
+
 Await every SDK operation. Known reads may overlap; only one mutation may be
 outstanding per invocation. SQL, storage sync, and nested cell fetches count as
 mutations. Returning with outstanding operations fails the handler. Do not save
 contexts or binding handles for later calls or issue concurrent mutations with
 `Promise.all()`.
+
+The optional Workers surface has separate admission for routed object RPC/HTTP
+and container port requests. These independent native futures may overlap while
+local storage progresses. They retain operation/byte quotas, native output gates
+and mutation failure provenance; they are not classified as reads. Portable
+Cellar storage still permits only one outstanding mutation.
 
 ```text
 Activation A                    Retire / restart               Activation B
@@ -597,11 +651,15 @@ production multi-node fault or performance qualification.
 | Source | Responsibility |
 | --- | --- |
 | [application.rs](application.rs) | `Source` registration, native `Application`/`Cell` proxies, and SDK execution within each invocation. |
+| [lifetime.rs](lifetime.rs) | Native-owned non-HTTP result publication and retained background drivers. |
+| [callbacks/mod.rs](callbacks/mod.rs) | Native block/transaction callback scopes and bounded synchronous callback servicing. |
 | [runtime/mod.rs](runtime/mod.rs) | Options, bounded channels, byte reservations, and joined bootstrap. |
 | [runtime/runner.js](runtime/runner.js) | Shared SDK facade, export validation, and activation-local objects. |
-| [runtime/engine.rs](runtime/engine.rs) | V8 isolate, continuation identity, promises, and watchdog. |
+| [runtime/engine/mod.rs](runtime/engine/mod.rs) | V8 isolate, continuation/activation identity, promises, and watchdog. |
+| [runtime/engine/codec.rs](runtime/engine/codec.rs) | Bounded structured-clone conversion inside the optional V8 engine. |
 | [runtime/node/mod.rs](runtime/node/mod.rs) | Node startup, authentication, liveness checks, and process ownership. |
-| [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and JavaScript IPC peer. |
+| [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and synchronous reply admission. |
+| [runtime/node/io.mjs](runtime/node/io.mjs) | Private socket worker, bounded frames/queues and synchronous reply wakeups. |
 | [runtime/node/transport.rs](runtime/node/transport.rs) | Bounded, length-prefixed JSON transport separate from stdout/stderr. |
 | [runtime/node/package.rs](runtime/node/package.rs) | Build-bound Node inventory verification. |
 | [cellar-guest](../cellar-guest/README.md) | Shared native operation validation, storage batches, and failure envelopes. |
@@ -610,3 +668,17 @@ For design context, see [ADR 005](../../docs/adr/005-embedded-javascript.md) and
 [delivery gates](../../plans/008-embedded-javascript-typescript.md). For repeatable
 measurements, use the [bridge benchmark](../../tools/perf/javascript/README.md)
 and read its [recorded results and limits](../../plans/javascript-bridge-performance-2026-10-22.md).
+
+A Rust host can select another container or sandbox backend with
+`Source::container_provider(Arc<dyn Provider>)`; see
+[`cellar-container`](../cellar-container/README.md) for the provider contract.
+The default provider preserves the native Docker/Podman behavior.
+
+
+For the optional Cloudflare runtime, `Source::workers_lifetimes()` selects retained
+native event/background behavior. A response may precede the completion of
+`ctx.waitUntil`, transaction callbacks and outstanding SDK calls. The native
+turn driver owns the remaining bridge, including after a client disconnect;
+ownership retirement, resource limits, event deadlines and shutdown still apply.
+The default Cellar handler contract continues to require awaited SDK work. This
+switch alone does not select a complete versioned Workers compatibility profile.

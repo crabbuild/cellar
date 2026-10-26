@@ -17,6 +17,8 @@ mod binding_faults;
 mod bindings;
 #[path = "support/capacity.rs"]
 mod capacity;
+#[path = "support/containers.rs"]
+mod containers;
 #[path = "support/cycles.rs"]
 mod cycles;
 #[path = "support/delivery.rs"]
@@ -313,6 +315,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-queue-lost-ack" {
         return queue_lost_ack::child();
     }
+    if mode == "--runtime-containers" {
+        return containers::child();
+    }
     if mode == "--runtime-limits" {
         return limits::child();
     }
@@ -484,6 +489,7 @@ fn main() -> Result<()> {
         "--runtime-binding-faults",
         "--runtime-queue-lost-ack",
         "--runtime-limits",
+        "--runtime-containers",
         "--runtime-initial-reads",
         "--runtime-cycles",
         "--runtime-cycles-fence",

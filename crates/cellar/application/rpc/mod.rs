@@ -13,6 +13,7 @@ mod descriptor;
 mod envelope;
 mod failure;
 mod graph;
+mod lease;
 mod router;
 mod schema;
 mod shape;
@@ -28,6 +29,7 @@ pub use failure::{Code, EffectOutcome, Failure};
 pub use graph::{
     discard_message, encode_message, validate_graph, GraphBudget, GraphDiscard, MessageGraph,
 };
+pub use lease::{Lease, LeaseClosed, LeaseControl, LeaseRevocation};
 pub use router::{HandlerFuture, Prepared, Router};
 
 // Preserve the existing sdk::rpc codec API while adding typed business calls.

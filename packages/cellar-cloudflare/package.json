@@ -1,0 +1,39 @@
+{
+  "name": "@cellar/cloudflare",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./index.js" },
+    "./globals": {
+      "types": "./globals.d.ts"
+    },
+    "./workers": { "types": "./workers.d.ts", "default": "./workers.js" },
+    "./storage": { "types": "./storage.d.ts", "default": "./storage.js" }
+  },
+  "files": [
+    "index.js",
+    "workers.js",
+    "storage.js",
+    "sql.js",
+    "id.js",
+    "namespace.js",
+    "container.js",
+    "port.js",
+    "websocket.js",
+    "websocket-pair.js",
+    "response.js",
+    "output.js",
+    "http.js",
+    "module.js",
+    "activation.js",
+    "streams.js",
+    "index.d.ts",
+    "globals.d.ts",
+    "workers.d.ts",
+    "storage.d.ts",
+    "README.md",
+    "LICENSE"
+  ]
+}

@@ -19,7 +19,9 @@ application code uses Workers-style web APIs, including hibernating Durable
 Object WebSockets. Cellar exposes Rust SDK contracts and optional language
 facades. These facades are not implementations of the complete Workers or browser
 API: use the Cellar builders below rather than browser `Response` or `WebSocket`
-constructors. Node's own network sockets are separate from SDK socket capabilities.
+constructors. The optional [Workers module profile](../packages/cellar-cloudflare/README.md#http-response-streaming)
+accepts standard Node web `Response` bodies and forwards them incrementally.
+Node's own network sockets are separate from SDK socket capabilities.
 
 | Concern | Cellar contract |
 | --- | --- |

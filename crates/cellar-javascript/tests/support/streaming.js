@@ -3,7 +3,7 @@
 // Tests release this gate through a separate request to prove the first chunk
 // arrives while the original producer and its invocation are still running.
 let release;
-let gate = new Promise(resolve => {
+let gate = new Promise((resolve) => {
   release = resolve;
 });
 
@@ -110,7 +110,7 @@ const app = {
     }
 
     if (req.url.includes("/reset")) {
-      gate = new Promise(resolve => {
+      gate = new Promise((resolve) => {
         release = resolve;
       });
 
@@ -161,7 +161,7 @@ const app = {
 
       return webSocketResponse(socket, {
         // Worker sockets retain this consumer instead of using cell callbacks.
-        run: async socket => {
+        run: async (socket) => {
           for (;;) {
             const event = await socket.next();
 

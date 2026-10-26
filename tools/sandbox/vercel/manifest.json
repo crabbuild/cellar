@@ -1,0 +1,40 @@
+{
+  "format": 1,
+  "provider": "vercel",
+  "repository": "https://github.com/vercel/sandbox",
+  "commit": "8910e6205b1c72e1ad6ebaa2ceae236a3aa4d87f",
+  "sdk_reference_version": "3.9.0",
+  "files": [
+    {
+      "path": "api-client.ts",
+      "upstream": "packages/vercel-sandbox/src/api-client/api-client.ts",
+      "git_blob": "b090f1d33a733a90ee1ff39e3bb32c2a31285316"
+    },
+    {
+      "path": "validators.ts",
+      "upstream": "packages/vercel-sandbox/src/api-client/validators.ts",
+      "git_blob": "ad11d2fe62b544ef8a1d02221ebdaa23ea33b692"
+    },
+    {
+      "path": "file-writer.ts",
+      "upstream": "packages/vercel-sandbox/src/api-client/file-writer.ts",
+      "git_blob": "adbc2b4e94ad7e8d81b146f0e7c36e6251aa19e0"
+    },
+    {
+      "path": "base-client.ts",
+      "upstream": "packages/vercel-sandbox/src/api-client/base-client.ts",
+      "git_blob": "1308df6cf956964c96892c3e6d68a828c61728cd"
+    },
+    {
+      "path": "package.json",
+      "upstream": "packages/vercel-sandbox/package.json",
+      "git_blob": "1eabe7d361992b12da213e929440cdfec53da23a"
+    },
+    {
+      "path": "LICENSE",
+      "upstream": "LICENSE",
+      "git_blob": "c4d680f555078d7d1a6150f93688c57ca3e26598"
+    }
+  ],
+  "qualification": "not_run"
+}

@@ -10,33 +10,43 @@ pub(super) mod fixture;
 
 #[allow(dead_code)] // Shared tests select either the default or mixed-class host.
 pub async fn start(path: &Path, application: Arc<dyn Application>) -> Result<(Node, String)> {
-    start_with(
-        path,
-        application,
-        vec!["Counter".into()],
-        vec![("COUNTERS".into(), "Counter".into())],
-    )
-    .await
+    start_configured(path, application, |_, _, _| {}).await
 }
 
+#[allow(dead_code)]
 pub async fn start_with(
     path: &Path,
     application: Arc<dyn Application>,
     classes: Vec<String>,
     bindings: Vec<(String, String)>,
 ) -> Result<(Node, String)> {
-    start_configured(path, application, classes, bindings, |_| {}).await
+    start_with_configuration(path, application, classes, bindings, |_, _, _| {}).await
 }
 
-/// Select a policy for a focused host-boundary test while preserving defaults
-/// for the existing language-adapter tests.
+/// Select a host policy, services and deployment for a focused boundary test
+/// while preserving defaults for existing language-adapter tests.
 #[allow(dead_code)]
 pub async fn start_configured(
     path: &Path,
     application: Arc<dyn Application>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
+) -> Result<(Node, String)> {
+    start_with_configuration(
+        path,
+        application,
+        vec!["Counter".into()],
+        vec![("COUNTERS".into(), "Counter".into())],
+        configure,
+    )
+    .await
+}
+
+async fn start_with_configuration(
+    path: &Path,
+    application: Arc<dyn Application>,
     classes: Vec<String>,
     bindings: Vec<(String, String)>,
-    configure: impl FnOnce(&mut NodeConfig),
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
 ) -> Result<(Node, String)> {
     let name = "javascript-test";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -78,11 +88,10 @@ pub async fn start_configured(
     );
     config.maintenance.rebalance = false;
     config.runtime.handler_budget = Duration::from_millis(250);
-    configure(&mut config);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);
-    let services = NodeServices {
+    let mut services = NodeServices {
         wall_clock: None,
         http_client: None,
         host_executor: executor.clone(),
@@ -99,6 +108,7 @@ pub async fn start_configured(
     let mut graph = fixture::graph("javascript-test", "", classes);
     graph.primary.options.bindings = bindings;
     graph.primary.options.vars = vec![("DOMAIN_MARKER".into(), name.into())];
+    configure(&mut config, &mut services, &mut graph);
     let applications =
         CompiledApplications::default()
             .register("javascript-test", "test", move || Ok(application.clone()))?;

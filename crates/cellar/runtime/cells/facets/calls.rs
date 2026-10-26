@@ -97,7 +97,10 @@ impl LoadedFacet {
         match replied {
             Ok(Ok(outcome)) => {
                 // Retain the source adapter's second proof for binary replies.
-                if matches!(outcome.data, RpcData::Structured(_)) {
+                if matches!(
+                    outcome.data,
+                    RpcData::Structured(_) | RpcData::Leased { .. }
+                ) {
                     self.gate_reply().await?;
                 }
                 Ok(outcome.data)

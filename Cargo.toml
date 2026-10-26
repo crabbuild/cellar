@@ -54,6 +54,7 @@ cellar-ltx = { path = "crates/cellar-ltx" }
 cellar-native = { path = "crates/cellar-native" }
 cellar-python = { path = "crates/cellar-python" }
 cellar-guest = { path = "crates/cellar-guest" }
+cellar-container = { path = "crates/cellar-container" }
 cellar-javascript = { path = "crates/cellar-javascript" }
 # Optional embedded adapter; never enabled by the Rust host itself.
 v8 = "=152.2.0"

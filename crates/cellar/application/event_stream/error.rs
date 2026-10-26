@@ -159,10 +159,7 @@ pub(super) fn submitted_result<T>(result: anyhow::Result<T>) -> anyhow::Result<T
 }
 
 pub(crate) fn decode_reply(data: &crate::engine_api::RpcData) -> anyhow::Result<serde_json::Value> {
-    let bytes = match data {
-        crate::engine_api::RpcData::Json(value) => value.len(),
-        crate::engine_api::RpcData::Structured(value) => value.len(),
-    };
+    let bytes = data.payload_bytes();
     if bytes > MAX_REPLY_BYTES {
         return Err(ambiguous_reply());
     }

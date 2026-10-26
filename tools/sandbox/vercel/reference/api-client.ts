@@ -1,0 +1,1495 @@
+import {
+  BaseClient,
+  parseOrThrow,
+  type Parsed,
+  type RequestParams,
+} from "./base-client.js";
+import {
+  type CommandFinishedData,
+  SessionAndRoutesResponse,
+  SessionResponse,
+  InteractiveSessionResponse,
+  StopSessionResponse,
+  SessionsResponse,
+  CommandResponse,
+  CommandStdinResponse,
+  CommandFinishedResponse,
+  EmptyResponse,
+  LogLine,
+  type LogOutputLine,
+  SnapshotsResponse,
+  SnapshotTreeResponse,
+  SnapshotResponse,
+  CreateSnapshotResponse,
+  SandboxAndSessionResponse,
+  SandboxesPaginationResponse,
+  UpdateSandboxResponse,
+  DrivesResponse,
+  DriveResponse,
+  type CommandData,
+} from "./validators.js";
+import { APIError, StreamError } from "./api-error.js";
+import { FileWriter } from "./file-writer.js";
+import { VERSION } from "../version.js";
+import { consumeReadable } from "../utils/consume-readable.js";
+import { z } from "zod";
+import jsonlines from "jsonlines";
+import os from "os";
+import { Readable } from "stream";
+import { normalizePath } from "../utils/normalizePath.js";
+import { getVercelOidcToken } from "@vercel/oidc";
+import { NetworkPolicy } from "../network-policy.js";
+import { toAPINetworkPolicy } from "../utils/network-policy.js";
+import { getPrivateParams, WithPrivate } from "../utils/types.js";
+import { detectAgentName } from "../utils/detect-agent.js";
+import type { RUNTIMES, SandboxRegion } from "../constants.js";
+import type { SandboxMetaData } from "./validators.js";
+import { withRetry } from "./with-retry.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { StringDecoder } from "node:string_decoder";
+
+const STDIN_MAX_RETRIES = 5;
+const STDIN_MAX_STALLED_TIMEOUTS = 2;
+
+function stdinBackoff(attempt: number) {
+  return 400 * 2 ** attempt;
+}
+
+function waitBeforeStdinRetry(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal!.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+const stdinMaybeWrittenErrors = new WeakSet<object>();
+
+/**
+ * Whether a failed stdin write may have delivered some of its data, because an
+ * earlier attempt of the same request may have been applied before it failed.
+ */
+export function stdinMayHaveBeenWritten(error: unknown) {
+  return typeof error === "object" && error !== null && stdinMaybeWrittenErrors.has(error);
+}
+
+async function parseStdinResponse(response: Response, maybeApplied = false) {
+  try {
+    const parsed = await parseOrThrow(CommandStdinResponse, response);
+    return { bytesWritten: parsed.json.bytesWritten };
+  } catch (error) {
+    if (maybeApplied && typeof error === "object" && error !== null) {
+      stdinMaybeWrittenErrors.add(error);
+    }
+    throw error;
+  }
+}
+
+async function readStdinTimeout(response: Response) {
+  const text = await response.text();
+  let bytesWritten: number | undefined;
+  try {
+    const value = JSON.parse(text)?.error?.bytesWritten;
+    if (Number.isSafeInteger(value) && value >= 0) bytesWritten = value;
+  } catch {}
+  return {
+    bytesWritten,
+    response: new Response(text, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    }),
+  };
+}
+
+interface Claims {
+  owner_id: string;
+  project_id?: string;
+}
+
+function decodeUnverifiedToken(token: string): Claims | null {
+  if (token.split(".").length !== 3) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(
+      Buffer.from(token.split(".")[1], "base64url").toString("utf8"),
+    );
+    if (payload.owner_id) {
+      return { owner_id: payload.owner_id, project_id: payload.project_id };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface WithFetchOptions {
+  fetch?: typeof globalThis.fetch;
+}
+
+export class APIClient extends BaseClient {
+  private teamId: string;
+  private projectId: string | undefined;
+  private isJwtToken: boolean;
+
+  constructor(params: {
+    baseUrl?: string;
+    teamId: string;
+    token: string;
+    fetch?: typeof globalThis.fetch;
+  }) {
+    super({
+      baseUrl: params.baseUrl ?? "https://vercel.com/api",
+      token: params.token,
+      debug: false,
+      fetch: params.fetch,
+    });
+
+    this.teamId = params.teamId;
+    this.isJwtToken = false;
+
+    const claims = decodeUnverifiedToken(params.token);
+    if (claims) {
+      this.isJwtToken = true;
+      this.projectId = claims.project_id;
+      this.teamId = claims.owner_id;
+    }
+  }
+
+  private async ensureValidToken(): Promise<void> {
+    if (!this.isJwtToken) {
+      return;
+    }
+
+    try {
+      // Use getVercelOidcToken to refresh the token with team/project scope
+      const freshToken = await getVercelOidcToken({
+        expirationBufferMs: 5 * 60 * 1000, // 5 minutes
+        team: this.teamId,
+        project: this.projectId,
+      });
+
+      // Update token if it changed
+      if (freshToken !== this.token) {
+        this.token = freshToken;
+
+        const claims = decodeUnverifiedToken(freshToken);
+        if (claims) {
+          this.teamId = claims.owner_id;
+        }
+      }
+    } catch {
+      // Ignore refresh errors and continue with current token
+    }
+  }
+
+  protected async request(path: string, params?: RequestParams) {
+    await this.ensureValidToken();
+
+    // Attribute traffic to the AI agent driving this process, if any, so the
+    // server side can record it once ingestion support lands.
+    const aiAgent = await detectAgentName();
+    const agentSuffix = aiAgent ? ` agent/${aiAgent}` : "";
+
+    return super.request(path, {
+      ...params,
+      query: { teamId: this.teamId, ...params?.query },
+      headers: {
+        "content-type": "application/json",
+        "user-agent": `vercel/sandbox/${VERSION}${agentSuffix} (Node.js/${process.version}; ${os.platform()}/${os.arch()})`,
+        ...params?.headers,
+      },
+    });
+  }
+
+  async getSession(
+    params: WithPrivate<{ sessionId: string; signal?: AbortSignal }>,
+  ) {
+    const privateParams = getPrivateParams(params);
+    let querystring = new URLSearchParams(privateParams).toString();
+    querystring = querystring ? `?${querystring}` : "";
+    return parseOrThrow(
+      SessionAndRoutesResponse,
+      await this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}${querystring}`,
+        {
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async createSandbox(
+    params: WithPrivate<{
+      name?: string;
+      ports?: number[];
+      projectId: string;
+      source?:
+        | {
+            type: "git";
+            url: string;
+            depth?: number;
+            revision?: string;
+            username?: string;
+            password?: string;
+          }
+        | { type: "tarball"; url: string }
+        | { type: "snapshot"; snapshotId: string };
+      timeout?: number;
+      resources?: { vcpus: number };
+      persistent?: boolean;
+      runtime?: RUNTIMES | (string & {});
+      image?: string;
+      networkPolicy?: NetworkPolicy;
+      networkId?: string;
+      env?: Record<string, string>;
+      tags?: Record<string, string>;
+      snapshotExpiration?: number;
+      keepLastSnapshots?: {
+        count: number;
+        expiration?: number;
+        deleteEvicted?: boolean;
+      };
+      mounts?: SandboxMetaData["mounts"];
+      region?: SandboxRegion;
+      failoverRegions?: SandboxRegion[];
+      signal?: AbortSignal;
+    }>,
+  ) {
+    const privateParams = getPrivateParams(params);
+    const endpoint =
+      params.runtime === undefined ? "/v3/sandboxes" : "/v2/sandboxes";
+    return parseOrThrow(
+      SandboxAndSessionResponse,
+      await this.request(endpoint, {
+        method: "POST",
+        body: JSON.stringify({
+          projectId: params.projectId,
+          ports: params.ports,
+          source: params.source,
+          timeout: params.timeout,
+          resources: params.resources,
+          runtime: params.runtime,
+          image: params.image,
+          name: params.name,
+          persistent: params.persistent,
+          networkPolicy: params.networkPolicy
+            ? toAPINetworkPolicy(params.networkPolicy)
+            : undefined,
+          networkId: params.networkId,
+          env: params.env,
+          tags: params.tags,
+          snapshotExpiration: params.snapshotExpiration,
+          keepLastSnapshots: params.keepLastSnapshots,
+          mounts: params.mounts,
+          region: params.region,
+          failoverRegions: params.failoverRegions,
+          ...privateParams,
+        }),
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async forkSandbox(
+    params: WithPrivate<{
+      sourceSandbox: string;
+      projectId: string;
+      name?: string;
+      ports?: number[];
+      timeout?: number;
+      resources?: { vcpus: number };
+      persistent?: boolean;
+      image?: string;
+      networkPolicy?: NetworkPolicy;
+      networkId?: string;
+      env?: Record<string, string>;
+      mounts?: SandboxMetaData["mounts"];
+      tags?: Record<string, string>;
+      snapshotExpiration?: number;
+      keepLastSnapshots?: {
+        count: number;
+        expiration?: number;
+        deleteEvicted?: boolean;
+      };
+      region?: SandboxRegion;
+      failoverRegions?: SandboxRegion[];
+      signal?: AbortSignal;
+    }>,
+  ) {
+    const privateParams = getPrivateParams(params);
+    return parseOrThrow(
+      SandboxAndSessionResponse,
+      await this.request(
+        `/v2/sandboxes/${encodeURIComponent(params.sourceSandbox)}/fork`,
+        {
+          method: "POST",
+          query: { projectId: params.projectId },
+          body: JSON.stringify({
+            name: params.name,
+            ports: params.ports,
+            timeout: params.timeout,
+            resources: params.resources,
+            image: params.image,
+            persistent: params.persistent,
+            networkPolicy: params.networkPolicy
+              ? toAPINetworkPolicy(params.networkPolicy)
+              : undefined,
+            networkId: params.networkId,
+            env: params.env,
+            mounts: params.mounts,
+            tags: params.tags,
+            snapshotExpiration: params.snapshotExpiration,
+            keepLastSnapshots: params.keepLastSnapshots,
+            region: params.region,
+            failoverRegions: params.failoverRegions,
+            ...privateParams,
+          }),
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async runCommand(params: {
+    sessionId: string;
+    cwd?: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    sudo: boolean;
+    wait: true;
+    attachStdin?: boolean;
+    logs?: boolean;
+    onLog?: (log: LogOutputLine) => void;
+    timeout?: number;
+    signal?: AbortSignal;
+  }): Promise<{
+    command: CommandData;
+    finished: Promise<CommandFinishedData>;
+  }>;
+  async runCommand(params: {
+    sessionId: string;
+    cwd?: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    sudo: boolean;
+    wait?: false;
+    attachStdin?: boolean;
+    timeout?: number;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof CommandResponse>>>;
+  async runCommand(params: {
+    sessionId: string;
+    cwd?: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    sudo: boolean;
+    wait?: boolean;
+    attachStdin?: boolean;
+    logs?: boolean;
+    onLog?: (log: LogOutputLine) => void;
+    timeout?: number;
+    signal?: AbortSignal;
+  }): Promise<
+    | {
+        command: CommandData;
+        finished: Promise<CommandFinishedData>;
+      }
+    | Parsed<z.infer<typeof CommandResponse>>
+  > {
+    if (params.wait) {
+      const response = await this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}/cmd`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            command: params.command,
+            args: params.args,
+            cwd: params.cwd,
+            env: params.env,
+            sudo: params.sudo,
+            wait: true,
+            attachStdin: params.attachStdin || undefined,
+            logs: params.logs || undefined,
+            timeout: params.timeout,
+          }),
+          signal: params.signal,
+          retry: { retries: 0 },
+        },
+      );
+
+      if (!response.ok) {
+        await parseOrThrow(z.any(), response);
+      }
+
+      if (response.headers.get("content-type") !== "application/x-ndjson") {
+        throw new APIError(response, {
+          message: "Expected a stream of command data",
+          sessionId: params.sessionId,
+        });
+      }
+
+      if (response.body === null) {
+        throw new APIError(response, {
+          message: "No response body",
+          sessionId: params.sessionId,
+        });
+      }
+
+      const iterator = readJsonLines(response.body, params.signal);
+      let command: CommandData;
+      try {
+        const commandChunk = await iterator.next();
+        if (commandChunk.done) {
+          throw new StreamError(
+            "stream_ended_early",
+            "Stream ended before command data was received",
+            params.sessionId,
+          );
+        }
+        command = CommandResponse.parse(commandChunk.value).command;
+      } catch (error) {
+        await iterator.return();
+        throw error;
+      }
+
+      const delivered = { stdout: 0, stderr: 0 };
+      const finished = (async () => {
+        try {
+          while (true) {
+            const chunk = await iterator.next();
+            if (chunk.done) {
+              throw new ConnectionError("Stream ended before command finished");
+            }
+
+            if (chunk.value?.command) {
+              return CommandFinishedResponse.parse(chunk.value).command;
+            }
+
+            const parsed = LogLine.parse(chunk.value);
+            if (parsed.stream === "error") {
+              throw new StreamError(
+                parsed.data.code,
+                parsed.data.message,
+                params.sessionId,
+              );
+            }
+            params.onLog?.(parsed);
+            delivered[parsed.stream] += parsed.data.length;
+          }
+        } catch (error) {
+          if (params.signal?.aborted || !(error instanceof ConnectionError)) {
+            throw error;
+          }
+          if (params.logs) {
+            for await (const log of this.getLogsStream(
+              {
+                sessionId: params.sessionId,
+                cmdId: command.id,
+                signal: params.signal,
+              },
+              delivered,
+            )) {
+              params.onLog?.(log);
+            }
+          }
+          const result = await this.getCommand({
+            sessionId: params.sessionId,
+            cmdId: command.id,
+            wait: true,
+            signal: params.signal,
+          });
+          return result.json.command;
+        } finally {
+          await iterator.return();
+        }
+      })();
+
+      return { command, finished };
+    }
+
+    return parseOrThrow(
+      CommandResponse,
+      await this.request(`/v2/sandboxes/sessions/${params.sessionId}/cmd`, {
+        method: "POST",
+        body: JSON.stringify({
+          command: params.command,
+          args: params.args,
+          cwd: params.cwd,
+          env: params.env,
+          sudo: params.sudo,
+          attachStdin: params.attachStdin || undefined,
+          timeout: params.timeout,
+        }),
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async getCommand(params: {
+    sessionId: string;
+    cmdId: string;
+    wait: true;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof CommandFinishedResponse>>>;
+  async getCommand(params: {
+    sessionId: string;
+    cmdId: string;
+    wait?: boolean;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof CommandResponse>>>;
+  async getCommand(params: {
+    sessionId: string;
+    cmdId: string;
+    wait?: boolean;
+    signal?: AbortSignal;
+  }) {
+    const path = `/v2/sandboxes/sessions/${params.sessionId}/cmd/${params.cmdId}`;
+    let responseText: string | undefined;
+    const response = await withRetry(async () => {
+      const response = await this.request(path, {
+        signal: params.signal,
+        query: params.wait ? { wait: "true" } : undefined,
+        retry: { retries: 0 },
+      });
+      responseText = response.ok ? await response.text() : undefined;
+      return response;
+    })(path, { signal: params.signal, retry: { retries: 2 } });
+    return params.wait
+      ? parseOrThrow(CommandFinishedResponse, response, responseText)
+      : parseOrThrow(CommandResponse, response, responseText);
+  }
+
+  async openInteractive(params: {
+    sessionId: string;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof InteractiveSessionResponse>>> {
+    return parseOrThrow(
+      InteractiveSessionResponse,
+      await this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}/interactive`,
+        {
+          method: "POST",
+          body: JSON.stringify({}),
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async mkDir(params: {
+    sessionId: string;
+    path: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      EmptyResponse,
+      await this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}/fs/mkdir`,
+        {
+          method: "POST",
+          body: JSON.stringify({ path: params.path, cwd: params.cwd }),
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  getFileWriter(params: {
+    sessionId: string;
+    extractDir: string;
+    signal?: AbortSignal;
+  }) {
+    const writer = new FileWriter();
+    return {
+      response: (async () => {
+        return this.request(
+          `/v2/sandboxes/sessions/${params.sessionId}/fs/write`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/gzip",
+              "x-cwd": params.extractDir,
+            },
+            body: await consumeReadable(writer.readable),
+            signal: params.signal,
+          },
+        );
+      })(),
+      writer,
+    };
+  }
+
+  async listSessions(params: {
+    /**
+     * The ID or name of the project to which the sessions belong.
+     * @example "my-project"
+     */
+    projectId: string;
+    /**
+     * Filter sessions by sandbox name.
+     */
+    name?: string;
+    /**
+     * Maximum number of sessions to list from a request.
+     * @example 10
+     */
+    limit?: number;
+    /**
+     * Cursor for pagination.
+     */
+    cursor?: string;
+    /**
+     * Sort order for results.
+     */
+    sortOrder?: "asc" | "desc";
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      SessionsResponse,
+      await this.request(`/v2/sandboxes/sessions`, {
+        query: {
+          project: params.projectId,
+          name: params.name,
+          limit: params.limit,
+          cursor: params.cursor,
+          sortOrder: params.sortOrder,
+        },
+        method: "GET",
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async listSnapshots(params: {
+    /**
+     * The ID or name of the project to which the snapshots belong.
+     * @example "my-project"
+     */
+    projectId: string;
+    /**
+     * Filter snapshots by sandbox name.
+     */
+    name?: string;
+    /**
+     * Maximum number of snapshots to list from a request.
+     * @example 10
+     */
+    limit?: number;
+    /**
+     * Cursor for pagination.
+     */
+    cursor?: string;
+    /**
+     * Sort order for results.
+     */
+    sortOrder?: "asc" | "desc";
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      SnapshotsResponse,
+      await this.request(`/v2/sandboxes/snapshots`, {
+        query: {
+          project: params.projectId,
+          name: params.name,
+          limit: params.limit,
+          cursor: params.cursor,
+          sortOrder: params.sortOrder,
+        },
+        method: "GET",
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async getSnapshotTree(params: {
+    /**
+     * The ID or name of the project to which the snapshots belong.
+     */
+    projectId: string;
+    /**
+     * The snapshot ID to use as the anchor for the tree traversal.
+     */
+    snapshotId: string;
+    /**
+     * Maximum number of nodes to return.
+     */
+    limit?: number;
+    /**
+     * Sort order: "asc" for descendants, "desc" for ancestors.
+     */
+    sortOrder?: "asc" | "desc";
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      SnapshotTreeResponse,
+      await this.request(`/v2/sandboxes/snapshots/tree`, {
+        query: {
+          project: params.projectId,
+          snapshotId: params.snapshotId,
+          limit: params.limit,
+          sortOrder: params.sortOrder,
+        },
+        method: "GET",
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async listDrives(params: {
+    projectId: string;
+    limit?: number;
+    cursor?: string;
+    sortBy?: "createdAt" | "updatedAt" | "name";
+    sortOrder?: "asc" | "desc";
+    namePrefix?: string;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      DrivesResponse,
+      await this.request(`/v2/sandboxes/drives`, {
+        query: {
+          projectId: params.projectId,
+          limit: params.limit,
+          cursor: params.cursor,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
+          namePrefix: params.namePrefix,
+        },
+        method: "GET",
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async getDrive(params: {
+    projectId: string;
+    name: string;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      DriveResponse,
+      await this.request(
+        `/v2/sandboxes/drives/${encodeURIComponent(params.name)}`,
+        {
+          method: "GET",
+          query: { projectId: params.projectId },
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async getOrCreateDrive(params: {
+    projectId: string;
+    name: string;
+    region?: string;
+    maxSizeBytes?: number;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      DriveResponse,
+      await this.request(
+        `/v2/sandboxes/drives/${encodeURIComponent(params.name)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            projectId: params.projectId,
+            region: params.region,
+            maxSizeBytes: params.maxSizeBytes,
+          }),
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async forkDrive(params: {
+    projectId: string;
+    name: string;
+    forkName: string;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      DriveResponse,
+      await this.request(
+        `/v2/sandboxes/drives/${encodeURIComponent(params.name)}/fork`,
+        {
+          method: "POST",
+          query: { projectId: params.projectId },
+          body: JSON.stringify({ name: params.forkName }),
+          signal: params.signal,
+        },
+      ),
+    );
+  }
+
+  async writeFiles(params: {
+    sessionId: string;
+    cwd: string;
+    files: {
+      path: string;
+      content: string | Uint8Array;
+      mode?: number;
+    }[];
+    extractDir: string;
+    signal?: AbortSignal;
+  }) {
+    const { writer, response } = this.getFileWriter({
+      sessionId: params.sessionId,
+      extractDir: params.extractDir,
+      signal: params.signal,
+    });
+
+    for (const file of params.files) {
+      await writer.addFile({
+        name: normalizePath({
+          filePath: file.path,
+          extractDir: params.extractDir,
+          cwd: params.cwd,
+        }),
+        content: file.content,
+        mode: file.mode,
+      });
+    }
+
+    writer.end();
+    await parseOrThrow(EmptyResponse, await response);
+  }
+
+  async readFile(params: {
+    sessionId: string;
+    path: string;
+    cwd?: string;
+    signal?: AbortSignal;
+  }): Promise<Readable | null> {
+    const response = await this.request(
+      `/v2/sandboxes/sessions/${params.sessionId}/fs/read`,
+      {
+        method: "POST",
+        body: JSON.stringify({ path: params.path, cwd: params.cwd }),
+        signal: params.signal,
+      },
+    );
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    // The file endpoint must return the file as an octet-stream. Any other
+    // content type (e.g. application/json) indicates an error payload that
+    // would otherwise be piped verbatim into the destination file.
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !contentType.includes("application/octet-stream")) {
+      const text = await response.text().catch(() => "");
+      let json: unknown;
+      try {
+        json = JSON.parse(text || "{}");
+      } catch {
+        json = undefined;
+      }
+      throw new APIError(response, {
+        message: `Unexpected response reading file: status ${response.status}, content-type ${contentType || "(none)"}`,
+        json,
+        text,
+      });
+    }
+
+    if (response.body === null) {
+      return null;
+    }
+
+    return Readable.fromWeb(response.body);
+  }
+
+  async killCommand(params: {
+    sessionId: string;
+    commandId: string;
+    signal: number;
+    abortSignal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      CommandResponse,
+      await this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}/cmd/${params.commandId}/kill`,
+        {
+          method: "POST",
+          body: JSON.stringify({ signal: params.signal }),
+          signal: params.abortSignal,
+        },
+      ),
+    );
+  }
+
+  /**
+   * Writes to a command's stdin. With `offset`, the request is safe to resend
+   * (the server skips bytes it already has), so it is retried across
+   * connection failures. Without it, only rate limited requests are retried,
+   * since any other failure may have written the bytes already.
+   */
+  async writeCommandStdin(params: {
+    sessionId: string;
+    commandId: string;
+    data?: Uint8Array;
+    offset?: number;
+    close?: boolean;
+    abortSignal?: AbortSignal;
+  }): Promise<{ bytesWritten?: number }> {
+    const send = (body: Record<string, unknown>) =>
+      this.request(
+        `/v2/sandboxes/sessions/${params.sessionId}/cmd/${params.commandId}/stdin`,
+        {
+          method: "POST",
+          body: JSON.stringify(body),
+          signal: params.abortSignal,
+          retry: { retries: 0 },
+        },
+      );
+    const body = {
+      data: params.data?.length
+        ? Buffer.from(params.data).toString("base64")
+        : undefined,
+      offset: params.offset,
+      close: params.close || undefined,
+    };
+    const resendable =
+      params.offset !== undefined || (!params.data?.length && !params.close);
+
+    let maybeApplied = false;
+    let stalledTimeouts = 0;
+    let lastWritten = params.offset ?? 0;
+    for (let attempt = 0; ; attempt++) {
+      const canRetry = attempt < STDIN_MAX_RETRIES;
+      let response: Response;
+      try {
+        response = await send(body);
+      } catch (error) {
+        if (
+          !resendable ||
+          !canRetry ||
+          params.abortSignal?.aborted ||
+          (error as Error)?.name === "AbortError"
+        ) {
+          throw error;
+        }
+        maybeApplied = true;
+        await waitBeforeStdinRetry(stdinBackoff(attempt), params.abortSignal);
+        continue;
+      }
+
+      const status = response.status;
+
+      if (
+        status === 404 &&
+        maybeApplied &&
+        params.close &&
+        !params.data?.length
+      ) {
+        // The process exited after applying the close whose response was lost.
+        await response.body?.cancel();
+        return {};
+      }
+
+      if (status === 429 && canRetry) {
+        const retryAfter = Number(response.headers.get("Retry-After"));
+        if (!(retryAfter > 20)) {
+          await response.body?.cancel();
+          await waitBeforeStdinRetry(
+            retryAfter > 0 ? retryAfter * 1000 : stdinBackoff(attempt),
+            params.abortSignal,
+          );
+          continue;
+        }
+      }
+
+      if (resendable && canRetry && (status === 502 || status === 503)) {
+        maybeApplied = true;
+        await response.body?.cancel();
+        await waitBeforeStdinRetry(stdinBackoff(attempt), params.abortSignal);
+        continue;
+      }
+
+      if (resendable && canRetry && status === 504) {
+        maybeApplied = true;
+        const timeout = await readStdinTimeout(response);
+        const written = timeout.bytesWritten;
+        if (written !== undefined && written > lastWritten) {
+          lastWritten = written;
+          stalledTimeouts = 0;
+        } else if (++stalledTimeouts >= STDIN_MAX_STALLED_TIMEOUTS) {
+          return parseStdinResponse(timeout.response, maybeApplied);
+        }
+        continue;
+      }
+
+      return parseStdinResponse(response, maybeApplied);
+    }
+  }
+
+  getLogs(params: {
+    sessionId: string;
+    cmdId: string;
+    signal?: AbortSignal;
+  }): AsyncGenerator<LogOutputLine, void, void> &
+    Disposable & { close(): void } {
+    const disposer = new AbortController();
+    const signal = !params.signal
+      ? disposer.signal
+      : mergeSignals(params.signal, disposer.signal);
+
+    const generator = this.getLogsStream({ ...params, signal });
+
+    return Object.assign(generator, {
+      [Symbol.dispose]() {
+        disposer.abort("Disposed");
+      },
+      close: () => disposer.abort("Disposed"),
+    });
+  }
+
+  private async *getLogsStream(
+    params: { sessionId: string; cmdId: string; signal?: AbortSignal },
+    delivered = { stdout: 0, stderr: 0 },
+  ): AsyncGenerator<LogOutputLine, void, void> {
+    const url = `/v2/sandboxes/sessions/${params.sessionId}/cmd/${params.cmdId}/logs`;
+    for (let attempt = 0; ; attempt++) {
+      const response = await this.request(url, { signal: params.signal });
+      if (!response.ok) await parseOrThrow(z.any(), response);
+      if (response.headers.get("content-type") !== "application/x-ndjson") {
+        throw new APIError(response, {
+          message: "Expected a stream of logs",
+          sessionId: params.sessionId,
+        });
+      }
+      if (response.body === null) {
+        throw new APIError(response, {
+          message: "No response body",
+          sessionId: params.sessionId,
+        });
+      }
+      const skip = { ...delivered };
+      try {
+        for await (const chunk of readJsonLines(response.body, params.signal)) {
+          const parsed = LogLine.parse(chunk);
+          if (parsed.stream === "error") {
+            throw new StreamError(
+              parsed.data.code,
+              parsed.data.message,
+              params.sessionId,
+            );
+          }
+          const skipped = Math.min(skip[parsed.stream], parsed.data.length);
+          skip[parsed.stream] -= skipped;
+          const data = parsed.data.slice(skipped);
+          if (data.length > 0 || parsed.data.length === 0) {
+            delivered[parsed.stream] += data.length;
+            yield { ...parsed, data };
+          }
+        }
+        return;
+      } catch (error) {
+        if (
+          params.signal?.aborted ||
+          !(error instanceof ConnectionError) ||
+          attempt >= 2
+        ) {
+          throw error;
+        }
+        await delay(200 * 2 ** attempt, undefined, { signal: params.signal });
+      }
+    }
+  }
+
+  async stopSession(params: {
+    sessionId: string;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof StopSessionResponse>>> {
+    const url = `/v2/sandboxes/sessions/${params.sessionId}/stop`;
+    return parseOrThrow(
+      StopSessionResponse,
+      await this.request(url, { method: "POST", signal: params.signal }),
+    );
+  }
+
+  async updateNetworkPolicy(params: {
+    sessionId: string;
+    networkPolicy: NetworkPolicy;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof SessionResponse>>> {
+    const url = `/v2/sandboxes/sessions/${params.sessionId}/network-policy`;
+    return parseOrThrow(
+      SessionResponse,
+      await this.request(url, {
+        method: "POST",
+        body: JSON.stringify(toAPINetworkPolicy(params.networkPolicy)),
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async extendTimeout(params: {
+    sessionId: string;
+    duration: number;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof SessionResponse>>> {
+    const url = `/v2/sandboxes/sessions/${params.sessionId}/extend-timeout`;
+    return parseOrThrow(
+      SessionResponse,
+      await this.request(url, {
+        method: "POST",
+        body: JSON.stringify({ duration: params.duration }),
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async createSnapshot(params: {
+    sessionId: string;
+    expiration?: number;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof CreateSnapshotResponse>>> {
+    const url = `/v2/sandboxes/sessions/${params.sessionId}/snapshot`;
+    const body =
+      params.expiration === undefined
+        ? undefined
+        : JSON.stringify({ expiration: params.expiration });
+    return parseOrThrow(
+      CreateSnapshotResponse,
+      await this.request(url, {
+        method: "POST",
+        body,
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async deleteSnapshot(params: {
+    snapshotId: string;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof SnapshotResponse>>> {
+    const url = `/v2/sandboxes/snapshots/${params.snapshotId}`;
+    return parseOrThrow(
+      SnapshotResponse,
+      await this.request(url, { method: "DELETE", signal: params.signal }),
+    );
+  }
+
+  async getSnapshot(params: {
+    snapshotId: string;
+    signal?: AbortSignal;
+  }): Promise<Parsed<z.infer<typeof SnapshotResponse>>> {
+    const url = `/v2/sandboxes/snapshots/${params.snapshotId}`;
+    return parseOrThrow(
+      SnapshotResponse,
+      await this.request(url, { signal: params.signal }),
+    );
+  }
+
+  async getSandbox(
+    params: WithPrivate<{
+      name: string;
+      projectId: string;
+      resume?: boolean;
+      signal?: AbortSignal;
+    }>,
+  ) {
+    const privateParams = getPrivateParams(params);
+    const query: Record<string, string | undefined> = {
+      projectId: params.projectId,
+      ...privateParams,
+    };
+    if (params.resume !== undefined) {
+      query.resume = String(params.resume);
+    }
+    return parseOrThrow(
+      SandboxAndSessionResponse,
+      await this.request(`/v2/sandboxes/${encodeURIComponent(params.name)}`, {
+        query,
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async listSandboxes<Tags extends Record<string, string>>(params: {
+    projectId: string;
+    limit?: number;
+    sortBy?: "createdAt" | "name" | "statusUpdatedAt";
+    sortOrder?: "asc" | "desc";
+    namePrefix?: string;
+    cursor?: string;
+    /**
+     * Filter sandboxes by tag. Only a single `{ key: value }` tag filter is
+     * currently supported.
+     * @example { env: "staging" }
+     */
+    tags?: Tags & SingleTagFilter<Tags>;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      SandboxesPaginationResponse,
+      await this.request(`/v2/sandboxes`, {
+        query: {
+          project: params.projectId,
+          limit: params.limit,
+          sortBy: params.sortBy,
+          sortOrder: params.sortOrder,
+          namePrefix: params.namePrefix,
+          cursor: params.cursor,
+          tags: toTagsFilter(params.tags),
+        },
+        method: "GET",
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async deleteDrive(params: {
+    projectId: string;
+    name: string;
+    signal?: AbortSignal;
+  }) {
+    const url = `/v2/sandboxes/drives/${encodeURIComponent(params.name)}`;
+    return parseOrThrow(
+      DriveResponse,
+      await this.request(url, {
+        method: "DELETE",
+        query: {
+          projectId: params.projectId,
+        },
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async updateSandbox(params: {
+    name: string;
+    projectId: string;
+    persistent?: boolean;
+    resources?: { vcpus?: number; memory?: number };
+    timeout?: number;
+    networkPolicy?: NetworkPolicy;
+    networkId?: string | null;
+    tags?: Record<string, string>;
+    ports?: number[];
+    snapshotExpiration?: number;
+    keepLastSnapshots?: {
+      count: number;
+      expiration?: number;
+      deleteEvicted?: boolean;
+    } | null;
+    currentSnapshotId?: string;
+    region?: SandboxRegion;
+    failoverRegions?: SandboxRegion[];
+    mounts?: SandboxMetaData["mounts"];
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      UpdateSandboxResponse,
+      await this.request(`/v2/sandboxes/${encodeURIComponent(params.name)}`, {
+        method: "PATCH",
+        query: {
+          projectId: params.projectId,
+        },
+        body: JSON.stringify({
+          persistent: params.persistent,
+          resources: params.resources,
+          timeout: params.timeout,
+          networkPolicy: params.networkPolicy
+            ? toAPINetworkPolicy(params.networkPolicy)
+            : undefined,
+          networkId: params.networkId,
+          tags: params.tags,
+          ports: params.ports,
+          snapshotExpiration: params.snapshotExpiration,
+          keepLastSnapshots: params.keepLastSnapshots,
+          currentSnapshotId: params.currentSnapshotId,
+          region: params.region,
+          failoverRegions: params.failoverRegions,
+          mounts: params.mounts,
+        }),
+        signal: params.signal,
+      }),
+    );
+  }
+
+  async deleteSandbox(params: {
+    name: string;
+    projectId: string;
+    deleteOrphanSnapshots?: boolean;
+    signal?: AbortSignal;
+  }) {
+    return parseOrThrow(
+      UpdateSandboxResponse,
+      await this.request(`/v2/sandboxes/${encodeURIComponent(params.name)}`, {
+        method: "DELETE",
+        query: {
+          projectId: params.projectId,
+          deleteOrphanSnapshots: params.deleteOrphanSnapshots
+            ? "true"
+            : undefined,
+        },
+        signal: params.signal,
+      }),
+    );
+  }
+}
+
+class ConnectionError extends Error {}
+
+async function* readJsonLines(
+  body: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
+) {
+  const controller = new AbortController();
+  let ended = false;
+  const stream = jsonlines.parse({ emitInvalidLines: true });
+  stream.on("invalid-line", (error) => {
+    stream.destroy(
+      ended
+        ? new ConnectionError("Stream ended with an incomplete JSON record", {
+            cause: error,
+          })
+        : error,
+    );
+  });
+  const combined = signal
+    ? mergeSignals(signal, controller.signal)
+    : controller.signal;
+  const piping = pipe(body, stream, {
+    signal: combined,
+    onEnd: () => {
+      ended = true;
+    },
+  });
+  try {
+    for await (const chunk of stream) yield chunk;
+  } finally {
+    controller.abort();
+    await piping;
+  }
+}
+
+async function pipe(
+  readable: ReadableStream<Uint8Array>,
+  output: NodeJS.WritableStream,
+  options?: { signal?: AbortSignal; onEnd?: () => void },
+) {
+  const reader = readable.getReader();
+  const decoder = new StringDecoder("utf8");
+  let aborted = false;
+
+  const signal = options?.signal;
+  const onAbort = () => {
+    aborted = true;
+    const reason =
+      signal?.reason ??
+      new DOMException("The operation was aborted.", "AbortError");
+    void reader.cancel(reason).catch(() => {
+      // ignore cancel errors when aborting
+    });
+
+    if ("destroy" in output && typeof output.destroy === "function") {
+      output.destroy(reason as Error);
+      return;
+    }
+
+    output.emit("error", reason);
+    output.end();
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  try {
+    while (true) {
+      const read = await reader.read();
+      if (read.value) {
+        output.write(decoder.write(Buffer.from(read.value)));
+      }
+      if (read.done) {
+        if (!aborted) output.write(decoder.end());
+        break;
+      }
+    }
+  } catch (err) {
+    if (!aborted) {
+      if ("destroy" in output && typeof output.destroy === "function") {
+        output.destroy(
+          new ConnectionError("Stream connection was interrupted", {
+            cause: err,
+          }),
+        );
+      } else {
+        output.emit("error", err);
+      }
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    reader.releaseLock();
+    if (!aborted) {
+      options?.onEnd?.();
+      output.end();
+    }
+  }
+}
+
+function mergeSignals(...signals: [AbortSignal, ...AbortSignal[]]) {
+  const controller = new AbortController();
+  const onAbort = () => {
+    controller.abort();
+    for (const signal of signals) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  };
+  for (const signal of signals) {
+    if (signal.aborted) {
+      controller.abort();
+      break;
+    }
+    signal.addEventListener("abort", onAbort);
+  }
+  return controller.signal;
+}
+
+function toTagsFilter(
+  tags: Record<string, string> | undefined,
+): string[] | undefined {
+  if (tags === undefined) return undefined;
+  const entries = Object.entries(tags);
+  if (entries.length === 0) return undefined;
+  if (entries.length > 1) {
+    throw new Error(
+      "Filtering by multiple tags is not supported. Pass a single `{ key: value }` tag.",
+    );
+  }
+  return entries.map(([key, value]) => `${key}:${value}`);
+}
+
+type UnionToIntersection<Union> = (
+  Union extends unknown ? (arg: Union) => void : never
+) extends (arg: infer Intersection) => void
+  ? Intersection
+  : never;
+
+export type SingleTagFilter<Tags> = [keyof Tags] extends [
+  UnionToIntersection<keyof Tags>,
+]
+  ? Tags
+  : "Error: filtering by multiple tags is not supported. Pass a single `{ key: value }` tag.";

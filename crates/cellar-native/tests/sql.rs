@@ -143,3 +143,39 @@ fn rpc_errors_preserve_family_cause_and_original_graph() {
         assert!(cellar_native::rpc::decode_response(bytes).is_err());
     }
 }
+
+#[test]
+fn rpc_reply_limits_apply_to_success_and_error_envelopes() {
+    use cellar_native::{
+        clone::{self, StructuredValue},
+        rpc,
+    };
+    let success =
+        clone::encode(&StructuredValue::from_json(serde_json::json!([1, 2, 3])).unwrap()).unwrap();
+    let error = rpc::encode_error("remote error", "Error", None).unwrap();
+    for bytes in [&success, &error] {
+        let limits = clone::Limits {
+            bytes: bytes.len() - 1,
+            ..Default::default()
+        };
+        let refused = rpc::decode_response_with_limits(bytes, limits).unwrap_err();
+        assert!(refused.downcast_ref::<rpc::RemoteError>().is_none());
+        assert!(refused.to_string().contains("byte limit"));
+        let limits = clone::Limits {
+            objects: 0,
+            ..Default::default()
+        };
+        assert!(rpc::decode_response_with_limits(bytes, limits)
+            .unwrap_err()
+            .downcast_ref::<rpc::RemoteError>()
+            .is_none());
+    }
+    let limits = clone::Limits {
+        bytes: error.len(),
+        ..Default::default()
+    };
+    assert!(rpc::decode_response_with_limits(&error, limits)
+        .unwrap_err()
+        .downcast_ref::<rpc::RemoteError>()
+        .is_some());
+}
