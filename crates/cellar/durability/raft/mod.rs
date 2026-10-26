@@ -32,6 +32,7 @@ pub(crate) mod operations;
 pub(crate) mod options;
 pub(crate) mod performance;
 pub(crate) mod physical_inventory;
+
 mod query;
 mod query_identity;
 mod query_route;
@@ -44,6 +45,10 @@ mod replica;
 pub(crate) mod runtime;
 pub(crate) mod snapshot;
 pub(crate) mod storage;
+#[cfg(test)]
+#[path = "../../tests/support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
 pub(crate) mod transport;
 mod transport_frame;
 pub(crate) mod transport_options;

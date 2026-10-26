@@ -6,9 +6,7 @@ use crate::asyncrt::ExecutionDomain;
 use crate::raft::fleet_stop::{BootBinding, StopSelector};
 use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
 
-#[path = "../../tests/support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod fault;
+use crate::raft::storage_fault as fault;
 
 fn options(root: &std::path::Path) -> ReplicaLogOptions {
     ReplicaLogOptions::new(

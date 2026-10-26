@@ -312,10 +312,7 @@ impl RaftCells {
         Box<
             dyn Future<
                     Output = Result<
-                        (
-                            super::super::RaftHostObservation,
-                            crate::raft::physical_inventory::RaftPhysicalInventory,
-                        ),
+                        crate::raft::physical_inventory::PhysicalNodeObservation,
                         CommandFailure,
                     >,
                 > + Send,

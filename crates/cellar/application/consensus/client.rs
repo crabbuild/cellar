@@ -1163,12 +1163,7 @@ pub(crate) enum Response {
     ),
     LocalFleetObservation(Box<crate::raft::fleet_inspection_wire::LocalObservation>),
     PeerNodeInspection(Result<Box<super::RaftPeerNodeObservation>, super::InspectionError>),
-    PhysicalNode(
-        Box<(
-            super::RaftHostObservation,
-            crate::raft::physical_inventory::RaftPhysicalInventory,
-        )>,
-    ),
+    PhysicalNode(Box<crate::raft::physical_inventory::PhysicalNodeObservation>),
     HistoryRegistered,
     Node(Box<super::RaftHostObservation>),
     Fleet(Option<Box<crate::raft::member_state::FleetMembershipStatus>>),

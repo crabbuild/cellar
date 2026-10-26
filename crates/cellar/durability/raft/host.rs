@@ -41,9 +41,7 @@ mod image_limits;
 mod startup_tests;
 
 #[cfg(test)]
-#[path = "../../tests/support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod storage_fault;
+use super::storage_fault;
 
 #[path = "host_admission.rs"]
 mod admission;

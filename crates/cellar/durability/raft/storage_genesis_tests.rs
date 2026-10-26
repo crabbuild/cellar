@@ -5,9 +5,7 @@ use cellar_logic::consensus::{
     ClusterId, DiskLineage, GroupId, IncarnationId, NamespaceId, NodeId, ProcessGeneration,
 };
 
-#[path = "../../tests/support/raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod fault;
+use crate::raft::storage_fault as fault;
 
 fn bootstrap(id: u8) -> GroupBootstrap {
     GroupBootstrap {

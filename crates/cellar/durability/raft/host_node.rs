@@ -180,13 +180,7 @@ impl Driver {
 
     fn physical_node_observation(
         &self,
-    ) -> Result<
-        (
-            RaftHostObservation,
-            super::super::physical_inventory::RaftPhysicalInventory,
-        ),
-        CommandFailure,
-    > {
+    ) -> Result<super::super::physical_inventory::PhysicalNodeObservation, CommandFailure> {
         let inventory = self
             .log
             .physical_inventory(self.activating.as_ref())

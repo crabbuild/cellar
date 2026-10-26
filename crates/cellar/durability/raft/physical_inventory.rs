@@ -13,6 +13,9 @@ use std::collections::BTreeMap;
 const MAX_GROUPS: usize = 4096;
 const PREFIX: usize = 45;
 const ENTRY_BYTES: usize = 72;
+
+pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
+
 pub(crate) const RESPONSE_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_BODY: usize =
     super::node_inspection_wire::MAX_BODY + PREFIX + MAX_GROUPS * ENTRY_BYTES;
@@ -204,7 +207,7 @@ pub(crate) fn decode(
     };
     let view = super::node_inspection_wire::decode(&bytes[PREFIX..PREFIX + node])?;
     let mut histories = Vec::with_capacity(count);
-    for row in bytes[PREFIX + node..].chunks_exact(ENTRY_BYTES) {
+    for row in bytes[PREFIX + node..].as_chunks::<ENTRY_BYTES>().0 {
         let mut scope = [0; 32];
         scope.copy_from_slice(&row[..32]);
         let mut birth = [0; 32];
