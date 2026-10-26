@@ -9,6 +9,56 @@ managed maintenance and resize remain unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Explicit active-collection pacing delivery
+
+`start_topology_service_with_collection` separates active collection from
+movement and idle polling. `FleetTopologyCollectionOptions` bounds the interval
+(50 ms–60 s), histories per round (1–16) and soft quantum (1–250 ms). Defaults
+are 50 ms, 16 histories and 100 ms. Quantum checks occur between complete history
+proofs; original deadlines, before/after exact-root checks and node-owned joined
+cancellation remain intact. Failed rounds retain the original backoff. Existing
+`start_topology_service` callers keep one history per movement interval.
+
+The matched native workload uses five real nodes, eight RF3 histories, one hot
+counter cell and sequential quorum-acknowledged SQL increments during the first
+collection. It pauses before planning, verifies unchanged rooted intent and zero
+admitted moves, checks the final counter/version, and joins the service/node
+owners. Three runs per mode on the shared host produced these medians:
+
+| Mode | First collection | Foreground write p99 |
+| --- | --- | --- |
+| Existing collection cadence | 7,182 ms | 68.534 ms |
+| Explicit active collection bounds | 2,884 ms | 59.990 ms |
+
+Collection time fell about 60%. Foreground throughput medians were 23.48 and
+24.61 successful writes/s for this single-cell serialized workload; these are
+not maximum fleet TPS measurements. No foreground regression was observed in
+this small sample. Container limits, RustFS behavior and 500/1,500-history
+convergence remain unqualified. Batch size alone at the original interval gave
+only a small change within shared-host variation and is not a claimed win.
+
+Memory admission now distinguishes intrinsic `Limit` from temporary `Overloaded`
+without lowering retained charges or increasing node defaults. Tests exercise
+five-node/500-history retained charges against 16 MiB and 64 MiB pools, temporary
+pressure, release and overflow. These are budget ownership tests, not measured
+process-memory or deployed-capacity evidence.
+
+The focused runtime tests at source `0b0d278cb57eee502774a16be95404f4ed530800`
+pass three workload runs, twelve existing topology cases, two operator scenarios,
+three admitted-movement service cases and three collection/memory unit tests.
+The fast API is exercised through actual generated moves and the authenticated
+CLI/admin convergence scenario. The earlier batch-only experiment had one
+admitted-service deadline failure; that same case passed in isolation on both
+candidate and control, and the final focused service run passed all three.
+The cause remains unproven and failed attempts are retained outside runtime data.
+
+All-target host Clippy with warnings denied, Rust formatting/layout, native
+dependency and documentation checks pass. Ten plan tests, manifest validation
+and 88-anchor preflight pass. The focused audit matches 1,432 Rust/Cargo inputs
+to that committed source and verifies retained executable/output hashes. These
+23 test executions are the current focused regression scope; the older complete
+cohort below is attributed to its original source.
+
 ## Operator SDK, admin API and CLI delivery
 
 `cellar::sdk::fleet_operations::RaftFleetControl`, authenticated admin routes
@@ -136,7 +186,8 @@ add/activate/drain/stop/remove/resize and dry-run commands remain unfinished.
 1. **Scalable convergence (FO-04/FO-06), next implementation priority:** avoid a
    complete fleet walk after every settled move. At the default 500 ms interval, a 500-history walk alone
    takes about 250 seconds before I/O; this is a pacing lower bound, not a
-   deployed timing measurement. Reuse verified configuration only across an
+   deployed timing measurement. The explicit collection API above removes that
+   fixed cadence when selected, but still needs 500-history measurement. Reuse verified configuration only across an
    exact journal-confirmed controller-owned transition; invalidate it on external
    birth, membership, boot or policy changes. Renew node capacity and the moved
    group's quorum observations. Verify 500-group collection/convergence cost

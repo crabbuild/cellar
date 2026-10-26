@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4051b2baa61f8b7b6c719d0fc1f39e7e72dd3420",
+  "baseline_revision": "0b0d278cb57eee502774a16be95404f4ed530800",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3104,7 +3104,8 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/tests.rs",
         "crates/cellar/tests/support/raft_movement_service.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/topology.rs",
-        "crates/cellar/tests/support/raft_topology_service_native.rs"
+        "crates/cellar/tests/support/raft_topology_service_native.rs",
+        "crates/cellar/tests/support/raft_topology_collection_native.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -3116,7 +3117,8 @@
         "Start one explicit node-owned admitted-movement polling service with deployment evidence integration, original round deadlines, bounded positive-jitter backoff, at most two retained reservations and fair joint/terminal priority. Node drain/closure and handle shutdown cancel and join the worker; missing resource rows require permanent-receipt resolution. Keep new admission/assignment policy and aborted/changed-boot cleanup as separate remaining work.",
         "Drive verified Aborted terminal settlement from explicit reconciliation and the owned service. Settlement counts are terminal outcomes, not successful replacement counts; do not decide to abort a move from timeout or queue state.",
         "Extend the existing one-per-node owned worker with explicit default-off topology mode. Give admitted work priority, collect at most one rooted history per paced round, refresh deployment evidence at planning, admit one generated move and recollect after settlement/root changes. Drive verified convergence and cancellation automatically. Admit conservative metadata/solver memory before retaining inputs and retain its reservation inside blocking work after waiter expiry.",
-        "Derive child request IDs from the operation and exact root. Treat prospective immutable requests as unresolved data; allow a competing bounded turn to finish, then use an empty-book superseding root CAS to resolve an old unconfirmed admission before replanning. The original admission and superseding CAS cannot both win. Preserve original journals, counts and physical debt; never infer rollback or settlement from timeout or missing work."
+        "Derive child request IDs from the operation and exact root. Treat prospective immutable requests as unresolved data; allow a competing bounded turn to finish, then use an empty-book superseding root CAS to resolve an old unconfirmed admission before replanning. The original admission and superseding CAS cannot both win. Preserve original journals, counts and physical debt; never infer rollback or settlement from timeout or missing work.",
+        "Deliver explicit active-collection pacing independently of movement/idle/error backoff, preserving existing startup API cadence. Bound slices by history count and a soft between-proof quantum while retaining original proof deadlines, exact root checks and owned cancellation. Distinguish intrinsic retained-memory Limit from temporary Overloaded. Qualify first-collection latency under native quorum writes before large-fleet deployment claims; full post-move recollection and 500-history resource/performance gates remain open."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3405,6 +3407,38 @@
             "F09",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_topology_collection_under_quorum_writes",
+          "oracle": "A real five-node eight-history collection under quorum SQL writes reaches the complete checked inventory, pauses before admission, preserves all increments/version coverage and joins every owner; retain matched collection and foreground measurements.",
+          "invariants": [
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_memory_misfit_is_limit",
+          "oracle": "An intrinsically oversized retained collection refuses with Limit without consuming or releasing another owner's budget.",
+          "invariants": [
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_memory_pressure_preserves_owned_reservations",
+          "oracle": "A collection that fits the configured pool but meets live pressure returns Overloaded, preserves existing owners and succeeds after pressure releases.",
+          "invariants": [
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_topology_collection_bounds_preserve_proof_budget_and_poll_floor",
+          "oracle": "Explicit collection bounds refuse busy polling, unbounded history batches and invalid soft quanta; proof deadlines remain independent.",
+          "invariants": [
+            "F04",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3451,6 +3485,17 @@
           "--locked",
           "--",
           "fleet_moves::tests::",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "fleet_topology_",
+          "--",
           "--test-threads=1"
         ]
       ],

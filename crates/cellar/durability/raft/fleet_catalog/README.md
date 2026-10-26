@@ -1220,6 +1220,15 @@ change or settled move causes new collection. Cancellation settles existing
 effects before automatic terminal cancellation. No application request advances
 these phases.
 
+`start_topology_service_with_collection` accepts explicit
+`FleetTopologyCollectionOptions` independently of movement and idle polling.
+Its defaults collect at a 50 ms interval, at most 16 histories per round, with a
+soft 100 ms quantum checked between complete proofs. Each history keeps its
+original remaining deadline and exact-root checks. Admitted movement work takes
+priority on the next round; failed rounds keep the original backoff. The existing
+`start_topology_service` API retains one history per round at the movement
+interval. Neither path reuses observations across a changed root.
+
 Move request identities are deterministic for the operation and exact root.
 The worker treats a prospective immutable request with no confirmed admission as
 unresolved, not as permission to execute. It allows a competing bounded turn time
@@ -1236,16 +1245,18 @@ The node admits collection and solver memory before retaining their inputs.
 Reservations account conservatively for compact physical inventories, complete
 input/group records, solver actions and path/recovery output. Blocking solver
 work retains its reservation independently if a response deadline drops its
-waiter. Shutdown joins that physical work and evidence callbacks. Planning can
-return `Overloaded` when the installed control-byte budget cannot cover the
-fleet; operators must configure and qualify that budget within the node's actual
-memory limit. These reservations are not RSS measurements. Local service status
+waiter. Shutdown joins that physical work and evidence callbacks. A retained
+service/input/planning charge that cannot fit the pool returns `Limit`;
+temporary pool pressure still returns `Overloaded`. For five nodes and 500 live
+histories the retained lower bound is about 21.5 MiB before fresh probes, above
+the default 16 MiB pool. Operators must explicitly configure and qualify that
+budget, including probe headroom, within the node's actual memory limit. These reservations are not RSS measurements. Local service status
 is diagnostic; use rooted operation status for authoritative admitted effects.
 
 This delivers healthy-fleet desired placement and owned convergence. It does not
 detect a failed boot and manufacture its physical closure, revive retired member
 bindings, balance workload/leadership, retire live cell histories, execute a
-maintenance restart, provision infrastructure or expose the proposed operator
-CLI. Those remaining fleet features and deployed RustFS/Colima fault, overhead,
+maintenance restart, provision infrastructure or complete every node-lifecycle
+operator command. Those remaining fleet features and deployed RustFS/Colima fault, overhead,
 throughput, latency and soak qualification remain required before general fleet
 automation can be enabled. Startup remains explicit and default-off.
