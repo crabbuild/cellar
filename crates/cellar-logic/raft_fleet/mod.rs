@@ -12,6 +12,6 @@ pub use ledger::{
     Reservation, ResourceCharge, ResourceKind, ResourceLedger, Resources, SampleAttribution,
 };
 pub use topology::{
-    preview_topology, NodeRecovery, ReplicaMove, TopologyError, TopologyGroup, TopologyNode,
-    TopologyPeak, TopologyPolicy, TopologyPreview, TopologyTarget, TopologyView,
+    balance_topology, preview_topology, NodeRecovery, ReplicaMove, TopologyError, TopologyGroup,
+    TopologyNode, TopologyPeak, TopologyPolicy, TopologyPreview, TopologyTarget, TopologyView,
 };

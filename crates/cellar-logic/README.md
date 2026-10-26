@@ -74,10 +74,24 @@ and input/policy revisions. One shared work limit covers all searches; exhaustio
 returns no partial preview. `RecoveryUnproven` means no direct restoration witness,
 not proof that every possible reshuffle is infeasible.
 
-This pure API requires stable groups, fresh complete node ledgers and no unsettled
-reservations. It verifies caller-proposed layouts; automatic layout generation,
-load/leadership scoring, owned authenticated input collection and resumable
-execution remain separate delivery work. Source-side fixed worker pools must
+`raft_fleet::balance_topology` generates an equal-copy assignment for a final
+keep-set, then uses the same staged-path and single-node-loss verifier. Each
+kept node receives the floor or ceiling of the average live-copy count. It
+prefers remainder allocations that retain current copies and searches alternate
+allocations and moves when blocked. Direct moves reduce a source surplus and a
+target deficit; retained source occupancy never decreases. Constraint-first
+forward checks avoid enumerating equivalent move orders in the symmetric
+500-cell expansion and contraction cases. One shared work budget covers
+generation and verification; at most one million candidate actions are retained.
+`BalanceUnproven` reports that this constrained search found no complete witness;
+neutral reshuffles, intermediate storage, weighted distributions and workload
+scoring are outside its scope. Neither a refusal nor budget exhaustion proves
+global infeasibility.
+
+These pure APIs require stable groups, fresh complete node ledgers and no unsettled
+reservations. Owned authenticated input collection and admission of a generated
+fleet plan remain separate delivery work; the host executor advances movements
+already admitted through the guarded catalog boundary. Source-side fixed worker pools must
 already be included in physical bounds. A schedule dependency requires actual
 terminal completion before admitting its successor; a preview grants no permit,
 storage reclamation, node-removal certificate or future health lease.

@@ -3,8 +3,11 @@
 //! Verify explicit topology intent before an adapter admits any movement.
 //! A preview supplies witnesses, not membership authority or a health lease.
 
+mod balance;
 mod recovery;
 mod schedule;
+
+pub use balance::balance_topology;
 
 use super::{CapacityScope, LedgerError, LedgerSnapshot, ResourceLedger, Resources};
 use crate::consensus::{GroupScope, LogIndex, NodeId};
@@ -116,6 +119,9 @@ pub enum TopologyError {
     NoStagedPath,
     /// No direct restoration witness; does not prove all reshuffles infeasible.
     RecoveryUnproven(NodeId),
+    /// No balanced direct replacement witness was found. Neutral reshuffles
+    /// and arbitrary unequal layouts are outside this search.
+    BalanceUnproven,
     SearchExhausted,
 }
 
@@ -163,18 +169,23 @@ pub fn preview_topology(
     targets: &[TopologyTarget],
     now_ms: u64,
 ) -> Result<TopologyPreview, TopologyError> {
-    let model = Model::new(view, policy, targets, now_ms)?;
+    let model = Model::new(view, policy, Some(targets), now_ms)?;
     let mut work = Work {
         used: 0,
         limit: policy.max_work,
     };
+    verify(&model, &mut work)
+}
+
+fn verify(model: &Model<'_>, work: &mut Work) -> Result<TopologyPreview, TopologyError> {
+    let view = model.view;
     let scheduled = schedule::find(
-        &model,
+        model,
         &model.initial,
         &model.desired,
         &model.base,
         None,
-        &mut work,
+        work,
     )?
     .ok_or(TopologyError::NoStagedPath)?;
     let mut occupied = model.occupied.clone();
@@ -186,18 +197,18 @@ pub fn preview_topology(
         let node = &view.nodes[failed];
         if node.keep {
             recovery.push(recovery::find(
-                &model,
+                model,
                 failed,
                 &occupied,
                 &scheduled.retained,
-                &mut work,
+                work,
             )?);
         }
     }
     recovery.sort_by_key(|scenario| scenario.failed.node.node);
     Ok(TopologyPreview {
         input_revision: view.revision,
-        policy_revision: policy.revision,
+        policy_revision: model.policy.revision,
         assignments: model
             .groups
             .iter()
@@ -218,7 +229,7 @@ impl<'a> Model<'a> {
     fn new(
         view: &'a TopologyView,
         policy: TopologyPolicy,
-        targets: &[TopologyTarget],
+        targets: Option<&[TopologyTarget]>,
         now_ms: u64,
     ) -> Result<Self, TopologyError> {
         if policy.revision == 0 || policy.max_work == 0 || policy.max_work > 50_000_000 {
@@ -227,10 +238,16 @@ impl<'a> Model<'a> {
         if !view.complete {
             return Err(TopologyError::Incomplete);
         }
-        if view.nodes.len() > 64 || view.groups.len() > 10_000 || targets.len() > 10_000 {
+        if view.nodes.len() > 64
+            || view.groups.len() > 10_000
+            || targets.is_some_and(|targets| targets.len() > 10_000)
+        {
             return Err(TopologyError::Limit);
         }
-        if view.revision == [0; 32] || view.nodes.is_empty() || targets.len() != view.groups.len() {
+        if view.revision == [0; 32]
+            || view.nodes.is_empty()
+            || targets.is_some_and(|targets| targets.len() != view.groups.len())
+        {
             return Err(TopologyError::InvalidInput);
         }
         let first = view.nodes[0].ledger.scope;
@@ -264,7 +281,7 @@ impl<'a> Model<'a> {
             base.push(charge.total);
         }
         let mut target_map = BTreeMap::new();
-        for target in targets {
+        for target in targets.into_iter().flatten() {
             if target_map.insert(&target.group, target.voters).is_some() {
                 return Err(TopologyError::InvalidInput);
             }
@@ -310,18 +327,22 @@ impl<'a> Model<'a> {
                 occupancy[n] += 1;
             }
             let initial = model.indices(group.voters)?;
-            let desired = model.indices(
-                *target_map
-                    .get(&group.scope)
-                    .ok_or(TopologyError::InvalidInput)?,
-            )?;
+            let desired = if targets.is_some() {
+                model.indices(
+                    *target_map
+                        .get(&group.scope)
+                        .ok_or(TopologyError::InvalidInput)?,
+                )?
+            } else {
+                initial
+            };
             if initial.iter().any(|n| !occupied.contains(n)) {
                 return Err(TopologyError::Incomplete);
             }
             if !model.domains(initial) || !model.domains(desired) {
                 return Err(TopologyError::FailureDomains);
             }
-            for n in desired {
+            for n in desired.into_iter().filter(|_| targets.is_some()) {
                 if !view.nodes[n].keep {
                     return Err(TopologyError::ExcludedTarget);
                 }

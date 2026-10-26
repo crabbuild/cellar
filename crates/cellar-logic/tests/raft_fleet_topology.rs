@@ -485,3 +485,263 @@ fn kept_nodes_need_separate_current_receiving_eligibility() {
         Err(TopologyError::ExcludedTarget)
     );
 }
+
+fn live_counts(preview: &TopologyPreview) -> BTreeMap<NodeId, usize> {
+    let mut counts = BTreeMap::new();
+    for target in &preview.assignments {
+        for voter in target.voters {
+            *counts.entry(voter).or_default() += 1;
+        }
+    }
+    counts
+}
+
+#[test]
+fn automatic_five_to_six_generates_balanced_500_cell_assignment() {
+    let (view, _) = fixture(6, &symmetric());
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    assert_eq!(plan.moves.len(), 250);
+    assert_eq!(live_counts(&plan).len(), 6);
+    assert!(live_counts(&plan).values().all(|count| *count == 250));
+    assert_eq!(plan.recovery.len(), 6);
+    assert!(plan.recovery.iter().all(|loss| loss.moves.len() == 250));
+    replay(&view, &plan.assignments, &plan.moves);
+    for peak in &plan.peaks {
+        assert_eq!(
+            peak.resources.engine_slots,
+            if peak.scope.node.node == node(5) {
+                251
+            } else {
+                301
+            }
+        );
+    }
+    assert!(plan.search_work <= policy().max_work);
+}
+
+#[test]
+fn automatic_five_to_four_empties_departing_node_and_reserves_recovery() {
+    let (mut view, _) = fixture(5, &symmetric());
+    view.nodes[4].keep = false;
+    for node in &mut view.nodes {
+        node.ledger.policy.capacity.engine_slots = 501;
+    }
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    assert_eq!(plan.moves.len(), 300);
+    assert_eq!(live_counts(&plan).len(), 4);
+    assert!(live_counts(&plan).values().all(|count| *count == 375));
+    assert_eq!(plan.recovery.len(), 4);
+    assert!(plan.moves.iter().all(|m| m.source.node.node == node(4)));
+    assert!(plan.recovery.iter().all(|loss| loss.moves.len() == 375));
+    replay(&view, &plan.assignments, &plan.moves);
+    for loss in &plan.recovery {
+        assert!(loss
+            .peaks
+            .iter()
+            .filter(|peak| {
+                peak.scope.node.node != loss.failed.node.node && peak.scope.node.node != node(4)
+            })
+            .all(|peak| peak.resources.engine_slots == 501));
+    }
+}
+
+#[test]
+fn automatic_balance_is_stable_and_deterministic_for_reordered_inputs() {
+    let (mut view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    assert_eq!(plan.moves.len(), 2);
+    assert!(live_counts(&plan)
+        .values()
+        .all(|count| *count == 1 || *count == 2));
+    view.nodes.reverse();
+    view.groups.reverse();
+    for group in &mut view.groups {
+        group.voters.reverse();
+        group.occupied.reverse();
+    }
+    assert_eq!(balance_topology(&view, policy(), 100).unwrap(), plan);
+    let (view, _) = fixture(5, &[[0, 1, 2], [2, 3, 4], [0, 1, 4], [0, 2, 3], [1, 3, 4]]);
+    assert!(balance_topology(&view, policy(), 100)
+        .unwrap()
+        .moves
+        .is_empty());
+}
+
+#[test]
+fn automatic_balance_refuses_layout_without_domain_recovery() {
+    let (mut view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    view.nodes[3].zone = view.nodes[1].zone.clone();
+    view.nodes[4].zone = view.nodes[2].zone.clone();
+    // Only node 0 represents its zone. A balanced placement cannot retain two
+    // copies there and still restore its groups after losing that zone's node.
+    // This fleet cannot satisfy the recovery requirement at all.
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::BalanceUnproven)
+    );
+}
+
+#[test]
+fn automatic_balance_searches_alternate_remainder_allocations() {
+    let (mut view, _) = fixture(9, &[[0, 1, 2], [0, 1, 2]]);
+    // Each final node has zero or one copy. The first six quota recipients
+    // would include three nodes in zone A and only one in C, which cannot hold
+    // two RF3 groups. A different remainder set is feasible with spare domains.
+    for (n, zone) in ["A", "B", "C", "A", "A", "B", "B", "C", "C"]
+        .iter()
+        .enumerate()
+    {
+        view.nodes[n].zone = (*zone).into();
+    }
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    let counts = live_counts(&plan);
+    assert_eq!(counts.len(), 6);
+    assert!(counts.values().all(|count| *count == 1));
+    assert!(counts.contains_key(&node(7)) || counts.contains_key(&node(8)));
+    assert_eq!(plan.moves.len(), 3);
+    assert_eq!(plan.recovery.len(), 9);
+    replay(&view, &plan.assignments, &plan.moves);
+}
+
+#[test]
+fn automatic_balance_refuses_missing_fresh_bindings_and_capacity() {
+    let (mut view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    for group in &mut view.groups {
+        group.occupied.push(node(3));
+        group.occupied.push(node(4));
+    }
+    for node in &mut view.nodes[3..] {
+        node.ledger.sample.physical = resources(2, 20, 20);
+    }
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::BalanceUnproven)
+    );
+    let (mut view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    for node in &mut view.nodes[3..] {
+        node.ledger.policy.capacity = resources(1, 1, 1);
+    }
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::BalanceUnproven)
+    );
+    let (mut view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    for node in &mut view.nodes[3..] {
+        node.receives_replicas = false;
+    }
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::BalanceUnproven)
+    );
+}
+
+#[test]
+fn automatic_balance_requires_complete_stable_fresh_inputs() {
+    let (mut view, _) = fixture(5, &[[0, 1, 2]]);
+    view.complete = false;
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::Incomplete)
+    );
+    view.complete = true;
+    assert_eq!(
+        balance_topology(&view, policy(), 1101),
+        Err(TopologyError::Ledger(LedgerError::StaleObservation))
+    );
+    let scope = view.nodes[3].ledger.scope;
+    view.nodes[3].ledger.reservations.push(Reservation {
+        id: ProposalId::new([5; 16]).unwrap(),
+        group: view.groups[0].scope.clone(),
+        scope,
+        peak: resources(1, 10, 10),
+        materialized: None,
+    });
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::UnsettledMovement)
+    );
+}
+
+#[test]
+fn automatic_balance_budget_covers_generation_and_verification() {
+    let (view, _) = fixture(5, &[[0, 1, 2], [0, 1, 2]]);
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    let mut limited = policy();
+    limited.max_work = plan.search_work;
+    assert_eq!(balance_topology(&view, limited, 100).unwrap(), plan);
+    limited.max_work -= 1;
+    assert_eq!(
+        balance_topology(&view, limited, 100),
+        Err(TopologyError::SearchExhausted)
+    );
+    limited.max_work = 1;
+    assert_eq!(
+        balance_topology(&view, limited, 100),
+        Err(TopologyError::SearchExhausted)
+    );
+}
+
+#[test]
+fn automatic_balance_handles_empty_inventory_and_refuses_no_recovery_spare() {
+    let (mut view, _) = fixture(4, &[]);
+    let plan = balance_topology(&view, policy(), 100).unwrap();
+    assert!(plan.assignments.is_empty());
+    assert!(plan.moves.is_empty());
+    assert_eq!(plan.recovery.len(), 4);
+    assert!(plan.recovery.iter().all(|loss| loss.moves.is_empty()));
+    for node in &mut view.nodes {
+        node.keep = false;
+    }
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::InvalidInput)
+    );
+    let (view, _) = fixture(3, &[[0, 1, 2]]);
+    assert_eq!(
+        balance_topology(&view, policy(), 100),
+        Err(TopologyError::BalanceUnproven)
+    );
+}
+
+#[test]
+fn automatic_balance_all_small_two_group_layouts_preserve_rf3() {
+    let mut triples = Vec::new();
+    for a in 0..6 {
+        for b in a + 1..6 {
+            for c in b + 1..6 {
+                triples.push([a, b, c]);
+            }
+        }
+    }
+    for first in &triples {
+        for second in &triples {
+            let (view, _) = fixture(6, &[*first, *second]);
+            let plan = balance_topology(&view, policy(), 100).unwrap();
+            assert_eq!(live_counts(&plan).len(), 6);
+            assert!(live_counts(&plan).values().all(|count| *count == 1));
+            assert_eq!(
+                plan.moves.len(),
+                first.iter().filter(|n| second.contains(n)).count()
+            );
+            replay(&view, &plan.assignments, &plan.moves);
+            assert_eq!(plan.recovery.len(), 6);
+            for loss in &plan.recovery {
+                assert_eq!(loss.moves.len(), 1);
+                let replacement = &loss.moves[0];
+                let original = view
+                    .groups
+                    .iter()
+                    .find(|g| g.scope == replacement.group)
+                    .unwrap();
+                let balanced = plan
+                    .assignments
+                    .iter()
+                    .find(|g| g.group == replacement.group)
+                    .unwrap();
+                assert!(!original.occupied.contains(&replacement.target.node.node));
+                assert!(!balanced.voters.contains(&replacement.target.node.node));
+                assert_eq!(replacement.source, loss.failed);
+            }
+        }
+    }
+}

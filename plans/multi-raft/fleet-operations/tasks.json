@@ -2239,7 +2239,8 @@
         "crates/cellar/durability/raft/fleet_catalog/isolation.rs",
         "crates/cellar/tests/support/raft_movement_isolation.rs",
         "crates/cellar/tests/support/raft_movement_fenced.rs",
-        "crates/cellar/tests/support/raft_movement_aborted.rs"
+        "crates/cellar/tests/support/raft_movement_aborted.rs",
+        "crates/cellar-logic/raft_fleet/topology/balance.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2256,7 +2257,8 @@
         "Verify explicit complete RF3 topology proposals in the pure core. Search legal direct serial move orders under seed peaks and retained source occupancy, then complete direct restoration witnesses for each kept-node loss. Share one bounded search budget; distinguish search exhaustion, direct-path refusal and unproven restoration. Stable groups and unsettled-free fresh complete inputs are prerequisites. Automatic final assignment and owned adapter collection/execution remain separate work.",
         "Accept distinct trusted deployment isolation for an exact boot after rooted exclusion; permanently deny restart/transport and preserve retained storage. Successful movement completion may substitute this admitted proof only for the obsolete original voter absent from fresh stable RF3. Keep full durable membership for placement/quorum while omitting quarantined endpoints from routes; retain provenance across lost replies. External platform integration remains separate work; terminal isolated-node removal is delivered under FO-07.",
         "Settle unused movement reservations only after the exact permit is quorum-fenced on every original boot, followed by complete authenticated physical worker-exit and empty-destination proof. Atomically record a distinct fenced receipt and monotonic physical floor while releasing only the exact active book row. Preserve canonical retries across adapter recreation, lost responses and subsequent work; seeding, joint, aborted, changed-boot and unreachable owners retain debt through this path.",
-        "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary."
+        "Settle exact Aborted permits only after all original seed owners have quorum-observed the abort and then proved physical worker exit. Distinguish retained versus empty destination history, preserve physical floors, permanent receipt identity and later reservations. Complete/Fenced/Aborted outcomes cannot be reinterpreted. Changed or unavailable boots still require their separate recovery boundary.",
+        "Generate equal-copy final assignments for the explicit keep-set in the pure core, with alternate remainder allocations, constrained direct surplus-to-deficit search, retained occupancy and one shared generation/staging/recovery budget. Return only complete verified witnesses; BalanceUnproven and SearchExhausted grant no partial authority or global infeasibility claim. Connect owned authenticated fleet collection and current guarded admission separately; weighted/load policy remains optional."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
