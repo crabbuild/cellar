@@ -47,10 +47,11 @@ pub use resources::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,

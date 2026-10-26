@@ -3,6 +3,7 @@
 //! One node-owned worker resumes admitted work. Explicit topology mode also
 //! collects and admits rooted desired placement. No timeout or local hint can
 //! release a reservation or establish convergence.
+mod isolated;
 mod schedule;
 mod topology;
 mod worker;
@@ -139,8 +140,23 @@ pub struct FleetMovementServiceEntry {
 
 /// Bounded local service counters, reset on start. Pending work is reconstructed
 /// from storage; absence from a later scan is not counted as verified settlement.
+/// Local scan diagnostics only. Exhaustion does not certify current replica
+/// health, evacuation, node removal, or physical resource release.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FleetIsolatedRepairServiceStatus {
+    pub operation: cellar_logic::consensus::ProposalId,
+    pub failed_boot: crate::raft::fleet_stop::BootBinding,
+    pub scan_revision: u64,
+    pub histories_checked: u64,
+    pub blocked_histories: u64,
+    pub inventory_exhausted: bool,
+    pub last_blocked_group: Option<GroupScope>,
+    pub last_blocked_failure: Option<FleetMovementServiceFailure>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
+    pub isolated_repair: Option<FleetIsolatedRepairServiceStatus>,
     pub running: bool,
     pub poll_rounds: u64,
     pub execution_attempts: u64,
@@ -198,7 +214,7 @@ impl FleetCatalog {
         evidence: Arc<dyn FleetMovementEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
-        self.start_fleet_service(observer, evidence, None, options)
+        self.start_fleet_service(observer, evidence, None, None, options)
             .await
     }
 
@@ -245,6 +261,29 @@ impl FleetCatalog {
             observer,
             movement_evidence,
             Some((topology_evidence, collection)),
+            None,
+            options,
+        )
+        .await
+    }
+
+    /// Generate and execute required replacements for the explicitly admitted
+    /// evacuation operation after permanent exact-boot isolation. Reuses the
+    /// node's sole owned movement worker; no failure is inferred from timeouts.
+    /// Missing quorum remains blocked while other histories receive turns.
+    pub async fn start_isolated_repair_service(
+        &self,
+        observer: RaftCells,
+        movement_evidence: Arc<dyn FleetMovementEvidence>,
+        repair_evidence: Arc<dyn FleetIsolatedRepairEvidence>,
+        operation: cellar_logic::consensus::ProposalId,
+        options: FleetMovementServiceOptions,
+    ) -> Result<FleetMovementService> {
+        self.start_fleet_service(
+            observer,
+            movement_evidence,
+            None,
+            Some((operation, repair_evidence)),
             options,
         )
         .await
@@ -258,9 +297,16 @@ impl FleetCatalog {
             Arc<dyn FleetTopologyEvidence>,
             FleetTopologyCollectionOptions,
         )>,
+        isolated: Option<(
+            cellar_logic::consensus::ProposalId,
+            Arc<dyn FleetIsolatedRepairEvidence>,
+        )>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
         options.validate()?;
+        if topology.is_some() && isolated.is_some() {
+            return Err(FleetCatalogError::Invalid("fleet service mode"));
+        }
         // A retained capability cannot start new work after its original owner
         // closes. The receiving node independently selects its installed fleet
         // client and binds the actual worker to its own execution domain.
@@ -287,6 +333,7 @@ impl FleetCatalog {
             status,
         );
         work.set_topology(topology);
+        work.set_isolated_repair(isolated);
         observer.start_movement_worker(work, timeout).await?;
         Ok(service)
     }

@@ -92,6 +92,43 @@ the observed phase and terminal/converged flags; errors carry a typed `code`,
 5 unavailable or unknown result, and 6 wait timeout. Mutations are never retried
 automatically; exact caller retries are reconciled against the catalog.
 
+## Delivered isolated-node repair SDK workflow
+
+The explicit SDK service can now select and execute replacements after trusted
+node isolation. It is separate from the keep-set CLI above; lifecycle CLI/API
+verbs remain unfinished.
+
+1. Use `FleetCatalog::begin_evacuation` to root exclusion of the affected node.
+   Retain the operation identity and exact request for ambiguous retries.
+2. A trusted deployment authority must establish that the exact boot is stopped
+   and cannot restart, then submit `attest_node_isolation`. Failure to contact a
+   process is insufficient. The native fixtures use joined shutdown and a test
+   attestation; they do not implement a production infrastructure driver.
+3. On a surviving enrolled node, explicitly start
+   `start_isolated_repair_service` for that evacuation operation. Supply movement
+   evidence and `FleetIsolatedRepairEvidence` implementations with conservative
+   resource bounds and complete namespace handles. The controller proves quorum
+   and chooses fresh compatible capacity; the callback cannot nominate a plan.
+4. Inspect `FleetMovementServiceStatus::isolated_repair` for checked/blocked
+   groups and use the ordinary durable movement book/settlement APIs for admitted
+   effects. Unadmitted groups without quorum remain blocked while independent
+   majority groups can recover. A stalled admitted move currently blocks new
+   selection even when another movement slot is free. Service shutdown joins its
+   callbacks; admitted physical work retains its node owner and durable debt.
+5. Perform complete evacuation/removal verification through the existing guarded
+   lifecycle APIs before any storage release. A completed scan or three-voter
+   replacement alone is insufficient. The service does not remove the node.
+
+The [component contract](../../../crates/cellar/durability/raft/fleet_catalog/README.md#owned-repair-after-trusted-node-isolation)
+describes ownership, freshness, capability and resource bounds. Run the six
+delivered native scenarios from the repository root, using the checkout-private
+target directory required by `AGENTS.md`:
+
+```sh
+cargo test -p cellar --test native_raft_fleet_enrollment --locked \
+  fleet_isolated_repair_service_ -- --test-threads=1
+```
+
 ## Remaining command and API contract
 
 The broader commands below are proposed FO-08 deliverables, except for the

@@ -4,10 +4,69 @@ The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
 complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
 placement has an explicit owned convergence service and authenticated operator
-SDK/admin/CLI access. Complete node lifecycle commands, failure-driven recovery,
-managed maintenance and resize remain unfinished.
+SDK/admin/CLI access. An explicit SDK controller now selects and executes
+replacements after trusted node isolation. Automatic failure classification,
+production isolation, complete node lifecycle commands, managed maintenance and
+resize remain unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Controller-driven repair of an isolated node
+
+`start_isolated_repair_service` now connects a rooted evacuation and permanent
+exact-boot isolation to automatic source/spare selection, atomic resource/permit
+admission and the existing joined movement/settlement worker. The pure selector
+preserves both surviving voters, allocates above the current member high-water,
+excludes occupied/retired bindings and respects capacity, headroom, rooted
+keep/domain policy and capability compatibility. Admission independently renews
+proofs and retains the selected reserve.
+
+The worker walks one immutable candidate index per pass and checks each history
+against the current root. Admitted work runs first. It keeps its cursor on an
+admitted group until settlement removes the failed voter; minority or unconfirmed
+groups are recorded and skipped so independent majority groups can progress.
+Blocked passes back off. This fairness covers unadmitted histories: an already
+admitted stalled movement still blocks new selection until the book settles.
+Bounded required-repair concurrency with retained debt is the next controller
+delivery gap. A competing-turn fence CAS resolves prospective
+old-root admissions without granting membership, isolation or resource-release
+authority. Node stop and explicit service shutdown join callbacks and owned work.
+
+The native scenarios cover actual failed-leader shutdown, three replacements
+without business traffic, wrong-scope input, lost admission confirmation, worker
+ownership and cancellation, an independent majority alongside blocked minorities,
+waiting for trusted isolation, an incompatible high-capacity spare, and delayed
+admission raced by a second controller. Each completed repair checks fresh RF3
+membership and S3 SQL values 7 to 12 to 21. The stopped node's nonempty engine
+marker and shared log remain retained. A further scenario fills a spare's
+registration table with eight metadata-only histories; zero engine histories
+must not admit another registration. Selection and admission check conservative
+registration headroom separately from physical engine capacity and retained floors.
+
+The initial native attempt reached three settlements and verified SQL, then
+failed an incorrect test-only retained-log path (`raft` instead of `raft/log`).
+The corrected five scenarios and focused old regressions pass at the preceding
+source. An intermediate 55-case cohort passed 52 and failed three: two existing
+fenced/aborted cases caught metadata incorrectly charged as engine occupancy;
+the correction checks registration headroom independently. The minority fixture
+also had an ambiguous initial SQL write before controller checks, whose cause
+remains unproven. Phase context was added without changing assertions or budgets.
+The corrected source passes all 55 native resource/movement cases, eleven pure
+selector cases and four service unit cases: **70 distinct focused cases**. Three
+additional targeted probes pass both cancellation regressions and the minority
+scenario before the full cohort. The exact earlier binary also passes its
+minority case in isolation; this does not establish the timing failure's cause.
+The final native cohort completed in 345.86 seconds. No budget or assertion was
+relaxed. Original failures and immutable binaries remain outside runtime data.
+
+The service remains explicit and default-off. Exact declared capability-digest
+equality conservatively excludes unknown namespace supersets. Deployment
+resource/isolation attestations are fixture authority in local tests. Cursor
+exhaustion is diagnostic, not an evacuation/removal/storage-release certificate.
+This slice handles one explicitly rooted isolated node; automatic failure
+classification, production isolation, simultaneous-isolation policy, full-fleet
+recovery feasibility, lifecycle operator integration and deployed RustFS/Colima
+scale, fault, throughput/latency and soak qualification remain unfinished.
 
 ## Large-inventory stress probe
 
@@ -37,8 +96,8 @@ uncontrolled. It neither reproduces the error nor establishes a cause. Expensive
 empty-state startup remains an observation, not a diagnosed scheduler defect.
 The prototype, source hashes, immutable binary and outcomes are retained outside
 the repository; this inconclusive experiment adds no production change. The intended default configuration and complete convergence
-still require separate verification. Controller-driven repair of an already
-isolated failed node is the next feature slice; scale qualification stays open. Preserve the failing run and immutable
+still require separate verification. The explicit isolated-node repair service above is the next delivered feature
+slice; scale qualification stays open. Preserve the failing run and immutable
 binary in external `qualification/fleet-operations/scale-v1/`; the unsuccessful
 OS stack sampling probe yielded no output and establishes no bottleneck.
 
@@ -212,58 +271,49 @@ all target checks.
 
 ## Next feature delivery order
 
-The next feature commit targets controller-driven repair of an already isolated
-failed node, using the existing quarantine and settlement primitives. Complete
-scale qualification remains a release gate; the inconclusive stress probe does
-not justify changing production scheduling or holding all feature work.
+The isolated-node repair service delivers selection and admission beyond the
+previous manual movement primitives. FO-03 is complete at its documented
+boundary and is not the next implementation target. Keep-set operator access is
+also delivered. The next work should extend these usable boundaries:
 
-Keep-set operator access is delivered at the boundary above. Extend the same
-catalog-pinned audit and permission surface as lifecycle features become usable;
-add/activate/drain/stop/remove/resize and dry-run commands remain unfinished.
+1. **Admitted repair fairness (FO-04/FO-06):** let an independent required repair
+   use remaining movement capacity while another admitted action is blocked.
+   Include every retained debit in fresh target ledgers, preserve original
+   ownership and proof boundaries, and prove the blocked action's debt remains
+   charged. The current strict empty-book selection is conservative but can
+   prevent independent recovery; the minority test covers unadmitted groups only.
+2. **Guarded lifecycle operator workflows (FO-07/FO-08):** connect the existing
+   registration, typed capacity, evacuation, repair, stop and removal adapters to
+   the catalog-pinned audit/permission surface. Deliver one end-to-end add/activate
+   and evacuate/remove workflow, with exact retries and visible blocked debt,
+   before adding resize. The repair cursor cannot stand in for terminal proof.
+3. **Failure policy and deployment isolation (FO-06/FO-07):** supply a real
+   trusted provider, conservative suspect/failed policy, concurrent-failure rules
+   and restart/rejoin protection. A timeout cannot establish physical isolation;
+   a lost quorum remains blocked. The new controller handles one rooted isolated
+   node operation, not arbitrary simultaneous failure management.
+4. **Scalable convergence (FO-04/FO-06):** avoid complete recollection after every
+   healthy-fleet move by retaining only journal-confirmed stable configuration;
+   renew moved-group quorum and node capacity, and invalidate on external birth,
+   membership, boot or policy changes. The explicit collection API removes the
+   fixed per-history interval when selected; 500-history convergence still needs
+   measurement. At five nodes/500 histories, existing retained planner charges
+   total about 21.5 MiB before probes, above the default 16 MiB pool. This is a
+   calculated admission bound, not measured RSS or a supported capacity claim.
+5. **Maintenance and capacity lifecycle (FO-07/FO-09):** deliver guarded stop,
+   verified rejoin and one-at-a-time rolling maintenance, then effective profile
+   reconciliation, retained-state fit, safe resize and committed cell retirement.
+   Placement completion cannot authorize deleting retained storage.
+6. **Load/performance and release qualification (FO-05/FO-10):** measure the
+   intended default configuration and enforced 1-vCPU/3-GiB RustFS/Colima topology
+   at 500/1,500 histories. Diagnose the retained stress failure, then target
+   measured scheduler, convergence and foreground TPS/p99 limits. Workload-aware
+   leader balancing, RustFS fault tests, steady-state overhead and soak remain
+   release gates. Small native correctness runs establish none of those limits.
 
-1. **Failure recovery (FO-06/FO-07):** automate failure classification, spare
-   selection and repair admission using the existing exact-boot isolation and
-   movement-settlement APIs. Trusted isolation already allows verified obsolete
-   seed-owner closure; the three-history native test exercises it beyond the
-   active movement-book limit. The remaining gap is the controller-driven
-   recovery workflow and its trusted deployment isolation provider. Exercise a
-   dead voter, changed process and lost reply under continued writes. A timeout
-   cannot substitute for isolation evidence; unavailable quorum remains blocked.
-2. **Scalable convergence (FO-04/FO-06):** avoid a
-   complete fleet walk after every settled move. At the default 500 ms interval, a 500-history walk alone
-   takes about 250 seconds before I/O; this is a pacing lower bound, not a
-   deployed timing measurement. The explicit collection API above removes that
-   fixed cadence when selected, but still needs 500-history measurement. Reuse verified configuration only across an
-   exact journal-confirmed controller-owned transition; invalidate it on external
-   birth, membership, boot or policy changes. Renew node capacity and the moved
-   group's quorum observations. Verify 500-group collection/convergence cost
-   before enabling automation; do not trade away proof freshness. At five nodes
-   and 500 histories, the current service/input/planning reservations total
-   22,511,168 bytes (about 21.5 MiB) before probe work, exceeding the default
-   16 MiB control pool. This is a calculated admission bound, not measured RSS;
-   large-group host configuration must account for it. Measure retained/probe
-   memory and resident-group limits, and provide an explicit fit/refusal before
-   qualifying 1-vCPU/3-GiB use.
-3. **Lifecycle operator workflows (FO-07/FO-08):** connect node registration,
-   capacity activation and evacuation/removal to their real node-owned adapters.
-   Finish readiness, guarded stop, verified rejoin and one-at-a-time rolling
-   maintenance on the same operation/audit surface. Add cancellation with partial
-   effects before resize workflows.
-4. **Capacity lifecycle (FO-09):** add effective profile reconciliation, retained
-   state fit, safe resize and committed cell retirement. Placement completion
-   alone cannot authorize deleting a node, volume or retained replica.
-5. **Scale and performance (FO-05/FO-10):** measure 500/1,500-group convergence,
-   scheduling cost and foreground TPS/p99 at enforced limits, then improve the
-   measured bottleneck. The present collector recollects all histories after
-   every move and paces each history by the service interval; large-fleet
-   convergence and controller overhead are not yet qualified. Leader/load
-   balancing and deployed RustFS faults/soak remain required.
-
-These are feature slices across the existing package boundaries. FO-03 is
-complete at its documented enrollment/admission boundary; it is not the next
-implementation target. FO-04, FO-06, FO-07 and FO-08 stay in progress until their
-full acceptance conditions pass. Full SDK CI remains a release gate. Healthy desired
-placement does not yet deliver failure-driven auto-healing or node removal.
+FO-04, FO-06, FO-07 and FO-08 stay in progress until their full acceptance
+conditions pass. Full SDK CI remains a release gate. Feature slices and test
+coverage should continue to advance without relabeling unfinished packages DONE.
 
 ## Owned topology collection and generated-move delivery
 

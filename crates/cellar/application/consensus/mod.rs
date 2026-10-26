@@ -53,10 +53,11 @@ pub use crate::raft::fleet_catalog::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_catalog::{
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use crate::raft::fleet_catalog::{
     FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,

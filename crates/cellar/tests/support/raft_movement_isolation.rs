@@ -427,3 +427,6 @@ async fn fleet_movement_isolation_after_admission_preserves_completion_retry() -
     s.f.domain.shutdown().await;
     Ok(())
 }
+
+#[path = "raft_isolated_repair_service.rs"]
+mod service_tests;

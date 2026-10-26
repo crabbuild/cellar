@@ -19,6 +19,7 @@ pub(crate) struct MovementServiceWork {
     memory: Option<Permit>,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
+    isolated: Option<super::isolated::IsolatedRepairService>,
 }
 
 impl MovementServiceWork {
@@ -44,6 +45,7 @@ impl MovementServiceWork {
             memory: None,
             node_stop: None,
             topology: None,
+            isolated: None,
         }
     }
 
@@ -56,6 +58,18 @@ impl MovementServiceWork {
     ) {
         self.topology = evidence
             .map(|(evidence, options)| super::topology::TopologyService::new(evidence, options));
+    }
+
+    pub(super) fn set_isolated_repair(
+        &mut self,
+        config: Option<(
+            cellar_logic::consensus::ProposalId,
+            Arc<dyn FleetIsolatedRepairEvidence>,
+        )>,
+    ) {
+        self.isolated = config.map(|(operation, evidence)| {
+            super::isolated::IsolatedRepairService::new(operation, evidence)
+        });
     }
 
     pub(crate) fn admit(&mut self, host: &FleetHostAuthorization) -> Result<()> {
@@ -149,9 +163,10 @@ impl MovementServiceWork {
                         status.consecutive_round_failures = 0;
                         status.last_round_failure = None;
                     });
-                    self.topology
+                    self.isolated
                         .as_ref()
-                        .and_then(|t| t.collection_delay())
+                        .and_then(|r| r.pass_delay(&self.options))
+                        .or_else(|| self.topology.as_ref().and_then(|t| t.collection_delay()))
                         .unwrap_or(self.options.interval)
                         .as_millis() as u64
                 }
@@ -263,6 +278,18 @@ impl MovementServiceWork {
                 }
             }
         } else if self.schedule.entries.is_empty() {
+            if let Some(isolated) = &mut self.isolated {
+                isolated
+                    .round(
+                        &self.catalog,
+                        &self.observer,
+                        &cut,
+                        &self.options,
+                        &deadline,
+                        &self.status,
+                    )
+                    .await?;
+            }
             if let Some(topology) = &mut self.topology {
                 topology
                     .round(

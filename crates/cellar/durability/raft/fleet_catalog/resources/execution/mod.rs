@@ -15,10 +15,10 @@ use cellar_logic::consensus::ProposalId;
 use rand::RngCore;
 pub(crate) use service::MovementServiceWork;
 pub use service::{
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub(crate) use work::{MovementAction, MovementCommand};
 

@@ -15,6 +15,32 @@ use cellar_logic::raft_fleet::{
     CapacityScope, LedgerPolicy, LedgerSnapshot, PhysicalSample, Reservation, ResourceLedger,
 };
 
+#[derive(Default)]
+pub(super) struct AdmissionOptions {
+    pub topology: bool,
+    pub reserve: FleetResourceBounds,
+}
+
+// Registration and the engine have separate slot limits. Registered metadata
+// can exist without an engine history; retained engines can lack metadata.
+// The observation does not identify their dormant overlap, so require room for
+// a conservative union plus admitted prospective registrations. This guards the
+// host table independently; metadata must not inflate engine usage or its floor.
+pub(super) fn registration_room(
+    view: &crate::raft::host::RaftHostObservation,
+    pending: usize,
+) -> Result<bool> {
+    let pending =
+        u32::try_from(pending).map_err(|_| resource_error(LedgerError::ArithmeticOverflow))?;
+    view.registered_histories
+        .checked_add(view.unattached_engine_histories)
+        .map(|n| n.max(view.node.groups))
+        .and_then(|n| n.checked_add(pending))
+        .and_then(|n| n.checked_add(1))
+        .map(|needed| needed <= view.startup_bounds.host_groups)
+        .ok_or(resource_error(LedgerError::ArithmeticOverflow))
+}
+
 impl FleetCatalog {
     /// Reserve one prospective learner's resources and one active movement
     /// slot. No membership permit is created. Occupancy evidence is explicitly
@@ -33,7 +59,7 @@ impl FleetCatalog {
             Request::new(self, request)?,
             observer,
             namespaces,
-            false,
+            AdmissionOptions::default(),
             timeout,
         )
         .await
@@ -45,7 +71,7 @@ impl FleetCatalog {
         canonical: Request,
         observer: &RaftCells,
         namespaces: &[NamespaceCatalog],
-        topology: bool,
+        options: AdmissionOptions,
         timeout: Duration,
     ) -> Result<FleetResourceAdmission> {
         self.check_snapshot(snapshot)?;
@@ -149,8 +175,19 @@ impl FleetCatalog {
             if book.rows.len() >= MAX_MOVES {
                 return Err(resource_error(LedgerError::MovementLimit));
             }
+            let pending = rows.iter().filter(|row| row.node == target.node()).count();
+            if !registration_room(&observation.view, pending)? {
+                return Err(FleetCatalogError::Overloaded);
+            }
             let physical = self
-                .check_resource_fit(snapshot, &canonical, &capacity, &observation, &rows)
+                .check_resource_fit(
+                    snapshot,
+                    &canonical,
+                    &capacity,
+                    &observation,
+                    &rows,
+                    options.reserve,
+                )
                 .await?;
             let record = Record::new(
                 self,
@@ -176,7 +213,7 @@ impl FleetCatalog {
             });
             book.rows.sort_by_key(|row| row.id);
             let mut mutation = self.resource_mutation(&record, row_bytes, &book)?;
-            if topology {
+            if options.topology {
                 self.append_topology_movement(snapshot, &record, &mut mutation)
                     .await?;
             }
@@ -185,7 +222,7 @@ impl FleetCatalog {
                     snapshot,
                     &mutation,
                     None,
-                    if topology {
+                    if options.topology {
                         Authority::TopologyAdmission
                     } else if canonical.movement.is_some() {
                         Authority::Admission
@@ -264,6 +301,7 @@ impl FleetCatalog {
         capacity: &FleetCapacityAuthorization,
         observation: &RaftPeerNodeObservation,
         rows: &[Record],
+        reserve: FleetResourceBounds,
     ) -> Result<FleetResourceBounds> {
         let qualified = capacity.attestation();
         let view = &observation.view;
@@ -321,9 +359,10 @@ impl FleetCatalog {
                     durable_bytes: qualified.durable_bytes.min(view.node.profile.byte_capacity),
                     memory_bytes: qualified.memory_bytes,
                 },
-                // Recovery-scenario headroom belongs to the complete planner;
-                // this debit boundary does not claim that feasibility proof.
-                reserve: Resources::default(),
+                // Required-repair selection supplies explicit node headroom.
+                // Ordinary explicit moves retain their existing zero reserve;
+                // neither path claims complete-fleet recovery feasibility.
+                reserve: reserve.resources(),
                 max_active_moves: MAX_MOVES as u32,
                 max_sample_age_ms: MAX_SAMPLE_AGE_MS,
             },

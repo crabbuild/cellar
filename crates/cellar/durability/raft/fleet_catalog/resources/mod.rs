@@ -8,16 +8,18 @@ mod bindings;
 mod completion;
 mod execution;
 mod intent;
+mod membership;
+mod repair;
 pub use completion::{
     FleetAbortedMovementCompletion, FleetFencedMovementCompletion, FleetMovementCompletion,
     FleetMovementCompletionRequest,
 };
 pub(crate) use execution::MovementServiceWork;
 pub use execution::{
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use execution::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
@@ -26,6 +28,9 @@ pub(crate) use execution::{MovementAction, MovementCommand};
 pub use intent::{
     FleetTopologyIntentRequest, FleetTopologyMovementEntry, FleetTopologyMovementPage,
     FleetTopologyOperation, FleetTopologyPhase,
+};
+pub use repair::{
+    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]

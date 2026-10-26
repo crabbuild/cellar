@@ -9,9 +9,12 @@ FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable t
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Complete node lifecycle
 commands remain delivery targets. `tasks.json` retains exact package status.
-The next priorities are scalable convergence, controller-driven failure recovery
-using the existing trusted-isolation and movement-settlement APIs, and guarded
-maintenance/rejoin. Unconfirmed closure keeps movement debt charged.
+Controller-driven spare selection, admission and settlement after trusted
+isolation are implemented as an explicit SDK service. Automatic failure
+classification and a production isolation provider remain unfinished. The next
+priorities are admitted-repair fairness, guarded lifecycle/operator workflows,
+scalable convergence and maintenance/rejoin. Unconfirmed closure keeps movement
+debt charged.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware
 leadership balancing, and operator-controlled node addition, maintenance and

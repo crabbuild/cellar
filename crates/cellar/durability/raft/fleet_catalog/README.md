@@ -1260,3 +1260,65 @@ maintenance restart, provision infrastructure or complete every node-lifecycle
 operator command. Those remaining fleet features and deployed RustFS/Colima fault, overhead,
 throughput, latency and soak qualification remain required before general fleet
 automation can be enabled. Startup remains explicit and default-off.
+
+## Owned repair after trusted node isolation
+
+`start_isolated_repair_service(observer, movement_evidence, repair_evidence,
+operation, options)` drives an existing evacuation after permanent exact-boot
+isolation has been rooted. It shares the sole node-owned movement worker slot
+with the admitted-work and topology services. Start it explicitly on a surviving
+enrolled node; starting another mode on that node is refused. It uses the
+installed catalog client, original per-turn deadlines, joined cancellation and
+existing movement execution/settlement machinery.
+
+`FleetIsolatedRepairEvidence::refresh` supplies one history's conservative
+resident/peak resource bounds, per-node occupancy and reserve, and complete
+namespace handles. The callback cannot select a source, target, member ID or
+repair plan. Missing surviving voters block that history; missing or unreachable
+spares are ineligible. The adapter authenticates current boots, capacity profiles
+and complete physical inventory, proves the surviving configuration through a
+safe ReadIndex, and invokes the pure `select_isolated_repair` selector. The
+selector preserves both survivors, excludes occupied/retired bindings, allocates
+above the quorum's member high-water, respects rooted host/domain/keep policy
+and ranks eligible spares by projected resource pressure. Final resource/permit
+admission independently renews the evidence and keeps the selected reserve in
+the atomic ledger check.
+
+Selection and admission independently check the host's registration-table
+headroom, including dormant metadata, unattached engines and admitted prospective
+registrations. The observation does not identify their overlap, so this check
+uses a conservative union bound. It may refuse a node with overlapping dormant
+copies or reusable metadata. Engine usage and retained floors still count
+physical engines; unused metadata does not consume engine-profile capacity.
+
+Target capability digests must equal the proven serving source's declared
+namespace/class/schema digest. This conservatively excludes incompatible nodes;
+arbitrary compatible supersets need a richer capability proof. Deployment
+occupancy and resource bounds remain trusted inputs, not measured RSS or kernel
+limits. A timeout never establishes that a voter is isolated.
+
+Already admitted work runs first. The controller retains one immutable history
+cursor per pass, then renews each history and settled membership at the current
+root before deciding. A blocked history does not prevent another affected group
+with a surviving majority from repairing while the admitted book is empty.
+An already admitted stalled move currently blocks new selection; bounded
+concurrent required repair with retained debt remains a delivery gap.
+Blocked passes use bounded retry
+backoff. After admission the cursor remains on that history until settlement
+proves the isolated voter was replaced. Corrupt authoritative records fail the
+round rather than becoming an omitted history.
+
+An immutable prospective admission with an uncertain outcome is reconciled
+before replanning. After one competing-turn window, a descriptive
+`isolated-repair-fence/<operation>` root CAS may advance that exact root. The
+fence and the delayed old-root admission cannot both win. Its bytes grant no
+membership, resource release or physical closure authority; admitted work stays
+in the ordinary durable movement book.
+
+`FleetIsolatedRepairServiceStatus` reports pass revision, checked/blocked counts,
+last blocked history/failure and cursor exhaustion. These are local diagnostics.
+Exhaustion does not certify current health, complete evacuation, terminal node
+removal or storage release. This mode handles one explicitly rooted isolated
+node operation. Admitted-work fairness, automatic failure classification, a
+production isolation provider, simultaneous-isolation policy, lifecycle CLI
+integration and deployed scale/performance qualification remain open.

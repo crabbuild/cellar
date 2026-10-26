@@ -2252,7 +2252,13 @@
         "crates/cellar/durability/raft/fleet_catalog/resources/intent/guard.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/intent/lifecycle.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/intent/progress.rs",
-        "crates/cellar/tests/support/raft_topology_intent_native.rs"
+        "crates/cellar/tests/support/raft_topology_intent_native.rs",
+        "crates/cellar-logic/raft_fleet/repair.rs",
+        "crates/cellar-logic/tests/raft_fleet_repair.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/membership.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/repair/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/repair/membership.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/repair/planning.rs"
       ],
       "steps": [
         "Implement dependency-free FleetView, FleetPolicy, projected-capacity scoring and typed refusal reasons.",
@@ -2274,7 +2280,8 @@
         "Connect the pure balanced planner to owned complete namespace, current capacity, physical binding and three-voter ReadIndex collection. Walk histories incrementally, retain genesis/retired/floor debt, refresh node inputs before planning, and describe only the first exact move for existing guarded admission and owned execution. Require terminal settlement and recollection for successors; durable fleet intent/exclusions and automatic new admission remain separate work.",
         "Root an exact group/member/node provenance index atomically with each resource-linked permit. Resolve pruned dynamic physical bindings through the original admitted row and verified retained terminal receipt, without scans or release credit. Protect generic edits; allow lookup replacement only after a journal-confirmed unused Fenced proposal at a higher sequence on the same disk/engine.",
         "Persist canonical desired topology, keep-set and active operation in one root CAS. Gate newly referenced birth members, resource debits and membership targets against that policy at the same CAS; preserve pre-admitted birth/permit authority and node epochs. Serialize new topology intent with node evacuation without reusing its record shape. Generic policy, operation and active-pointer edits refuse.",
-        "Consume a current opaque preview for exact operation-owned first-move admission; append its per-operation hash-radix progress index in the same CAS as debit, book, permit and binding. Resolve status and bounded pagination through canonical origin/current journals; historical retries cannot clear newer work. Complete only from a fresh exhaustive no-move preview. Cancellation first fences new admissions, settles prior effects and restores prior allowed placement without rolling back membership."
+        "Consume a current opaque preview for exact operation-owned first-move admission; append its per-operation hash-radix progress index in the same CAS as debit, book, permit and binding. Resolve status and bounded pagination through canonical origin/current journals; historical retries cannot clear newer work. Complete only from a fresh exhaustive no-move preview. Cancellation first fences new admissions, settles prior effects and restores prior allowed placement without rolling back membership.",
+        "Select a required isolated-voter replacement from fresh surviving quorum, complete physical/retained occupancy and deployment bounds; preserve survivors and atomically retain selected headroom."
       ],
       "acceptance": [
         "Projected destination utilization includes every unresolved permit.",
@@ -2801,6 +2808,90 @@
             "F09",
             "F10"
           ]
+        },
+        {
+          "name": "isolated_repair_preserves_survivors_and_allocates_above_high_water",
+          "oracle": "Preserve both surviving voters and allocate a new member strictly above the quorum high-water.",
+          "invariants": [
+            "F02",
+            "F07"
+          ]
+        },
+        {
+          "name": "isolated_repair_is_order_independent",
+          "oracle": "Input ordering cannot change the selected fresh target.",
+          "invariants": [
+            "F02",
+            "F07"
+          ]
+        },
+        {
+          "name": "isolated_repair_charges_memory_and_headroom_before_ranking",
+          "oracle": "Charge peak memory, durable bytes and explicit reserve before target ranking.",
+          "invariants": [
+            "F06"
+          ]
+        },
+        {
+          "name": "isolated_repair_rejects_retired_bindings_and_excluded_targets",
+          "oracle": "Occupied or retired bindings and nodes outside the rooted keep-set are ineligible.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F09"
+          ]
+        },
+        {
+          "name": "isolated_repair_keeps_failed_physical_host_excluded_during_replacement",
+          "oracle": "Respect the isolated physical host and configured replica failure domains.",
+          "invariants": [
+            "F09"
+          ]
+        },
+        {
+          "name": "isolated_repair_requires_both_fresh_surviving_voters",
+          "oracle": "Both surviving voter ledgers must be present and fresh.",
+          "invariants": [
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "isolated_repair_skips_stale_spare_instead_of_inventing_free_capacity",
+          "oracle": "A stale spare is skipped and cannot manufacture free capacity.",
+          "invariants": [
+            "F07"
+          ]
+        },
+        {
+          "name": "isolated_repair_refuses_unsettled_and_incomplete_ledgers",
+          "oracle": "Unsettled reservations and incomplete ledgers refuse a new selection.",
+          "invariants": [
+            "F05",
+            "F06"
+          ]
+        },
+        {
+          "name": "isolated_repair_refuses_wrong_scope_and_member_exhaustion",
+          "oracle": "Wrong fleet scope and exhausted member identity refuse selection.",
+          "invariants": [
+            "F02",
+            "F07"
+          ]
+        },
+        {
+          "name": "isolated_repair_ranks_projected_memory_pressure",
+          "oracle": "Rank projected memory pressure along with other resource limits.",
+          "invariants": [
+            "F06"
+          ]
+        },
+        {
+          "name": "isolated_repair_refuses_overflow_instead_of_saturating_capacity",
+          "oracle": "Arithmetic overflow refuses progress instead of saturating usage.",
+          "invariants": [
+            "F06"
+          ]
         }
       ],
       "verification": [
@@ -2928,6 +3019,17 @@
           "native_raft_fleet_enrollment",
           "--locked",
           "fleet_fenced_movement_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar-logic",
+          "--test",
+          "raft_fleet_repair",
+          "--locked",
           "--",
           "--test-threads=1"
         ]
@@ -3105,7 +3207,9 @@
         "crates/cellar/tests/support/raft_movement_service.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/topology.rs",
         "crates/cellar/tests/support/raft_topology_service_native.rs",
-        "crates/cellar/tests/support/raft_topology_collection_native.rs"
+        "crates/cellar/tests/support/raft_topology_collection_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/isolated.rs",
+        "crates/cellar/tests/support/raft_isolated_repair_service.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -3118,7 +3222,8 @@
         "Drive verified Aborted terminal settlement from explicit reconciliation and the owned service. Settlement counts are terminal outcomes, not successful replacement counts; do not decide to abort a move from timeout or queue state.",
         "Extend the existing one-per-node owned worker with explicit default-off topology mode. Give admitted work priority, collect at most one rooted history per paced round, refresh deployment evidence at planning, admit one generated move and recollect after settlement/root changes. Drive verified convergence and cancellation automatically. Admit conservative metadata/solver memory before retaining inputs and retain its reservation inside blocking work after waiter expiry.",
         "Derive child request IDs from the operation and exact root. Treat prospective immutable requests as unresolved data; allow a competing bounded turn to finish, then use an empty-book superseding root CAS to resolve an old unconfirmed admission before replanning. The original admission and superseding CAS cannot both win. Preserve original journals, counts and physical debt; never infer rollback or settlement from timeout or missing work.",
-        "Deliver explicit active-collection pacing independently of movement/idle/error backoff, preserving existing startup API cadence. Bound slices by history count and a soft between-proof quantum while retaining original proof deadlines, exact root checks and owned cancellation. Distinguish intrinsic retained-memory Limit from temporary Overloaded. Qualify first-collection latency under native quorum writes before large-fleet deployment claims; full post-move recollection and 500-history resource/performance gates remain open."
+        "Deliver explicit active-collection pacing independently of movement/idle/error backoff, preserving existing startup API cadence. Bound slices by history count and a soft between-proof quantum while retaining original proof deadlines, exact root checks and owned cancellation. Distinguish intrinsic retained-memory Limit from temporary Overloaded. Qualify first-collection latency under native quorum writes before large-fleet deployment claims; full post-move recollection and 500-history resource/performance gates remain open.",
+        "Drive one rooted isolated-node evacuation with an owned immutable candidate cursor, independent-group progress and uncertain-admission fencing; diagnostic exhaustion grants no terminal lifecycle authority."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3437,6 +3542,90 @@
           "oracle": "Explicit collection bounds refuse busy polling, unbounded history batches and invalid soft quanta; proof deadlines remain independent.",
           "invariants": [
             "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_selects_and_repairs_without_business_traffic",
+          "oracle": "After actual failed-leader shutdown and trusted isolation, select and settle three replacements without business traffic; retain failed storage and verify fresh RF3 membership and S3 SQL continuity. Stop joins callbacks, shared worker slot is exclusive and wrong-scope inputs cannot admit work.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_skips_minority_and_repairs_independent_majority",
+          "oracle": "With another physical node stopped, three minority groups remain unadmitted while an independent majority group repairs; cursor diagnostics grant no removal or release authority.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_waits_for_trusted_isolation",
+          "oracle": "Rooted evacuation alone invokes no repair callback or resource admission; the same worker proceeds only after exact-boot trusted isolation is admitted.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_excludes_incompatible_spare",
+          "oracle": "A qualified spare with a different declared namespace and abundant capacity receives no metadata or engine binding while compatible spares repair all affected groups.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_fences_delayed_admission_before_replanning",
+          "oracle": "A competing controller fences a held old-root admission without creating movement debt; the late CAS conflicts and restarted work settles exactly three replacements.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_isolated_repair_service_excludes_metadata_full_spare",
+          "oracle": "A spare with eight metadata registrations and zero engine histories receives no repair debit; authenticated slot accounting selects the other spare and all three affected groups recover.",
+          "invariants": [
+            "F01",
+            "F03",
+            "F04",
+            "F05",
+            "F06",
+            "F07",
+            "F08",
             "F10"
           ]
         }

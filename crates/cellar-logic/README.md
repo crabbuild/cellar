@@ -40,7 +40,7 @@ reproducible from the same state and inputs.
 | Background work | Alarms, durable wakes, queues and cron | [alarm.rs](alarm.rs), [wake.rs](wake.rs), [queue.rs](queue.rs), [cron.rs](cron.rs) |
 | Event delivery | Stream and subscription lifecycle decisions | [event_stream.rs](event_stream.rs), [subscription_lifecycle.rs](subscription_lifecycle.rs) |
 | Resource pressure | Admission, residency and balancing | [pressure.rs](pressure.rs), [rebalance.rs](rebalance.rs) |
-| Fleet resource accounting | Retained physical occupancy, unresolved growth and scoped materialization credit | [raft_fleet](raft_fleet/mod.rs) |
+| Fleet resource accounting | Retained occupancy, unresolved growth, scoped credit and required repair selection | [raft_fleet](raft_fleet/mod.rs) |
 | Shutdown | Draining and release decisions | [drain.rs](drain.rs) |
 
 ## Preserve authority and proof
@@ -62,8 +62,8 @@ for engine slots, durable bytes and memory. Materialization replaces only the
 attributed part of outstanding growth. Older-boot debt remains fully charged.
 Lower measurements do not establish physical release; no release API is exposed.
 The pure ledger grants no membership or catalog authority. Authenticated resource
-sampling, atomic catalog reservation admission and planner/controller integration
-remain separate fleet implementation work.
+sampling, atomic catalog reservation admission and controller execution belong to
+the [host adapter](../cellar/durability/raft/fleet_catalog/README.md).
 
 `raft_fleet::preview_topology` verifies an explicit complete RF3 assignment. It
 constructs a serial schedule with per-step domain/quorum and seed-peak checks,
@@ -88,10 +88,18 @@ neutral reshuffles, intermediate storage, weighted distributions and workload
 scoring are outside its scope. Neither a refusal nor budget exhaustion proves
 global infeasibility.
 
+`raft_fleet::select_isolated_repair` chooses one required fresh replacement after
+the host proves permanent isolation of an exact boot and a surviving quorum. It
+preserves both surviving voters, excludes occupied/retired node bindings, checks
+resource/domain/keep bounds and ranks projected resource pressure with a stable
+per-history tie break. Stale spares are ineligible; both survivors need fresh
+complete ledgers. The selected member is above the live quorum's high-water.
+This bounded per-history choice is not a complete-fleet recovery witness and
+grants no authority to isolate, admit membership or release retained storage.
+
 These pure APIs require stable groups, fresh complete node ledgers and no unsettled
-reservations. Owned authenticated input collection and admission of a generated
-fleet plan remain separate delivery work; the host executor advances movements
-already admitted through the guarded catalog boundary. Source-side fixed worker pools must
+reservations. The host owns authenticated collection, guarded resource/permit
+admission and movement execution. Source-side fixed worker pools must
 already be included in physical bounds. A schedule dependency requires actual
 terminal completion before admitting its successor; a preview grants no permit,
 storage reclamation, node-removal certificate or future health lease.

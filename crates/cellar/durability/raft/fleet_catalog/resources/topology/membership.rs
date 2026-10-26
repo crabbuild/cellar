@@ -1,9 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Rooted terminal intent locates voters; actual quorum calls prove their state.
-use super::super::completion::Settlement;
 use super::*;
-use crate::raft::member_state::{FleetMembershipPermit, FleetPermitPhase};
+use crate::raft::member_state::FleetPermitPhase;
 
 impl FleetTopologyVerification {
     pub(super) async fn verify_group(
@@ -14,77 +13,14 @@ impl FleetTopologyVerification {
     ) -> Result<GroupInput> {
         let catalog = &self.catalog;
         let key = history
-            .binding
+            .binding()
             .key()
             .map_err(|_| FleetCatalogError::Corrupt("topology group key"))?;
         let (voters, latest) = catalog
-            .run(deadline.remaining()?, async {
-                let latest = catalog
-                    .inner
-                    .lookup(
-                        self.snapshot.head.tables[FleetTable::Admissions.slot()],
-                        &key,
-                    )
-                    .await?
-                    .map(|bytes| {
-                        FleetMembershipPermit::decode(&bytes)
-                            .map_err(|_| FleetCatalogError::Corrupt("topology permit"))
-                    })
-                    .transpose()?;
-                let mut voters = BTreeMap::new();
-                if let Some(permit) = &latest {
-                    let row = catalog
-                        .admitted_resource(&self.snapshot, permit.id())
-                        .await?;
-                    let (kind, _) = catalog
-                        .resource_settlement(&self.snapshot, &row)
-                        .await?
-                        .ok_or(FleetCatalogError::InventoryIncomplete)?;
-                    if row.permit.as_ref() != Some(permit) || permit.binding() != history.binding()
-                    {
-                        return Err(FleetCatalogError::Conflict);
-                    }
-                    for owner in row
-                        .seed_owners
-                        .as_ref()
-                        .ok_or(FleetCatalogError::InventoryIncomplete)?
-                    {
-                        voters.insert(
-                            NodeId::new(owner.node)
-                                .map_err(|_| FleetCatalogError::Corrupt("topology seed owner"))?,
-                            MemberId::new(owner.member)
-                                .map_err(|_| FleetCatalogError::Corrupt("topology seed member"))?,
-                        );
-                    }
-                    if kind == Settlement::Complete {
-                        let plan = row
-                            .request
-                            .movement
-                            .as_ref()
-                            .ok_or(FleetCatalogError::InventoryIncomplete)?
-                            .plan()?;
-                        voters.retain(|_, member| *member != plan.obsolete);
-                        voters.insert(plan.replacement.node, plan.replacement.member);
-                    }
-                } else {
-                    if history.voters.len() != 3 || !history.learners.is_empty() {
-                        return Err(FleetCatalogError::InventoryIncomplete);
-                    }
-                    for member in &history.voters {
-                        voters.insert(
-                            NodeId::new(member.node)
-                                .map_err(|_| FleetCatalogError::Corrupt("topology voter"))?,
-                            MemberId::new(member.member)
-                                .map_err(|_| FleetCatalogError::Corrupt("topology member"))?,
-                        );
-                    }
-                }
-                if voters.len() != 3 || voters.values().copied().collect::<BTreeSet<_>>().len() != 3
-                {
-                    return Err(FleetCatalogError::InventoryIncomplete);
-                }
-                Ok((voters, latest))
-            })
+            .run(
+                deadline.remaining()?,
+                catalog.settled_group_voters(&self.snapshot, &history),
+            )
             .await?;
         let scope = history
             .binding

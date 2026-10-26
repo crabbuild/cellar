@@ -234,7 +234,8 @@ impl FleetTopologyVerification {
                 region: view.node.profile.region.clone(),
                 zone: view.node.profile.zone.clone(),
                 keep: self.keep.contains(&node.host.node()),
-                receives_replicas: node.host.eligibility().receive_replicas,
+                receives_replicas: node.host.eligibility().receive_replicas
+                    && super::super::admission::registration_room(view, 0)?,
             });
         }
         transcript.update(b"cellar-topology-final-history-bounds-1");

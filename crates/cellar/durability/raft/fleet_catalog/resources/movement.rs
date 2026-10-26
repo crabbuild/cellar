@@ -192,7 +192,17 @@ impl FleetCatalog {
         canonical.movement = Some(Movement::new(request)?);
         canonical.validate(self)?;
         let resources = self
-            .reserve_resource_request(snapshot, canonical, observer, namespaces, topology, timeout)
+            .reserve_resource_request(
+                snapshot,
+                canonical,
+                observer,
+                namespaces,
+                super::admission::AdmissionOptions {
+                    topology,
+                    reserve: FleetResourceBounds::default(),
+                },
+                timeout,
+            )
             .await?;
         let permit = resources
             .record
