@@ -40,7 +40,7 @@ independent of the optional Workers runtime.
 | Delivered Node slice | Worker/DO/container upgrade forwarding and published Sandbox WebSocket previews | Native network tests, held-receiver disconnect and exact-image text/binary round trips with joined cleanup |
 | Delivered selected slice | Concurrency-block controls and published error/exit hooks | Void controls join before native admission releases; nested blocks execute; transactions, inherited transaction views and late continuation admission refuse. Node exercises published readiness errors and nonzero exit/stop parameters |
 | Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
-| 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
+| 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure reproduces locally. Linux CI also times out on Container wake after five seconds. Native routing/activation and lifecycle callback stages remain investigation boundaries; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks pass running-node cases plus cold native fleet restart, removed classes, accepted-create owner expiry and handoff. Outages, partitions, physical deletion and remote fencing remain open |
 | Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; Node process streams, actual file operations, bounded native handles and original-event authority |
@@ -1833,3 +1833,23 @@ The previous PR head's Linux JavaScript job also timed out on `/wake` in the
 published Container sleep/wake fixture, after its provider and Worker checks
 passed. That five-second lifecycle failure remains under investigation; the
 fleet results above do not resolve or supersede it.
+
+## Container lifecycle CI investigation
+
+The [Linux job on `7a26c623`](https://github.com/crabbuild/cellar/actions/runs/40459794588/job/122041419842)
+used Ubuntu 22.04, Rust 1.98.1 and Node 24.21.0. It passed provider, Worker,
+stream-input and HTTP-message tests before the published Container wake request
+timed out at its existing five-second deadline.
+
+| Probe | Observation |
+| --- | --- |
+| Node 24.13.1, two Tokio workers, focused lifecycle test | 20 consecutive runs pass with the original four sleep/wake cycles per run |
+| Same runtime, full five-test module sequence | The original first-call `250ms` budget failure reproduces in `module_http_and_activation_owned_bindings_survive_events_and_restart`; the lifecycle test still passes |
+| Bounded diagnostics | Fixture logs distinguish Worker wake, DO fetch and start/stop hook entry and settlement; failures capture cycle/stage, elapsed time, pre-cleanup bridge usage and at most 24 engine method/path observations |
+| Node 24.21.0, two Tokio workers, instrumented full module sequence | All five tests pass on macOS with the original budgets; this does not resolve the Linux CI failure |
+
+These are investigations, not fixes. Diagnostics do not change the published
+package, handler/client deadlines, sleep policy or original lifecycle/shutdown
+assertions. No engine request bodies are included. Native activation before DO
+entry, callback/monitor ordering and Node-version differences remain candidate
+boundaries until a reproducing trace distinguishes them.

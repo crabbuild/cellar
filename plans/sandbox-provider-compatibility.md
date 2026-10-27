@@ -198,7 +198,7 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Cold-first-call investigation and remaining failure/cancellation/timeouts | The module/image campaigns pass at their original limits, but earlier 250 ms module and 2 s heartbeat failures are not established fixed. RPC error-size, container PID and firewall-cache OOM failures now have specific fixes and differential evidence |
+| 1 — qualification | Cold-first-call investigation and remaining failure/cancellation/timeouts | The original 250 ms module failure reproduces locally, and Linux CI has a five-second Container wake timeout. Neither has an established fix; the earlier 2 s heartbeat failure also remains open. RPC error-size, container PID and firewall-cache OOM failures have specific fixes and differential evidence |
 | 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Store/provider outages, partitions, deletion and provider-enforced fencing remain open |
 | 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice has independent SDK/helper inputs and native-image evidence; remaining APIs require explicit operation/version and failure evidence |
 
