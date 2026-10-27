@@ -63,7 +63,7 @@ fn vectors(contract: &rpc::Contract) -> Result<Arc<Vec<Vector>>> {
     Ok(Arc::new(vectors))
 }
 
-pub(super) fn execute() -> Result<Value> {
+pub(super) fn execute(expected_mode: crate::python_mode::Mode) -> Result<Value> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
         .canonicalize()?;
@@ -116,6 +116,7 @@ pub(super) fn execute() -> Result<Value> {
     // thread. No earlier Python runtime exists; this callback owns host work.
     let runtime = unsafe {
         PythonRuntime::run(python_options, python_source, move |python, _| {
+            let mode = crate::python_mode::Check::begin(expected_mode)?;
             JavaScriptRuntime::run(options.clone(), source, |v8| {
                 observed.lock().unwrap().push(("v8", v8.clone()));
                 NodeRuntime::run(options, node_options, node_source, |node| {
@@ -134,11 +135,12 @@ pub(super) fn execute() -> Result<Value> {
                         contract,
                         vectors.clone(),
                     )?);
-                    let proof = tokio::runtime::Builder::new_multi_thread()
+                    let mut proof = tokio::runtime::Builder::new_multi_thread()
                         .worker_threads(4)
                         .enable_all()
                         .build()?
                         .block_on(matrix::run(app, vectors))?;
+                    mode.record(&mut proof, true)?;
                     send.send(proof).context("profile result receiver closed")?;
                     Ok(())
                 })

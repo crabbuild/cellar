@@ -1,0 +1,364 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Exact immutable root material. Object-store references supply data only;
+//! archive-head publication and live learner authorization remain separate.
+
+use super::*;
+use crate::raft::snapshot::{
+    PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotError, SnapshotLimits,
+};
+use cellar_ltx::internal::{ExtentId, NodeExtentStore, SealedImageRoot, EXTENT_BYTES};
+use futures_util::stream::FuturesOrdered;
+
+const MAGIC: &[u8; 8] = b"CLRROT01";
+const HEADER_BYTES: usize = 48;
+const MAX_METADATA_BYTES: usize = 256 * 1024;
+const ROOT_WINDOW: usize = 2;
+
+// A GET may temporarily retain both its response chunk and copied output.
+// Include both for each entered request, including in-memory store providers.
+const _: () = assert!(2 * ROOT_WINDOW * EXTENT_BYTES as usize <= physical::READ_BYTES);
+
+fn root_error(error: SnapshotError) -> ArchiveError {
+    ArchiveError::Root(Box::new(error))
+}
+
+/// An exact immutable root snapshot address. This is neither the selected
+/// archive head nor a live grant to initialize, attach or promote a member.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RootArchiveReference(ObjectRef);
+
+impl RootArchiveReference {
+    pub fn position(&self) -> Result<LogPosition, ArchiveError> {
+        let object = &self.0;
+        let range = object
+            .range
+            .ok_or(ArchiveError::Corrupt("root archive reference range"))?;
+        if object.kind != ObjectKind::RootSnapshot
+            || object.bundle.is_some()
+            || range.first != range.last
+            || !(HEADER_BYTES as u64..=MAX_METADATA_BYTES as u64).contains(&object.length)
+        {
+            return Err(ArchiveError::Corrupt("root archive reference domain"));
+        }
+        range.last.decode()
+    }
+}
+
+/// A complete independently verified local closure, pinned through native
+/// preparation. Only the receiving engine's ordinary ticket can install it.
+pub struct RootArchiveSnapshot {
+    set: RootSnapshotSet,
+    store: NodeExtentStore,
+    image: Arc<SealedImageRoot>,
+    _retention: Option<Arc<super::super::budget::Permit>>,
+}
+
+impl RootArchiveSnapshot {
+    pub fn snapshot(&self) -> &::raft::prelude::Snapshot {
+        self.set.snapshot()
+    }
+
+    pub fn prepare(
+        self,
+        group: &GroupLog,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<PreparedSnapshot, ArchiveError> {
+        self.set
+            .prepare_sealed(group, schema, &self.store, limits, self.image)
+            .map_err(root_error)
+    }
+}
+
+impl CellArchive {
+    fn validate_root_objects(&self, set: &RootSnapshotSet) -> Result<(), ArchiveError> {
+        if set
+            .extents()
+            .any(|id| id.length() as usize > self.limits.max_object_bytes)
+        {
+            return Err(ArchiveError::Limit);
+        }
+        Ok(())
+    }
+
+    fn root_limits(&self) -> Result<SnapshotLimits, ArchiveError> {
+        let limits = SnapshotLimits {
+            max_image_bytes: self.limits.max_image_bytes,
+            max_encoded_bytes: usize::try_from(self.limits.max_snapshot_bytes)
+                .map_err(|_| ArchiveError::Limit)?,
+            ..Default::default()
+        };
+        limits.validate().map_err(root_error)?;
+        Ok(limits)
+    }
+
+    fn encode_root_index(
+        &self,
+        source: &RootSnapshotSource,
+    ) -> Result<(RootSnapshotSet, Vec<u8>), ArchiveError> {
+        let snapshot = source.snapshot();
+        let set = RootSnapshotSet::for_archive(
+            &self.scope,
+            self.birth,
+            &self.initial_membership,
+            self.schema,
+            &snapshot,
+            source.manifest(),
+            self.root_limits()?,
+        )
+        .map_err(root_error)?;
+        self.validate_root_objects(&set)?;
+        let native = snapshot
+            .write_to_bytes()
+            .map_err(|_| ArchiveError::Corrupt("root snapshot encoding"))?;
+        let total = HEADER_BYTES
+            .checked_add(native.len())
+            .and_then(|length| length.checked_add(source.manifest().len()))
+            .ok_or(ArchiveError::Limit)?;
+        if native.len() > 64 * 1024 || total > MAX_METADATA_BYTES.min(self.limits.max_object_bytes)
+        {
+            return Err(ArchiveError::Limit);
+        }
+        let mut bytes = Vec::with_capacity(total);
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&self.root);
+        bytes.extend_from_slice(&(native.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&(source.manifest().len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&native);
+        bytes.extend_from_slice(source.manifest());
+        Ok((set, bytes))
+    }
+
+    fn decode_root_index(
+        &self,
+        reference: &RootArchiveReference,
+        bytes: &[u8],
+    ) -> Result<RootSnapshotSet, ArchiveError> {
+        let position = reference.position()?;
+        if bytes.len() < HEADER_BYTES
+            || bytes.len() > MAX_METADATA_BYTES
+            || &bytes[..8] != MAGIC
+            || bytes[8..40] != self.root
+        {
+            return Err(ArchiveError::Corrupt("root archive metadata domain"));
+        }
+        let native_length = u32::from_be_bytes(
+            bytes[40..44]
+                .try_into()
+                .map_err(|_| ArchiveError::Corrupt("root snapshot length"))?,
+        ) as usize;
+        let manifest_length = u32::from_be_bytes(
+            bytes[44..48]
+                .try_into()
+                .map_err(|_| ArchiveError::Corrupt("root manifest length"))?,
+        ) as usize;
+        let manifest_at = HEADER_BYTES
+            .checked_add(native_length)
+            .filter(|_| native_length <= 64 * 1024)
+            .ok_or(ArchiveError::Limit)?;
+        if manifest_at.checked_add(manifest_length) != Some(bytes.len()) {
+            return Err(ArchiveError::Corrupt("root archive metadata coverage"));
+        }
+        let native = bytes
+            .get(HEADER_BYTES..manifest_at)
+            .ok_or(ArchiveError::Corrupt("root snapshot range"))?;
+        let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(native)
+            .map_err(|_| ArchiveError::Corrupt("root snapshot protobuf"))?;
+        if snapshot
+            .write_to_bytes()
+            .map_err(|_| ArchiveError::Corrupt("root snapshot protobuf"))?
+            != native
+            || snapshot.get_metadata().index != position.index.get()
+            || snapshot.get_metadata().term != position.term.get()
+        {
+            return Err(ArchiveError::Corrupt("root archive cut binding"));
+        }
+        let set = RootSnapshotSet::for_archive(
+            &self.scope,
+            self.birth,
+            &self.initial_membership,
+            self.schema,
+            &snapshot,
+            &bytes[manifest_at..],
+            self.root_limits()?,
+        )
+        .map_err(root_error)?;
+        self.validate_root_objects(&set)?;
+        Ok(set)
+    }
+
+    fn extent_key(&self, id: ExtentId) -> Path {
+        self.key(&format!(
+            "root-extents/{}-{}",
+            id.length(),
+            hex::encode(id.bytes())
+        ))
+    }
+
+    async fn get_root_extent(&self, id: ExtentId) -> Result<Vec<u8>, ArchiveError> {
+        if id.length() as usize > self.limits.max_object_bytes {
+            return Err(ArchiveError::Limit);
+        }
+        let bytes = self
+            .read(
+                &self.extent_key(id),
+                id.length() as usize,
+                Some(u64::from(id.length())),
+            )
+            .await?
+            .ok_or(ArchiveError::Corrupt("missing root archive extent"))?
+            .0;
+        let retention = self.read_retention.clone();
+        self.host
+            .run_blocking(move || {
+                let _retention = retention;
+                id.verify(&bytes)
+                    .map_err(|_| ArchiveError::Corrupt("root archive extent identity"))?;
+                Ok(bytes)
+            })
+            .await
+            .map_err(ArchiveError::Worker)?
+    }
+
+    async fn put_root_extent(&self, id: ExtentId, bytes: Vec<u8>) -> Result<(), ArchiveError> {
+        if bytes.len() != id.length() as usize || bytes.len() > self.limits.max_object_bytes {
+            return Err(ArchiveError::Limit);
+        }
+        let result = self
+            .io(
+                self.deadline()?,
+                self.store.put_opts(
+                    &self.extent_key(id),
+                    bytes.into(),
+                    PutOptions::from(PutMode::Create),
+                ),
+            )
+            .await;
+        // Neither success nor a lost PUT response proves these stored bytes.
+        // Existing objects are read too; immutable corruption is never repaired.
+        match self.get_root_extent(id).await {
+            Ok(_) => Ok(()),
+            Err(ArchiveError::Corrupt("missing root archive extent")) => {
+                result.and(Err(ArchiveError::Unconfirmed))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Store and confirm an exact immutable snapshot's complete remote closure.
+    /// The caller admits read_memory_bound() working memory and retains its
+    /// registered physical owner through completion/cancellation. No head,
+    /// member claim, archive coverage or acknowledgement advances here.
+    pub async fn store_root_snapshot(
+        &self,
+        source: Arc<RootSnapshotSource>,
+    ) -> Result<RootArchiveReference, ArchiveError> {
+        let (set, metadata) = self.encode_root_index(&source)?;
+        let extents: Vec<_> = set.extents().collect();
+        let mut objects = extents.into_iter();
+        let mut pending = FuturesOrdered::new();
+        let mut failure = None;
+        loop {
+            while failure.is_none() && pending.len() < ROOT_WINDOW {
+                let Some(id) = objects.next() else { break };
+                let source = source.clone();
+                let retention = self.read_retention.clone();
+                let read = self
+                    .host
+                    .run_blocking(move || {
+                        let _retention = retention;
+                        source.read_extent(id).map_err(root_error)
+                    })
+                    .await
+                    .map_err(ArchiveError::Worker)
+                    .and_then(|result| result);
+                match read {
+                    Ok(bytes) => pending.push_back(self.put_root_extent(id, bytes)),
+                    Err(error) => failure = Some(error),
+                }
+            }
+            let Some(result) = pending.next().await else {
+                break;
+            };
+            if let Err(error) = result {
+                if failure.is_none() {
+                    failure = Some(error);
+                }
+            }
+            // Drain every entered confirmation on failure before returning.
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let metadata = self
+            .put_object(
+                ObjectKind::RootSnapshot,
+                &metadata,
+                Some(PositionRange {
+                    first: Position {
+                        index: set.snapshot().get_metadata().index,
+                        term: set.snapshot().get_metadata().term,
+                    },
+                    last: Position {
+                        index: set.snapshot().get_metadata().index,
+                        term: set.snapshot().get_metadata().term,
+                    },
+                }),
+            )
+            .await?;
+        Ok(RootArchiveReference(metadata))
+    }
+
+    /// Download only this exact reference, authenticate all declared objects,
+    /// and independently seal the destination. Local cache contents cannot
+    /// hide missing or corrupt remote bytes. No activation authority is minted.
+    pub async fn load_root_snapshot_at(
+        &self,
+        reference: &RootArchiveReference,
+        store: &NodeExtentStore,
+    ) -> Result<RootArchiveSnapshot, ArchiveError> {
+        reference.position()?;
+        let metadata = self.get_object(&reference.0).await?;
+        let set = Arc::new(self.decode_root_index(reference, &metadata)?);
+        let extents: Vec<_> = set.extents().collect();
+        let pending = extents
+            .iter()
+            .copied()
+            .map(|id| async move { self.get_root_extent(id).await.map(|bytes| (id, bytes)) });
+        let mut reads = futures_util::stream::iter(pending).buffered(ROOT_WINDOW);
+        while let Some((id, bytes)) = reads.try_next().await? {
+            let set = set.clone();
+            let store = store.clone();
+            let retention = self.read_retention.clone();
+            self.host
+                .run_blocking(move || {
+                    let _retention = retention;
+                    set.install_extent(&store, id, &bytes).map_err(root_error)
+                })
+                .await
+                .map_err(ArchiveError::Worker)??;
+        }
+        drop(reads);
+        let set = Arc::try_unwrap(set)
+            .map_err(|_| ArchiveError::Invalid("root archive physical owner retained"))?;
+        let target = store.clone();
+        let retention = self.read_retention.clone();
+        self.host
+            .run_blocking(move || {
+                let _retention = retention;
+                let image = set
+                    .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
+                    .map_err(root_error)?;
+                Ok(RootArchiveSnapshot {
+                    set,
+                    store: target,
+                    image: Arc::new(image),
+                    _retention,
+                })
+            })
+            .await
+            .map_err(ArchiveError::Worker)?
+    }
+}

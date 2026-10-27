@@ -125,8 +125,8 @@ pub mod verification {
     pub use crate::raft::apply::{ImageApplier, ImageApplyError, PublishedImage};
     pub use crate::raft::archive::{
         ArchiveDependency, ArchiveError, ArchiveLimits, ArchiveMetadata, ArchiveRecoverySet,
-        ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut,
-        VerifiedArchiveCoverage,
+        ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut, RootArchiveReference,
+        RootArchiveSnapshot, VerifiedArchiveCoverage,
     };
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,

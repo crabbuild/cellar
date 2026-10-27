@@ -52,6 +52,24 @@ member publications during upload; the physical batch stays owned through
 shutdown. Shared payloads still require verified coverage for each head, and
 producer, byte and replay-workspace bounds remain enforced.
 
+The verification archive interface can store an exact committed extent snapshot
+through `CellArchive::store_root_snapshot` and load its immutable
+`RootArchiveReference` through `load_root_snapshot_at`. A bounded metadata object
+binds the namespace, canonical native snapshot and extent manifest. Distinct
+domain-separated extent objects are conditionally created and independently
+read back before that metadata reference is returned. Loading reads every exact
+remote dependency even when local objects exist, independently verifies/syncs
+the destination and retains its complete image seal through preparation. Two
+object windows fit the existing physical allowance, including response/output
+copies; sealing allocates its 4 MiB workspace after the entered reads finish.
+The source engine must remain open while source bytes are read.
+
+This interface transfers immutable data only. It does not select an archive
+head, advance archive coverage, retain remote objects for production GC, or mint
+a learner grant. Native snapshot installation still requires the receiving
+engine's ordinary exact ticket. Root archive-head publication, fresh-learner
+seeding and public backend selection remain under implementation.
+
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
 against their pinned committed image. Actual bytes share the command transaction

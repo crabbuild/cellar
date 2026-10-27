@@ -140,6 +140,7 @@ impl RootSnapshotSource {
     /// Recheck exact bytes before returning a complete object to an admitted
     /// sender. Foreign extents are refused even if present in the node store.
     pub fn read_extent(&self, id: ExtentId) -> Result<Vec<u8>, SnapshotError> {
+        self.validate_owner(&self.group)?;
         self.image
             .view()
             .read_extent(id)
@@ -230,14 +231,29 @@ impl RootSnapshotSet {
                 .map(|member| member.member.get())
                 .collect(),
         );
-        let descriptor = Descriptor::decode_bound(
+        Self::for_archive(
             birth.scope(),
             birth.digest(),
             &GroupMembership::initial(&conf),
             schema,
             snapshot,
+            bytes,
             limits,
-        )?;
+        )
+    }
+
+    /// Archives retain these exact immutable catalog bindings already. Borrow
+    /// them without another per-cell copy of the complete birth record.
+    pub(crate) fn for_archive(
+        scope: &GroupScope,
+        birth: [u8; 32],
+        initial: &GroupMembership,
+        schema: [u8; 32],
+        snapshot: &Snapshot,
+        bytes: &[u8],
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let descriptor = Descriptor::decode_bound(scope, birth, initial, schema, snapshot, limits)?;
         Self::bound(snapshot, descriptor, bytes)
     }
 
@@ -368,14 +384,30 @@ impl RootSnapshotSet {
         let descriptor = Descriptor::decode(group, schema, &self.snapshot, limits)?;
         descriptor.membership.succeeds(&group.membership()?)?;
         let image = self.seal(store, workspace)?;
-        if super::super::rooted::marker::encode(&image) != self.marker {
+        self.prepare_sealed(group, schema, store, limits, Arc::new(image))
+    }
+
+    /// The physical archive owner already sealed this exact local closure.
+    /// Reuse that capability, never a same-named root from another inventory.
+    pub(crate) fn prepare_sealed(
+        self,
+        group: &GroupLog,
+        schema: [u8; 32],
+        store: &NodeExtentStore,
+        limits: SnapshotLimits,
+        image: Arc<SealedImageRoot>,
+    ) -> Result<PreparedSnapshot, SnapshotError> {
+        let descriptor = Descriptor::decode(group, schema, &self.snapshot, limits)?;
+        descriptor.membership.succeeds(&group.membership()?)?;
+        if !store.owns_image(&image) || super::super::rooted::marker::encode(&image) != self.marker
+        {
             return Err(SnapshotError::Invalid("sealed root marker binding"));
         }
         Ok(PreparedSnapshot {
             group: group.clone(),
             snapshot: self.snapshot,
             pin: Some(SnapshotPin::Rooted {
-                image: Arc::new(image),
+                image,
                 store: store.clone(),
             }),
             membership: descriptor.membership,
