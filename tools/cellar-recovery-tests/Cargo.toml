@@ -1,0 +1,30 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+[package]
+name = "cellar-recovery-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+# Keep recovery qualification independent of the host package's CLI/example
+# binaries. The tests still use the public SDK and shared fleet fixtures.
+[dev-dependencies]
+anyhow.workspace = true
+cellar.workspace = true
+cellar-logic.workspace = true
+cellar-ltx.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+object_store = { workspace = true, features = ["aws"] }
+raft.workspace = true
+rand.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls", "json"] }
+rusqlite = { workspace = true, features = ["backup", "blob", "bundled"] }
+rustls.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tracing-subscriber.workspace = true

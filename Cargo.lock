@@ -598,6 +598,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellar-recovery-tests"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cellar",
+ "cellar-logic",
+ "cellar-ltx",
+ "futures-util",
+ "hex",
+ "object_store",
+ "raft",
+ "rand 0.8.7",
+ "reqwest",
+ "rusqlite",
+ "rustls",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cellar-rpc-codegen"
 version = "0.1.0"
 dependencies = [

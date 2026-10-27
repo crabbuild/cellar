@@ -5,7 +5,7 @@
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]
 resolver = "2"
-members = ["crates/*", "examples/axum-counter", "examples/fleetcare", "tools/xtask", "tools/cellar-rpc-codegen", "tools/rpc/host"]
+members = ["crates/*", "examples/axum-counter", "examples/fleetcare", "tools/xtask", "tools/cellar-rpc-codegen", "tools/cellar-recovery-tests", "tools/rpc/host"]
 exclude = ["vendor/raft-engine", "vendor/raft-proto", "vendor/raft"]
 
 # Size-tuned: fat LTO prunes unused dependency code, panic=abort drops
