@@ -17,6 +17,10 @@ admission gate and synced cancellation. Accepted application work drains while
 consensus continues. Pending incoming work can now be inventoried, lost birth
 capabilities recovered from the admitted journal, and existing exact-boot moves
 continued through restart preparation. Resource-only obligations stay charged.
+Owned bounded settlement turns now retain birth decisions across controller
+loss, block cancellation while their outcomes are unresolved, atomically root
+the actual winner, and advance admitted movements with explicit service/debit
+blockers. Finish versus Cancel is an explicit immutable action choice.
 Complete survivor verification, owned handoff/readiness,
 stop/rejoin, rolling execution and maintenance operator surfaces, plus resize,
 remain delivery targets.

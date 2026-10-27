@@ -85,9 +85,32 @@ resource release still requires current exact-boot membership and physical
 worker-exit proofs. The authorization carries the reservation's original target
 boot through placement; registration and fresh seeding recheck the still-active
 canonical reservation. Unrelated descriptors and unpinned low-level permits
-grant no managed physical admission. Controller composition of these primitives, current joint
-configuration inspection and the later readiness/stop boundaries remain work
-to deliver.
+grant no managed physical admission. Current runtime configuration inspection
+and the later readiness/stop boundaries remain work to deliver.
+
+`reconcile_restart_work` now composes one bounded owned turn under the rooted
+reversible gate. The caller explicitly chooses Finish or Cancel for undecided
+births; either choice preserves an already permanent winner. Before namespace
+I/O, a root CAS records the exact history, gate parent and resolution plus one
+active pointer. Controller loss or an unknown reply retains that same claim.
+An active choice cannot be rebound. One terminal CAS confirms the observed
+history state, stores its receipt and removes only its own active pointer.
+
+`cancel_restart_gate` returns `SettlementInProgress` while this claim exists.
+Generic catalog mutations cannot delete or forge its records. A lost namespace
+winner must be observed or reconciled; absence and timeout supply no release
+proof. A definite terminal CAS conflict retains the namespace decision and
+uses a fresh confirmation identity at the next root. The exact historical
+receipt can be read with `restart_birth_settlement`; it cannot release a later
+claim or disruption slot.
+
+With no birth claim, the turn advances one admitted movement using configured
+observer/evidence services. Missing services or a resource-only reservation
+return their exact typed blocker and preserve charges. There is no hidden
+mutation retry, new idle-group work or background service. `CatalogClear`
+reports only the rooted work cut; pending genesis materialization, runtime
+configuration, both survivors and handoff still require their own verification
+before RestartReady and guarded stop.
 
 ## Select the correct maintenance mode
 

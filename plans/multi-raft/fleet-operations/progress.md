@@ -14,6 +14,71 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Owned restart settlement turns
+
+Implementation `ce0c199d` composes rooted M2 work through
+`reconcile_restart_work`. Each explicit turn resolves one pending birth or
+advances one admitted movement under its original deadline. Finish versus
+Cancel for an undecided birth is explicit intent; either policy preserves a
+permanent winner. The chosen resolution is journaled and cannot be rebound
+while active. Missing movement services, rebound evidence and resource-only
+debits never grant progress or release credit.
+
+A root CAS records the exact birth, history digest and canonical gate parent
+before namespace I/O. Its active claim holds gate cancellation across lost
+admission, namespace-winner or terminal replies. Only the owned path can update
+these protected records. One terminal CAS confirms the actual history state,
+stores its receipt and removes its own pointer. A changed-root conflict retains
+the same namespace decision and uses a fresh confirmation identity. The
+historical `restart_birth_settlement` query verifies admission and completion
+journals, returns chosen resolution plus actual winner, and cannot clear a
+later claim. Operator failure mapping reports unresolved settlement as Blocked
+with Unknown outcome.
+
+**140 distinct cases pass on this source, in 145 executions:** six new owned
+settler cases, four earlier settlement cases, 41 movement, two preparation,
+four gate, thirteen catalog, 25 standalone permits/import, five CLI/operator
+and 45 library fleet cases. Five cases also appear in the movement cohort and
+are counted once. The new native cases exercise explicit Finish with a lost
+namespace response, immutable resolution choice, both namespace winners,
+controller reopen after lost admission/terminal confirmation, a held terminal
+CAS losing to independent root churn, generic-forgery refusal, cancellation
+blocking, historical receipts preserving a later active claim, actual movement
+completion/SQL continuity and typed service/debit blockers.
+
+All-target host/admin Clippy passes with warnings denied. The source audit
+matches **1,496 frozen Rust/Cargo/configuration inputs** to the implementation
+commit. Primary evidence remains outside runtime data under checkout-private
+`qualification/fleet-operations/restart-settler-v4/` and
+`restart-settler-followups-v1/`. Earlier qualification belongs to its recorded
+sources, not an aggregate count.
+
+Formatting/layout for 1,402 Rust files, native dependency checks, documentation,
+ten plan tests, the 345-case manifest and source preflight with 95 input anchors
+pass. Static outputs are in `restart-settler-checks-v1/`; documentation-only
+publication checks are separately retained. Full latest-head CI and deployed
+RustFS/Colima resource, performance and soak qualification remain pending.
+
+Failed and interrupted probes remain retained. They include the new catalog
+error's initially missing operator mapping and a gate fixture whose existing
+zero-pending assertion correctly rejected the new pending-birth setup. A
+separate helper now asserts those retained references; the original assertions
+remain intact. The conflict racer reads its own adapter's snapshot and retains
+the production snapshot-owner check. One candidate was deliberately stopped
+before tests to make Finish/Cancel an explicit immutable choice. No deadline,
+stack/startup bound, value/resource bound or runtime assertion was relaxed.
+
+This delivers owned turns for rooted work. `CatalogClear` still grants no live
+configuration, survivor, handoff, RestartReady, stop or capacity proof. Next
+implement the complete bounded hosted/pending walk, rightful genesis
+materialization where needed, fresh both-survivor and matched/published proof,
+observed handoff and readiness. Then deliver guarded stop/join, retained-engine
+fresh-process return and verified capacity resume, followed by grace/second
+failure/rolling execution and operator maintenance surfaces. Production failure
+classification/isolation, scaled convergence, balancing/resize and resource-
+enforced RustFS/Colima performance/fault/soak qualification remain unfinished.
+The full goal remains active.
+
 ## Incoming settlement and original-boot continuation
 
 Implementation `d552e43b` advances M2 beyond preparation. An already admitted
