@@ -23,6 +23,18 @@ COUNTERS = ('engine_file_read_bytes', 'engine_file_write_requested_bytes',
             'object_put_requested_bytes', 'object_put_confirmed_bytes', 'transport_control_read_bytes',
             'transport_control_write_bytes', 'transport_data_read_bytes', 'transport_data_write_bytes',
             'transport_query_read_bytes', 'transport_query_write_bytes')
+ARCHIVE_OPERATIONS = OPERATIONS + ('archive_admission_check', 'archive_admission_wait',
+                                   'archive_publication_batch', 'snapshot_encode')
+ARCHIVE_COUNTERS = COUNTERS + ('archive_admission_granted', 'archive_admission_observation_refused',
+    'archive_admission_retained_bytes_refused', 'archive_admission_retained_entries_refused',
+    'archive_admission_reserved_bytes_deferred', 'archive_admission_reserved_entries_deferred',
+    'archive_publication_cut_succeeded', 'archive_publication_cut_failed',
+    'archive_coverage_advanced', 'archive_coverage_index_advance', 'archive_coverage_image_pending',
+    'archive_coverage_rejected', 'archive_coverage_unchanged', 'archive_coverage_missing_cell')
+SCHEMAS = ((OPERATIONS, COUNTERS), (ARCHIVE_OPERATIONS, ARCHIVE_COUNTERS),
+           (ARCHIVE_OPERATIONS + ('engine_purge',), ARCHIVE_COUNTERS))
+
+
 BOUNDS = (50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000,
           100000, 250000, 1000000, 5000000, 30000000, None)
 FIELDS = ('started', 'succeeded', 'failed', 'abandoned', 'timing_unavailable', 'count', 'sum_us')
@@ -68,17 +80,22 @@ def snapshot(raw):
     require(raw['available'] is True and raw['saturated'] is False, 'unavailable performance sample')
     require(isinstance(raw['source'], str) and re.fullmatch('[0-9a-f]{32}', raw['source']), 'invalid performance source')
     counters, operations = {}, {}
-    require(isinstance(raw['counters'], list) and len(raw['counters']) == len(COUNTERS), 'counter vocabulary differs')
+    require(isinstance(raw['counters'], list) and isinstance(raw['operations'], list), 'invalid performance inventory')
+    candidates = [(ops, counts) for ops, counts in SCHEMAS
+                  if len(ops) == len(raw['operations']) and len(counts) == len(raw['counters'])]
+    require(len(candidates) == 1, 'performance vocabulary differs')
+    expected_operations, expected_counters = candidates[0]
+    require(isinstance(raw['counters'], list) and len(raw['counters']) == len(expected_counters), 'counter vocabulary differs')
     for counter in raw['counters']:
         require(set(counter) == {'name', 'value'}, 'invalid counter fields')
         name = counter['name']
-        require(name in COUNTERS and name not in counters, 'counter vocabulary differs')
+        require(name in expected_counters and name not in counters, 'counter vocabulary differs')
         counters[name] = decimal(counter['value'])
-    require(isinstance(raw['operations'], list) and len(raw['operations']) == len(OPERATIONS), 'operation vocabulary differs')
+    require(isinstance(raw['operations'], list) and len(raw['operations']) == len(expected_operations), 'operation vocabulary differs')
     for operation in raw['operations']:
         require(set(operation) == {'name', 'buckets', *FIELDS}, 'invalid operation fields')
         name = operation['name']
-        require(name in OPERATIONS and name not in operations, 'operation vocabulary differs')
+        require(name in expected_operations and name not in operations, 'operation vocabulary differs')
         parsed = {field: decimal(operation[field]) for field in FIELDS}
         buckets = operation['buckets']
         require(isinstance(buckets, list) and len(buckets) == len(BOUNDS), 'histogram bounds differ')
@@ -102,9 +119,11 @@ def delta(before_raw, after_raw):
     def difference(left, right):
         require(right >= left, 'performance counter reset')
         return right - left
-    counters = {name: difference(before['counters'][name], after['counters'][name]) for name in COUNTERS}
+    require(before['counters'].keys() == after['counters'].keys()
+            and before['operations'].keys() == after['operations'].keys(), 'performance vocabulary changed within run')
+    counters = {name: difference(before['counters'][name], after['counters'][name]) for name in before['counters']}
     operations = {}
-    for name in OPERATIONS:
+    for name in before['operations']:
         left, right = before['operations'][name], after['operations'][name]
         operation = {field: difference(left[field], right[field]) for field in FIELDS}
         operation['buckets'] = [difference(a, b) for a, b in zip(left['buckets'], right['buckets'])]

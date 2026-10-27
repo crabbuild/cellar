@@ -153,3 +153,28 @@ class Measurements(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class ReclamationVocabulary(unittest.TestCase):
+    def extended(self, purge):
+        from raft_metrics import ARCHIVE_COUNTERS, ARCHIVE_OPERATIONS
+        raw = observation(); template = copy.deepcopy(raw['operations'][0])
+        raw['operations'] = [{**copy.deepcopy(template), 'name': name}
+                             for name in ARCHIVE_OPERATIONS + (('engine_purge',) if purge else ())]
+        raw['counters'] = [{'name': name, 'value': '0'} for name in ARCHIVE_COUNTERS]
+        return raw
+
+    def test_complete_baseline_and_candidate_schemas_preserve_extra_metrics(self):
+        for purge in (False, True):
+            raw = self.extended(purge); later = copy.deepcopy(raw); later['sampled_at_us'] = '2'
+            parsed = snapshot(raw)
+            self.assertEqual('engine_purge' in parsed['operations'], purge)
+            self.assertIn('archive_coverage_advanced', parsed['counters'])
+            result = delta(raw, later)
+            self.assertEqual(set(result['operations']), set(parsed['operations']))
+            self.assertEqual(set(result['counters']), set(parsed['counters']))
+
+    def test_within_run_schema_changes_and_unknown_metrics_refuse(self):
+        before, after = self.extended(False), self.extended(True); after['sampled_at_us'] = '2'
+        with self.assertRaises(ValueError): delta(before, after)
+        after['operations'][-1]['name'] = 'unknown_purge'
+        with self.assertRaises(ValueError): snapshot(after)

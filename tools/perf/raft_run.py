@@ -27,6 +27,7 @@ from workload_recovery import apply_resolutions, recover_commands
 from raft_docker import BoundContainer, discover as discover_fault_engine
 from raft_kernel import capture as capture_kernel, analyze as analyze_kernel
 from raft_probe_http import ProbeHTTP
+import raft_log_files
 from raft_topology import local_placement, members, verify_topology, verify_resources, verify_populations, verify_traffic, vm_requirements
 from run import create_bucket
 
@@ -250,6 +251,7 @@ def main():
     parser.add_argument('--context', default='colima-cellar-multi-raft')
     parser.add_argument('--port-base', type=port_base, default=20000)
     parser.add_argument('--capacity-only', action='store_true')
+    parser.add_argument('--observe-log-reclamation', action='store_true', help='retain engine file censuses and a ten-second quiet drain')
     args = parser.parse_args()
     catalog = read_json(args.profile)
     require(catalog.get('format') == 1, 'unsupported profile format')
@@ -311,9 +313,9 @@ def run(args, profile, build, docker, cpus, memory):
               'fault_profile': args.fault_config, 'fault_profile_sha256': input_digest(args.fault_config),
               'fault_capability': args.fault_capability,
               'fault_engine': args.fault_engine,
-              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_probe_http.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft.py', 'run.py')},
+              'runner_sha256': {name: hashlib.sha256((ROOT / 'tools/perf' / name).read_bytes()).hexdigest() for name in ('raft_run.py', 'raft_workload.py', 'raft_analyze.py', 'raft_metrics.py', 'raft_topology.py', 'raft_faults.py', 'raft_probe_http.py', 'store_faults.py', 'workload_recovery.py', 'raft_docker.py', 'raft_kernel.py', 'raft_log_files.py', 'raft.py', 'run.py')},
               'capacity': capacity(profile), 'placement': planned, 'vm': {'cpus': cpus, 'memory_bytes': memory},
-              'completed': False, 'reconciled': False,
+              'completed': False, 'reconciled': False, 'log_reclamation_observed': args.observe_log_reclamation,
               'limitations': ['One local VM and RustFS; no independent failure domains or Amazon S3 qualification.',
                               'Only the recorded scenario is covered; no disk-stall, partition, crash, all-disk-loss restore or soak qualification.',
                               'No matched Fleet/bucket baseline measurement yet.',
@@ -408,8 +410,11 @@ def run(args, profile, build, docker, cpus, memory):
                 require(code == 200, 'node metrics unavailable')
                 rows.append({'node': node, 'started_ns': began, 'finished_ns': ended, 'sample': sample})
             return rows
-        measurements, kernel = {}, {}
+        measurements, kernel, log_files = {}, {}, {}
         def boundary(phase, edge):
+            if args.observe_log_reclamation:
+                log_files.setdefault(phase, {})[edge] = raft_log_files.capture(docker, nodes, run_id)
+                (root / 'log-files.json').write_text(json.dumps(log_files) + '\n')
             kernel.setdefault(phase, {})[edge] = capture_kernel(docker, nodes + [prefix + '-store'], run_id)
             (root / 'kernel-measurements.json').write_text(json.dumps(kernel) + '\n')
             measurements.setdefault(phase, {})[edge] = capture()
@@ -420,7 +425,13 @@ def run(args, profile, build, docker, cpus, memory):
         def sample():
             try:
                 with (root / 'resources.jsonl').open('x') as stream, (root / 'node-samples.jsonl').open('x') as internal, (root / 'probe-timings.jsonl').open('x') as probes:
+                    next_log_sample = 0
                     while not stop.is_set():
+                        if args.observe_log_reclamation and time.monotonic() >= next_log_sample:
+                            observed = raft_log_files.capture(docker, nodes, run_id)
+                            with (root / 'log-files-periodic.jsonl').open('a') as census:
+                                census.write(json.dumps(observed) + '\n')
+                            next_log_sample = time.monotonic() + 5
                         stats = docker('stats', '--no-stream', '--format', '{{json .}}', *nodes, prefix + '-store')
                         for row in stats.splitlines():
                             stream.write(json.dumps({'monotonic': time.monotonic(), 'stats': json.loads(row)}) + '\n')
@@ -517,6 +528,11 @@ def run(args, profile, build, docker, cpus, memory):
         report['replicas_verified_monotonic_seconds'] = time.monotonic()
         report['final_archive'], report['final_archive_seconds'] = wait_archive()
         report['store_recovery_verified_monotonic_seconds'] = time.monotonic()
+        if args.observe_log_reclamation:
+            # Same fixed quiet window on both binaries; no workload is added.
+            time.sleep(10)
+            log_files['settled'] = raft_log_files.capture(docker, nodes, run_id)
+            (root / 'log-files.json').write_text(json.dumps(log_files) + '\n')
         capture_topology('after')
         report['summary'] = summarize_ledger(root / 'operations.jsonl', 'measurement', profile['timing']['measurement_seconds'])
         require(report['summary']['counts']['offered'] == report['measurement']['offered'], 'offered ledger mismatch')
@@ -545,6 +561,13 @@ def run(args, profile, build, docker, cpus, memory):
         if sampler:
             sampler.join()
         ledger.close()
+        if args.observe_log_reclamation and report.get('completed'):
+            try:
+                periodic = [decode_json(line) for line in (root / 'log-files-periodic.jsonl').read_text().splitlines()]
+                report['log_reclamation'] = raft_log_files.analyze(log_files, periodic, report)
+            except Exception as error:
+                report['completed'] = False
+                report['log_reclamation_failure'] = str(error)
         if report.get('sampler_failure'):
             report['completed'] = False
         for node in nodes:

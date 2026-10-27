@@ -1,0 +1,233 @@
+{
+  "format": 1,
+  "profiles": {
+    "smoke-quorum": {
+      "topology": {
+        "nodes": 3,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 24,
+        "active": 24
+      },
+      "database_bytes": [
+        16384,
+        65536
+      ],
+      "write_bytes": [
+        16384,
+        32768
+      ],
+      "read_fraction": 0.2,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.1
+      },
+      "arrival": {
+        "rate_per_second": 10,
+        "max_inflight": 16,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 5,
+        "measurement_seconds": 15,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "quorum",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 500,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 9.9,
+        "max_archive_lag_seconds": 120,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+    },
+    "smoke-s3": {
+      "topology": {
+        "nodes": 3,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 24,
+        "active": 24
+      },
+      "database_bytes": [
+        16384,
+        65536
+      ],
+      "write_bytes": [
+        16384,
+        32768
+      ],
+      "read_fraction": 0.2,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.1
+      },
+      "arrival": {
+        "rate_per_second": 10,
+        "max_inflight": 16,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 5,
+        "measurement_seconds": 15,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "s3",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 500,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 9.9,
+        "max_archive_lag_seconds": 120,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+    },
+    "load-quorum": {
+      "topology": {
+        "nodes": 3,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 24,
+        "active": 24
+      },
+      "database_bytes": [
+        16384,
+        65536
+      ],
+      "write_bytes": [
+        16384,
+        32768
+      ],
+      "read_fraction": 0.2,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.1
+      },
+      "arrival": {
+        "rate_per_second": 40,
+        "max_inflight": 16,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 20,
+        "measurement_seconds": 120,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "quorum",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 500,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 39.6,
+        "max_archive_lag_seconds": 120,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+    },
+    "load-s3": {
+      "topology": {
+        "nodes": 3,
+        "voters": 3,
+        "failure_domains": 1
+      },
+      "cells": {
+        "total": 24,
+        "active": 24
+      },
+      "database_bytes": [
+        16384,
+        65536
+      ],
+      "write_bytes": [
+        16384,
+        32768
+      ],
+      "read_fraction": 0.2,
+      "read_consistency": "at-least",
+      "skew": {
+        "hot_fraction": 0.1,
+        "hot_probability": 0.1
+      },
+      "arrival": {
+        "rate_per_second": 40,
+        "max_inflight": 16,
+        "max_lateness_ms": 100
+      },
+      "timing": {
+        "warmup_seconds": 20,
+        "measurement_seconds": 120,
+        "soak_seconds": 0,
+        "request_timeout_ms": 5000,
+        "retry_window_ms": 300000,
+        "startup_seconds": 600
+      },
+      "durability": "s3",
+      "resources": {
+        "node_cpus": 1,
+        "node_memory_bytes": 3221225472,
+        "node_swap_bytes": 0,
+        "store_cpus": 2,
+        "store_memory_bytes": 4294967296
+      },
+      "tick_ms": 100,
+      "seed": 14,
+      "slo": {
+        "p99_ms": 500,
+        "max_error_fraction": 0.01,
+        "min_completed_per_second": 39.6,
+        "max_archive_lag_seconds": 120,
+        "max_recovery_seconds": 30,
+        "memory_headroom_fraction": 0.1
+      },
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+    }
+  }
+}

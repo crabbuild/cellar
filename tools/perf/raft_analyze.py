@@ -74,11 +74,16 @@ def analyze(root):
         require(row['cpu_max'] == '100000 100000' and row['memory_max'] == 3 * 1024**3 and row['swap_max'] == 0, 'physical cgroup differs')
     fault = fault_evidence(root, report, summarize_ledger, decode_json)
     require(fault == report['fault_result'], 'fault result differs from raw observations')
+    if report.get('log_reclamation_observed'):
+        import raft_log_files
+        periodic_logs = [decode_json(line) for line in (root / 'log-files-periodic.jsonl').read_text().splitlines()]
+        reclaimed = raft_log_files.analyze(read_json(root / 'log-files.json'), periodic_logs, report)
+        require(reclaimed == report.get('log_reclamation'), 'log reclamation differs from raw file censuses')
     kernel = analyze_kernel(read_json(root / 'kernel-measurements.json'), report)
     require(kernel == report['kernel'], 'kernel result differs from raw observations')
     require(report['memory_objectives_met'] is all(row['memory_objective_met'] for row in kernel['measurement']), 'memory objective differs from kernel evidence')
     return {'verified': True, 'scope': report['scenario'] + ' serialized workload, assigned three-voter replicas and archive coverage', 'placement': planned,
-            'fault': fault, 'kernel': kernel, **({'recovery': recovery} if recovery is not None else {}),
+            'fault': fault, 'kernel': kernel, **({'log_reclamation': reclaimed} if report.get('log_reclamation_observed') else {}), **({'recovery': recovery} if recovery is not None else {}),
             'commands_including_seed': history['commands_including_seed'], 'queries': history['queries'],
             'replicas': len(seen), 'summary': summary, 'performance': performance, 'limitations': report['limitations']}
 
