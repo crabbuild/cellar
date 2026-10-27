@@ -14,6 +14,56 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Guarded maintenance stop and offline confirmation
+
+Source `676752f5` implements the M6/M7 SDK backend. A separate canonical human
+stop consent binds exact Ready, process and child identity. The receiving Node
+renews physical inventory, both-survivor quorum and matched surviving leadership
+under its actual reversible admission gate. The serialized engine consumes the
+exact synced quiescence and an evidence deadline on its own clock; a same-epoch
+cancel Fence, newer gate, changed boot or expired evidence refuses shutdown.
+Node-owned work survives a disconnected request waiter. Local quiescence proof
+avoids a self-RPC deadlock without replacing physical or quorum checks.
+
+Only actual signed Node/domain/engine joined closure can become the M7 offline
+fact. Lost consent and offline confirmations reconcile from the exact journal.
+Neither confirmation releases resource charges, capacity exclusion or the
+disruption slot, nor permits a new boot or resume. Relevant Root basis drift
+currently requires fenced cancellation and a new preparation; an in-place
+stale-consent refresh is still required. The namespace protocol fingerprint now
+ends in `/restart-stop-1`; matching binaries and fresh prefixes are required.
+Numeric Cellar format markers stay at 1, with no migration or legacy reader.
+
+**857 distinct current-source cases pass in 864 executions:** eight new native
+stop cases, 44 restart regressions, eight scoped-stop cases, 781 library cases,
+nine native operator cases and seven CLI cases. Seven engine lifecycle cases
+are also run as a focused cohort and repeat within the library count. Coverage
+includes primary/follower and empty-node shutdown, live renewal after expired
+Ready, missing-survivor refusal, lost Root confirmations, cancellation races,
+basis drift, forged generic projections and retained disruption/capacity debt.
+All positive shutdown cases require actual join and the signed closure.
+
+Host/admin all-target Clippy passes with warnings denied. Formatting/layout,
+native dependency rules, docs, ten plan tests and the 397-case manifest pass;
+100 reviewed source anchors are refreshed. Audits match **1,557 frozen
+Rust/Cargo/configuration inputs** to the source commit and verify retained
+executable/result hashes. Artifacts stay outside runtime data in
+`qualification/fleet-operations/restart-stop-v2/` and
+`restart-stop-checks-v1/`. The initial Clippy attempt's visibility and enum-size
+diagnostics are retained; they were fixed without suppressing warnings.
+No timeout, retry, stack/startup/resource bound or assertion was relaxed.
+
+These shared-host native tests use an in-process fault store. Full CI,
+deployed RustFS/Colima, enforced 1-vCPU/3-GiB resources, large-fleet freshness,
+TPS/p99 and soak remain unqualified. Earlier broader archive/snapshot/RPC
+results below belong to their stated source. No throughput gain is claimed.
+
+**Next feature delivery:** M8 retained-engine return under a fresh process with
+startup admission excluded, then M9 verified catch-up and capacity resume before
+slot release. Complete the maintenance SDK/admin/CLI workflow after those
+boundaries, followed by grace expiry, rolling/second-failure handling and
+in-place stale-consent refresh. FO-07 and the full fleet goal remain active.
+
 ## Current-main integration of RestartReady
 
 Source `167c32ba` integrates M5 `8665f7e3` with main `a9da48ac`, including immutable

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "167c32ba8ccfdf8641c402f935a0a1bae9a12c3d",
+  "revision": "676752f592c39630ea03564c37d45bb4d00334fe",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -88,11 +88,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "6069ded3c397eb73cd8c3b7c389b30612b1e2f1ead3519a8d146b5d9f6851755"
+      "sha256": "38bce272de403b57f25f2a7681f49f3892a36457c8a9181800ed9c3686f24657"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "2029316eb819b8c24dc91451aaf4b440969f4859c35482e617e3789072de8f05"
+      "sha256": "e1f22fe302fa825480b79125cb69ddd80a95bcdca5612f78835f4e6104713aae"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "daf2ac0010c17a4d7301e39ba13dcb9c9fa0395b8752ace44d29f97f59f91e31"
+      "sha256": "9442c1be04b5123a8941323a6d1f505d26fc840ee8c4b07a94ddf47729910877"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -240,7 +240,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/operations.rs",
-      "sha256": "258416feffe62d13581e2f8bd21c884b7aeab270da9a340399131e43920eb82d"
+      "sha256": "0b5f748156019d8c99744ffd1d2cdbb0fc04e7f17f9d4a567de5a9d26e923ea6"
     },
     {
       "path": "crates/cellar/durability/raft/performance.rs",
@@ -403,6 +403,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "703c5bcb65fa469303c29d79260e322b48dd5220",
-  "review_note": "Reviewed owned matched-progress checks, eligible leadership transfer and actual survivor observation against exact gate/input/history/boot pins. Queued Raft execution rechecks the synced selector and evidence expiry on the Raft owner clock, tightened by the SDK deadline. Historical candidates grant no readiness, stop, rejoin or capacity. The Node lifecycle fixture matches its declared port. Focused current-source checks pass; broader departure observations and full CI/deployment qualification remain open as recorded in progress."
+  "reviewed_from_revision": "167c32ba8ccfdf8641c402f935a0a1bae9a12c3d",
+  "review_note": "Reviewed separate maintenance stop consent, receiving Node-owned live proof renewal, exact synced engine gate/deadline and signed joined offline confirmation. Exact retries reconcile lost consent/offline confirmations; no new process, capacity resume or slot release is authorized. Native stop, lifecycle, restart, operator and library checks pass at this source. Retained-engine return/resume and operator maintenance workflow remain next; deployed qualification stays open."
 }
