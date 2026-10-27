@@ -19,7 +19,7 @@ const ROOT_WINDOW: usize = 2;
 // Include both for each entered request, including in-memory store providers.
 const _: () = assert!(2 * ROOT_WINDOW * EXTENT_BYTES as usize <= physical::READ_BYTES);
 
-fn root_error(error: SnapshotError) -> ArchiveError {
+pub(super) fn root_error(error: SnapshotError) -> ArchiveError {
     ArchiveError::Root(Box::new(error))
 }
 
@@ -30,6 +30,10 @@ fn root_error(error: SnapshotError) -> ArchiveError {
 pub struct RootArchiveReference(ObjectRef);
 
 impl RootArchiveReference {
+    pub(super) fn metadata_bytes(&self) -> u64 {
+        self.0.length
+    }
+
     pub fn position(&self) -> Result<LogPosition, ArchiveError> {
         let object = &self.0;
         let range = object
@@ -49,9 +53,9 @@ impl RootArchiveReference {
 /// A complete independently verified local closure, pinned through native
 /// preparation. Only the receiving engine's ordinary ticket can install it.
 pub struct RootArchiveSnapshot {
-    set: RootSnapshotSet,
-    store: NodeExtentStore,
-    image: Arc<SealedImageRoot>,
+    pub(super) set: RootSnapshotSet,
+    pub(super) store: NodeExtentStore,
+    pub(super) image: Arc<SealedImageRoot>,
     _retention: Option<Arc<super::super::budget::Permit>>,
 }
 
@@ -73,6 +77,15 @@ impl RootArchiveSnapshot {
 }
 
 impl CellArchive {
+    pub(super) async fn root_index(
+        &self,
+        reference: &RootArchiveReference,
+    ) -> Result<RootSnapshotSet, ArchiveError> {
+        reference.position()?;
+        let metadata = self.get_object(&reference.0).await?;
+        self.decode_root_index(reference, &metadata)
+    }
+
     fn validate_root_objects(&self, set: &RootSnapshotSet) -> Result<(), ArchiveError> {
         if set
             .extents()
@@ -257,6 +270,7 @@ impl CellArchive {
     ) -> Result<RootArchiveReference, ArchiveError> {
         let (set, metadata) = self.encode_root_index(&source)?;
         let extents: Vec<_> = set.extents().collect();
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_start", cell = %self.scope.cell, index = set.snapshot().get_metadata().index, image_bytes = set.marker().length, objects = extents.len());
         let mut objects = extents.into_iter();
         let mut pending = FuturesOrdered::new();
         let mut failure = None;
@@ -308,6 +322,7 @@ impl CellArchive {
                 }),
             )
             .await?;
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_confirmed", cell = %self.scope.cell, index = set.snapshot().get_metadata().index);
         Ok(RootArchiveReference(metadata))
     }
 
@@ -319,14 +334,15 @@ impl CellArchive {
         reference: &RootArchiveReference,
         store: &NodeExtentStore,
     ) -> Result<RootArchiveSnapshot, ArchiveError> {
-        reference.position()?;
+        let position = reference.position()?;
+        tracing::info!(event = "raft_archive_phase", phase = "root_material_read_start", cell = %self.scope.cell, index = position.index.get());
         let metadata = self.get_object(&reference.0).await?;
         let set = Arc::new(self.decode_root_index(reference, &metadata)?);
         let extents: Vec<_> = set.extents().collect();
         let pending = extents
-            .iter()
-            .copied()
-            .map(|id| async move { self.get_root_extent(id).await.map(|bytes| (id, bytes)) });
+            .into_iter()
+            .map(|id| async move { self.get_root_extent(id).await.map(|bytes| (id, bytes)) })
+            .collect::<Vec<_>>();
         let mut reads = futures_util::stream::iter(pending).buffered(ROOT_WINDOW);
         while let Some((id, bytes)) = reads.try_next().await? {
             let set = set.clone();
@@ -345,13 +361,14 @@ impl CellArchive {
             .map_err(|_| ArchiveError::Invalid("root archive physical owner retained"))?;
         let target = store.clone();
         let retention = self.read_retention.clone();
-        self.host
+        let image = self
+            .host
             .run_blocking(move || {
                 let _retention = retention;
                 let image = set
                     .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
                     .map_err(root_error)?;
-                Ok(RootArchiveSnapshot {
+                Ok::<_, ArchiveError>(RootArchiveSnapshot {
                     set,
                     store: target,
                     image: Arc::new(image),
@@ -359,6 +376,8 @@ impl CellArchive {
                 })
             })
             .await
-            .map_err(ArchiveError::Worker)?
+            .map_err(ArchiveError::Worker)??;
+        tracing::info!(event = "raft_archive_phase", phase = "root_material_read_done", cell = %self.scope.cell, index = position.index.get());
+        Ok(image)
     }
 }

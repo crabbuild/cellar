@@ -192,6 +192,7 @@ pub struct RootSnapshotSet {
     reference: ExtentRootReference,
     manifest: ExtentManifest,
     dependencies: BTreeSet<ExtentId>,
+    membership: GroupMembership,
 }
 
 impl RootSnapshotSet {
@@ -311,6 +312,7 @@ impl RootSnapshotSet {
             reference,
             manifest,
             dependencies,
+            membership: descriptor.membership,
         })
     }
 
@@ -320,6 +322,10 @@ impl RootSnapshotSet {
 
     pub fn marker(&self) -> &CommittedImage {
         &self.marker
+    }
+
+    pub(crate) fn membership(&self) -> &GroupMembership {
+        &self.membership
     }
 
     pub fn reference(&self) -> ExtentRootReference {

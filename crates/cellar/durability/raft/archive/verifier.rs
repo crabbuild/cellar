@@ -2,7 +2,7 @@
 
 //! Reuse only a completed proof of identical physical replay inputs. Remote
 //! existence, configuration, membership and activation remain separate gates.
-use super::{ArchiveError, ArchiveRecoverySet, EntryType, Image};
+use super::{ArchiveError, EntryType, Image, MaterializedSet};
 use cellar_ltx::generation::{GenerationStore, ImageId};
 use protobuf::Message as _;
 use sha2::{Digest, Sha256};
@@ -43,7 +43,7 @@ pub(super) struct Validated {
 }
 
 impl Validated {
-    pub(super) fn record(set: &ArchiveRecoverySet) -> Result<Self, ArchiveError> {
+    pub(super) fn record(set: &MaterializedSet) -> Result<Self, ArchiveError> {
         let physical = Key::new(set)?;
         Ok(Self {
             physical,
@@ -51,7 +51,7 @@ impl Validated {
         })
     }
 
-    fn checked_key(&self, set: &ArchiveRecoverySet) -> Result<Key, ArchiveError> {
+    fn checked_key(&self, set: &MaterializedSet) -> Result<Key, ArchiveError> {
         let physical = Key::new(set)?;
         if physical != self.physical || complete(set, physical)? != self.complete {
             return Err(ArchiveError::Corrupt(
@@ -62,7 +62,7 @@ impl Validated {
     }
 }
 
-fn complete(set: &ArchiveRecoverySet, physical: Key) -> Result<[u8; 32], ArchiveError> {
+fn complete(set: &MaterializedSet, physical: Key) -> Result<[u8; 32], ArchiveError> {
     let mut hash = Sha256::new();
     hash.update(b"cellar-archive-validated-inputs-1");
     hash.update(physical.0);
@@ -100,7 +100,7 @@ impl std::io::Write for DigestWriter<'_> {
 }
 
 impl Key {
-    fn new(set: &ArchiveRecoverySet) -> Result<Self, ArchiveError> {
+    fn new(set: &MaterializedSet) -> Result<Self, ArchiveError> {
         let mut hash = Sha256::new();
         hash.update(b"cellar-archive-physical-replay-1");
         let scope = &set.scope;
@@ -194,7 +194,7 @@ impl ArchiveVerifier {
         })
     }
 
-    pub(super) fn verify(&self, set: &ArchiveRecoverySet) -> Result<Replay, ArchiveError> {
+    pub(super) fn verify(&self, set: &MaterializedSet) -> Result<Replay, ArchiveError> {
         let mut state = self
             .inner
             .lock()

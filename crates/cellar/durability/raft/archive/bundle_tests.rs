@@ -35,6 +35,7 @@ fn archive(id: u8) -> CellArchive {
         io_domain: None,
         read_retention: None,
         bundle_client: None,
+        root_store: None,
     }
 }
 

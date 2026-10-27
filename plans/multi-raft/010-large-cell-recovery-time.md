@@ -876,6 +876,45 @@ The repeated RustFS objects, all five tested executables and their exact source
 and log bindings are retained. Public root head/seed integration and full-size
 latency/failure qualification remain open.
 
+The following slice makes the physical archive representation explicit behind
+the existing cut, metadata and recovery-set APIs. A root cut conditionally
+publishes an exact native snapshot and Blob closure. Advancing a root head first
+checks the previously selected closure, then independently confirms the new
+closure; current source bytes never repair corrupt selected history. Exact
+reference reads do not substitute a newer head. Roots have no flat snapshot or
+LTX replay tail, and incompatible physical installers refuse conversion.
+
+The joined SQL worker now captures committed roots and their Blob dependencies.
+Root seed preparation preserves the same live grant, birth, learner/barrier and
+owner checks as materialized seeding and retains the complete inventory-owned
+seal. Phase logs separate root upload, previous-root verification, material
+reads/sealing and head confirmation. This still verifies complete closures:
+neither demand loading nor an incremental remote proof is implied.
+
+On updated main at `a9da48ac`, the 712 library and 24 native rooted cases pass.
+The new cases cover old-reference restore after head advancement and source
+loss, corrupt selected history without repair, lost write/confirmation replies,
+and SQL capture with committed Blob dependencies. A real RustFS run repeats
+head advancement, source deletion, exact old-reference installation and receiver
+reopen. Its small 9 MiB-padding fixture is functional evidence only. Public
+activation still selects materialized images; shared node inventory/GC,
+effect-scheduler integration, public fresh-learner root seeding, full-size
+latency and fault campaigns remain open. RT-04 and the M1/M2 gates stay open.
+
+The broader regression first detects a changed error domain for malformed
+archive references. Removing a duplicate preliminary validation restores the
+existing refusal path; its assertion remains unchanged. Corrected input
+`69a0de445ff59501ac1736a3d468533d028fb400e64ce40ba61a548d979a77bb`
+passes all 712 library, 76 archive, 45 snapshot, 24 rooted and 16 extent-store
+cases, plus the explicit RustFS head drill. Both affected crates pass
+all-feature/all-target Clippy with warnings denied. Formatting and layout cover
+1,238 Rust files; native dependency and documentation guards pass. The five
+matching tested executables, source inventory, failing regression and successful
+logs are retained. The preserved RustFS prefix contains two root snapshots,
+two head manifests, four extents totaling 13,707,264 bytes, one dependency and
+one selected head. These small drills do not qualify full-size root recovery,
+public fresh learners, hard process loss or recovery percentiles.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained

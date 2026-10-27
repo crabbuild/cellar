@@ -5,6 +5,11 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_rooted_archive.rs"]
 mod archive;
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod archive_faults;
+#[path = "support/raft_rooted_archive_head.rs"]
+mod archive_heads;
 #[path = "support/raft_rooted_execution.rs"]
 mod execution;
 #[path = "support/raft_storage_fault.rs"]

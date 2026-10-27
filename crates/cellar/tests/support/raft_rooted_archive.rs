@@ -9,7 +9,7 @@ use cellar_ltx::LtxHost;
 use futures_util::TryStreamExt as _;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 
-async fn history(
+pub(super) async fn history(
     store: Arc<dyn ObjectStore>,
 ) -> Result<(NamespaceCatalog, GroupBirth, CellArchive)> {
     let catalog = Catalog::new(store, CatalogOptions::default())?;

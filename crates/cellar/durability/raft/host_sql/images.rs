@@ -45,6 +45,73 @@ pub(super) enum ImageOwner {
 }
 
 impl ImageOwner {
+    pub fn capture_archive(
+        &self,
+        group: &GroupLog,
+        class: &RaftClass,
+        limits: super::super::archive::ArchiveLimits,
+    ) -> Result<Option<super::super::archive::CommittedArchiveCut>, ExecutionError> {
+        use super::super::{archive::CommittedArchiveCut, effects};
+        match self {
+            Self::Materialized { options, applier } => applier
+                .queryable()
+                .map_err(super::super::execution::storage)?
+                .map(|image| {
+                    let dependencies = effects::capture_dependencies(
+                        &image,
+                        class.blob_limits(),
+                        options.query_services.clone(),
+                        limits,
+                    )
+                    .map_err(super::super::execution::storage)?;
+                    CommittedArchiveCut::capture(group, image, dependencies, limits)
+                        .map_err(super::super::execution::storage)
+                })
+                .transpose(),
+            Self::Rooted { options, applier } => applier
+                .queryable()
+                .map_err(super::super::execution::storage)?
+                .map(|image| {
+                    let dependencies = if let Some(blobs) = class.blob_limits() {
+                        let view = image
+                            .image()
+                            .view()
+                            .image(
+                                options.storage.cache_directory.clone(),
+                                options.storage.cache_pool.clone(),
+                                options.storage.cache,
+                            )
+                            .map_err(super::super::execution::storage)?;
+                        let database = crate::storage::open_immutable_extent_image(
+                            view,
+                            crate::storage::ImmutableQueryOptions {
+                                services: options.query_services.clone(),
+                                sqlite_vec: false,
+                            },
+                        )
+                        .map_err(super::super::execution::storage)?;
+                        effects::capture_connection_dependencies(
+                            database.connection(),
+                            blobs,
+                            limits,
+                        )
+                        .map_err(super::super::execution::storage)?
+                    } else {
+                        vec![]
+                    };
+                    CommittedArchiveCut::capture_root(
+                        group,
+                        image,
+                        options.storage.store.clone(),
+                        dependencies,
+                        limits,
+                    )
+                    .map_err(super::super::execution::storage)
+                })
+                .transpose(),
+        }
+    }
+
     pub fn capture_snapshot(
         &self,
         group: &GroupLog,

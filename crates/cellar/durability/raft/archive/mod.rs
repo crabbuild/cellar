@@ -26,9 +26,12 @@ mod configuration;
 mod physical;
 mod publication;
 mod replay;
+mod representation;
+mod root_head;
 mod rooted;
 mod verifier;
 
+pub use representation::{ArchiveMetadata, ArchiveRecoverySet, CommittedArchiveCut};
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
 
@@ -158,7 +161,7 @@ pub struct ArchiveDependency(pub Vec<u8>);
 /// Constructed only from an exact durable engine/image pair. Holding this value
 /// pins the image even if a newer image replaces it or the archive is unavailable.
 #[derive(Clone)]
-pub struct CommittedArchiveCut {
+struct MaterializedCut {
     image: PublishedImage,
     birth_digest: [u8; 32],
     position: LogPosition,
@@ -168,7 +171,7 @@ pub struct CommittedArchiveCut {
     dependencies: Vec<ArchiveDependency>,
 }
 
-impl CommittedArchiveCut {
+impl MaterializedCut {
     pub fn capture(
         group: &GroupLog,
         image: PublishedImage,
@@ -294,6 +297,7 @@ pub struct CellArchive {
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
+    root_store: Option<cellar_ltx::internal::NodeExtentStore>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -335,7 +339,7 @@ impl ArchiveReference {
 
 /// Bounded head/manifest metadata without downloading any image, tail or Blob.
 /// Payload existence and physical replay remain separate verification gates.
-pub struct ArchiveMetadata {
+struct MaterializedMetadata {
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
     scope: GroupScope,
@@ -343,36 +347,10 @@ pub struct ArchiveMetadata {
     manifest: Manifest,
 }
 
-impl ArchiveMetadata {
-    pub fn reference(&self) -> ArchiveReference {
-        self.reference.clone()
-    }
-
-    pub fn scope(&self) -> &GroupScope {
-        &self.scope
-    }
-
-    pub fn position(&self) -> LogPosition {
-        self.position
-    }
-
-    pub fn schema_digest(&self) -> [u8; 32] {
-        self.manifest.schema_digest
-    }
-
-    pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.conf_state)
-    }
-
-    pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.membership.clone()
-    }
-}
-
 /// Fully downloaded and hash-checked recovery material. This is not a Raft
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
-pub struct ArchiveRecoverySet {
+struct MaterializedSet {
     validated: Option<verifier::Validated>,
     activity: Option<IoActivity>,
     _retention: Option<Arc<super::budget::Permit>>,
@@ -434,6 +412,7 @@ impl CellArchive {
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
+            root_store: None,
         }
     }
 
@@ -525,7 +504,7 @@ impl CellArchive {
     }
 
     /// Refuse a cut from another history or application before advisory I/O.
-    fn validate_cut(&self, cut: &CommittedArchiveCut) -> Result<(), ArchiveError> {
+    fn validate_materialized_cut(&self, cut: &MaterializedCut) -> Result<(), ArchiveError> {
         if cut.image.scope() != &self.scope
             || cut.image.application_digest() != self.schema
             || cut.birth_digest != self.birth
@@ -536,14 +515,14 @@ impl CellArchive {
         Ok(())
     }
 
-    async fn publish_inner(
+    async fn publish_materialized_inner(
         &self,
-        cut: CommittedArchiveCut,
+        cut: MaterializedCut,
         verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.validate_cut(&cut)?;
+    ) -> Result<MaterializedSet, ArchiveError> {
+        self.validate_materialized_cut(&cut)?;
         for _ in 0..8 {
-            let previous = self.load_head_metadata().await?;
+            let previous = self.load_materialized_head_metadata().await?;
             if let Some((metadata, _, _)) = &previous {
                 let old = metadata.manifest.position;
                 if old.index >= cut.position.index.get() {
@@ -751,7 +730,7 @@ impl CellArchive {
                 .await?;
             // Do not expose a head with a missing dependency, broken coverage
             // or an invalid LTX mapping, even if all PUTs reported success.
-            let metadata = self.load_metadata(&object).await?;
+            let metadata = self.load_materialized_metadata(&object).await?;
             let set = match confirmed_snapshot {
                 Some(snapshot) => self.load_confirmed_material(metadata, snapshot).await?,
                 None => self.load_material(metadata).await?,
@@ -794,7 +773,7 @@ impl CellArchive {
 
     async fn snapshot_manifest(
         &self,
-        cut: &CommittedArchiveCut,
+        cut: &MaterializedCut,
     ) -> Result<PreparedManifest, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length, io_profile = ?physical::io_profile(cut.image.pin().state().length));
         let input = cut.clone();
@@ -828,7 +807,7 @@ impl CellArchive {
         })
     }
 
-    fn full_manifest(&self, cut: &CommittedArchiveCut, object: ObjectRef) -> Manifest {
+    fn full_manifest(&self, cut: &MaterializedCut, object: ObjectRef) -> Manifest {
         Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
@@ -852,9 +831,9 @@ impl CellArchive {
 
     async fn verify_extension(
         &self,
-        mut previous: ArchiveRecoverySet,
+        mut previous: MaterializedSet,
         entries: Vec<Entry>,
-        cut: &CommittedArchiveCut,
+        cut: &MaterializedCut,
         verifier: &ArchiveVerifier,
     ) -> Result<(), ArchiveError> {
         let position = cut.position;
@@ -884,9 +863,9 @@ impl CellArchive {
 
     async fn verify_set(
         &self,
-        set: ArchiveRecoverySet,
+        set: MaterializedSet,
         verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    ) -> Result<MaterializedSet, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
         let (set, replay) = self
@@ -901,42 +880,9 @@ impl CellArchive {
         Ok(set)
     }
 
-    pub async fn recovery_set(&self) -> Result<Option<ArchiveRecoverySet>, ArchiveError> {
-        Ok(self.load_head().await?.map(|(set, _, _)| set))
-    }
-
-    /// Select the immutable head reference without downloading its payloads.
-    /// A caller authorizing later recovery must bind this exact reference into
-    /// its own live-quorum operation; rereading head could select another cut.
-    pub async fn recovery_metadata(&self) -> Result<Option<ArchiveMetadata>, ArchiveError> {
-        Ok(self
-            .load_head_metadata()
-            .await?
-            .map(|(metadata, _, _)| metadata))
-    }
-
-    /// Download the exact history-bound immutable set. This never falls back
-    /// to a newer mutable head if the reference is missing, corrupt or stale.
-    /// It supplies no voting, activation, or quorum proof.
-    pub async fn recovery_set_at(
+    async fn load_materialized_head_metadata(
         &self,
-        reference: &ArchiveReference,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.load_manifest(&reference.0).await
-    }
-
-    async fn load_head(
-        &self,
-    ) -> Result<Option<(ArchiveRecoverySet, Vec<u8>, UpdateVersion)>, ArchiveError> {
-        let Some((metadata, bytes, version)) = self.load_head_metadata().await? else {
-            return Ok(None);
-        };
-        Ok(Some((self.load_material(metadata).await?, bytes, version)))
-    }
-
-    async fn load_head_metadata(
-        &self,
-    ) -> Result<Option<(ArchiveMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
+    ) -> Result<Option<(MaterializedMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
         let Some((bytes, version)) = self.read(&self.key("head"), 4096, None).await? else {
             return Ok(None);
         };
@@ -946,19 +892,30 @@ impl CellArchive {
             ));
         }
         let head: Head = manifest::decode(2, &bytes, 4096)?;
-        let metadata = self.load_metadata(&head.manifest).await?;
+        let metadata = self.load_materialized_metadata(&head.manifest).await?;
         if metadata.manifest.position != head.position {
             return Err(ArchiveError::Corrupt("archive head/cut binding"));
         }
         Ok(Some((metadata, bytes, version)))
     }
 
-    async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
+    async fn load_materialized_metadata(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<MaterializedMetadata, ArchiveError> {
+        let bytes = self.get_object(object).await?;
+        self.decode_materialized_metadata(object, &bytes)
+    }
+
+    fn decode_materialized_metadata(
+        &self,
+        object: &ObjectRef,
+        bytes: &[u8],
+    ) -> Result<MaterializedMetadata, ArchiveError> {
         if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
-        let bytes = self.get_object(object).await?;
-        let manifest: Manifest = manifest::decode(1, &bytes, self.limits.max_manifest_bytes)?;
+        let manifest: Manifest = manifest::decode(1, bytes, self.limits.max_manifest_bytes)?;
         manifest.validate(
             &self.scope,
             self.root,
@@ -975,7 +932,7 @@ impl CellArchive {
         {
             return Err(ArchiveError::Corrupt("archive manifest object range"));
         }
-        Ok(ArchiveMetadata {
+        Ok(MaterializedMetadata {
             _retention: self.read_retention.clone(),
             reference: ArchiveReference(object.clone()),
             scope: self.scope.clone(),
@@ -984,14 +941,10 @@ impl CellArchive {
         })
     }
 
-    async fn load_manifest(&self, object: &ObjectRef) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.load_material(self.load_metadata(object).await?).await
-    }
-
     async fn load_material(
         &self,
-        metadata: ArchiveMetadata,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        metadata: MaterializedMetadata,
+    ) -> Result<MaterializedSet, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "material_read_start", cell = %self.scope.cell, index = metadata.manifest.position.index);
         let manifest = &metadata.manifest;
         // Metadata bounds the retained bodies; physical image parts have
@@ -1018,9 +971,9 @@ impl CellArchive {
 
     async fn load_confirmed_material(
         &self,
-        metadata: ArchiveMetadata,
+        metadata: MaterializedMetadata,
         confirmed: physical::ConfirmedSnapshot,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    ) -> Result<MaterializedSet, ArchiveError> {
         let manifest = &metadata.manifest;
         if !manifest.tails.is_empty()
             || manifest.position != manifest.snapshot.position
@@ -1048,11 +1001,11 @@ impl CellArchive {
 
     async fn finish_material(
         &self,
-        metadata: ArchiveMetadata,
+        metadata: MaterializedMetadata,
         snapshot: stream_snapshot::SnapshotFile,
         bodies: Vec<Vec<u8>>,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        let ArchiveMetadata {
+    ) -> Result<MaterializedSet, ArchiveError> {
+        let MaterializedMetadata {
             reference,
             manifest,
             _retention,
@@ -1091,7 +1044,7 @@ impl CellArchive {
                     entries.extend(decoded);
                 }
                 let position = manifest.position.decode()?;
-                let mut set = ArchiveRecoverySet {
+                let mut set = MaterializedSet {
                     validated: None,
                     activity,
                     _retention,
@@ -1299,45 +1252,7 @@ impl CellArchive {
     }
 }
 
-impl ArchiveRecoverySet {
-    pub(crate) fn birth_digest(&self) -> [u8; 32] {
-        self.manifest.birth_digest
-    }
-
-    pub fn reference(&self) -> ArchiveReference {
-        self.reference.clone()
-    }
-
-    pub fn scope(&self) -> &GroupScope {
-        &self.scope
-    }
-
-    pub fn position(&self) -> LogPosition {
-        self.position
-    }
-
-    pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.conf_state)
-    }
-
-    pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.membership.clone()
-    }
-
-    pub fn schema_digest(&self) -> [u8; 32] {
-        self.manifest.schema_digest
-    }
-
-    pub fn tail_entries(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn dependencies(&self) -> impl Iterator<Item = ([u8; 32], &[u8])> {
-        self.dependencies
-            .iter()
-            .map(|(r, bytes)| (r.digest, bytes.as_slice()))
-    }
-
+impl MaterializedSet {
     fn validate_payloads(&mut self) -> Result<(), ArchiveError> {
         self.validated = None;
         let mut state = self.manifest.snapshot.image.decode()?;

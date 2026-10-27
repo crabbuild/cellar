@@ -669,6 +669,10 @@ async fn initialize(
                                     )?
                                     .with_scratch_directory(service.log.limits().directory.clone())
                                     .with_snapshot_scratch(service.log.snapshot_scratch());
+                                let archive = match &storage.rooted {
+                                    Some(rooted) => archive.with_root_store(rooted.store.clone()),
+                                    None => archive,
+                                };
                                 let received = service
                                     .transport
                                     .seed_from_archive(

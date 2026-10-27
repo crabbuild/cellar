@@ -26,11 +26,25 @@ object windows fit the existing physical allowance, including response/output
 copies; sealing allocates its 4 MiB workspace after the entered reads finish.
 The source engine must remain open while source bytes are read.
 
-This interface transfers immutable data only. It does not select an archive
-head, advance archive coverage, retain remote objects for production GC, or mint
-a learner grant. Native snapshot installation still requires the receiving
-engine's ordinary exact ticket. Root archive-head publication, fresh-learner
-seeding and public backend selection remain under implementation.
+Those two methods transfer immutable data only. The common committed archive
+interface also accepts `CommittedArchiveCut::capture_root`: it publishes a
+conditional head binding that exact native root and its Blob dependencies.
+Before advancing a head it independently checks the selected old closure and
+the new closure. Missing or corrupt selected material refuses publication;
+current source bytes cannot silently repair it. Each root cut is complete and
+does not contain a flat snapshot or an LTX replay tail.
+
+`recovery_metadata` reads only bounded root/native metadata. Complete root
+recovery requires `with_root_store` and authenticates the exact remote closure
+before returning an inventory-owned seal. `recovery_set_at` never substitutes
+a newer head. Physical APIs refuse the other representation instead of
+flattening or converting commitments. Existing-member installation still needs
+the receiving engine's exact ticket. The fresh-learner preparation path uses
+the same authenticated grant, birth, learner/barrier and owner checks as flat
+seeding, then retains the already sealed root. These internal paths do not
+enable public root backend selection or retain remote dependencies for
+production GC; complete public fresh-learner and full-size qualification remain
+under implementation.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
