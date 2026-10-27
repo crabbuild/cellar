@@ -442,6 +442,15 @@ remains unqualified. All failed/obsolete-source logs are retained. These are
 functional checks on a shared host; full-size latency after the cache remains
 unmeasured and unqualified.
 
+CI at `bc3b95aa` caught the Python measurement consumer's stale 39-counter
+vocabulary. Its existing native-contract test refused the three prepared-body
+counters before the SDK build. The consumer now names all 42 counters; the full
+231-case performance tooling suite passes with one skip. The running full-size
+measurement checkout stays frozen at `bc3b95aa`: the recovery runner/analyzer do
+not import that counter consumer, and its raw native observations still bind
+the recorded source and executable. The tooling-only follow-up supplies no new
+native timing result.
+
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,
    transport and decoded buffers together. Preserve Compact for providers that

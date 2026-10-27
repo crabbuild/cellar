@@ -91,6 +91,9 @@ COUNTERS = (
     'snapshot_seed_encoded_bytes',
     'snapshot_checkpoint_encoded_bytes',
     'snapshot_transfer_encoded_bytes',
+    'snapshot_prepared_hits',
+    'snapshot_prepared_misses',
+    'snapshot_prepared_reused_bytes',
 )
 BOUNDS = (50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000,
           100000, 250000, 1000000, 5000000, 30000000, 60000000, 120000000, 300000000, 900000000, 1800000000, 3600000000, None)
