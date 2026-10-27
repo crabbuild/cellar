@@ -7,10 +7,95 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
-isolation, evacuation/removal commands, managed maintenance and resize remain
-unfinished.
+isolation, managed maintenance/rejoin and resize remain unfinished. Graceful
+evacuation, explicit joined stop and terminal removal are now exposed through
+the SDK, admin API and CLI.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Graceful departure operator delivery
+
+Operators can redistribute a healthy keep set excluding a departing node, root
+its `Draining` exclusion, verify all histories, fence its exact process,
+explicitly request stop under a separate grant, and consume its signed joined
+closure in terminal removal. SDK/admin/CLI requests retain catalog pin,
+principal, expected revision and canonical request identity. No serialized
+candidate or closure can substitute for the host-owned proofs.
+
+One bounded in-memory walk checks one history per successful request. A
+management restart repeats it; already committed finalization/removal reconciles
+from the journal. `--wait` advances acknowledged partial verification only and
+returns immediately after unknown outcomes. The CLI checks phase, process and
+stop selector as well as request identity. Status uses descriptive metadata
+instead of boot authorization, so Finalizing/Removed stay visible without
+permitting a boot. Complete unresolved reservation charges are exposed even
+when they have no executable movement. Partial verification releases neither
+those charges nor the disruption slot. Volumes and archives remain retained.
+
+The management server must explicitly supply a surviving observer and bounded
+replay services. The archive handle binds to the management execution domain,
+including SDK calls outside an HTTP task. Existing-root standalone connections
+still refuse live proof and stop dispatch without those services; exact
+committed receipt reconciliation remains available. This is the graceful
+reachable-node path. It does not supply production isolation or same-identity
+maintenance/rejoin.
+
+Merged implementation `5a5f5fcb2b5fc75677bfc880a85f5c1a41d8760a` includes main
+`5db6b475` and the departure feature `cfcb54b5`. It passes **166 distinct focused
+cases**: all 62 resource/movement cases,
+75 archive/recovery cases, five CLI-process cases, seventeen admin cases and
+seven capacity cases. Two new native probes and five unchanged candidate
+regression probes also pass; five comparisons against the retained pre-change
+binary pass. The full resource rerun took 437.02 seconds and archive/recovery
+69.74 seconds. All 1,464 frozen Rust/Cargo/configuration inputs match that source
+commit, with native executable, CLI-child and output hashes checked. The primary
+artifacts remain outside runtime data under checkout-private
+`qualification/fleet-operations/departure-operator-v3/`,
+`departure-operator-followups-v1/`, `departure-operator-checks-v1/` and
+`departure-operator-console-v1/`. No raw evidence files are included in the PR.
+The departure probe completes in 16.36 seconds: two real RF3 movements exclude
+a former voter, lost exclusion/finalization/removal confirmations reconcile,
+replay repeats after management restart, forged proof fields and wrong stop
+process refuse, the real Node/domain owner joins, and surviving SQL advances
+7 → 12 → 21 → 28. Descriptive status remains available after removal while the
+boot guard refuses it. Ten mismatched/unknown HTTP receipt variants each cause
+exactly one CLI request. All-target host/admin Clippy with warnings denied and
+console TypeScript checking pass. Deployment throughput and scale qualification
+remain pending.
+
+The first aggregate resource attempt passed 57/62. Five existing cases failed
+with a deadline, unavailable readiness or an ambiguous command response: isolation
+completion retry, topology lost replies, collection under writes, collection
+shutdown and operator convergence. The host had about 22.6 GiB swapped out.
+All five cases pass unchanged in both the candidate and retained `4c5456d6`
+control binaries, and the complete unchanged candidate rerun passes 62/62.
+These observations establish no reproduced regression; they do not prove that
+host pressure caused the failures. The original failed aggregate, all comparison
+runs and immutable binaries remain retained. No timing budget was enlarged.
+Rust formatting/layout, native dependency checks, local documentation links,
+ten plan tests, the 325-case manifest, 89-anchor source preflight and console
+TypeScript checking pass. Full latest-head SDK CI remains a release gate.
+
+The original departure probe reached terminal removal but its status read used
+boot authorization and therefore refused Removed metadata. The read now uses a
+private descriptive node projection; the prohibition on boot remains tested.
+A second probe initially reached a stale-peer refusal after exclusion and before
+resource admission. The existing authenticated discovery barrier now precedes
+that admission. The final debt oracle checks retained full charges and refusal
+of terminal removal after partial proof. Unrelated charges do not serialize
+historical proof reads or become reclaimable credit. Original binaries, outputs
+and frozen input hashes remain outside runtime data; no deadline was enlarged
+and no safety guard was bypassed.
+
+## Next feature delivery order
+
+| Priority | Feature boundary | Deliverable acceptance |
+| --- | --- | --- |
+| 1 | Departure continuation/cancellation, then maintenance/rejoin (FO-07/FO-08) | First add owned revalidation or cancellation when inventory/policy/permits change after finalization but before stop admission. Existing `fleet_stop_changed_inventory_refuses_admission` correctly blocks the stale stop; no operator refresh path currently resolves that rooted departure. Preserve old-selector fencing and exact joined proof. Then add reversible admission exclusion, retained-engine restart with a fresh process, catch-up/capacity requalification and verified Active rejoin. Permanent removal is not the rejoin protocol. |
+| 2 | Production failure policy (FO-06) | A configured trusted platform adapter supplies exact-boot isolation. Suspicion/timeouts cannot authorize it. Admit automatic repairs only with the existing quorum, inventory, retained-charge and two-action bounds; simultaneous failures with lost quorum refuse. |
+| 3 | Scalable convergence and desired capacity (FO-04/FO-09) | Bounded collection/planning at 500 and 1,500 histories, invalidation on changed rooted inputs and renewed live proof. Resolve the documented planner charge and retained-state-fit gaps through measured bounded work, before claiming those fleet sizes. Fewer cells alone cannot grant physical capacity credit. |
+| 4 | Workload balancing and resize (FO-05/FO-07/FO-09) | Fresh role/load costs, measured leader-transfer benefit, and safe profile grow/shrink through maintenance/rejoin. Optional performance changes require matched throughput or latency gains. |
+| Release gate | Deployment qualification (FO-10) | Runnable native management-service wiring, RustFS/Colima fleet changes under traffic, enforced 1-vCPU/3-GiB node limits, faults, throughput/p99/overhead and soak. Shared-host native correctness probes do not establish independent-node capacity. |
 
 ## Add-capacity operator delivery
 
@@ -63,9 +148,10 @@ seven existing capacity cases. Original failures and the diagnostic binary remai
 outside runtime data. Temporary diagnostics were removed before final qualification.
 No deployment capacity, throughput or production platform provider is claimed.
 
-The next feature is the audited evacuation/removal workflow with visible debt
-and the existing fenced complete inventory, stop and terminal removal proofs.
-Capacity activation is not balanced placement or storage-release authority.
+The graceful departure workflow composes the capacity, placement and existing
+fenced inventory/closure boundaries. Maintenance/rejoin and safe cancellation
+remain the next lifecycle features. Capacity activation remains distinct from
+balanced placement and storage-release authority.
 
 ## Independent required repair with retained debt
 
@@ -2880,7 +2966,10 @@ Resource records require the inventory digest and node requests require explicit
 mode. Keep markers at 1 and use fresh coordination/data prefixes, namespaces,
 engine directories and matching binaries; no compatibility reader or migration.
 
-## Prioritized remaining delivery
+## Historical priorities before movement execution
+
+This earlier snapshot is retained as history. The current feature queue appears
+near the start of this document.
 
 | Priority | Boundary | Required result |
 | --- | --- | --- |

@@ -420,8 +420,14 @@ cellar raft fleet nodes remove NODE --operation-id OP --request-id REMOVE --expe
 The uppercase values above are placeholders. IDs are canonical nonzero
 32-character lowercase hex; revisions are numeric. `PROCESS` is the exact process
 reported by the finalization receipt. `R2` is the root after exclusion; `R3` is
-the root after finalization. Stop does not mutate that root. If other catalog
-inputs change, reconcile the exact request before obtaining new proof.
+the root after finalization. Stop does not mutate that root. Reconcile the exact
+request after any unknown outcome. A policy, inventory or permit change after
+finalization can refuse a fresh stop even at a newer expected revision. This
+delivery does not yet revalidate that stop basis or cancel the rooted departure;
+retain the operation and all data. A new request ID cannot repair stale proof.
+That continuation/cancellation boundary is the next lifecycle deliverable. An
+already signed exact joined closure remains a physical fact; terminal removal
+still needs fresh complete verification against the current inventory.
 
 `evacuate` uses the independent `fleet_evacuate` grant. It roots `Draining` and
 claims the single disruption slot after checking the completed keep set.

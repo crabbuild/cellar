@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "4c5456d6648a76e86ce63fc2c1f52dc49ec64990",
+  "revision": "5a5f5fcb2b5fc75677bfc880a85f5c1a41d8760a",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -20,7 +20,7 @@
     },
     {
       "path": "crates/cellar-admin/README.md",
-      "sha256": "ce8a006b0a9eefe2b233ba95fb3a2372d2166ed164074bb4f8179dce367b54b8"
+      "sha256": "7a77c7c27569d2d2ee838febe5e04a08e73d548316101e82baf2181a39402105"
     },
     {
       "path": "crates/cellar-admin/api.rs",
@@ -28,15 +28,15 @@
     },
     {
       "path": "crates/cellar-admin/audit.rs",
-      "sha256": "642e1aebe3ba43a6168c16e6993208f00b1eef07f6ddee227d48100ed92ce225"
+      "sha256": "31ec7c6e52cc315ddc9e6295a9f2db1401ecd1f0ea0d0f7a9a0bd7fa2f6ba40e"
     },
     {
       "path": "crates/cellar-admin/auth.rs",
-      "sha256": "59d4e674e86bb9fe5378da1588d63c56ef8062339a82a393375f9bc8efcec669"
+      "sha256": "89d2022bfc4f6e9daeca3c37805abe2febb4f9c2a13eebd3b9cd4a59dcff2009"
     },
     {
       "path": "crates/cellar-admin/lib.rs",
-      "sha256": "cf8e55e55806ea19f0cde6d24e6fa62062e43842a75a1c3f4d5ea249bdadd537"
+      "sha256": "c82c8f276830a1a9a51d3694a6006e98c368c3a819ef1d39aace4ca1f54cbea4"
     },
     {
       "path": "crates/cellar-admin/main.rs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "00ea8f3838fc25e8ca5d7b9faaaefcda36539d437793713850bd2652400b3b77"
+      "sha256": "8d965a0b3cc789c96011a502d5853cba7987bc83f3f1bed3834d332951f50d2f"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -264,7 +264,7 @@
     },
     {
       "path": "crates/cellar/fleet/management/mod.rs",
-      "sha256": "ba80ceb71a212bc60afb231b2c439e024c7b5634b0f654958b8b57bb0879fab6"
+      "sha256": "9adfd7db36d65522dd2a0d2ed4b9f069976bc74c2d0d9689394ecbb9909a873e"
     },
     {
       "path": "crates/cellar/fleet/management/nodes.rs",
@@ -304,7 +304,7 @@
     },
     {
       "path": "crates/cellar/sdk.rs",
-      "sha256": "c2fc9be0d2902b48bc5bc79546e106e861d7096e51095f4c285ef3c501ef3a40"
+      "sha256": "48ac835b059999603790d5b594544479b84908980ece3e79574a3dac5478ac91"
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",
@@ -336,7 +336,7 @@
     },
     {
       "path": "packages/console/src/lib/api.ts",
-      "sha256": "a9ce00e4fa48f1ad0ea78063457c64beadd4a43c8921bda4d68a8b60baef0765"
+      "sha256": "272bc9938e4ea5bbade8afd476975c7fceedf0009540fc3560f8366b571c8c30"
     },
     {
       "path": "tools/perf/raft_analyze.py",
@@ -356,9 +356,9 @@
     },
     {
       "path": "crates/cellar-admin/tests/console.rs",
-      "sha256": "84814fc6ed05c830e7b2a1af365f3b5f325f6e986f1385b8347b66c8e67ef041"
+      "sha256": "5d860a59f18295ed83b5543ada9fdade31f2e534f8c966ad6f8b565b9be2e207"
     }
   ],
-  "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",
-  "review_note": "Distinct aborted-movement settlement delivered at eb3c1a6d69b76d66dac2446bf2d413ff7aa412fd. All 466 selected native cases pass, including all 141 required FO-03 cases and five new abort cases. The proof owns exact Aborted observations from all original seed owners before physical exit/occupancy samples, retains learner storage and its monotonic floor, and recovers permanent typed receipts after lost confirmation, caller recreation, later work and target shutdown. Owned reconciliation drives this boundary without deciding to abort. Initial historical-status assertion and concurrent fixture stack failures are retained; shared guarded terminal dispatch fixes the standard-stack regression without changing the concurrent fixture, proof checks or deadlines. All-target host Clippy-Dwarnings and format/layout/dependency/docs checks pass. SDK v5 inputs unchanged. Changed/unavailable-boot recovery, trusted platform isolation, authenticated fleet inputs/assignment generation, operator workflows and deployed RustFS/Colima performance/fault/soak remain unfinished. Full SDK CI remains open. Protocol hard cut ends /aborted-movement-1, markers1; fresh roots/engines required. FO01-03 DONE locally; FO04/06/07 IN_PROGRESS. Independent repair with retained charged debt is delivered at 0db5164b550ff53c77c9728aba121698728840f6 and passes 77 distinct focused cases plus three repeated probes; audit matches all 1,442 frozen Rust/Cargo/configuration inputs. Merge 2c1f53fdb2d1f9eb7645eeb0158ee3003e5b76a5 integrates origin/main b3ff49a6 with owned blocking archive cleanup and per-cut completion. Reviewed anchor drift is limited to logic/raft READMEs, host callback ownership, the two mainline snapshot-close tests and the exact held-payload test counter. Merged-source qualification is recorded in progress.md; no deployed performance or full fleet completion is implied. Node add/status/qualify/activate is delivered at 4c5456d6648a76e86ce63fc2c1f52dc49ec64990 through SDK/admin/CLI with separate registration/capacity grants, explicit trusted deployment attestations and a configured running observer. 88 focused cases plus two repeated native probes pass, including six-node three-move convergence, historical retries and real reboot fencing. All-target host/admin Clippy, repository checks and console typecheck pass. The source audit matches 1,455 frozen Rust/Cargo/configuration inputs plus the frontend check inputs. Eight changed anchors were reviewed; the added console-test anchor records accepted audit monotonicity. Full SDK/deployment/performance gates remain open."
+  "reviewed_from_revision": "4c5456d6648a76e86ce63fc2c1f52dc49ec64990",
+  "review_note": "Reviewed graceful-departure guards, descriptive lifecycle status, complete proof/replay ownership, canonical stop consent and operator permissions; merged main 5db6b475 without fleet-code conflict. Qualification remains separately attributed in progress."
 }

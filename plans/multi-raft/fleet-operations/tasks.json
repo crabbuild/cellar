@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4c5456d6648a76e86ce63fc2c1f52dc49ec64990",
+  "baseline_revision": "5a5f5fcb2b5fc75677bfc880a85f5c1a41d8760a",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3803,6 +3803,7 @@
         "crates/cellar/tests/support/raft_isolated_removal.rs"
       ],
       "steps": [
+        "Graceful operator departure now composes completed keep-set redistribution, exclusion, one-history runtime verification, exact-boot finalization, independent human stop consent and signed joined terminal removal. Descriptive status remains visible after boot is fenced. Same-identity maintenance/rejoin and resize remain unfinished. The next lifecycle feature is owned refresh/cancellation after post-finalization inventory/policy/permit changes: existing stale-stop refusal is correct but currently has no operator continuation path.",
         "Implement separate restart and evacuation lifecycle transitions with durable operator intent.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
@@ -4070,7 +4071,7 @@
         "crates/cellar/tests/support/raft_operator_lifecycle_native.rs"
       ],
       "steps": [
-        "Delivered keep-set begin/status/progress/wait/cancel and explicit node add/status/qualify/activate through SDK, authenticated admin and CLI. Capacity uses a configured running observer plus a separately granted explicit deployment attestation. Exact retries return historical admission and cannot rewrite current boot readiness. Node evacuation/removal, maintenance, dry-run and resize remain unfinished.",
+        "Delivered keep-set begin/status/progress/wait/cancel, node add/status/qualify/activate, and graceful evacuate/prepare-removal/exact stop/remove/status through SDK, authenticated admin and CLI. Capacity and replay use explicitly configured native services. Separate lifecycle grants, canonical durable stop consent, complete replay and signed physical closure preserve authority; exact retries recover historical receipts. Maintenance/rejoin, dry-run and resize remain unfinished.",
         "Implement proposed operator-workflows.md commands and SDK/API phase/error contracts.",
         "Enforce operation-specific permissions, canonical request identity, expected revisions and audit.",
         "Provide dry-run, paginated status, wait and cancel without hidden infrastructure termination.",
