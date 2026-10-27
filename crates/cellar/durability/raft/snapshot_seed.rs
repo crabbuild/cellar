@@ -14,6 +14,12 @@ pub(crate) struct SeedDownload {
 }
 
 impl SeedDownload {
+    /// Transport admission covers codec buffers until sealing or discard.
+    pub(crate) fn with_io_profile(mut self, profile: stream_snapshot::IoProfile) -> Self {
+        self.payload.set_io_profile(profile);
+        self
+    }
+
     pub(crate) fn scope(&self) -> &GroupScope {
         &self.grant.local().scope
     }
@@ -270,7 +276,7 @@ impl PreparedSeed {
                 .map_err(|_| SnapshotError::Invalid("archive seed image nonce"))?,
         )?;
         let pin = set.restore(images, nonce).map_err(SnapshotError::Archive)?;
-        let bytes = encode_image(&pin, limits)?;
+        let bytes = encode_image(&pin, limits, stream_snapshot::IoProfile::Compact)?;
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(birth.scope()),

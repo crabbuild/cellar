@@ -13,6 +13,10 @@ use std::sync::{atomic::AtomicBool, Weak};
 #[path = "snapshot_receive.rs"]
 mod receive;
 
+#[cfg(test)]
+#[path = "snapshot_codec_tests.rs"]
+mod codec_tests;
+
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLSP";
 const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
 const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
@@ -31,12 +35,29 @@ pub(in crate::raft) fn memory_bound(options: &TransportOptions) -> usize {
     // File-backed bodies and indexes do not reserve image-sized memory. Cover
     // wire framing/copies plus codec/hash/compression and independent sealing
     // buffers. One transfer retains this reservation through blocking work.
-    4 * options.snapshot_chunk_bytes + 4 * 1024 * 1024
+    4 * options.snapshot_chunk_bytes + io_profile(options).max_working_bytes().max(4 * 1024 * 1024)
+}
+
+fn io_profile(options: &TransportOptions) -> cellar_ltx::stream_snapshot::IoProfile {
+    // Large-cell transports admit the larger codec allowance before capture
+    // or download. This changes physical batching, never the encoded format.
+    if options.max_snapshot_image_bytes >= 256 * 1024 * 1024 {
+        cellar_ltx::stream_snapshot::IoProfile::Buffered
+    } else {
+        cellar_ltx::stream_snapshot::IoProfile::Compact
+    }
 }
 
 pub(crate) struct SourceReservation {
     _permit: Permit,
     owner: Arc<Budget>,
+    io_profile: cellar_ltx::stream_snapshot::IoProfile,
+}
+
+impl SourceReservation {
+    pub(crate) fn io_profile(&self) -> cellar_ltx::stream_snapshot::IoProfile {
+        self.io_profile
+    }
 }
 
 pub(super) struct Source {
@@ -149,6 +170,7 @@ impl RaftTransport {
             .map(|permit| SourceReservation {
                 _permit: permit,
                 owner: state.snapshot_source_budget.clone(),
+                io_profile: io_profile(&state.options),
             })
             .ok_or(TransportError::Overloaded)
     }
@@ -219,9 +241,18 @@ impl RaftTransport {
         let (route, peer, pool) = state.snapshot_peer(scope, source)?;
         let schema = route.schema_digest;
         let download_group = group.clone();
-        let download = state
+        let reservation = state
+            .snapshot_receive_budget
+            .acquire(memory_bound(&state.options))
+            .ok_or(TransportError::Overloaded)?;
+        let profile = io_profile(&state.options);
+        let (download, reservation) = state
             .domain
-            .blocking(move || SnapshotDownload::new(&download_group, schema, snapshot, limits))
+            .blocking(move || {
+                let download = SnapshotDownload::new(&download_group, schema, snapshot, limits)?
+                    .with_io_profile(profile);
+                Ok::<_, crate::raft::snapshot::SnapshotError>((download, reservation))
+            })
             .map_err(|_| TransportError::Closed)?
             .await
             .map_err(|_| TransportError::Closed)?
@@ -229,10 +260,6 @@ impl RaftTransport {
         if download.encoded_length() > state.options.max_snapshot_bytes {
             return Err(TransportError::Limit);
         }
-        let reservation = state
-            .snapshot_receive_budget
-            .acquire(memory_bound(&state.options))
-            .ok_or(TransportError::Overloaded)?;
         let total = download.encoded_length();
         let receiver = receive::collect(state, download, reservation, |send| async move {
             // Configuration-only snapshots contain no bytes and need no socket.
@@ -722,10 +749,15 @@ impl RaftTransport {
         let scratch_directory = state.runtime.log().limits().directory.clone();
         let snapshot_scratch = state.runtime.log().snapshot_scratch();
         let birth = birth.clone();
-        let download = state
+        let reservation = state
+            .snapshot_receive_budget
+            .acquire(memory_bound(&state.options))
+            .ok_or(TransportError::Overloaded)?;
+        let profile = io_profile(&state.options);
+        let (download, reservation) = state
             .domain
             .blocking(move || {
-                crate::raft::snapshot::SeedDownload::new(
+                let download = crate::raft::snapshot::SeedDownload::new(
                     grant,
                     &birth,
                     schema,
@@ -733,7 +765,9 @@ impl RaftTransport {
                     crate::asyncrt::fs().as_ref(),
                     &scratch_directory,
                     &snapshot_scratch,
-                )
+                )?
+                .with_io_profile(profile);
+                Ok::<_, crate::raft::snapshot::SnapshotError>((download, reservation))
             })
             .map_err(|_| TransportError::Closed)?
             .await
@@ -744,10 +778,6 @@ impl RaftTransport {
         if total > state.options.max_snapshot_bytes || (total == 0) != (lease == 0) {
             return Err(TransportError::Limit);
         }
-        let reservation = state
-            .snapshot_receive_budget
-            .acquire(memory_bound(&state.options))
-            .ok_or(TransportError::Overloaded)?;
         let receiver = receive::collect(state, download, reservation, |send| async move {
             if total == 0 {
                 return Ok(());

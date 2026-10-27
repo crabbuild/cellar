@@ -738,8 +738,18 @@ async fn small_peer_recovers_with_complete_phase_ledger() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn incompressible_peer_recovers_across_multiple_receive_windows() -> Result<()> {
+    peer_windows(12 * 1024 * 1024).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn buffered_peer_recovers_across_multiple_receive_windows() -> Result<()> {
+    // Cross the codec threshold with a complete incompressible image. The
+    // native grant, TLS, physical seal and first-write path all run.
+    peer_windows(272 * 1024 * 1024).await
+}
+
+async fn peer_windows(quota: u64) -> Result<()> {
     let root = tempfile::tempdir()?;
-    let quota = 12 * 1024 * 1024;
     // Zero-filled templates can fit in one compressed wire window. Exercise
     // the native TLS receiver, physical assembly and seed installation with a
     // body large enough to cross the two-window ownership boundary repeatedly.

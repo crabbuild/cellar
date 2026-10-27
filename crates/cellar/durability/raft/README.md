@@ -976,8 +976,16 @@ same memory charge; cancellation refunds it only after their last owner drops.
 The transport joins that worker and its stop observer, including when a caller
 retains an unpolled download or an assembled handle. The SQL owner still owns
 installation/publication authority. No image-sized buffer or worker per cell is
-introduced. Native file adapters append each admitted window directly; injected
+introduced. Native file adapters read and append each admitted window directly; injected
 providers retain their bounded fallback and uncertain writes poison the download.
+
+Transports configured for images of at least 256 MiB select Buffered codec I/O
+for admitted source encoding and destination verification. With 1 MiB wire chunks,
+the codec and wire allowance is 16.25 MiB per active transfer; smaller transports
+retain Compact and the default 8 MiB allowance. These are bounded reservations,
+not eager allocations or image-sized buffers. Standalone snapshot helpers retain
+Compact defaults. Both profiles produce identical encoded identities and require
+the same complete physical verification before installation.
 
 The native recovery drills isolate a follower until its leader has compacted the
 missing prefix, then require physical snapshot installation and an AtLeast query.

@@ -116,11 +116,20 @@ impl SnapshotCapture {
         })
     }
 
-    pub(crate) fn encode(mut self) -> Result<SnapshotPackage, SnapshotError> {
+    pub(crate) fn encode(self) -> Result<SnapshotPackage, SnapshotError> {
+        self.encode_with_io_profile(stream_snapshot::IoProfile::Compact)
+    }
+
+    /// The host's source reservation covers this profile through physical
+    /// encoding and all consumers. Standalone capture retains Compact defaults.
+    pub(crate) fn encode_with_io_profile(
+        mut self,
+        profile: stream_snapshot::IoProfile,
+    ) -> Result<SnapshotPackage, SnapshotError> {
         let bytes = self
             .pin
             .as_ref()
-            .map(|pin| encode_image(pin, self.limits))
+            .map(|pin| encode_image(pin, self.limits, profile))
             .transpose()?;
         let identity = payload_identity(bytes.as_ref());
         if self

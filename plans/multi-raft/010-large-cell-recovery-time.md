@@ -242,10 +242,35 @@ the 1,280 MiB RustFS diagnostic passed: failure-to-first-verified-write
 installing the seed and 4.084760 s through the first write/read-back. This crosses
 SQLite's reserved-lock page boundary without reproducing the full-size stall;
 it does not establish the cause of that stall or a size-dependent latency curve.
-Full-size RustFS immediate-fault recovery and repeated qualification remain open.
-The separately passing older full-capacity functional drills retain their narrower
-scope. Publication tracing now identifies the publisher and requested cut, and
+Repeated full-size qualification remains open. The separately passing older
+full-capacity functional drills retain their narrower scope. Publication tracing
+now identifies the publisher and requested cut, and
 host debug events retain typed failure causes without changing retry policy.
+
+At `986d7a7f`, the traced 9,999,998,976-byte RustFS immediate-fault trial passed all
+recovery, write/read-back, receipt, payload and joined-cleanup checks. Failure to
+first verified write was 1,921.131523 s: archive waiting 1,580.795023 s, seed
+installation 246.375447 s, promotion 2.329619 s and first write/read-back
+37.054271 s. The complete functional drill was 2,568.87 s, including untimed
+setup; it is not the RTO sample. The 120-second target was missed.
+
+The same publisher/cut trace attributes 26.978973 s to encoding cut 5,
+978.571748 s to upload/confirmation and 34.545645 s to its physical replay. The
+protocol-only successor cut 6 took another 557.408309 s, including a 214.359441 s
+read of the prior material and 225.200802 s of physical replay. Its event material
+index names the prior base, so correlate publisher and requested cut too. The
+13,364 failed publication events were advisory `Unconfirmed` deferrals; this run
+did not reproduce a timeout or permanent verifier failure. It identifies slow
+full-image I/O in this run, not the cause of the earlier untraced timeout.
+
+This was a shared-development-host diagnostic. The task's RustFS process was
+restarted from its existing data before bucket preflight; separate-checkout
+validation ran with one Cargo job. A one-second setup sample had no Rust symbols
+in the stripped release image. A later two-second kernel/network observation
+showed roughly 8.4 MB/s of upload progress and corresponding RustFS physical
+writes; these counters do not isolate one object or qualify sustained throughput.
+No object-store probes ran during the trial. Source/cache/hardware and hard-kill
+qualification remain unverified.
 
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
@@ -301,9 +326,28 @@ all-feature Clippy passes with warnings denied. An additional incompressible
 12 MiB native TLS seed passes and checks that one receiver appended more than
 two windows with matching received/appended byte counts. That test establishes
 multi-window integration; the held-I/O tests establish the two-window bound and
-overlap. Buffered peer encoding, prepared
-payload reuse and full-size performance comparison remain open; these checks
-establish no recovery-time improvement or target qualification.
+overlap.
+
+The next change selects Buffered source encoding and peer destination verification
+on transports configured for images of at least 256 MiB. The source reservation
+carries the selected codec policy, and receive admission precedes scratch-file
+creation. The codec/wire reservation is 16.25 MiB with 1 MiB chunks; smaller
+transports retain the default 8 MiB. Source chunks now fill the existing admitted
+native read window directly, preserving injected-provider fallbacks. Eight
+ownership/admission tests and nine codec cases pass, including cross-profile byte
+identity and corrupt-frame rejection. The corrected 272 MiB buffered and 12 MiB
+compact native TLS recovery cases both pass (111.42 s combined functional test
+duration, not an RTO comparison). All 44 native snapshot cases pass again
+(231.05 s), including exact-ticket installs, partial-body retries and process
+crash matrices. All-target/all-feature Clippy passes with
+warnings denied. An initial fixture incorrectly paired a 12 MiB physical template
+with a 272 MiB quota and was correctly refused; its subsequent small case failed
+preflight with a closing node. The small case passes in isolation, and both cases
+pass together after generating the actual requested physical quota. The failed
+run is retained; test-context fallout is plausible but not proven.
+
+Prepared payload reuse and the full-size buffered performance comparison remain
+open. These checks establish no 10 GB recovery-time improvement or qualification.
 
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,

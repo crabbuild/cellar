@@ -324,11 +324,11 @@ impl SnapshotPackage {
             return Err(SnapshotError::Limit);
         }
         let source = self.bytes.as_ref().ok_or(SnapshotError::Limit)?;
-        let mut bytes = Vec::with_capacity(length);
-        while bytes.len() < length {
-            let n = (length - bytes.len()).min(64 * 1024);
-            bytes.extend_from_slice(&source.chunk((offset + bytes.len()) as u64, n)?);
-        }
+        // The source reservation already covers this complete wire window.
+        // Native providers fill it directly; injected providers retain their
+        // bounded fallback. A failed read never exposes a partial response.
+        let mut bytes = vec![0; length];
+        source.read_into(offset as u64, &mut bytes)?;
         Ok(bytes)
     }
 
@@ -498,6 +498,13 @@ impl SnapshotPayload {
         Ok(())
     }
 
+    fn set_io_profile(&mut self, profile: stream_snapshot::IoProfile) {
+        self.download = self
+            .download
+            .take()
+            .map(|download| download.with_io_profile(profile));
+    }
+
     fn finish(self) -> Result<Option<stream_snapshot::SnapshotFile>, SnapshotError> {
         if self.received != self.length {
             return Err(SnapshotError::Invalid("short download"));
@@ -510,6 +517,12 @@ impl SnapshotPayload {
 }
 
 impl SnapshotDownload {
+    /// Transport admission covers codec buffers until sealing or discard.
+    pub(crate) fn with_io_profile(mut self, profile: stream_snapshot::IoProfile) -> Self {
+        self.payload.set_io_profile(profile);
+        self
+    }
+
     pub(crate) fn encoded_length(&self) -> usize {
         self.descriptor.encoded_length
     }
@@ -688,8 +701,9 @@ pub(crate) fn snapshot_image(
 fn encode_image(
     pin: &GenerationPin,
     limits: SnapshotLimits,
+    profile: stream_snapshot::IoProfile,
 ) -> Result<stream_snapshot::SnapshotFile, SnapshotError> {
-    Ok(pin.snapshot(limits.physical())?)
+    Ok(pin.snapshot_with_io_profile(limits.physical(), profile, None)?)
 }
 
 fn payload_identity(bytes: Option<&stream_snapshot::SnapshotFile>) -> (usize, [u8; 32]) {
