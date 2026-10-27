@@ -7,12 +7,79 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
-isolation, managed maintenance/rejoin and resize remain unfinished. Graceful
+isolation, verified maintenance resume, its operator workflow and resize remain
+unfinished. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Retained-engine return M8 delivery
+
+Source `05b38d4b` implements the M8 SDK backend after the separately confirmed
+M6/M7 stop and offline boundaries. `admit_restart_return` records exact human
+intent bound to the signed offline predecessor and a distinct intended process.
+Only the exclusive owner of the retained node/disk/engine can consume that
+consent. Its canonical boot CAS preserves RestartPending, resource charges,
+placement exclusion and the disruption slot. An unknown startup confirmation
+retains its original admitted nonce and signer binding across exact retry.
+
+The serialized engine consumes the exact persisted maintenance stop and syncs
+the fresh boot directly into quiescence. Startup holds both reversible admission
+gates, including failed attempts; it installs the exact selector before endpoint
+publication and binds SDK admission before the peer query gateway. Consensus
+and archive recovery can catch up while public and SDK application writes stay
+blocked. Generic operation/boot projections, the old process, wrong process and
+replacement engine refuse. No capacity, resume or slot-release proof is issued.
+
+**902 distinct current-source cases pass in 913 executions:** 782 library,
+75 native fleet, 13 catalog, 25 membership-permit and seven CLI cases. Focused
+runs repeat eight engine cases, two preparation cases and one operator case
+within those distinct counts. The four new return cases cover a joined primary,
+lost consent/startup confirmations, refusal without signed offline proof,
+wrong/reused process, operation and boot forgery, and replacement-engine refusal.
+Actual retained-engine reopen verifies cleanup after rejected startup. Ordinary
+empty-engine resume and replacement refusal also pass. All nine operator cases
+and all 44 existing restart regressions pass.
+
+The first probes are retained, including compile diagnostics and two incorrect
+negative fixtures: cancellation needed the existing authenticated route revision
+barrier; rejected startup has no completed Raft-host report. The corrected
+fixture requires SDK-node join and actual retained-engine reopen. Broader runs
+then exposed real stack overflows in preparation and operator cancellation.
+New maintenance confirmation futures are boxed, and ordinary startup again calls
+its existing boot binder directly. The crash/disassembly audit measured an extra
+82,368-byte poll frame in the discarded combined wrapper; boxing its future had
+not removed that poll frame. The unchanged operator regression now passes alone
+and in the full cohort. Node mutation protection reuses the existing lookup and
+decoded rows. No stack, timeout, retry, startup/resource bound or assertion was
+relaxed, and no warning was suppressed.
+
+Host/admin all-target Clippy, formatting/layout, native dependency rules, docs,
+ten plan tests, the 402-case manifest and 100 reviewed source anchors pass.
+Audits match all **1,561 frozen Rust/Cargo/configuration inputs** to this source
+commit and verify retained executable/result hashes. Primary artifacts stay
+outside runtime data under `qualification/fleet-operations/`, in
+`restart-return-v7/`, `restart-return-followups-v1/` and
+`restart-return-checks-v5/`; failed probes `restart-return-v1/` through `v6/`
+remain retained. The protocol fingerprint adds `/restart-return-1`; matching
+binaries and fresh prefixes are required. Numeric markers stay at 1, without
+migration or legacy readers.
+
+These shared-host native tests use an in-process fault store. Full current-head
+CI and loaded language modes, deployed RustFS/Colima, enforced 1-vCPU/3-GiB
+resources, large-fleet freshness, TPS/p99 and soak remain unqualified. Earlier
+archive/snapshot/RPC results below belong to their stated source. The earlier
+general quorum Unavailable cause remains unproven. No throughput gain is claimed.
+
+**Next feature delivery:** M9 must verify current inventory/configuration,
+retained or retired copies, fresh matched catch-up and the actual profile, then
+own resume before capacity/slot release. It must recheck leadership after return;
+a paused voter can still become leader. Follow with the complete maintenance
+SDK/admin/CLI operation driver, stale-consent refresh, grace/rolling/second-failure
+handling and production isolation. FO-07 remains in progress until that workflow
+is usable end to end; the full fleet goal stays active.
 
 ## Guarded maintenance stop and offline confirmation
 

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "676752f592c39630ea03564c37d45bb4d00334fe",
+  "revision": "05b38d4b60972872fe50c7ad458b9330cc6fe21f",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -88,11 +88,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "38bce272de403b57f25f2a7681f49f3892a36457c8a9181800ed9c3686f24657"
+      "sha256": "451b37f88ce948d39f2dc17fb3cf6875e3b6b56334e8833637acd1bec9df74fa"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "e1f22fe302fa825480b79125cb69ddd80a95bcdca5612f78835f4e6104713aae"
+      "sha256": "1a5e65f71e220ca898584b125d0edea93605bc15478b8f9660633195434efde2"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "9442c1be04b5123a8941323a6d1f505d26fc840ee8c4b07a94ddf47729910877"
+      "sha256": "68842f7c56192f461e9907d1307cbd783ef4a6ccb8ae245094ab33667778cf39"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -160,7 +160,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "7b09e85b59bcf2cb021622dce4ed89853cf927a39dba56e6660cc5e096efa737"
+      "sha256": "90e3639685a235a3bb045f3861a0011072f7ce01612733a79b68c9d36516275b"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -168,7 +168,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_directory.rs",
-      "sha256": "687da34b37ddacbd654975ec740a680363e10436792fbe36e2e3e508679ac24d"
+      "sha256": "9b766a510d673cc34618382b59a8b0537270f06349ef9b7e578e3043b2d7cf8f"
     },
     {
       "path": "crates/cellar/durability/raft/host_drain.rs",
@@ -240,7 +240,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/operations.rs",
-      "sha256": "0b5f748156019d8c99744ffd1d2cdbb0fc04e7f17f9d4a567de5a9d26e923ea6"
+      "sha256": "dd4341279abdbeda150c2ddf443904f52e7303015bb5d3870ba2e0957eb115f4"
     },
     {
       "path": "crates/cellar/durability/raft/performance.rs",
@@ -348,7 +348,7 @@
     },
     {
       "path": "crates/cellar/node/raft_startup.rs",
-      "sha256": "654be40f39e5cf04b18e70e54d0e6f9119ec8cffc5c23eeaf6666c042838cf48"
+      "sha256": "927272616aaabcb489304c15d80828d129c3c54c4ee3e912cb75fc1974413d34"
     },
     {
       "path": "crates/cellar/sdk.rs",
@@ -403,6 +403,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "167c32ba8ccfdf8641c402f935a0a1bae9a12c3d",
-  "review_note": "Reviewed separate maintenance stop consent, receiving Node-owned live proof renewal, exact synced engine gate/deadline and signed joined offline confirmation. Exact retries reconcile lost consent/offline confirmations; no new process, capacity resume or slot release is authorized. Native stop, lifecycle, restart, operator and library checks pass at this source. Retained-engine return/resume and operator maintenance workflow remain next; deployed qualification stays open."
+  "reviewed_from_revision": "676752f592c39630ea03564c37d45bb4d00334fe",
+  "review_note": "Reviewed M8 separate return consent, signed offline parent, exclusive retained-engine claim and atomic synced fresh-boot quiescence. Startup admission stays held across failure; exact unknown confirmations retain the admitted nonce. Node boot protection shares the existing node mutation lookup. Ordinary boot retains its direct poll path; the unchanged stack regression and full operator cohort pass. Source/executable/result hashes qualify 902 distinct native cases in 913 executions. M9 verified resume, maintenance operator workflow and deployed qualification remain required."
 }

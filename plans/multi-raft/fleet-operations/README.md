@@ -4,8 +4,8 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. The current stop/offline source passes 857 distinct selected
-core/SDK cases in 864 executions, with earlier failed probes retained; deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
+with local verification. The current retained-return source passes 902 distinct selected
+core/SDK cases in 913 executions, with earlier failed probes retained; deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Explicit add, status,
@@ -42,8 +42,11 @@ The target remains quiesced in RestartPending with placement excluded and its
 disruption slot held. Separate Root stop consent now lets the receiving Node renew
 physical inventory, both-survivor quorum and matched leadership before syncing
 its exact maintenance stop guard. Actual signed joined closure can be confirmed
-offline without releasing capacity or the disruption slot. Retained-engine
-fresh-process return, verified resume, rolling execution, maintenance operator
+offline without releasing capacity or the disruption slot. M8 now admits a
+separate return intent and boots the retained engine under a fresh process,
+syncing quiescence before endpoint publication. Public and SDK writes remain
+blocked while consensus catches up. Exact unknown startup confirmation retains
+its admitted nonce. M9 verified resume, rolling execution, maintenance operator
 surfaces and resize remain delivery targets. Graceful departure now reports typed proof waiting without
 consuming a history or releasing the disruption slot. Status retains local progress
 only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
@@ -56,8 +59,8 @@ isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,
 without releasing that action's debt. Automatic failure
 classification and a production isolation provider remain unfinished. The next
-priorities are guarded lifecycle/operator workflows,
-scalable convergence and maintenance/rejoin. Unconfirmed closure keeps movement
+priorities are verified resume and the complete maintenance operator workflow,
+followed by scalable convergence, failure handling and resize. Unconfirmed closure keeps movement
 debt charged.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware

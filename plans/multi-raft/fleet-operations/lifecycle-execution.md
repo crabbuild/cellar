@@ -57,8 +57,8 @@ The target remains quiesced in RestartPending, its placement capacity excluded
 and its shared disruption slot held. Cancellation still owns a synced exact
 process Fence. Stop requires separate consent and fresh receiving-owner proof;
 readiness does not start the repair-delay clock or authorize new boot, capacity
-resume or slot release. The separate stop/join boundary follows; M8–M9 return and
-resume remain required.
+resume or slot release. The separate stop/join and M8 return boundaries follow;
+M9 verified resume remains required.
 
 ## Separate maintenance stop and joined confirmation
 
