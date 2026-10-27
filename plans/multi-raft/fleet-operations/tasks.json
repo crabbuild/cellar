@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8665f7e3590babcacb3866f9124bb41637136267",
+  "baseline_revision": "167c32ba8ccfdf8641c402f935a0a1bae9a12c3d",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3778,7 +3778,7 @@
     },
     {
       "id": "FO-07",
-      "title": "Prove restart readiness and complete node evacuation",
+      "title": "Complete maintenance, rejoin and evacuation",
       "status": "IN_PROGRESS",
       "depends_on": [
         "FO-06"

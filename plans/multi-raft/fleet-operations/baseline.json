@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "8665f7e3590babcacb3866f9124bb41637136267",
+  "revision": "167c32ba8ccfdf8641c402f935a0a1bae9a12c3d",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -12,7 +12,7 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "9ed444a72219e28ba6bf833c3d0c3a8a8ceb88f3d59506d1e5ea15cc6fd5c9bc"
+      "sha256": "e9b9b569faae8aff6ee2c98de436bbd9a9577c94d9322ee224b2f535980d26f9"
     },
     {
       "path": "Cargo.toml",
@@ -88,7 +88,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "cf1ab94ec641ed98e4ffce0e32af2b4cfac2fc6225bc179db73f653d38b51b41"
+      "sha256": "6069ded3c397eb73cd8c3b7c389b30612b1e2f1ead3519a8d146b5d9f6851755"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -108,7 +108,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "961ad97f1623dc44fed5ad84aca58f0fa1e33d76ac1d0137da0252aaa0864a60"
+      "sha256": "daf2ac0010c17a4d7301e39ba13dcb9c9fa0395b8752ace44d29f97f59f91e31"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -116,7 +116,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/archive/mod.rs",
-      "sha256": "e7b12bf2a375643ceb1816e76bb75bb2be4085bae63d8b1e6946539fae30dac9"
+      "sha256": "26d856ee83a25852188a28e06611b5fff208647687d5d788d0d35fc895804d42"
     },
     {
       "path": "crates/cellar/durability/raft/archive/replay.rs",
@@ -216,7 +216,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/manifest.rs",
-      "sha256": "fc86e382e32688f901f2d1f3d4caae3266f606612487e35c3d1ddc133954882f"
+      "sha256": "44faecf4c273fe6d430417e69d454032c9ead0fba0c114286534e1a0e10ad68c"
     },
     {
       "path": "crates/cellar/durability/raft/manifest_tests.rs",

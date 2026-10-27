@@ -14,7 +14,54 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
-## RestartReady M5 delivery
+## Current-main integration of RestartReady
+
+Source `167c32ba` integrates M5 `8665f7e3` with main `a9da48ac`, including immutable
+object-store extent snapshots and loaded-Python RPC checks. Export and Raft-guide
+conflicts preserve both fleet verification and the upstream root archive API.
+The new root archive test now captures existing namespace birth-inventory heads
+and verifies that snapshot data publication creates or changes no head. This
+preserves the data-only archive oracle while recognizing fleet birth tracking.
+
+**996 distinct current-source cases pass:** 779 library, 81 archive, 47 snapshot,
+21 rooted, 58 native fleet, seven CLI and three native typed RPC cases. The native
+fleet count includes all eight new readiness cases and 36 restart regressions.
+Two directly ignored snapshot fixtures are excluded; their parent process
+matrices pass. The third ignored entry is the isolated RustFS rooted-archive
+drill, which was not run. Loaded Python modes and full current-head CI remain
+separate qualification gates.
+
+The first library cohort had 778 passes and one failure in the unchanged 10-ms
+RPC routing timeout test: it expected a pending actor request but the channel
+was closed. That case passed in isolation and the complete 779-case confirmation
+cohort passed. Its timing cause remains unproven; the failed log is retained.
+The initial rooted cohort also retains its invalid no-existing-head assertion
+failure. No timeout, retry, stack/startup bound, resource limit or assertion was
+relaxed. The rooted fixture now compares the full before/after head inventory.
+
+Host/admin all-target Clippy, formatting/layout for 1,458 Rust files, native
+dependency rules, docs, ten plan tests and the 387-case manifest pass. The source
+audit verifies **1,552 frozen Rust/Cargo/config inputs**, executable and result
+hashes. After the rooted-test-only fix, a current-source rebuild confirms every
+other executable is byte-identical; their recorded passing results remain
+attributable to this build. The final documentation publication refreshes all
+100 reviewed preflight anchors.
+
+Artifacts remain outside runtime data under `qualification/fleet-operations/`
+in `restart-readiness-main-v1/`, `restart-readiness-main-followups-v1/`,
+`restart-readiness-main-v2/` and `restart-readiness-main-checks-v1/`.
+These shared-host native results do not qualify deployed RustFS, enforced
+1-vCPU/3-GiB resources, large-fleet readiness inside the unchanged freshness
+bound, TPS/p99 or soak. The earlier general quorum Unavailable cause remains
+unproven. No throughput improvement is claimed.
+
+The next delivery remains the complete operator maintenance workflow: M6
+guarded exact-process stop and joined closure, then M7–M9 retained-engine return
+under a fresh process, catch-up and verified capacity resume before slot release,
+with SDK/admin/CLI exposure. FO-07 remains in progress until that workflow is
+usable end to end; its title now states that scope. The full goal stays active.
+
+## RestartReady M5 delivery and first qualification
 
 Source `8665f7e3` delivers owned point-in-time RestartReady through the public
 verification SDK. `FleetRestartVerification::publish_ready` accepts only the live
