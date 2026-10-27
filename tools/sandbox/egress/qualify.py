@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,51 @@ def run(arguments, *, timeout=120):
     return subprocess.run(
         arguments, check=True, text=True, capture_output=True, timeout=timeout
     ).stdout.strip()
+
+
+def resolve_rust_image(docker, requested, local_source):
+    # BuildKit may cache a base without registering its tag in the daemon's
+    # image store. Resolve before building, then pin the captured input instead
+    # of trying to inspect a possibly absent/moved tag after successful tests.
+    descriptor = (
+        '{"id":{{json .Id}},"digests":{{json .RepoDigests}},'
+        '"os":{{json .Os}},"arch":{{json .Architecture}}}'
+    )
+    inspect = [*docker, "image", "inspect", "--format", descriptor, requested]
+    try:
+        raw = run(inspect)
+    except subprocess.CalledProcessError as error:
+        if "No such image" not in (error.stderr or ""):
+            raise
+        run([*docker, "pull", requested], timeout=600)
+        raw = run(inspect)
+    info = json.loads(raw)
+    if not re.fullmatch(r"sha256:[a-f0-9]{64}", info.get("id", "")):
+        raise RuntimeError("Rust base image omitted its immutable Engine ID")
+    if info.get("os") != "linux" or info.get("arch") not in {"amd64", "arm64"}:
+        raise RuntimeError("network qualifier currently requires a Linux amd64/arm64 Rust image")
+    digests = info.get("digests") or []
+    if not isinstance(digests, list) or any(
+        not isinstance(digest, str)
+        or not re.fullmatch(r"[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}", digest)
+        for digest in digests
+    ):
+        raise RuntimeError("Rust base image has invalid registry provenance")
+    # BuildKit treats a bare Engine ID as a registry name. RepoDigests can
+    # also describe locally built containerd images unavailable in a registry.
+    # Always build through our own alias of the exact daemon image instead.
+    return {
+        "requested": requested, "id": info["id"], "source": local_source,
+        "platform": f"linux/{info['arch']}", "digests": digests,
+    }
+
+
+def remove_owned_image_tag(docker, name):
+    try:
+        run([*docker, "image", "rm", name])
+    except subprocess.CalledProcessError as error:
+        if "No such image" not in (error.stderr or ""):
+            raise
 
 
 def toml_value(value):
@@ -177,10 +223,12 @@ def qualify(options):
     peer = f"{prefix}-peer"
     qualifier = f"{prefix}-qualifier"
     image = f"cellar-egress-qualification:{owner}"
+    local_source = f"cellar-egress-rust-input:{owner}"
     docker = ["docker", "--context", options.context]
     containers = []
     network_created = False
     image_created = False
+    local_source_attempted = False
     options.output.mkdir(parents=True, exist_ok=True)
     evidence = options.output / owner
     evidence.mkdir()
@@ -189,15 +237,22 @@ def qualify(options):
     shutil.copy2(Path(__file__).with_name("peer.mjs"), peer_source)
     try:
         native_sources = engine_inputs()
+        rust_input = resolve_rust_image(docker, options.rust_image, local_source)
+        # Record cleanup intent before the mutation, including a lost tag
+        # response. Removing our unique alias preserves the user's image.
+        local_source_attempted = True
+        run([*docker, "tag", rust_input["id"], local_source])
+        (evidence / "rust-input.json").write_text(json.dumps(rust_input, indent=2) + "\n")
         engine_test = build_engine_test(evidence)
         with tempfile.TemporaryDirectory(prefix="cellar-egress-build-") as temporary:
             context = Path(temporary)
-            source_files = prepare_context(context, options.rust_image)
+            source_files = prepare_context(context, rust_input["source"])
             source_files["tools/sandbox/egress/peer.mjs"] = hashlib.sha256(peer_source.read_bytes()).hexdigest()
             source_files.update(native_sources)
             print("Building locked native network qualifier", flush=True)
             build = subprocess.run(
-                [*docker, "build", "--label", f"cellar.qualifier={owner}",
+                [*docker, "build", "--pull=false", "--platform", rust_input["platform"],
+                 "--label", f"cellar.qualifier={owner}",
                  "-t", image, str(context)],
                 text=True, capture_output=True, timeout=600,
             )
@@ -267,7 +322,8 @@ def qualify(options):
             raise RuntimeError("native Engine qualification inputs changed during the campaign")
         report = {"campaigns": campaigns}
         report["image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", image])
-        report["rust_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.rust_image])
+        report["rust_image"] = rust_input["id"]
+        report["rust_input"] = rust_input
         report["node_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.node_image])
         report["kernel"] = run([*docker, "info", "--format", "{{.KernelVersion}}"])
         report["runtime"] = "runc"
@@ -302,6 +358,11 @@ def qualify(options):
                 run([*docker, "image", "rm", image])
             except (subprocess.SubprocessError, OSError) as error:
                 cleanup_errors.append(f"image {image}: {error}")
+        if local_source_attempted:
+            try:
+                remove_owned_image_tag(docker, local_source)
+            except (subprocess.SubprocessError, OSError) as error:
+                cleanup_errors.append(f"Rust input tag {local_source}: {error}")
         if cleanup_errors:
             detail = "Owned qualification cleanup failed: " + "; ".join(cleanup_errors)
             if error := sys.exception():

@@ -38,6 +38,12 @@ The builder uses `rust:1.98.1-bookworm`; the external peer uses
 `--node-image` when qualifying a separate environment. The native build remains
 `--locked`, and its reduced workspace must select registry versions/checksums
 from the repository lockfile.
+Before building, the runner resolves the Rust base into the daemon image store
+and captures its immutable identity and reported digests. The Dockerfile uses
+a campaign-owned alias of that exact image with pulling disabled and an explicit
+amd64/arm64 platform. Cleanup removes only that alias, preserving the original image.
+Evidence uses this captured input even when BuildKit does not retain the source
+tag in the daemon. `rust-input.json` records the selected build source.
 The host also builds the native `cellar` Engine qualification target with
 `--locked`; its target directory must belong to this checkout. No Python runtime
 or JavaScript engine is embedded in that native host test.

@@ -48,6 +48,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - name: Check qualifier image identity handling
+        run: python3 -m unittest discover -s tools/sandbox/egress -p '*_test.py'
       - name: Qualify kernel, helper, retirement and native Engine attach
         run: |
           python3 tools/sandbox/egress/qualify.py \

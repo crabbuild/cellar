@@ -376,6 +376,35 @@ backup/restore and mounts. Native immutable resource identity supports that
 integration; it does not complete provider hard fencing, physical deletion or
 the remaining SP-02–SP-10 profiles. Live E2B/Vercel configuration remains deferred.
 
+## Outbound CI image-input correction — 2026-10-27
+
+Linux run `40583157657` completed the actual kernel, helper, installer-retirement
+and native Engine campaigns, then failed while inspecting the Rust source tag
+for its final report. BuildKit had used the base without loading that tag into
+the daemon image store. The functional assertions and budgets were unchanged.
+
+The runner now resolves the base before building, pulls only after a specific
+missing-image response, and records its immutable Engine identity and platform.
+It builds through a unique owned alias with pulling disabled, then removes only
+that alias. Report generation uses the captured input. Locally built containerd
+images may also report digests that are unavailable in a registry; those inputs
+use the same alias path rather than assuming every reported digest is fetchable.
+
+| Check | Evidence |
+| --- | --- |
+| Fresh-daemon CLI boundary | Missing image triggers one pull and reinspection; unrelated daemon failures propagate |
+| Real default image | All four campaigns pass with the captured Rust image and exact native/helper source evidence |
+| Real locally built image | All four campaigns pass through the owned alias; temporary aliases and campaign resources are absent afterward |
+| Regression checks | Seven image identity/cleanup cases pass; Python compilation, documentation and whitespace checks pass |
+| Environment | Original Rust image, VM configuration checksum and Docker default context are preserved |
+| Linux follow-up | Fresh head CI remains required for the corrected runner |
+
+At preceding head `7ba5ffa1`, Linux JavaScript/Node and all four Python-example
+jobs pass. The free-threaded typed-RPC job also passes its complete campaign;
+the standard typed-RPC job and both SDK jobs are still running. This new pass
+does not establish the cause or repair of the earlier Linux free-threaded
+failure. The full provider profiles and original goal remain active.
+
 ## Verified implementation details
 
 ### Provider capability discovery
