@@ -18,8 +18,8 @@ pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
 pub use runtime::{
-    FleetRestartHistoryProgress, FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress,
-    FleetRestartVerification,
+    FleetRestartHistoryProgress, FleetRestartReadyAdmission, FleetRestartReadyRequest,
+    FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartVerification,
 };
 pub(crate) use runtime::{RestartActionContext, RestartLeadershipCommand};
 pub use settle::{

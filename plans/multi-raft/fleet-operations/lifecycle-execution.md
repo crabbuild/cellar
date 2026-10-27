@@ -29,6 +29,36 @@ operator APIs. No fleet-root read or write is added to the business write
 acknowledgement path. Archive retention limits can still constrain business
 admission during an object-store outage.
 
+## RestartReady proof and receipt boundary
+
+The SDK runtime walk can publish a point-in-time RestartReady assessment with
+`FleetRestartVerification::publish_ready`. Consume every canonical history with
+owned `reconcile_next` first. Inspection-only `verify_next` cannot substitute for
+observed surviving leadership and matched durable publication on all three
+current voters. The live walk retains the oldest actual voting sample in its
+catalog owner's monotonic clock; these clock values are never serialized. All
+samples must remain within the existing five-second envelope when the Root CAS
+is submitted. An expired walk must be repeated. Large-fleet proof latency still
+requires qualification within that unchanged bound.
+
+Publication repeats exact quiescence and complete physical inventory, rejects
+relevant Root drift and unresolved settlement, then atomically journals the
+exact human request and its candidate digest under `restart-ready/`. Generic
+catalog writes cannot create, replace or delete that reserved projection. An
+immutable candidate without a journal-confirmed readiness transition grants no
+readiness authority.
+
+`FleetCatalog::restart_readiness` recovers an exact historical receipt after a
+lost confirmation or controller restart. Changed process, principal or request
+payload refuses. Recovery checks the canonical request, committed journal, gate
+parent and immutable candidate without requiring old observations to remain
+fresh. A recovered receipt is historical evidence, never a live health lease.
+The target remains quiesced in RestartPending, its placement capacity excluded
+and its shared disruption slot held. Cancellation still owns a synced exact
+process Fence. Stop requires separate consent and fresh receiving-owner proof;
+readiness does not start the repair-delay clock or authorize new boot, capacity
+resume or slot release. These later M6–M9 boundaries remain required.
+
 ## Persist a resumable operation, not a worker's lifetime
 
 Keep the canonical request immutable. Its operation projection records phase,

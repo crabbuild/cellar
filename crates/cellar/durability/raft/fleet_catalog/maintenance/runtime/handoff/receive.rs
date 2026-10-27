@@ -125,7 +125,7 @@ impl FleetHostAuthorization {
                 return Err(FleetCatalogError::Unconfirmed);
             }
             let basis = Basis::capture(&snapshot, &action.gate)?;
-            let voting = proof::observe_voting(
+            let observed = proof::observe_voting(
                 proof::VotingContext {
                     catalog,
                     snapshot: &snapshot,
@@ -139,6 +139,8 @@ impl FleetHostAuthorization {
                 &deadline,
             )
             .await?;
+            let mut sampled = observed.sampled;
+            let voting = observed.voting;
             if voting.leader != progress.replica.member.get()
                 || voting.term != command.term
                 || voting.fixed.configuration_revision()?.get() != command.revision
@@ -216,6 +218,11 @@ impl FleetHostAuthorization {
                     {
                         return Err(FleetCatalogError::Unconfirmed);
                     }
+                    sampled = sampled.min(
+                        proof::now(catalog)?
+                            .checked_sub(observed.sample_age_ms().max(load.sample_age_ms))
+                            .ok_or(FleetCatalogError::Unconfirmed)?,
+                    );
                     Some((
                         MemberId::new(*member)
                             .map_err(|_| FleetCatalogError::Invalid("restart destination"))?,
@@ -223,7 +230,19 @@ impl FleetHostAuthorization {
                     ))
                 }
             };
-            proof::fresh(catalog, started, started)?;
+            // Translate only the remaining budget between the two local
+            // domain clocks. A cached peer sample cannot gain a new five
+            // seconds while waiting for the Raft owner to execute the action.
+            let budget = proof::budget(catalog, started, sampled)?;
+            let evidence_deadline = evidence_deadline.min(
+                gateway
+                    .handle
+                    .domain
+                    .mono_ms()
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .checked_add(budget)
+                    .ok_or(FleetCatalogError::Limit)?,
+            );
             cell.restart_leadership(
                 RestartLeadershipCheck {
                     deadline: evidence_deadline,
@@ -240,7 +259,7 @@ impl FleetHostAuthorization {
             catalog
                 .run(deadline.remaining()?, basis.check_current(catalog))
                 .await?;
-            proof::fresh(catalog, started, started)?;
+            proof::fresh(catalog, started, sampled)?;
             deadline.remaining()?;
             Ok(())
         })

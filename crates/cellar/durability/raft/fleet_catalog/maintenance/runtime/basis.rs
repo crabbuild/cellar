@@ -26,6 +26,18 @@ pub(super) struct Basis {
 }
 
 impl Basis {
+    pub fn check_gate(&self, gate: &Gate) -> Result<()> {
+        if self.operation != gate.request.operation
+            || self.parent != gate.request.id
+            || self.gate != gate.digest()?
+            || self.slot != gate.disruption
+            || self.revision <= gate.request.expected_revision
+        {
+            return Err(FleetCatalogError::Corrupt("restart candidate gate"));
+        }
+        Ok(())
+    }
+
     // A current Root may have unrelated Operations progress. Pin every input
     // that this walk actually verified, without turning revision into a lease.
     pub fn input_digest(&self) -> Result<[u8; 32]> {

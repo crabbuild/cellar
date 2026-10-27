@@ -4,6 +4,8 @@
 use super::*;
 use cellar::application::consensus::verification::FleetRestartRuntimeProgress;
 use cellar::application::consensus::InspectionError;
+#[path = "raft_restart_readiness_native.rs"]
+mod readiness;
 
 async fn consume(
     s: &Setup,

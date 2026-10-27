@@ -19,14 +19,23 @@ pub(super) fn now(catalog: &FleetCatalog) -> Result<u64> {
 }
 
 pub(super) fn fresh(catalog: &FleetCatalog, started: u64, sampled: u64) -> Result<()> {
-    if now(catalog)?
-        .checked_sub(started.min(sampled))
-        .is_none_or(|age| age > MAX_SAMPLE_AGE_MS)
-    {
-        return Err(FleetCatalogError::Unconfirmed);
-    }
-    Ok(())
+    budget(catalog, started, sampled).map(|_| ())
 }
+
+pub(super) fn budget(catalog: &FleetCatalog, started: u64, sampled: u64) -> Result<u64> {
+    sample_budget(now(catalog)?, started, sampled)
+}
+
+fn sample_budget(current: u64, started: u64, sampled: u64) -> Result<u64> {
+    current
+        .checked_sub(started.min(sampled))
+        .and_then(|age| MAX_SAMPLE_AGE_MS.checked_sub(age))
+        .ok_or(FleetCatalogError::Unconfirmed)
+}
+
+#[cfg(test)]
+#[path = "proof_tests.rs"]
+mod tests;
 
 pub(super) fn node(
     catalog: &FleetCatalog,
@@ -174,7 +183,7 @@ pub(super) async fn voting(
     expected: &BTreeMap<NodeId, MemberId>,
     latest: Option<&FleetMembershipPermit>,
     deadline: &Deadline<'_>,
-) -> Result<records::Voting> {
+) -> Result<VotingProof> {
     observe_voting(
         VotingContext {
             catalog: &verification.catalog,
@@ -199,13 +208,20 @@ pub(super) struct VotingContext<'a> {
     pub observer: &'a RaftCells,
 }
 
+/// Only the live walk retains the local-clock sample bound. It is never
+/// serialized, restored from a candidate, or interpreted as a remote lease.
+pub(super) struct VotingProof {
+    pub voting: records::Voting,
+    pub sampled: u64,
+}
+
 pub(super) async fn observe_voting(
     context: VotingContext<'_>,
     history: &FleetHistory,
     expected: &BTreeMap<NodeId, MemberId>,
     latest: Option<&FleetMembershipPermit>,
     deadline: &Deadline<'_>,
-) -> Result<records::Voting> {
+) -> Result<VotingProof> {
     let VotingContext {
         catalog,
         snapshot,
@@ -365,5 +381,8 @@ pub(super) async fn observe_voting(
         .await?;
     fresh(catalog, started, sampled)?;
     deadline.remaining()?;
-    Ok(result)
+    Ok(VotingProof {
+        voting: result,
+        sampled,
+    })
 }

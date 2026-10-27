@@ -6,6 +6,7 @@ mod basis;
 mod genesis;
 mod handoff;
 mod proof;
+mod readiness;
 mod reconcile;
 mod records;
 
@@ -20,6 +21,7 @@ use basis::Basis;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use futures_util::future::BoxFuture;
 pub(crate) use handoff::RestartLeadershipCommand;
+pub use readiness::{FleetRestartReadyAdmission, FleetRestartReadyRequest};
 pub use reconcile::FleetRestartRuntimeProgress;
 use records::{Candidate, Entry, Evidence};
 
@@ -37,6 +39,8 @@ pub struct FleetRestartVerification {
     exhausted: bool,
     // At most three idempotent attachment checks for this pending history.
     genesis_checked: std::collections::BTreeSet<NodeId>,
+    // Monotonic clock of this catalog owner only; never persisted.
+    oldest_matched_sample: Option<u64>,
 }
 
 /// Descriptive progress for the history just consumed, never a readiness lease.
@@ -164,6 +168,7 @@ impl FleetCatalog {
                 pending: None,
                 exhausted: false,
                 genesis_checked: std::collections::BTreeSet::new(),
+                oldest_matched_sample: None,
             })
         })
     }
@@ -296,6 +301,7 @@ impl FleetRestartVerification {
                     }
                 })
                 .await?;
+            let mut matched_sample = None;
             let (evidence, progress) = match history.state() {
                 FleetHistoryState::Reserved => return Err(FleetCatalogError::InventoryIncomplete),
                 FleetHistoryState::Cancelled { operation } => {
@@ -317,9 +323,10 @@ impl FleetRestartVerification {
                         {
                             return Err(FleetCatalogError::InventoryIncomplete);
                         }
-                        let mut voting =
+                        let observed =
                             proof::voting(self, &history, &voters, permit.as_ref(), &deadline)
                                 .await?;
+                        let mut voting = observed.voting;
                         if handoff {
                             if let Some(progress) =
                                 handoff::reconcile(self, &history, &voters, &voting, &deadline)
@@ -327,10 +334,11 @@ impl FleetRestartVerification {
                             {
                                 return Ok(Some(progress));
                             }
-                            proof::fresh(&catalog, started, started)?;
+                            proof::fresh(&catalog, started, observed.sampled)?;
                             voting.leadership = records::Leadership::Matched {
                                 through: voting.fixed.applied_position()?.index.get(),
                             };
+                            matched_sample = Some(observed.sampled);
                         }
                         let survivors = voters
                             .keys()
@@ -413,6 +421,12 @@ impl FleetRestartVerification {
             self.book.voting = voting;
             self.book.retained = retained;
             self.book.matched = matched;
+            if let Some(sample) = matched_sample {
+                self.oldest_matched_sample = Some(
+                    self.oldest_matched_sample
+                        .map_or(sample, |old| old.min(sample)),
+                );
+            }
             self.pending = None;
             self.genesis_checked.clear();
             Ok(Some(FleetRestartRuntimeProgress::Verified(progress)))
@@ -429,49 +443,55 @@ impl FleetRestartVerification {
         Box::pin(async move {
             let catalog = self.catalog.clone();
             let deadline = Deadline::new(&catalog, timeout)?;
-            self.next_history(deadline.remaining()?).await?;
-            if self.pending.is_some()
-                || !self.exhausted
-                || self.book.count != self.book.basis.histories
-                || self.book.covered_physical != self.inventory.histories().len() as u64
-                || self.book.matched > self.book.voting
-            {
-                return Err(FleetCatalogError::InventoryIncomplete);
-            }
-            let current = proof::physical(
-                &catalog,
-                &self.snapshot,
-                &self.book.basis,
-                &self.gate,
-                &self.observer,
-                &deadline,
-            )
-            .await?;
-            if current.digest() != self.book.physical {
-                return Err(FleetCatalogError::Conflict);
-            }
-            let digest = catalog
-                .run(deadline.remaining()?, async {
-                    self.book.basis.check_current(&catalog).await?;
-                    let bytes = encode(records::CANDIDATE_KIND, &self.book, records::LIMIT)?;
-                    let digest = hash(&bytes);
-                    catalog
-                        .inner
-                        .create_exact(
-                            &format!("restart-candidates/{}", hex::encode(digest)),
-                            &bytes,
-                            records::LIMIT,
-                        )
-                        .await?;
-                    self.book.basis.check_current(&catalog).await?;
-                    Ok(digest)
-                })
-                .await?;
-            deadline.remaining()?;
+            let digest = self.save_candidate(&deadline).await?;
             Ok(FleetRestartRuntimeCandidate {
                 digest,
                 candidate: self.book,
             })
         })
+    }
+
+    async fn save_candidate(&mut self, deadline: &Deadline<'_>) -> Result<[u8; 32]> {
+        let catalog = self.catalog.clone();
+        self.next_history(deadline.remaining()?).await?;
+        if self.pending.is_some()
+            || !self.exhausted
+            || self.book.count != self.book.basis.histories
+            || self.book.covered_physical != self.inventory.histories().len() as u64
+            || self.book.matched > self.book.voting
+        {
+            return Err(FleetCatalogError::InventoryIncomplete);
+        }
+        let current = proof::physical(
+            &catalog,
+            &self.snapshot,
+            &self.book.basis,
+            &self.gate,
+            &self.observer,
+            deadline,
+        )
+        .await?;
+        if current.digest() != self.book.physical {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let digest = catalog
+            .run(deadline.remaining()?, async {
+                self.book.basis.check_current(&catalog).await?;
+                let bytes = encode(records::CANDIDATE_KIND, &self.book, records::LIMIT)?;
+                let digest = hash(&bytes);
+                catalog
+                    .inner
+                    .create_exact(
+                        &format!("restart-candidates/{}", hex::encode(digest)),
+                        &bytes,
+                        records::LIMIT,
+                    )
+                    .await?;
+                self.book.basis.check_current(&catalog).await?;
+                Ok(digest)
+            })
+            .await?;
+        deadline.remaining()?;
+        Ok(digest)
     }
 }
