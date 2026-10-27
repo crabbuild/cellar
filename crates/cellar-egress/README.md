@@ -2,8 +2,9 @@
 
 # Container outbound transport
 
-`cellar-egress` supplies the native routing table and private byte transport for
-container outbound interception. The engine must own and join its driver.
+`cellar-egress` supplies the native routing table, private byte transport and
+dedicated Linux network helper for container outbound interception.
+The engine must own and join its driver.
 This crate alone does not enable `interceptOutboundHttp()`.
 
 ## Connection and ownership
@@ -17,9 +18,10 @@ flowchart LR
     Rules --> Worker[Generation-bound Worker route]
 ```
 
-The network helper and engine integration are the next delivery step. They must
-keep outbound sockets inside the container network fence; the host must not
-open a fallback connection on the application's behalf.
+The network helper runs and is qualified separately. Engine lifecycle and
+native Worker routing are the next integration step. Outbound sockets remain
+inside the container network fence; the host must not open a fallback connection
+on the application's behalf.
 
 | Component | Implemented contract |
 | --- | --- |
@@ -32,6 +34,7 @@ open a fallback connection on the application's behalf.
 | `docker_io` | Raw Engine stdin writes and incremental framed stdout reads without frame-sized buffers |
 | `firewall` | Validated atomic namespace-local nftables replacement, DNS/HTTP redirects and offline output policy |
 | `linux` (`helper` feature) | Kernel original destinations and marked TCP/UDP sockets; caller owns policy, limits and deadlines |
+| `helper` / `cellar-egress` binary (`helper` feature) | Real firewall installation, persistent UDP/TCP DNS, bounded intercept/fallback relays, typed direct admission and joined installer retirement over nonblocking private pipes |
 
 ## Installation and request routing
 
@@ -61,10 +64,11 @@ cancellation. A missing or incorrect acknowledgement, idle peer disconnect or
 controller drop retires routing and closes the transport. The engine still
 must stop and remove the helper and application, and join their owned work.
 
-The helper-side control loop acknowledges only after its network installer
-returns successfully. Network/firewall installation is supplied by the owning
-helper integration; the protocol cannot establish that a callback installed
-actual kernel rules.
+The generic control loop acknowledges after its installer returns. The network
+helper supplies actual nftables installation, then publishes DNS rules before
+acknowledging. Installer errors and timeouts cannot report successful readiness
+or expose an unacknowledged native route. Normal retirement kills and reaps an
+entered installer before the helper exits.
 
 ```rust
 use cellar_egress::{Host, HttpTarget, Destination, Rules};
@@ -88,7 +92,8 @@ assert_eq!(*rules.resolve(&request).unwrap(), "gateway");
 | Boundary | Limit / behavior |
 | --- | --- |
 | Interception table | 128 entries; hostname/glob/catch-all costs two, IP/CIDR costs one |
-| Live transport streams | 129 across both directions; intended allocation: 64 intercepted, 64 fallback, one control |
+| Live transport streams | 129 across both directions: 64 intercepted, 64 fallback, one control |
+| Helper connection classes | Separate 64-slot intercept and direct admission; a separate 64-slot budget shared by UDP DNS work and TCP DNS connections |
 | Pending local opens | Eight; overload refuses without waiting in an unbounded producer queue |
 | Pending installations | Eight; caller cancellation skips queued work or leaves entered work owned by the controller |
 | Yamux wire streams | 137, including eight slots for resets of recently dropped streams |
@@ -96,18 +101,38 @@ assert_eq!(*rules.resolve(&request).unwrap(), "gateway");
 | Control frames | 64 KiB, checked before allocation and before writes |
 | DNS query | 4 KiB; one ordinary question and at most one EDNS record; section counts checked before vector allocation |
 | Synthetic DNS answer | At most 512 bytes; A/AAAA only, zero TTL, no DNSSEC validation claim |
+| Forwarded DNS answer | 4 KiB and 128 records; connected upstream plus matching ID/question; malformed and foreign replies refuse |
 | Docker stdout frame | 1 MiB maximum; payload read directly into the caller's buffer |
 | Malformed Engine stream | Poison both directions; reject stderr payloads, unknown types, reserved bytes, oversized or truncated frames |
 | Run closure | Refuse buffered reads and writes immediately, even before the driver is polled again |
 
-The aggregate stream ceiling does not yet enforce the intended separate
-intercept/fallback allocations. The integration must enforce those allocations
-and bound request headers, bodies, installation waits and task shutdown.
+The helper enforces separate connection allocations and operation deadlines.
+The host integration must still bound HTTP headers/bodies, install waits and
+resource shutdown. Saturation of each helper class and the complete host
+lifecycle remain separate qualification requirements.
 The firewall program refuses HTTP registrations on port 53 or either helper
 listener port before generating an installable program. These reserved ports
 remain an explicit gap in the initial integration profile.
 
+The binary defaults to 300-second data-operation and five-second install
+deadlines, configurable through `--operation-timeout-ms` and
+`--install-timeout-ms`. Its trusted image-local `--nft-path` must be absolute;
+the installer receives a cleared environment. Application code must not select
+the executable or network configuration.
+
+Direct streams carry an explicit `Connected` or typed `Refused` reply before
+application bytes. Offline, hostname and helper-listener refusals precede socket
+creation. Initial fallback accepts kernel-observed IP destinations; hostname
+fallback remains unsupported.
+
 ## Qualification and remaining delivery
+
+Offline filtering explicitly admits redirected traffic to the proxy listeners.
+It also blocks unmarked access to Docker's privileged loopback resolver,
+including its private port. The standard DNS port alone is insufficient to
+enforce this policy; the actual-socket regression covers that bypass.
+[Docker's resolver source](https://github.com/moby/moby/blob/master/daemon/libnetwork/sandbox_dns_unix.go)
+defines its reserved loopback address.
 
 Unit tests cover target matching, rule replacement and fencing, malformed wire
 messages, stream saturation, installation cancellation and lost acknowledgements,
@@ -115,15 +140,19 @@ idle disconnects, DNS policy, half-close, retirement and fragmented Docker frame
 The README example also compiles as a documentation test. These are native
 component tests, not container-image or cloud qualification.
 
-The separate [Linux kernel campaign](../../tools/sandbox/egress/README.md) checks
+The separate [native network campaign](../../tools/sandbox/egress/README.md) checks
 actual IPv4/IPv6 TCP destination capture, UDP/TCP DNS redirects, marked bypass,
 offline refusal, inbound replies and offline/online rule replacement in an owned
-namespace. It uses a native qualifier and a protocol peer; it does not run the
-published Sandbox SDK or qualify engine startup and teardown.
+namespace. It also starts the actual network-helper binary over pipes, checks
+live rule replacement, persistent DNS TCP, forwarded-answer identity, effect-free
+fallback refusal and successful joined process exit. A fault-only installer
+wrapper verifies timeout admission and retirement during an entered installation.
+The route handler is a protocol peer; this does not run the published Sandbox
+SDK or qualify native Worker dispatch and engine teardown.
 
 | Next integration | Required evidence |
 | --- | --- |
-| Network helper | Join the qualified socket/firewall primitives, DNS listeners and bounded multiplexer in one owned helper; apply policy before acknowledging installation |
+| Network helper qualification | Per-class saturation, broader cancellation/errors, DNS options and additional kernel/runtime profiles |
 | Engine lifecycle | Helper-before-application startup, acknowledged installation, ownership loss, expiry and joined removal |
 | Native/Workers facade | Host-minted generation-bound Fetcher routes, current-run admission and no retained JavaScript event callback |
 | Published Sandbox | Unmodified helper image backup/restore and mount operations with grant replacement and cleanup |

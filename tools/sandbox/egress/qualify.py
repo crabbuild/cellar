@@ -71,15 +71,25 @@ def prepare_context(destination, rust_image):
         }
     if not registry(subset) <= registry(original):
         raise RuntimeError("qualification build changed locked registry inputs")
+    cache = hashlib.sha256(str(ROOT).encode()).hexdigest()[:16]
     (destination / "Dockerfile").write_text(
         f"FROM {rust_image}\n"
         "RUN apt-get update && apt-get install -y --no-install-recommends nftables "
         "&& rm -rf /var/lib/apt/lists/*\n"
         "WORKDIR /src\nCOPY . .\n"
         "ENV CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2\n"
-        "RUN cargo build -p cellar-egress --example network-qualification "
-        "--features helper --locked\n"
-        'ENTRYPOINT ["/src/target/debug/examples/network-qualification"]\n'
+        f"RUN --mount=type=cache,id=cellar-egress-{cache}-registry,target=/usr/local/cargo/registry,sharing=locked "
+        f"--mount=type=cache,id=cellar-egress-{cache}-target,target=/src/target,sharing=locked "
+        "find crates/cellar-egress -name '*.rs' -exec touch {} + "
+        "&& cargo build -p cellar-egress --examples --bin cellar-egress "
+        "--features helper --locked "
+        "&& mkdir -p /opt/cellar-egress/bin/examples "
+        "&& cp target/debug/cellar-egress /opt/cellar-egress/bin/ "
+        "&& cp target/debug/examples/network-qualification "
+        "target/debug/examples/helper-qualification "
+        "target/debug/examples/helper-retirement-qualification "
+        "/opt/cellar-egress/bin/examples/\n"
+        'ENTRYPOINT ["/opt/cellar-egress/bin/examples/network-qualification"]\n'
     )
     return {
         str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -124,6 +134,7 @@ def qualify(options):
         peer_id = run([
             *docker, "create", "--name", peer, "--label", f"cellar.qualifier={owner}",
             "--network", network, "--cap-drop", "ALL", "--memory", "64m",
+            "--network-alias", "cellar-egress-peer",
             "--pids-limit", "64", "--entrypoint", "node", options.node_image, "/peer.mjs",
         ])
         containers.append(peer_id)
@@ -144,26 +155,35 @@ def qualify(options):
         # Inspect only this owned peer; no daemon inventory or user environments.
         peer_ip = run([*docker, "inspect", "--format",
                        "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", peer_id])
-        qualifier_id = run([
-            *docker, "create", "--name", qualifier, "--label", f"cellar.qualifier={owner}",
-            "--network", network, "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
-            "--sysctl", "net.ipv4.ip_unprivileged_port_start=0",
-            "--sysctl", "net.ipv6.conf.all.disable_ipv6=0",
-            "--sysctl", "net.ipv6.conf.lo.disable_ipv6=0",
-            "--memory", "256m", "--pids-limit", "128", image, f"{peer_ip}:9080",
-        ])
-        containers.append(qualifier_id)
-        print("Checking kernel redirects, marked bypass and offline replacement", flush=True)
-        observed = subprocess.run(
-            [*docker, "start", "-a", qualifier_id],
-            text=True, capture_output=True, timeout=45,
-        )
-        (evidence / "runtime.log").write_text(observed.stdout + observed.stderr)
-        observed.check_returncode()
-        exit_code = run([*docker, "inspect", "--format", "{{.State.ExitCode}}", qualifier_id])
-        if exit_code != "0":
-            raise RuntimeError(f"network qualifier exited {exit_code}; see {evidence}")
-        report = json.loads(observed.stdout)
+        campaigns = {}
+        for name, executable in [
+            ("kernel", "network-qualification"), ("helper", "helper-qualification"),
+            ("retirement", "helper-retirement-qualification"),
+        ]:
+            qualifier_id = run([
+                *docker, "create", "--name", f"{qualifier}-{name}",
+                "--label", f"cellar.qualifier={owner}",
+                "--network", network, "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
+                "--sysctl", "net.ipv4.ip_unprivileged_port_start=0",
+                "--sysctl", "net.ipv6.conf.all.disable_ipv6=0",
+                "--sysctl", "net.ipv6.conf.lo.disable_ipv6=0",
+                "--memory", "256m", "--pids-limit", "128",
+                "--entrypoint", f"/opt/cellar-egress/bin/examples/{executable}",
+                image, f"{peer_ip}:9080",
+            ])
+            containers.append(qualifier_id)
+            print(f"Checking actual {name} network boundary", flush=True)
+            observed = subprocess.run(
+                [*docker, "start", "-a", qualifier_id],
+                text=True, capture_output=True, timeout=45,
+            )
+            (evidence / f"{name}.log").write_text(observed.stdout + observed.stderr)
+            observed.check_returncode()
+            exit_code = run([*docker, "inspect", "--format", "{{.State.ExitCode}}", qualifier_id])
+            if exit_code != "0":
+                raise RuntimeError(f"{name} qualifier exited {exit_code}; see {evidence}")
+            campaigns[name] = json.loads(observed.stdout)
+        report = {"campaigns": campaigns}
         report["image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", image])
         report["rust_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.rust_image])
         report["node_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.node_image])

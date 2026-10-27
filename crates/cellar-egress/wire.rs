@@ -54,6 +54,33 @@ pub enum Control {
     },
 }
 
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectRefusal {
+    InternetDisabled,
+    UnsupportedHost,
+    ReservedDestination,
+    ConnectFailed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DirectReply {
+    Connected,
+    Refused { reason: DirectRefusal },
+}
+
+pub async fn write_direct_reply(
+    io: &mut (impl AsyncWrite + Unpin),
+    value: &DirectReply,
+) -> Result<()> {
+    write_encoded(io, &encode(value)?).await
+}
+
+pub async fn read_direct_reply(io: &mut (impl AsyncRead + Unpin)) -> Result<DirectReply> {
+    read(io).await
+}
+
 impl Control {
     fn validate(&self) -> Result<()> {
         let revision = match self {

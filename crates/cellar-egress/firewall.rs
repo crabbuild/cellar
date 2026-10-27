@@ -62,6 +62,15 @@ impl Program {
             .collect::<Vec<_>>()
             .join(", ");
         let policy = if internet { "accept" } else { "drop" };
+        // Docker's privileged resolver also listens on a private loopback
+        // port. Blocking only port 53 leaves that socket usable by a tenant
+        // that discovers it through /proc/net. Marked helper DNS remains
+        // allowed; ordinary DNS queries were already redirected to our proxy.
+        let docker_dns_guard = if internet {
+            ""
+        } else {
+            "    ip daddr 127.0.0.11 drop\n"
+        };
         // add is idempotent; flush and the replacement are in the same -f
         // transaction. Never flush unrelated tables or Docker's own chains.
         let source = format!(
@@ -78,6 +87,10 @@ table inet {TABLE} {{
   chain outbound_fence {{
     type filter hook output priority 0; policy {policy};
     meta mark {SOCKET_MARK:#x} accept
+{docker_dns_guard}    ip daddr 127.0.0.1 tcp dport {{ {http_port}, {dns_port} }} ct status dnat accept
+    ip daddr 127.0.0.1 udp dport {dns_port} ct status dnat accept
+    ip6 daddr ::1 tcp dport {{ {http_port}, {dns_port} }} ct status dnat accept
+    ip6 daddr ::1 udp dport {dns_port} ct status dnat accept
     oifname "lo" accept
     ct state established,related accept
   }}

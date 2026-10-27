@@ -126,6 +126,82 @@ mod qualification {
         Ok(())
     }
 
+    async fn remote_redirect(peer: SocketAddr) -> Result<()> {
+        let destination = SocketAddr::new(peer.ip(), 80);
+        let proxy = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, HTTP)).await?;
+        // A non-loopback destination selects the namespace's real source IP
+        // before output NAT. Do not assume loopback-only probes cover this path.
+        let mut client =
+            tokio::time::timeout(Duration::from_secs(2), TcpStream::connect(destination))
+                .await
+                .context("offline remote redirect did not connect")??;
+        let (mut accepted, _) = tokio::time::timeout(Duration::from_secs(2), proxy.accept())
+            .await
+            .context("remote redirect did not reach proxy")??;
+        ensure!(linux::original_destination(&accepted)? == destination);
+        client.write_all(b"remote").await?;
+        let mut bytes = [0; 6];
+        accepted.read_exact(&mut bytes).await?;
+        ensure!(&bytes == b"remote");
+        accepted.write_all(b"captured").await?;
+        let mut bytes = [0; 8];
+        client.read_exact(&mut bytes).await?;
+        ensure!(&bytes == b"captured");
+        Ok(())
+    }
+
+    async fn docker_dns_bypass(peer: SocketAddr) -> Result<()> {
+        let sockets = std::fs::read_to_string("/proc/net/udp")?;
+        let mut ports = Vec::new();
+        for line in sockets.lines().skip(1) {
+            let Some(local) = line.split_whitespace().nth(1) else {
+                continue;
+            };
+            let Some((address, port)) = local.split_once(':') else {
+                continue;
+            };
+            let address = u32::from_str_radix(address, 16)?;
+            if std::net::Ipv4Addr::from(address.to_ne_bytes())
+                == std::net::Ipv4Addr::new(127, 0, 0, 11)
+            {
+                ports.push(u16::from_str_radix(port, 16)?);
+            }
+        }
+        ensure!(
+            ports.len() == 1,
+            "Docker embedded DNS socket was not identified"
+        );
+        let destination = SocketAddr::new("127.0.0.11".parse()?, ports[0]);
+        let mut query = Message::new(21169, MessageType::Query, OpCode::Query);
+        query.queries.push(Query::query(
+            Name::from_ascii("cellar-egress-peer.")?,
+            RecordType::A,
+        ));
+        let question = query.to_vec()?;
+        let marked = linux::dns_socket(destination).await?;
+        marked.send(&question).await?;
+        let mut bytes = [0; dns::MAX_MESSAGE_BYTES + 1];
+        let length = tokio::time::timeout(Duration::from_secs(2), marked.recv(&mut bytes))
+            .await
+            .context("Docker DNS observer timed out")??;
+        dns::validate_response(&question, &bytes[..length])?;
+        let answer = Message::from_vec(&bytes[..length])?;
+        ensure!(answer.answers.iter().any(|record| matches!(&record.data, hickory_proto::rr::RData::A(address) if std::net::IpAddr::V4(address.0) == peer.ip())), "Docker DNS observer did not resolve the owned peer");
+        let client = UdpSocket::bind("127.0.0.1:0").await?;
+        match client.send_to(&question, destination).await {
+            Ok(length) => ensure!(length == question.len(), "short Docker DNS query"),
+            Err(error) if error.raw_os_error() == Some(nix::libc::EPERM) => return Ok(()),
+            Err(error) => return Err(error).context("unexpected unmarked Docker DNS send failure"),
+        }
+        ensure!(
+            tokio::time::timeout(Duration::from_millis(150), client.recv(&mut bytes))
+                .await
+                .is_err(),
+            "offline application bypassed DNS policy through Docker's embedded socket"
+        );
+        Ok(())
+    }
+
     async fn external_fence(peer: SocketAddr) -> Result<()> {
         // Verify the peer is live before using an unmarked failure as evidence.
         let listener = TcpListener::bind("0.0.0.0:9091").await?;
@@ -168,6 +244,7 @@ mod qualification {
 
     pub async fn run(peer: SocketAddr) -> Result<()> {
         apply(false).await?;
+        docker_dns_bypass(peer).await?;
         tcp_redirect(
             "127.0.0.2:80".parse()?,
             format!("127.0.0.1:{HTTP}").parse()?,
@@ -184,6 +261,7 @@ mod qualification {
         udp_dns("[::1]:53".parse()?, format!("[::1]:{DNS}").parse()?).await?;
         tcp_redirect("127.0.0.2:53".parse()?, format!("127.0.0.1:{DNS}").parse()?).await?;
         tcp_redirect("[::1]:53".parse()?, format!("[::1]:{DNS}").parse()?).await?;
+        remote_redirect(peer).await?;
         external_fence(peer).await?;
         Ok(())
     }
@@ -202,7 +280,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(async {
         tokio::time::timeout(std::time::Duration::from_secs(30), qualification::run(peer)).await
     })??;
-    std::io::stdout().write_all(b"{\"tcp_original_destination\":\"ipv4_ipv6\",\"dns_udp_redirect\":\"ipv4_ipv6\",\"dns_tcp_redirect\":\"ipv4_ipv6\",\"marked_bypass\":true,\"offline_fence\":true,\"ingress_reply\":true,\"atomic_replacement\":true}\n")?;
+    std::io::stdout().write_all(b"{\"tcp_original_destination\":\"ipv4_ipv6\",\"remote_ipv4_redirect\":true,\"docker_dns_bypass_refused\":true,\"dns_udp_redirect\":\"ipv4_ipv6\",\"dns_tcp_redirect\":\"ipv4_ipv6\",\"marked_bypass\":true,\"offline_fence\":true,\"ingress_reply\":true,\"atomic_replacement\":true}\n")?;
     Ok(())
 }
 

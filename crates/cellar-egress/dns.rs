@@ -27,6 +27,56 @@ pub enum Disposition {
     Drop,
 }
 
+/// Validate an upstream answer before returning its bytes to the application.
+/// The connected marked socket supplies peer identity; this check supplies
+/// message identity and bounds section allocations before parsing records.
+pub fn validate_response(request: &[u8], response: &[u8]) -> Result<()> {
+    ensure!(
+        request.len() <= MAX_MESSAGE_BYTES && response.len() <= MAX_MESSAGE_BYTES,
+        "DNS message exceeds limit"
+    );
+    let mut input = BinDecoder::new(request);
+    let header = Header::read(&mut input)?;
+    ensure!(
+        header.metadata.message_type == MessageType::Query
+            && header.metadata.op_code == OpCode::Query
+            && !header.metadata.truncation,
+        "unsupported DNS request operation"
+    );
+    ensure!(
+        header.counts.queries == 1
+            && header.counts.answers == 0
+            && header.counts.authorities == 0
+            && header.counts.additionals <= 1,
+        "unsupported DNS request shape"
+    );
+    let mut input = BinDecoder::new(request);
+    let request = Message::read(&mut input)?;
+    ensure!(input.is_empty(), "trailing DNS request bytes");
+    let mut output = BinDecoder::new(response);
+    let header = Header::read(&mut output)?;
+    let records = usize::from(header.counts.answers)
+        + usize::from(header.counts.authorities)
+        + usize::from(header.counts.additionals);
+    ensure!(
+        header.counts.queries == 1 && records <= 128,
+        "DNS response record limit"
+    );
+    ensure!(
+        header.metadata.message_type == MessageType::Response
+            && header.metadata.op_code == OpCode::Query
+            && header.metadata.id == request.metadata.id,
+        "DNS response identity mismatch"
+    );
+    let mut output = BinDecoder::new(response);
+    let response = Message::read(&mut output)?;
+    ensure!(
+        output.is_empty() && response.queries == request.queries,
+        "DNS response question mismatch"
+    );
+    Ok(())
+}
+
 /// Decode a single ordinary query, answer only granted A/AAAA names, and leave
 /// other queries to the run's explicit internet policy. Synthetic records have
 /// zero TTL so a later run or rule change does not inherit a cached grant.

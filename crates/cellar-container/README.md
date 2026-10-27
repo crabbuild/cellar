@@ -318,9 +318,10 @@ See the [native exec contract](../../docs/09-integrations.md#apis-in-each-langua
 The optional [R2 backup gateway subset](../../packages/cellar-cloudflare/r2.md)
 adds native resumable object storage for published gateway operations; complete
 helper backup/restore and outbound interception remain separate delivery work.
-The native [outbound transport](../cellar-egress/README.md) now supplies bounded
-streams, acknowledged rule installation and DNS policy. Connecting it to the
-Linux network helper and engine lifecycle remains the next integration step.
+The native [outbound transport and network helper](../cellar-egress/README.md)
+now supply bounded streams, acknowledged firewall rules, persistent DNS and
+joined process retirement. Engine lifecycle and native Worker routing remain
+the next integration step.
 
 
 ## Understand lifetime and failure outcomes

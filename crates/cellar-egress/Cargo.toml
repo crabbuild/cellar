@@ -15,6 +15,21 @@ path = "lib.rs"
 default = []
 helper = ["dep:nix", "tokio/net", "tokio/process", "tokio/rt", "tokio/time"]
 
+[[bin]]
+name = "cellar-egress"
+path = "helper_main.rs"
+required-features = ["helper"]
+
+[[example]]
+name = "helper-qualification"
+path = "examples/helper_qualification.rs"
+required-features = ["helper"]
+
+[[example]]
+name = "helper-retirement-qualification"
+path = "examples/helper_retirement_qualification.rs"
+required-features = ["helper"]
+
 [[example]]
 name = "network-qualification"
 path = "examples/network_qualification.rs"

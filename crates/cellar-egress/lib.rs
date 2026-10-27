@@ -16,6 +16,8 @@ pub mod dns;
 pub mod docker_io;
 pub mod firewall;
 #[cfg(all(feature = "helper", target_os = "linux"))]
+pub mod helper;
+#[cfg(all(feature = "helper", target_os = "linux"))]
 pub mod linux;
 mod rules;
 mod target;

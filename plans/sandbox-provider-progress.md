@@ -245,6 +245,45 @@ public interception capability or establish published helper backup/restore,
 mount, TLS or cloud compatibility. SP-07 and the original provider goal remain
 partial.
 
+## Owned Linux network-helper process — 2026-10-27
+
+The optional `cellar-egress` binary now joins the native transport, real firewall
+installation, DNS policy and connection relays in one dedicated process. It uses
+nonblocking owned stdin/stdout pipe descriptors, independent 64-slot
+intercept/direct limits and a separate 64-slot DNS budget. No detached Rust
+tasks are spawned. Engine lifecycle and native Worker dispatch are still pending;
+the public interception capability remains unavailable.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Actual process and control | The production binary starts over private pipes, applies actual nftables rules before readiness/installation acknowledgement, and exits successfully after joined retirement |
+| DNS | UDP A/AAAA, persistent TCP observing later registrations, forwarded-answer identity, exercised forged-ID refusal and malformed-query isolation |
+| Relay and replacement | Native protocol-peer HTTP bytes use the current committed handler across two requests on one live connection; marked direct fallback remains in the namespace |
+| Pre-effect refusal | Typed offline, hostname and reserved-listener refusals; the external peer's connection and request counters prove no upstream effect |
+| Installer faults | A fault-only wrapper stalls startup or an entered update; readiness/unacknowledged routes refuse, and timeout/retirement kills and reaps the tracked installer PID before process exit |
+| Current local tests | 34 unit tests plus one documentation example pass; Linux aarch64 all-target checks and strict all-target/all-feature Clippy pass |
+
+Broader kernel checks found two defects missed by loopback-only probes.
+An offline connection to a non-loopback HTTP destination timed out at the
+unchanged outer budget, while the same redirect succeeded with online policy.
+The fence now explicitly admits DNATed traffic to the proxy listeners. A
+separate pre-fix regression resolved the owned peer through Docker's private
+loopback DNS socket, bypassing the port-53 redirect. Offline policy now drops
+that unmarked access before the loopback/established allowances; marked helper
+access remains available. The negative probe accepts only timeout or the
+specific kernel `EPERM` send refusal, and requires a live marked DNS control.
+
+Both regressions and the kernel/helper/retirement campaigns pass after the fixes.
+The native protocol route peer does not replace the published SDK for positive
+Sandbox qualification: no full Worker routing, engine startup/ownership teardown,
+Sandbox backup/restore, mount or cloud claim follows from these tests. Per-class
+saturation and additional kernel/runtime profiles also remain open.
+
+The [network qualification guide](../tools/sandbox/egress/README.md) records the
+three reproducible campaigns and source/image evidence. Build caches are scoped
+to this checkout; the crate is recompiled from the captured source snapshot.
+The full SP-02–SP-10 requirements and original goal remain active.
+
 ## Verified implementation details
 
 ### Provider capability discovery

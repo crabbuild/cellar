@@ -4,6 +4,38 @@ use super::*;
 use crate::HttpTarget;
 use hickory_proto::{op::Query, rr::Name};
 
+#[test]
+fn upstream_responses_require_matching_identity_and_bounded_record_counts() -> Result<()> {
+    let query = question("backup.internal", RecordType::A);
+    let request = query.to_vec()?;
+    let mut reply = Message::response(query.metadata.id, OpCode::Query);
+    reply.queries = query.queries.clone();
+    // A truncated UDP reply must remain available for the client's TCP retry.
+    reply.metadata.truncation = true;
+    validate_response(&request, &reply.to_vec()?)?;
+    let mut foreign = reply.clone();
+    foreign.metadata.id += 1;
+    assert!(validate_response(&request, &foreign.to_vec()?).is_err());
+    let mut foreign = reply.clone();
+    foreign.queries = question("other.internal", RecordType::A).queries;
+    assert!(validate_response(&request, &foreign.to_vec()?).is_err());
+    let mut foreign = reply.clone();
+    foreign.metadata.message_type = MessageType::Query;
+    assert!(validate_response(&request, &foreign.to_vec()?).is_err());
+    let mut hostile = reply.to_vec()?;
+    hostile[6..8].copy_from_slice(&u16::MAX.to_be_bytes());
+    assert!(validate_response(&request, &hostile).is_err());
+    assert!(validate_response(&request, &vec![0; MAX_MESSAGE_BYTES + 1]).is_err());
+    let valid = reply.to_vec()?;
+    for length in 0..valid.len() {
+        assert!(validate_response(&request, &valid[..length]).is_err());
+    }
+    let mut trailing = valid;
+    trailing.push(0);
+    assert!(validate_response(&request, &trailing).is_err());
+    Ok(())
+}
+
 fn question(host: &str, kind: RecordType) -> Message {
     let mut query = Message::new(0x8a3f, MessageType::Query, OpCode::Query);
     query.metadata.recursion_desired = true;
