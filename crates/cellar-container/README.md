@@ -7,7 +7,7 @@ The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
 [Quick start](#quick-start) · [Provider matrix](compatibility.md) · [Capabilities](#discover-capabilities) ·
-[Lifecycle](#two-lifecycle-interfaces) · [Files](files.md) · [Add a provider](#add-a-provider) ·
+[Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](supervision.md) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [HTTP streams](streams.md) · [Wire reference](#bridge-protocol-version-1)
 
 ## Native containers, this adapter, or Workers?
@@ -43,6 +43,11 @@ Hosts can also declare [named provider slots](bindings.md#select-a-host-declared
 All four language paths share their operations and discovery. Use
 `ctx.containers.get("builds")` in Python/JS/TS; `ctx.container` retains the default.
 Selection never falls back to a different provider when a slot is missing.
+
+For remote resources that outlive requests, enable
+[host-managed cleanup](supervision.md). Native internal work observes the original
+resource and retires it at its configured maximum/idle deadline, independently
+of application alarms. E2B and Vercel supply optional maintenance backends.
 
 For durable remote resources, all four language facades expose
 [`reconcile()`](bindings.md#reconcile-from-a-later-invocation): recover a matching
@@ -293,7 +298,8 @@ retirement of the previous resource:
 This supports host-controlled E2B/Vercel replacement without clearing cell state.
 Changing a provider does not resolve a lost outcome or revoke work already
 accepted remotely. Keep the original configuration available until cleanup is
-confirmed. Background orphan cleanup and remote fencing remain separate work.
+confirmed. Optional [native supervision](supervision.md) schedules expiry and
+cleanup; live owner-loss qualification and remote fencing remain separate work.
 
 ![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](diagram/control-call.svg)
 

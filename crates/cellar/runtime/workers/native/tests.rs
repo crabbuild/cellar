@@ -526,7 +526,7 @@ async fn source_recovery_retains_unavailable_application_alarms_without_consumin
                 )?;
             }
             let mut worker =
-                NativeWorker::new(crate::runtime::source_recovery::configuration(1, "test"))?;
+                NativeWorker::new(crate::runtime::source_recovery::configuration(1, "test", None))?;
             let ordinary = directory.path().join("ordinary.sqlite");
             {
                 let c = rusqlite::Connection::open(&ordinary)?;
@@ -611,6 +611,101 @@ async fn source_recovery_retains_unavailable_application_alarms_without_consumin
                 assert!(storage::get_alarm(scope).is_some());
             }
             worker.own_cell(scope, None)?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
+async fn source_recovery_admits_provider_only_cleanup_and_refuses_retired_only_cells() -> Result<()>
+{
+    use crate::application::containers::{
+        BindingIntent, BindingObservation, BindingRecord, MaintenancePolicy,
+    };
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let scope = "Removed:provider";
+            let directory = tempfile::tempdir()?;
+            let path = directory.path().join("cell.sqlite");
+            let cells = storage::Cells::default();
+            let checkpoint = {
+                let _installed = cells.install();
+                storage::open_at_epoch(scope, path.to_str().unwrap(), 1, false, None, false)?;
+                assert!(!storage::outbox::retained_source(scope)?);
+                storage::set_alarm(scope, 9000)?;
+                let checkpoint = storage::container_bindings::compare_exchange(
+                    scope,
+                    "container",
+                    None,
+                    1,
+                    BindingRecord {
+                        provider: "fixture".into(),
+                        configuration_digest: "a".repeat(64),
+                        parameters_digest: "b".repeat(64),
+                        generation: 1,
+                        request_id: "c".repeat(32),
+                        resource_id: None,
+                        intent: BindingIntent::Running,
+                        observation: BindingObservation::Pending,
+                    },
+                    Some(MaintenancePolicy {
+                        inspect_interval_ms: 100,
+                        maximum_lifetime_ms: 1000,
+                        attempt_timeout_ms: 1000,
+                        idle_timeout_ms: None,
+                    }),
+                    1000,
+                )?;
+                storage::close(scope);
+                checkpoint
+            };
+            let mut worker = NativeWorker::new(crate::runtime::source_recovery::configuration(
+                1, "test", None,
+            ))?;
+            worker.own_cell(
+                scope,
+                Some(CellStorage {
+                    path: path.to_str().unwrap(),
+                    epoch: 2,
+                    replicated_wake: false,
+                    vfs: None,
+                }),
+            )?;
+            {
+                let _installed = worker.cells.install();
+                assert_eq!(storage::get_alarm(scope), Some(9000));
+                assert_eq!(storage::container_maintenance::list(scope)?.len(), 1);
+                // The fixture never submitted a create; retirement is locally proven.
+                let mut retired = checkpoint.record;
+                retired.intent = BindingIntent::Deleted;
+                retired.observation = BindingObservation::Confirmed;
+                storage::container_bindings::compare_exchange(
+                    scope,
+                    "container",
+                    Some(checkpoint.revision),
+                    2,
+                    retired,
+                    None,
+                    2000,
+                )?;
+            }
+            worker.own_cell(scope, None)?;
+            assert!(worker
+                .own_cell(
+                    scope,
+                    Some(CellStorage {
+                        path: path.to_str().unwrap(),
+                        epoch: 3,
+                        replicated_wake: false,
+                        vfs: None,
+                    })
+                )
+                .is_err());
+            let _installed = worker.cells.install();
+            assert!(storage::activation_epoch(scope).is_none());
             Ok::<_, anyhow::Error>(())
         })
         .await;

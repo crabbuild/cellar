@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Notify},
     task::JoinHandle,
 };
 
@@ -62,6 +62,9 @@ pub struct State {
     redirect_target: String,
     /// 1 truncated, 2 compressed, 3 oversized output, 4 endless stream.
     pub command_fault: AtomicUsize,
+    pub hold_command: AtomicBool,
+    pub command_entered: Notify,
+    pub command_release: Notify,
     pub streams: Arc<AtomicUsize>,
     pub requests: Mutex<Vec<(String, String)>>,
     sandboxes: Mutex<HashMap<String, Value>>,
@@ -376,6 +379,10 @@ impl State {
                         .mode = mode;
                     send.send(end(0))?;
                 } else {
+                    if self.hold_command.swap(false, Ordering::SeqCst) {
+                        self.command_entered.notify_one();
+                        self.command_release.notified().await;
+                    }
                     send.send(frame(&json!({"event":{"data":{"stdout":"AP8q"}}}), false))?;
                     send.send(frame(
                         &json!({"event":{"data":{"stderr":STANDARD.encode(b"diagnostic")}}}),

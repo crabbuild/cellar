@@ -185,6 +185,66 @@ impl BindingJournal {
         crate::storage::container_bindings::load(scope, &self.name)
     }
 
+    fn check_running_generation(&self, context: &Context, generation: u64) -> Result<()> {
+        let checkpoint = self.load(context)?;
+        ensure!(
+            checkpoint.as_ref().is_some_and(|checkpoint| {
+                checkpoint.record.generation == generation
+                    && checkpoint.record.intent == BindingIntent::Running
+                    && checkpoint.record.observation == BindingObservation::Confirmed
+            }),
+            "provider binding changed during operation; outcome may be unknown"
+        );
+        Ok(())
+    }
+
+    /// A successful application interaction may extend idle retention, never
+    /// the original maximum lifetime. Provider polling must not call this.
+    /// Publication requires the same confirmed running generation before and
+    /// after durability. A failure after provider work does not prove rollback.
+    pub fn activity(&self, context: &Context, generation: u64) -> HandlerFuture<()> {
+        let prepared = (|| {
+            self.check_running_generation(context, generation)?;
+            let scope = self.check(context)?;
+            let changed = crate::storage::container_maintenance::activity(
+                scope,
+                &self.name,
+                generation,
+                crate::asyncrt::wall_ms().max(0),
+            )?;
+            if changed {
+                super::container_supervision::controller::publish(context)?;
+            }
+            changed
+                .then(|| context.storage().map(|storage| storage.sync()))
+                .transpose()
+        })();
+        let journal = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            if let Some(flush) = prepared? {
+                flush.await?;
+            }
+            journal.check_running_generation(&context, generation)?;
+            Ok(())
+        })
+    }
+
+    /// Refuse new application work after a supervised retention deadline.
+    /// Reconciliation and explicit destruction remain available.
+    pub fn check_retention(&self, context: &Context) -> Result<()> {
+        let scope = self.check(context)?;
+        if let Some(task) = crate::storage::container_maintenance::list(scope)?
+            .into_iter()
+            .find(|task| task.binding == self.name.as_ref())
+        {
+            if task.deadline()? <= crate::asyncrt::wall_ms().max(task.logical_ms) {
+                return Err(super::container_supervision::RetentionExpired.into());
+            }
+        }
+        Ok(())
+    }
+
     /// Atomically replace the expected revision and await its required durability
     /// proof before returning. An error after the write can leave a retained
     /// pending intent. A successful return does not grant remote fencing.
@@ -201,8 +261,15 @@ impl BindingJournal {
                 &self.name,
                 expected,
                 context.identity().unwrap().epoch,
-                record,
+                record.clone(),
+                context
+                    .container_supervision
+                    .as_ref()
+                    .and_then(|registry| registry.find(&self.name, &record))
+                    .map(|registration| registration.policy),
+                crate::asyncrt::wall_ms().max(0),
             )?;
+            super::container_supervision::controller::publish(context)?;
             Ok::<_, anyhow::Error>((checkpoint, context.storage()?.sync()))
         })();
         let journal = self.clone();

@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Notify},
     task::JoinHandle,
 };
 
@@ -62,6 +62,9 @@ pub struct State {
     pub changed_session: AtomicBool,
     pub redirect: AtomicBool,
     pub command_fault: AtomicUsize,
+    pub hold_command: AtomicBool,
+    pub command_entered: Notify,
+    pub command_release: Notify,
     pub lost_stdin: AtomicBool,
     pub streams: Arc<AtomicUsize>,
     pub requests: Mutex<Vec<(String, String)>>,
@@ -388,6 +391,10 @@ impl State {
                 let mut info = process.info;
                 info["exitCode"] = json!(0);
                 frames.push(line(&json!({"command":info})));
+                if self.hold_command.swap(false, Ordering::SeqCst) {
+                    self.command_entered.notify_one();
+                    self.command_release.notified().await;
+                }
                 for bytes in frames {
                     process.send.send(bytes)?;
                 }

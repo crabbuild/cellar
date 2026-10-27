@@ -28,6 +28,16 @@ class Counter:
         assert not capabilities.queued_lifecycle and not capabilities.synchronous_running
         path = "/tmp/é-?.bin"
 
+        if request.path.endswith("/expired"):
+            for slot in (container, backup):
+                try:
+                    await slot.exec_output(["child-exit"], max_bytes=64)
+                except SDKError as error:
+                    assert error.code == "ResourceExpired"
+                    assert error.outcome == "not_committed"
+                else:
+                    raise AssertionError("expired resource admitted a command")
+            return Response("ok")
         if request.path.endswith("/destroy"):
             await container.destroy()
             assert not await container.running()

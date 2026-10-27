@@ -72,6 +72,20 @@ export class Counter {
     );
     const path = "/tmp/é-?.bin";
 
+    if (request.url.endsWith("/expired")) {
+      for (const slot of [container, backup]) {
+        let refused = false;
+        try {
+          await slot.execOutput({ cmd: ["child-exit"] }, 64);
+        } catch (error) {
+          check(error.code === "ResourceExpired", "typed resource expiry");
+          check(error.outcome === "not_committed", "expiry precedes command");
+          refused = true;
+        }
+        check(refused, "expired resource must refuse a command");
+      }
+      return ok();
+    }
     if (request.url.endsWith("/destroy")) {
       await container.destroy();
       check(!(await container.running()), "destroyed");

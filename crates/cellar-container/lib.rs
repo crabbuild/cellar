@@ -256,6 +256,12 @@ pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send 
 /// Host-selected backend. Credentials and backend selection never come from guests.
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
+    /// Optional host-owned lifecycle backend, separate from event sessions.
+    /// Registration does not create or contact remote compute.
+    fn maintenance_backend(&self) -> Option<Arc<dyn cellar::sdk::containers::MaintenanceBackend>> {
+        None
+    }
+
     fn name(&self) -> &str;
 
     /// Host-configured durable slot identity. Named registration requires an

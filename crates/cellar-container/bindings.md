@@ -9,8 +9,9 @@ identity and intent before submitting work, including when a response is lost.
 `cellar::sdk::containers::BindingJournal` stores those records in reserved cell
 SQLite tables. It is a host API; guest KV/SQL cannot forge or erase its records.
 
-This is the persistence contract for remote providers. It does not install a
-cloud backend, schedule orphan cleanup or supply remote fencing by itself.
+This is the persistence contract for remote providers. Add explicit host
+[supervision](supervision.md) for scheduled expiry and cleanup. The journal
+alone does not schedule work or supply remote fencing.
 
 ## Select a host-declared provider slot
 
@@ -54,8 +55,8 @@ Rust callers open `bindings.sessions()` once per event and select with
 default slot first, then additional slots in name order. Provider limits apply
 per slot; discovery itself must fit the host's response byte limit.
 
-These declarations select configured execution providers. They do not add native
-engine instances, automatic provider failover or a background cleanup controller.
+These declarations select configured execution providers. Register their
+[maintenance backends](supervision.md) separately to enable scheduled cleanup.
 
 ## Reconcile from a later invocation
 
@@ -95,8 +96,9 @@ An empty listing or a 404 for an unconfirmed create cannot authorize a new
 allocation. Pending deletion stays pending while the resource is visible, even
 after a successful DELETE acknowledgement. Reconciliation checks that evidence
 without repeating the DELETE. Use `destroy()` explicitly to request cleanup.
-This event-driven API does not install a background orphan sweeper or strengthen
-the configured provider's fencing guarantee.
+This event-driven API does not enable scheduled maintenance by itself.
+[Host supervision](supervision.md) can inspect and retire the same records;
+the provider's fencing guarantee remains unchanged.
 
 ## Record and checkpoint
 

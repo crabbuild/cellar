@@ -199,7 +199,7 @@ qualification remains open.
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
 | 1 — qualification | Cold-first-call investigation and remaining failure/cancellation/timeouts | The module/image campaigns pass at their original limits, but earlier 250 ms module and 2 s heartbeat failures are not established fixed. RPC error-size, container PID and firewall-cache OOM failures now have specific fixes and differential evidence |
-| 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer failure qualification | Explicit reconciliation, named slots and replacement after confirmed retirement now work through the shared boundary. Background controllers still need host-owned authority, completion fencing and recoverable cleanup |
+| 2 — feature delivery | Fleet restart, source removal and ownership-transfer failure qualification | Opt-in host-managed expiry/cleanup now uses durable native internal work, fresh event authority and generation/version checks. Running-node E2B/Vercel peers pass expiry, lost responses and temporary backend loss; unattended fleet recovery and takeover faults still need qualification |
 | 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice has independent SDK/helper inputs and native-image evidence; remaining APIs require explicit operation/version and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local

@@ -17,7 +17,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language per-slot discovery and named host configuration; bounded binary files; protected revisioned journals across business clear/recovery; explicit event-driven reconnect/expiry/deletion observations, confirmed-retirement provider replacement and independent named E2B/Vercel resources in native/runtime peers | Richer operations, remote fencing, supervised expiry/orphan cleanup, provider loss/takeover and live failure qualification |
+| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority in running-node peers | Richer operations, remote fencing, unattended fleet restart/source-removal/takeover faults and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
 | SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec streams and actual published Files operations execute against the matching helper, including cross-event binary files, handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
@@ -42,7 +42,7 @@ independent of the optional Workers runtime.
 | Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
-| 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer faults | Host-owned controllers, completion fencing and recoverable cleanup; never retain an application Context as perpetual authority |
+| Delivered native slice; fleet faults next | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable native deadlines and task generation/version checks pass running-node expiry, lost responses and backend loss. Unattended fleet restart, source removal and takeover remain unqualified |
 | Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; Node process streams, actual file operations, bounded native handles and original-event authority |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
@@ -1742,3 +1742,52 @@ heartbeat or cold 250 ms module failures are fixed. The Homebrew Node 26 package
 path, full Linux/native-host CI, supervised cleanup, ownership takeover and full
 1.x/provider/release profiles remain open. Live E2B/Vercel still awaits user
 configuration; these provider integrations use local protocol peers.
+
+## Host-managed retained-provider maintenance
+
+The optional [native supervision contract](../crates/cellar-container/supervision.md)
+registers host-owned backends independently from invocation-owned provider
+sessions. E2B and Vercel implement this contract below the language adapters.
+The host remains independent of `cellar-container` and JavaScript engines.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Durable reservation | Binding, immutable generation policy and internal deadline share one SQLite savepoint before external creation |
+| Scheduling | Existing `resource-reconciliation` work and native wake projection; no application-alarm takeover |
+| Authority | Fresh finite native events, output proof before effects, exact checkpoint checks and bounded attempts |
+| Retention | Maximum lifetime from reservation; optional idle deadline from successful command/file interactions; polling and late completions cannot renew expiry |
+| Replacement | Old task completion/activity cannot update a replacement generation |
+| Late command/file results | Require the original confirmed running generation before and after activity durability; replacement or retirement refuses publication with uncertain effects |
+| Cleanup | Verified original provider/configuration/resource; uncertain creates are never replayed; uncertain deletes default to inspection |
+| Backend loss | Keep the obligation and back off without dispatching a substitute configuration |
+| Recovery | Protected records survive business clear and SQLite reopen; unaged unmanaged reservations become immediately due when adopted |
+
+The first native integration run failed before business clear with SQLite
+authorization code 23. Maintenance savepoint control now uses the existing
+framework transaction authorization, while application SQL restrictions remain
+installed. This failure was not addressed by relaxing storage authorization.
+
+| Current evidence | Result |
+| --- | --- |
+| Provider/guest campaign | 34 container cases and 17 guest cases pass, including the five existing provider integrations |
+| Running-node supervision | Five cases pass for both peers: unattended expiry after business clear, lost create/delete responses, backend loss/return, default inspection after uncertain deletion and refusal of a late command result after replacement |
+| Safety assertions | No create replay, preserved user alarm/generation, typed expiry before dispatch, confirmed retirement, replacement remains usable after refusing an old result, and fully drained shutdown |
+| Binding/maintenance storage | Nine cases pass: atomic failure rollback, private rows, unsupported/corrupt layouts, immutable expiry, stale task/activity rejection, business clear and reopen |
+| Language paths | Four Node/V8 provider cases and two standalone CPython executables pass with both named bindings refusing expired commands before effects; two TypeScript checks and one packaged-facade smoke test pass |
+| Recovery admission | Provider-only retained cells are admitted without event-source identity; retired-only cells refuse without leaking a resident connection. Existing unavailable-application alarms retain their uncounted retries |
+| Host runtime and scheduler | 16 native worker cases and eight internal-work cases pass on the final build, including wrong/closed domains, rollback, clock reversal, stale installations and user-alarm preservation |
+| Native dependency guard | 466 reachable packages with all native features; no JavaScript engine |
+| Quality | Strict all-target lint for core/container/guest plus Node/V8 and embedded Python passes; 1,213-source Rust format/layout, 102-source JS format, docs/links and the native dependency guard pass |
+
+The publication check initially moved a missing-binding refusal ahead of
+provider-specific command validation. The unchanged E2B acceptance fixture
+caught this regression. Admission now preserves validation order, and requires
+the captured generation only when publishing a successful provider result.
+
+This qualifies retained-resource obligations on a running native node using
+local protocol peers. It does not establish live-account behavior, provider-side
+fencing or unattended fleet startup. A standalone node without replication does
+not automatically rediscover untouched cells on cold boot. Fleet recovery,
+removed-class cleanup, ownership-transfer faults, physical cell deletion and
+provider outages need their own acceptance evidence. E2B/Vercel live tests remain
+deferred until configuration is supplied; full SP-05/SP-06 and SP-10 stay partial.

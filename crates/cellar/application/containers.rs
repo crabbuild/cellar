@@ -7,6 +7,10 @@ pub use super::container_bindings::{
     BindingCheckpoint, BindingIntent, BindingJournal, BindingObservation, BindingRecord,
     MAX_BINDINGS, MAX_BINDING_BYTES,
 };
+pub use super::container_supervision::{
+    supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
+    MaintenancePolicy, RetentionExpired, Supervision,
+};
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
