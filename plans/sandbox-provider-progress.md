@@ -17,8 +17,8 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority in running-node peers | Richer operations, remote fencing, unattended fleet restart/source-removal/takeover faults and live failure qualification |
-| SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
+| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry and handoff | Richer operations, provider/store outages, partitions, physical cell deletion, remote fencing and live failure qualification |
+| SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
 | SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec streams and actual published Files operations execute against the matching helper, including cross-event binary files, handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
@@ -42,7 +42,7 @@ independent of the optional Workers runtime.
 | Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
-| Delivered native slice; fleet faults next | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable native deadlines and task generation/version checks pass running-node expiry, lost responses and backend loss. Unattended fleet restart, source removal and takeover remain unqualified |
+| Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks pass running-node cases plus cold native fleet restart, removed classes, accepted-create owner expiry and handoff. Outages, partitions, physical deletion and remote fencing remain open |
 | Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; Node process streams, actual file operations, bounded native handles and original-event authority |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
@@ -1784,10 +1784,52 @@ provider-specific command validation. The unchanged E2B acceptance fixture
 caught this regression. Admission now preserves validation order, and requires
 the captured generation only when publishing a successful provider result.
 
-This qualifies retained-resource obligations on a running native node using
-local protocol peers. It does not establish live-account behavior, provider-side
-fencing or unattended fleet startup. A standalone node without replication does
-not automatically rediscover untouched cells on cold boot. Fleet recovery,
-removed-class cleanup, ownership-transfer faults, physical cell deletion and
-provider outages need their own acceptance evidence. E2B/Vercel live tests remain
-deferred until configuration is supplied; full SP-05/SP-06 and SP-10 stay partial.
+This campaign qualified retained-resource obligations on a running native node
+using local protocol peers. It did not establish unattended fleet startup; the
+following campaign adds that evidence for selected native recovery paths.
+Live-account behavior and provider-side fencing remain unqualified. A standalone
+node without replication does not automatically rediscover untouched cells on
+cold boot. Full SP-05/SP-06 and SP-10 stay partial.
+
+## Fleet recovery and owner-expiry qualification
+
+The [fleet acceptance fixture](../crates/cellar-container/tests/supervision_fleet.rs)
+uses real native replication, wake discovery, ownership, node logs and output
+proofs over a private local object store. Replacement nodes start in fresh
+directories, excluding local cell SQLite and owner-log caches. It calls the
+actual E2B/Vercel adapters through local protocol peers; those peers do not run
+cloud VMs or establish live-account behavior.
+
+| Scenario, repeated for both providers | Required evidence |
+| --- | --- |
+| Same-name cold restart | Retire the original generation before any application, operator or cell-state request |
+| Removed class after a lost create reply | Recover the original pending request, discover and retire its resource without calling the application or cell factory |
+| Accepted create during owner suspension | Hold the reply after allocation; suspend the core for 2.5 seconds against a 1-second lease; require `NodeLeaseExpired`, a closed domain and no successful HTTP response; a fresh successor retires the pending generation |
+| Live handoff and cold verification | After cleanup, transfer ownership to an already running receiver with no local cell files; read the same retirement record, business value and user alarm |
+| Effect and lifetime checks | Exactly one create and one delete; no mutation replay; same original request identity for restart/class removal; shutdown joins ingress, application work, cells and local durability without timeout |
+
+The first verification fixture used `Preserve` before starting a differently
+named verifier. That mode intentionally retains ownership for a same-name
+restart. Replacing it with `Handoff` without a live receiver then failed the
+drain assertion. Starting the receiving node before handoff follows the native
+shutdown contract and passes the original assertions and deadlines. These were
+fixture lifecycle corrections, not production fixes or relaxed safety checks.
+
+| Current campaign | Result |
+| --- | --- |
+| Container tests | All 37 pass: 24 library, five existing provider integrations, five running-node supervision cases and three fleet cases (six new provider scenarios) |
+| Fleet shutdown | Preserve and handoff report drained ingress/cells/application work, no pending events/dispatches, quiesced log, closed local durability and no timeout; preserve also prepares clean reload |
+| Strict lint | Container all-target Clippy passes; existing vendored Raft lifetime warnings remain |
+| Repository checks | 1,214-source Rust format/layout, docs/816 local references and the 466-package native dependency guard pass |
+
+The earlier 90-check campaign remains the language/storage/scheduler evidence;
+this campaign reruns the affected container suite and adds three fleet tests.
+No full image campaign or live provider account was rerun for this test-only
+slice. Provider/object-store outages, network partitions, physical cell deletion
+and provider-enforced fencing remain open. E2B/Vercel live tests still await the
+user's configuration; full SP-05/SP-06 and SP-10 are partial.
+
+The previous PR head's Linux JavaScript job also timed out on `/wake` in the
+published Container sleep/wake fixture, after its provider and Worker checks
+passed. That five-second lifecycle failure remains under investigation; the
+fleet results above do not resolve or supersede it.

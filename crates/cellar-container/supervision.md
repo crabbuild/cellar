@@ -119,14 +119,24 @@ protocol implementations. It does not strengthen their
 `local_checks_and_expiry` fencing declaration. A submitted remote command can
 continue during ownership loss, timeout or deletion.
 
-Durable tasks use native wake projection and recovery. SQLite reopen tests and
-running-node cleanup tests cover persistence and scheduling separately. A
-standalone node without replication does not automatically discover all untouched
-cells on cold startup; unattended restart/ownership-transfer qualification needs
-the fleet recovery harness. Removed application classes use the native recovery
-executor when their original backend remains registered.
+Durable tasks use native wake projection and recovery. The fleet acceptance
+fixture uses actual native replication, wake discovery, ownership and node logs
+over a private local object store, with fresh node directories.
+
+| Fleet scenario | Verified boundary |
+| --- | --- |
+| Same-name cold restart | Retire the original generation before any application/operator request |
+| Removed application class and lost create response | Reconcile the original request and retire it without a business invocation or cell factory |
+| Accepted create during owner suspension | A 2.5-second suspension exceeds the 1-second lease; the old domain fences without success and the successor cleans the pending resource |
+| Handoff and cold verification | A live receiver reads the same retirement record, business data and user alarm after native ownership transfer |
+
+Each scenario runs against both E2B and Vercel protocol peers and asserts one
+create, one delete and joined node shutdown. Provider effects execute through
+the real adapters. These peers do not execute cloud VMs or prove account behavior.
+A standalone node without replication still cannot automatically discover all
+untouched cells on cold startup.
 
 Native Docker/Podman keeps its existing engine lifecycle and cleanup path.
-Live E2B/Vercel accounts, provider outages, two-owner faults and complete fleet
-restart qualification remain outstanding. See the
+Live E2B/Vercel accounts, provider/object-store outages, network partitions,
+physical cell deletion and stronger remote fencing remain outstanding. See the
 [delivery ledger](../../plans/sandbox-provider-progress.md) for current evidence.

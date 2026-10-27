@@ -54,6 +54,9 @@ pub struct State {
     pub deletes: AtomicUsize,
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
+    pub hold_create: AtomicBool,
+    pub create_entered: Notify,
+    pub create_release: Notify,
     pub lost_delete: AtomicBool,
     pub defer_delete: AtomicBool,
     pub hide_list: AtomicBool,
@@ -249,6 +252,10 @@ impl State {
                 let id = format!("box-{n}");
                 let value = json!({"sandboxID":id,"metadata":input["metadata"],"state":"running","envdVersion":"0.6.4","envdAccessToken":format!("envd-{id}"),"domain":"e2b.app"});
                 self.sandboxes.lock().unwrap().insert(id, value.clone());
+                if self.hold_create.swap(false, Ordering::SeqCst) {
+                    self.create_entered.notify_one();
+                    self.create_release.notified().await;
+                }
                 if self.lost_create.swap(false, Ordering::SeqCst) {
                     return Ok(response(503, b"lost response after allocation".to_vec()));
                 }

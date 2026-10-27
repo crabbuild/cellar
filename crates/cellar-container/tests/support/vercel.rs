@@ -54,6 +54,9 @@ pub struct State {
     pub deletes: AtomicUsize,
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
+    pub hold_create: AtomicBool,
+    pub create_entered: Notify,
+    pub create_release: Notify,
     pub lost_delete: AtomicBool,
     pub defer_delete: AtomicBool,
     pub unknown_status: AtomicBool,
@@ -249,6 +252,10 @@ impl State {
                 .unwrap()
                 .insert(name, info.clone())
                 .is_none());
+            if self.hold_create.swap(false, Ordering::SeqCst) {
+                self.create_entered.notify_one();
+                self.create_release.notified().await;
+            }
             if self.lost_create.swap(false, Ordering::SeqCst) {
                 return Ok(reply(503, b"lost response after allocation".to_vec()));
             }

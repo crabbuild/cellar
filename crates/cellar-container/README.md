@@ -299,7 +299,9 @@ This supports host-controlled E2B/Vercel replacement without clearing cell state
 Changing a provider does not resolve a lost outcome or revoke work already
 accepted remotely. Keep the original configuration available until cleanup is
 confirmed. Optional [native supervision](supervision.md) schedules expiry and
-cleanup; live owner-loss qualification and remote fencing remain separate work.
+cleanup. Selected cold-restart, removed-class and owner-expiry paths pass native
+fleet tests with protocol peers. Live-account qualification, wider fault cases
+and remote fencing remain separate work.
 
 ![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](diagram/control-call.svg)
 
