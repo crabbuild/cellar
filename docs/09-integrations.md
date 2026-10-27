@@ -178,7 +178,8 @@ mutation; issue control operations sequentially.
 Native exec signalling requires `/bin/sh` in the image. A private prelude captures
 its container namespace PID before replacing the shell with the literal command;
 arguments never enter shell source. The prelude is removed from stdout, and the
-shell's builtin delivers subsequent signals. Commands must name a nonempty
+shell's builtin delivers subsequent signals. In these images, executable lookup
+failures report a nonzero process exit status. Commands must name a nonempty
 executable without a leading hyphen (use an explicit path for such filenames).
 Images without `/bin/sh` retain direct exec, but process signalling refuses an
 unverified PID. Docker's daemon PID is never used inside the container.

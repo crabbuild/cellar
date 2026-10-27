@@ -39,6 +39,13 @@ class Workspace extends DurableObject {
     await container.setInactivityTimeout(60_000);
     const route = new URL(request.url).pathname;
     if (route === "/write") {
+      const unavailable = await container.exec(["/cellar-missing-executable"]);
+      const missingCommand = await unavailable.output();
+      check(
+        missingCommand.exitCode === 127 &&
+          missingCommand.stdout.byteLength === 0,
+        "shell-backed executable lookup failure",
+      );
       const process = await container.exec([
         "node",
         "-e",

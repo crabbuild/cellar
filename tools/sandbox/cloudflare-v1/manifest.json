@@ -12,7 +12,7 @@
   "base_image": "node@sha256:85a395c77b811fa7f5b5e4aa69cd6eb4c3b80c7f1a8e34704dc0ce061e5b404e",
   "lock_sha256": "b22a9dd0b471db2cd2d09bfdf6eb904a14229e7b8dd0078a02aaaaf083eef20a",
   "files": {
-    "fixture.mjs": "ef603d7e18c29ce325d849ee8683874535a21b059150a9f1a246d1783c485705",
+    "fixture.mjs": "b70fe28748f3bac031805fea2919335fb88da2819ff0e82d5e6a382b55332700",
     "Dockerfile": "6eb6fe23679f6aba1d394ad33e02785702ed7660a9306f8249eba2b201d24aa6",
     "node_modules/@cloudflare/sandbox/dist/index.mjs": "98862d6f071f19c2e5b1c57a1aea2578ebc3e40e0bcc2a5c5be13726ae669541",
     "node_modules/@cloudflare/sandbox/LICENSE": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
