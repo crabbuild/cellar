@@ -5,13 +5,15 @@
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
-use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
+use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[path = "support/image_provider.rs"]
 mod image_provider;
+#[path = "support/joined_node.rs"]
+mod joined_node;
 #[path = "support/native.rs"]
 mod native;
 
@@ -35,7 +37,7 @@ fn published_sandbox_v1_files_use_matching_helper_and_owned_native_exec() -> Res
             "Workspace",
             [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
         );
-    NodeRuntime::run(
+    joined_node::run(
         Options {
             max_body_bytes: 64 * 1024,
             max_operations: 2048,
