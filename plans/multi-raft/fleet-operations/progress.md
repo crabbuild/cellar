@@ -7,13 +7,80 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
-isolation, verified maintenance resume, its operator workflow and resize remain
-unfinished. Graceful
+isolation, the complete maintenance operator workflow and resize remain
+unfinished. Verified intact-return resume now closes the SDK capacity/slot boundary. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Verified maintenance resume M9 SDK delivery
+
+Source `aab046e5` closes the intact-return SDK path from stop through capacity
+restoration. A live paged walk checks the exact returned boot, complete current
+inventory, actual profile and settled RF3. All current voters must be matched at
+the serialized leader. A paused returned voter that regained leadership receives
+an owned handoff; its history remains pending until surviving leadership is
+observed. No retired membership is recreated and retained occupancy stays charged.
+
+Separate resume consent carries intent only. The receiving Node independently
+renews current physical/quorum/profile proof before its engine consumes the exact
+synced quiescence and an owner-clock evidence deadline. Only then do reversible
+public/SDK gates open. Root remains RestartPending, capacity excluded and the
+slot held. A fresh Resumed-phase walk and one Root CAS install Active, its matching
+capacity row and terminal completion, releasing only the original slot. Relevant
+Root drift requires fresh same-scope consent; drift after physical reopening
+retains exclusion and the slot until renewed completion. Exact historical journal
+readers reconcile lost consent/completion confirmations without restoring samples.
+
+**914 distinct selected current-source cases pass in 929 passing executions:**
+785 library, 84 native fleet, 13 catalog, 25 membership-permit and seven CLI cases.
+Nine new native resume cases cover intact primary/follower return, SQL continuity,
+capacity/slot release and another maintenance admission, missing voter, stale live
+evidence, receiving renewal after consent expiry, Root drift before/after opening,
+lost confirmations, forged scope/projections and regained leadership. Ten actual
+engine lifecycle cases and the third-voter matched/active check pass. Focused
+engine/owner, preparation/operator and dispatch isolation runs repeat within the
+distinct counts. All 44 existing restart regressions and nine operator cases pass.
+
+The initial current-source library cohort passed 784 and failed the unchanged
+10-ms dispatch-timeout test when its expected actor request was absent. That case
+passed in isolation and the full 785-case confirmation passed without changing
+source, assertions or bounds. Its cause remains unproven. Earlier resume probes
+are retained: a duplicated terminal Node/selector exceeded the existing 4-KiB
+record limit; the corrected terminal fact binds the separate canonical Node by
+digest and derives the intent selector from existing scope fields. Strict negative
+fixtures now use the actual serialized state name and disjoint namespace-import
+request IDs. No timeout, retry, stack, startup/resource bound or assertion was
+relaxed, and no warning was suppressed.
+
+Host/admin all-target Clippy, format/layout, native dependency rules, docs, ten
+plan tests, the 414-case manifest and source preflight with 100 reviewed input anchors
+pass. Audits bind all **1,572 frozen repository Rust/Cargo/configuration inputs**
+to the source commit and verify executable/result hashes. Primary artifacts stay
+outside runtime data in `qualification/fleet-operations/restart-resume-v3/`,
+`restart-resume-regressions-v2/` and `restart-resume-checks-v1/`. The failed initial
+library log remains in `restart-resume-regressions-v1/`; earlier probes and the
+prior-source engine probe are retained separately. The protocol fingerprint adds
+`/restart-resume-1`, with numeric markers still 1 and matching binaries/fresh
+prefixes required. No migration or legacy reader is added.
+
+These are shared-host native fault-store tests. Full CI and loaded language modes,
+deployed RustFS/Colima, enforced 1-vCPU/3-GiB limits, large-fleet verification within
+the freshness envelope, TPS/p99 and soak remain unqualified. Empty/retired returned
+node qualification and repair after grace are distinct from this tested intact
+path. Earlier broad archive/snapshot/RPC results belong to their stated source;
+the general intermittent quorum Unavailable cause also remains unproven. No
+throughput gain is claimed.
+
+**Next feature delivery:** complete the maintenance operation driver across
+SDK/admin/CLI, durable progress and in-place stale stop-consent refresh. Then
+deliver grace expiry, rolling operations, subsequent-process/second-failure recovery
+and production failure classification/isolation. Follow with workload balancing,
+desired capacity/resize and scalable convergence. FO-07 stays in progress until
+its complete operator workflow and failure policy are delivered; the full fleet
+goal remains active.
 
 ## Retained-engine return M8 delivery
 

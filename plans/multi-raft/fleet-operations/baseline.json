@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "05b38d4b60972872fe50c7ad458b9330cc6fe21f",
+  "revision": "aab046e598d4f1efde0759afed6bb5b4f42b70c6",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -44,7 +44,7 @@
     },
     {
       "path": "crates/cellar-admin/nodes.rs",
-      "sha256": "509d1d7ab1c0dfae11231f38661868f49a870f4964524440b8506678163ed442"
+      "sha256": "c04a74095f83cd72385c3b8c6a82648595363fa2f2bb5406f74926b01a59f7cc"
     },
     {
       "path": "crates/cellar-admin/tests/console.rs",
@@ -88,11 +88,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "451b37f88ce948d39f2dc17fb3cf6875e3b6b56334e8833637acd1bec9df74fa"
+      "sha256": "f404cca640e4eb4dcd8e4ae89b667decb2bab207b30cf2385ee51965f8d80003"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
-      "sha256": "1a5e65f71e220ca898584b125d0edea93605bc15478b8f9660633195434efde2"
+      "sha256": "6b72c24290a37bfadd63a1091d4807e64613060b671aa49d273791d418acad67"
     },
     {
       "path": "crates/cellar/application/consensus/resources.rs",
@@ -144,7 +144,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/completion.rs",
-      "sha256": "8a6b3de77499ed180d8c099c03e99adcc47cfa8ccb0f998bb452fd90617d4c46"
+      "sha256": "dabc6523ead7ab646e64e7d73ae2559eeb0eea2bca8c49b3c943db42abd15936"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -264,7 +264,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/replica_leadership.rs",
-      "sha256": "5ccdd69bedd33d22ea84d8057313fd4bbed4e2bf194fa011afdae534554fca0f"
+      "sha256": "94985914170448648959f2189362909a30a104504509b6132d075f884e5b14cb"
     },
     {
       "path": "crates/cellar/durability/raft/runtime.rs",
@@ -403,6 +403,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "676752f592c39630ea03564c37d45bb4d00334fe",
-  "review_note": "Reviewed M8 separate return consent, signed offline parent, exclusive retained-engine claim and atomic synced fresh-boot quiescence. Startup admission stays held across failure; exact unknown confirmations retain the admitted nonce. Node boot protection shares the existing node mutation lookup. Ordinary boot retains its direct poll path; the unchanged stack regression and full operator cohort pass. Source/executable/result hashes qualify 902 distinct native cases in 913 executions. M9 verified resume, maintenance operator workflow and deployed qualification remain required."
+  "reviewed_from_revision": "05b38d4b60972872fe50c7ad458b9330cc6fe21f",
+  "review_note": "Reviewed M9 current returned-boot inventory/profile verification, all-current-voter matched proof and owned handoff after regained leadership, separate consent, exact synced quiescence consumption and fresh terminal capacity/slot release. Canonical compact records preserve the existing 4-KiB limit. Same-scope consent renewal handles Root drift before/after physical opening. All 1,572 frozen repository Rust/Cargo/configuration inputs match source; 914 distinct selected current-source cases pass in 929 passing executions. A retained first library run failed the unchanged 10-ms dispatch test; isolation and full confirmation pass without source changes, cause unproven. The maintenance operation driver, stop-consent refresh, empty/retired return qualification, grace/rolling/second-failure policy and deployed density remain required."
 }
