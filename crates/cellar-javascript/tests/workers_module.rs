@@ -455,7 +455,9 @@ async fn lifecycle_round(
     application: Arc<cellar_javascript::JavaScriptApplication>,
     previous_cycles: u64,
 ) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    // The published class declares port 8080. Linux reaches its inspected IP
+    // directly, so a random listener only worked with macOS port mappings.
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     // Model a process which handles SIGTERM and exits successfully. Other peer
     // users retain the default signal behavior; no production hook is replaced.
     peer.engine
@@ -473,7 +475,11 @@ async fn lifecycle_round(
         .build()?;
     let result = async {
         for cycle in previous_cycles + 1..=previous_cycles + 2 {
-            let response = client.get(format!("{address}/wake")).send().await?;
+            let response = client
+                .get(format!("{address}/wake"))
+                .send()
+                .await
+                .with_context(|| format!("published container wake cycle {cycle}"))?;
             let status = response.status();
             let body = response.text().await?;
             ensure!(

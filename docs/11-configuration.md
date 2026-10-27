@@ -189,7 +189,7 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_STATELESS_ISOLATES` | Stateless worker count; CLI defaults to available parallelism |
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
 | `CELLAR_MAX_OUTBOUND_RPC_REQUESTS` / `CELLAR_MAX_OUTBOUND_RPC_BYTES` | Host SDK submission count / length-weighted byte allowance; defaults 128 / 268435456 |
-| `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / input capacity allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / shared input and reply payload allowance; defaults 128 / 268435456 |
 | `CELLAR_MAX_INBOUND_RPC_TUNNELS` / `CELLAR_MAX_RPC_TUNNELS_PER_PEER` | Receiving RPC tunnel count across the host / per verified peer; defaults 256 / 64 |
 | `CELLAR_RPC_TUNNEL_IDLE_MS` | Receiving RPC upgrade/idle/ready-reply write budget; default 30000; valid 1..=4294967295 |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |
