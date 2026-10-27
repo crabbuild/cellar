@@ -353,6 +353,10 @@
     {
       "path": "tools/perf/raft_topology.py",
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
+    },
+    {
+      "path": "crates/cellar-admin/tests/console.rs",
+      "sha256": "e71c9ee30041af1e2473e77570852db682fcb7d0db2f7418c2538ebfb23fa569"
     }
   ],
   "reviewed_from_revision": "900a677fb6481a259d1e24073d9dc1aacf785507",

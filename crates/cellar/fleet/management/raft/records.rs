@@ -213,7 +213,7 @@ pub(super) fn catalog_id(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn revision(value: u64) -> Result<()> {
+pub(super) fn revision(value: u64) -> Result<()> {
     if value == 0 || value >= u64::MAX - 2 {
         Err(RaftFleetFailure::invalid("invalid expected revision"))
     } else {

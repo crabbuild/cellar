@@ -21,6 +21,9 @@ pub enum Permission {
     Configure,
     FleetTopology,
     FleetCancel,
+    FleetRegister,
+    /// Trusted deployment authority for explicit node resource attestations.
+    FleetCapacity,
 }
 
 #[derive(Clone)]

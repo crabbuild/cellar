@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods)]
 //! Human operator commands use authenticated management, not bucket listing.
 mod http;
+mod nodes;
 mod options;
 use crate::sdk::fleet_operations::*;
 use serde_json::{json, Value};
@@ -37,6 +38,13 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::NodeStatus(node) => {
+            nodes::status(&client, options.catalog_id.as_deref(), node, timeout).await
+        }
+        Action::NodeRegister(request) => nodes::register(&client, request).await,
+        Action::NodeCapacity(node, request, activate) => {
+            nodes::capacity(&client, node, request, *activate).await
+        }
         Action::Status => {
             let view = client
                 .get::<RaftFleetStatus>("status", None, None, timeout)

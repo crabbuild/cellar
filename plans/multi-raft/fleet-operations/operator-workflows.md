@@ -12,8 +12,8 @@ The fleet and all namespaces must already be enrolled, target nodes must already
 have eligible capacity, and an explicitly started node-owned topology service
 must have trusted deployment resource inputs. The API can accept durable intent
 while that service is unavailable; admission does not promise immediate progress.
-No node add/activate/stop/remove or infrastructure provisioner is hidden in these
-commands. Keep sets contain 4–64 unique nodes under the current RF3 policy.
+Node registration/activation uses the separate workflow below; stop/remove and
+infrastructure provisioners are not hidden in these placement commands. Keep sets contain 4–64 unique nodes under the current RF3 policy.
 
 Set `CELLAR_ADMIN_URL` to the dashboard origin and provide a bearer token through
 `CELLAR_ADMIN_TOKEN` or `--token-file`. Keep credentials out of command history.
@@ -92,11 +92,112 @@ the observed phase and terminal/converged flags; errors carry a typed `code`,
 5 unavailable or unknown result, and 6 wait timeout. Mutations are never retried
 automatically; exact caller retries are reconciled against the catalog.
 
+## Delivered add-capacity workflow
+
+The SDK, admin API and CLI expose explicit registration, qualification and
+activation. `fleet_register` authorizes a deployment descriptor;
+`fleet_capacity` separately trusts the operator to attest actual platform limits.
+Neither `operate`, `configure`, `fleet_topology` nor either new grant implies the
+other. Use a separately granted `fleet_topology` principal for redistribution.
+Human authentication supplies the principal; JSON cannot choose it.
+
+The embedding server configures a running enrolled observer explicitly:
+
+```rust,ignore
+let control = control.with_node_observer(running_raft_cells.clone());
+let client = fleet_client.with_raft_fleet(control);
+```
+
+This starts no node, transport or controller. The standalone dashboard's
+existing-root configuration has no observer: registration and status work,
+while qualification/activation return `unsupported` without a catalog mutation.
+A platform provider remains a separate integration. Capacity evidence is an
+explicit trusted deployment attestation, not a measured claim by this adapter.
+The catalog owns its independent authenticated live probe and full inventory
+checks; caller-supplied observation JSON cannot replace them.
+
+1. Read `fleet status` and retain `CATALOG` and `REVISION`. Write `node.json` with
+   nonzero lowercase hexadecimal `node_id`, `disk_id`, `physical_host` (32 digits),
+   a `label`, TLS `server_name`, `capability_digest` (64 digits) and
+   `storage_instance` (`null` for a new engine, or an explicitly known engine ID).
+   Use the original application's declared namespace capabilities. Registration
+   reserves identity but grants neither votes nor quantified placement capacity.
+
+   ```sh
+   cellar raft fleet nodes add --fleet F --catalog-id "$CATALOG" \
+     --descriptor node.json --operation-id "$REGISTER_REQUEST" \
+     --expected-revision "$REVISION" --json
+   cellar raft fleet nodes status "$NODE" --fleet F --catalog-id "$CATALOG" --json
+   ```
+
+2. Start the managed node through the deployment/SDK using this registration.
+   Startup pins its physical engine and fresh boot before endpoint publication.
+   This explicit infrastructure step is not performed by `nodes add`.
+
+3. The deployment authority serializes `RaftFleetCapacityAttestation` into
+   `capacity.json`: exact catalog/node/disk/engine/boot/process binding, profile
+   revision/digest, CPU, memory, durable bytes, engine slots, swap-disabled claim,
+   conservative used memory/disk and a retained evidence digest/reference.
+   `RaftFleetCapacityAttestation` aliases the existing SDK capacity type. Use
+   evidence for this boot and running profile; no limits are inferred or silently
+   supplied. The operator is responsible for its platform claim.
+
+   Read the current root revision for each **new** request. Qualification is an
+   optional explicit Ready phase; activation can directly perform the same checks.
+
+   ```sh
+   cellar raft fleet nodes qualify "$NODE" --fleet F --catalog-id "$CATALOG" \
+     --attestation capacity.json --operation-id "$QUALIFY_REQUEST" \
+     --expected-revision "$CURRENT_REVISION" --json
+   cellar raft fleet nodes activate "$NODE" --fleet F --catalog-id "$CATALOG" \
+     --attestation capacity.json --operation-id "$ACTIVATE_REQUEST" \
+     --expected-revision "$NEXT_REVISION" --json
+   ```
+
+4. Inspect status. Ready has qualified capacity but receives no new replica.
+   Active requires a valid current `capacity` proof for placement. A later reboot
+   can leave an Active descriptor with `capacity: null`; stale evidence cannot
+   requalify it. A historical receipt does not reactivate an old boot. Use fresh
+   deployment evidence and a distinct request to qualify the new boot.
+
+5. Extend the existing keep set with the new Active node for add-capacity work.
+   Dropping other nodes in the same request also performs scale-in and can refuse
+   the future-recovery proof even when today's RF3 copies appear to fit. Retained
+   old bindings still consume capacity and cannot serve as fresh recovery targets.
+   Capacity activation alone moves no cells. The separately started owned controller must
+   finish the generated movements and verify RF3; inspect that operation's receipt.
+   None of these results authorizes node or storage deletion.
+
+Every mutation retains the exact catalog pin, request ID (`--operation-id`),
+expected revision, descriptor/attestation and authenticated principal across an
+unknown result. Do not replace the original descriptor with a later status
+response: startup may have pinned its previously-null engine. Exact retries
+return the original `admission.applied_revision` and `admitted_state`, while
+`observed_revision` can advance. These are historical admissions, never a live
+health lease or balanced-fleet certificate. Use node status for current metadata
+and a new operation's fresh proofs for new placement.
+
+| Method and suffix under `/api/v1/fleets/{fleet}/raft` | Grant and result |
+| --- | --- |
+| `POST /nodes` | `fleet_register`; registration request, HTTP 202 historical admission |
+| `GET /nodes/{node}` | `metadata_read`; current-root descriptor/state and optional exact-boot capacity |
+| `POST /nodes/{node}/qualify` | `fleet_capacity`; capacity request, HTTP 202 historical Ready admission |
+| `POST /nodes/{node}/activate` | `fleet_capacity`; capacity request, HTTP 202 historical Active admission |
+
+Registration JSON carries `catalog_id`, `request_id`, `expected_revision` and
+`descriptor`. Capacity JSON carries the same identity fields and `attestation`.
+Both reject unknown fields and have the existing 16 KiB body bound. Success is
+`{admission, reconciled}`; the admission includes authenticated principal, node,
+action, original/observed revisions and historical admitted state. CLI validates
+that the response matches the requested catalog, node, action and exact identity.
+Mutations have no implicit wait or retry. Accepted audit entries cannot be
+downgraded by late failed attempts.
+
 ## Delivered isolated-node repair SDK workflow
 
 The explicit SDK service can now select and execute replacements after trusted
 node isolation. It is separate from the keep-set CLI above; lifecycle CLI/API
-verbs remain unfinished.
+evacuation/stop/removal verbs remain unfinished.
 
 1. Use `FleetCatalog::begin_evacuation` to root exclusion of the affected node.
    Retain the operation identity and exact request for ambiguous retries.
@@ -159,8 +260,6 @@ completion claim.
 ```text
 cellar raft fleet status --fleet F --json
 cellar raft fleet nodes add --fleet F --descriptor node.json --dry-run
-cellar raft fleet nodes add --fleet F --descriptor node.json --operation-id OP --expected-revision R
-cellar raft fleet nodes activate NODE --fleet F --operation-id OP --expected-revision R
 cellar raft fleet rebalance --fleet F --dry-run
 cellar raft fleet rebalance --fleet F --operation-id OP --expected-revision R
 cellar raft fleet nodes maintenance NODE --mode restart --max-unavailable-seconds 120 --operation-id OP --expected-revision R

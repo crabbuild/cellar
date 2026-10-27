@@ -4,7 +4,11 @@
 use super::*;
 use std::io::Read;
 
-pub(super) const HELP: &str = "cellar raft fleet status --fleet F --admin-url URL [--json]
+pub(super) const HELP: &str = "cellar raft fleet nodes add --descriptor NODE.json --operation-id REQUEST_HEX --expected-revision R
+cellar raft fleet nodes status NODE_HEX
+cellar raft fleet nodes qualify NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
+cellar raft fleet nodes activate NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
+cellar raft fleet status --fleet F --admin-url URL [--json]
 cellar raft fleet rebalance --keep NODE_HEX,... --policy POLICY.json --operation-id OP_HEX --expected-revision R [--wait]
 cellar raft fleet operation status OP_HEX
 cellar raft fleet operation progress OP_HEX [--cursor TOKEN] [--limit 64]
@@ -23,6 +27,9 @@ Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 
 pub(super) enum Action {
     Status,
+    NodeStatus(String),
+    NodeRegister(Box<RaftFleetRegisterNode>),
+    NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
     Operation(String),
     Progress(String, Option<String>, usize),
@@ -48,7 +55,15 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let command = args
         .next()
         .ok_or_else(|| invalid("missing fleet command"))?;
-    let (command, target) = if command == "operation" {
+    let (command, target) = if command == "nodes" {
+        let verb = args.next().ok_or_else(|| invalid("missing node command"))?;
+        let target = if verb == "add" {
+            None
+        } else {
+            Some(args.next().ok_or_else(|| invalid("missing node ID"))?)
+        };
+        (format!("nodes_{verb}"), target)
+    } else if command == "operation" {
         let command = args
             .next()
             .ok_or_else(|| invalid("missing operation command"))?;
@@ -65,6 +80,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut expected_revision = None;
     let mut keep = None;
     let mut policy = None;
+    let mut descriptor = None;
+    let mut attestation = None;
     let mut cursor = None;
     let mut limit = 64usize;
     let mut wait = false;
@@ -95,6 +112,14 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--keep" => set(
                 &mut keep,
                 value.split(',').map(str::to_owned).collect::<Vec<_>>(),
+            )?,
+            "--descriptor" => set(
+                &mut descriptor,
+                json_file::<RaftFleetNodeDescriptor>(&value)?,
+            )?,
+            "--attestation" => set(
+                &mut attestation,
+                json_file::<RaftFleetCapacityAttestation>(&value)?,
             )?,
             "--policy" => set(
                 &mut policy,
@@ -128,6 +153,46 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        ("nodes_status", Some(node)) if !wait && cursor.is_none() => {
+            validate_id(&node)?;
+            Action::NodeStatus(node)
+        }
+        ("nodes_add", None) if !wait && cursor.is_none() => {
+            let request = RaftFleetRegisterNode {
+                catalog_id: catalog_id
+                    .clone()
+                    .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?,
+                request_id: operation_id
+                    .take()
+                    .ok_or_else(|| invalid("node add requires --operation-id"))?,
+                expected_revision: expected_revision
+                    .take()
+                    .ok_or_else(|| invalid("node add requires --expected-revision"))?,
+                descriptor: descriptor
+                    .take()
+                    .ok_or_else(|| invalid("node add requires --descriptor"))?,
+            };
+            request.validate()?;
+            Action::NodeRegister(Box::new(request))
+        }
+        ("nodes_qualify" | "nodes_activate", Some(node)) if !wait && cursor.is_none() => {
+            let request = RaftFleetNodeCapacity {
+                catalog_id: catalog_id
+                    .clone()
+                    .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?,
+                request_id: operation_id
+                    .take()
+                    .ok_or_else(|| invalid("node capacity requires --operation-id"))?,
+                expected_revision: expected_revision
+                    .take()
+                    .ok_or_else(|| invalid("node capacity requires --expected-revision"))?,
+                attestation: attestation
+                    .take()
+                    .ok_or_else(|| invalid("node capacity requires --attestation"))?,
+            };
+            request.validate(&node)?;
+            Action::NodeCapacity(node, Box::new(request), command == "nodes_activate")
+        }
         ("status", None)
             if operation_id.is_none()
                 && expected_revision.is_none()
@@ -186,6 +251,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || keep.is_some()
         || policy.is_some()
         || cursor.is_some()
+        || descriptor.is_some()
+        || attestation.is_some()
     {
         return Err(invalid("options do not apply to this command"));
     }
@@ -245,7 +312,7 @@ fn read_file(path: &str, limit: usize) -> Result<Vec<u8>> {
 }
 
 fn json_file<T: serde::de::DeserializeOwned>(path: &str) -> Result<T> {
-    serde_json::from_slice(&read_file(path, 16 * 1024)?).map_err(|_| invalid("invalid policy JSON"))
+    serde_json::from_slice(&read_file(path, 16 * 1024)?).map_err(|_| invalid("invalid JSON input"))
 }
 
 fn validate_id(value: &str) -> Result<()> {

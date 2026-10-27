@@ -51,7 +51,7 @@ configure the external origin. The private Cellar peer listener stays private.
 ## Configure access
 
 Permissions are independent per fleet: `metadata_read`, `data_read`,
-`data_write`, `operate`, `configure`, `fleet_topology`, and `fleet_cancel`. Resource operations resolve declared
+`data_write`, `operate`, `configure`, `fleet_topology`, `fleet_cancel`, `fleet_register`, and `fleet_capacity`. Resource operations resolve declared
 application bindings on the server before routing. Do not distribute tokens
 with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
@@ -103,9 +103,19 @@ later unconfirmed retry.
 
 See the [runnable operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-keep-set-workflow)
 for commands, catalog-generation pins, API routes and retry semantics. This
-delivery balances replica placement among already admitted nodes. Node
-registration/activation, maintenance, resize, failure-driven recovery and
-infrastructure provisioning remain separate delivery work.
+delivery also exposes explicit node registration, qualification and activation.
+Grant `fleet_register` for descriptors and `fleet_capacity` only to a trusted
+deployment authority that may attest platform limits. These grants do not imply
+one another or grant rebalancing. Qualification and activation require an
+embedded server to install a running observer using
+`RaftFleetControl::with_node_observer`; the standalone existing-root connection
+has no observer and returns `unsupported` for these two commands. The adapter
+still owns live authenticated probes and complete inventory checks. Operator
+attestations are explicit trust, not kernel measurements or an infrastructure
+provider. See the [add-capacity workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-add-capacity-workflow)
+for request files, exact retries and the distinction between historical admission
+and current readiness. Maintenance, removal, resize and infrastructure
+provisioning remain separate delivery work.
 
 ## Validate changes
 

@@ -4044,7 +4044,8 @@
         "crates/cellar/tests/support/raft_topology_service_native.rs",
         "packages/console/src/lib/api.ts",
         "crates/cellar-admin/README.md",
-        "crates/cellar/tests/support/raft_movement_fenced.rs"
+        "crates/cellar/tests/support/raft_movement_fenced.rs",
+        "crates/cellar-admin/tests/console.rs"
       ],
       "creates": [
         "crates/cellar/fleet/management/raft/mod.rs",
@@ -4056,10 +4057,14 @@
         "crates/cellar/cli/raft_cli/http.rs",
         "crates/cellar-admin/raft.rs",
         "crates/cellar/tests/native_raft_fleet_operator.rs",
-        "crates/cellar/tests/support/raft_operator_native.rs"
+        "crates/cellar/tests/support/raft_operator_native.rs",
+        "crates/cellar/fleet/management/raft/nodes.rs",
+        "crates/cellar/cli/raft_cli/nodes.rs",
+        "crates/cellar-admin/raft_nodes.rs",
+        "crates/cellar/tests/support/raft_operator_nodes_native.rs"
       ],
       "steps": [
-        "Delivered keep-set begin/status/progress/wait/cancel through existing-root SDK management, authenticated admin and the dedicated cellar CLI. Catalog-generation pins and canonical audit identity survive lost acknowledgements; verified admission is distinct from historical placement convergence. Node lifecycle, dry-run and resize commands below remain unfinished.",
+        "Delivered keep-set begin/status/progress/wait/cancel and explicit node add/status/qualify/activate through SDK, authenticated admin and CLI. Capacity uses a configured running observer plus a separately granted explicit deployment attestation. Exact retries return historical admission and cannot rewrite current boot readiness. Node evacuation/removal, maintenance, dry-run and resize remain unfinished.",
         "Implement proposed operator-workflows.md commands and SDK/API phase/error contracts.",
         "Enforce operation-specific permissions, canonical request identity, expected revisions and audit.",
         "Provide dry-run, paginated status, wait and cancel without hidden infrastructure termination.",
@@ -4180,6 +4185,42 @@
             "F02",
             "F03",
             "F04"
+          ]
+        },
+        {
+          "name": "fleet_operator_node_add_activate_rebalances_with_exact_retries",
+          "oracle": "Actual CLI/API registration, Ready and Active admissions reconcile lost confirmations at their original identities; separate grants and catalog pins refuse substitution. An explicitly started sixth node receives a generated voter with fresh RF3 and S3 SQL continuity. The full six-node keep set receives three generated moves; the reduced four-node set still refuses unproven recovery before any movement.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_node_capacity_fences_reboot_and_retains_receipts",
+          "oracle": "A real engine restart invalidates current capacity. Old exact retries retain historical admission without requalifying the boot; fresh evidence is required for a new activation.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_node_cli_refuses_mismatched_admission_receipts",
+          "oracle": "Actual CLI processes refuse successful HTTP responses for another node, request, action or invalid revision rather than displaying admission success.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "raft_node_accepted_audit_cannot_be_downgraded_by_late_failure",
+          "oracle": "Accepted registration/qualification/activation audits survive later unknown/not-submitted attempts and reopening the audit store.",
+          "invariants": [
+            "F03",
+            "F10"
           ]
         }
       ],

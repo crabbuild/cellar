@@ -23,10 +23,12 @@ pub(crate) use nodes::NodeRequest;
 pub(crate) use operations::receipt_key;
 pub use operations::{StopMode, StopProof, StopReceipt};
 pub use raft::{
-    RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetConnection, RaftFleetControl,
-    RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement, RaftFleetMovements,
-    RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetOperation, RaftFleetOutcome,
-    RaftFleetStatus,
+    RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetCapacityAttestation,
+    RaftFleetConnection, RaftFleetControl, RaftFleetFailure, RaftFleetFailureCode,
+    RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope,
+    RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCapacity,
+    RaftFleetNodeDescriptor, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetOperation,
+    RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;

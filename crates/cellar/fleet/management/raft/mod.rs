@@ -1,10 +1,13 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Typed operator access to rooted topology operations. Configure namespace
-//! handles on the trusted server; requests cannot supply placement evidence.
+//! Typed operator access to rooted topology and node operations. Configure
+//! namespace handles and any live observer on the trusted server. Placement
+//! proofs remain host-owned; capacity-granted operators explicitly attest limits.
 mod connection;
 mod failure;
+mod nodes;
 mod records;
+use crate::application::consensus::RaftCells;
 use crate::asyncrt::{DomainToken, ExecutionDomain};
 use crate::raft::catalog::NamespaceCatalog;
 use crate::raft::fleet_catalog::{
@@ -14,6 +17,11 @@ use crate::raft::fleet_catalog::{
 use cellar_logic::consensus::{NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
+pub use nodes::{
+    RaftFleetCapacityAttestation, RaftFleetNodeAcceptance, RaftFleetNodeAction,
+    RaftFleetNodeAdmission, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeState,
+    RaftFleetNodeStatus, RaftFleetRegisterNode,
+};
 pub use records::{
     RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetMovement, RaftFleetMovements,
     RaftFleetOperation, RaftFleetStatus,
@@ -31,6 +39,7 @@ pub struct RaftFleetControl {
     catalog_id: String,
     namespaces: Arc<[NamespaceCatalog]>,
     domain: DomainToken,
+    node_observer: Option<RaftCells>,
 }
 
 impl RaftFleetControl {
@@ -52,6 +61,7 @@ impl RaftFleetControl {
             catalog_id,
             namespaces: namespaces.into(),
             domain,
+            node_observer: None,
         })
     }
 

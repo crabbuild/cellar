@@ -7,8 +7,9 @@ the catalog, durable membership guard, trusted enrollment and terminal removal,
 with local verification. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
-rebalance, status, progress, wait and cancellation. Complete node lifecycle
-commands remain delivery targets. `tasks.json` retains exact package status.
+rebalance, status, progress, wait and cancellation. Explicit add, status,
+qualification and activation commands pass local end-to-end verification;
+evacuation/removal, maintenance and resize remain delivery targets. `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,

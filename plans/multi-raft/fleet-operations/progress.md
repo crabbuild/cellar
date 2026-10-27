@@ -5,11 +5,63 @@ complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
 placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
-replacements after trusted node isolation. Automatic failure classification,
-production isolation, complete node lifecycle commands, managed maintenance and
-resize remain unfinished.
+replacements after trusted node isolation. Operators can now register, qualify
+and activate added capacity. Automatic failure classification, production
+isolation, evacuation/removal commands, managed maintenance and resize remain
+unfinished.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Add-capacity operator delivery
+
+Node add/status/qualify/activate now has typed SDK contracts, authenticated
+admin routes and actual CLI commands. Distinct `fleet_register` and
+`fleet_capacity` grants precede durable canonical audit. The capacity-granted
+operator explicitly attests deployment limits; the catalog still owns full
+inventory, exact boot/profile and authenticated live checks. An embedded
+management adapter can install a running observer explicitly. Existing-root
+standalone connections retain no observer and refuse capacity admission.
+Registration alone grants no capacity and provisions no infrastructure.
+
+Historical node admissions retain original request identity, action, state and
+applied revision. Current status independently resolves exact rooted capacity;
+a new boot cannot inherit it from an old Active descriptor or old receipt.
+The CLI validates response catalog, node, action and identity before displaying
+success. Accepted audits cannot be downgraded by a late failed retry. Browser
+permission types include the new independent grants; no browser mutation UI is
+implied.
+
+The frozen implementation passes **88 distinct focused cases**: all sixty
+resource/movement cases, seven capacity cases, four CLI process cases and
+seventeen admin cases. Two additional native probes pass before the complete
+cohort. The resource cohort took 417.47 seconds; the targeted six-node workflow
+passes in 17.50 seconds with three generated movements. All-target host/admin
+Clippy with warnings denied, Rust formatting/layout, native dependency and docs
+checks, ten plan tests and 322-case manifest validation pass. Console TypeScript
+checking also passes. Source and immutable binary/output attribution are recorded
+outside runtime data under checkout-private
+`qualification/fleet-operations/node-operator-v2/`, `node-operator-checks-v2/`
+and `node-operator-console-v1/`. Full latest-head SDK CI remains open.
+Scenarios exercise lost confirmations in all three mutations, role and
+catalog/payload rejection, adding a real sixth node then moving a voter onto it,
+RF3/S3 SQL continuity, and actual engine restart with stale evidence refused and
+fresh requalification. Separate checks cover mismatched successful HTTP
+receipts and audit monotonicity. Console TypeScript checking passes.
+The initial add-capacity scenario twice reached its 40-second redistribution
+wait without completion. Its request also excluded both spare nodes, reducing
+the keep set to four. A direct eight-second preview returned
+`Topology(BalanceUnproven)`: retained old bindings leave no fresh target for a
+required recovery witness. The corrected add-capacity scenario keeps all six
+nodes and retains the four-node preview refusal as a negative assertion. It
+requires three generated moves including the new node; no deadline or safety
+bound changed. The original binary independently passes reboot, CLI, admin and
+seven existing capacity cases. Original failures and the diagnostic binary remain
+outside runtime data. Temporary diagnostics were removed before final qualification.
+No deployment capacity, throughput or production platform provider is claimed.
+
+The next feature is the audited evacuation/removal workflow with visible debt
+and the existing fenced complete inventory, stop and terminal removal proofs.
+Capacity activation is not balanced placement or storage-release authority.
 
 ## Independent required repair with retained debt
 
@@ -352,21 +404,14 @@ retained unrelated debt, beyond the previous manual movement primitives. FO-03 i
 boundary and is not the next implementation target. Keep-set operator access is
 also delivered. The next work should extend these usable boundaries:
 
-1. **Guarded lifecycle operator workflows (FO-07/FO-08):** connect the existing
-   registration, typed capacity, evacuation, repair, stop and removal adapters to
-   the catalog-pinned audit/permission surface. Deliver one end-to-end add/activate
-   and evacuate/remove workflow, with exact retries and visible blocked debt,
-   before adding resize. The next executable slice is authenticated node
-   registration and explicit qualify/activate, followed by an existing keep-set
-   rebalance that actually places a voter on the new node. The management
-   connection currently has namespace/catalog handles but no live observer;
-   qualification must use a trusted server-configured observer and deployment
-   attestation, with an explicit unavailable result when either is absent.
-   Registration alone cannot manufacture capacity. Verify denied permission,
-   catalog-generation mismatch, lost replies after commit, duplicate/different
-   payload IDs, changed boots and foreground SQL continuity. Then deliver
-   evacuation/removal using the existing fenced inventory and joined-stop proof;
-   the repair cursor cannot stand in for terminal proof.
+1. **Evacuation/removal operator workflow (FO-07/FO-08):** node add/status/
+   qualify/activate is now delivered through the guarded SDK, authenticated API
+   and CLI. Next connect evacuation admission, healthy redistribution, complete
+   fenced inventory, joined stop and verified terminal removal to the same
+   catalog-pinned audit surface. Show unresolved movement debt and planning
+   refusals explicitly; the reduced four-node preview demonstrates that admitted
+   capacity does not imply a provable requested layout. Cover ambiguous retries
+   and verified rejoin. Repair cursor exhaustion cannot replace terminal proof.
 2. **Failure policy and deployment isolation (FO-06/FO-07):** supply a real
    trusted provider, conservative suspect/failed policy, concurrent-failure rules
    and restart/rejoin protection. A timeout cannot establish physical isolation;

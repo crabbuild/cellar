@@ -10,6 +10,7 @@ mod cron;
 mod events;
 mod nodes;
 mod raft;
+mod raft_nodes;
 
 pub use audit::{AuditStore, Operation};
 pub use auth::{Permission, Principal};
@@ -62,6 +63,19 @@ pub fn router(console: Console) -> Result<Router> {
     let state = Arc::new(console);
     let api = Router::new()
         .route("/fleets/{fleet}/raft/status", get(raft::status))
+        .route(
+            "/fleets/{fleet}/raft/nodes",
+            post(raft_nodes::register).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route("/fleets/{fleet}/raft/nodes/{node}", get(raft_nodes::status))
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/qualify",
+            post(raft_nodes::qualify).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/activate",
+            post(raft_nodes::activate).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route(
             "/fleets/{fleet}/raft/operations",
             post(raft::begin).layer(DefaultBodyLimit::max(16 * 1024)),

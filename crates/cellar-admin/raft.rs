@@ -18,9 +18,9 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{sync::Arc, time::Duration};
 
-const TIMEOUT: Duration = Duration::from_secs(25);
+pub(super) const TIMEOUT: Duration = Duration::from_secs(25);
 
-fn failure(value: RaftFleetFailure) -> Response {
+pub(super) fn failure(value: RaftFleetFailure) -> Response {
     use RaftFleetFailureCode as C;
     let status = match value.code {
         C::InvalidInput => StatusCode::BAD_REQUEST,
@@ -41,7 +41,7 @@ fn failure(value: RaftFleetFailure) -> Response {
         .into_response()
 }
 
-fn backend<'a>(
+pub(super) fn backend<'a>(
     console: &'a Console,
     fleet: &str,
 ) -> Result<&'a RaftFleetControl, RaftFleetFailure> {
@@ -113,7 +113,7 @@ pub(crate) async fn movements(
     })
 }
 
-fn audit_failure(error: anyhow::Error) -> Response {
+pub(super) fn audit_failure(error: anyhow::Error) -> Response {
     if error.downcast_ref::<AuditPayloadConflict>().is_some() {
         failure(RaftFleetFailure {
             code: RaftFleetFailureCode::PayloadConflict,
@@ -175,9 +175,11 @@ pub(crate) async fn begin(
     finish(
         &console,
         &mut audit,
-        result,
-        request.operation_id,
-        reconciled,
+        result.map(|operation| RaftFleetAcceptance {
+            request_id: request.operation_id,
+            operation,
+            reconciled,
+        }),
     )
 }
 
@@ -227,19 +229,25 @@ pub(crate) async fn cancel(
         }
         Err(error) => Err(error),
     };
-    finish(&console, &mut audit, result, request.request_id, reconciled)
+    finish(
+        &console,
+        &mut audit,
+        result.map(|operation| RaftFleetAcceptance {
+            request_id: request.request_id,
+            operation,
+            reconciled,
+        }),
+    )
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(super) fn hex_digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn finish(
+pub(super) fn finish<T: serde::Serialize>(
     console: &Console,
     audit: &mut Begin,
-    result: Result<RaftFleetOperation, RaftFleetFailure>,
-    request_id: String,
-    reconciled: bool,
+    result: Result<T, RaftFleetFailure>,
 ) -> Result<Response, ApiError> {
     let (Begin::Started(operation) | Begin::Existing(operation)) = audit;
     // The audit describes dispatch, not convergence. Even a historical success
@@ -253,15 +261,7 @@ fn finish(
         return Ok(audit_failure(error));
     }
     Ok(match result {
-        Ok(operation) => (
-            StatusCode::ACCEPTED,
-            Json(RaftFleetAcceptance {
-                request_id,
-                operation,
-                reconciled,
-            }),
-        )
-            .into_response(),
+        Ok(value) => (StatusCode::ACCEPTED, Json(value)).into_response(),
         Err(error) => failure(error),
     })
 }

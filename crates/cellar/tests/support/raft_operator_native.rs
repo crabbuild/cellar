@@ -12,6 +12,12 @@ use tokio::sync::oneshot;
 
 const OWNER: &str = "fixture-owner-bearer-token-with-at-least-32-bytes";
 const READER: &str = "fixture-reader-bearer-token-with-at-least-32-bytes";
+const REGISTRAR: &str = "fixture-registrar-token-with-at-least-32-bytes";
+const CAPACITY: &str = "fixture-capacity-token-with-at-least-32-bytes";
+
+#[path = "raft_operator_nodes_native.rs"]
+mod node_cases;
+
 const CANCELLER: &str = "fixture-canceller-token-with-at-least-32-bytes";
 
 struct Server {
@@ -25,17 +31,25 @@ struct Server {
 
 impl Server {
     async fn new(f: &Scenario) -> Result<Self> {
+        Self::configured(&f.s.f, &f.s.namespace, Some(f.s.nodes[0].host.clone())).await
+    }
+
+    async fn configured(
+        f: &Fixture,
+        namespace: &NamespaceCatalog,
+        observer: Option<RaftCells>,
+    ) -> Result<Self> {
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let root = tempfile::tempdir()?;
         let bucket = cellar::bucket::Bucket::from_clients(
-            f.s.f.store.clone(),
-            f.s.f.store.clone(),
+            f.store.clone(),
+            f.store.clone(),
             Arc::new(NoListing),
             cellar::bucket::StorageBackend::S3,
             "enrollment".into(),
             "tenant/".into(),
         )?;
-        let cfg = f.s.namespace.config();
+        let cfg = namespace.config();
         let connection = RaftFleetConnection {
             cluster_id: hex::encode(cfg.cluster.bytes()),
             incarnation_id: hex::encode([80; 16]),
@@ -56,10 +70,17 @@ impl Server {
                 TIMEOUT,
             ))
             .await??;
+        let control = if let Some(observer) = observer {
+            control.with_node_observer(observer)
+        } else {
+            control
+        };
         for (name, value) in [
             ("owner", OWNER),
             ("reader", READER),
             ("canceller", CANCELLER),
+            ("registrar", REGISTRAR),
+            ("capacity", CAPACITY),
         ] {
             std::fs::write(root.path().join(name), value)?;
         }
@@ -67,7 +88,12 @@ impl Server {
             (
                 "owner",
                 OWNER,
-                vec![Permission::MetadataRead, Permission::FleetTopology],
+                vec![
+                    Permission::MetadataRead,
+                    Permission::FleetTopology,
+                    Permission::FleetRegister,
+                    Permission::FleetCapacity,
+                ],
             ),
             (
                 "reader",
@@ -78,6 +104,16 @@ impl Server {
                 "canceller",
                 CANCELLER,
                 vec![Permission::MetadataRead, Permission::FleetCancel],
+            ),
+            (
+                "registrar",
+                REGISTRAR,
+                vec![Permission::MetadataRead, Permission::FleetRegister],
+            ),
+            (
+                "capacity",
+                CAPACITY,
+                vec![Permission::MetadataRead, Permission::FleetCapacity],
             ),
         ]
         .into_iter()
@@ -172,7 +208,7 @@ impl Server {
             .kill_on_drop(true)
             .output()
             .await?;
-        for token in [OWNER, READER, CANCELLER] {
+        for token in [OWNER, READER, CANCELLER, REGISTRAR, CAPACITY] {
             ensure!(!String::from_utf8_lossy(&output.stdout).contains(token));
             ensure!(!String::from_utf8_lossy(&output.stderr).contains(token));
         }
