@@ -625,6 +625,7 @@ dependencies = [
  "futures-util",
  "libc",
  "object_store",
+ "pyo3",
  "reqwest",
  "rusqlite",
  "serde",
