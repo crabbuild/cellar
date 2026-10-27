@@ -16,6 +16,9 @@ milestone follows; later sections retain earlier states.
 
 ## Guarded restart leadership reconciliation
 
+Source `4eaeda94` includes the handoff implementation in `1119c6a6` and the
+published-container fixture port correction.
+
 `FleetRestartVerification::reconcile_next` now owns the handoff step after
 original-voter materialization. Each voting history checks the current settled
 membership, both surviving voters and their publications, then asks the actual
@@ -52,6 +55,17 @@ write. The earlier frozen probe passed 115 core executions, including all 45
 movement cases, and 78 permit/CLI/library executions. These earlier results are
 attributed to that probe rather than counted as final-source qualification.
 
+All-target host/admin Clippy and Node module-target Clippy pass with warnings
+denied. Formatting/layout for 1,420 Rust files, native dependency rules,
+documentation, ten plan tests, the 368-case manifest and source preflight with
+97 reviewed anchors pass. The audit maps all **1,514 frozen Rust/Cargo/configuration
+inputs** to the source commit and verifies retained executable and result hashes.
+Final-source evidence stays outside runtime data in checkout-private
+`qualification/fleet-operations/restart-handoff-v7/`, `restart-handoff-js-v1/`
+and `restart-handoff-checks-v2/`. Earlier successful and unsuccessful probes
+retain their own source attribution. No stack/startup bound was raised; the held
+archive test uses a boxed future on the default test stack.
+
 Broader qualification **did not pass**. One 27-case resource cohort had 26 passes
 and a failure in
 `fleet_operator_cancels_stale_departure_and_restarts_with_fresh_proof`.
@@ -66,9 +80,11 @@ complete old-head qualification and does not establish causality.
 The published Node lifecycle fixture now requests its declared port 8080.
 Previously its ephemeral listener worked through macOS port mapping while Linux
 connected directly to port 8080. The full module suite passes on macOS with Node
-24.19.0. Linux CI confirmation remains required. The
-previous published head also has event-delivery CI failures with ambiguous RPC
-results; those remain separate release gaps. No full-CI pass is claimed.
+24.19.0. [Linux CI confirmation remains required](https://github.com/crabbuild/cellar/actions/runs/40491368648/job/122145853242).
+The previous published head also has
+[event-delivery CI failures](https://github.com/crabbuild/cellar/actions/runs/40491368640/job/122146532958)
+with ambiguous RPC results; those remain separate release gaps. No full-CI pass
+is claimed.
 
 Next deliver reliable proof renewal with explicit pending/blocked observation
 status and RestartReady (M5), preserving unknown mutation outcomes. Then complete

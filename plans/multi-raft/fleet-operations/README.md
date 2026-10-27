@@ -35,7 +35,7 @@ survivor is observed as leader. Queued work rechecks the synced gate and an
 expiry measured by the Raft owner's clock. Final proof renewal and RestartReady,
 stop/rejoin, rolling execution, maintenance operator surfaces and resize remain
 delivery targets. Departure observation failures and deployed qualification
-remain open; the progress log records their exact limits.
+remain open; the [progress log](progress.md) records their exact limits.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "703c5bcb65fa469303c29d79260e322b48dd5220",
+  "revision": "4eaeda9486351b932ace10973a6e72ce6085fb4a",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -84,7 +84,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "ff9309c95c460b35b5496353936d0ddf8e4a9fef337984193e47e1bc4db05a1e"
+      "sha256": "4814c6cd468b9e5ad2f51d66ad5a89e93016fb758a4af7d87469f7c0ad0bfe1b"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
@@ -136,7 +136,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/completion.rs",
-      "sha256": "dbaf0c7031f84c85b7bc7dd8762a3add840c28404175e41fadc518ade700fd73"
+      "sha256": "1c0db461685d4f30af7a3b0704e4691278bc6eafdf515cf83128cada10e6054a"
     },
     {
       "path": "crates/cellar/durability/raft/controller_action.rs",
@@ -152,7 +152,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "7754ded4d4058a3ca70fd3feaa304bc230b6e23e7e23bc585212076684c8d6d4"
+      "sha256": "8d7369fd39749d15f111ff21a9cc36473872654a93a412606b2030958997fca0"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -248,15 +248,15 @@
     },
     {
       "path": "crates/cellar/durability/raft/replica.rs",
-      "sha256": "6aec12cad6253c031b752b6a0582afadea09235bda5e0f4e75fc0299fb1b190f"
+      "sha256": "161fbe46f3813c8d86c1986ceafbf977406268aa26da07a0f58ce8d73468ff37"
     },
     {
       "path": "crates/cellar/durability/raft/replica_leadership.rs",
-      "sha256": "ae3218c2b84f447214c84ac2eb787559194e3bcb35f0fb3b92232f996092a9c0"
+      "sha256": "5ccdd69bedd33d22ea84d8057313fd4bbed4e2bf194fa011afdae534554fca0f"
     },
     {
       "path": "crates/cellar/durability/raft/runtime.rs",
-      "sha256": "fa40dba9accd332a19231035331bd124f40267eee6d20a0bd9ed42cac190fc0c"
+      "sha256": "96b2b60c65333f0a16c8e2a538399ecdbc1c4456c14e504e904feb1bc41f655d"
     },
     {
       "path": "crates/cellar/durability/raft/snapshot.rs",
@@ -391,6 +391,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "16d16fa1d3b38d11f7a1a9d3e8d1d062cf647eb8",
-  "review_note": "Reviewed owned original-voter materialization through immutable Live births and permanent member claims, exact gate/input/history/boot pins, bounded physical reconciliation and separate receiving authorization on the shared authenticated action lane. The internal control wire uses a hard cutover. Historical candidates grant no readiness, handoff, stop, fresh boot or capacity. Source/executable/result qualification and failed probes are attributed in progress."
+  "reviewed_from_revision": "703c5bcb65fa469303c29d79260e322b48dd5220",
+  "review_note": "Reviewed owned matched-progress checks, eligible leadership transfer and actual survivor observation against exact gate/input/history/boot pins. Queued Raft execution rechecks the synced selector and evidence expiry on the Raft owner clock, tightened by the SDK deadline. Historical candidates grant no readiness, stop, rejoin or capacity. The Node lifecycle fixture matches its declared port. Focused current-source checks pass; broader departure observations and full CI/deployment qualification remain open as recorded in progress."
 }
