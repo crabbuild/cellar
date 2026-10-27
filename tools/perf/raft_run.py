@@ -115,7 +115,7 @@ def capacity(profile):
 
 def source_manifest(root=ROOT):
     files = [root / 'Cargo.toml', root / 'Cargo.lock']
-    for folder in ('crates', 'vendor', 'examples', 'tools/perf', 'tools/xtask', 'tools/cellar-rpc-codegen', 'tools/cellar-rpc-qualification'):
+    for folder in ('crates', 'vendor', 'examples', 'tools'):
         files.extend(p for p in (root / folder).rglob('*') if p.is_file()
                      and not set(p.relative_to(root).parts) & {'.git', '.cellar', 'node_modules', '__pycache__'}
                      and p.name != '.DS_Store' and p.suffix != '.pyc')
