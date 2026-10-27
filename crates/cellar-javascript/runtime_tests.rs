@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::EventKind;
+use anyhow::Context as _;
 use serde_json::json;
 use std::time::Instant;
 
@@ -35,12 +36,18 @@ fn invocation(
 }
 
 fn event(receiver: &mut channel::Receiver<Event>) -> Event {
+    checked_event(receiver).expect("JavaScript invocation event failed")
+}
+
+fn checked_event(receiver: &mut channel::Receiver<Event>) -> Result<Event> {
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         match receiver.try_recv() {
-            Ok(value) => return value,
-            Err(channel::error::TryRecvError::Disconnected) => panic!("engine closed prematurely"),
-            Err(_) => assert!(Instant::now() < until, "engine stalled"),
+            Ok(value) => return Ok(value),
+            Err(channel::error::TryRecvError::Disconnected) => {
+                anyhow::bail!("invocation event channel closed")
+            }
+            Err(_) => ensure!(Instant::now() < until, "invocation event channel stalled"),
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -78,7 +85,8 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
     JavaScriptRuntime::run(Options::default(), source(code), |app| {
         let runtime = &app.runtime;
         let invocation = runtime.id()?;
-        let mut receive = start(runtime, invocation, Arc::new(AtomicBool::new(true)));
+        let active = Arc::new(AtomicBool::new(true));
+        let mut receive = start(runtime, invocation, active.clone());
         let head = json!({"status":200,"headers":[],"body":""});
         for (name, value) in [
             ("container.exec", json!("1")),
@@ -119,12 +127,20 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
             ("container.websocket.close", json!(null)),
             ("container.release", json!(null)),
         ] {
+            let next = checked_event(&mut receive).with_context(|| {
+                format!(
+                    "named container awaiting {name}: stopped={} active={} usage={:?}",
+                    runtime.closed.load(Ordering::Acquire),
+                    active.load(Ordering::Acquire),
+                    runtime.usage(),
+                )
+            })?;
             let Event::Operation {
                 id,
                 name: actual,
                 payload,
                 ..
-            } = event(&mut receive)
+            } = next
             else {
                 anyhow::bail!("named facade failed before {name}");
             };
@@ -134,7 +150,7 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
             runtime.reply(invocation, id, json!({"ok":true,"value":value}).to_string())?;
         }
         assert!(matches!(
-            event(&mut receive),
+            checked_event(&mut receive).context("named container completion")?,
             Event::Complete { failed: false, .. }
         ));
         Ok(())

@@ -196,6 +196,36 @@ and cleanup separately from case coverage: each suite's assertions and case
 auditors must also pass. A successful mode check does not establish full
 resource, packaging or release qualification.
 
+## Native storage and lease progress
+
+```sh
+cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
+cargo test --locked -p cellar --test native_local_store -- --test-threads=1
+```
+
+The checkpoint regression pauses a real main-database sync during an unrelated
+put or delete. A following lease CAS must finish within its original 333 ms
+attempt window and be readable before checkpoint I/O is released. The fixture
+leaves FULL WAL syncs enabled, retains the held put's native I/O reservation
+until cleanup, and joins entered work before retiring its private VFS. The
+public bucket race requires exactly one winner among 32 same-token updates,
+then checks the stored body/token and stale-token refusal after reopen.
+
+```text
+fair writer admission -> SQLite write transaction -> release admission
+                                                       |
+                                         FULL WAL commit -> checkpoint sync
+                                                       |        (held)
+next lease CAS -> SQLite write transaction -> FULL commit + visible readback
+```
+
+SQLite serializes each transaction through COMMIT. Cellar's admission mutex
+must not serialize the later checkpoint I/O as well. This follows SQLite's
+[WAL concurrency and checkpoint behavior](https://sqlite.org/wal.html).
+Neither a timeout nor a lost reply establishes rollback or permits replay.
+These controlled regressions address a specific storage bottleneck; fresh
+hosted and original-budget adapter regressions remain required.
+
 ## Generate the shared contract
 
 Run from the repository root with the repository Rust environment, protoc 34.0

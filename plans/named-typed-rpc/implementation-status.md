@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Head `e60b3fa8` passes SDK free-threaded and Python examples, but typed-profile and SDK GIL jobs fail with lease expiry. The SDK trace shows timely renewal starts, repeatedly ambiguous writes and fast readbacks of unchanged generations. Its JavaScript run is cancelled. Earlier `a3ca0854` passes remain historical evidence. Require fresh hosted results for the Python-mode matrix and diagnose the write stall. |
-| P0 | Native and cross-adapter regression timing | Preserve the four original 250 ms failures and the newer hosted lease-write failures. Native typed-RPC repeats and the exact failed SDK test pass locally, including concurrent repetition; these do not establish a timing fix. Trace the shared development-store write path without increasing leases, handler/caller budgets or weakening fencing. Streaming/WebSockets and all four selected Python integrations pass at the earlier control snapshot. |
+| P0 — hosted verification | Final hosted gates | Head `dcb66fd2` passes both typed-RPC jobs, including the full failure driver, and SDK GIL. SDK free-threaded fails the S3 seed crash matrix with `NotLeader` before its after-attachment cut; JavaScript CI is cancelled. The current checkpoint source passes that exact seed matrix locally. Preserve the failure and earlier lease-write traces; require fresh hosted results for the checkpoint fix and diagnose remaining failures. |
+| P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 112-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies, plus generated-client post-commit reply-byte refusal. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest RPC controls now have a 16 KiB raw wire cap, flat unique fields and pre-parse decode reservations retained with native work. A measured allocation regression covers escaped-string scratch growth; 48 live cases prove refusal before provider entry and fresh generated-call progress. Finish other effective minima, backing copies, decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
-| P1 | Language/profile coverage | Both GIL CPython 3.14.6 and free-threaded CPython 3.14.5 pass all 19 existing Counter/failure suites and the separate 576-call portable profile. The actual loaded interpreter, GIL state and pinned Protobuf backend are checked before/after each completed matrix; runtime joins and zero bridge reservations are required. Complete remaining descriptor semantics, hosted ABI results and wider lifecycle/regression qualification. |
+| P1 | Language/profile coverage | Both local CPython modes pass all 19 existing Counter/failure suites and the separate 576-call profile; both hosted modes now pass those gates too. The actual loaded interpreter, GIL state and pinned Protobuf backend are checked before/after each completed matrix, with joined runtimes and zero bridge reservations. Complete remaining descriptor semantics and broader regression qualification; fresh checkpoint-source profiles pass in both modes. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -38,7 +38,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | RPC-02: Native typed path | In progress | Native RPC/transport, generated-profile/vector and restart tests pass; codec limits precede allocation; 55 deadline, 128 proof-wait and 80 dependency-cycle cases cover caller/provider pairs, signals/deadlines, local/peer routes and bounded cleanup; 96 provenance cases preserve committed parent writes and fixed categories; broader peer/admission/lifecycle/resource qualification remains |
 | RPC-03: Binary bridges | In progress | Shared `cell.call`, Python raw bytes, owned V8 attachments and binary Node framing implemented; native Node framing now shares payload reservations with partial-input/output and decoded-frame lifetimes under test; worker/control/decoder allocations, other adapters' retained copies and full cancellation/flood qualification remain |
 | RPC-04: JS/TS services | In progress | Generated clients/handlers, binary dispatch and live descriptor checks work in V8/Node; real startup refuses stale codecs; typed AbortSignal options and native-owned whole-call codec budgets work with bounded cleanup; full schema/resource/deadline qualification remains |
-| RPC-05: Python services | In progress | Generated APIs, stale-codec refusal, native-owned budgets and cancellation/recovery work in the described fixtures. Both loaded CPython modes pass the existing complete Counter/failure driver and portable profile; hosted mode gates, packaging and broader qualification remain |
+| RPC-05: Python services | In progress | Generated APIs, stale-codec refusal, native-owned budgets and cancellation/recovery work in the described fixtures. Both loaded CPython modes pass the existing complete Counter/failure driver and portable profile locally and in typed-RPC CI; packaging, broader SDK regressions and full qualification remain |
 | RPC-06: Fleet/durability | In progress | Local/remote/handoff, 32 failed-recovery admission, 48 SIGKILL and 64 proof cases pass together under both observed CPython modes; broader failure/resource and hosted qualification remain |
 | RPC-07: Packaging/performance | In progress | Offline descriptor/inventory/native-catalog checking implemented; unified generation, frozen package/static-binding inventories, clean-machine packaging and performance report remain |
 
@@ -63,9 +63,9 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal under both observed CPython modes |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration under both observed CPython modes |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Latest selected control snapshot retains four 250 ms failures: V8 restart, Node restart, generated Rust-to-Rust ingress and standalone native typed RPC. Streaming/WebSockets and all four selected Python integrations pass. Historical full adapter and settlement results remain below; full T19 stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Checkpoint source passes 712 core, 108 native and 123 JavaScript tests plus selected Python integrations with unchanged budgets. Its first JavaScript command fails a named-container V8 test; later diagnostic-only changes and repetitions do not establish its cause. Retain that failure, the earlier four 250 ms failures and the hosted S3 seed failure; full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Scratch-aware control source passes guest tests, guest/qualifier all-target Clippy and standard checks. Its preceding snapshot passes 135 library tests, 38 qualifier guards, all-target adapter Clippy and Node-only checking, with four timing failures retained. Source identities and prior broader results remain below; full qualification stays open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Checkpoint source passes core/JavaScript all-target Clippy, qualifier all-target Clippy and 40 guards in each Python mode, Node-only checking and standard checks across 1,236 Rust files. Full-source/executable identities and the initial JavaScript failure are retained below; full qualification stays open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,126 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Native writer admission no longer serializes post-commit checkpoint I/O.**
+  A private, named test VFS pauses the actual main-database `xSync` callback
+  during an unrelated put. The unmodified backend fails the lease CAS's
+  original **333 ms** attempt window in three fresh executions. SQLite has
+  committed the transaction and permits other writers, but Cellar's fair writer
+  mutex remains held through the automatic checkpoint. This is a controlled
+  reproduction at the actual I/O boundary, beyond passing retries or a sleep
+  inside a synthetic transport. FULL WAL sync callbacks are not intercepted.
+
+  Put/CAS now release only the fair admission guard immediately before COMMIT;
+  SQLite retains its transaction write lock and atomic ETag check. Delete uses
+  an explicit immediate transaction with the same handoff. Pre-commit failures
+  still roll back/close before returning their admission guard. No checkpoint,
+  FULL synchronization, lease, handler, proof or shutdown policy is weakened,
+  and no new background task or automatic retry is introduced.
+
+  The regression passes with main-file checkpoint I/O held for either put or
+  delete: a following lease CAS finishes in its original window and a separate
+  connection reads the committed value before the checkpoint is released. The
+  held put keeps its native I/O reservation until completion, then returns it.
+  A watchdog prevents test deadlock and cannot establish success; native work
+  joins before the private VFS registration and directory retire. The fixture
+  is compiled only for native Unix unit tests, outside the external internal
+  harness. Focused typed-RPC CI now selects the local-store unit suite.
+
+  A public bucket regression issues **32 same-token metadata CAS contenders**,
+  requires exactly one winner and verifies its body/token, stale-token refusal
+  and a subsequent valid update after reopen. This checks metadata atomicity;
+  the separate Counter matrices remain the business-receipt evidence.
+
+  Before transfer onto main `a9da48ac`, all **21 local-store unit tests**, **15
+  public storage/RPC/profile tests**, **40 qualifier guards**, all-target core
+  and qualifier Clippy and format/layout/dependency/docs checks pass. The same
+  store implementation and regression sources transfer without conflicts over
+  main's separate extent-archive change. Broader results and source identities
+  are recorded separately.
+
+  The original native target also passes all **93 tests** before this fix, and
+  temporary phase probes pass **60** fresh-fixture repetitions in two processes.
+  Their slowest observed commit is about 40 ms; they do not reproduce the
+  earlier hosted expiry. The probes are removed from tracked source. These
+  passes and the controlled checkpoint fix do not establish the precise phase
+  of the old CI stalls, resolve the earlier 250 ms failures or qualify broader
+  resource/RSS, schema, packaging, diagnostics and performance boundaries.
+
+- **Checkpoint source on updated main, with failures retained.** On main
+  `a9da48ac` plus the checkpoint patch, all **712 core unit tests** and **108
+  native tests** pass: five local-store, 93 node, three typed-RPC and seven
+  native-profile cases. The initial all-feature JavaScript command then stops
+  with **79 passed / one failed**: the named-container follow-up test observes
+  a disconnected invocation channel. The original helper's panic hides the
+  engine's returned failure; it does not establish whether the engine failed
+  or only that invocation retired.
+
+  Test diagnostics now propagate the channel failure with the expected fixed
+  operation, invocation liveness and bridge counters. They preserve the same
+  five-second observation bound and all assertions. No production engine,
+  handler, startup, operation or proof budget changes. Twenty fresh exact
+  executions and three whole-library executions of the original binary pass.
+  Temporary probes also pass with each asynchronous native reply delayed
+  150 ms, beyond the unchanged 100 ms engine turn budget. They do not reproduce
+  or diagnose the original failure, and are removed from tracked source.
+
+  The resulting `--all-features --no-fail-fast` JavaScript command passes **123
+  tests**, with six external tests ignored. Python's 31 library tests and its
+  startup, bridge, streaming and typed-RPC integration executables pass; the
+  bridge includes real owner-kill/watchdog and acknowledged-state recovery.
+  Both rebuilt interpreter modes pass **40 qualifier guards**, all-target
+  qualifier Clippy and the **576-call profile**, with independent profile and
+  loaded-mode audits. Core/JavaScript all-target Clippy, Node-only checking,
+  formatting/layout across 1,236 Rust files, the 466-package engine-free native
+  guard and all 815 local documentation references pass.
+
+  The first run's **3,724 source/fixture hashes** stay unchanged, with source
+  manifest SHA-256
+  `7c92691d381b34befc8b76fbb24399dd35ee3aee3992046efad2dad25fab13ab`.
+  The resumed run changes only `crates/cellar-javascript/runtime_tests.rs`;
+  every watched source and preserved executable stays unchanged during its
+  21 checks. Its source manifest SHA-256 is
+  `bb9647780722565cc3d135bce3141440600d8391cf9eec27dc22368c00846c8c`.
+  Evidence uses `.cellar/rpc/checkpoint-main-v1-*` and
+  `checkpoint-main-resume2-*`; the profile report hashes match the earlier
+  local-mode table below. Rebuilt executable SHA-256 values are
+  `be9cb68228ce465545ffb68b76e0535a73118ea45df88a6285f4c802b41759f2`
+  (GIL) and `754105761dfaabab19e0375dcde9025f0b4ab1af7ac2d54be7e71e27356e8602`
+  (free-threaded). The full Counter/failure driver is not repeated against this
+  checkpoint source; its earlier local and hosted identities stay separate.
+
+- **Hosted Python modes pass; the complete SDK gate remains open.** Head
+  `dcb66fd2` passes both
+  [typed-RPC CI jobs](https://github.com/crabbuild/cellar/actions/runs/40534684195),
+  including the standalone lifecycle/fault suites, the full 19-suite driver
+  and the separate 576-call profile. The reports observe GIL CPython 3.14.8/upb
+  and free-threaded CPython 3.14.10/python, with Protobuf 7.34.2. Both uploaded
+  evidence ZIPs are downloaded and checked against GitHub's SHA-256 digests;
+  the current independent mode/profile/peer/saturation/control auditors accept
+  their reports and reject their negative probes.
+
+  | Hosted artifact | GIL | Free-threaded |
+  | --- | --- | --- |
+  | Artifact ID | `12752972533` | `12753209984` |
+  | ZIP SHA-256 | `575497458329ae6fd34324ae1eae8f23fb8ddbe98fd1430e35dee68ca7b452f6` | `3feee142a407107ac54cee748a39f6c177b5984660548e3c885a4c3a7db6aec9` |
+  | All-suite report SHA-256 | `dbfea389e8edda36ad9839ea4fcc7ac5dfb7be6f12f2c138372bdca55c92145b` | `53e888f5dd8cdf1886ec79ee6544eeb0b408c8a7cc306904e907d32acadae9ba` |
+  | Profile report SHA-256 | `72fe39aabf4288376cf2cee27efa1e5d4a668cda70443bd7bca9bfe842c3275e` | `e71b53b420fcf4ed60e5aa466345302613a5f6f054549963d2ed1af97b79c77e` |
+
+  The same head's SDK GIL job passes. Its
+  [SDK free-threaded job](https://github.com/crabbuild/cellar/actions/runs/40534684215/job/122296620494)
+  fails `native_s3_seed_crash_matrix`: the child returns
+  `NotLeader { leader: None }` on its initial S3 command before the
+  after-attachment cut. JavaScript CI is cancelled. These results precede the
+  checkpoint fix. The exact S3 seed crash matrix passes on the checkpoint
+  source in **29.738 seconds**, from preserved executable SHA-256
+  `e0985ee80563e21043768017e32fa4127b5324be953fa52dd9eadba7fec0feaa`.
+  All watched sources still match the resumed manifest. This one local pass
+  on updated main does not diagnose or close the hosted failure. Evidence is
+  retained under `.cellar/rpc/diagnostics/python-mode-ci-40534684195/` and
+  `checkpoint-native-seed-v1/`. Earlier timing failures, remaining provenance,
+  resource/RSS, descriptor, packaging, diagnostics and performance work stay
+  open; qualification flags remain false.
 
 - **Loaded Python modes across the existing full driver.** Separate native
   executables pass `--suite all` and `--suite profile` with GIL CPython 3.14.6

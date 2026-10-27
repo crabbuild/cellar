@@ -52,10 +52,13 @@ pub(crate) struct LocalStore {
     // after automatic checkpoints. Mutex provides Sync for the idle handle;
     // operations still own separate connections and never lock this mutex.
     _wal_index: Arc<Mutex<Connection>>,
-    // Serialize writers from clones before SQLite's busy-handler backoff can
-    // let a stream of new transactions starve an older lease renewal. Other
-    // instances/processes still arbitrate through SQLite's transaction lock.
+    // Admit transaction starts fairly among clones. The SQLite write lock
+    // protects the transaction after this guard is released for COMMIT, whose
+    // automatic checkpoint must not block unrelated lease writers behind it.
+    // Other instances/processes still arbitrate through SQLite's write lock.
     writer: Arc<parking_lot::FairMutex<()>>,
+    #[cfg(all(test, unix, not(cellar_internal_tests)))]
+    checkpoint_vfs: Option<Arc<checkpoint_tests::CheckpointVfs>>,
     #[cfg(test)]
     read_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
@@ -113,6 +116,8 @@ impl LocalStore {
             database,
             _wal_index: Arc::new(Mutex::new(connection)),
             writer: Arc::new(parking_lot::FairMutex::new(())),
+            #[cfg(all(test, unix, not(cellar_internal_tests)))]
+            checkpoint_vfs: None,
             #[cfg(test)]
             read_gate: None,
             #[cfg(test)]
@@ -125,6 +130,17 @@ impl LocalStore {
     }
 
     fn connect(&self) -> object_store::Result<Connection> {
+        #[cfg(all(test, unix, not(cellar_internal_tests)))]
+        if let Some(vfs) = &self.checkpoint_vfs {
+            let connection = Connection::open_with_flags_and_vfs(
+                &self.database,
+                rusqlite::OpenFlags::default(),
+                vfs.name(),
+            )
+            .map_err(db_error)?;
+            configure_connection(&connection)?;
+            return Ok(connection);
+        }
         let connection = Connection::open(&self.database).map_err(db_error)?;
         configure_connection(&connection)?;
         Ok(connection)
@@ -134,11 +150,16 @@ impl LocalStore {
         // Reads must neither recreate a missing backend nor checkpoint unrelated
         // object data when their short-lived connection happens to close last.
         // Writers retain FULL commits and ordinary automatic checkpoints.
-        let connection = Connection::open_with_flags(
-            &self.database,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )
+        let flags =
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        #[cfg(all(test, unix, not(cellar_internal_tests)))]
+        let connection = match &self.checkpoint_vfs {
+            Some(vfs) => Connection::open_with_flags_and_vfs(&self.database, flags, vfs.name()),
+            None => Connection::open_with_flags(&self.database, flags),
+        }
         .map_err(db_error)?;
+        #[cfg(any(not(test), not(unix), cellar_internal_tests))]
+        let connection = Connection::open_with_flags(&self.database, flags).map_err(db_error)?;
         configure_connection(&connection)?;
         connection
             .set_db_config(
@@ -294,9 +315,9 @@ impl LocalStore {
     ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
-        // Declare the guard first so the connection and any rollback release
-        // their SQLite locks before writer admission reopens.
-        let _writer;
+        // On a pre-commit failure, close/rollback before returning admission.
+        // The success path hands serialization to SQLite before COMMIT below.
+        let writer;
         let mut connection = self.connect()?;
         // The fixture observes a real entered SQLite connection without
         // locking out unrelated metadata/claim I/O while the worker pauses.
@@ -306,7 +327,7 @@ impl LocalStore {
                 gate.wait();
             }
         }
-        _writer = self.writer.lock();
+        writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -371,6 +392,10 @@ impl LocalStore {
                 .map_err(db_error)?;
             blob.write_all_at(&body, 0).map_err(db_error)?;
         }
+        // SQLite still owns the write lock, so the CAS remains atomic. Release
+        // only our admission guard: COMMIT's post-transaction checkpoint can
+        // stall on main-file I/O after SQLite has already allowed new writers.
+        drop(writer);
         transaction.commit().map_err(db_error)?;
         Ok(PutResult {
             e_tag: Some(etag.to_string()),
@@ -539,11 +564,19 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let key = location.to_string();
         store_blocking!(move || {
-            let _writer = store.writer.lock();
-            store
-                .connect()?
+            let writer;
+            let mut connection = store.connect()?;
+            writer = store.writer.lock();
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db_error)?;
+            transaction
                 .execute("DELETE FROM __sys_local_objects WHERE key = ?1", [key])
                 .map_err(db_error)?;
+            // Match put/CAS: SQLite serializes COMMIT, while its subsequent
+            // automatic checkpoint must leave writer admission available.
+            drop(writer);
+            transaction.commit().map_err(db_error)?;
             Ok(())
         })
         .await
@@ -712,6 +745,10 @@ fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
 #[cfg(test)]
 #[path = "local_store_read_tests.rs"]
 mod read_tests;
+
+#[cfg(all(test, unix, not(cellar_internal_tests)))]
+#[path = "local_store_checkpoint_tests.rs"]
+mod checkpoint_tests;
 
 #[cfg(test)]
 #[path = "local_store_list_tests.rs"]
