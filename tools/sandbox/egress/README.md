@@ -2,9 +2,10 @@
 
 # Native outbound network qualification
 
-These campaigns check real Linux nftables, sockets and the network-helper binary for
-[`cellar-egress`](../../../crates/cellar-egress/README.md). It does not run the
-published Sandbox SDK or claim that the engine supports interception yet.
+These campaigns check real Linux nftables, sockets, the network-helper binary
+and the native Engine attach client for
+[`cellar-egress`](../../../crates/cellar-egress/README.md). They do not run the
+published Sandbox SDK or enable the application-facing interception API.
 
 ```mermaid
 flowchart LR
@@ -12,15 +13,21 @@ flowchart LR
     Build --> Namespace[Owned container network namespace]
     Namespace -->|Marked connection| Peer[Owned external Node peer]
     Peer -->|Inbound connection and reply| Namespace
+    Runner --> Host[Native Engine attach client]
+    Host <-->|Private stdin/stdout| Helper[Actual helper container]
+    App[Actual application container] -->|Shared network namespace| Helper
 ```
 
 ## Run
 
 Use Python 3.11+, Cargo, Docker and an explicit Linux Docker context that permits
-`NET_ADMIN` inside an ordinary container. Start a private VM first when using
+`NET_ADMIN` inside a `runc` container. The campaign selects `runc` explicitly;
+gVisor, Kata and other runtime profiles require separate qualification.
+Start a private VM first when using
 Docker from macOS. The runner does not start or reconfigure the VM.
 
 ```sh
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-9dea"
 python3 tools/sandbox/egress/qualify.py \
   --context colima-cellar-sandbox-9dea \
   --output /tmp/cellar-egress-evidence
@@ -31,6 +38,9 @@ The builder uses `rust:1.98.1-bookworm`; the external peer uses
 `--node-image` when qualifying a separate environment. The native build remains
 `--locked`, and its reduced workspace must select registry versions/checksums
 from the repository lockfile.
+The host also builds the native `cellar` Engine qualification target with
+`--locked`; its target directory must belong to this checkout. No Python runtime
+or JavaScript engine is embedded in that native host test.
 
 ## Acceptance checks
 
@@ -48,13 +58,18 @@ from the repository lockfile.
 | Live rules and DNS | Route replacement over one connection; persistent TCP DNS observes later registrations; UDP forwards verified replies and drops an exercised foreign ID |
 | Typed refusal | Offline, unsupported hostname and helper-listener destinations refuse before connecting; external peer counts verify no connection/request effect |
 | Installer retirement | Fault-only wrapper stalls startup or an entered update; readiness/route success refuse; retirement kills and reaps the installer before process exit |
-| Resource cleanup | Remove only recorded container IDs, the uniquely named network and the uniquely tagged image; attempt all cleanup even after a failure |
+| Engine attach | Upgrade private stdin/stdout using the full immutable Engine ID before helper startup; incremental Docker framing carries the real native protocol |
+| Helper-first startup | Start a separate Node application container in the exact helper's network namespace only after readiness and acknowledged route installation; actual DNS and HTTP round-trip |
+| Failed startup | A missing firewall installer refuses readiness and prevents application allocation; join the failed helper and remove its recorded ID |
+| In-flight retirement | Retire the private transport after a real request arrives; subsequent response writes refuse, the application receives no reply bytes and the helper joins |
+| Resource cleanup | Remove recorded IDs, reconcile only this native campaign's owner label after a lost response/timeout, remove the uniquely named network/image and attempt every cleanup |
 
 Each run writes a unique evidence directory containing build/runtime logs,
-the peer snapshot and a JSON result grouped by kernel/helper/retirement campaign,
-with actual image IDs, kernel version,
+the peer snapshot and a JSON result grouped by kernel/helper/retirement/engine campaign,
+with actual image IDs, kernel/Engine versions, selected runtime,
 source revision and hashes of the source snapshot used by the build. Source
-hashes distinguish uncommitted qualification from a later commit; the recorded
+hashes distinguish uncommitted qualification from a later commit; native attach
+inputs must remain unchanged throughout the campaign. The recorded
 revision alone is not an assertion that the checkout was clean.
 
 BuildKit caches are scoped to the checkout path, with locked sharing. Source
@@ -67,8 +82,10 @@ binaries out of the cache mount into the uniquely tagged qualification image.
 The kernel TCP DNS case checks forwarding and bytes; the helper campaign also
 exercises the persistent DNS TCP server. Helper direct fallback currently accepts
 IP addresses only. The route handler is a native protocol peer; actual
-generation-bound Worker dispatch, HTTP body/header bounds and engine lifecycle
-remain to be connected and qualified. Per-class saturation remains open.
+generation-bound Worker dispatch, HTTP body/header bounds and the production
+cell lifecycle remain to be connected and qualified. The Engine campaign checks
+the real transport and helper/application topology; it is not a published SDK
+or cell-ownership qualification. Per-class saturation remains open.
 
 This test uses the qualifier's own namespace and private Docker network. It
 does not modify the host's bridge fence or establish that engine startup,

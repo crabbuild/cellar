@@ -18,8 +18,10 @@ flowchart LR
     Rules --> Worker[Generation-bound Worker route]
 ```
 
-The network helper runs and is qualified separately. Engine lifecycle and
-native Worker routing are the next integration step. Outbound sockets remain
+The network helper runs and is qualified separately. The native Engine attach
+client and a helper-first two-container topology also have a real `runc`
+campaign. Production cell lifecycle and native Worker routing are the next
+integration step. Outbound sockets remain
 inside the container network fence; the host must not open a fallback connection
 on the application's behalf.
 
@@ -147,13 +149,16 @@ namespace. It also starts the actual network-helper binary over pipes, checks
 live rule replacement, persistent DNS TCP, forwarded-answer identity, effect-free
 fallback refusal and successful joined process exit. A fault-only installer
 wrapper verifies timeout admission and retirement during an entered installation.
+The Engine campaign uses Cellar's real private attach client before startup,
+then starts a separate application in the helper's exact network namespace.
+It checks startup refusal, live-request retirement and successful helper join.
 The route handler is a protocol peer; this does not run the published Sandbox
-SDK or qualify native Worker dispatch and engine teardown.
+SDK or qualify native Worker dispatch and cell ownership teardown.
 
 | Next integration | Required evidence |
 | --- | --- |
 | Network helper qualification | Per-class saturation, broader cancellation/errors, DNS options and additional kernel/runtime profiles |
-| Engine lifecycle | Helper-before-application startup, acknowledged installation, ownership loss, expiry and joined removal |
+| Production cell lifecycle | Integrate the qualified helper-first topology with cell start, ownership loss, expiry and joined removal |
 | Native/Workers facade | Host-minted generation-bound Fetcher routes, current-run admission and no retained JavaScript event callback |
 | Published Sandbox | Unmodified helper image backup/restore and mount operations with grant replacement and cleanup |
 

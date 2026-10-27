@@ -290,8 +290,9 @@ The pushed `32e15e11` Linux typed-RPC run `40549293705` fails the portable
 profile for CPython 3.14.10 free-threaded at `python->python/timestamp-min`.
 The request reports a generic handler failure; later cleanup reports
 `NodeLeaseExpired`. Their causal relationship is not established. The standard
-Python profile, complete JavaScript/Node workflow and all four Python example
-jobs pass. The standard SDK job is still running; its free-threaded peer passes.
+Python profile, complete JavaScript/Node workflow, all four Python example jobs
+and both standard/free-threaded SDK jobs pass. The typed-RPC free-threaded failure
+remains a separate qualification gap.
 
 Both local profile campaigns pass all 576 cases and their report/cleanup guards:
 CPython 3.14.6 with the GIL and CPython 3.14.5 free-threaded on macOS, both using
@@ -301,6 +302,44 @@ stage; the native matrix records bounded readiness observations before cleanup.
 Exception details remain private, and request, lease, handler and shutdown
 budgets and success assertions are unchanged. Diagnose the next failing Linux
 observation before claiming a correction; this qualification priority stays open.
+
+## Native Engine attach and helper topology — 2026-10-27
+
+The native Docker client now attaches private stdin/stdout by full immutable
+Engine ID before helper startup. Names and partial IDs refuse before connecting.
+The actual helper and a separate Node application share one `runc` network
+namespace only after readiness and acknowledged route installation. This is
+qualified Engine transport/topology, not production cell lifecycle integration
+or an enabled `interceptOutboundHttp()` capability.
+
+| Boundary | Evidence |
+| --- | --- |
+| Raw Engine connection | Buffered upgrade bytes, raw stdin and half-close survive; malformed IDs refuse before connection |
+| Refusal bounds | A declared oversized daemon error refuses before reading; actual received error bytes remain bounded to 64 KiB |
+| Complete versus lost response | The pre-fix 404 control loses its complete daemon reply to macOS shutdown `ENOTCONN`. One final nonblocking response poll now preserves buffered completion; a truncated 200 reply still fails, without waiting or replay |
+| Real application startup | Actual native attach precedes helper start; the separately started application resolves the registered hostname and completes an exact HTTP byte round-trip through real namespace rules |
+| Startup failure | Missing installer produces the expected helper failure, refuses readiness and allocates no application container |
+| In-flight retirement | After a real request arrives, transport retirement refuses further response writes, delivers zero response bytes to the application and joins the helper successfully |
+| Native test campaign | Five Docker-client regressions, both existing native-container ownership/exec/port/restart cases and the Engine integration pass; all three real startup/retirement scenarios join successfully |
+| Linux campaign | Kernel, helper, installer-retirement and native Engine campaigns all pass with explicit `runc`, Engine 29.5.2 and kernel 6.8.0-117-generic; source/image hashes and Engine build/runtime logs are retained |
+| Environment | Both campaign owner labels are empty after cleanup; VM configuration checksum and Docker's default context are unchanged |
+| Quality | Strict core/egress library/test Clippy with all features and `-D warnings`, 1,287-source Rust format/layout, 112-source JavaScript formatting, the 481-package native-only engine guard, docs and whitespace checks pass |
+
+The two client regressions above were reproduced before correction and pass
+with their original two-second bounds afterward. The Engine scenarios retain
+their original 30-second per-case budget. Three additional fresh-process
+free-threaded CPython 3.14.5/macOS controls also pass all 576 RPC cases and
+runtime/report guards; they do not repair the separately recorded Linux
+3.14.10 failure. No guest exception details or existing qualification assertions
+were exposed or weakened.
+
+See the [reproducible Engine campaign](../tools/sandbox/egress/README.md).
+The next feature step is integrating this topology with production
+`CellContainer` start/stop, ownership loss and generation-bound Worker dispatch,
+then exercising the unmodified published Sandbox helper's backup/restore and
+mount operations. Physical provider deletion, hard remote fencing, other runtime
+profiles and the remaining SP-02–SP-10 acceptance work remain open; the original
+goal is active. E2B/Vercel live configuration remains deferred.
 
 ## Verified implementation details
 

@@ -6,6 +6,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,6 +17,17 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[3]
+ENGINE_INPUTS = (
+    "Cargo.toml", "Cargo.lock", "crates/cellar/Cargo.toml",
+    "crates/cellar/containers/docker.rs",
+    "crates/cellar/tests/native_container_egress.rs",
+    "tools/sandbox/egress/application.mjs", "tools/sandbox/egress/qualify.py",
+)
+
+
+def engine_inputs():
+    return {relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
+            for relative in ENGINE_INPUTS}
 
 
 def run(arguments, *, timeout=120):
@@ -36,6 +48,66 @@ def toml_value(value):
             f"{key} = {toml_value(item)}" for key, item in value.items()
         ) + " }"
     raise TypeError(f"unsupported workspace dependency field: {type(value).__name__}")
+
+
+def build_engine_test(evidence):
+    environment = os.environ.copy()
+    environment.setdefault("CARGO_TARGET_DIR", str(ROOT / ".cellar/target-egress-native"))
+    environment.update({
+        "CARGO_PROFILE_DEV_DEBUG": "0", "CARGO_PROFILE_TEST_DEBUG": "0",
+        "CARGO_INCREMENTAL": "0", "CARGO_BUILD_JOBS": "2",
+    })
+    print("Building locked native Engine attach qualifier", flush=True)
+    built = subprocess.run(
+        ["cargo", "test", "--locked", "-p", "cellar", "--test",
+         "native_container_egress", "--no-run", "--message-format=json"],
+        cwd=ROOT, env=environment, text=True, capture_output=True, timeout=600,
+    )
+    (evidence / "engine-build.log").write_text(built.stderr)
+    (evidence / "engine-build.jsonl").write_text(built.stdout)
+    built.check_returncode()
+    executables = [
+        item["executable"] for line in built.stdout.splitlines()
+        if (item := json.loads(line)).get("reason") == "compiler-artifact"
+        and item.get("target", {}).get("name") == "native_container_egress"
+        and item.get("executable")
+    ]
+    if len(executables) != 1:
+        raise RuntimeError("native Engine build omitted its unique test executable")
+    return executables[0]
+
+
+def qualify_engine(executable, docker, image, network, owner, options, evidence):
+    endpoint = run([*docker, "context", "inspect", options.context,
+                    "--format", "{{.Endpoints.docker.Host}}"])
+    if not endpoint.startswith("unix://"):
+        raise RuntimeError("native Engine qualification requires an explicit Unix socket")
+    environment = os.environ.copy()
+    environment.update({
+        "CELLAR_EGRESS_ENGINE_SOCKET": endpoint.removeprefix("unix://"),
+        "CELLAR_EGRESS_ENGINE_IMAGE": image,
+        "CELLAR_EGRESS_APP_IMAGE": options.node_image,
+        "CELLAR_EGRESS_ENGINE_NETWORK": network,
+        "CELLAR_EGRESS_ENGINE_OWNER": owner,
+        "CELLAR_EGRESS_ENGINE_RUNTIME": "runc",
+    })
+    print("Checking native Engine attach and helper-first application startup", flush=True)
+    observed = subprocess.run(
+        [executable, "--ignored", "--nocapture", "--test-threads=1"], env=environment,
+        text=True, capture_output=True, timeout=90,
+    )
+    (evidence / "engine.log").write_text(observed.stdout + observed.stderr)
+    observed.check_returncode()
+    remaining = run([*docker, "ps", "-aq", "--filter",
+                     f"label=cellar.egress.qualifier={owner}"])
+    if remaining:
+        raise RuntimeError("native Engine campaign left owned containers after joined cleanup")
+    marker = "CELLAR_EGRESS_ENGINE_RESULT="
+    results = [json.loads(line.removeprefix(marker))
+               for line in observed.stdout.splitlines() if line.startswith(marker)]
+    if len(results) != 1:
+        raise RuntimeError("native Engine qualification omitted its complete evidence")
+    return results[0]
 
 
 def prepare_context(destination, rust_image):
@@ -116,10 +188,13 @@ def qualify(options):
     peer_source = evidence / "peer.mjs"
     shutil.copy2(Path(__file__).with_name("peer.mjs"), peer_source)
     try:
+        native_sources = engine_inputs()
+        engine_test = build_engine_test(evidence)
         with tempfile.TemporaryDirectory(prefix="cellar-egress-build-") as temporary:
             context = Path(temporary)
             source_files = prepare_context(context, options.rust_image)
             source_files["tools/sandbox/egress/peer.mjs"] = hashlib.sha256(peer_source.read_bytes()).hexdigest()
+            source_files.update(native_sources)
             print("Building locked native network qualifier", flush=True)
             build = subprocess.run(
                 [*docker, "build", "--label", f"cellar.qualifier={owner}",
@@ -133,6 +208,7 @@ def qualify(options):
         network_created = True
         peer_id = run([
             *docker, "create", "--name", peer, "--label", f"cellar.qualifier={owner}",
+            "--runtime", "runc",
             "--network", network, "--cap-drop", "ALL", "--memory", "64m",
             "--network-alias", "cellar-egress-peer",
             "--pids-limit", "64", "--entrypoint", "node", options.node_image, "/peer.mjs",
@@ -162,6 +238,7 @@ def qualify(options):
         ]:
             qualifier_id = run([
                 *docker, "create", "--name", f"{qualifier}-{name}",
+                "--runtime", "runc",
                 "--label", f"cellar.qualifier={owner}",
                 "--network", network, "--cap-drop", "ALL", "--cap-add", "NET_ADMIN",
                 "--sysctl", "net.ipv4.ip_unprivileged_port_start=0",
@@ -183,17 +260,33 @@ def qualify(options):
             if exit_code != "0":
                 raise RuntimeError(f"{name} qualifier exited {exit_code}; see {evidence}")
             campaigns[name] = json.loads(observed.stdout)
+        campaigns["engine"] = qualify_engine(
+            engine_test, docker, image, network, owner, options, evidence,
+        )
+        if native_sources != engine_inputs():
+            raise RuntimeError("native Engine qualification inputs changed during the campaign")
         report = {"campaigns": campaigns}
         report["image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", image])
         report["rust_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.rust_image])
         report["node_image"] = run([*docker, "image", "inspect", "--format", "{{.Id}}", options.node_image])
         report["kernel"] = run([*docker, "info", "--format", "{{.KernelVersion}}"])
+        report["runtime"] = "runc"
+        report["engine_version"] = run([*docker, "version", "--format", "{{.Server.Version}}"])
         report["source_revision"] = source_revision
         report["source_files"] = source_files
         (evidence / "result.json").write_text(json.dumps(report, indent=2) + "\n")
         print(f"Network qualification passed: {evidence / 'result.json'}", flush=True)
     finally:
         cleanup_errors = []
+        # Reconcile this campaign's label after a native timeout/lost create
+        # response. Never enumerate or remove resources outside this owner.
+        try:
+            owned = run([*docker, "ps", "-aq", "--filter",
+                         f"label=cellar.egress.qualifier={owner}"]).splitlines()
+            for container in owned:
+                run([*docker, "rm", "-f", container])
+        except (subprocess.SubprocessError, OSError) as error:
+            cleanup_errors.append(f"native Engine resources: {error}")
         for container in reversed(containers):
             try:
                 run([*docker, "rm", "-f", container])

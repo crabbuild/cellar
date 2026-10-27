@@ -167,6 +167,7 @@ nix.workspace = true
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
 
 [dev-dependencies]
+cellar-egress.workspace = true
 lz4_flex.workspace = true
 
 [build-dependencies]
