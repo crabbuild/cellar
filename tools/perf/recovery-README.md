@@ -23,6 +23,14 @@ recovery. Both modes currently install a complete locally verified closure
 before the first read. Extent selection does not enable demand loading or
 change the meaning of hydration, readiness or qualification.
 
+The fixture retires its private prepared template after all initial replicas'
+native markers are synced and their preload owners have joined, before any
+replica runtime starts. A pending or failed preload keeps its input; failed
+retirement refuses startup. This removes one full image from the overlap
+between fixture preparation and archive publication. Supplied raw fixtures stay
+under the caller's ownership. The same payload, receipt, local-loss and serving
+assertions still run after fault injection.
+
 The ignored `retained_root_query` target in `cellar-recovery-tests` diagnoses an
 offline member-4 worker from the full-capacity fixture. Set
 `CELLAR_RETAINED_QUERY_WORKER` to its absolute directory and run

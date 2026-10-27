@@ -15,6 +15,8 @@ use std::{
 
 #[path = "raft_recovery_performance.rs"]
 mod performance;
+#[path = "raft_recovery_preparation.rs"]
+mod preparation;
 
 const PHASES: &[&str] = &[
     "fault",
@@ -386,10 +388,17 @@ async fn drill(
         host,
         store,
         roots,
-        fixture::preload(template, image, registration.clone(), quota),
+        preparation::retire_after_preload(
+            template.clone(),
+            fixture::preload(template.clone(), image, registration.clone(), quota),
+        ),
     )
     .await?;
     let preflight = async {
+        ensure!(
+            !template.try_exists()?,
+            "prepared recovery input remained after native preload completed"
+        );
         let handles = cluster
             .services
             .iter()

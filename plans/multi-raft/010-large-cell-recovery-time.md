@@ -1104,6 +1104,41 @@ files), native dependency and documentation guards pass. An initial diagnostic
 logging-policy lint was corrected using the existing output helper; no lint
 was suppressed. These checks do not replace the pending fresh full-size drill.
 
+The committed `d36b7791` release executable
+(`ad93b4f2ec1d8d2d6c22bf3446a2a284ce275961e1fe7925c2a9b746c0d05287`)
+passes both real RustFS 272 MiB preflights with all nine correctness checks and
+valid phase observations. Failure to verified write is 11.857459 s with the
+existing workspace-volume object store and 7.548711 s with a separate disposable
+internal-volume store. These are separate uncontrolled single pilots and storage
+layouts; neither a percentile nor a controlled code speedup follows.
+
+A full-size launch then refuses before starting a trial because shared workspace
+free space falls below its fixture high-water guard. The retained failed cold
+worker is losslessly archived, with all 2,397 decoded file lengths and SHA-256
+hashes checked against its offline source, before its directory is retired.
+The complete 10,005,223,082-byte worker occupies 29,662,974 archive bytes; all
+RustFS prefixes remain retained. Evidence and retained executables move to the
+internal volume with old paths preserved, while Cargo targets stay on the
+workspace volume.
+
+The fixture now retires only its private prepared template after all initial
+native markers and physical preload owners have joined, before runtime startup
+can overlap archive publication. Pending/failed preloads retain the input;
+failed retirement refuses startup. The native assertion that the prepared input
+is absent fails before this change. This saves one full temporary image without
+relaxing any engine proof, operation deadline or post-fault oracle.
+The release target then passes all 16 existing native cases and both new
+preparation-lifecycle cases; 12 physical cases remain ignored. Qualification
+package all-feature/all-target release Clippy, format/layout (1,248 Rust files),
+native dependency and documentation guards pass. Production Rust matches
+`d36b7791`; only the fixture, its tests and tooling documentation change.
+
+The fixture repeats a pseudo-random 1 MiB payload across rows, with distinct
+SQLite pointers and sample tags. Full logical/transfer-byte checks still apply,
+but the strong lossless compression across files means these pilots do not
+qualify independently high-entropy contents. That workload remains part of
+RT-06, alongside controlled hardware/cache and process-failure campaigns.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775
