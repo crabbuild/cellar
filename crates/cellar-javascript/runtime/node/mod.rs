@@ -42,6 +42,8 @@ pub struct NodeOptions {
     pub(crate) observer_pause: Option<(Duration, Life)>,
     #[cfg(test)]
     pub(crate) observer_pause_after_start: bool,
+    #[cfg(test)]
+    pub(crate) bootstrap_padding: usize,
 }
 
 impl NodeOptions {
@@ -57,6 +59,8 @@ impl NodeOptions {
             observer_pause: None,
             #[cfg(test)]
             observer_pause_after_start: false,
+            #[cfg(test)]
+            bootstrap_padding: 0,
         }
     }
 }
@@ -181,10 +185,10 @@ fn run(
         .map(|v| format!("{v:02x}"))
         .collect::<String>();
 
-    // The factory is captured before importing application modules. The channel
-    // secret is delivered only over inherited stdin, never argv or the environment.
-    // A data URL otherwise repeats the compiled source in every stack frame.
-    // Keep internal locations fixed and short before application errors exist.
+    // The factory is captured before importing application modules. Source and
+    // private configuration travel over stdin, not a platform-limited argv item.
+    // Keep internal stack locations short: a data URL otherwise repeats the
+    // entire compiled source and can hide application errors behind value limits.
     let script = format!(
         "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}\n//# sourceURL=cellar:node-bootstrap\n",
         include_str!("rejections.js"),
@@ -199,9 +203,8 @@ fn run(
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );
-    let source_length = u32::try_from(script.len())
-        .context("Node bootstrap source exceeds length limit")?
-        .to_be_bytes();
+    #[cfg(test)]
+    let script = format!("{script}\n/*{}*/", "x".repeat(node.bootstrap_padding));
     let mut command = Command::new(&node.executable);
     if let Some(directory) = &node.working_directory {
         command.current_dir(directory);
@@ -249,11 +252,11 @@ fn run(
         "synchronousTimeout": node.heartbeat_timeout.as_millis()
     });
     let mut stdin = process.0.stdin.take().context("Node stdin missing")?;
-    let config = serde_json::to_vec(&config)?;
     ensure!(
-        config.len() <= runtime.options.max_value_bytes,
+        serde_json::to_vec(&config)?.len() <= runtime.options.max_value_bytes,
         "Node bootstrap configuration exceeds limit"
     );
+    let bootstrap = serde_json::to_vec(&json!({"source":script,"config":config}))?;
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
@@ -267,26 +270,19 @@ fn run(
         );
     }
 
-    // Borrow the static source and configuration separately: do not concatenate
-    // another bootstrap copy. The original startup deadline covers every write.
-    for mut remaining in [
-        source_length.as_slice(),
-        script.as_bytes(),
-        config.as_slice(),
-    ] {
-        while !remaining.is_empty() {
-            ensure!(Instant::now() < deadline, "Node bootstrap timed out");
-            match stdin.write(remaining) {
-                Ok(0) => anyhow::bail!("Node bootstrap pipe closed"),
-                Ok(n) => remaining = &remaining[n..],
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(1))
-                }
-                Err(error) => return Err(error.into()),
+    let mut remaining = bootstrap.as_slice();
+    while !remaining.is_empty() {
+        ensure!(Instant::now() < deadline, "Node bootstrap timed out");
+        match stdin.write(remaining) {
+            Ok(0) => anyhow::bail!("Node bootstrap pipe closed"),
+            Ok(n) => remaining = &remaining[n..],
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(1))
             }
+            Err(error) => return Err(error.into()),
         }
     }
-    // EOF completes the bootstrap document; the worker then opens the IPC socket.
+    // EOF completes the private bootstrap document; the worker opens IPC next.
     drop(stdin);
     let socket = loop {
         ensure!(Instant::now() < deadline, "Node startup timed out");

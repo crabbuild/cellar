@@ -1,23 +1,20 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-// Keep exec arguments small on every Unix host. Rust sends the length-prefixed
-// compiled source first, followed by the private configuration document. Reading
-// exactly the source leaves configuration on stdin for the imported worker; its
-// authentication secret never becomes part of a module URL, argv or environment.
-import { readSync } from "node:fs";
+// Keep argv small on platforms with per-argument limits. Both the compiled
+// runtime and its private configuration arrive over the inherited pipe.
+import { readFileSync } from "node:fs";
 
-function readExactly(length) {
-  const bytes = Buffer.allocUnsafe(length);
-  let offset = 0;
-  while (offset < length) {
-    const count = readSync(0, bytes, offset, length - offset);
-    if (count === 0) throw new Error("Cellar Node bootstrap pipe closed");
-    offset += count;
-  }
-  return bytes;
+const exit = process.exit.bind(process);
+try {
+  const { source, config } = JSON.parse(readFileSync(0, "utf8"));
+  // Configuration (including authentication) is a function argument, never part
+  // of the module URL, argv, environment or an on-disk bootstrap file.
+  const { default: bootstrap } = await import(
+    `data:text/javascript;base64,${Buffer.from(source, "utf8").toString("base64")}`
+  );
+  await bootstrap(config);
+} catch {
+  // Parse/initialization errors may include private input. Let the native host
+  // report its fixed startup failure rather than exposing a Node error stack.
+  exit(70);
 }
-
-// This private pipe belongs to the Rust parent. The source is compiled into
-// that executable, rather than supplied by an application or network peer.
-const source = readExactly(readExactly(4).readUInt32BE(0));
-await import(`data:text/javascript;base64,${source.toString("base64")}`);

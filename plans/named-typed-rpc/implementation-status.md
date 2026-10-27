@@ -74,6 +74,20 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **PR #132 conflict resolution with main `fe260689` (#135).** The merged
+  startup uses main's fixed launcher and private JSON source/configuration
+  envelope, with configuration passed directly to the runtime function. It
+  retains the PR's `cellar:node-bootstrap` source label, original startup
+  deadline and blocked-pipe regression. Both real argument-limit tests remain:
+  main's padded bootstrap admission test and the PR's actual invocation/short
+  stack test. The earlier length-prefixed loader evidence below describes its
+  original source snapshot, not this merged envelope. All 97 JavaScript tooling
+  tests pass, including both private-bootstrap tests. Rust formatting and layout
+  (1,203 files), JavaScript formatting (96 sources), documentation links and the
+  466-package native dependency guard also pass. Rust runtime tests and hosted
+  verification of the merged source remain pending; the independent RPC reuse
+  qualification run keeps its pre-merge source frozen.
+
 - **Integrate main's sandbox bindings without dropping joined cleanup.**
   Merge head **`239796d5`** includes main through **`5db6b475`** (#134).
   The one conflict is in `workers_module.rs`: retain main's sandbox coverage
