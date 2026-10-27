@@ -28,7 +28,9 @@ permissions:
 jobs:
   qualify:
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    # Full source builds and serial restart/fleet examples exceed 45 minutes on
+    # shared runners. Individual application and test deadlines stay unchanged.
+    timeout-minutes: 90
     env:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
