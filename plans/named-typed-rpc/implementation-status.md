@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Reply-quota source and remaining Linux regression | PR #132 merged as main `927d3f34`. Cache-only head `f88f7f60` passes hosted SDK checks in both Python ABI modes, Python examples and typed-RPC lifecycle; JavaScript retains the published-container wake timeout. The lifecycle fixture now preserves published port 8080 on Linux, with the original five-second budgets. New reply-quota head `3df78956` passes 647 selected live cases and 122 core tests; remaining local adapter/static checks and fresh hosted verification are pending. |
-| P0 | Cross-adapter deadline and regression timing | The latest frozen cache-fix adapter run records 163 passed, eight failed and six external ignored: native/V8/Node handler budgets still expire, including the shared provider test at five seconds. A prior native first-poll probe observed 1.345 s before a cell constructor. A new external V8 sample reproduces the 250 ms HTTP failure but captures loader startup, not the failing turn. Passing standalone retries and earlier 167-test runs do not establish a timing cause. |
+| P0 — hosted verification | Final hosted gates | Reply-quota snapshot `3df78956` passes 647 selected live cases, 122 core tests, native settlement, Clippy and static checks with 3,659 unchanged hashes. On `f3d5f55b`, Linux adapter/real-node, Node-only, archive/admission, Pi and Vercel recovery steps pass; typed-RPC lifecycle and Python examples pass. Later JavaScript and SDK workflow gates are still running. |
+| P0 | Cross-adapter deadline and regression timing | The completed reply-quota snapshot retains V8 HTTP/restart and Python typed-RPC failures at the original 250 ms handler budget. Its Node compatibility, generated Rust/V8/Node RPC, streaming, WebSockets and all five serial Workers module tests pass. A ready-triggered V8 sample reproduces failure/fencing but captures only two samples and cannot establish the cause. Preserve these failures; Linux passes and standalone retries do not diagnose them. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 112-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies, plus generated-client post-commit reply-byte refusal. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Published byte frames now retain admission through their final clone/slice, including Hyper's pending write queue; ready replies have a finite delivery deadline and refund safely after owner shutdown. Dense uploads, bounded headers, empty-frame timer progress and idle retirement have regressions. Published payload lengths now share the receiving quota, with pre-header and per-frame checks and final-alias ownership. Finish other effective minima and backing-copy/decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
-| P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
+| P1 | Language/profile coverage | All 576 live portable-profile cases pass: 18 vectors through every Rust/Python/V8/Node generated pair over local and signed-peer routes. Native request/reply semantics, real owner authority, caller decoding and joined resources are audited. Complete remaining descriptor semantics, supported Python modes and lifecycle/regression qualification. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -74,6 +74,50 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **Live portable Protobuf profile through generated language APIs.** The
+  dedicated `--suite profile` process passes **576 real calls**: 18 vectors ×
+  all sixteen Rust/Python/V8/Node generated caller/provider pairs × local and
+  signed-peer routes. V8 uses generated TypeScript; Node uses independently
+  generated JavaScript. All six registered profile methods are exercised.
+  The corpus covers scalar bounds, empty/binary/Unicode values, unknown enums,
+  packed/unpacked fields, optional and wrapper presence, maps, selected defaults,
+  recursive/nested messages, Empty, timestamp/duration bounds and Struct/Value/
+  ListValue mappings. Native observations decode and compare actual requests
+  and replies against reference wire messages, and verify owner, class, scope,
+  epoch and method. Each actual caller independently compares its decoded
+  result. This is live evidence, beyond the earlier codec-only vectors.
+
+  All nodes and language runtimes join, and native/bridge reservations reach
+  zero. The independent auditor checks exact coverage and rejects **22 corrupt
+  reports**. The run finishes in 12.46 seconds; all **3,689 watched source and
+  fixture hashes** remain unchanged. Report `.cellar/rpc/live-profile-v2.json`
+  SHA-256 `f46b0e58691e983a1be45351a19c2040eb0bc70a4531b60b5f2b95e1a29fdf43`;
+  source manifest SHA-256
+  `095708bbca830544713e94733e5a6fe95d277913f001c92a7f4fdb248bafa380`.
+  The final executable SHA-256 is recorded alongside the manifest. Independent
+  JavaScript and protoc Python corpus checks, strict TS fixture build/types,
+  **38 qualifier guards** and all-target qualifier Clippy pass. Added native
+  observer regressions refuse lost presence/default selection, a lost NaN and
+  a lost zero-valued wrapper. All **66 RPC JavaScript tooling tests** pass.
+  The updated executable also passes the existing **80 peer-fault and 112
+  saturation cases** with their independent auditors and a second unchanged
+  3,689-file source/fixture audit. These are 192 Counter regressions, separate
+  from the 576 profile calls and the earlier 647-case checkpoint.
+  The new CI gate runs the profile in its own process
+  because embedded Python permits one initialization per process; the existing
+  Counter `--suite all` contract is unchanged.
+
+  The first live attempt refuses the Python module before host admission.
+  A temporary tagged import probe identifies an ASCII-locale `UnicodeDecodeError`
+  while reading the UTF-8 corpus. A subprocess regression against the actual
+  loader reproduces that exact failure with UTF-8 mode and locale coercion
+  disabled. Explicit UTF-8 decoding fixes it; the regression and complete live
+  matrix pass with the probe removed. Logs retain both red attempts and the
+  green run. This fixes artifact reading rather than changing interpreter or
+  handler budgets. Current local evidence uses GIL CPython; supported Python
+  mode/failure matrices, remaining descriptor semantics, resource/RSS,
+  packaging, performance and T01–T19 remain open. Qualification flags stay false.
+
 - **Published reply payloads share receiving byte admission.** Reply-quota
   commit **`3df78956`** passes **647 selected live cases**: saturation 112,
   signed-peer faults 80, provenance 96, dependency cycles 80, deadline 55,
@@ -107,8 +151,8 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   compatibility, SSE/WebSockets and Workers port WebSockets pass. The complete
   serial Workers module suite passes all five tests on macOS. Python E2B,
   streaming and Vercel integrations pass; typed RPC fails at the same 250 ms
-  budget, with zero native/bridge counts after its failed host result and a
-  secondary SQLite I/O error during teardown. These failures remain in the
+  budget, with zero native/bridge counts after its failed host result and an
+  additional SQLite I/O error whose cause remains unproven. These failures remain in the
   raw logs. A ready-triggered external sample reproduces V8 failure plus lease
   fencing but captures only two samples, so it does not establish a cause.
   Reports and resumed exits are under `.cellar/rpc/reply-byte-bound-*` and

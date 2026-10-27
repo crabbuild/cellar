@@ -15,8 +15,8 @@ CLASSES = {"rust": "RustCounter", "python": "PythonCounter", "v8": "V8Counter", 
 
 
 def audit(report):
-    vectors = {vector["id"]: vector for vector in json.loads((ROOT / "fixtures/profile-vectors.json").read_text())}
-    descriptor = json.loads((ROOT / "fixtures/profile-generated/rpc.json").read_text())
+    vectors = {vector["id"]: vector for vector in json.loads((ROOT / "fixtures/profile-vectors.json").read_text(encoding="utf-8"))}
+    descriptor = json.loads((ROOT / "fixtures/profile-generated/rpc.json").read_text(encoding="utf-8"))
     assert report["format"] == 1 and report["contract_digest"] == descriptor["digest"]
     assert report["vector_count"] == len(vectors) == 18
     assert report["native_nodes_drained"] is report["language_runtimes_joined"] is True
@@ -81,7 +81,7 @@ def negative_probes(report):
 
 
 if __name__ == "__main__":
-    report = json.loads(Path(sys.argv[1]).read_text())
+    report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
     audit(report)
     count = negative_probes(report)
     print(f"Verified 576 live profile cases; rejected {count} corrupt reports")

@@ -148,8 +148,12 @@ mod tests {
     use super::*;
 
     fn vector(name: &str) -> Vector {
-        let vectors: Vec<Vector> = serde_json::from_str(include_str!("../../fixtures/profile-vectors.json")).unwrap();
-        vectors.into_iter().find(|vector| vector.id == name).unwrap()
+        let vectors: Vec<Vector> =
+            serde_json::from_str(include_str!("../../fixtures/profile-vectors.json")).unwrap();
+        vectors
+            .into_iter()
+            .find(|vector| vector.id == name)
+            .unwrap()
     }
 
     #[test]

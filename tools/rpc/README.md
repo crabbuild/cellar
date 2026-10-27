@@ -345,7 +345,17 @@ cargo test --locked -p cellar --test typed_rpc_profile
 
 The separate live profile suite submits 18 shared vectors through all sixteen
 Rust/Python/V8/Node generated caller/provider pairs, over both local and signed
-peer routes (576 cases). V8 uses TypeScript bindings and Node uses independently
+peer routes (576 cases).
+
+```text
+18 vectors × 4 generated callers × 4 typed providers × 2 routes = 576
+
+caller encode -> native preflight -> registered handler -> validated reply
+      ^                                                       |
+      +------------- caller decode and comparison ------------+
+```
+
+V8 uses TypeScript bindings and Node uses independently
 generated JavaScript bindings. Native observations check the actual request and
 returned message semantics, owner, scope, epoch and method. Each caller also
 checks its decoded result; replies are never accepted from JSON summaries alone.
@@ -354,6 +364,7 @@ checks its decoded result; replies are never accepted from JSON summaries alone.
 node tools/rpc/profile/vectors.mjs --check
 node --test tools/rpc/profile-vectors.test.mjs
 .cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+.cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
 cargo run --locked -p cellar-rpc-qualification --features full -- \
   --suite profile --report .cellar/rpc/profile.json
 python3 tools/rpc/check_profile.py .cellar/rpc/profile.json

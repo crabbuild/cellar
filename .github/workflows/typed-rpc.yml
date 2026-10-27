@@ -57,6 +57,7 @@ jobs:
           node tools/rpc/profile/vectors.mjs --check
           node --test tools/rpc/profile-vectors.test.mjs
           .cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+          .cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
       - name: Qualifier checks
         run: |
           cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store

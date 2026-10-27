@@ -22,7 +22,7 @@ MESSAGES = {
 
 
 def check():
-    vectors = json.loads((ROOT / "fixtures/profile-vectors.json").read_text())
+    vectors = json.loads((ROOT / "fixtures/profile-vectors.json").read_text(encoding="utf-8"))
     assert len(vectors) == 18
     assert {vector["method"] for vector in vectors} == MESSAGES.keys()
     for vector in vectors:

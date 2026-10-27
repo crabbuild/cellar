@@ -10,5 +10,7 @@ from profile_pb2 import AllTypes, RuntimeMappings
 MESSAGES = {"Echo": AllTypes, "Ping": empty_pb2.Empty, "EchoChild": AllTypes.Child,
             "EchoTimestamp": timestamp_pb2.Timestamp, "EchoDuration": duration_pb2.Duration,
             "EchoMappings": RuntimeMappings}
+# Embedded initialization may retain an ASCII locale. Artifact encoding is UTF-8
+# regardless of the process's default encoding or its environment view.
 VECTORS = {vector["id"]: vector for vector in json.loads(
-    (Path(__file__).resolve().parents[1] / "fixtures/profile-vectors.json").read_text())}
+    (Path(__file__).resolve().parents[1] / "fixtures/profile-vectors.json").read_text(encoding="utf-8"))}
