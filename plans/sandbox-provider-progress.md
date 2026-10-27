@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded binary files; protected revisioned journals across business clear/recovery; explicit event-driven reconnect/expiry/deletion observations, confirmed-retirement provider replacement and independent named E2B/Vercel resources in native/runtime peers | Richer operations, remote fencing, supervised expiry/orphan cleanup, provider loss/takeover and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
-| SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec streams and actual published Files operations execute against the matching helper, including cross-event binary files, handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -43,7 +43,8 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer faults | Host-owned controllers, completion fencing and recoverable cleanup; never retain an application Context as perpetual authority |
-| Following milestones | Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent pinned profiles and the SP-07–SP-10 acceptance requirements |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; Node process streams, actual file operations, bounded native handles and original-event authority |
+| Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
 Vercel live qualification remains deferred until configuration is supplied; it
@@ -1659,3 +1660,85 @@ tests. All four protected-journal storage tests, strict all-target Clippy for
 also pass. The original configuration must remain available until its resource is
 confirmed retired. These are local protocol/native recovery tests, not live
 cloud expiry, two-owner fencing or supervised orphan-sweep qualification.
+
+
+### Sandbox 1.0.3 native exec / Files and qualification follow-ups
+
+This is a separate partial profile, not a replacement for the celld/Sandbox
+0.12.9 baseline. The [profile guide](../tools/sandbox/cloudflare-v1/README.md)
+records exact SDK/helper/base-image inputs, commands, limits and gaps.
+
+| Delivery | Contract / evidence |
+| --- | --- |
+| Node process facade | Literal argv; pipe/ignore/combined byte streams, bounded stdin writes and output collection, nonzero exit codes, inactivity timeout and explicit signals |
+| Native admission | Per-event bounded control/cleanup queues; captured original invocation; no mutation replay after unknown results |
+| Observation cancellation | stdout/stderr reads and wait use private native cancellation controls; Node/V8 regressions exhaust ordinary quotas and join cleanup under the original authority |
+| Published Files | Unmodified `@cloudflare/sandbox@1.0.3` and matching `sandbox-shim`; streamed binary write/read, mkdir, rename, stat, remove and typed missing-file errors |
+| Qualification inputs | Immutable amd64 helper/base references, SDK integrity/source/license and lock hashes; fixture/Dockerfile hashes verified before bundle build; CI builds this independent profile |
+
+The live-abort fixture reproduced a native signalling error. Docker exec inspect
+reported daemon PID 61235 while the actual process reported container PID 8.
+Installing a standalone `kill` tool did not fix the failure. Native exec now
+captures a private PID header from `/bin/sh` before replacing it with the literal
+argv. Only that namespace PID is signalled using the shell builtin; a fresh exec
+inspection refuses to signal after a known exit. No standalone `kill` executable
+is required. Images without `/bin/sh` retain direct exec but signalling refuses
+an unverified PID. The header is stripped before guest output; malformed/oversize
+identity and pre-header stderr refuse within bounded admission. No reader task
+is spawned while waiting for identity. Full PID-reuse/fault fencing remains
+unqualified.
+
+The merged PR's Linux JS job [121944660488](https://github.com/crabbuild/cellar/actions/runs/40429870362/job/121944660488)
+then exposed `ValueLimit` on an RPC source error after its accepted 4 KiB prefix.
+V8 included the entire bootstrap data URL in runtime stack frames before native
+stack stripping. A fixed `cellar:node-bootstrap` source name preserves the error and
+original limits without embedding configuration in source or URLs. The launcher
+regression fails before this fix and passes afterward. Updated `main` independently
+added the production source label in PR #132. Integration keeps that exact label,
+places it at the private launcher boundary and preserves its native regression;
+there is one label assignment for the loaded module. A network-disabled Linux
+Node 24.13.1 probe serializes its 256 KiB-source error in 188 bytes. Full native
+RPC verification and this slice's final campaign results are recorded below.
+
+The integrated exact-image rerun exposed a second bounded-resource failure:
+0.12.9 preview/RPC startup waited on a firewall helper that Docker confirmed was
+OOM-killed. The isolated daemon held 119 existing nftables tables. The original
+transaction, and a `destroy table` alternative, both exhausted the existing
+64 MiB limit. Neither script was committed during the differential dry runs.
+
+| Firewall qualification | Evidence |
+| --- | --- |
+| Reproduction | nft 1.0.9, Linux 6.8.0-117, immutable fence image `sha256:1273323abb9e3116bd6a0f605e6340b2c0e050d1c32e6c90ebaa477b98494933`; original dry run exits 137, OOM true, peak 67,108,864 bytes |
+| Fix | Final `list table inet` names only this host's table; nft's cache evaluator then loads that table instead of unrelated hosts' chains/sets. Atomic replacement and all isolation rules remain intact |
+| Same limits | Production dry run exits 0, OOM false, peak 3,637,248 bytes under the unchanged 64 MiB / 0.0625 CPU limits |
+| Kernel application | Apply and reapply to a fresh probe table both retain two input rules and two forward rules, hooks at priority -10; remove exactly that probe table afterward |
+| Reproducibility | [Read-only cache probe](../tools/sandbox/fence-cache-probe.py) reads the actual production rules, compares the old control and current transaction, and verifies ownership before removing probe containers |
+
+The cache behavior was checked against the official
+[nftables 1.0.9 source](https://www.netfilter.org/pub/nftables/nftables-1.0.9.tar.xz),
+`src/cache.c` (`nft_cache_evaluate` and `evaluate_cache_list`). The apply/reapply probe
+touched only its newly allocated table and removed it afterward. Per-host firewall
+retirement and supervised provider orphan cleanup remain separate work.
+
+| Final integrated campaign | Result |
+| --- | --- |
+| Native SDK and Node/V8 integrations | 50 pass across 20 test binaries; includes all four Sandbox 0.12.9 image scenarios and the separate 1.0.3 image scenario |
+| Guest / Node / V8 runtime libraries | 16 guest and 82 JS runtime tests pass; process observation cancellation and original authority remain covered |
+| RPC inputs / HTTP messages | Accepted 4 KiB prefix and original source error survive the unchanged 2 KiB clone limit; producer stack stripping, request/response bodies, cancellation and joined resource accounting pass |
+| Sandbox 1.0.3 image | Matching helper, binary exec/exit 7, missing executable/exit 127, 2 MiB + 17-byte Files SHA-256 round trip across events, two parallel/70 sequential stats, typed errors, stale refusal, quota failure and live abort pass; host and Node bridge join with zero retained bytes |
+| PID identity parser | Five unit cases pass for fragmented identity, exact binary remainder, literal argv, malformed/bounded identity and bounded pre-header stderr; this unchanged pure module was tested before main integration and is exercised by the final native image campaign |
+| JS/tool/type and inventory | 104 JS/tool/type checks, two inventory/drift tests and the published SDK fixture build pass |
+| Final quality | Strict all-target Clippy for cellar/container/guest and Node/V8; 1,205-file Rust format/layout, 102-source JS format, docs/references and 466-package native dependency guard pass |
+
+The integrated campaign includes `main` commit `927d3f34` (PR #132). The isolated
+engine is Docker 29.5.2; the built 1.x image is
+`sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40`.
+SDK/helper/base source identities remain in the separate profile manifest.
+Native tests run serially with their existing assertions and deadlines. The
+initial image run also had a 2-second heartbeat failure; the later integrated
+run exposed the concrete fence OOM. The final four-case baseline run
+passes after the cache fix, but does not establish that the earlier intermittent
+heartbeat or cold 250 ms module failures are fixed. The Homebrew Node 26 package
+path, full Linux/native-host CI, supervised cleanup, ownership takeover and full
+1.x/provider/release profiles remain open. Live E2B/Vercel still awaits user
+configuration; these provider integrations use local protocol peers.

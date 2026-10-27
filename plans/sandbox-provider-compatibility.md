@@ -198,13 +198,14 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Cold-first-call investigation and remaining callback failure/cancellation/timeouts | The 250 ms module timeout and alarm-start failure reproduced in this campaign; a fresh full module run passes unchanged. Timing narrows the delay to native routing/activation before the DO's JS handler, but does not establish a fix |
+| 1 — qualification | Cold-first-call investigation and remaining failure/cancellation/timeouts | The module/image campaigns pass at their original limits, but earlier 250 ms module and 2 s heartbeat failures are not established fixed. RPC error-size, container PID and firewall-cache OOM failures now have specific fixes and differential evidence |
 | 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer failure qualification | Explicit reconciliation, named slots and replacement after confirmed retirement now work through the shared boundary. Background controllers still need host-owned authority, completion fencing and recoverable cleanup |
-| 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
+| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice has independent SDK/helper inputs and native-image evidence; remaining APIs require explicit operation/version and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06
-remain partial; SP-07–SP-09 and full SP-10 release qualification remain open.
+and the selected SP-07 delivery remain partial; SP-08–SP-09 and full SP-10
+release qualification remain open.
 
 ## Sources and implementation entry points
 

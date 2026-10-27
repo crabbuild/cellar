@@ -98,18 +98,36 @@ cargo test --locked -p cellar-javascript --features node \
 
 | Acceptance | Boundary |
 | --- | --- |
-| Binary stdout/stderr and nonzero exit | Native Linux exec and bounded output |
+| Binary stdout/stderr, nonzero exit and missing executable | Native Linux exec and bounded output; shell-backed missing command exits 127 |
 | 2 MiB + 17 bytes write/read, rename and stat | Published Files, matching helper and SHA-256 round trip across events; 64 KiB native chunks |
 | 70 sequential and two parallel stats | Native handle retirement and mutation admission |
 | Missing file | Published `SandboxFileError.is()` and `ENOENT` |
 | Quota / live abort | No successful truncation; joined native observation cancellation and explicit container retirement |
 | Saved process in later event | Original authority refuses before effects |
-| Shutdown | Native cell/application drain; no owned containers; remove only empty labelled test networks |
+| Shutdown | Native cell/application drain; joined Node bridge has zero active invocations and retained bytes; no owned containers; remove only empty labelled test networks |
 
 Ordinary CI verifies inputs, builds the SDK fixture and tests the facade. The
 opt-in image campaign uses a 120-second native handler budget, a 30-second JS
 execution budget and 2,048 guest operations. Existing 250 ms module fixtures and
 the 0.12.9 profile retain their original budgets.
+
+## Repeated-host firewall qualification
+
+The native fence stays within 64 MiB. A terminal own-table observation scopes
+nft's cache while the isolation rules are replaced atomically. The
+[cache probe](../fence-cache-probe.py) compares the production transaction with
+its previous global-cache behavior using `nft --check`; it commits no firewall
+changes and removes only its labelled probe containers.
+
+```sh
+python3 tools/sandbox/fence-cache-probe.py \
+  --context YOUR_PRIVATE_CONTEXT \
+  --image sha256:YOUR_PRELOADED_FENCE_ID \
+  --require-oom-control
+```
+
+`--require-oom-control` requires the previous OOM to reproduce. On a clean
+engine, omit it to check production admission and report both measurements.
 
 ## Remaining compatibility
 
