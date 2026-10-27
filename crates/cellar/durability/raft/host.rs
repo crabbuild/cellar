@@ -959,12 +959,21 @@ async fn initialize(
         bindings: client::Bindings::new(bindings, options.max_groups),
         work: crate::asyncrt::services().application_work_registry(),
     });
-    if let Err(error) = service.transport.install_query_gateway(handle.clone()) {
+    let installation = (|| -> anyhow::Result<()> {
+        if options.managed.is_some() {
+            crate::asyncrt::services()
+                .raft_lifecycle()
+                .bind_startup_admission(&handle.admission)?;
+        }
+        service.transport.install_query_gateway(handle.clone())?;
+        Ok(())
+    })();
+    if let Err(error) = installation {
         let _ = service.runtime.close().await;
         service.transport.close().await;
         let _ = pool.join().await;
         let _ = service.log.close().await;
-        return Err(error.into());
+        return Err(error);
     }
     let local = handle.clone();
     let crate::daemon::NodeRaftService {

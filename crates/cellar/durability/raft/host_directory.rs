@@ -143,27 +143,55 @@ pub(super) async fn prepare(
             .register_node_storage(&service.log, remaining(&domain, deadline)?)
             .await?;
         if let Some(authorization) = enrollment.as_mut() {
-            **authorization = authorization
-                .bind_boot(
-                    service.log.storage_instance()?,
-                    local.process,
-                    boot.ok_or_else(|| anyhow::anyhow!("missing managed boot identity"))?,
-                    crate::asyncrt::services()
-                        .peer_probe_signer()?
-                        .public_key_bytes(),
-                    remaining(&domain, deadline)?,
-                )
-                .await?;
+            let boot = boot.ok_or_else(|| anyhow::anyhow!("missing managed boot identity"))?;
+            let join_key = crate::asyncrt::services()
+                .peer_probe_signer()?
+                .public_key_bytes();
+            let (bound, update) = if authorization.state()
+                == crate::raft::fleet_catalog::FleetNodeState::RestartPending
+            {
+                authorization
+                    .bind_restart_boot(
+                        &service.log,
+                        boot,
+                        join_key,
+                        deadline,
+                        remaining(&domain, deadline)?,
+                    )
+                    .await?
+            } else {
+                // Preserve the original ordinary-boot poll path. Polling a
+                // combined maintenance wrapper adds stack even when boxed.
+                let bound = authorization
+                    .bind_boot(
+                        service.log.storage_instance()?,
+                        local.process,
+                        boot,
+                        join_key,
+                        remaining(&domain, deadline)?,
+                    )
+                    .await?;
+                let update = crate::raft::fleet_stop::LifecycleUpdate::Boot {
+                    boot: bound.boot_binding()?,
+                    deadline,
+                };
+                (bound, update)
+            };
+            **authorization = bound;
             crate::asyncrt::timeout(
                 remaining(&domain, deadline)?,
-                service
-                    .log
-                    .update_lifecycle(crate::raft::fleet_stop::LifecycleUpdate::Boot {
-                        boot: authorization.boot_binding()?,
-                        deadline,
-                    }),
+                service.log.update_lifecycle(update),
             )
             .await??;
+            if let Some(selector) = service
+                .log
+                .lifecycle_guard()?
+                .and_then(|g| g.quiescing().cloned())
+            {
+                crate::asyncrt::services()
+                    .raft_lifecycle()
+                    .install_startup_maintenance(&selector)?;
+            }
             let trust = authorization
                 .trust_snapshot(remaining(&domain, deadline)?)
                 .await?;

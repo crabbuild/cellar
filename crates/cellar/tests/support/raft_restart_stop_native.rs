@@ -2,6 +2,8 @@
 
 //! Actual receiver-owned proof, stop, autonomous join and durable offline fact.
 use super::*;
+#[path = "raft_restart_return_native.rs"]
+mod rejoin;
 use cellar::application::consensus::verification::{
     FleetChange, FleetMutation, FleetRestartOfflineRequest, FleetRestartReadyRequest,
     FleetRestartStopRequest, FleetSnapshot, FleetTable,

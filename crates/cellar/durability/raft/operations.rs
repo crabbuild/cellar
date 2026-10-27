@@ -156,6 +156,34 @@ impl NodeLifecycle {
         self.maintenance.public_closed()
     }
 
+    /// Startup consumes a synced returned-boot gate before endpoint publication.
+    /// No accepted application work exists yet; both reversible gates close now.
+    pub(crate) fn install_startup_maintenance(
+        &self,
+        selector: &crate::raft::fleet_stop::StopSelector,
+    ) -> Result<(), crate::raft::fleet_catalog::FleetCatalogError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| crate::raft::fleet_catalog::FleetCatalogError::Closed)?;
+        if state.sealed || state.service.is_some() {
+            return Err(crate::raft::fleet_catalog::FleetCatalogError::Conflict);
+        }
+        self.maintenance.begin(selector)?;
+        self.maintenance.seal_raft(selector)
+    }
+
+    pub(crate) fn bind_startup_admission(
+        &self,
+        admission: &crate::application::consensus::admission::Admission,
+    ) -> Result<(), CommandFailure> {
+        admission.bind_maintenance(self.maintenance.clone())
+    }
+
+    pub(crate) fn hold_startup_maintenance(&self) {
+        self.maintenance.hold_startup();
+    }
+
     pub(crate) fn maintenance_matches(
         &self,
         selector: &crate::raft::fleet_stop::StopSelector,
@@ -243,13 +271,20 @@ impl NodeLifecycle {
         Ok(self.sample_service()?.map(|service| service.performance()))
     }
 
-    pub(crate) fn begin(self: &Arc<Self>, managed: bool) -> Result<Starting, CommandFailure> {
+    pub(crate) fn begin(
+        self: &Arc<Self>,
+        managed: bool,
+        returning: bool,
+    ) -> Result<Starting, CommandFailure> {
         let mut state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
         if state.sealed || state.started || state.poisoned {
             return Err(CommandFailure::Unavailable);
         }
         state.started = true;
         state.managed = managed;
+        if returning {
+            self.maintenance.hold_startup();
+        }
         Ok(Starting {
             owner: self.clone(),
             armed: true,

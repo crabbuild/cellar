@@ -100,6 +100,49 @@ maintenance SDK/admin/CLI operation sequencing remain delivery work. The
 namespace protocol ends in `/restart-stop-1`; use matching binaries and fresh
 data prefixes for this internal hard cutover. Numeric markers remain 1.
 
+## Retained-engine return and startup exclusion
+
+The M8 SDK backend provides retained-engine return. `admit_restart_return` accepts
+separate human intent bound to an exact signed offline confirmation, predecessor
+process and distinct intended process. It does not change node capacity or
+release the disruption slot. Exact historical consent reconciles from the
+canonical request/journal before checking live admission prerequisites. Generic
+writes cannot mint or delete the reserved `restart-return/` or
+`restart-return-boot/` projections, or change the boot/engine of a RestartPending
+node.
+
+Only the actual exclusive engine owner consumes this consent during managed
+startup. It verifies the retained node/disk/engine identity and the synced exact
+predecessor stop. Its bounded Root CAS installs the new physical boot and its
+canonical boot record while the node stays RestartPending. A lost startup
+confirmation retains the original admitted nonce; an exact retry by that
+exclusive owner reconciles it instead of publishing another boot. The intended
+process and actual signer key cannot be rebound by a retry.
+
+The serialized engine has a dedicated maintenance boot transition. It requires
+the exact accepted predecessor stop, same physical owner, a distinct process,
+higher boot epoch and matching operation, then syncs the new boot directly into
+quiescence. An ordinary boot cannot open a maintenance stop or quiescence. Maintenance startup holds both reversible admission gates immediately; failed
+startup retains this hold. The exact new selector is installed before endpoint
+publication, and
+the SDK admission gate is bound before the peer query gateway is installed.
+Consensus and archive recovery can run while public and SDK application writes
+remain closed. Old-process cancellation and stop cannot affect the fresh boot.
+No permanent shutdown flag is reset.
+
+M8 startup is not an intact-restart completion certificate. M9 must inventory
+the current configuration, verify retained/retired copies and fresh matched
+catch-up, qualify the actual profile and own resume before capacity/slot release.
+The resume driver must also recheck actual leadership after return: application
+gating does not suppress Raft elections. Regained target leadership needs owned
+matched handoff/reconciliation to preserve service while it remains paused.
+A subsequent process death, changed signer after a failed startup, grace expiry,
+repair that retired old membership, rolling execution and operator workflow
+reconciliation remain explicit delivery work. No old live sample or serialized
+clock is revived during return. The protocol fingerprint adds
+`/restart-return-1`; numeric markers remain 1 with matching binaries and fresh
+prefixes, without migration or legacy readers.
+
 ## Persist a resumable operation, not a worker's lifetime
 
 Keep the canonical request immutable. Its operation projection records phase,

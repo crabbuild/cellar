@@ -158,6 +158,9 @@ impl FleetCatalog {
             .await?
             .ok_or(FleetCatalogError::Corrupt("missing boot request"))?;
         mutation.validate()?;
+        if mutation.principal == "fleet-maintenance-boot" {
+            return self.confirm_restart_boot(snapshot, node, &mutation).await;
+        }
         if mutation.id != boot.id
             || mutation.operation != node.registration_operation
             || mutation.principal != "fleet-host-boot"

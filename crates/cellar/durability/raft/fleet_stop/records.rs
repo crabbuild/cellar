@@ -270,6 +270,10 @@ impl LifecycleRecord {
                     if !boot.same_engine_owner(&old.boot)
                         || boot.boot == old.boot.boot
                         || boot.epoch <= old.epoch()
+                        || old.quiescing().is_some()
+                        || old
+                            .accepted()
+                            .is_some_and(|s| s.purpose == LifecyclePurpose::Maintenance)
                     {
                         return Err(LogError::WrongIdentity);
                     }
@@ -277,6 +281,35 @@ impl LifecycleRecord {
                 Guard {
                     boot,
                     phase: Phase::Open,
+                }
+            }
+            LifecycleUpdate::MaintenanceBoot {
+                stop, quiescence, ..
+            } => {
+                stop.validate()?;
+                quiescence.validate()?;
+                let old = self.guard.as_ref().ok_or(LogError::WrongIdentity)?;
+                if stop.purpose != LifecyclePurpose::Maintenance
+                    || quiescence.purpose != LifecyclePurpose::Maintenance
+                    || !stop.boot.same_engine_owner(&quiescence.boot)
+                    || stop.boot.process == quiescence.boot.process
+                    || stop.boot.boot == quiescence.boot.boot
+                    || quiescence.boot.epoch <= stop.epoch
+                    || stop.operation != quiescence.operation
+                {
+                    return Err(LogError::WrongIdentity);
+                }
+                if old.boot == quiescence.boot && old.quiescing() == Some(quiescence.as_ref()) {
+                    return Ok(self.clone());
+                }
+                if old.accepted() != Some(stop.as_ref()) {
+                    return Err(LogError::WrongIdentity);
+                }
+                Guard {
+                    boot: quiescence.boot.clone(),
+                    phase: Phase::Quiescing {
+                        selector: quiescence,
+                    },
                 }
             }
             LifecycleUpdate::Quiesce { selector, .. } => {
@@ -394,6 +427,11 @@ impl LifecycleRecord {
 }
 
 pub(crate) enum LifecycleUpdate {
+    MaintenanceBoot {
+        stop: Box<StopSelector>,
+        quiescence: Box<StopSelector>,
+        deadline: u64,
+    },
     MaintenanceStop {
         selector: StopSelector,
         quiescence: Box<StopSelector>,
@@ -427,12 +465,14 @@ impl LifecycleUpdate {
             Self::Stop { selector, .. }
             | Self::Quiesce { selector, .. }
             | Self::MaintenanceStop { selector, .. } => &selector.boot,
+            Self::MaintenanceBoot { quiescence, .. } => &quiescence.boot,
         }
     }
 
     pub fn deadline(&self) -> u64 {
         match self {
             Self::Boot { deadline, .. }
+            | Self::MaintenanceBoot { deadline, .. }
             | Self::MaintenanceStop { deadline, .. }
             | Self::Stop { deadline, .. }
             | Self::Quiesce { deadline, .. }

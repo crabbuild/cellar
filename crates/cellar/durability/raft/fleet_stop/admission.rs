@@ -24,6 +24,13 @@ pub(crate) struct Admission {
 }
 
 impl Admission {
+    /// Pending-return startup has no admitted application work. Keep admission
+    /// closed even if boot confirmation fails before the new selector is synced.
+    pub(crate) fn hold_startup(&self) {
+        self.public.store(true, Ordering::SeqCst);
+        self.raft.store(true, Ordering::SeqCst);
+    }
+
     pub fn public_closed(&self) -> bool {
         self.public.load(Ordering::SeqCst)
     }

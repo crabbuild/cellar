@@ -376,6 +376,7 @@ impl FleetCatalog {
                 .value
                 .as_deref()
                 .and_then(|bytes| decode::<NodeRecord>(NODE_KIND, bytes, 4096).ok());
+            self.check_restart_return_node_change(old.as_ref(), next.as_ref(), authority)?;
             if let Some(old) = old.as_ref().filter(|old| old.isolation.is_some()) {
                 let next = next.as_ref().ok_or_else(invalid)?;
                 next.validate(&self.inner)?;

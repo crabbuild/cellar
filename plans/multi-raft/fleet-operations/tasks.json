@@ -3814,7 +3814,10 @@
         "crates/cellar/durability/raft/storage_lifecycle_tests.rs",
         "crates/cellar/durability/raft/fleet_stop/records.rs",
         "crates/cellar/durability/raft/fleet_stop/reporter.rs",
-        "crates/cellar/durability/raft/fleet_stop/mod.rs"
+        "crates/cellar/durability/raft/fleet_stop/mod.rs",
+        "crates/cellar/durability/raft/host_directory.rs",
+        "crates/cellar/node/raft_startup.rs",
+        "crates/cellar/durability/raft/fleet_catalog/isolation.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
@@ -3863,7 +3866,11 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/stop/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/stop/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/stop/offline.rs",
-        "crates/cellar/tests/support/raft_restart_stop_native.rs"
+        "crates/cellar/tests/support/raft_restart_stop_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/boot.rs",
+        "crates/cellar/tests/support/raft_restart_return_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -3877,7 +3884,8 @@
         "Runtime inspection owns quiescence, complete target physical inventory and a bounded canonical-history walk. Settled managed membership locates current RF3 obligations, including dynamic voters and retired copies. Each voting turn requires actual fresh safe-ReadIndex and durable publication proof on target and both survivors. Root drift, missing genesis, unsettled roles, unknown slots and cancellation fences block historical candidate publication. This candidate grants no readiness, stop, boot, capacity or slot release; owned rightful-genesis materialization and matched-progress handoff are delivered through bounded reconciliation. M5 readiness is described below.",
         "reconcile_next owns at most one original-voter materialization per turn, or the existing fresh quorum/publication verification. The shared authenticated fleet-action lane has separate Movement and RestartGenesis receiving authorities. Genesis pins gate, input/history digests and exact boot, reuses immutable Live birth intent plus permanent claims, and refuses imported/dynamic/retired or claimed-blank genesis. Partial initialization remains owned after a waiter is cancelled. Actual occupancy and attachment reconciliation update only the pending physical history; no readiness or release credit is issued.",
         "M5 publishes journal-confirmed RestartReady only from the live matched runtime walk. The owner retains actual replica sample ages without serializing clock values, renews the exact physical quiesce/inventory cut and checks freshness at the Root CAS. Typed historical receipt recovery resolves lost confirmation without granting stop, capacity or slot release; generic catalog mutations cannot mint or delete readiness. Guarded stop/join and intact-engine rejoin/resume remain separate M6-M9 work.",
-        "M6/M7 SDK backend qualified at 676752f5: independent Root stop consent references exact Ready/process/child identity; receiving Node-owned work renews physical inventory, both-survivor quorum and matched leadership, then submits a maintenance-specific engine update that consumes its exact synced quiescence and original evidence deadline. Missing proof, basis drift and cancellation fences refuse shutdown. Signed Node/domain/engine join can be journal-confirmed offline while retaining the disruption slot and resource charges. Consent/offline lost confirmations reconcile exact identities. New protocol identity ends in /restart-stop-1. Retained-engine fresh-process return, verified resume, maintenance operator surfaces, grace/rolling/second-failure behavior and in-place stale-consent refresh remain required."
+        "M6/M7 SDK backend qualified at 676752f5: independent Root stop consent references exact Ready/process/child identity; receiving Node-owned work renews physical inventory, both-survivor quorum and matched leadership, then submits a maintenance-specific engine update that consumes its exact synced quiescence and original evidence deadline. Missing proof, basis drift and cancellation fences refuse shutdown. Signed Node/domain/engine join can be journal-confirmed offline while retaining the disruption slot and resource charges. Consent/offline lost confirmations reconcile exact identities. New protocol identity ends in /restart-stop-1. Retained-engine fresh-process return, verified resume, maintenance operator surfaces, grace/rolling/second-failure behavior and in-place stale-consent refresh remain required.",
+        "M8 retained-engine return SDK backend implemented and locally qualified: a separate Root consent pins confirmed signed offline closure and a fresh process. The exclusive engine owner validates the actual persisted predecessor stop, retains the boot nonce across unknown startup confirmations, and atomically syncs a maintenance boot with a closed reversible application gate before publishing endpoints. Root stays RestartPending; resource charges, exclusion and disruption slot remain. Generic projections, reused/wrong processes and replacement engines refuse. M9 catch-up certification, resume/slot release and maintenance operator workflow remain required."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -4702,6 +4710,61 @@
         {
           "name": "fleet_lifecycle_maintenance_stop_refuses_fenced_newer_and_expired_gates",
           "oracle": "The serialized engine refuses a stale maintenance stop after a same-epoch fence, a newer quiescence, or expiration, preserving the actual current guard without stop acceptance.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_return_primary_retains_engine_and_catches_up_behind_gate",
+          "oracle": "An actual joined primary returns with a fresh process on the retained engine, catches up with survivor writes, and refuses both SDK/public application writes while retaining exclusion and disruption.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_return_recovers_lost_consent_and_startup_confirmations",
+          "oracle": "Lost consent and physical startup Root confirmations reconcile exact admitted identity and boot nonce; retry on the exclusive retained owner catches up without opening admission.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_return_requires_joined_offline_and_fresh_process",
+          "oracle": "Stop consent or readiness without signed offline confirmation cannot admit return or change Root, and the old live node remains excluded until fenced cancellation.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_return_wrong_process_replacement_engine_and_forgery_refuse",
+          "oracle": "Reused process, wrong physical process, generic return projection and replacement engine refuse without changing Root or releasing disruption.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_return_requires_exact_stop_and_persists_closed_gate",
+          "oracle": "Actual serialized engine return requires exact predecessor stop, retained owner, distinct process and operation. Expiry or changed identity leaves the stop intact; successful idempotent sync and reopen retain quiescence and reject ordinary boot or old-process fencing.",
           "invariants": [
             "F02",
             "F03",

@@ -19,9 +19,13 @@ impl Startup<'_> {
         config: RaftCellsConfig,
         services: RaftCellsServices,
     ) -> anyhow::Result<RaftCells> {
-        let starting = crate::asyncrt::services()
-            .raft_lifecycle()
-            .begin(config.host.managed.is_some())?;
+        let starting = crate::asyncrt::services().raft_lifecycle().begin(
+            config.host.managed.is_some(),
+            config.host.managed.as_ref().is_some_and(|m| {
+                m.authorization.state()
+                    == crate::raft::fleet_catalog::FleetNodeState::RestartPending
+            }),
+        )?;
         match self.inner(config, services).await {
             Ok((service, stop)) => match starting.install(service.clone(), stop) {
                 Ok(()) => Ok(service),
@@ -134,6 +138,13 @@ impl Startup<'_> {
                         .authorization
                         .refresh(std::time::Duration::from_secs(5))
                         .await?;
+                    if managed.authorization.state()
+                        == crate::raft::fleet_catalog::FleetNodeState::RestartPending
+                    {
+                        crate::asyncrt::services()
+                            .raft_lifecycle()
+                            .hold_startup_maintenance();
+                    }
                     for (entry, class) in managed.namespaces.iter().zip(declared_definitions) {
                         let namespace = catalog.existing_namespace(entry.namespace.clone()).await?;
                         namespace

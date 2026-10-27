@@ -6,6 +6,7 @@ mod cancellation;
 mod gate;
 mod gate_cancel;
 mod records;
+mod rejoin;
 mod runtime;
 mod settle;
 mod settlement;
@@ -18,6 +19,7 @@ use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
+pub use rejoin::{FleetRestartReturnAdmission, FleetRestartReturnRequest};
 pub use runtime::{
     FleetRestartHistoryProgress, FleetRestartReadyAdmission, FleetRestartReadyRequest,
     FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartVerification,
