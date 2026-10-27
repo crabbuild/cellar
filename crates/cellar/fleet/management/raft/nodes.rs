@@ -225,7 +225,7 @@ impl RaftFleetControl {
         let root = self.catalog.read(turn.remaining()?).await?;
         let host = self
             .catalog
-            .authorize_host(&root, node, turn.remaining()?)
+            .describe_node(&root, node, turn.remaining()?)
             .await?;
         let capacity = match self
             .catalog
@@ -245,15 +245,15 @@ impl RaftFleetControl {
             catalog_id: self.catalog_id.clone(),
             observed_revision: root.revision(),
             descriptor: RaftFleetNodeDescriptor {
-                node_id: hex::encode(host.node().bytes()),
-                disk_id: hex::encode(host.disk().bytes()),
-                physical_host: hex::encode(host.physical_host().bytes()),
-                label: host.label().into(),
-                server_name: host.server_name().into(),
-                capability_digest: hex::encode(host.capability_digest()),
-                storage_instance: host.storage_instance().map(|v| hex::encode(v.bytes())),
+                node_id: hex::encode(host.spec.node.bytes()),
+                disk_id: hex::encode(host.spec.disk.bytes()),
+                physical_host: hex::encode(host.spec.physical_host.bytes()),
+                label: host.spec.label,
+                server_name: host.spec.server_name,
+                capability_digest: hex::encode(host.spec.capability_digest),
+                storage_instance: host.spec.storage_instance.map(|v| hex::encode(v.bytes())),
             },
-            state: host.state(),
+            state: host.state,
             capacity,
         })
     }

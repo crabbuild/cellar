@@ -244,9 +244,37 @@ impl FleetCatalog {
         self.run(timeout, async {
             self.inner
                 .domain
-                .run(Box::pin(
-                    self.begin_evacuation_inner(snapshot, request, node, namespaces),
-                ))
+                .run(Box::pin(self.begin_evacuation_inner(
+                    snapshot, request, node, namespaces, false,
+                )))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+        })
+        .await
+    }
+
+    /// Operator-controlled graceful departure requires the current completed
+    /// placement to exclude this node. Exact committed retries reconcile first;
+    /// the result remains historical exclusion, never removal or stop authority.
+    pub async fn begin_evacuation_after_placement(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        node: NodeId,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetCommit> {
+        self.check_snapshot(snapshot)?;
+        validate_request(request)?;
+        if namespaces.len() > namespaces::MAX_NAMESPACES {
+            return Err(FleetCatalogError::Limit);
+        }
+        self.run(timeout, async {
+            self.inner
+                .domain
+                .run(Box::pin(self.begin_evacuation_inner(
+                    snapshot, request, node, namespaces, true,
+                )))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
         })
@@ -259,6 +287,7 @@ impl FleetCatalog {
         request: &FleetRequestIdentity,
         node: NodeId,
         namespaces: &[NamespaceCatalog],
+        require_placement: bool,
     ) -> Result<FleetCommit> {
         let current = self.inner.current().await?;
         let canonical = CanonicalRequest::new(self, request, node.bytes())?;
@@ -303,6 +332,9 @@ impl FleetCatalog {
             return Err(FleetCatalogError::DisruptionInProgress {
                 operation: record.request.operation,
             });
+        }
+        if require_placement {
+            self.check_departure_placement(snapshot, node).await?;
         }
         let inventory = self.check_inventory_inner(snapshot, namespaces).await?;
         let mut next = self

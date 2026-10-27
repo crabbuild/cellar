@@ -4,6 +4,7 @@
 #![allow(clippy::disallowed_methods)]
 //! Human operator commands use authenticated management, not bucket listing.
 mod http;
+mod lifecycle;
 mod nodes;
 mod options;
 use crate::sdk::fleet_operations::*;
@@ -38,6 +39,85 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::EvacuationStatus(operation) => {
+            lifecycle::status(&client, options.catalog_id.as_deref(), operation, timeout).await
+        }
+        Action::Evacuate(node, request) => {
+            lifecycle::execute(
+                &client,
+                lifecycle::Scope {
+                    node,
+                    catalog: &request.catalog_id,
+                    request: &request.request_id,
+                    operation: &request.operation_id,
+                    revision: request.expected_revision,
+                    verb: "evacuate",
+                    process: None,
+                    stop: None,
+                },
+                request.as_ref(),
+                false,
+                options.timeout,
+            )
+            .await
+        }
+        Action::PrepareRemoval(node, request) => {
+            lifecycle::execute(
+                &client,
+                lifecycle::Scope {
+                    node,
+                    catalog: &request.catalog_id,
+                    request: &request.request_id,
+                    operation: &request.operation_id,
+                    revision: request.expected_revision,
+                    verb: "prepare-removal",
+                    process: None,
+                    stop: None,
+                },
+                request.as_ref(),
+                options.wait,
+                options.timeout,
+            )
+            .await
+        }
+        Action::StopNode(node, request) => {
+            lifecycle::execute(
+                &client,
+                lifecycle::Scope {
+                    node,
+                    catalog: &request.operation.catalog_id,
+                    request: &request.operation.request_id,
+                    operation: &request.operation.operation_id,
+                    revision: request.operation.expected_revision,
+                    verb: "stop",
+                    process: Some(&request.expected_process),
+                    stop: Some(&request.operation.request_id),
+                },
+                request.as_ref(),
+                false,
+                options.timeout,
+            )
+            .await
+        }
+        Action::RemoveNode(node, request) => {
+            lifecycle::execute(
+                &client,
+                lifecycle::Scope {
+                    node,
+                    catalog: &request.operation.catalog_id,
+                    request: &request.operation.request_id,
+                    operation: &request.operation.operation_id,
+                    revision: request.operation.expected_revision,
+                    verb: "remove",
+                    process: None,
+                    stop: Some(&request.stop_id),
+                },
+                request.as_ref(),
+                options.wait,
+                options.timeout,
+            )
+            .await
+        }
         Action::NodeStatus(node) => {
             nodes::status(&client, options.catalog_id.as_deref(), node, timeout).await
         }

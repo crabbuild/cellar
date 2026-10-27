@@ -14,9 +14,15 @@ const OWNER: &str = "fixture-owner-bearer-token-with-at-least-32-bytes";
 const READER: &str = "fixture-reader-bearer-token-with-at-least-32-bytes";
 const REGISTRAR: &str = "fixture-registrar-token-with-at-least-32-bytes";
 const CAPACITY: &str = "fixture-capacity-token-with-at-least-32-bytes";
+const EVACUATOR: &str = "fixture-evacuator-token-with-at-least-32-bytes";
+const REMOVER: &str = "fixture-remover-token-with-at-least-32-bytes";
+const STOPPER: &str = "fixture-stopper-token-with-at-least-32-bytes";
 
 #[path = "raft_operator_nodes_native.rs"]
 mod node_cases;
+
+#[path = "raft_operator_lifecycle_native.rs"]
+mod lifecycle_cases;
 
 const CANCELLER: &str = "fixture-canceller-token-with-at-least-32-bytes";
 
@@ -38,6 +44,15 @@ impl Server {
         f: &Fixture,
         namespace: &NamespaceCatalog,
         observer: Option<RaftCells>,
+    ) -> Result<Self> {
+        Self::configured_runtime(f, namespace, observer, false).await
+    }
+
+    async fn configured_runtime(
+        f: &Fixture,
+        namespace: &NamespaceCatalog,
+        observer: Option<RaftCells>,
+        replay: bool,
     ) -> Result<Self> {
         let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
         let root = tempfile::tempdir()?;
@@ -75,12 +90,31 @@ impl Server {
         } else {
             control
         };
+        let control = if replay {
+            use cellar::application::consensus::verification::{ArchiveLimits, ArchiveVerifier};
+            use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
+            let images = GenerationStore::open(
+                root.path().join("verify"),
+                Arc::new(cellar_ltx::DirectFileSystem),
+                GenerationLimits::default(),
+            )?;
+            control.with_removal_verifier(
+                cellar_ltx::LtxHost::default(),
+                ArchiveVerifier::new(images, ImageId::new([93; 16])?)?,
+                ArchiveLimits::default(),
+            )?
+        } else {
+            control
+        };
         for (name, value) in [
             ("owner", OWNER),
             ("reader", READER),
             ("canceller", CANCELLER),
             ("registrar", REGISTRAR),
             ("capacity", CAPACITY),
+            ("evacuator", EVACUATOR),
+            ("remover", REMOVER),
+            ("stopper", STOPPER),
         ] {
             std::fs::write(root.path().join(name), value)?;
         }
@@ -93,6 +127,9 @@ impl Server {
                     Permission::FleetTopology,
                     Permission::FleetRegister,
                     Permission::FleetCapacity,
+                    Permission::FleetEvacuate,
+                    Permission::FleetRemove,
+                    Permission::FleetStop,
                 ],
             ),
             (
@@ -114,6 +151,21 @@ impl Server {
                 "capacity",
                 CAPACITY,
                 vec![Permission::MetadataRead, Permission::FleetCapacity],
+            ),
+            (
+                "evacuator",
+                EVACUATOR,
+                vec![Permission::MetadataRead, Permission::FleetEvacuate],
+            ),
+            (
+                "remover",
+                REMOVER,
+                vec![Permission::MetadataRead, Permission::FleetRemove],
+            ),
+            (
+                "stopper",
+                STOPPER,
+                vec![Permission::MetadataRead, Permission::FleetStop],
             ),
         ]
         .into_iter()
@@ -208,7 +260,9 @@ impl Server {
             .kill_on_drop(true)
             .output()
             .await?;
-        for token in [OWNER, READER, CANCELLER, REGISTRAR, CAPACITY] {
+        for token in [
+            OWNER, READER, CANCELLER, REGISTRAR, CAPACITY, EVACUATOR, REMOVER, STOPPER,
+        ] {
             ensure!(!String::from_utf8_lossy(&output.stdout).contains(token));
             ensure!(!String::from_utf8_lossy(&output.stderr).contains(token));
         }

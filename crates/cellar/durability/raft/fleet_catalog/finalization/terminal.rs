@@ -72,6 +72,14 @@ pub struct FleetRemovalAdmission {
 }
 
 impl FleetRemovalAdmission {
+    pub fn identity(&self) -> &FleetRequestIdentity {
+        &self.record.request
+    }
+
+    pub fn stop_id(&self) -> [u8; 16] {
+        self.record.proof.id()
+    }
+
     pub fn operation(&self) -> [u8; 16] {
         self.record.request.operation
     }
@@ -259,6 +267,47 @@ impl FleetEvacuationVerification {
 }
 
 impl FleetCatalog {
+    /// Read a journal-confirmed joined removal, without re-running or granting
+    /// current physical proof. No tombstone permits deletion or identity reuse.
+    pub async fn removal_receipt(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<FleetRemovalAdmission>> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            let Some(bytes) = self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Operations.slot()],
+                    &key(operation.bytes()),
+                )
+                .await?
+            else {
+                return Ok(None);
+            };
+            let record: Record = decode(KIND, &bytes, LIMIT)?;
+            record.validate(self)?;
+            if record.request.operation != operation.bytes() {
+                return Err(FleetCatalogError::Corrupt("removal key"));
+            }
+            if !matches!(record.proof, RemovalProof::Joined { .. }) {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let applied = record
+                .applied(self, snapshot)
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            Ok(Some(FleetRemovalAdmission {
+                record,
+                applied,
+                observed: snapshot.revision(),
+            }))
+        })
+        .await
+    }
+
     /// Remove only after complete runtime verification in Finalizing and an
     /// exact boot-pinned signed closure. Root receipt, node tombstone and shared
     /// disruption release are one CAS. Every physical reservation remains.

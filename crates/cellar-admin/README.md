@@ -114,7 +114,19 @@ still owns live authenticated probes and complete inventory checks. Operator
 attestations are explicit trust, not kernel measurements or an infrastructure
 provider. See the [add-capacity workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#delivered-add-capacity-workflow)
 for request files, exact retries and the distinction between historical admission
-and current readiness. Maintenance, removal, resize and infrastructure
+and current readiness.
+
+Graceful node departure adds independent `fleet_evacuate`, `fleet_remove` and
+`fleet_stop` grants. Complete a keep-set redistribution excluding the node,
+then exclude it, prepare the complete-inventory finalization fence, explicitly
+request the exact process stop, and consume its signed joined closure in terminal
+removal. The embedding server must additionally configure
+`RaftFleetControl::with_removal_verifier` with its private bounded replay store;
+standalone existing-root connections cannot perform live proof or dispatch stop.
+Status and exact committed receipt reconciliation remain metadata operations.
+See the [departure workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
+for CLI syntax, restart behavior and retained reservation reporting. Removal
+retains volumes and archives. Maintenance/rejoin, resize and infrastructure
 provisioning remain separate delivery work.
 
 ## Validate changes

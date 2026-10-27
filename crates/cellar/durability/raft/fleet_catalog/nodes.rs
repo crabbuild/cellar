@@ -659,6 +659,12 @@ impl FleetTrustSnapshot {
     }
 }
 
+/// Descriptive metadata only; never a host/boot authorization.
+pub(crate) struct NodeDescription {
+    pub spec: FleetNodeSpec,
+    pub state: FleetNodeState,
+}
+
 impl FleetCatalog {
     pub async fn register_node(
         &self,
@@ -727,6 +733,31 @@ impl FleetCatalog {
                 }
             }
             self.commit_inner(snapshot, &mutation).await
+        })
+        .await
+    }
+
+    pub(crate) async fn describe_node(
+        &self,
+        snapshot: &FleetSnapshot,
+        node: NodeId,
+        timeout: Duration,
+    ) -> Result<NodeDescription> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            let host = self.host_from_record(snapshot, node).await?;
+            Ok(NodeDescription {
+                spec: FleetNodeSpec {
+                    node: host.node(),
+                    disk: host.disk(),
+                    physical_host: host.physical_host(),
+                    label: host.label().into(),
+                    server_name: host.server_name().into(),
+                    capability_digest: host.capability_digest(),
+                    storage_instance: host.storage_instance(),
+                },
+                state: host.state(),
+            })
         })
         .await
     }

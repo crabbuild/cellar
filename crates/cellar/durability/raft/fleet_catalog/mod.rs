@@ -55,6 +55,7 @@ pub use resources::{
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
+    FleetPendingReservation,
 };
 pub use resources::{
     FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,

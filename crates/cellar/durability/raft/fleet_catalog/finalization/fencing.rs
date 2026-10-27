@@ -147,6 +147,10 @@ pub struct FleetFinalizationAdmission {
 }
 
 impl FleetFinalizationAdmission {
+    pub fn identity(&self) -> &FleetRequestIdentity {
+        &self.record.request
+    }
+
     /// External isolation admission, when this fence uses deployment evidence.
     /// A fenced isolated node has no graceful stop selector or closure receipt.
     pub fn isolation_request(&self) -> Option<[u8; 16]> {
@@ -470,7 +474,93 @@ fn check_process(
     Ok(())
 }
 
+const OPERATOR_STOP_KIND: u8 = 74;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OperatorStop {
+    format: u8,
+    catalog: [u8; 32],
+    request: FleetRequestIdentity,
+    node: [u8; 16],
+    process: [u8; 16],
+    finalization: [u8; 32],
+}
+
 impl FleetCatalog {
+    /// Permanently bind human stop consent before RPC dispatch. This immutable
+    /// record is descriptive, never a substitute for the receiver's current
+    /// root/boot guard or a signed post-join closure. Every retry is canonical.
+    pub async fn admit_operator_stop(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        node: NodeId,
+        process: ProcessGeneration,
+        timeout: Duration,
+    ) -> Result<crate::raft::fleet_stop::FleetStopRequest> {
+        self.check_snapshot(snapshot)?;
+        validate_request(request)?;
+        self.run(timeout, async {
+            let bytes = self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Operations.slot()],
+                    &key(request.operation),
+                )
+                .await?
+                .ok_or(FleetCatalogError::Conflict)?;
+            let record: Record = decode(FENCE_KIND, &bytes, 4096)?;
+            record.validate(self)?;
+            record.confirm(self, snapshot).await?;
+            if record.node.node != node.bytes()
+                || record.node.boot.as_ref().map(|b| b.process) != Some(process.bytes())
+                || record.node.isolation.is_some()
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let consent = OperatorStop {
+                format: 1,
+                catalog: self.birth_owner()?.catalog,
+                request: request.clone(),
+                node: node.bytes(),
+                process: process.bytes(),
+                finalization: hash(&bytes),
+            };
+            let key = format!("operator-stops/{}", hex::encode(request.id));
+            match self
+                .inner
+                .read::<OperatorStop>(&key, OPERATOR_STOP_KIND, 4096)
+                .await?
+            {
+                Some((prior, _)) if prior != consent => {
+                    return Err(FleetCatalogError::PayloadConflict)
+                }
+                Some(_) => (),
+                None => {
+                    if self.inner.current().await?.token != snapshot.token
+                        || request.expected_revision != snapshot.revision()
+                    {
+                        return Err(FleetCatalogError::Conflict);
+                    }
+                    self.stop_record(snapshot, request.operation).await?;
+                    self.inner
+                        .create_exact(&key, &encode(OPERATOR_STOP_KIND, &consent, 4096)?, 4096)
+                        .await?;
+                }
+            }
+            crate::raft::fleet_stop::FleetStopRequest::new(
+                record.stop_selector(
+                    ProposalId::new(request.id)
+                        .map_err(|_| FleetCatalogError::Invalid("stop ID"))?,
+                )?,
+                crate::raft::fleet_stop::FleetStopAction::Stop,
+            )
+            .map_err(|_| FleetCatalogError::Corrupt("operator stop selector"))
+        })
+        .await
+    }
+
     pub(crate) fn closure_sink(
         &self,
         selector: &crate::raft::fleet_stop::StopSelector,
@@ -619,6 +709,37 @@ impl FleetCatalog {
             return Err(FleetCatalogError::PayloadConflict);
         }
         Ok(Some(record))
+    }
+
+    /// Historical receipt only, also after terminal removal. Retaining or
+    /// reconstructing its stop data cannot bypass the receiver's current fence.
+    pub async fn finalization_receipt(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<FleetFinalizationAdmission>> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            let Some(bytes) = self
+                .inner
+                .lookup(
+                    snapshot.head.tables[FleetTable::Operations.slot()],
+                    &key(operation.bytes()),
+                )
+                .await?
+            else {
+                return Ok(None);
+            };
+            let record: Record = decode(FENCE_KIND, &bytes, 4096)?;
+            record.validate(self)?;
+            if record.request.operation != operation.bytes() {
+                return Err(FleetCatalogError::Corrupt("finalization key"));
+            }
+            let applied = record.confirm(self, snapshot).await?;
+            Ok(Some(record.admission(applied, snapshot.revision())))
+        })
+        .await
     }
 
     /// Historical journal-confirmed boot fencing, including after adapter

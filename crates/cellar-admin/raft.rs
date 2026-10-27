@@ -249,11 +249,20 @@ pub(super) fn finish<T: serde::Serialize>(
     audit: &mut Begin,
     result: Result<T, RaftFleetFailure>,
 ) -> Result<Response, ApiError> {
+    finish_with_status(console, audit, result, "accepted")
+}
+
+pub(super) fn finish_with_status<T: serde::Serialize>(
+    console: &Console,
+    audit: &mut Begin,
+    result: Result<T, RaftFleetFailure>,
+    success_status: &str,
+) -> Result<Response, ApiError> {
     let (Begin::Started(operation) | Begin::Existing(operation)) = audit;
     // The audit describes dispatch, not convergence. Even a historical success
     // is rechecked by the backend rather than replayed as an empty audit handle.
     let status = match &result {
-        Ok(_) => "accepted",
+        Ok(_) => success_status,
         Err(error) if error.outcome == RaftFleetOutcome::NotSubmitted => "not_submitted",
         Err(_) => "outcome_unknown",
     };

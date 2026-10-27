@@ -117,7 +117,7 @@ impl AuditStore {
             .lock()
             .map_err(|_| anyhow::anyhow!("audit store unavailable"))?;
         connection.execute(
-                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change','outbox_destroy','outbox_recreate','stream_retire') OR status NOT IN ('succeeded','incomplete','failed')) AND NOT (action IN ('raft_topology','raft_topology_cancel','raft_node_register','raft_node_qualify','raft_node_activate') AND status='accepted')",
+                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change','outbox_destroy','outbox_recreate','stream_retire') OR status NOT IN ('succeeded','incomplete','failed')) AND NOT (action IN ('raft_topology','raft_topology_cancel','raft_node_register','raft_node_qualify','raft_node_activate','raft_node_evacuate','raft_node_prepare_removal','raft_node_stop','raft_node_remove') AND status='accepted')",
                 params![
                     status,
                     finished,

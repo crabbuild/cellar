@@ -4,7 +4,12 @@
 use super::*;
 use std::io::Read;
 
-pub(super) const HELP: &str = "cellar raft fleet nodes add --descriptor NODE.json --operation-id REQUEST_HEX --expected-revision R
+pub(super) const HELP: &str = "cellar raft fleet nodes evacuate NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R
+cellar raft fleet nodes prepare-removal NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R [--wait]
+cellar raft fleet nodes stop NODE_HEX --operation-id OP --request-id STOP --expected-process PROCESS --expected-revision R
+cellar raft fleet nodes remove NODE_HEX --operation-id OP --request-id REQUEST --stop-id STOP --expected-revision R [--wait]
+cellar raft fleet nodes evacuation-status OP
+cellar raft fleet nodes add --descriptor NODE.json --operation-id REQUEST_HEX --expected-revision R
 cellar raft fleet nodes status NODE_HEX
 cellar raft fleet nodes qualify NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
 cellar raft fleet nodes activate NODE_HEX --attestation CAPACITY.json --operation-id REQUEST_HEX --expected-revision R
@@ -28,6 +33,11 @@ Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 pub(super) enum Action {
     Status,
     NodeStatus(String),
+    EvacuationStatus(String),
+    Evacuate(String, Box<RaftFleetNodeOperation>),
+    PrepareRemoval(String, Box<RaftFleetNodeOperation>),
+    StopNode(String, Box<RaftFleetNodeStop>),
+    RemoveNode(String, Box<RaftFleetNodeRemove>),
     NodeRegister(Box<RaftFleetRegisterNode>),
     NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
@@ -78,6 +88,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut token_file = None;
     let mut operation_id = None;
     let mut expected_revision = None;
+    let mut request_id = None;
+    let mut expected_process = None;
+    let mut stop_id = None;
     let mut keep = None;
     let mut policy = None;
     let mut descriptor = None;
@@ -103,6 +116,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--admin-url" => set(&mut admin_url, value)?,
             "--token-file" => set(&mut token_file, value)?,
             "--operation-id" => set(&mut operation_id, value)?,
+            "--request-id" => set(&mut request_id, value)?,
+            "--expected-process" => set(&mut expected_process, value)?,
+            "--stop-id" => set(&mut stop_id, value)?,
             "--expected-revision" => set(
                 &mut expected_revision,
                 value
@@ -153,6 +169,56 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        ("nodes_evacuation-status", Some(operation)) if !wait && cursor.is_none() => {
+            validate_id(&operation)?;
+            Action::EvacuationStatus(operation)
+        }
+        (
+            verb @ ("nodes_evacuate" | "nodes_prepare-removal" | "nodes_stop" | "nodes_remove"),
+            Some(node),
+        ) if cursor.is_none() => {
+            validate_id(&node)?;
+            let request = RaftFleetNodeOperation {
+                catalog_id: catalog_id
+                    .clone()
+                    .ok_or_else(|| invalid("--catalog-id from fleet status is required"))?,
+                operation_id: operation_id
+                    .take()
+                    .ok_or_else(|| invalid("--operation-id is required"))?,
+                request_id: request_id
+                    .take()
+                    .ok_or_else(|| invalid("--request-id is required"))?,
+                expected_revision: expected_revision
+                    .take()
+                    .ok_or_else(|| invalid("--expected-revision is required"))?,
+            };
+            request.validate()?;
+            match verb {
+                "nodes_evacuate" if !wait => Action::Evacuate(node, Box::new(request)),
+                "nodes_prepare-removal" => Action::PrepareRemoval(node, Box::new(request)),
+                "nodes_stop" if !wait => {
+                    let request = RaftFleetNodeStop {
+                        operation: request,
+                        expected_process: expected_process
+                            .take()
+                            .ok_or_else(|| invalid("--expected-process is required"))?,
+                    };
+                    request.validate()?;
+                    Action::StopNode(node, Box::new(request))
+                }
+                "nodes_remove" => {
+                    let request = RaftFleetNodeRemove {
+                        operation: request,
+                        stop_id: stop_id
+                            .take()
+                            .ok_or_else(|| invalid("--stop-id is required"))?,
+                    };
+                    request.validate()?;
+                    Action::RemoveNode(node, Box::new(request))
+                }
+                _ => return Err(invalid("--wait is only supported for verification steps")),
+            }
+        }
         ("nodes_status", Some(node)) if !wait && cursor.is_none() => {
             validate_id(&node)?;
             Action::NodeStatus(node)
@@ -253,6 +319,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || cursor.is_some()
         || descriptor.is_some()
         || attestation.is_some()
+        || request_id.is_some()
+        || expected_process.is_some()
+        || stop_id.is_some()
     {
         return Err(invalid("options do not apply to this command"));
     }

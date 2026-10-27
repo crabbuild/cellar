@@ -187,3 +187,156 @@ async fn fleet_operator_node_cli_refuses_mismatched_admission_receipts() -> Resu
     }
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown() -> Result<()> {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let root = tempfile::tempdir()?;
+    let credential = root.path().join("credential");
+    let token = "test-departure-token-with-at-least-32-bytes";
+    std::fs::write(&credential, token)?;
+    let node = hex::encode([1; 16]);
+    let request = hex::encode([2; 16]);
+    let operation = hex::encode([3; 16]);
+    let catalog = hex::encode([4; 32]);
+    let process = hex::encode([5; 16]);
+    for variant in 0..10 {
+        let mut receipt = serde_json::json!({"progress": {
+            "catalog_id":catalog,"operation_id":operation,"request_id":request,"node_id":node,
+            "expected_revision":1,"phase":"finalizing","checked_histories":1,"total_histories":1,
+            "applied_revision":2,"observed_revision":2,"candidate_digest":hex::encode([6;32]),
+            "closure_digest":null,"process":process,"stop_id":null,"terminal":false
+        },"reconciled":false});
+        let verb = match variant {
+            8 => "stop",
+            9 => "remove",
+            _ => "prepare-removal",
+        };
+        match variant {
+            0 => receipt["progress"]["node_id"] = serde_json::json!(hex::encode([9; 16])),
+            1 => receipt["progress"]["operation_id"] = serde_json::json!(hex::encode([9; 16])),
+            2 => receipt["progress"]["request_id"] = serde_json::json!(hex::encode([9; 16])),
+            3 => receipt["progress"]["candidate_digest"] = Value::Null,
+            4 => receipt["progress"]["process"] = Value::Null,
+            5 => receipt["progress"]["checked_histories"] = serde_json::json!(0),
+            6 => {
+                receipt["progress"]["phase"] = serde_json::json!("removed");
+                receipt["progress"]["terminal"] = serde_json::json!(true);
+                receipt["progress"]["closure_digest"] = serde_json::json!(hex::encode([7; 32]));
+                receipt["progress"]["stop_id"] = serde_json::json!(request);
+            }
+            7 => {
+                receipt = serde_json::json!({"error":{"code":"unavailable","outcome":"unknown","message":"ambiguous fence"},"phase":null,"terminal":null})
+            }
+            8 | 9 => {
+                receipt["progress"]["phase"] = serde_json::json!(if variant == 8 {
+                    "stop_requested"
+                } else {
+                    "verifying_removal"
+                });
+                receipt["progress"]["applied_revision"] = Value::Null;
+                receipt["progress"]["candidate_digest"] = Value::Null;
+                receipt["progress"]["observed_revision"] = serde_json::json!(1);
+                receipt["progress"]["stop_id"] = serde_json::json!(if variant == 8 {
+                    request.clone()
+                } else {
+                    hex::encode([9; 16])
+                });
+                receipt["progress"]["process"] = if variant == 8 {
+                    serde_json::json!(hex::encode([9; 16]))
+                } else {
+                    Value::Null
+                };
+            }
+            _ => anyhow::bail!("unexpected receipt variant"),
+        }
+        let count = Arc::new(AtomicUsize::new(0));
+        let calls = count.clone();
+        let router = axum::Router::new().route(
+            &format!("/api/v1/fleets/test/raft/nodes/{node}/{verb}"),
+            axum::routing::post(move || {
+                let receipt = receipt.clone();
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    (
+                        if variant == 7 {
+                            axum::http::StatusCode::SERVICE_UNAVAILABLE
+                        } else {
+                            axum::http::StatusCode::OK
+                        },
+                        axum::Json(receipt),
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, router)
+                .with_graceful_shutdown(async {
+                    let _ = stopped.await;
+                })
+                .await
+        });
+        let mut args = vec![
+            "raft",
+            "fleet",
+            "nodes",
+            verb,
+            &node,
+            "--fleet",
+            "test",
+            "--admin-url",
+            &url,
+            "--catalog-id",
+            &catalog,
+            "--operation-id",
+            &operation,
+            "--request-id",
+            &request,
+            "--expected-revision",
+            "1",
+            "--token-file",
+            credential.to_str().unwrap(),
+            "--json",
+        ];
+        if variant == 8 {
+            args.extend(["--expected-process", &process]);
+        } else {
+            args.push("--wait");
+        }
+        if variant == 9 {
+            args.extend(["--stop-id", &request]);
+        }
+        let output = tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"))
+            .args(args)
+            .env_remove("CELLAR_ADMIN_TOKEN")
+            .env_remove("CELLAR_ADMIN_URL")
+            .kill_on_drop(true)
+            .output()
+            .await?;
+        let _ = stop.send(());
+        server.await??;
+        ensure!(
+            output.status.code() == Some(5),
+            "variant {variant}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        ensure!(
+            count.load(Ordering::SeqCst) == 1,
+            "mismatch or unknown response must never be retried"
+        );
+        let error: Value = serde_json::from_slice(&output.stdout)?;
+        ensure!(error["error"]["code"] == "unavailable" && error["error"]["outcome"] == "unknown");
+        ensure!(
+            !String::from_utf8_lossy(&output.stdout).contains(token)
+                && !String::from_utf8_lossy(&output.stderr).contains(token)
+        );
+    }
+    Ok(())
+}

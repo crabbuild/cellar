@@ -24,6 +24,7 @@ pub use execution::{
 };
 pub use execution::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
+    FleetPendingReservation,
 };
 pub(crate) use execution::{MovementAction, MovementCommand};
 pub use intent::{

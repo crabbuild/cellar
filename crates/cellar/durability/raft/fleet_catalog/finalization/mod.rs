@@ -83,6 +83,19 @@ impl FleetEvacuationCandidate {
 use super::deadline::Deadline;
 
 impl FleetCatalog {
+    /// Descriptive count from immutable candidate metadata. This cannot rebuild
+    /// a runtime verification, freshness lease or terminal authorization.
+    pub async fn evacuation_candidate_histories(
+        &self,
+        digest: [u8; 32],
+        timeout: Duration,
+    ) -> Result<u64> {
+        self.run(timeout, async {
+            Ok(Candidate::read(self, digest).await?.count)
+        })
+        .await
+    }
+
     /// Begin from the current exact root and internally checked complete
     /// inventory. A caller-provided count or saved admission cannot substitute.
     pub async fn prepare_evacuation_verification(
@@ -155,6 +168,10 @@ impl FleetCatalog {
 }
 
 impl FleetEvacuationVerification {
+    pub fn histories(&self) -> u64 {
+        self.snapshot.head.history_count
+    }
+
     /// Return the next rooted history, with at most one 4-KiB record retained.
     /// Failed attempts keep this same history pending. Reserved births block
     /// verification until their immutable decision is reconciled into a new root.

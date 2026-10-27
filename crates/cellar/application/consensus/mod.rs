@@ -49,8 +49,9 @@ pub use crate::raft::fleet_catalog::{
     FleetMovementCompletion, FleetMovementCompletionRequest, FleetMovementExecutionRequest,
     FleetMovementPhase, FleetMovementProgress, FleetMovementRequest, FleetNodeEligibility,
     FleetNodeIsolation, FleetNodeIsolationRequest, FleetNodeSpec, FleetNodeState,
-    FleetPendingMovement, FleetPermitAuthorization, FleetReplicaSeparation, FleetRequestIdentity,
-    FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
+    FleetPendingMovement, FleetPendingReservation, FleetPermitAuthorization,
+    FleetReplicaSeparation, FleetRequestIdentity, FleetResourceAdmission, FleetResourceAttestation,
+    FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_catalog::{
     FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,

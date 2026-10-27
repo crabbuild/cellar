@@ -69,11 +69,21 @@ impl Client {
         path: &str,
         body: &impl serde::Serialize,
     ) -> Result<T> {
+        self.post_timeout(path, body, Duration::from_secs(30)).await
+    }
+
+    pub async fn post_timeout<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &impl serde::Serialize,
+        timeout: Duration,
+    ) -> Result<T> {
         let url = self
             .base
             .join(path)
             .map_err(|_| invalid("invalid management route"))?;
-        self.send(self.http.post(url).json(body)).await
+        self.send(self.http.post(url).json(body).timeout(timeout))
+            .await
     }
 
     async fn send<T: DeserializeOwned>(&self, request: reqwest::RequestBuilder) -> Result<T> {

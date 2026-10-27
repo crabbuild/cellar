@@ -61,7 +61,49 @@ pub struct FleetPendingMovement {
     pub plan: crate::raft::member_state::RepairPlan,
 }
 
+/// Every rooted unresolved debit, including resource-only admissions. These
+/// descriptive values grant no settlement, membership or physical release.
+#[derive(Clone, Debug)]
+pub struct FleetPendingReservation {
+    pub reservation: [u8; 16],
+    pub group: cellar_logic::consensus::GroupScope,
+    pub target: cellar_logic::consensus::NodeId,
+    pub boot: crate::raft::fleet_stop::FleetBootBinding,
+    pub peak: FleetResourceBounds,
+    pub executable_movement: bool,
+}
+
 impl FleetCatalog {
+    pub async fn pending_reservations(
+        &self,
+        snapshot: &FleetSnapshot,
+        timeout: Duration,
+    ) -> Result<Vec<FleetPendingReservation>> {
+        self.check_snapshot(snapshot)?;
+        self.run(timeout, async {
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let book = self.resource_book(snapshot).await?;
+            let rows = self.resource_rows(snapshot, &book).await?;
+            self.check_resource_permits(snapshot, &rows).await?;
+            let mut result = Vec::with_capacity(rows.len());
+            for row in rows {
+                let history = self.history_inner(snapshot, &row.request.group).await?;
+                result.push(FleetPendingReservation {
+                    reservation: row.request.identity.id,
+                    group: history.binding().scope().map_err(|_| invalid())?,
+                    target: row.node,
+                    boot: row.request.attestation.boot.clone(),
+                    peak: row.request.peak,
+                    executable_movement: row.request.movement.is_some(),
+                });
+            }
+            Ok(result)
+        })
+        .await
+    }
+
     /// List active resource-backed membership moves (at most two). Resource-only
     /// reservations have no executable membership intent and are not returned.
     pub async fn pending_movements(

@@ -24,11 +24,13 @@ pub(crate) use operations::receipt_key;
 pub use operations::{StopMode, StopProof, StopReceipt};
 pub use raft::{
     RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetCapacityAttestation,
-    RaftFleetConnection, RaftFleetControl, RaftFleetFailure, RaftFleetFailureCode,
-    RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope,
-    RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCapacity,
-    RaftFleetNodeDescriptor, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetOperation,
-    RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
+    RaftFleetConnection, RaftFleetControl, RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt,
+    RaftFleetEvacuationPhase, RaftFleetEvacuationProgress, RaftFleetEvacuationStatus,
+    RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement, RaftFleetMovements,
+    RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance, RaftFleetNodeAction,
+    RaftFleetNodeAdmission, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
+    RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
+    RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;

@@ -121,6 +121,32 @@ impl FleetCatalog {
         .await
     }
 
+    /// Called inside an owned catalog turn. A completed governing layout plus
+    /// retained exclusion fences new references after its membership proofs.
+    pub(in super::super::super) async fn check_departure_placement(
+        &self,
+        snapshot: &FleetSnapshot,
+        node: NodeId,
+    ) -> Result<()> {
+        if self.active_intent(snapshot).await?.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let policy = self
+            .placement_policy(snapshot)
+            .await?
+            .ok_or(FleetCatalogError::InventoryIncomplete)?;
+        let record = self.intent_record(snapshot, policy.operation).await?;
+        let view = self.intent_observation(snapshot, &record).await?;
+        if view.phase != FleetTopologyPhase::Complete
+            || view.keep.contains(&node)
+            || Definition::new(&view.keep.iter().copied().collect(), &view.policy)?
+                != policy.definition
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.require_intent_settled(snapshot).await
+    }
+
     /// Operation whose keep policy currently governs new placement, including
     /// after successful convergence or restoration of an older policy.
     pub async fn placement_topology_operation(

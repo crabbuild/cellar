@@ -392,22 +392,77 @@ capacity or create a successful operation receipt.
 
 ## Evacuate and permanently remove a node
 
-Preview capacity and domains, then submit evacuation. The fleet excludes the node
-from new placement while allowing existing consensus and admitted work to finish.
-It transfers/replaces all memberships and verifies the complete inventory cut.
-Wait for the `Evacuated` certificate. A report with remaining learners, joint
-states, unknown histories, archive obligations or reserved work is incomplete.
+The graceful workflow has separate redistribution, exclusion, finalization,
+process stop and terminal-removal requests. Use the catalog-generation pin from
+`raft fleet status`. Each mutation has an exact request ID, authenticated
+principal and expected revision. Retain those values after an unknown outcome;
+changing a field under the same ID conflicts. Never supply serialized proof,
+closure or certificate fields to bypass verification.
 
-Submit removal with that certificate and a current expected revision. Wait for
-the terminal removal receipt, then stop/remove infrastructure. The receipt binds
-the node/disk/storage identity and exact inventory/configuration proof; a newer
-conflicting operation invalidates it. Stopping first is crash recovery, not
-successful evacuation. Local volumes and archives remain retained.
+First run the existing keep-set rebalance excluding the departing node. Wait for
+`Complete`; inspect refusals, movement pages and retained debt. New placement is
+already fenced by that governing keep set. The controller still needs spare
+capacity, failure-restoration headroom and permitted domains. A completed
+redistribution is a prerequisite for the graceful `evacuate` command. Topology
+and evacuation cannot own the disruption slot concurrently.
 
-If a node is already dead, the operation uses survivors to perform the same
-membership repair and verification. A quorumless group blocks final removal.
-The operator can restore its original durable members or follow a separately
-qualified disaster procedure; this API does not force progress.
+Then use the node lifecycle commands, supplying the common `--fleet`,
+`--admin-url`, `--catalog-id`, `--token-file` and optionally `--json` options:
+
+```sh
+cellar raft fleet nodes evacuate NODE --operation-id OP --request-id EXCLUDE --expected-revision R
+cellar raft fleet nodes evacuation-status OP
+cellar raft fleet nodes prepare-removal NODE --operation-id OP --request-id PREPARE --expected-revision R2 --wait
+cellar raft fleet nodes stop NODE --operation-id OP --request-id STOP --expected-revision R3 --expected-process PROCESS
+cellar raft fleet nodes remove NODE --operation-id OP --request-id REMOVE --expected-revision R3 --stop-id STOP --wait
+```
+
+The uppercase values above are placeholders. IDs are canonical nonzero
+32-character lowercase hex; revisions are numeric. `PROCESS` is the exact process
+reported by the finalization receipt. `R2` is the root after exclusion; `R3` is
+the root after finalization. Stop does not mutate that root. If other catalog
+inputs change, reconcile the exact request before obtaining new proof.
+
+`evacuate` uses the independent `fleet_evacuate` grant. It roots `Draining` and
+claims the single disruption slot after checking the completed keep set.
+`prepare-removal` and `remove` use `fleet_remove`; `stop` independently requires
+`fleet_stop`. Broad `operate`, capacity and topology grants do not imply these
+permissions. All four mutation routes use bounded requests and canonical audit.
+`evacuation-status` requires `metadata_read` and exposes historical admissions,
+current node state and every unresolved reservation, including resource-only
+debits. Those debits remain charged and can block progress.
+
+Preparation checks one complete-inventory history per successful request. Live
+histories require three authenticated survivors, stable RF3 without the departing
+binding, and actual replay of the selected immutable archive. Cancelled births
+require their checked immutable decision; pending or unknown histories block.
+The management server must explicitly configure a surviving live observer and
+bounded replay services. Restarting it discards the local walk and repeats
+proofs; the CLI never treats its serialized counters as authority. `--wait`
+advances only successfully acknowledged partial verification. Any unavailable,
+conflicting or unknown result returns immediately for exact reconciliation.
+
+After the walk, finalization fences new boots of the exact departing process.
+It neither stops that process nor releases the disruption slot. Stop is a
+separate human instruction. Its immutable consent binds principal, request,
+revision, finalization and process; the receiving host rechecks its current
+root/boot guard before acting. A `stop_requested` reply is not joined proof.
+Response-domain closure may make the reply unknown; query or retry the exact
+request. Only the signed post-Node/domain-join closure yields `joined`.
+
+Removal checks the post-fence inventory again and requires that exact signed
+closure. Its final CAS independently renews survivor and physical checks,
+roots `Removed` with its tombstone, and releases the slot atomically. Exact
+committed finalization/removal retries recover historical admissions without
+replaying physical work. These receipts do not authorize storage deletion.
+Local volumes, retired bindings and archives remain retained. Provisioning or
+removing infrastructure remains a separate operator action.
+
+An unreachable node uses the separate trusted-isolation repair primitives;
+this graceful CLI cannot turn a timeout into isolation or force a quorumless
+group through removal. Restore original durable voters or use a separately
+qualified disaster procedure when quorum is lost. Maintenance/rejoin of the
+same retained identity and resize are separate unfinished workflows.
 
 ## Return hardware after evacuation
 

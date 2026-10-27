@@ -4061,7 +4061,13 @@
         "crates/cellar/fleet/management/raft/nodes.rs",
         "crates/cellar/cli/raft_cli/nodes.rs",
         "crates/cellar-admin/raft_nodes.rs",
-        "crates/cellar/tests/support/raft_operator_nodes_native.rs"
+        "crates/cellar/tests/support/raft_operator_nodes_native.rs",
+        "crates/cellar/fleet/management/raft/lifecycle/mod.rs",
+        "crates/cellar/fleet/management/raft/lifecycle/records.rs",
+        "crates/cellar/fleet/management/raft/lifecycle/verification.rs",
+        "crates/cellar/cli/raft_cli/lifecycle.rs",
+        "crates/cellar-admin/raft_lifecycle.rs",
+        "crates/cellar/tests/support/raft_operator_lifecycle_native.rs"
       ],
       "steps": [
         "Delivered keep-set begin/status/progress/wait/cancel and explicit node add/status/qualify/activate through SDK, authenticated admin and CLI. Capacity uses a configured running observer plus a separately granted explicit deployment attestation. Exact retries return historical admission and cannot rewrite current boot readiness. Node evacuation/removal, maintenance, dry-run and resize remain unfinished.",
@@ -4217,8 +4223,37 @@
         },
         {
           "name": "raft_node_accepted_audit_cannot_be_downgraded_by_late_failure",
-          "oracle": "Accepted registration/qualification/activation audits survive later unknown/not-submitted attempts and reopening the audit store.",
+          "oracle": "Accepted registration, qualification, activation, exclusion, preparation, stop and removal audits survive later unknown/not-submitted attempts and reopening the audit store.",
           "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_departure_redistributes_verifies_joins_and_removes",
+          "oracle": "Real CLI/API redistribution excludes a live voter from both RF3 histories, reconciles lost exclusion/finalization/removal confirmations, repeats replay after management restart, requires independent explicit exact-process stop consent and signed physical join, and verifies retained storage plus SQL continuity after Removed. Descriptive status cannot bypass boot fencing.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_departure_status_retains_resource_only_debt",
+          "oracle": "Operator status includes resource-only reservations omitted from executable movement lists, with their complete boot, target and peak. Partial historical verification cannot authorize terminal removal, release its slot or erase the unchanged debit.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown",
+          "oracle": "Actual CLI processes reject mismatched identity, incomplete finalization, incorrect phases and wrong process/stop selectors. An unknown HTTP outcome under --wait causes exactly one request, preserving its original identity.",
+          "invariants": [
+            "F02",
             "F03",
             "F10"
           ]

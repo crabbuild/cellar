@@ -196,11 +196,14 @@ pub use crate::application::*;
 pub mod fleet_operations {
     pub use crate::management::{
         RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetCapacityAttestation,
-        RaftFleetConnection, RaftFleetControl, RaftFleetFailure, RaftFleetFailureCode,
-        RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope,
-        RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission,
-        RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeState, RaftFleetNodeStatus,
-        RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
+        RaftFleetConnection, RaftFleetControl, RaftFleetEvacuationAcceptance,
+        RaftFleetEvacuationDebt, RaftFleetEvacuationPhase, RaftFleetEvacuationProgress,
+        RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement,
+        RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
+        RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCapacity,
+        RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
+        RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
+        RaftFleetRegisterNode, RaftFleetStatus,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

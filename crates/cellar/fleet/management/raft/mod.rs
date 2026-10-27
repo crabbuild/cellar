@@ -5,6 +5,7 @@
 //! proofs remain host-owned; capacity-granted operators explicitly attest limits.
 mod connection;
 mod failure;
+mod lifecycle;
 mod nodes;
 mod records;
 use crate::application::consensus::RaftCells;
@@ -17,6 +18,11 @@ use crate::raft::fleet_catalog::{
 use cellar_logic::consensus::{NodeId, ProposalId};
 pub use connection::{RaftFleetConnection, RaftFleetNamespace, RaftFleetNamespaceScope};
 pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
+pub use lifecycle::{
+    RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
+    RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetNodeOperation,
+    RaftFleetNodeRemove, RaftFleetNodeStop,
+};
 pub use nodes::{
     RaftFleetCapacityAttestation, RaftFleetNodeAcceptance, RaftFleetNodeAction,
     RaftFleetNodeAdmission, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeState,
@@ -40,6 +46,7 @@ pub struct RaftFleetControl {
     namespaces: Arc<[NamespaceCatalog]>,
     domain: DomainToken,
     node_observer: Option<RaftCells>,
+    removal_verification: Option<Arc<lifecycle::verification::Verification>>,
 }
 
 impl RaftFleetControl {
@@ -62,6 +69,7 @@ impl RaftFleetControl {
             namespaces: namespaces.into(),
             domain,
             node_observer: None,
+            removal_verification: None,
         })
     }
 
@@ -318,6 +326,18 @@ impl<'a> Turn<'a> {
             .checked_add(timeout.as_millis() as u64)
             .ok_or_else(|| RaftFleetFailure::invalid("operator deadline"))?;
         Ok(Self { domain, deadline })
+    }
+
+    async fn run<F: std::future::Future>(&self, future: F) -> Result<F::Output> {
+        self.remaining()?;
+        let timer = self
+            .domain
+            .sleep_until(self.deadline)
+            .map_err(|_| FleetCatalogError::Closed)?;
+        crate::asyncrt::select! {
+            _ = timer => Err(FleetCatalogError::Unconfirmed.into()),
+            result = self.domain.run(future) => result.map_err(|_| RaftFleetFailure::from(FleetCatalogError::Closed)),
+        }
     }
 
     fn remaining(&self) -> Result<Duration> {
