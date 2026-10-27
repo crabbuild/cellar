@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! The driver keeps polling accepted work while one reversible gate settles.
+//! SDK sealing follows full event lifetimes, including post-response producers.
 use crate::actor::AppHandle;
 use crate::raft::fleet_catalog::FleetCatalogError;
 use crate::raft::fleet_stop::MaintenanceCommand;
@@ -43,7 +44,7 @@ impl Driver {
             Some(Err(FleetCatalogError::Conflict))
         } else if now.is_err() || now.is_ok_and(|now| now >= command.deadline) {
             Some(Err(FleetCatalogError::Unconfirmed))
-        } else if app.public_in_flight() != 0 || queued != 0 {
+        } else if app.public_in_flight() != 0 || queued != 0 || application_events != 0 {
             None
         } else if !self.raft_sealed {
             match self.lifecycle.seal_maintenance_raft(&command.selector) {
@@ -53,10 +54,8 @@ impl Driver {
                 }
                 Err(error) => Some(Err(error)),
             }
-        } else if application_events == 0 {
-            Some(Ok(()))
         } else {
-            None
+            Some(Ok(()))
         };
         if let Some(result) = result {
             if let Some(command) = self.pending.take() {

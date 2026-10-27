@@ -475,10 +475,11 @@ exact node epoch and journals an immutable parent request and child gate ID.
 observer. Authenticated discovery must install the requested minimum catalog
 revision on that observer before dispatch; a stale route refuses. The target
 syncs a distinct maintenance-purpose lifecycle selector,
-closes new public/peer application admission, lets accepted handlers finish,
-and seals SDK business admission under its registration barrier before waiting
-for accepted application work. Raft replication, inspection and leadership
-transfer remain available. An expired turn is unconfirmed and does not reopen
+closes new public/peer application admission and waits for complete accepted
+application lifetimes, including post-response `wait_until` SDK producers.
+It then seals SDK business admission under its registration barrier and samples
+work again before acknowledging quiescence. Raft replication, inspection and
+leadership transfer remain available. An expired turn is unconfirmed and does not reopen
 admission. A successful gate response grants neither RestartReady nor stop.
 
 `cancel_restart_gate` syncs an exact-process fence before rooting Ready and

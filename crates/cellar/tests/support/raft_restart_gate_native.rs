@@ -11,10 +11,32 @@ use cellar::sdk::{Application, Cell, CellIdentity, Context, HandlerFuture, Invoc
 use std::sync::Mutex;
 use tokio::sync::Semaphore;
 
+type BackgroundResult = std::result::Result<Vec<u8>, String>;
+
 struct Signals {
     entered: tokio::sync::mpsc::UnboundedSender<()>,
     release: Semaphore,
     command: Mutex<Option<(RaftCellHandle, OperationContract)>>,
+    completed: Mutex<Option<tokio::sync::oneshot::Sender<BackgroundResult>>>,
+}
+
+impl Signals {
+    async fn write(&self) -> Result<Vec<u8>> {
+        let (cell, contract) = self
+            .command
+            .lock()
+            .map_err(|_| anyhow::anyhow!("command pin"))?
+            .clone()
+            .context("missing command")?;
+        Ok(cell
+            .command(
+                contract,
+                9i64.to_be_bytes().to_vec(),
+                public_node::options(2)?,
+            )
+            .await?
+            .result)
+    }
 }
 
 struct HeldApplication {
@@ -46,20 +68,25 @@ impl Application for HeldApplication {
             let value = if request.url.ends_with("/hold") {
                 self.signals.entered.send(())?;
                 self.signals.release.acquire().await?.forget();
-                let (cell, contract) = self
-                    .signals
-                    .command
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("command pin"))?
-                    .clone()
-                    .context("missing command")?;
-                cell.command(
-                    contract,
-                    9i64.to_be_bytes().to_vec(),
-                    public_node::options(2)?,
-                )
-                .await?
-                .result
+                self.signals.write().await?
+            } else if request.url.ends_with("/background") {
+                let signals = self.signals.clone();
+                context.wait_until(async move {
+                    signals.entered.send(())?;
+                    signals.release.acquire().await?.forget();
+                    let reply = signals
+                        .completed
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("completion pin"))?
+                        .take()
+                        .context("missing background completion")?;
+                    let value = signals.write().await;
+                    reply
+                        .send(value.as_ref().cloned().map_err(ToString::to_string))
+                        .map_err(|_| anyhow::anyhow!("background completion dropped"))?;
+                    value.map(|_| ())
+                })?;
+                b"accepted".to_vec()
             } else {
                 b"ready".to_vec()
             };
@@ -86,6 +113,7 @@ async fn held() -> Result<(
         entered,
         release: Semaphore::new(0),
         command: Mutex::new(None),
+        completed: Mutex::new(None),
     });
     let injected = signals.clone();
     let s = Box::pin(Setup::wrapped(move |inner| {
@@ -588,5 +616,87 @@ async fn fleet_restart_gate_cancel_reconciles_synced_fence_and_root_churn() -> R
         Err(FleetCatalogError::DisruptionInProgress { .. })
     ));
     write_read(&s.f, &s.cells, 3, 9, 21).await?;
+    s.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_gate_drains_post_response_background_sdk_writes() -> Result<()> {
+    let (s, signals, mut entered) = held().await?;
+    let p = primary(&s.f, &s.cells).await?;
+    *signals
+        .command
+        .lock()
+        .map_err(|_| anyhow::anyhow!("command pin"))? =
+        Some((s.cells[p].clone(), s.f.definition.increment.clone()));
+    let (completed, written) = tokio::sync::oneshot::channel();
+    *signals
+        .completed
+        .lock()
+        .map_err(|_| anyhow::anyhow!("completion pin"))? = Some(completed);
+    let client = reqwest::Client::builder().no_proxy().build()?;
+    let url = format!("http://{}", s.nodes[p].node.info().public_address);
+    let accepted = client.post(format!("{url}/background")).send().await?;
+    ensure!(accepted.status() == 200 && accepted.bytes().await?.as_ref() == b"accepted");
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, entered.recv()))
+        .await??
+        .context("background not entered")?;
+    let (_, gate, admitted) = admit(&s, p).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let metadata = s.f.catalog.clone();
+    let cut = root.clone();
+    let intent = gate.clone();
+    let observer = s.spare.clone();
+    let mut quiesce = s.f.domain.spawn(async move {
+        metadata
+            .quiesce_restart(&cut, &intent, &observer, TIMEOUT)
+            .await
+    })?;
+    paused(&s, &client, &url).await?;
+    ensure!(
+        s.f.domain
+            .run(cellar::asyncrt::timeout(
+                Duration::from_millis(30),
+                &mut quiesce
+            ))
+            .await?
+            .is_err(),
+        "quiescence acknowledged while accepted background work was held"
+    );
+    signals.release.add_permits(1);
+    let bytes =
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, written))
+            .await???
+            .map_err(anyhow::Error::msg)
+            .context("accepted background SDK write")?;
+    ensure!(
+        i64::from_be_bytes(
+            bytes
+                .try_into()
+                .map_err(|_| anyhow::anyhow!("background result"))?
+        ) == 16
+    );
+    ensure!(quiesce.await??.applied_revision() == admitted.applied_revision());
+    ensure!(matches!(
+        s.cells[p]
+            .command(
+                s.f.definition.increment.clone(),
+                1i64.to_be_bytes().to_vec(),
+                public_node::options(3)?
+            )
+            .await,
+        Err(CommandFailure::Unavailable)
+    ));
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .cancel_restart_gate(
+            &root,
+            &cancel(&gate, root.revision(), 218)?,
+            Some(&s.spare),
+            TIMEOUT,
+        )
+        .await?;
+    write_read(&s.f, &s.cells, 3, 5, 21).await?;
     s.close().await
 }
