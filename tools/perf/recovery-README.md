@@ -30,6 +30,9 @@ retirement refuses startup. This removes one full image from the overlap
 between fixture preparation and archive publication. Supplied raw fixtures stay
 under the caller's ownership. The same payload, receipt, local-loss and serving
 assertions still run after fault injection.
+Cross-volume template preparation creates an exclusive writable private copy;
+it preserves the supplied input's permissions and refuses an existing output.
+The fallback copies at most the opened source length and refuses length changes.
 
 The ignored `retained_root_query` target in `cellar-recovery-tests` diagnoses an
 offline member-4 worker from the full-capacity fixture. Set

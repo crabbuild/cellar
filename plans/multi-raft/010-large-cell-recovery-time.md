@@ -1139,6 +1139,25 @@ but the strong lossless compression across files means these pilots do not
 qualify independently high-entropy contents. That workload remains part of
 RT-06, alongside controlled hardware/cache and process-failure campaigns.
 
+At `878100de`, the all-internal 272 MiB preflight passes all nine checks in
+7.979558 s through verified write, with valid phase observations. Its full-size
+attempt fails during preparation, before runtime startup or fault injection:
+the supplied raw input is read-only, and cross-volume `fs::copy` propagates that
+mode to the private SQLite copy. The failure is retained as a failed attempt,
+not an accepted RTO. Its duplicate prepared file matches the retained raw input
+byte-for-byte before retirement; failure metadata and the raw source remain.
+
+Private template copying now uses exclusive writable creation and a source-length
+bounded copy when COW is unavailable. It checks the opened source and destination
+lengths without changing source permissions. Read-only-input and existing-output
+regressions both fail before this change and pass afterward. The native target
+retains these cases; the temporary fast-feedback entry is retained in evidence.
+The final release target passes 20 ordinary cases, with 12 physical cases
+ignored. All-feature/all-target qualification-package release Clippy,
+format/layout (1,250 Rust files), native dependency and documentation guards
+pass. The failed read-only setup is still recorded; a fresh full-size pass is
+required before accepting native RustFS recovery.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775

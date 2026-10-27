@@ -19,6 +19,8 @@ use std::{
 
 #[path = "raft_image_preload.rs"]
 mod baseline;
+#[path = "raft_template_copy.rs"]
+mod template_copy;
 
 const QUOTA: u64 = 10_000_000_000;
 
@@ -150,12 +152,7 @@ pub(super) fn prepared_template(
     receipt_reserve: u64,
 ) -> Result<(PathBuf, ImageState, u64, PayloadSamples)> {
     let path = directory.join("template.sqlite");
-    match DirectFileSystem.clone_read_write(source, &path)? {
-        Some(file) => drop(file),
-        None => {
-            std::fs::copy(source, &path)?;
-        }
-    }
+    template_copy::prepare(source, &path)?;
     let db = rusqlite::Connection::open(&path)?;
     // Retain the exact physical high-water size, but leave the configured
     // virtual receipt allowance and a small schema margin unused by payloads.
