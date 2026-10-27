@@ -209,3 +209,21 @@ with fixed work budgets and explicit unavailable responses.
 The [session agent example](../../../../examples/filesystem-agent/README.md)
 uses checked file tools and saved decisions. Mounting and command execution
 belong entirely to the separate [optional adapter design](../../../../plans/per-cell-filesystem-fuse-design.md).
+
+## Verification
+
+Use the checkout-specific target directory from [AGENTS.md](../../../../AGENTS.md).
+Run independent node fixtures serially, matching the
+[qualification guide](../../../../docs/19-testing-qualification.md) and SDK CI:
+
+```sh
+cargo test --locked -p cellar --lib filesystem -- --test-threads=1
+cargo test --locked -p cellar --test native_filesystem -- --test-threads=1
+cargo test --locked -p cellar --test native_node filesystem -- --test-threads=1
+```
+
+Each fixture retains its internal concurrency, including the GC workload's
+independent cell writers. The opt-in dense capacity case has a separate
+[harness guide](../../../../tools/perf/filesystem.md). Captured agent delivery,
+guest-runtime parity and remaining release gates are recorded in the
+[status ledger](../../../../plans/per-cell-filesystem-implementation-status.md).

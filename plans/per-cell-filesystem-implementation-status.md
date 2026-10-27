@@ -192,7 +192,7 @@ The final affected-feature matrix and fault/capacity gates remain open.
 | Read-only filesystem policy | Passed through Rust, Node, V8 and CPython native hosts | Writer-state restart preserves bytes, metadata and usage through twenty refused mutation paths; EROFS/outcome/operation parity, open/create/exclusive flags, EBADF access checks, all-Omit timestamps, reads/dup/offsets, barriers and successful business-state transactions. A refused filesystem effect rolls back preceding business updates in both native transactions and guest batches |
 | Small guest transport | Passed with an 8192-byte value limit; CPython mode repeated after the shared-case entry-point change | Bounded short reads preserve offsets; 255-byte binary names fit paged results; over-budget pages preserve the cursor; partial writes report confirmed local progress |
 | CPython filesystem test | Normal, small-budget and read-only standalone modes passed with captured CPython 3.14.5 GIL and 3.14.5t on macOS arm64 | Primitive/batch/restart/automatic-GC, namespace/authority, helper error/progress and read-only profiles through the actual selected ABI. Separate executables/linkage evidence distinguish the ABI builds; no tracing or increased handler budget |
-| Agent SIGKILL / cold recovery | All nine process cases repeated with a fresh source-entry host containing regular-file edit validation, including busy-abandon and both ambiguity branches | Five boundaries cover acceptance, provider dispatch, saved decision, atomic file/receipt and completion. Four control cases supply unknown outcomes after a proven native batch or before dispatch, exhaust five attempts, then SIGKILL and remove old local storage. Resume reconciles the saved decision/receipt and completes exactly one native file-effect batch overall. Abandon preserves the observed committed or absent state and unknown outcome; a follow-up turn reads the file or records ENOENT. No-commit cases retain zero allocation/receipts and one root inode until resumed. Duplicate input alone does not resume; an in-flight step rejects abandon with 409. Source-entry SDK dependency bytes match current sources. These are guest-caller fault injections, not transport/storage fault qualification |
+| Agent SIGKILL / cold recovery | All nine process cases repeated against the main-integrated source-entry host, including helper preflight normalization, busy-abandon and both ambiguity branches | Five boundaries cover acceptance, provider dispatch, saved decision, atomic file/receipt and completion. Four control cases supply unknown outcomes after a proven native batch or before dispatch, exhaust five attempts, then SIGKILL and remove old local storage. Resume reconciles the saved decision/receipt and completes exactly one native file-effect batch overall. Abandon preserves the observed committed or absent state and unknown outcome; a follow-up turn reads the file or records ENOENT. No-commit cases retain zero allocation/receipts and one root inode until resumed. Duplicate input alone does not resume; an in-flight step rejects abandon with 409. Source-entry SDK dependency bytes match current sources. These are guest-caller fault injections, not transport/storage fault qualification |
 | Vercel agent file tools / cold recovery | Both filesystem cases and the existing ticket case passed on Node 24.13.1 | New node and empty local storage; nine receipts, unchanged write version, saved read replay after a later edit, stale-version refusal, rename/delete, five provider-fixture decisions without repeats and unchanged duplicate acceptance. Private development bucket; no paid provider or external S3 qualification |
 | Pi agent file tools / cold recovery | All eight process cases and 16 unit tests passed on Node 24.13.1 | Existing six interruption points plus file-commit and after-edit cases; old node data erased, new node, alarm-only continuation, nine file receipts, unchanged version/read replay, saved conflict, rename/delete, five provider decisions and complete shutdown. A reduced-budget unit case rejects an oversized decision and still records retry exhaustion |
 | Python SDK file tools | Native harness passed through restart and joined shutdown | Standalone receipts, whole-request replay checks, binary names, saved reads/refusals after mutation, search/list/edit, receipt caps, captured mutable requests, prepared effects and oversized decimal-offset validation; CPython 3.14.6 GIL build |
@@ -200,7 +200,7 @@ The final affected-feature matrix and fault/capacity gates remain open.
 | Private receipt transport admission | Passed in actual Node and CPython runtimes with an 8192-byte value budget | Large read results become replayable validation refusals; double-escaped requests that cannot fit a receipt reject before changing an existing file. Python checks the same receipt after restart |
 | Checked agent-journal admission | Passed in actual Node and CPython runtimes with an 8192-byte value budget | A new journal can fit one request yet fail its next compare-and-save bound; rejection occurs before submitting file effects. A terminal update remains writable and preserves the prior payload. Python also rejects escaped non-BMP input before submission and verifies the terminal journal after restart. Agent unit cases cover retry exhaustion and a full tool journal retaining prior decisions/receipts |
 | Guest wire budget unit test | Passed | Worst-case base64 reads and 255-byte binary directory entries/cursors fit fixed result envelopes; configuration rejects inadequate metadata budgets |
-| Installed agent package | Refreshed through regular-file edit validation and passed with its capture directory unavailable | Native executable `dfd0f540ed6526883a507b9e5ea7a88d3963c2ac0b6cc9d0ce91664ba71b4455`, package version `0377d3184376af35ad986e045dbdb4040687a94157f435ab3224ef155d53663a`, inventory `24ea9a09c743388b7b1f9f941ddb3c11de3881dc60d16dca1476f507fa614a26`; Node 24.13.1 on macOS arm64. Runtime files were moved away before installation, restored from the archive and verified; SDK helper/session bytes match current source. Four isolated production-entry sessions, SIGKILL, actual predecessor-data removal, new-node recovery, unchanged completed runs, conflict/duplicate checks, follow-up file reads and joined shutdown. The nine interruption/control cases use the separate rebuilt source-entry host; this production package contains no fault hooks |
+| Installed agent package, historical | Refreshed through regular-file edit validation and passed with its capture directory unavailable | Native executable `dfd0f540ed6526883a507b9e5ea7a88d3963c2ac0b6cc9d0ce91664ba71b4455`, package version `0377d3184376af35ad986e045dbdb4040687a94157f435ab3224ef155d53663a`, inventory `24ea9a09c743388b7b1f9f941ddb3c11de3881dc60d16dca1476f507fa614a26`; Node 24.13.1 on macOS arm64. Runtime files were moved away before installation, restored from the archive and verified; SDK helper/session bytes matched that checkpoint's sources. Four isolated production-entry sessions, SIGKILL, actual predecessor-data removal, new-node recovery, unchanged completed runs, conflict/duplicate checks, follow-up file reads and joined shutdown. The nine interruption/control cases use the separate rebuilt source-entry host; this production package contains no fault hooks |
 | V8 refusal / budget checks | Both isolated checks passed | Minimal closed empty-helper case uses default pump limits; separate runaway-code test terminates and joins at 40 ms |
 | Strict Rust Clippy | Passed for core/guest/admin/JS/Python all targets after the quota fixes; core all-target checks repeated through read-only policy. JS/Python libraries/filesystem targets and the native-node target passed after read-only changes; Node-only fleet-package target passed after adding actual predecessor-data removal | Rust 1.98.1, JavaScript Node + V8 and Python embed features, `-D warnings` |
 | Edit validation source checks | Strict Clippy passed for cellar, cellar-guest, cellar-javascript and cellar-python with all targets after the regular-file check and native directory-relative profile | Combined Node + V8 + Python embed feature graph, Rust 1.98.1 and `-D warnings`; this compiles affected targets and does not imply all their tests ran |
@@ -217,15 +217,51 @@ node-authority startup timeout, then passed when rerun in isolation. Production
 runtime defaults and the independent 40 ms termination test remain unchanged.
 These observations do not establish filesystem latency or load qualification.
 
-The Python packages below include the current native changes and guest helper
-normalization. Earlier Python observations using package
+The Python packages below include the native changes and guest helper
+normalization before the PR's main-branch integration. Earlier Python observations using package
 `af335c386176f83d82b854d1ac105f59724e0d626ce04f93d9345997d96693a1`
 used the host interpreter/dependencies without a captured runtime; they remain
-historical checkpoints. The Node session package includes the native changes
-through regular-file edit validation and still needs recapture for the later
-JavaScript helper normalization. Other agent artifacts and platforms remain
-open. New runs use the current development accounting schema; older databases
+historical checkpoints. The refreshed Node session package below includes the
+main-branch integration and JavaScript helper normalization. Other agent
+artifacts and platforms remain open. New runs use the current development
+accounting schema; older databases
 with the previous resize trigger are deliberately refused.
+
+### Captured session-agent checkpoint after main integration
+
+This checkpoint uses source
+`fbe59a850800e482e8bb03eee949d3d3d8cdc728`, Rust 1.98.1, Node 24.13.1 and the
+development Cargo profile with debug info disabled on macOS arm64. The existing
+Node packager captured and verified 29 files. Application, session, model,
+lockfile and SDK/helper/declaration bytes matched the current sources.
+
+| Artifact | SHA-256 or version |
+| --- | --- |
+| Package version | `0b67cc3e32325e64fb16365c8ec5de99fb33af181995cb167e64739b4955ac11` |
+| Native executable | `a6536ec3f93f7c75f24f5886eef19a399fe40030d2a6cf189e5a10ee4e727843` |
+| Runtime inventory | `4f9d7d64baee2bbcdc348508c31839f9ef6b9898ea6b2f30f0d8d0a8c1aa949a` |
+| Runtime archive, 46,367,095 bytes | `db8a10aa502762d4ef04d07cc8bd4de36473bbffb4b51cb8a9ec68334e75e799` |
+| Source-entry host | `08e32bd362bb71e98b85b38a70179869629ad8857aed6b59c0d4e4d3a07eaa96` |
+
+The complete runtime prefix was moved away before installation. The production
+entry restored it from the verified archive and ran four independent session
+workspaces. SIGKILL, actual predecessor-data deletion and new-node recovery
+preserved completed results, duplicate/conflict behavior and follow-up reads.
+The successor host joined; the restored runtime passed its verifier again.
+This test used the unmodified production entry and no fault hooks.
+
+All nine interruption/control cases also passed against the fresh source-entry
+host. An owned bootstrap probe verified that the actual script sent to Node
+contained the complete current 65,575-byte runner, SHA-256
+`a229ebf0f40fdfa9c0d42bb821391d435c8f1191a0b182beff606a52024b0a9c`.
+The probe retained source hashes, not the private bootstrap configuration.
+Its script forwarding is separate from the production-entry archive test.
+
+The task-local `.cellar/filesystem-session-delivery-pr144.json` records the
+source/package identities, actual-bootstrap proof, closure hashes, process
+report and absent-prefix restoration. These are macOS/development-bucket
+results; Linux, final Pi/Vercel captures, refreshed Python hosts and broader
+failure/load qualification remain open.
 
 ### Captured Python ABI checkpoints
 
@@ -438,13 +474,13 @@ independent of these primitive release priorities.
    its capture directory unavailable, with actual predecessor-data removal.
    Explicit uncertain-outcome, resume/abandon and busy-abandon now have local
    Node source-entry evidence for both committed and uncommitted effects.
-   Captured Python-agent packages now include the current backend and facade
-   for both 3.14.5 ABI variants on macOS arm64, with absent-prefix restoration,
-   cold agent recovery and direct SDK-mode evidence. The local session Node
-   package and nine-case source-entry host include regular-file edit validation
-   but predate guest looping-helper preflight normalization. Other Node agent
-   packages also require a final capture; their results remain historical until
-   recapture. The corresponding Linux CI/target gates remain unverified.
+   Captured Python-agent packages include both 3.14.5 ABI variants on macOS
+   arm64 before the main-branch integration, with absent-prefix restoration,
+   cold agent recovery and direct SDK-mode evidence. The Node session package
+   and nine-case source-entry host have now been refreshed against the PR's
+   integrated sources, including helper preflight normalization. Final
+   Pi/Vercel captures and Python hosts built from the integrated sources remain
+   open. The corresponding Linux CI/target gates remain unverified.
    Finish the remaining agent captures and supported target/ABI matrix. The production-entry
    restore case and qualification-only fault cases retain their distinct scopes.
 3. Complete the maintenance stress/fault matrix. Pending-work cold recovery,
@@ -455,10 +491,13 @@ independent of these primitive release priorities.
    Longer-duration stress, larger cell populations, guest traffic and fault
    injection remain open. Root operation and byte
    admission across rolled-back savepoints has native evidence.
-   A post-rebase local parallel node-test run passed four filesystem cases but
-   self-fenced the reclamation/fairness fixture after its one-second node lease
-   expired. The unchanged fairness case passed in isolation. Preserve this
-   failed parallel observation; isolation alone does not close the stress gate.
+   A post-rebase local run executed independent node fixtures in parallel,
+   contrary to the [qualification guide](../docs/19-testing-qualification.md).
+   Four filesystem cases passed; the reclamation/fairness fixture self-fenced
+   after its one-second node lease expired. The unchanged case passed alone,
+   and all five filesystem node cases passed in the documented serial mode.
+   Preserve the failed invocation as an observation outside that qualification
+   profile; it does not close or replace the larger-population stress gate.
 4. Finish the authority/resource case map and remaining cancellation, closed-domain
    and metadata-bound cases. Native background lifetime, wrong-cell/invocation
    refusal, event-end pin release and pending-transaction retirement now have
