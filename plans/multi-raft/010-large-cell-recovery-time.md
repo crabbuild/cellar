@@ -864,6 +864,18 @@ RustFS observations are retained. These results do not close RT-04: selected
 archive-head publication, live fresh-learner grants, public backend selection
 and node-wide inventory/GC integration still need implementation and proof.
 
+PR #136 merged while this slice was being validated. The root-object change is
+replayed onto updated `main` at `784edc1b`, including its newer RPC changes, and
+tracked separately in PR #140. Combined input
+`942ee9885b7bd24e6b2a1b0edff10c75a96704d2417e7bf4608c815fc589dfcc`
+passes 711 library, 76 archive, 21 rooted, 45 snapshot and 16 extent-store cases,
+plus the explicit RustFS fixture. Both affected crates pass all-feature/all-target
+Clippy with warnings denied. Formatting/layout cover 1,233 Rust files; native
+dependency and documentation guards pass. Source inputs remain unchanged.
+The repeated RustFS objects, all five tested executables and their exact source
+and log bindings are retained. Public root head/seed integration and full-size
+latency/failure qualification remain open.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained
