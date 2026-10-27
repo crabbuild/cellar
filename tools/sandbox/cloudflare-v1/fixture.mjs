@@ -85,6 +85,24 @@ class Workspace extends DurableObject {
           initial.rows === 24,
         "initial terminal identity/geometry",
       );
+      await this.ctx.storage.transaction(async () => {
+        for (const control of [
+          () => terminal.kill(9),
+          () => terminal.resize(100, 30),
+        ]) {
+          let refusal;
+          try {
+            control();
+          } catch (error) {
+            refusal = error;
+          }
+          check(
+            refusal?.code === "ValidationError" &&
+              refusal.outcome === "not_committed",
+            "transactional void control was not refused before effects",
+          );
+        }
+      });
       let invalid = false;
       try {
         terminal.resize(0, 24);
@@ -498,7 +516,29 @@ class Workspace extends DurableObject {
       );
       await reader.cancel();
       reader.releaseLock();
-      return Response.json({ bounded, aborted: true });
+      const signalled = await container.exec(
+        [
+          "node",
+          "-e",
+          "process.stdout.write('signal-ready');setInterval(()=>{},1000)",
+        ],
+        { stderr: "ignore" },
+      );
+      const signalReader = signalled.stdout.getReader();
+      check(
+        new TextDecoder().decode((await signalReader.read()).value) ===
+          "signal-ready",
+        "signal probe did not start",
+      );
+      check(signalled.kill() === undefined, "kill must return void");
+      const signalCode = await signalled.exitCode;
+      check(
+        Number.isInteger(signalCode) && signalCode !== 0,
+        "queued signal did not terminate its process",
+      );
+      while (!(await signalReader.read()).done) {}
+      signalReader.releaseLock();
+      return Response.json({ bounded, aborted: true, signalled: true });
     }
     if (route === "/destroy") {
       await container.destroy();

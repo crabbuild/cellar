@@ -184,6 +184,10 @@ async function processTypes(container: DurableObjectContainer) {
   const output = await process.output();
   const bytes: ArrayBuffer = output.stdout;
   const code: number = await process.exitCode;
+  const signalled: void = process.kill();
+  // @ts-expect-error: kill queues a signal; completion is observed with exitCode
+  const acknowledged: Promise<void> = process.kill(9);
+  void [signalled, acknowledged];
   await container.setInactivityTimeout(30_000);
   const input = new ReadableStream<Uint8Array>();
   const streamed = await container.exec(["tool"], { stdin: input });

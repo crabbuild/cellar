@@ -243,7 +243,7 @@ export async function containerExec(
       : Promise.resolve();
   const abort = () => {
     input?.cancel(options.signal.reason).catch(() => {});
-    if (!exited) kill(9).catch(() => {});
+    if (!exited) signalProcess(9).catch(() => {});
   };
   const exitCode = call("wait", {}, observations.signal).then(
     async (code) => {
@@ -262,10 +262,46 @@ export async function containerExec(
     },
   );
   exitCode.catch(() => {});
+  function signalProcess(signal) {
+    return control(() => call("kill", { signal }));
+  }
+  function reportedControl(operation, input) {
+    let finish, fail;
+    const retained = new Promise((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    // Void controls reserve event and callback ownership before queueing work.
+    // Unlike output(), callers cannot observe a returned control rejection, so
+    // a failed acknowledgement is reported through the owning event's jobs.
+    let ticket;
+    try {
+      context._waitUntil(retained);
+      context._containerControl(retained);
+      ticket = context._containerAdmit(`container.exec.${operation}`, {
+        ...input,
+        id,
+      });
+    } catch (error) {
+      finish();
+      throw error;
+    }
+    control(() => context._call("workers.container.perform", { ticket })).then(
+      finish,
+      (error) => {
+        // Admission can outlive a queue refusal. Discard only the unconsumed
+        // ticket; an accepted provider mutation is never replayed or rolled back.
+        try {
+          context._sync("workers.container.discard", { ticket });
+        } catch {}
+        fail(error);
+      },
+    );
+  }
   function kill(signal = 15) {
     if (!Number.isInteger(signal) || signal < 1 || signal > 64)
       throw new RangeError("Exec signal must be 1..64");
-    return control(() => call("kill", { signal }));
+    reportedControl("kill", { signal });
   }
   function resize(cols, rows) {
     if (!info.is_pty)
@@ -273,22 +309,7 @@ export async function containerExec(
     for (const dimension of [cols, rows])
       if (!Number.isInteger(dimension) || dimension < 1 || dimension > 65535)
         throw new RangeError("Terminal dimensions must be 1..65535");
-    let finish, fail;
-    const retained = new Promise((resolve, reject) => {
-      finish = resolve;
-      fail = reject;
-    });
-    // Void controls reserve event and callback ownership before queueing work.
-    // Unlike output(), callers cannot observe a returned resize rejection, so
-    // a failed acknowledgement is reported through the owning event's jobs.
-    context._waitUntil(retained);
-    try {
-      context._containerControl(retained);
-    } catch (error) {
-      finish();
-      throw error;
-    }
-    control(() => call("resize", { cols, rows })).then(finish, fail);
+    reportedControl("resize", { cols, rows });
   }
   async function closeStdin() {
     if (stdinDone) return;
@@ -393,7 +414,7 @@ export async function containerExec(
         // Preserve the initiating failure over secondary teardown cancellation.
         if (!disposal) inputFailure = { error };
         inputRetirement = (async () => {
-          if (!exited) await kill(9).catch(() => {});
+          if (!exited) await signalProcess(9).catch(() => {});
           await dispose().catch(() => {});
         })();
       }

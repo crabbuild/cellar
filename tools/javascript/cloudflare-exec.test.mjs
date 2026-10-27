@@ -15,6 +15,8 @@ function fixture({
   const calls = [],
     writes = [],
     work = [];
+  const tickets = new Map();
+  let nextTicket = 0;
   const chunks = { read_stdout: [...stdout, []], read_stderr: [...stderr, []] };
   let closed;
   const eof = new Promise((resolve) => {
@@ -40,7 +42,18 @@ function fixture({
       work.push(pending);
       pending.catch(() => {});
     },
-    _sync: () => ({ max_body_bytes: limit }),
+    _sync(name, input) {
+      if (name === "workers.container.discard") {
+        assert.ok(tickets.delete(input.ticket));
+        return null;
+      }
+      return { max_body_bytes: limit };
+    },
+    _containerAdmit(operation, input) {
+      const ticket = String(++nextTicket);
+      tickets.set(ticket, [operation, structuredClone(input)]);
+      return ticket;
+    },
     _decode: (value) => Uint8Array.from(Buffer.from(value, "base64")),
     _encode: (value) => Buffer.from(value).toString("base64"),
     _containerMonitor(make) {
@@ -51,6 +64,11 @@ function fixture({
     _containerControl() {},
     async _call(name, input, _body, signal) {
       calls.push([name, input]);
+      if (name === "workers.container.perform") {
+        const command = tickets.get(input.ticket);
+        assert.ok(tickets.delete(input.ticket));
+        return context._call(...command);
+      }
       if (name === "container.exec") return 1;
       if (name === "container.release") return null;
       assert.equal(input.id, 1);
@@ -230,8 +248,8 @@ test("metadata failure retires the accepted handle without replay or consuming s
   );
 });
 
-test("void resize reserves event and callback ownership before native dispatch", async () => {
-  for (const hook of ["_waitUntil", "_containerControl"]) {
+test("void resize reserves event, callback and native admission before dispatch", async () => {
+  for (const hook of ["_waitUntil", "_containerControl", "_containerAdmit"]) {
     const { context, calls, finish, work } = fixture();
     const terminal = await containerExec(context, ["tool"], { pty: true });
     context[hook] = () => {
@@ -294,10 +312,11 @@ test("an abort after observed process exit never signals a replacement", async (
   );
 });
 
-test("exec kill defaults to SIGTERM while abort remains an explicit SIGKILL", async () => {
+test("void kill queues SIGTERM and exitCode observes completion", async () => {
   const { context, calls } = fixture();
   const process = await containerExec(context, ["tool"], { stdin: "pipe" });
-  await process.kill();
+  assert.equal(process.kill(), undefined);
+  assert.equal(await process.exitCode, 7);
   await process.stdin.close();
   await process.output();
   assert.deepEqual(
@@ -306,6 +325,87 @@ test("exec kill defaults to SIGTERM while abort remains an explicit SIGKILL", as
       .map(([, input]) => input),
     [{ id: 1, signal: 15 }],
   );
+});
+
+test("void kill reserves event, callback and native admission before dispatch", async () => {
+  for (const hook of ["_waitUntil", "_containerControl", "_containerAdmit"]) {
+    const { context, calls, finish, work } = fixture();
+    const process = await containerExec(context, ["tool"], { stdin: "pipe" });
+    context[hook] = () => {
+      throw new Error("signal retention refused");
+    };
+    assert.throws(() => process.kill(9), /signal retention refused/);
+    await Promise.allSettled(work);
+    assert.equal(
+      calls.filter(([name]) => name === "container.exec.kill").length,
+      0,
+    );
+    finish();
+    await process.output();
+  }
+});
+
+test("void control queue refusal discards its ticket without provider dispatch", async () => {
+  const { context, calls, work, finish } = fixture();
+  let refuse = false,
+    discarded = 0;
+  const sync = context._sync.bind(context);
+  context._sync = (name, input) => {
+    if (name === "workers.container.discard") discarded++;
+    return sync(name, input);
+  };
+  const process = await containerExec(
+    context,
+    ["tool"],
+    { stdin: "pipe" },
+    (make) => (refuse ? Promise.reject(new Error("queue full")) : make()),
+  );
+  refuse = true;
+  assert.equal(process.kill(), undefined);
+  await assert.rejects(work.at(-1), /queue full/);
+  assert.equal(discarded, 1);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    0,
+  );
+  refuse = false;
+  finish();
+  await process.output();
+});
+
+test("void kill reports a lost acknowledgement without replay", async () => {
+  const { context, calls, work } = fixture();
+  const call = context._call.bind(context);
+  context._call = async (name, ...args) => {
+    const result = await call(name, ...args);
+    if (name === "container.exec.kill")
+      throw new Error("signal acknowledgement lost");
+    return result;
+  };
+  const process = await containerExec(context, ["tool"], { stdin: "pipe" });
+  assert.equal(process.kill(9), undefined);
+  await assert.rejects(work.at(-1), /signal acknowledgement lost/);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    1,
+  );
+  assert.equal(await process.exitCode, 7);
+  await process.output();
+});
+
+test("invalid signals refuse synchronously before queuing provider effects", async () => {
+  const { context, calls, work, finish } = fixture();
+  const process = await containerExec(context, ["tool"], { stdin: "pipe" });
+  const retained = work.length;
+  for (const signal of [0, 65, -1, 1.5, "9", NaN])
+    assert.throws(() => process.kill(signal), RangeError);
+  assert.equal(work.length, retained);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    0,
+  );
+  finish();
+  await process.output();
 });
 
 test("argv and stream policy are captured before allocation acknowledgement", async () => {

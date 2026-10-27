@@ -2127,3 +2127,46 @@ connection loss. Fresh SDK matrix evidence must qualify the fix independently.
 Cold provider recovery, the intermittent 250 ms module call, the earlier
 two-second Node heartbeat and full failure qualification remain open. No test
 deadline, lease, handler budget or assertion is widened or removed.
+
+
+## Void process controls with native admission
+
+The Node Workers facade now matches the upstream void `kill(signal?)` contract.
+It queues SIGTERM by default; callers observe process completion through
+`exitCode`. Both kill and resize first reserve the original event/callback and
+obtain a bounded native admission ticket synchronously. The native synchronous
+transaction boundary therefore refuses them before queued work can leave that
+transaction. The existing provider capability, invocation and output-proof
+checks also govern ticket execution.
+
+Tickets are one-shot and session-local. A queue refusal discards its unconsumed
+ticket; a failed provider acknowledgement remains reported event work and is
+never replayed. Internal abort/source-failure cleanup keeps its acknowledged
+private signal path so the initiating failure still wins. Portable/native
+Rust, Python and JavaScript process kill operations retain their existing
+acknowledged contracts; this change concerns the optional Workers facade.
+
+| Current campaign | Result |
+| --- | --- |
+| Process tooling | All 30 process checks pass: void/default signal, exit observation, event/callback/native admission refusal, invalid signals, lost acknowledgement without replay and discarded queue-refusal tickets |
+| JavaScript / TypeScript | All 128 tooling checks pass; the explicit type fixture accepts void kill and rejects an acknowledgement-promise assignment. All 104 JS/TS sources pass formatting |
+| Shared provider | All 25 library checks and the provider authority/failure integration pass; queue admission requires the selected operation to be advertised |
+| Runtime / guests | All 83 Node/V8 library checks, both native-container integrations and all five Worker module tests pass |
+| Actual pinned image | Complete campaign passes in 38.15 seconds: transaction-bound kill/resize refuse with `ValidationError` / `not_committed`, the terminal still resizes exactly once, and void default kill terminates a ready Node process with observed nonzero exit |
+| Preserved assertions | Original 134 stdin allocations, exact 2 MiB + 17-byte hashes, PID/kernel geometry, source/callback/transaction refusals, fault/destroy routes, explicit allocation/release accounting and joined native/Node shutdown remain required |
+| Native qualification | All 95 native-node and five fleet cases pass, as recorded in the preceding cancellation campaign; six isolated cold-recovery controls also pass |
+| Quality / environment | Strict core/container/guest/Node/V8 Clippy, Rust format/layout for 1,218 sources, docs/816 references, whitespace and the 466-package native engine guard pass; the pinned helper/base image and all resource/time budgets remain unchanged |
+
+This is 217 Rust tests across the native, fleet, provider, runtime, guest and
+image campaigns, plus the separately recorded repeated controls. The image
+retains its 120-second native handler, 30-second JavaScript budget, 2,048
+operations and two-second heartbeat. The private two-CPU/four-GiB Colima
+configuration is unchanged; qualification leaves no owned containers and stops
+the VM, preserving the unrelated stopped container and Docker's default context.
+
+Fresh Linux CI must qualify these changes independently. The prior terminal
+head's Python examples and typed-RPC workflows pass; its JavaScript fleet
+failure and still-running SDK matrix do not establish a passing release.
+Cold recovery, the intermittent first-call/heartbeat failures, broader terminal
+faults, provider hard fencing and the remaining SP-02–SP-10 requirements stay
+partial or outstanding. Live E2B/Vercel configuration remains deferred.

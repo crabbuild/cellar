@@ -43,7 +43,7 @@ await container.setInactivityTimeout(60_000);
 | stdin | Omitted sends EOF; `"pipe"` exposes a byte writer; `ReadableStream<Uint8Array>` pumps automatically in native body-sized chunks |
 | `output()` | Collect once, with a combined native body-size limit; overflow fails without successful truncation |
 | `exitCode` | Nonzero codes resolve normally |
-| `kill(signal)` | Defaults to SIGTERM (15); promise for native acknowledgement differs from Cloudflare's void signature |
+| `kill(signal)` | Returns void and queues SIGTERM (15) by default. Reserves the original event/callback before effects; invalid signals refuse synchronously and failed acknowledgements remain event failures without replay. Observe completion through `exitCode` |
 | Signal | Already aborted refuses allocation; live abort requests SIGKILL; detach listener after exit |
 | Controls | Serialize per event; ordinary and cleanup queues each admit at most 64 pending controls |
 | Cleanup | Completed streams/exit release native handles; cancellation joins native observation cleanup |
@@ -151,6 +151,7 @@ cargo test --locked -p cellar-javascript --features node \
 | Binary stdout/stderr, nonzero exit and missing executable | Native Linux exec and bounded output; shell-backed missing command exits 127 |
 | Terminal identity / initial geometry | Compare the facade PID with the actual Node process PID, confirm tty input/output and read 80×24 from kernel `stty` |
 | Resize / terminal channels | Resize to 132×40 before ordered stdin, inspect the new kernel geometry, require combined stderr/CRLF, and refuse malformed/foreign controls before provider dispatch |
+| Void controls / transactions | Kill returns void and terminates a ready process through default SIGTERM; observe exit separately. Transaction-bound kill/resize refuse synchronously with proven non-commit before effects |
 | Default terminal retirement | A fast terminal command with untouched default stdin still explicitly releases its native handle; no event-drop fallback |
 | Source stdin, 2 MiB + 17 bytes | Exact length/SHA-256 through native chunked writes; callback returns before process exit |
 | 130 sequential source processes | Byte-for-byte echo, unlocked source readers and reusable retention/handle capacity; existing limits stay unchanged |

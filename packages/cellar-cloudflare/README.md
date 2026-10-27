@@ -13,7 +13,7 @@ under development in the [delivery plan](../../plans/sandbox-provider-compatibil
 The separate [Sandbox 1.0.3 process/Files profile](../../tools/sandbox/cloudflare-v1/README.md)
 uses native argv processes and the matching published helper. It adds Node
 stdin/stdout/stderr streams, automatic byte-source stdin, bounded `output()`,
-observed `exitCode`, acknowledged `kill()` and inactivity timeout control.
+observed `exitCode`, queued void `kill()` and inactivity timeout control.
 Native terminal allocation adds verified PID metadata, `isPty`, combined terminal
 streams and void `resize()` controls retained by the original event/callback. The
 0.12.9 SDK/image profile keeps its

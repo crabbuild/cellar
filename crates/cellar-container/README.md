@@ -223,6 +223,7 @@ try {
 | Portable Rust | `Operation::ExecInfo` and `Operation::ResizeExec` use the original event's resource handle |
 | PID | Verified inside the container by the shell handshake; `None`/`null` when unavailable, never Docker's daemon-host PID |
 | Resize | Original handle and run checks, required durability/output proof, then an acknowledged engine request; no retry after an uncertain reply |
+| Workers void controls | `kill` and `resize` reserve one-shot native tickets synchronously, before queued execution; transaction/foreign-callback refusal precedes effects and failed acknowledgements remain event failures |
 | Capability refusal | E2B/Vercel declare `exec_pty: false`; terminal requests refuse before provider dispatch |
 | Output failure | Truncated or malformed framed output is an error; one large frame is read in bounded 64 KiB chunks |
 

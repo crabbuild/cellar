@@ -493,7 +493,7 @@ impl Session {
         }
     }
 
-    /// Accept immutable lifecycle inputs without starting provider work.
+    /// Accept immutable void-control inputs without starting provider work.
     /// The returned event-owned ticket can be consumed exactly once.
     pub fn admit_queued(
         &self,
@@ -510,9 +510,17 @@ impl Session {
             ensure!(
                 matches!(
                     operation,
-                    Operation::Start | Operation::Signal | Operation::Destroy
+                    Operation::Start
+                        | Operation::Signal
+                        | Operation::Destroy
+                        | Operation::KillExec
+                        | Operation::ResizeExec
                 ),
                 "not a queued container control"
+            );
+            ensure!(
+                self.provider.operations().contains(&operation),
+                "unsupported queued provider operation"
             );
             values::check_depth(&input)?;
             ensure!(input.is_object(), "container input must be an object");
