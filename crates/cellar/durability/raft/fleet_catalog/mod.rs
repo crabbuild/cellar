@@ -38,8 +38,9 @@ pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsol
 pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
-    FleetRestartPendingWork, FleetRestartRequest, FleetRestartSettlementBlocker,
-    FleetRestartSettlementProgress,
+    FleetRestartHistoryProgress, FleetRestartPendingWork, FleetRestartRequest,
+    FleetRestartRuntimeCandidate, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
+    FleetRestartVerification,
 };
 pub use namespaces::FleetInventory;
 pub use nodes::{

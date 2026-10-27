@@ -518,9 +518,49 @@ Committed retries reconcile before requiring live services and cannot alter a
 later operation. Cancellation resolves its immutable gate parent by ID and digest
 so each catalog value stays within 4 KiB. Gate records cannot authorize a boot
 or physical shutdown.
-Incoming-action settlement, complete fresh both-survivor proof, owned observed
-handoff, guarded stop/rejoin and maintenance operator surfaces remain separate
-unfinished phases. See the [maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md).
+Owned rooted settlement is described above. Runtime inspection, observed
+handoff, guarded stop/rejoin and maintenance operator surfaces have distinct
+proof boundaries. See the [maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md).
+
+### Runtime inspection candidate
+
+`prepare_restart_verification` requires the exact current gate, complete declared
+namespace inventory and no unresolved target birth, movement or resource debit.
+It owns physical quiescence before capturing the target's complete engine
+inventory, including unattached and retired histories. Initializers, registration
+work, seed workers and changed boots refuse preparation. The compact physical
+wire now includes presence in any durable voter/learner configuration; strict
+decoding rejects old shorter rows. Byte-aligned scalars preserve the existing
+1 MiB response-memory reservation at 4,096 histories.
+
+The returned `FleetRestartVerification` walks one rooted history per bounded
+turn. Settled resource journals locate current voters rather than treating
+genesis as current placement. For each voting obligation, `verify_next` owns
+safe-ReadIndex and durable publication probes on the target and **both** other
+current voters. Exact boots, current enrollment, RF3 configuration, settled
+permit, birth/schema, term/leader agreement and failure domains must match.
+Both survivor publications must cover the fixed target cut; a second survivor
+being unavailable blocks even when the remaining pair can serve writes. The
+whole turn's observations must fit the existing five-second freshness envelope.
+
+Retired copies remain physical occupancy, never votes or release credit.
+Unrelated histories require no quorum probes. Unknown slots, unsettled roles,
+cancelled histories with physical state and missing rightful genesis refuse
+completion. The latter needs materialization through a subsequent owned runtime
+step, not an absence default. Failed verification leaves the same history
+pending. Policy, Nodes, Histories, Admissions, the exact gate and active-settlement
+pointer are revalidated around every catalog turn; relevant drift invalidates
+the walk. Unrelated Operations journal progress may proceed.
+
+`finish` requires exact inventory exhaustion and coverage of every physical
+slot. It replays physical quiescence and checks a second complete physical cut
+before creating a bounded digest-addressed receipt index. A synced cancellation
+fence can defeat that replay even when its root CAS did not commit. The opaque
+candidate is historical evidence only: saved bytes cannot reconstruct runtime
+proof, and it grants no RestartReady, leadership handoff, stop, fresh boot,
+capacity or slot release. Leader-local matched progress, observed transfer,
+final readiness renewal and the remaining stop/return/resume phases remain
+unfinished. These explicit APIs add no work to business write acknowledgement.
 
 ## Terminal removal and recovery
 

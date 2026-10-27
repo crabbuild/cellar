@@ -43,7 +43,7 @@ impl FleetCatalog {
 
     // Called within an owned catalog turn. Return only the configuration pinned
     // by immutable birth/permit/settlement journals, never a current-health lease.
-    pub(super) async fn settled_group_voters(
+    pub(in crate::raft::fleet_catalog) async fn settled_group_voters(
         &self,
         snapshot: &FleetSnapshot,
         history: &super::super::histories::FleetHistory,

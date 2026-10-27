@@ -6,6 +6,7 @@ mod cancellation;
 mod gate;
 mod gate_cancel;
 mod records;
+mod runtime;
 mod settle;
 mod settlement;
 use super::evacuation::CanonicalRequest;
@@ -16,6 +17,9 @@ use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
+pub use runtime::{
+    FleetRestartHistoryProgress, FleetRestartRuntimeCandidate, FleetRestartVerification,
+};
 pub use settle::{
     FleetRestartBirthAction, FleetRestartBirthResolution, FleetRestartSettlementBlocker,
     FleetRestartSettlementProgress,

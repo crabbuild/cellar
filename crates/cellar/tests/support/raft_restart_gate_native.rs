@@ -3,6 +3,8 @@
 //! Real reversible public/SDK admission; no readiness or shutdown from a gate.
 use super::*;
 
+#[path = "raft_restart_runtime_native.rs"]
+mod runtime;
 #[path = "raft_restart_settler_native.rs"]
 mod settler;
 use cellar::application::consensus::verification::{

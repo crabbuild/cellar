@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 const MAX_GROUPS: usize = 4096;
 const PREFIX: usize = 45;
-const ENTRY_BYTES: usize = 80;
+const ENTRY_BYTES: usize = 81;
 
 pub(crate) type PhysicalNodeObservation = (RaftHostObservation, RaftPhysicalInventory);
 
@@ -28,15 +28,24 @@ mod tests;
 pub struct RaftPhysicalHistory {
     scope: [u8; 32],
     birth: [u8; 32],
-    member: MemberId,
-    completed_sequence: u64,
+    // Byte-aligned scalars keep 4,096 decoded rows inside the existing response
+    // reservation. Construction validates member; no untrusted raw constructor.
+    member: [u8; 8],
+    completed_sequence: [u8; 8],
+    in_configuration: bool,
 }
 
 impl RaftPhysicalHistory {
+    /// This local member is present in the durable incoming/outgoing voter or
+    /// learner sets. False is retained occupancy, never physical release proof.
+    pub fn in_configuration(&self) -> bool {
+        self.in_configuration
+    }
+
     /// Locally durable Complete phase for this birth/history. A fresh quorum
     /// must independently bind the exact permit at this consumed sequence.
     pub fn completed_sequence(&self) -> u64 {
-        self.completed_sequence
+        u64::from_be_bytes(self.completed_sequence)
     }
 
     pub fn scope_digest(&self) -> [u8; 32] {
@@ -48,7 +57,7 @@ impl RaftPhysicalHistory {
     }
 
     pub fn member(&self) -> MemberId {
-        self.member
+        MemberId::new(u64::from_be_bytes(self.member)).expect("validated physical member")
     }
 }
 
@@ -81,8 +90,9 @@ impl RaftPhysicalInventory {
         for history in &self.histories {
             digest.update(history.scope);
             digest.update(history.birth);
-            digest.update(history.member.get().to_be_bytes());
-            digest.update(history.completed_sequence.to_be_bytes());
+            digest.update(history.member);
+            digest.update(history.completed_sequence);
+            digest.update([u8::from(history.in_configuration)]);
         }
         digest.finalize().into()
     }
@@ -104,7 +114,10 @@ impl RaftPhysicalInventory {
         super::node_inspection_wire::validate(view)?;
         if self.histories.len() > MAX_GROUPS
             || self.histories.iter().any(|h| {
-                h.scope == [0; 32] || h.birth == [0; 32] || h.completed_sequence >= u64::MAX - 2
+                h.scope == [0; 32]
+                    || h.birth == [0; 32]
+                    || MemberId::new(u64::from_be_bytes(h.member)).is_err()
+                    || h.completed_sequence() >= u64::MAX - 2
             })
             || self.histories.windows(2).any(|w| w[0].scope >= w[1].scope)
             || self.initializing == Some([0; 32])
@@ -146,8 +159,8 @@ pub(crate) fn capture(
         if scope != &group.identity().scope || group.birth_digest == [0; 32] {
             return Err(LogError::WrongIdentity);
         }
-        let completed_sequence = group
-            .read()?
+        let cache = group.read()?;
+        let completed_sequence = cache
             .membership
             .fleet_status()
             .filter(|status| {
@@ -161,8 +174,9 @@ pub(crate) fn capture(
         histories.push(RaftPhysicalHistory {
             scope: scope_digest(scope)?,
             birth: group.birth_digest,
-            member: group.identity().member,
-            completed_sequence,
+            member: group.identity().member.get().to_be_bytes(),
+            completed_sequence: completed_sequence.to_be_bytes(),
+            in_configuration: contains_member(&cache.conf_state, group.identity().member),
         });
     }
     histories.sort_by_key(|h| h.scope);
@@ -175,6 +189,16 @@ pub(crate) fn capture(
         histories,
         initializing: pending.map(scope_digest).transpose()?,
     })
+}
+
+fn contains_member(configuration: &::raft::prelude::ConfState, member: MemberId) -> bool {
+    configuration
+        .voters
+        .iter()
+        .chain(&configuration.voters_outgoing)
+        .chain(&configuration.learners)
+        .chain(&configuration.learners_next)
+        .any(|id| *id == member.get())
 }
 
 pub(crate) fn encode(
@@ -194,8 +218,9 @@ pub(crate) fn encode(
     for history in &inventory.histories {
         bytes.extend_from_slice(&history.scope);
         bytes.extend_from_slice(&history.birth);
-        bytes.extend_from_slice(&history.member.get().to_be_bytes());
-        bytes.extend_from_slice(&history.completed_sequence.to_be_bytes());
+        bytes.extend_from_slice(&history.member);
+        bytes.extend_from_slice(&history.completed_sequence);
+        bytes.push(u8::from(history.in_configuration));
     }
     Ok(bytes)
 }
@@ -237,12 +262,17 @@ pub(crate) fn decode(
         member.copy_from_slice(&row[64..72]);
         let mut sequence = [0; 8];
         sequence.copy_from_slice(&row[72..80]);
+        MemberId::new(u64::from_be_bytes(member)).map_err(|_| TransportError::Identity)?;
         histories.push(RaftPhysicalHistory {
             scope,
             birth,
-            member: MemberId::new(u64::from_be_bytes(member))
-                .map_err(|_| TransportError::Identity)?,
-            completed_sequence: u64::from_be_bytes(sequence),
+            member,
+            completed_sequence: sequence,
+            in_configuration: match row[80] {
+                0 => false,
+                1 => true,
+                _ => return Err(TransportError::Protocol),
+            },
         });
     }
     let inventory = RaftPhysicalInventory {

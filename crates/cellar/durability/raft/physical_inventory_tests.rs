@@ -26,8 +26,9 @@ fn occupied(count: usize) -> (RaftHostObservation, RaftPhysicalInventory) {
             RaftPhysicalHistory {
                 scope: digest,
                 birth: [8; 32],
-                member: MemberId::new(i as u64).unwrap(),
-                completed_sequence: i as u64,
+                member: (i as u64).to_be_bytes(),
+                completed_sequence: (i as u64).to_be_bytes(),
+                in_configuration: true,
             }
         })
         .collect();
@@ -89,7 +90,7 @@ fn physical_inventory_refuses_truncation_duplicates_and_invalid_counts() {
     assert!(encode(&node, &reverse).is_err());
     let mut zero = original.clone();
     let n = zero.len();
-    zero[n - 16..n - 8].fill(0);
+    zero[n - 17..n - 9].fill(0);
     assert!(decode(&zero).is_err());
     assert!(decode(&vec![0; MAX_BODY + 1]).is_err());
     let mut missing = node;
@@ -125,8 +126,9 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
         histories: vec![RaftPhysicalHistory {
             scope: digest,
             birth: [8; 32],
-            member: MemberId::new(3).unwrap(),
-            completed_sequence: 0,
+            member: 3u64.to_be_bytes(),
+            completed_sequence: 0u64.to_be_bytes(),
+            in_configuration: false,
         }],
         initializing: None,
     };
@@ -143,4 +145,41 @@ fn physical_inventory_scope_matching_binds_the_full_history() {
     let mut changed = first;
     changed.cell.clear();
     assert!(inventory.history(&changed).is_err());
+}
+
+#[test]
+fn physical_inventory_configuration_flag_is_strict_and_digest_bound() {
+    let (node, mut inventory) = occupied(1);
+    let active = inventory.digest();
+    inventory.histories[0].in_configuration = false;
+    assert_ne!(active, inventory.digest());
+    let mut bytes = encode(&node, &inventory).unwrap();
+    assert!(!decode(&bytes).unwrap().1.histories()[0].in_configuration());
+    let last = bytes.len() - 1;
+    bytes[last] = 2;
+    assert!(decode(&bytes).is_err());
+    // The internal format marker remains 1; old shorter rows cannot silently
+    // default the new role observation to false during a mixed deployment.
+    bytes.pop();
+    assert!(decode(&bytes).is_err());
+}
+
+#[test]
+fn physical_inventory_role_includes_every_joint_configuration_set() {
+    let member = MemberId::new(4).unwrap();
+    for field in 0..4 {
+        let mut configuration = ::raft::prelude::ConfState::default();
+        match field {
+            0 => configuration.voters.push(4),
+            1 => configuration.voters_outgoing.push(4),
+            2 => configuration.learners.push(4),
+            _ => configuration.learners_next.push(4),
+        }
+        assert!(contains_member(&configuration, member));
+        assert!(!contains_member(&configuration, MemberId::new(5).unwrap()));
+    }
+    assert!(!contains_member(
+        &::raft::prelude::ConfState::default(),
+        member
+    ));
 }

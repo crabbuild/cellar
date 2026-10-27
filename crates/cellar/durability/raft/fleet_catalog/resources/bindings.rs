@@ -132,7 +132,7 @@ impl FleetCatalog {
     /// Historical binding provenance only. The receipt must independently prove
     /// a Complete or retained Aborted target. Empty/fenced, orphan, different
     /// engine and unconfirmed records cannot legitimize physical occupancy.
-    pub(super) async fn retained_resource_binding(
+    pub(in crate::raft::fleet_catalog) async fn retained_resource_binding(
         &self,
         snapshot: &FleetSnapshot,
         group: &str,

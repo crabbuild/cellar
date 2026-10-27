@@ -217,7 +217,7 @@ impl Basis {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Publication {
+pub(in crate::raft::fleet_catalog) struct Publication {
     pub(super) applied: Position,
     pub(super) revision: u64,
     #[serde(deserialize_with = "nullable")]

@@ -58,15 +58,16 @@ impl FleetRestartGateAdmission {
     /// Request data only. The receiver checks current root, exact boot and its
     /// serialized lifecycle guard. This is never a readiness or stop proof.
     pub fn quiesce_request(&self) -> Result<FleetStopRequest> {
-        FleetStopRequest::new(
-            self.record.selector(self.record.child)?,
-            FleetStopAction::Quiesce,
-        )
-        .map_err(|_| FleetCatalogError::Corrupt("maintenance quiesce request"))
+        self.record.quiesce_request()
     }
 }
 
 impl Gate {
+    pub(super) fn quiesce_request(&self) -> Result<FleetStopRequest> {
+        FleetStopRequest::new(self.selector(self.child)?, FleetStopAction::Quiesce)
+            .map_err(|_| FleetCatalogError::Corrupt("maintenance quiesce request"))
+    }
+
     pub fn digest(&self) -> Result<[u8; 32]> {
         Ok(hash(&encode(KIND, self, LIMIT)?))
     }

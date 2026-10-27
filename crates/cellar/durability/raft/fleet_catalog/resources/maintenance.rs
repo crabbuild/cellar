@@ -2,8 +2,50 @@
 
 //! Rooted continuation obligations; never infer absence from genesis placement.
 use super::*;
+use crate::raft::member_state::FleetMembershipPermit;
+use cellar_logic::consensus::MemberId;
+use std::collections::BTreeMap;
 
 impl FleetCatalog {
+    // Locate only settled, current voting obligations. An unrelated active
+    // movement must not stall a restart, but a touching movement cannot be
+    // mistaken for retained or absent occupancy.
+    pub(in crate::raft::fleet_catalog) async fn restart_voters(
+        &self,
+        snapshot: &FleetSnapshot,
+        history: &FleetHistory,
+        target: NodeId,
+    ) -> Result<Option<(BTreeMap<NodeId, MemberId>, Option<FleetMembershipPermit>)>> {
+        let key = history
+            .binding()
+            .key()
+            .map_err(|_| FleetCatalogError::Corrupt("restart group"))?;
+        if let Some(bytes) = self
+            .inner
+            .lookup(snapshot.head.tables[FleetTable::Admissions.slot()], &key)
+            .await?
+        {
+            let permit = FleetMembershipPermit::decode(&bytes)
+                .map_err(|_| FleetCatalogError::Corrupt("restart permit"))?;
+            let row = self.admitted_resource(snapshot, permit.id()).await?;
+            if row.permit.as_ref() != Some(&permit) || permit.binding() != history.binding() {
+                return Err(FleetCatalogError::Conflict);
+            }
+            if self.resource_settlement(snapshot, &row).await?.is_none() {
+                let owners = row
+                    .seed_owners
+                    .as_ref()
+                    .ok_or(FleetCatalogError::InventoryIncomplete)?;
+                if row.node == target || owners.iter().any(|owner| owner.node == target.bytes()) {
+                    return Err(FleetCatalogError::InventoryIncomplete);
+                }
+                return Ok(None);
+            }
+        }
+        let (voters, permit) = self.settled_group_voters(snapshot, history).await?;
+        Ok(voters.contains_key(&target).then_some((voters, permit)))
+    }
+
     // Called inside the maintenance catalog turn after full inventory checking.
     pub(in crate::raft::fleet_catalog) async fn restart_pending_work_inner(
         &self,

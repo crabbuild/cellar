@@ -4,7 +4,7 @@
 //! Stored descriptors grant no completion or disruption-release authority.
 mod cancellation;
 mod fencing;
-mod receipts;
+pub(super) mod receipts;
 mod survivors;
 mod terminal;
 pub use cancellation::{

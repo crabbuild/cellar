@@ -8,6 +8,8 @@ use cellar::application::consensus::verification::FleetSnapshot;
 mod aborted;
 #[path = "raft_movement_fenced.rs"]
 mod fenced;
+#[path = "raft_restart_retained_runtime.rs"]
+mod restart_runtime;
 
 struct Replaced {
     cells: Vec<RaftCellHandle>,
