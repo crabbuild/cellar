@@ -4,6 +4,7 @@
 use super::super::histories::validate_request;
 use super::super::nodes::{NodeRecord, NODE_KIND};
 use super::*;
+use crate::raft::inspection::InspectionError;
 use serde::Deserialize;
 
 const KIND: u8 = 63;
@@ -148,6 +149,34 @@ struct Completed {
     record: Record,
     applied: u64,
     observed: u64,
+}
+
+/// Waiting is produced only by read-only survivor inspection before the Root
+/// mutation. An error from the mutation or its confirmation is never waiting.
+pub(crate) enum FleetRemovalAttempt<T> {
+    Complete(T),
+    Waiting(InspectionError),
+}
+
+impl<T> FleetRemovalAttempt<T> {
+    fn into_result(self) -> Result<T> {
+        match self {
+            Self::Complete(value) => Ok(value),
+            Self::Waiting(error) => Err(FleetCatalogError::Observation(error)),
+        }
+    }
+
+    fn preflight_failure(error: FleetCatalogError) -> Result<Self> {
+        match error {
+            FleetCatalogError::Observation(
+                error @ (InspectionError::Unavailable
+                | InspectionError::Unreachable
+                | InspectionError::Overloaded
+                | InspectionError::StalePeer),
+            ) => Ok(Self::Waiting(error)),
+            error => Err(error),
+        }
+    }
 }
 
 fn key(operation: [u8; 16]) -> String {
@@ -322,7 +351,20 @@ impl FleetCatalog {
         namespaces: &[NamespaceCatalog],
         timeout: Duration,
     ) -> Result<FleetRemovalAdmission> {
-        let completed = self
+        self.complete_evacuation_attempt(snapshot, request, verification, namespaces, timeout)
+            .await?
+            .into_result()
+    }
+
+    pub(crate) async fn complete_evacuation_attempt(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRemovalRequest,
+        verification: Option<&mut FleetEvacuationVerification>,
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetRemovalAttempt<FleetRemovalAdmission>> {
+        match self
             .complete_removal_inner(
                 snapshot,
                 &request.identity,
@@ -333,12 +375,17 @@ impl FleetCatalog {
                 namespaces,
                 timeout,
             )
-            .await?;
-        Ok(FleetRemovalAdmission {
-            record: completed.record,
-            applied: completed.applied,
-            observed: completed.observed,
-        })
+            .await?
+        {
+            FleetRemovalAttempt::Complete(completed) => {
+                Ok(FleetRemovalAttempt::Complete(FleetRemovalAdmission {
+                    record: completed.record,
+                    applied: completed.applied,
+                    observed: completed.observed,
+                }))
+            }
+            FleetRemovalAttempt::Waiting(error) => Ok(FleetRemovalAttempt::Waiting(error)),
+        }
     }
 
     /// Remove a permanently isolated exact boot after complete current
@@ -364,7 +411,8 @@ impl FleetCatalog {
                 namespaces,
                 timeout,
             )
-            .await?;
+            .await?
+            .into_result()?;
         Ok(FleetIsolatedRemovalAdmission {
             record: completed.record,
             applied: completed.applied,
@@ -380,7 +428,7 @@ impl FleetCatalog {
         verification: Option<&mut FleetEvacuationVerification>,
         namespaces: &[NamespaceCatalog],
         timeout: Duration,
-    ) -> Result<Completed> {
+    ) -> Result<FleetRemovalAttempt<Completed>> {
         self.check_snapshot(snapshot)?;
         validate_request(request)?;
         if namespaces.len() > namespaces::MAX_NAMESPACES {
@@ -431,7 +479,7 @@ impl FleetCatalog {
             .await?
         {
             deadline.remaining()?;
-            return Ok(admission);
+            return Ok(FleetRemovalAttempt::Complete(admission));
         }
         let verification = verification.ok_or(FleetCatalogError::InventoryIncomplete)?;
         if !Arc::ptr_eq(&self.inner, &verification.catalog.inner)
@@ -443,8 +491,16 @@ impl FleetCatalog {
         let candidate = verification
             .publish_candidate(deadline.remaining()?)
             .await?;
-        verification.oldest_sample =
-            survivors::refresh_terminal(verification, &candidate.candidate, &deadline).await?;
+        verification.oldest_sample = match survivors::refresh_terminal(
+            verification,
+            &candidate.candidate,
+            &deadline,
+        )
+        .await
+        {
+            Ok(sampled) => sampled,
+            Err(error) => return FleetRemovalAttempt::preflight_failure(error),
+        };
         // Archive work can outlast a health sample. Reprobe every survivor
         // process immediately before the terminal turn, including a controller
         // that also owns one of the surviving replicas.
@@ -460,11 +516,17 @@ impl FleetCatalog {
                 let view = if *node == local.node.identity.node {
                     local.clone()
                 } else {
-                    observer
+                    match observer
                         .inspect_peer_node(*node, snapshot.revision(), deadline.remaining()?)
                         .await
-                        .map_err(FleetCatalogError::Observation)?
-                        .view
+                    {
+                        Ok(observation) => observation.view,
+                        Err(error) => {
+                            return FleetRemovalAttempt::preflight_failure(
+                                FleetCatalogError::Observation(error),
+                            );
+                        }
+                    }
                 };
                 let current = view
                     .current_enrollment
@@ -574,5 +636,6 @@ impl FleetCatalog {
             Ok(record.admission(applied, committed.snapshot.revision()))
         })
         .await
+        .map(FleetRemovalAttempt::Complete)
     }
 }

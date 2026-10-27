@@ -3,15 +3,20 @@
 //! Human-controlled departure, bounded proof walks and exact joined stop.
 mod records;
 pub(super) mod verification;
+mod waiting;
 use super::*;
 use crate::raft::archive::{ArchiveLimits, ArchiveVerifier};
 use crate::raft::fleet_catalog::{
-    FleetFinalizationAdmission, FleetRemovalAdmission, FleetRemovalRequest, FleetSnapshot,
+    FleetFinalizationAdmission, FleetRemovalAdmission, FleetRemovalAttempt, FleetRemovalRequest,
+    FleetSnapshot,
 };
 use cellar_logic::consensus::ProcessGeneration;
 use cellar_ltx::LtxHost;
 pub use records::*;
-use verification::{Key, Session, Verification};
+use verification::{Advance, Key, Session, Verification};
+pub use waiting::{
+    RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
+};
 
 type Phase = RaftFleetEvacuationPhase;
 
@@ -50,6 +55,7 @@ fn progress(
         stop_id: None,
         fence_id: None,
         terminal: phase == Phase::Removed,
+        blocker: None,
     }
 }
 
@@ -274,11 +280,18 @@ impl RaftFleetControl {
                 walk,
                 checked: 0,
                 total,
+                waiting: None,
             });
         }
         let session = lease.session.as_mut().ok_or(FleetCatalogError::Closed)?;
-        if runtime.advance(self, session, observer, &turn).await? {
-            return Ok(progress(
+        let advance = runtime.advance(self, session, observer, &turn).await?;
+        if advance != Advance::Exhausted {
+            if advance == Advance::Waiting {
+                let current = self.catalog.read(turn.remaining()?).await?;
+                self.check_lifecycle_cut(&current, &request)?;
+                turn.remaining()?;
+            }
+            let mut value = progress(
                 self,
                 node,
                 &request,
@@ -286,7 +299,9 @@ impl RaftFleetControl {
                 session.checked,
                 session.total,
                 root.revision(),
-            ));
+            );
+            value.blocker = session.waiting.clone();
+            return Ok(value);
         }
         let candidate = session.walk.publish_candidate(turn.remaining()?).await?;
         let receipt = candidate
@@ -501,10 +516,17 @@ impl RaftFleetControl {
                 walk,
                 checked: 0,
                 total,
+                waiting: None,
             });
         }
         let session = lease.session.as_mut().ok_or(FleetCatalogError::Closed)?;
-        if runtime.advance(self, session, observer, &turn).await? {
+        let advance = runtime.advance(self, session, observer, &turn).await?;
+        if advance != Advance::Exhausted {
+            if advance == Advance::Waiting {
+                let current = self.catalog.read(turn.remaining()?).await?;
+                self.check_lifecycle_cut(&current, &request.operation)?;
+                turn.remaining()?;
+            }
             let mut value = progress(
                 self,
                 node,
@@ -515,11 +537,12 @@ impl RaftFleetControl {
                 root.revision(),
             );
             value.stop_id = Some(request.stop_id.clone());
+            value.blocker = session.waiting.clone();
             return Ok(value);
         }
-        let receipt = self
+        let attempt = self
             .catalog
-            .complete_evacuation(
+            .complete_evacuation_attempt(
                 &root,
                 &intent,
                 Some(&mut session.walk),
@@ -527,6 +550,34 @@ impl RaftFleetControl {
                 turn.remaining()?,
             )
             .await?;
+        let receipt = match attempt {
+            FleetRemovalAttempt::Complete(receipt) => receipt,
+            FleetRemovalAttempt::Waiting(error) => {
+                let error = FleetCatalogError::Observation(error);
+                let blocker = RaftFleetVerificationBlocker::observation(
+                    &error,
+                    RaftFleetVerificationStage::TerminalQuorum,
+                    None,
+                )
+                .ok_or(error)?;
+                let current = self.catalog.read(turn.remaining()?).await?;
+                self.check_lifecycle_cut(&current, &request.operation)?;
+                turn.remaining()?;
+                session.waiting = Some(blocker);
+                let mut value = progress(
+                    self,
+                    node,
+                    &request.operation,
+                    Phase::VerifyingRemoval,
+                    session.checked,
+                    session.total,
+                    root.revision(),
+                );
+                value.stop_id = Some(request.stop_id.clone());
+                value.blocker = session.waiting.clone();
+                return Ok(value);
+            }
+        };
         let count = session.checked;
         lease.session = None;
         Ok(removed(self, node, &request.operation, &receipt, count))
@@ -698,6 +749,12 @@ impl RaftFleetControl {
             removal,
             cancellation,
             pending_movements,
+            verification: self
+                .removal_verification
+                .as_ref()
+                .map(|v| v.snapshot(self, admission.node(), op.bytes(), root.revision()))
+                .transpose()?
+                .flatten(),
         })
     }
 }

@@ -11,6 +11,7 @@ pub use cancellation::{
     FleetEvacuationCancelFence, FleetEvacuationCancelRequest, FleetEvacuationCancellation,
 };
 pub use fencing::FleetFinalizationAdmission;
+pub(crate) use terminal::FleetRemovalAttempt;
 pub use terminal::{
     FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetRemovalAdmission,
     FleetRemovalRequest,

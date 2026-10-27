@@ -203,7 +203,8 @@ pub mod fleet_operations {
         RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
         RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
         RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
-        RaftFleetRegisterNode, RaftFleetStatus,
+        RaftFleetRegisterNode, RaftFleetStatus, RaftFleetVerificationBlocker,
+        RaftFleetVerificationReason, RaftFleetVerificationStage,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

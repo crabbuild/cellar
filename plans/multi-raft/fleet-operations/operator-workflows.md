@@ -196,8 +196,8 @@ downgraded by late failed attempts.
 ## Delivered isolated-node repair SDK workflow
 
 The explicit SDK service can now select and execute replacements after trusted
-node isolation. It is separate from the keep-set CLI above; lifecycle CLI/API
-evacuation/stop/removal verbs remain unfinished.
+node isolation. It is separate from the keep-set CLI above and the graceful
+departure commands below; production isolation remains a deployment integration.
 
 1. Use `FleetCatalog::begin_evacuation` to root exclusion of the affected node.
    Retain the operation identity and exact request for ambiguous retries.
@@ -435,7 +435,10 @@ claims the single disruption slot after checking the completed keep set.
 permissions. All four mutation routes use bounded requests and canonical audit.
 `evacuation-status` requires `metadata_read` and exposes historical admissions,
 current node state and every unresolved reservation, including resource-only
-debits. Those debits remain charged and can block progress.
+debits. Those debits remain charged and can block progress. Its nullable
+`verification` field reports the controller's local walk only when the operation,
+node and current root revision still match. A controller restart discards that
+progress; a later root hides it until a fresh request repeats verification.
 
 Preparation checks one complete-inventory history per successful request. Live
 histories require three authenticated survivors, stable RF3 without the departing
@@ -443,9 +446,22 @@ binding, and actual replay of the selected immutable archive. Cancelled births
 require their checked immutable decision; pending or unknown histories block.
 The management server must explicitly configure a surviving live observer and
 bounded replay services. Restarting it discards the local walk and repeats
-proofs; the CLI never treats its serialized counters as authority. `--wait`
-advances only successfully acknowledged partial verification. Any unavailable,
-conflicting or unknown result returns immediately for exact reconciliation.
+proofs; the CLI never treats its serialized counters as authority. A read-only
+quorum attempt that reports `unavailable`, `unreachable`, `overloaded` or
+`stale_peer` can return nonterminal progress with a typed `blocker`. The
+`history_quorum` stage includes the pending history key and does not consume it.
+After signed joined shutdown, `terminal_quorum` describes fresh survivor renewal
+over the completed inventory; its history is null and the disruption slot stays
+held. Waiting carries no admission, process or release authority. The controller
+rechecks the exact root and original deadline before acknowledging it.
+
+`--wait` advances successfully acknowledged verification under its existing
+deadline, including these explicit blockers. Refusal, conflict, storage failure
+and unknown mutation outcomes remain errors and end waiting immediately. A lost
+finalization/removal confirmation cannot become proof progress; reconcile the
+exact request. Progress JSON always includes nullable `blocker`, and status JSON
+always includes nullable `verification`. Deploy the matching SDK, admin and CLI
+together for this internal format cutover.
 
 After the walk, finalization fences new boots of the exact departing process.
 It neither stops that process nor releases the disruption slot. Stop is a

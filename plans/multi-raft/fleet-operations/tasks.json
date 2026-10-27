@@ -1431,7 +1431,7 @@
         },
         {
           "name": "fleet_peer_observation_repair_roles",
-          "oracle": "Authenticated remote safe-ReadIndex retains a joined learner node/disk binding, both joint voter sets and the exact consumed permit through stable completion. Native S3 SQL survives replacement; the observing coordinator retains zero local groups.",
+          "oracle": "A qualified exact replacement boot receives a canonical resource-backed movement permit. An empty coordinator observes actual learner bindings, joint outgoing voters and terminal RF3 through fresh quorum RPCs; real SQL remains continuous after replacement.",
           "invariants": [
             "F01",
             "F02",
@@ -4605,7 +4605,9 @@
         "packages/console/src/lib/api.ts",
         "crates/cellar-admin/README.md",
         "crates/cellar/tests/support/raft_movement_fenced.rs",
-        "crates/cellar-admin/tests/console.rs"
+        "crates/cellar-admin/tests/console.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/terminal.rs"
       ],
       "creates": [
         "crates/cellar/fleet/management/raft/mod.rs",
@@ -4628,14 +4630,18 @@
         "crates/cellar/cli/raft_cli/lifecycle.rs",
         "crates/cellar-admin/raft_lifecycle.rs",
         "crates/cellar/tests/support/raft_operator_lifecycle_native.rs",
-        "crates/cellar/tests/support/raft_operator_cancel_native.rs"
+        "crates/cellar/tests/support/raft_operator_cancel_native.rs",
+        "crates/cellar/fleet/management/raft/lifecycle/waiting.rs",
+        "crates/cellar/fleet/management/raft/lifecycle/waiting_tests.rs",
+        "crates/cellar/tests/support/raft_operator_proof_wait_native.rs"
       ],
       "steps": [
         "Delivered keep-set begin/status/progress/wait/cancel, node add/status/qualify/activate, and graceful evacuate/prepare-removal/exact stop/remove/status through SDK, authenticated admin and CLI. Capacity and replay use explicitly configured native services. Separate lifecycle grants, canonical durable stop consent, complete replay and signed physical closure preserve authority; exact retries recover historical receipts. Maintenance/rejoin, dry-run and resize remain unfinished. Node cancel-evacuation is delivered through the same independent fleet_cancel grant, canonical audit and exact selector validation; it returns excluded Ready and supports explicit cancellation/requalification/restart recovery.",
         "Implement proposed operator-workflows.md commands and SDK/API phase/error contracts.",
         "Enforce operation-specific permissions, canonical request identity, expected revisions and audit.",
         "Provide dry-run, paginated status, wait and cancel without hidden infrastructure termination.",
-        "Expose activate, resize, guarded child stop, rolling maintenance and explicit capacity-only versus balanced completion through the same audit/permission model."
+        "Expose activate, resize, guarded child stop, rolling maintenance and explicit capacity-only versus balanced completion through the same audit/permission model.",
+        "Report exact read-only quorum observation failures as typed nonterminal proof blockers, retaining the pending history and counts. Status exposes only local progress at the same root. Revalidate the root and original deadline before acknowledging waiting; never convert unknown finalization/removal mutations or storage errors into progress. CLI --wait advances acknowledged proof steps under its existing deadline and stops on unknown mutation outcomes."
       ],
       "acceptance": [
         "Future command examples become runnable and tested.",
@@ -4829,6 +4835,76 @@
             "F05",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_operator_proof_wait_resumes_exact_history_without_stopping",
+          "oracle": "A bounded TCP proxy interrupts new TLS proof connections to one actual live voter. History waiting preserves root/counts with no finalization or stop authority while S3 SQL writes continue. After exact finalization and real signed joined shutdown, a second fault during terminal survivor renewal holds the disruption slot and removal receipt absent. Restoring connectivity completes the same request with retained storage and SQL continuity.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_proof_wait_refuses_changed_root_and_reprepares",
+          "oracle": "After a blocked quorum attempt, root drift hides stale local status and refuses the old request. A fresh request replays proof under the new root, explicitly stops and joins the exact owner, retains the slot during terminal renewal failure, and removes only after connectivity returns.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_proof_wait_cli_advances_only_confirmed_progress",
+          "oracle": "Actual CLI --wait follows a valid nonterminal blocker to a valid finalization receipt with the same request identity.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_proof_wait_cli_stops_after_unknown_fence",
+          "oracle": "After acknowledged proof waiting, an unknown finalization result ends --wait immediately; exactly two calls occur and no unknown mutation is retried.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_verification_waiting_preserves_unknown_and_refused_failures",
+          "oracle": "Only explicitly classified read-only observation failures can become waiting. Unknown storage, unconfirmed mutation, conflict, corruption, closed state and refusal retain their failure behavior.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_verification_waiting_cannot_masquerade_as_admission",
+          "oracle": "Validated waiting cannot carry finalization authority, claim a consumed pending history or omit the explicit nullable blocker field.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_verification_waiting_status_refuses_mixed_root_and_terminal_state",
+          "oracle": "Status refuses verification progress from another root or an incompatible lifecycle phase.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -4872,6 +4948,17 @@
           "-p",
           "cellar-admin",
           "--locked"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "fleet_verification_waiting_",
+          "--",
+          "--test-threads=1"
         ]
       ],
       "evidence": []
@@ -5077,7 +5164,9 @@
         "tools/perf/raft_topology.py",
         "tools/perf/raft_run.py",
         "tools/perf/raft_docker.py",
-        "tools/perf/raft_analyze.py"
+        "tools/perf/raft_analyze.py",
+        "crates/cellar/tests/support/raft_isolated_removal.rs",
+        "crates/cellar/tests/support/raft_peer_fleet_observation.rs"
       ],
       "creates": [
         "tools/perf/raft_fleet_operations.py",

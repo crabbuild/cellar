@@ -6,6 +6,9 @@ use super::*;
 #[path = "raft_operator_cancel_native.rs"]
 mod cancellation_cases;
 
+#[path = "raft_operator_proof_wait_native.rs"]
+mod proof_wait_cases;
+
 impl Server {
     fn departure_args(
         &self,

@@ -33,6 +33,14 @@ pub(super) struct Session {
     pub walk: FleetEvacuationVerification,
     pub checked: u64,
     pub total: u64,
+    pub waiting: Option<RaftFleetVerificationBlocker>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Advance {
+    Progress,
+    Waiting,
+    Exhausted,
 }
 
 pub(super) struct Lease<'a> {
@@ -50,6 +58,41 @@ impl Drop for Lease<'_> {
 }
 
 impl Verification {
+    pub(super) fn snapshot(
+        &self,
+        control: &RaftFleetControl,
+        node: NodeId,
+        operation: [u8; 16],
+        revision: u64,
+    ) -> Result<Option<RaftFleetEvacuationProgress>> {
+        let slot = self.session.lock().map_err(|_| FleetCatalogError::Closed)?;
+        let Some(session) = slot.as_ref().filter(|s| {
+            s.key.node == node
+                && s.key.identity.operation == operation
+                && s.key.identity.expected_revision == revision
+        }) else {
+            return Ok(None);
+        };
+        let request = request_from(&session.key.identity, &control.catalog_id);
+        let mut value = progress(
+            control,
+            &hex::encode(node.bytes()),
+            &request,
+            if session.key.stop.is_some() {
+                Phase::VerifyingRemoval
+            } else {
+                Phase::VerifyingBeforeStop
+            },
+            session.checked,
+            session.total,
+            revision,
+        );
+        value.stop_id = session.key.stop.map(hex::encode);
+        value.blocker = session.waiting.clone();
+        value.validate()?;
+        Ok(Some(value))
+    }
+
     pub(super) fn new(
         host: LtxHost,
         verifier: ArchiveVerifier,
@@ -98,9 +141,10 @@ impl Verification {
         session: &mut Session,
         observer: &RaftCells,
         turn: &Turn<'_>,
-    ) -> Result<bool> {
+    ) -> Result<Advance> {
+        session.waiting = None;
         let Some(history) = session.walk.next_history(turn.remaining()?).await? else {
-            return Ok(false);
+            return Ok(Advance::Exhausted);
         };
         match history.state() {
             FleetHistoryState::Cancelled { .. } => {
@@ -167,7 +211,7 @@ impl Verification {
                     .try_into()
                     .map_err(|_| FleetCatalogError::InventoryIncomplete)?;
                 let reference = metadata.reference();
-                session
+                let result = session
                     .walk
                     .verify_live(
                         observer,
@@ -179,7 +223,23 @@ impl Verification {
                         },
                         turn.remaining()?,
                     )
-                    .await?;
+                    .await;
+                if let Err(error) = result {
+                    let Some(blocker) = RaftFleetVerificationBlocker::observation(
+                        &error,
+                        RaftFleetVerificationStage::HistoryQuorum,
+                        Some(
+                            history
+                                .binding()
+                                .key()
+                                .map_err(|_| FleetCatalogError::Corrupt("waiting history key"))?,
+                        ),
+                    ) else {
+                        return Err(error.into());
+                    };
+                    session.waiting = Some(blocker);
+                    return Ok(Advance::Waiting);
+                }
             }
             _ => return Err(FleetCatalogError::Unconfirmed.into()),
         }
@@ -187,7 +247,7 @@ impl Verification {
             .checked
             .checked_add(1)
             .ok_or(FleetCatalogError::Limit)?;
-        Ok(true)
+        Ok(Advance::Progress)
     }
 }
 

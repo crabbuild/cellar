@@ -126,10 +126,15 @@ pub struct RaftFleetEvacuationProgress {
     pub stop_id: Option<String>,
     pub fence_id: Option<String>,
     pub terminal: bool,
+    #[serde(deserialize_with = "super::waiting::required_nullable")]
+    pub blocker: Option<RaftFleetVerificationBlocker>,
 }
 
 impl RaftFleetEvacuationProgress {
     pub fn validate(&self) -> Result<()> {
+        if let Some(blocker) = &self.blocker {
+            blocker.validate(self)?;
+        }
         RaftFleetNodeOperation {
             catalog_id: self.catalog_id.clone(),
             operation_id: self.operation_id.clone(),
@@ -255,6 +260,9 @@ pub struct RaftFleetEvacuationStatus {
     pub removal: Option<RaftFleetEvacuationProgress>,
     pub cancellation: Option<RaftFleetEvacuationProgress>,
     pub pending_movements: Vec<RaftFleetEvacuationDebt>,
+    /// Local ephemeral proof progress at this exact root, without admission authority.
+    #[serde(deserialize_with = "super::waiting::required_nullable")]
+    pub verification: Option<RaftFleetEvacuationProgress>,
 }
 
 impl RaftFleetEvacuationStatus {
@@ -278,6 +286,7 @@ impl RaftFleetEvacuationStatus {
             .iter()
             .chain(self.removal.iter())
             .chain(self.cancellation.iter())
+            .chain(self.verification.iter())
         {
             progress.validate()?;
             if progress.catalog_id != self.catalog_id
@@ -286,6 +295,18 @@ impl RaftFleetEvacuationStatus {
                 || progress.observed_revision != self.observed_revision
             {
                 return Err(RaftFleetFailure::invalid("mixed evacuation status"));
+            }
+        }
+        if let Some(progress) = &self.verification {
+            if !progress.verifying()
+                || (progress.phase == RaftFleetEvacuationPhase::VerifyingBeforeStop
+                    && (self.state != RaftFleetNodeState::Draining || self.finalization.is_some()))
+                || (progress.phase == RaftFleetEvacuationPhase::VerifyingRemoval
+                    && self.state != RaftFleetNodeState::Finalizing)
+            {
+                return Err(RaftFleetFailure::invalid(
+                    "verification is not a terminal receipt",
+                ));
             }
         }
         Ok(())

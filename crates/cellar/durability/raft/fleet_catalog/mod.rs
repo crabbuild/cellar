@@ -26,6 +26,7 @@ pub use capacity::{
 };
 pub use evacuation::FleetEvacuationAdmission;
 pub(crate) use execution::FleetExecutionCommand;
+pub(crate) use finalization::FleetRemovalAttempt;
 pub use finalization::{
     FleetEvacuationArchive, FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
     FleetEvacuationCancellation, FleetEvacuationCandidate, FleetEvacuationVerification,

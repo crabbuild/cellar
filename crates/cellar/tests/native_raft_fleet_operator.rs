@@ -15,6 +15,119 @@ fn command(arguments: &[&str]) -> Result<std::process::Output> {
         .output()?)
 }
 
+async fn waiting_cli(unknown: bool) -> Result<()> {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let root = tempfile::tempdir()?;
+    let credential = root.path().join("credential");
+    let token = "proof-wait-token-with-at-least-32-bytes";
+    std::fs::write(&credential, token)?;
+    let node = hex::encode([1; 16]);
+    let request = hex::encode([2; 16]);
+    let operation = hex::encode([3; 16]);
+    let catalog = hex::encode([4; 32]);
+    let waiting = serde_json::json!({"progress":{
+        "catalog_id":catalog,"operation_id":operation,"request_id":request,"node_id":node,
+        "expected_revision":1,"observed_revision":1,"phase":"verifying_before_stop",
+        "checked_histories":0,"total_histories":1,"applied_revision":null,"candidate_digest":null,
+        "closure_digest":null,"process":null,"stop_id":null,"fence_id":null,"terminal":false,
+        "blocker":{"stage":"history_quorum","history":hex::encode([7;32]),"reason":"unavailable"}
+    },"reconciled":false});
+    let mut complete = waiting.clone();
+    complete["progress"]["blocker"] = Value::Null;
+    complete["progress"]["phase"] = serde_json::json!("finalizing");
+    complete["progress"]["checked_histories"] = serde_json::json!(1);
+    complete["progress"]["applied_revision"] = serde_json::json!(2);
+    complete["progress"]["observed_revision"] = serde_json::json!(2);
+    complete["progress"]["candidate_digest"] = serde_json::json!(hex::encode([6; 32]));
+    complete["progress"]["process"] = serde_json::json!(hex::encode([5; 16]));
+    let count = Arc::new(AtomicUsize::new(0));
+    let calls = count.clone();
+    let router=axum::Router::new().route(&format!("/api/v1/fleets/test/raft/nodes/{node}/prepare-removal"),axum::routing::post(move || {
+        let n=calls.fetch_add(1,Ordering::SeqCst);
+        let value=if n==0 {waiting.clone()} else if unknown {
+            serde_json::json!({"error":{"code":"unavailable","outcome":"unknown","message":"ambiguous fence"},"phase":null,"terminal":null})
+        } else {complete.clone()};
+        async move {(if n>0 && unknown {axum::http::StatusCode::SERVICE_UNAVAILABLE} else {axum::http::StatusCode::OK},axum::Json(value))}
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"))
+            .args([
+                "raft",
+                "fleet",
+                "nodes",
+                "prepare-removal",
+                &node,
+                "--operation-id",
+                &operation,
+                "--request-id",
+                &request,
+                "--expected-revision",
+                "1",
+                "--fleet",
+                "test",
+                "--admin-url",
+                &url,
+                "--catalog-id",
+                &catalog,
+                "--token-file",
+                credential.to_str().unwrap(),
+                "--wait",
+                "--timeout-seconds",
+                "2",
+                "--json",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let _ = stop.send(());
+    server.await??;
+    let output = output??;
+    let value: Value = serde_json::from_slice(&output.stdout)?;
+    ensure!(
+        count.load(Ordering::SeqCst) == 2,
+        "unexpected proof/fence retries: {value}"
+    );
+    if unknown {
+        ensure!(output.status.code() == Some(5) && value["error"]["outcome"] == "unknown");
+    } else {
+        ensure!(
+            output.status.success()
+                && value["progress"]["phase"] == "finalizing"
+                && value["progress"]["blocker"].is_null()
+        );
+    }
+    ensure!(
+        !String::from_utf8(output.stdout)?.contains(token)
+            && !String::from_utf8(output.stderr)?.contains(token)
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_operator_proof_wait_cli_advances_only_confirmed_progress() -> Result<()> {
+    waiting_cli(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_operator_proof_wait_cli_stops_after_unknown_fence() -> Result<()> {
+    waiting_cli(true).await
+}
+
 #[test]
 fn fleet_operator_cli_help_and_invalid_input_have_stable_exit_codes() -> Result<()> {
     let help = command(&["fleet", "--help"])?;
@@ -208,7 +321,7 @@ async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown(
             "catalog_id":catalog,"operation_id":operation,"request_id":request,"node_id":node,
             "expected_revision":1,"phase":"finalizing","checked_histories":1,"total_histories":1,
             "applied_revision":2,"observed_revision":2,"candidate_digest":hex::encode([6;32]),
-            "closure_digest":null,"process":process,"stop_id":null,"terminal":false
+            "closure_digest":null,"process":process,"stop_id":null,"terminal":false,"blocker":null
         },"reconciled":false});
         let verb = match variant {
             8 => "stop",

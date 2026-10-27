@@ -21,7 +21,8 @@ pub use failure::{RaftFleetFailure, RaftFleetFailureCode, RaftFleetOutcome};
 pub use lifecycle::{
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
     RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetNodeCancel,
-    RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeStop,
+    RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeStop, RaftFleetVerificationBlocker,
+    RaftFleetVerificationReason, RaftFleetVerificationStage,
 };
 pub use nodes::{
     RaftFleetCapacityAttestation, RaftFleetNodeAcceptance, RaftFleetNodeAction,
