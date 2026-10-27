@@ -206,6 +206,45 @@ required. E2B/Vercel live configuration remains deferred by the user.
 The [outbound transport guide](../crates/cellar-egress/README.md) contains the
 connection/installation diagrams, resource table and implementation boundaries.
 
+## Linux outbound kernel qualification — 2026-10-27
+
+The optional `cellar-egress` helper feature now supplies kernel original
+destination lookup and marked TCP/UDP sockets. A validated nftables program
+atomically replaces only its own namespace-local table, redirects HTTP and
+UDP/TCP DNS, and enforces explicit offline output policy. HTTP registrations
+that collide with DNS or helper listener ports refuse before installation;
+the full profile must account for this limitation.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Actual kernel, Linux 6.8.0-117 | IPv4/IPv6 TCP port-80/8080 redirection, exact bytes and original destination; marked TCP bypass |
+| DNS routing | IPv4/IPv6 UDP queries/replies, reverse-NAT source identity, marked UDP bypass and TCP port-53 byte/destination forwarding |
+| Offline policy | A verified live external peer is refused through a new unmarked connection; marked access and inbound connection replies succeed |
+| Replacement | The same namespace changes offline → online → offline; fresh unmarked connections follow each committed policy |
+| Input identity and cleanup | Locked native build with repository version/checksum comparison; actual Rust/Node/qualifier image IDs and source hashes recorded; uniquely owned containers, network and image removed after success/failure |
+| Local checks | 33 unit tests and one documentation test pass; Linux aarch64 all-target checks and strict all-feature/all-target Clippy pass |
+
+The first actual-kernel run rejected an unquoted reserved chain name. Renaming
+the chain fixed the syntax error; the unchanged behavioral campaign then passed,
+and the expanded TCP DNS campaign also passed. No test was replaced with string
+matching or an SDK substitute. The
+[reproducible runner](../tools/sandbox/egress/README.md) and
+[dedicated CI workflow](../.github/workflows/container-egress.yml)
+retain build/runtime evidence; fresh GitHub execution remains required.
+
+Rust format/layout cover 1,278 files, JavaScript formatting covers 111 sources,
+and the native-only dependency guard reports 481 packages without a JavaScript
+engine. Documentation and whitespace checks pass. The private VM's original
+configuration and unrelated stopped container are preserved; its owned test
+resources were removed and the VM returned to its stopped state.
+
+The full helper control/data loop, persistent DNS TCP handling, bounded HTTP
+routing, generation-bound Fetchers, helper-first engine startup and joined
+ownership-loss teardown remain next. This kernel evidence does not enable the
+public interception capability or establish published helper backup/restore,
+mount, TLS or cloud compatibility. SP-07 and the original provider goal remain
+partial.
+
 ## Verified implementation details
 
 ### Provider capability discovery

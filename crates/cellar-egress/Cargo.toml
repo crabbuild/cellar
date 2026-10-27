@@ -11,6 +11,15 @@ description = "Run-owned network transport for Cellar container interception"
 [lib]
 path = "lib.rs"
 
+[features]
+default = []
+helper = ["dep:nix", "tokio/net", "tokio/process", "tokio/rt", "tokio/time"]
+
+[[example]]
+name = "network-qualification"
+path = "examples/network_qualification.rs"
+required-features = ["helper"]
+
 [dependencies]
 anyhow.workspace = true
 serde = { workspace = true, features = ["derive"] }
@@ -20,6 +29,9 @@ hickory-proto.workspace = true
 tokio = { workspace = true, features = ["sync", "macros", "io-util"] }
 tokio-util = { workspace = true, features = ["compat"] }
 yamux.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { workspace = true, optional = true, features = ["net", "socket"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["sync", "macros", "io-util", "rt", "time"] }

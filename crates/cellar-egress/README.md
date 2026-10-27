@@ -30,6 +30,8 @@ open a fallback connection on the application's behalf.
 | `dns` | Bounded ordinary A/AAAA queries, zero-TTL placeholders for granted names, explicit forward/drop policy and malformed-packet refusal |
 | `transport` | Bidirectional multiplexed streams, half-close, bounded admission and synchronous revocation |
 | `docker_io` | Raw Engine stdin writes and incremental framed stdout reads without frame-sized buffers |
+| `firewall` | Validated atomic namespace-local nftables replacement, DNS/HTTP redirects and offline output policy |
+| `linux` (`helper` feature) | Kernel original destinations and marked TCP/UDP sockets; caller owns policy, limits and deadlines |
 
 ## Installation and request routing
 
@@ -101,6 +103,9 @@ assert_eq!(*rules.resolve(&request).unwrap(), "gateway");
 The aggregate stream ceiling does not yet enforce the intended separate
 intercept/fallback allocations. The integration must enforce those allocations
 and bound request headers, bodies, installation waits and task shutdown.
+The firewall program refuses HTTP registrations on port 53 or either helper
+listener port before generating an installable program. These reserved ports
+remain an explicit gap in the initial integration profile.
 
 ## Qualification and remaining delivery
 
@@ -110,9 +115,15 @@ idle disconnects, DNS policy, half-close, retirement and fragmented Docker frame
 The README example also compiles as a documentation test. These are native
 component tests, not container-image or cloud qualification.
 
+The separate [Linux kernel campaign](../../tools/sandbox/egress/README.md) checks
+actual IPv4/IPv6 TCP destination capture, UDP/TCP DNS redirects, marked bypass,
+offline refusal, inbound replies and offline/online rule replacement in an owned
+namespace. It uses a native qualifier and a protocol peer; it does not run the
+published Sandbox SDK or qualify engine startup and teardown.
+
 | Next integration | Required evidence |
 | --- | --- |
-| Network helper | Connect the DNS policy to UDP/TCP listeners; capture actual destinations, install firewall rules and fence direct fallback |
+| Network helper | Join the qualified socket/firewall primitives, DNS listeners and bounded multiplexer in one owned helper; apply policy before acknowledging installation |
 | Engine lifecycle | Helper-before-application startup, acknowledged installation, ownership loss, expiry and joined removal |
 | Native/Workers facade | Host-minted generation-bound Fetcher routes, current-run admission and no retained JavaScript event callback |
 | Published Sandbox | Unmodified helper image backup/restore and mount operations with grant replacement and cleanup |
