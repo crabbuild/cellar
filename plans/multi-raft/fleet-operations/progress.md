@@ -31,14 +31,18 @@ success. Accepted audits cannot be downgraded by a late failed retry. Browser
 permission types include the new independent grants; no browser mutation UI is
 implied.
 
-The frozen implementation passes **88 distinct focused cases**: all sixty
+Implementation source `4c5456d6648a76e86ce63fc2c1f52dc49ec64990` passes
+**88 distinct focused cases**: all sixty
 resource/movement cases, seven capacity cases, four CLI process cases and
 seventeen admin cases. Two additional native probes pass before the complete
 cohort. The resource cohort took 417.47 seconds; the targeted six-node workflow
 passes in 17.50 seconds with three generated movements. All-target host/admin
 Clippy with warnings denied, Rust formatting/layout, native dependency and docs
 checks, ten plan tests and 322-case manifest validation pass. Console TypeScript
-checking also passes. Source and immutable binary/output attribution are recorded
+checking also passes. The audit matches all 1,455 frozen Rust/Cargo/configuration
+inputs to that commit, checks the frontend inputs and verifies retained native,
+CLI-child and output hashes. The 89-anchor preflight is refreshed after reviewing
+the eight changed anchors. Source and immutable binary/output attribution are recorded
 outside runtime data under checkout-private
 `qualification/fleet-operations/node-operator-v2/`, `node-operator-checks-v2/`
 and `node-operator-console-v1/`. Full latest-head SDK CI remains open.
