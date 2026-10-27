@@ -4,12 +4,14 @@
 mod boots;
 mod capacity;
 mod deadline;
+mod disruption;
 mod evacuation;
 mod finalization;
 mod histories;
 mod imports;
 mod index;
 mod isolation;
+mod maintenance;
 mod namespaces;
 mod nodes;
 mod permits;
@@ -33,6 +35,7 @@ pub use histories::{
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
+pub use maintenance::{FleetRestartAdmission, FleetRestartRequest};
 pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,

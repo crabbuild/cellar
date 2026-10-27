@@ -4,6 +4,9 @@ use super::retirement::{discover, reserve, stopped};
 use super::*;
 use object_store::{path::Path, ObjectStore};
 
+#[path = "raft_restart_maintenance_native.rs"]
+mod restart;
+
 struct Setup {
     f: Fixture,
     nodes: Vec<Running>,

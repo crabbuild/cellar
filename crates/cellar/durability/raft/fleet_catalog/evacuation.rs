@@ -7,18 +7,23 @@ use crate::raft::catalog::NamespaceCatalog;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProposalId};
 use serde::Deserialize;
 
-pub(super) const SLOT_KEY: &str = "active-disruption";
-const ADMISSION_KIND: u8 = 53;
+pub(super) use super::disruption::SLOT_KEY;
+
+pub(super) const ADMISSION_KIND: u8 = 53;
 const OPERATION_REQUEST_KIND: u8 = 54;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum OperationKind {
     Evacuate,
+    Restart {
+        process: [u8; 16],
+        grace_seconds: u16,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct CanonicalRequest {
+pub(super) struct CanonicalRequest {
     format: u8,
     kind: OperationKind,
     catalog: [u8; 32],
@@ -37,14 +42,33 @@ impl CanonicalRequest {
         })
     }
 
-    fn key(&self) -> String {
+    pub(super) fn restart(
+        catalog: &FleetCatalog,
+        request: &FleetRequestIdentity,
+        node: [u8; 16],
+        process: [u8; 16],
+        grace_seconds: u16,
+    ) -> Result<Self> {
+        let mut canonical = Self::new(catalog, request, node)?;
+        canonical.kind = OperationKind::Restart {
+            process,
+            grace_seconds,
+        };
+        Ok(canonical)
+    }
+
+    pub(super) fn bytes(&self) -> Result<Vec<u8>> {
+        encode(OPERATION_REQUEST_KIND, self, 4096)
+    }
+
+    pub(super) fn key(&self) -> String {
         format!("operation-requests/{}", hex::encode(self.request.operation))
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Record {
+pub(super) struct Record {
     format: u8,
     catalog: [u8; 32],
     request: FleetRequestIdentity,
@@ -130,6 +154,10 @@ impl FleetEvacuationAdmission {
 }
 
 impl Record {
+    pub(super) fn operation(&self) -> [u8; 16] {
+        self.request.operation
+    }
+
     fn observation(
         &self,
         catalog: &FleetCatalog,
@@ -154,7 +182,7 @@ impl Record {
         })
     }
 
-    fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
+    pub(super) fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         validate_request(&self.request)?;
         self.node.validate(&catalog.inner)?;
         if self.format != 1
@@ -172,7 +200,7 @@ impl Record {
         Ok(())
     }
 
-    fn mutation(&self) -> Result<FleetMutation> {
+    pub(super) fn mutation(&self) -> Result<FleetMutation> {
         let bytes = encode(ADMISSION_KIND, self, 4096)?;
         Ok(history_mutation(
             &self.request,
@@ -196,7 +224,7 @@ impl Record {
         ))
     }
 
-    fn check_basis(&self, snapshot: &FleetSnapshot) -> Result<()> {
+    pub(super) fn check_basis(&self, snapshot: &FleetSnapshot) -> Result<()> {
         if self.request.expected_revision != snapshot.revision()
             || self.input_root != hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?)
         {
@@ -216,7 +244,8 @@ impl FleetCatalog {
         let record = self
             .active_disruption(snapshot)
             .await?
-            .ok_or(FleetCatalogError::Conflict)?;
+            .ok_or(FleetCatalogError::Conflict)?
+            .evacuation()?;
         if record.request.operation != operation || snapshot.head.disruption != Some(slot) {
             return Err(FleetCatalogError::Conflict);
         }
@@ -330,7 +359,7 @@ impl FleetCatalog {
         }
         if let Some(record) = self.active_disruption(snapshot).await? {
             return Err(FleetCatalogError::DisruptionInProgress {
-                operation: record.request.operation,
+                operation: record.operation(),
             });
         }
         if require_placement {
@@ -376,7 +405,10 @@ impl FleetCatalog {
         self.commit_inner(snapshot, &mutation).await
     }
 
-    async fn check_operation_request(&self, expected: &CanonicalRequest) -> Result<bool> {
+    pub(super) async fn check_operation_request(
+        &self,
+        expected: &CanonicalRequest,
+    ) -> Result<bool> {
         let found = self
             .inner
             .read::<CanonicalRequest>(&expected.key(), OPERATION_REQUEST_KIND, 4096)
@@ -418,34 +450,11 @@ impl FleetCatalog {
         Ok(Some((record, mutation)))
     }
 
-    async fn active_disruption(&self, snapshot: &FleetSnapshot) -> Result<Option<Record>> {
-        let bytes = self
-            .inner
-            .lookup(snapshot.head.tables[FleetTable::Policy.slot()], SLOT_KEY)
-            .await?;
-        match (snapshot.head.disruption, bytes) {
-            (None, None) => Ok(None),
-            (Some(digest), Some(bytes)) if hash(&bytes) == digest => {
-                let record: Record = decode(ADMISSION_KIND, &bytes, 4096)?;
-                record.validate(self)?;
-                let operation = self
-                    .inner
-                    .lookup(
-                        snapshot.head.tables[FleetTable::Operations.slot()],
-                        &hex::encode(record.request.operation),
-                    )
-                    .await?;
-                if operation.as_deref() != Some(bytes.as_slice()) {
-                    return Err(FleetCatalogError::Corrupt("disruption operation reference"));
-                }
-                self.confirm_evacuation(snapshot, &record).await?;
-                Ok(Some(record))
-            }
-            _ => Err(FleetCatalogError::Corrupt("disruption root/index mismatch")),
-        }
-    }
-
-    async fn confirm_evacuation(&self, snapshot: &FleetSnapshot, record: &Record) -> Result<u64> {
+    pub(super) async fn confirm_evacuation(
+        &self,
+        snapshot: &FleetSnapshot,
+        record: &Record,
+    ) -> Result<u64> {
         let canonical = CanonicalRequest::new(self, &record.request, record.node.node)?;
         if !self.check_operation_request(&canonical).await? {
             return Err(FleetCatalogError::Corrupt(
@@ -484,7 +493,8 @@ impl FleetCatalog {
         let record = self
             .active_disruption(snapshot)
             .await?
-            .ok_or(FleetCatalogError::Conflict)?;
+            .ok_or(FleetCatalogError::Conflict)?
+            .evacuation()?;
         if record.request.operation != operation.bytes() {
             return Err(FleetCatalogError::Conflict);
         }
@@ -552,30 +562,5 @@ impl FleetCatalog {
             record.observation(self, snapshot, applied_revision)
         })
         .await
-    }
-
-    /// A missing/reset slot cannot silently admit a second disruption. Release
-    /// needs the later terminal-proof transition; generic metadata deletion is
-    /// deliberately insufficient even when the node appears empty or dead.
-    pub(super) fn next_disruption(
-        &self,
-        snapshot: &FleetSnapshot,
-        mutation: &FleetMutation,
-        previous: Option<[u8; 32]>,
-        bytes: Option<&[u8]>,
-    ) -> Result<[u8; 32]> {
-        if previous.is_some() {
-            return Err(FleetCatalogError::Invalid("unsettled disruption slot"));
-        }
-        let bytes = bytes.ok_or(FleetCatalogError::Invalid("disruption slot deletion"))?;
-        let record: Record = decode(ADMISSION_KIND, bytes, 4096)?;
-        record.validate(self)?;
-        record.check_basis(snapshot)?;
-        if record.mutation()? != *mutation {
-            return Err(FleetCatalogError::Invalid(
-                "non-atomic disruption admission",
-            ));
-        }
-        Ok(hash(bytes))
     }
 }

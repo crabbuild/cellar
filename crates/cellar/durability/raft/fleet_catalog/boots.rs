@@ -70,6 +70,14 @@ impl FleetHostAuthorization {
                         return Ok(current);
                     }
                 }
+                // Preparation retains voters and the old process. A new process
+                // requires the later owned joined-stop/rejoin admission; neither
+                // an exclusion nor an ordinary shutdown supplies that proof.
+                if current.state() == FleetNodeState::RestartPending {
+                    return Err(FleetCatalogError::Invalid(
+                        "maintenance restart requires joined owner proof",
+                    ));
+                }
                 // An earlier candidate with this identity retains its original
                 // expected revision. Never rewrite it after a clean/unknown conflict.
                 if self

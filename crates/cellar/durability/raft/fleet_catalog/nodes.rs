@@ -201,6 +201,29 @@ impl NodeRecord {
         Ok(())
     }
 
+    pub(super) fn begin_restart(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::Active || self.boot.is_none() || self.isolation.is_some() {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::RestartPending;
+        self.operation = Some(operation);
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
+
+    pub(super) fn cancel_restart_preparation(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::RestartPending
+            || self.operation != Some(operation)
+            || self.isolation.is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::Ready;
+        self.operation = None;
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
+
     pub(super) fn begin_evacuation(&mut self, operation: [u8; 16]) -> Result<()> {
         if self.state != FleetNodeState::Active || self.storage_instance.is_none() {
             return Err(FleetCatalogError::Conflict);
