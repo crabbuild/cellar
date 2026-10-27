@@ -35,7 +35,7 @@ hashes, scope and caveats in the
 The previously fixed synchronous snapshot-close defect is a separate regression;
 the complete archive job, including failure cleanup, must remain off the driver.
 
-Confirmed implementation constraints:
+Confirmed constraints at the proposal revision:
 
 - Public activation constructs `CellStorage { rooted: None, ... }` in
   `crates/cellar/durability/raft/host.rs`.
@@ -201,6 +201,22 @@ dependency guard reports 466 packages with no JavaScript engine. The runner
 owns per-trial worker directories through interruption and requires a source-bound
 release build manifest. Full-size physical pilots remain open. These counts do not qualify a new
 10 GB recovery time.
+
+The first optimized smoke campaign at `40b4a540` failed all three trials after
+the first local read with `NotLeader`. A controlled leader change reproduced
+the final handoff controller's stale source: transfer admission can step the
+source down before the target reports command readiness. The fixture now
+refreshes the leader until the target is ready; server-side term, membership,
+replication and readiness checks are unchanged. This does not attribute the
+earlier uninstrumented stall. The three failed samples remain in the original
+campaign. Separately, a real SIGTERM probe found an orphaned runner child. The
+CLI now unwinds process and directory ownership for SIGTERM and Ctrl-C, with a
+regression checking that child shutdown precedes worker-directory removal.
+The current Python suite passes 231 cases with one skip. The optimized native
+run passes all three small recovery cases, including the forced stale handoff
+source, in 29.76 seconds; the three physical cases remain ignored. The focused
+native target also passes Clippy with warnings denied. Repeated source-bound
+pilots and new physical stage measurements remain open.
 
 1. Extend the existing finite metric families with source admission/encoding,
    fetch queue, actual received bytes, append, destination verification/sync,

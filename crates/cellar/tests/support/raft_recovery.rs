@@ -138,7 +138,7 @@ async fn hot_read(
 }
 
 async fn transfer_observed(
-    source: &RaftCellHandle,
+    sources: &[RaftCellHandle],
     target: &RaftCellHandle,
     member: MemberId,
 ) -> Result<()> {
@@ -151,20 +151,37 @@ async fn transfer_observed(
             {
                 return Ok(());
             }
-            let status = source.status().await?;
-            match source
-                .transfer_leadership(
-                    LeadershipTransfer {
-                        target: member,
-                        expected_term: status.term,
-                        expected_revision: status.membership_revision,
-                    },
-                    Duration::from_secs(30),
-                )
-                .await
-            {
-                Ok(()) | Err(CommandFailure::Overloaded | CommandFailure::Unavailable) => (),
-                Err(error) => return Err(error.into()),
+            // Admission can step the sampled leader down before the target's
+            // readiness is visible. Refresh the source on every iteration;
+            // only the target's observed readiness completes this handoff.
+            for source in sources {
+                let status = match source.status().await {
+                    Ok(status) => status,
+                    Err(CommandFailure::Unavailable | CommandFailure::NotLeader { .. }) => continue,
+                    Err(error) => return Err(error.into()),
+                };
+                if !status.command_ready || status.leader == Some(member) {
+                    continue;
+                }
+                match source
+                    .transfer_leadership(
+                        LeadershipTransfer {
+                            target: member,
+                            expected_term: status.term,
+                            expected_revision: status.membership_revision,
+                        },
+                        Duration::from_secs(30),
+                    )
+                    .await
+                {
+                    Ok(()) => break,
+                    Err(
+                        CommandFailure::Overloaded
+                        | CommandFailure::Unavailable
+                        | CommandFailure::NotLeader { .. },
+                    ) => (),
+                    Err(error) => return Err(error.into()),
+                }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
@@ -350,6 +367,12 @@ async fn drill(
         ledger.check("local_state_erased")?;
         ledger.mark("local_state_erased")?;
         ledger.mark("admission_started")?;
+        let surviving: Vec<_> = handles
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != primary)
+            .map(|(_, handle)| handle.clone())
+            .collect();
         let source = fixture::ready(&handles, Some(primary)).await?;
         if force_leader_change {
             let current = fixture::ready(&handles, Some(primary)).await?;
@@ -357,12 +380,8 @@ async fn drill(
                 let next = (0..3)
                     .find(|index| *index != primary && *index != source)
                     .context("other live voter")?;
-                transfer_observed(
-                    &handles[source],
-                    &handles[next],
-                    MemberId::new(next as u64 + 1)?,
-                )
-                .await?;
+                transfer_observed(&surviving, &handles[next], MemberId::new(next as u64 + 1)?)
+                    .await?;
             }
             ensure!(
                 !handles[source].status().await?.command_ready,
@@ -486,18 +505,43 @@ async fn drill(
             .collect();
         ensure!(
             observed_repair(&live, repair.id, RepairStep::PromoteAndRemove, quota)
-                .await?
+                .await
+                .context("promote the cold replacement")?
                 .phase
                 == RepairPhase::Joint
         );
         ensure!(
             observed_repair(&live, repair.id, RepairStep::FinishJoint, quota)
-                .await?
+                .await
+                .context("finish the replacement's joint configuration")?
                 .phase
                 == RepairPhase::Complete
         );
-        let current = fixture::ready(&live, None).await?;
-        transfer_observed(&live[current], &learner, target.member).await?;
+        if force_leader_change {
+            let current = fixture::ready(&live, None).await?;
+            // Deliberately make the sampled leader stale before the final
+            // handoff. Repair completion and an accepted transfer do not pin
+            // leadership; the controller must refresh it until the target is
+            // actually command-ready.
+            let mut next = None;
+            for (index, handle) in handles.iter().enumerate() {
+                if index != primary && !handle.status().await?.command_ready {
+                    next = Some(index);
+                    break;
+                }
+            }
+            let next = next.context("another surviving handoff target")?;
+            transfer_observed(&live, &handles[next], MemberId::new(next as u64 + 1)?)
+                .await
+                .context("inject a stale handoff leader")?;
+            ensure!(
+                !live[current].status().await?.command_ready,
+                "handoff did not invalidate the sampled leader"
+            );
+        }
+        transfer_observed(&live, &learner, target.member)
+            .await
+            .context("transfer leadership to the cold replacement")?;
         fixture::ready(std::slice::from_ref(&learner), None).await?;
         ledger.mark("promoted")?;
         let resumed_options = fixture::command_options(2, 1)?;

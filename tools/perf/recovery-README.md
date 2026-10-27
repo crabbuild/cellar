@@ -68,7 +68,10 @@ successful population. The runner owns and joins its child process group on a
 timeout or cancellation, then removes only the private worker directories it
 allocated for that trial. Use `--keep-node-state` to retain those synthetic
 directories for diagnosis. Supplied source fixtures and unrelated paths remain
-untouched; test operation deadlines remain unchanged.
+untouched; test operation deadlines remain unchanged. The CLI handles SIGTERM
+and Ctrl-C by unwinding those owners: it stops and joins the test child before
+removing its worker data. Further termination signals are ignored during this
+bounded cleanup so they cannot interrupt the join.
 
 The native ledger records monotonic timestamps for owner loss, joined stop,
 local erasure, repair admission, archive waiting, seed installation, complete

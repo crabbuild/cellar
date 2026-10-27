@@ -4,11 +4,15 @@
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import signal
+import subprocess
 from types import SimpleNamespace
 import sys
 import tempfile
+import time
 import unittest
 
 from analyze_recovery import analyze, PHASES, CHECKS
@@ -163,6 +167,59 @@ class RecoveryRunner(unittest.TestCase):
             self.assertTrue(timed_out)
             self.assertNotEqual(code, 0)
             self.assertIsInstance(code, int)
+
+    @unittest.skipUnless(os.name == 'posix', 'requires POSIX process groups')
+    def test_signaled_runner_joins_child_before_removing_worker_data(self):
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(signal=signum), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                marker, stopped, owned = (root / name for name in ('child.pid', 'stopped', 'owned'))
+                child = (
+                    'import os,signal,sys,time; from pathlib import Path; '
+                    f'root=Path({str(root)!r}); '
+                    'signal.signal(signal.SIGTERM, lambda *_: '
+                    '(root.joinpath("stopped").write_text(str(Path(root.joinpath("owned").read_text()).exists())), sys.exit(0))); '
+                    'root.joinpath("child.pid").write_text(str(os.getpid())); time.sleep(30)'
+                )
+                # Exercise the CLI's signal boundary with its real process and
+                # directory owners, without building or launching native nodes.
+                script = (
+                    f'import sys; from pathlib import Path; sys.path.insert(0, {str(PROFILES.parent)!r}); import recovery\n'
+                    'def trial(_):\n'
+                    f'    root=Path({str(root)!r})\n'
+                    '    with recovery.worker_environment({}, root, physical=False) as (env, paths):\n'
+                    '        root.joinpath("owned").write_text(str(paths[0]))\n'
+                    f'        recovery.run_process([{sys.executable!r}, "-c", {child!r}], root / "native.log", timeout=30)\n'
+                    'recovery.run=trial\n'
+                    f'sys.argv=["recovery.py", "--backend", "peer", "--output", {str(root)!r}]\n'
+                    'raise SystemExit(recovery.main())\n'
+                )
+                process = subprocess.Popen([sys.executable, '-c', script], start_new_session=True,
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                child_pid = None
+                try:
+                    deadline = time.monotonic() + 10
+                    while not marker.exists() and time.monotonic() < deadline:
+                        self.assertIsNone(process.poll(), 'runner exited before the child started')
+                        time.sleep(.01)
+                    self.assertTrue(marker.exists(), 'child startup was not observed')
+                    child_pid = int(marker.read_text())
+                    process.send_signal(signum)
+                    process.wait(timeout=10)
+                    self.assertTrue(stopped.exists(), 'owned child survived runner interruption')
+                    self.assertEqual(stopped.read_text(), 'True', 'worker data was erased before its child stopped')
+                    self.assertFalse(Path(owned.read_text()).exists())
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(child_pid, 0)
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGKILL)
+                        process.wait()
+                    if child_pid is not None:
+                        try:
+                            os.killpg(child_pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
 
     def test_prebuilt_binaries_require_matching_source_and_byte_identity(self):
         with tempfile.TemporaryDirectory() as directory:

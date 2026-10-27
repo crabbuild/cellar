@@ -23,6 +23,35 @@ ROOT = Path(__file__).resolve().parents[2]
 PROFILES = Path(__file__).with_name('recovery-profiles.json')
 
 
+class InterruptedRun(Exception):
+    def __init__(self, signum):
+        super().__init__(f'recovery campaign interrupted by signal {signum}')
+        self.signum = signum
+
+
+@contextmanager
+def termination_signals():
+    """Unwind the CLI's process and worker-directory owners on termination."""
+    watched = (signal.SIGINT, signal.SIGTERM)
+    previous = {}
+
+    def interrupt(signum, _frame):
+        # A second signal must not interrupt child termination/join or erase
+        # worker data before the child has stopped. Cleanup is bounded by the
+        # existing TERM/KILL timeout in stop_owned().
+        for item in watched:
+            signal.signal(item, signal.SIG_IGN)
+        raise InterruptedRun(signum)
+
+    try:
+        for signum in watched:
+            previous[signum] = signal.signal(signum, interrupt)
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 def require(condition, message):
     if not condition:
         raise ValueError(message)
@@ -243,11 +272,15 @@ def main():
     parser.add_argument('--trial-timeout-seconds', type=int, default=3600)
     parser.add_argument('--build-timeout-seconds', type=int, default=1800)
     args = parser.parse_args()
-    try:
-        return run(args)
-    except (OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f'ERROR: {error}', file=sys.stderr)
-        return 1
+    with termination_signals():
+        try:
+            return run(args)
+        except InterruptedRun as error:
+            print(f'ERROR: {error}', file=sys.stderr)
+            return 128 + error.signum
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            print(f'ERROR: {error}', file=sys.stderr)
+            return 1
 
 
 if __name__ == '__main__':
