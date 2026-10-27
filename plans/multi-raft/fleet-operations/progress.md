@@ -14,6 +14,71 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Resumable removal proof verification
+
+Source `cbf19149` delivers typed waiting at the read-only quorum boundaries of
+operator departure. A failed history observation retains that same pending
+history and checked count. After exact signed joined shutdown, a failed terminal
+survivor renewal retains the completed inventory and disruption slot. Neither
+result supplies finalization, stop or removal authority. The catalog produces
+terminal waiting before its Root mutation; mutation and confirmation errors
+cannot become waiting. The adapter rechecks the exact Root and original deadline
+before acknowledging progress.
+
+SDK/admin/CLI progress now includes nullable `blocker`, with `history_quorum` or
+`terminal_quorum` and an explicit observation reason. Status exposes nullable
+local `verification` only at the same node, operation and Root. Root drift hides
+stale progress and refuses the old request; controller restart repeats proof.
+CLI `--wait` follows acknowledged progress under its existing deadline and ends
+on unknown mutation outcomes. Matching SDK/admin/CLI deployment is required for
+this internal JSON cutover. No catalog dependency was added to write acknowledgement.
+
+**89 distinct focused Rust cases pass in 92 executions, plus 21 admin tests.**
+The focused cases comprise 51 fleet library, seven CLI, nine native operator,
+five peer-observation, three isolated-removal, four finalization, two joined
+removal and eight scoped-stop cases. The two new native scenarios use a bounded
+TCP fault against an actual voter, verify S3-level SQL continuity while history
+proof is blocked, and require explicit stop plus a real signed joined closure
+before testing terminal renewal. The slot stays held until connectivity returns
+and the exact removal completes. All seven new library/CLI/native cases pass.
+
+All-target host/admin Clippy, formatting/layout for 1,423 Rust files, native
+dependency rules, documentation, ten plan tests and the 375-case manifest pass.
+The audit maps all **1,517 frozen Rust/Cargo/configuration inputs** to the source
+commit and verifies retained executable/result hashes. Artifacts remain outside
+runtime data in checkout-private `qualification/fleet-operations/proof-wait-v6/`,
+`proof-wait-followups-v2/` and `proof-wait-checks-v3/`.
+
+Earlier failed probes remain retained. A control comparison reproduced both a
+repair-role CommandConflict and an isolated-removal stack overflow on the
+published source as well as the candidate. The repair-role fixture had inserted
+an unreserved low-level permit that correctly lacked managed destination-boot
+authority. It now uses actual capacity qualification and canonical resource-backed
+movement admission, preserving learner/joint/RF3 and SQL assertions. The large
+isolated-removal scenario now boxes its test future on the default stack. Both
+cohorts pass on the final source. No timeout, retry, stack/startup limit, resource
+bound or assertion was relaxed.
+
+The previously failing cancel-and-restart operator case passes in the current
+nine-case cohort. The cause of its intermittent quorum Unavailable remains
+unproven; explicit waiting is an operational improvement, not a claim that the
+underlying availability issue was fixed. Full release qualification remains open.
+The parent source `90529386` passes the full Linux Node SDK workflow, confirming
+the declared-port correction. Its Rust SDK CI failed three event-delivery cases
+in [Python 3.14](https://github.com/crabbuild/cellar/actions/runs/40511364732/job/122213834852)
+and one in [3.14t](https://github.com/crabbuild/cellar/actions/runs/40511364732/job/122213835367),
+including ambiguous RPC results and lease-expiry shutdown. These are retained
+release gaps; no full-CI pass is claimed.
+
+Next deliver the maintenance workflow as a vertical feature: fresh RestartReady
+(M5), separate exact-process guarded stop/join, retained-engine return under a
+fresh process, catch-up and verified resume before slot release (M6–M9), with
+SDK/admin/CLI access. Then complete rolling/grace/second-failure policy,
+production failure classification/isolation, load-aware leadership balancing and
+desired capacity/resize. Resource-enforced RustFS/Colima performance, failure and
+soak qualification remains required. The full goal stays active; these native
+fault-store runs make no deployed TPS or p99 claim.
+
 ## Guarded restart leadership reconciliation
 
 Source `4eaeda94` includes the handoff implementation in `1119c6a6` and the
@@ -80,7 +145,7 @@ complete old-head qualification and does not establish causality.
 The published Node lifecycle fixture now requests its declared port 8080.
 Previously its ephemeral listener worked through macOS port mapping while Linux
 connected directly to port 8080. The full module suite passes on macOS with Node
-24.19.0. [Linux CI confirmation remains required](https://github.com/crabbuild/cellar/actions/runs/40491368648/job/122145853242).
+24.19.0. The subsequent [Linux workflow passes](https://github.com/crabbuild/cellar/actions/runs/40511364597), confirming the fixture correction.
 The previous published head also has
 [event-delivery CI failures](https://github.com/crabbuild/cellar/actions/runs/40491368640/job/122146532958)
 with ambiguous RPC results; those remain separate release gaps. No full-CI pass

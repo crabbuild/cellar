@@ -34,8 +34,12 @@ requests an eligible transfer when needed, and retains the history until a
 survivor is observed as leader. Queued work rechecks the synced gate and an
 expiry measured by the Raft owner's clock. Final proof renewal and RestartReady,
 stop/rejoin, rolling execution, maintenance operator surfaces and resize remain
-delivery targets. Departure observation failures and deployed qualification
-remain open; the [progress log](progress.md) records their exact limits.
+delivery targets. Graceful departure now reports typed proof waiting without
+consuming a history or releasing the disruption slot. Status retains local progress
+only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
+native qualification passes, while the underlying intermittent observation cause
+and deployed qualification remain open; the [progress log](progress.md) records
+their exact limits.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

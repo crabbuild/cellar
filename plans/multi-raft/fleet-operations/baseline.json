@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "4eaeda9486351b932ace10973a6e72ce6085fb4a",
+  "revision": "cbf19149cb7a2163568273112a265a2c9899cfd1",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -292,7 +292,7 @@
     },
     {
       "path": "crates/cellar/fleet/management/mod.rs",
-      "sha256": "52e1bbe7ae44d49751e91d9b251d6e827a31965fdc9007b5d6cc1eda0329594b"
+      "sha256": "2b59f01df1946847713ce3cc022fbad2b263ac2a3af71a022cd6a917bb26eda6"
     },
     {
       "path": "crates/cellar/fleet/management/nodes.rs",
@@ -340,7 +340,7 @@
     },
     {
       "path": "crates/cellar/sdk.rs",
-      "sha256": "fd686f06bcf1230ba71f21a8ca3465b82f5162247fb4ed9ddfdd9b1b959670ec"
+      "sha256": "4742c3f526b105401b196e055c553145ca23d430c42b52a0ee7bb4d9a35fe673"
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",
