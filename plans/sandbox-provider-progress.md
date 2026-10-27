@@ -2274,3 +2274,41 @@ qualification remain separate evidence; the passing rerun does not establish a f
 No lease, operation, handler or heartbeat deadline has changed. The optional
 entrypoint delivery and this connection-lifetime correction remain partial
 SP-02/SP-07 and qualification work; the full provider goal stays open.
+
+## Integrate current main without losing sandbox admission
+
+Main advanced to `784edc1b` with the recovery pipeline and named-RPC admission
+changes. The merge preserves bounded RPC control decoding and its native-future
+reservation alongside the sandbox's event-owned observations, transaction
+refusals, cleanup and native Worker service routing. Both branches' lifecycle
+changes use the published port 8080; the richer stage diagnostics are retained.
+
+Main's RPC transport advertises its receiving idle interval and retires cached
+senders before expiry, using the originating domain's clock. Its deterministic
+idle-reuse control targets the same boundary as the direct consumer-overlap
+failure recorded above. It does not authorize replay after a submitted call's
+reply is lost. This is upstream implementation evidence, distinct from a passing
+isolated rerun or complete release qualification.
+
+| Post-merge campaign | Result |
+| --- | --- |
+| Shared guest / allocation | 26 pass |
+| Native peer tunnels | 25 pass, including idle-reuse, original-domain retirement, reply admission and submitted-reply-loss controls |
+| Node / V8 runtime | All 83 library checks pass |
+| Container, Worker and typed RPC | 32 integration cases pass, including the new entrypoints, actual published lifecycle hooks, HTTP/stream transfers and generated Rust/V8/Node calls across restart |
+| Native receipt races | Both consumer-overlap cases and all three settlement races pass at the original bounds |
+| Fault proxy | All 13 controls pass |
+| Python | Actual embedded CPython typed-RPC harness passes |
+| JavaScript / inputs | All 129 tooling cases, TypeScript contracts, both pinned input checks and fixture builds pass |
+
+This is 184 Rust tests plus the Python RPC harness. The earlier broad pre-merge
+campaign remains recorded as 95 passes and one peer-reset failure; this targeted
+post-merge campaign does not replace full Linux qualification.
+
+The first post-merge named-RPC control hit its unchanged 250 ms host deadline
+before the required RPC fixtures had been rebuilt from current main. Rebuilding
+those fixtures and rerunning passes both generated-RPC tests. This does not
+establish a cold-first-call performance fix, and the original deadline remains
+unchanged. Fresh SDK/JavaScript CI, cold recovery and heartbeat qualification
+remain required. Positive R2 backup/mount work and the full provider goal remain
+open; no VM or live cloud-account campaign was rerun for this merge.

@@ -523,7 +523,7 @@ pub use crate::raft::{
     vote_resp_msg_type, Raft, SoftState, StateRole, CAMPAIGN_ELECTION, CAMPAIGN_PRE_ELECTION,
     CAMPAIGN_TRANSFER, INVALID_ID, INVALID_INDEX,
 };
-pub use confchange::{Changer, MapChange};
+pub use confchange::{restore as restore_configuration, Changer, MapChange};
 pub use config::Config;
 pub use errors::{Error, Result, StorageError};
 pub use log_unstable::Unstable;

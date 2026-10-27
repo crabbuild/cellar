@@ -94,3 +94,75 @@ async fn poisoned_observations_are_unavailable_and_never_break_the_work() -> any
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn recovery_observations_have_distinct_phases_and_minute_scale_buckets() -> anyhow::Result<()>
+{
+    let (domain, registry) = registry().await?;
+    let snapshot = registry.snapshot();
+    for name in [
+        "recovery_authorize",
+        "recovery_peer_fetch",
+        "recovery_peer_receive",
+        "recovery_append_queue",
+        "recovery_append",
+        "recovery_archive_fetch",
+        "recovery_peer_verify",
+        "recovery_archive_replay",
+        "recovery_install",
+        "recovery_archive_wait",
+        "snapshot_encode_queue",
+    ] {
+        assert!(
+            snapshot.operations.iter().any(|sample| sample.name == name),
+            "missing recovery phase {name}"
+        );
+    }
+    for us in [60_000_000, 120_000_000, 1_383_780_000] {
+        registry.record(Operation::SnapshotEncode, Some(true), Some(us));
+    }
+    let snapshot = registry.snapshot();
+    let sample = &snapshot.operations[Operation::SnapshotEncode as usize];
+    for (bound, count) in [(60_000_000, 1), (120_000_000, 2), (1_800_000_000, 3)] {
+        assert_eq!(
+            sample
+                .buckets
+                .iter()
+                .find(|bucket| bucket.upper_us == Some(bound))
+                .map(|bucket| bucket.count),
+            Some(count)
+        );
+    }
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn measured_futures_distinguish_failure_from_cancellation() -> anyhow::Result<()> {
+    use futures_util::FutureExt as _;
+    let (domain, registry) = registry().await?;
+    let result = registry
+        .measure(Operation::RecoveryPeerFetch, async {
+            Err::<(), _>("refused")
+        })
+        .await;
+    assert_eq!(result, Err("refused"));
+    let pending = registry.measure(
+        Operation::RecoveryPeerFetch,
+        std::future::pending::<Result<(), ()>>(),
+    );
+    assert!(pending.now_or_never().is_none());
+    let snapshot = registry.snapshot();
+    let sample = &snapshot.operations[Operation::RecoveryPeerFetch as usize];
+    assert_eq!(
+        (
+            sample.started,
+            sample.failed,
+            sample.abandoned,
+            sample.succeeded
+        ),
+        (2, 1, 1, 0)
+    );
+    domain.shutdown().await;
+    Ok(())
+}

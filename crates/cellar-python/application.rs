@@ -500,8 +500,12 @@ impl PythonApplication {
                         let _mutation = mutation;
                         let _reservation = reservation;
                         let _rpc = rpc;
-                        let result = match serde_json::from_str(&payload) {
-                            Ok(payload) if name == "cell.call" => {
+                        let result = match cellar_guest::operations::decode_metadata_with(
+                            &name,
+                            &payload,
+                            |bytes| self.runtime.budget.reserve(bytes),
+                        ) {
+                            Ok((payload, _control_bytes)) if name == "cell.call" => {
                                 operations::call(
                                     context,
                                     &self.source.rpc,
@@ -512,7 +516,7 @@ impl PythonApplication {
                                 )
                                 .await
                             }
-                            Ok(payload) => {
+                            Ok((payload, _control_bytes)) => {
                                 operations::execute(
                                     context,
                                     state,
@@ -523,9 +527,7 @@ impl PythonApplication {
                                 )
                                 .await
                             }
-                            Err(error) => {
-                                Err(anyhow::Error::from(error).context(crate::failure::Validation))
-                            }
+                            Err(error) => Err(error),
                         };
                         observation.complete(result.is_ok());
                         let encoded = crate::failure::result(

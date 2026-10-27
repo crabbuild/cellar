@@ -24,6 +24,8 @@ pub struct Visit {
 pub struct Returned {
     pub visit: Visit,
     pub count_matching_storage: Option<String>,
+    pub stored_count: Option<String>,
+    pub valid_reply_message_bytes: Option<usize>,
     pub transaction_open: Option<bool>,
     pub write_position: Option<u64>,
 }
@@ -119,6 +121,29 @@ impl Audit {
         } else {
             None
         };
+        let mut stored_count = count_matching_storage.clone();
+        let mut valid_reply_message_bytes = None;
+        if method.ends_with("/Increment") {
+            if let Output::Rpc(reply) = output {
+                if let Ok(bytes) = rpc::decode_reply(contract.digest(), reply, contract.limits()) {
+                    if contract
+                        .validate_message("example.counter.v1.IncrementResponse", &bytes)
+                        .is_ok()
+                    {
+                        valid_reply_message_bytes = Some(bytes.len());
+                        // Large valid business-error replies deliberately test
+                        // transport refusal after a count/receipt commit. Keep
+                        // payloads out of the audit and read only the count.
+                        if stored_count.is_none() && bytes.len() >= 64 * 1024 {
+                            stored_count = context
+                                .storage()?
+                                .get_json("count")?
+                                .and_then(|value| value.as_str().map(str::to_owned));
+                        }
+                    }
+                }
+            }
+        }
         let sample = context
             .identity()
             .map(|id| cellar::storage::sync_sample(&id.scope))
@@ -141,6 +166,8 @@ impl Audit {
                 method: method.into(),
             },
             count_matching_storage,
+            stored_count,
+            valid_reply_message_bytes,
             transaction_open: sample.as_ref().map(|sample| sample.in_transaction),
             write_position: sample.map(|sample| sample.position),
         });

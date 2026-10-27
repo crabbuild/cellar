@@ -693,6 +693,7 @@ async fn initialize(
                                         &birth,
                                         class.schema_digest(),
                                         limits,
+                                        storage.rooted.as_ref().map(|root| root.store.clone()),
                                     )
                                     .await?;
                                 Action::SealSeed {
@@ -705,7 +706,14 @@ async fn initialize(
                             let Value::Seeded(seed) = output.value else {
                                 anyhow::bail!("SQL seed response")
                             };
-                            service.log.create_seeded(*seed).await?;
+                            service
+                                .log
+                                .performance()
+                                .measure(
+                                    super::performance::Operation::RecoveryInstall,
+                                    service.log.create_seeded(*seed),
+                                )
+                                .await?;
                             namespace
                                 .resume_joined(&birth, &service.log, member)
                                 .await?
@@ -718,6 +726,7 @@ async fn initialize(
                 }
             };
             let group = service.log.group(&scope)?;
+            let extent_store = storage.rooted.as_ref().map(|root| root.store.clone());
             let output = pool
                 .call(
                     worker,
@@ -771,7 +780,8 @@ async fn initialize(
                     worker,
                     namespace.minimum_durability(),
                     class.schema_digest(),
-                )?,
+                )?
+                .with_extents(extent_store),
             );
             permit.attach(&service.runtime).await?;
         }
@@ -1031,6 +1041,7 @@ struct Pending {
 }
 
 struct Cell {
+    extents: Option<cellar_ltx::internal::NodeExtentStore>,
     birth: GroupBirth,
     route_revision: LogIndex,
     configuration: Option<membership::PendingConfiguration>,
@@ -1246,6 +1257,9 @@ impl Driver {
             if result.is_err() {
                 read.request.control.cancel();
             }
+            if let Some(timer) = read.archive_wait.take() {
+                timer.finish(result.is_ok());
+            }
             reply(&mut read.request, result);
         }
     }
@@ -1351,6 +1365,13 @@ impl Driver {
                             continue;
                         }
                         if *kind == super::transport::seeds::SeedKind::S3 {
+                            // One owner spans all metadata retries and waiting
+                            // for the archive to cover this exact ReadIndex.
+                            read.archive_wait.get_or_insert_with(|| {
+                                self.local
+                                    .performance
+                                    .timer(super::performance::Operation::RecoveryArchiveWait)
+                            });
                             let archive = cell.archive.clone().with_read_retention(charge.clone());
                             read.phase = ReadPhase::Executing;
                             self.jobs.push(Box::pin(async move {
@@ -3011,12 +3032,13 @@ impl Driver {
             // Each cut remains in inflight, and retains its capture permit,
             // until this entire publication returns through on_job.
             let verifier = owner.verifier.clone();
+            let prepared = self.transport.prepared_snapshot_cache();
             let timer = self
                 .local
                 .performance
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                let completed = super::host_archive::publish(pending, verifier).await;
+                let completed = super::host_archive::publish(pending, verifier, prepared).await;
                 timer.finish(
                     !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
                 );
@@ -3075,6 +3097,19 @@ impl Driver {
                 } in completed
                 {
                     use super::performance::Counter;
+                    if let Err(error) = &result {
+                        // Expected publication contention is common. Keep the
+                        // typed cause available for diagnosis without warning
+                        // on each advisory deferral or changing retry policy.
+                        tracing::debug!(
+                            event = "raft_archive_publication_failure",
+                            node = ?self.log.limits().node,
+                            group = ?scope.group,
+                            index = position.index.get(),
+                            error = ?error,
+                            "Raft archive publication did not confirm the cut"
+                        );
+                    }
                     self.local.performance.increment(
                         if result.is_ok() {
                             Counter::ArchivePublicationCutSucceeded

@@ -101,7 +101,15 @@ impl Initializer {
             data_address: peer.data_address,
             query_address: peer.query_address,
         };
-        let options = SeedOptions { limits, deadline };
+        let options = SeedOptions {
+            limits,
+            deadline,
+            extents: dormant
+                .storage
+                .rooted
+                .as_ref()
+                .map(|root| root.store.clone()),
+        };
         let action = if activation.from_s3 {
             let archive = dormant
                 .namespace
@@ -143,7 +151,12 @@ impl Initializer {
         let Value::Seeded(seed) = output.value else {
             anyhow::bail!("standby SQL seed response")
         };
-        log.create_seeded(*seed).await?;
+        log.performance()
+            .measure(
+                super::super::performance::Operation::RecoveryInstall,
+                log.create_seeded(*seed),
+            )
+            .await?;
         transport
             .seed_control_until(deadline, async {
                 Ok(dormant
@@ -157,6 +170,14 @@ impl Initializer {
 }
 
 impl Cell {
+    pub(super) fn with_extents(
+        mut self,
+        store: Option<cellar_ltx::internal::NodeExtentStore>,
+    ) -> Self {
+        self.extents = store;
+        self
+    }
+
     pub(super) fn recovered(
         group: GroupLog,
         birth: GroupBirth,
@@ -169,6 +190,7 @@ impl Cell {
         let progress = progress(&group, image.as_ref(), LogIndex::new(0))?
             .ok_or_else(|| anyhow::anyhow!("unverified recovered image"))?;
         Ok(Self {
+            extents: None,
             birth,
             route_revision: group.membership()?.revision(),
             configuration: None,
@@ -441,7 +463,14 @@ impl Driver {
                         dormant.worker,
                         dormant.namespace.minimum_durability(),
                         dormant.class.schema_digest(),
-                    )?;
+                    )?
+                    .with_extents(
+                        dormant
+                            .storage
+                            .rooted
+                            .as_ref()
+                            .map(|root| root.store.clone()),
+                    );
                     self.transport.install_group(membership::route(
                         &cell.group,
                         &cell.birth,

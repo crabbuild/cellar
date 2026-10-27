@@ -200,9 +200,47 @@ base64 in the JSON envelope, so choosing the byte path does not bypass the limit
 | JSON nesting | Depth at most 64, with the root at depth zero. |
 | Encoded result | The adapter passes a byte limit to `failure::result` or `result_parts`; allow at least `MIN_RESULT_BYTES` (128) for fixed failure envelopes. |
 
-For a binary result, charged size is `encoded_metadata_bytes + 4 * ceil(body_bytes / 3)`.
+For an HTTP binary result, charged size is `encoded_metadata_bytes + 4 * ceil(body_bytes / 3)`.
 Oversized or invalid results can be detected **after** a native effect; rejecting
 the result does not establish that the effect rolled back.
+
+## Named RPC controls and binary messages
+
+Named `cell.call` uses a small JSON control object and a separate Protobuf body:
+
+```text
+binding + name + method + contract_digest + optional timeout_ms
+                            |
+                raw UTF-8 at most 16 KiB
+                            |
+                reserve decode allowance
+                            |
+                known, unique, flat fields
+                            |
+original invocation + immutable contract + raw Protobuf body
+                            |
+               native routing and output proof
+```
+
+Both language adapters use `operations::decode_metadata_with` before native
+dispatch. Oversized wire input fails before JSON parsing or reservation; unknown
+fields fail before reading their values. Duplicate fields, wrong types and
+invalid timeouts also fail. Direct owned-value callers share the shape and
+serialized-size checks, without allocating a second serialized buffer.
+
+The adapter reserves three times the wire length plus 1,024 bytes for decoded
+strings, parser scratch (including vector growth) and flat layout, in addition
+to the existing encoded-input charge. It retains this lease until native work
+settles, including when a guest stops awaiting its call. Parse errors return it
+immediately. This conservative
+allowance does not measure exact allocator usage, guest heaps or process RSS.
+Python emits UTF-8 JSON for this control only; ordinary SDK values keep their
+existing encoding and limits.
+
+Typed RPC result budgeting counts `encoded_metadata_bytes + raw_body_bytes`.
+Its binary body does not construct a base64 representation. See the
+[live metadata refusal suite](../../tools/rpc/README.md#guest-call-metadata-refusals)
+for language and routing coverage.
 
 ## Read failures without guessing whether a write committed
 
@@ -223,7 +261,9 @@ SQL, request contents, and local paths out of replies.
 
 | Failure | Code / outcome | Meaning |
 | --- | --- | --- |
-| Shared validation fails before native effects | `ValidationError / not_committed` | The operation was rejected before execution. |
+| Shared validation fails before ordinary SDK effects | `ValidationError / not_committed` | The operation was rejected before execution. |
+| Named RPC control validation fails before dispatch | `InvalidArgument / not_committed` | No native child call was submitted. |
+| Named RPC control cannot reserve decode capacity | `ResourceExhausted / not_committed` | No native child call was submitted. |
 | A checked batch finds a changed snapshot | `Conflict / not_committed` | This batch applied no mutations; reconsider it using fresh state. |
 | Native routing reports lost ownership | `OwnershipLost / unknown` | Ownership loss does not prove rollback. |
 | A submitted call reports capacity or application overload | `Overloaded / unknown` | A nested call may have been refused after earlier effects committed. |
@@ -251,6 +291,9 @@ the owning adapter; see its guide for that additional error contract.
 | --- | --- |
 | [lib.rs](lib.rs) | Public modules and shared `Limits`. |
 | [operations.rs](operations.rs) | Operation dispatch, payload validation, read classification, and event state. |
+| [rpc_control.rs](rpc_control.rs) | Flat named-RPC metadata decoding, validation and pre-parse storage allowance. |
+| [rpc_control_tests.rs](rpc_control_tests.rs) | Wire/shape extremes, lease cleanup and refusal provenance. |
+| [tests/rpc_control_allocation.rs](tests/rpc_control_allocation.rs) | Actual decoder allocation layouts, including scratch growth for escaped strings. |
 | [containers.rs](containers.rs) | Container operation validation, native handles and invocation resource cleanup. |
 | [storage.rs](storage.rs) | Checked batch validation and one-transaction application. |
 | [values.rs](values.rs) | Buffered HTTP conversion, byte accounting, JSON depth, and queue body conversion. |

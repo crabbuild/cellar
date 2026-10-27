@@ -129,7 +129,11 @@ pub(super) fn next_scope<'a, T>(
     next.map(|(scope, _)| scope)
 }
 
-pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
+pub(crate) async fn publish(
+    captured: Vec<Captured>,
+    verifier: ArchiveVerifier,
+    prepared: super::snapshot::prepared::Cache,
+) -> Vec<Completed> {
     let expected: Vec<_> = captured
         .iter()
         .map(|capture| (capture.scope.clone(), capture.cut.position()))
@@ -140,7 +144,7 @@ pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) 
     // so none of those synchronous closes can occupy the driver's poll stack.
     // The driver joins the worker before releasing its producer slot.
     let producer = crate::asyncrt::try_blocking(move || {
-        crate::asyncrt::block_on(publish_owned(captured, verifier))
+        crate::asyncrt::block_on(publish_owned(captured, verifier, prepared))
     });
     let result = match producer {
         Ok(producer) => producer.await.map_err(|error| {
@@ -164,7 +168,11 @@ pub(crate) async fn publish(captured: Vec<Captured>, verifier: ArchiveVerifier) 
     }
 }
 
-async fn publish_owned(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Vec<Completed> {
+async fn publish_owned(
+    captured: Vec<Captured>,
+    verifier: ArchiveVerifier,
+    prepared: super::snapshot::prepared::Cache,
+) -> Vec<Completed> {
     let mut identities = Vec::with_capacity(captured.len());
     let mut reservations = Vec::with_capacity(captured.len());
     let inputs = captured
@@ -192,6 +200,9 @@ async fn publish_owned(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Ve
         .into_iter()
         .zip(results)
         .map(|((scope, position), result)| {
+            if let Err(error) = &result {
+                release_idle_source_on_scratch_pressure(&prepared, error);
+            }
             let result = result.and_then(|set| {
                 if set.scope() != &scope
                     || set.position().index < position.index
@@ -212,6 +223,18 @@ async fn publish_owned(captured: Vec<Captured>, verifier: ArchiveVerifier) -> Ve
     // Physical cleanup precedes capture refund, on this same blocking owner.
     drop(reservations);
     completed
+}
+
+/// Called by the admitted physical publisher after failed payload cleanup.
+/// A reusable idle source must not permanently occupy a small scratch bank.
+/// Live consumers keep their files; the original typed failure/retry remains.
+pub(super) fn release_idle_source_on_scratch_pressure(
+    prepared: &super::snapshot::prepared::Cache,
+    error: &ArchiveError,
+) {
+    if error.scratch_full() {
+        let _ = prepared.trim_idle();
+    }
 }
 
 impl Owner {

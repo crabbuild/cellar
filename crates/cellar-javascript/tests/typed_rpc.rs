@@ -61,6 +61,8 @@ mod counter;
 #[allow(dead_code)]
 #[path = "../../../tools/rpc/fixtures/generated/rust/example.counter.v1.rs"]
 mod generated;
+#[path = "support/joined_node.rs"]
+mod joined_node;
 #[path = "support/native.rs"]
 mod native;
 
@@ -236,7 +238,7 @@ fn generated_named_methods_work_across_rust_v8_and_node_with_restart_receipts() 
         ..Default::default()
     };
     JavaScriptRuntime::run(options.clone(), source, |v8| {
-        NodeRuntime::run(
+        joined_node::run(
             options,
             NodeOptions::new(root.join("tools/rpc/dist/node/node.mjs").canonicalize()?),
             node_source,
@@ -257,6 +259,9 @@ fn generated_named_methods_work_across_rust_v8_and_node_with_restart_receipts() 
                     let (host, base) = native::start_with(directory.path(), app,
                         vec!["RustCounter".into(), "V8Counter".into(), "NodeCounter".into()],
                         vec![("RUST".into(), "RustCounter".into()), ("V8".into(), "V8Counter".into()), ("NODE".into(), "NodeCounter".into())]).await?;
+                    // Returned request failures must join the native owner
+                    // before either JavaScript runtime is torn down.
+                    let result = async {
                     for target in ["rust", "v8", "node"] {
                         let before = if target == "rust" {None} else {Some(request(&client, &base, &format!("/{target}/constructors")).await?)};
                         assert_eq!(request(&client, &base, &format!("/rust/preflight?target={target}")).await?, serde_json::json!({"refused":true}));
@@ -312,7 +317,11 @@ fn generated_named_methods_work_across_rust_v8_and_node_with_restart_receipts() 
                             }
                         }
                     }
-                    let NodeOutcome::Stopped(report) = host.shutdown(ShutdownMode::Preserve).await? else {anyhow::bail!("native RPC host failed")};
+                    Ok::<_, anyhow::Error>(())
+                    }.await;
+                    let shutdown = host.shutdown(ShutdownMode::Preserve).await;
+                    result.with_context(|| format!("named RPC round={round}, shutdown={shutdown:?}"))?;
+                    let NodeOutcome::Stopped(report) = shutdown? else {anyhow::bail!("native RPC host failed")};
                     ensure!(report.ingress_drained && report.application_work_drained && report.cells_drained && !report.drain_timed_out);
                 }
                 Ok(())

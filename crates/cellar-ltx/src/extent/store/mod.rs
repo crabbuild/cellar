@@ -204,6 +204,13 @@ pub struct NodeExtentStore {
     inner: Arc<Inner>,
 }
 
+impl NodeExtentStore {
+    /// Compare exact open inventory owners without granting access or doing I/O.
+    pub fn same_inventory(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
 struct Operation {
     inner: Arc<Inner>,
     complete: bool,
@@ -306,6 +313,30 @@ impl RootView {
 
     pub fn manifest(&self) -> &ExtentManifest {
         &self.data.manifest
+    }
+
+    /// Read one complete dependency on the caller's blocking owner. The caller
+    /// admits its at-most-4-MiB output before calling. No bytes escape until
+    /// their full extent identity has matched; inventory membership alone is
+    /// insufficient, including after this view was sealed or reopened.
+    pub fn read_extent(&self, id: ExtentId) -> Result<Vec<u8>, StoreError> {
+        if !self.data.objects.contains(&id) {
+            return Err(StoreError::Missing);
+        }
+        let mut bytes = Vec::with_capacity(id.length() as usize);
+        publication::read_object(&self.inner, id, |offset, chunk| {
+            if offset != bytes.len() as u64
+                || bytes
+                    .len()
+                    .checked_add(chunk.len())
+                    .is_none_or(|end| end > id.length() as usize)
+            {
+                return Err(StoreError::Integrity);
+            }
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        })?;
+        Ok(bytes)
     }
 
     /// The caller owns this separate cache directory and scratch budget. Keep

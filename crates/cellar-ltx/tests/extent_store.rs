@@ -197,6 +197,35 @@ fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() 
 }
 
 #[test]
+fn whole_extent_reads_are_bound_to_the_pinned_root_and_bounded_file_windows() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let mut source = DirectFileSystem.open(&f.source).unwrap();
+    for (id, offset) in &f.objects {
+        let bytes = sealed.view().read_extent(*id).unwrap();
+        assert_eq!(
+            bytes,
+            source.read_exact_at(*offset, id.length() as usize).unwrap()
+        );
+        assert_eq!(ExtentId::of(&bytes).unwrap(), *id);
+    }
+    let foreign = vec![55; 512];
+    let id = ExtentId::of(&foreign).unwrap();
+    store
+        .put_extent(id, |offset, count| {
+            Ok(foreign[offset as usize..offset as usize + count].to_vec())
+        })
+        .unwrap();
+    assert!(matches!(
+        sealed.view().read_extent(id),
+        Err(StoreError::Missing)
+    ));
+    assert!(f.files.metrics.max_read.load(Ordering::Acquire) <= 65536);
+}
+
+#[test]
 fn staged_metadata_never_claims_missing_data_is_sealed_and_can_be_hydrated_later() {
     let f = Fixture::new(0);
     let store = f.store();

@@ -137,6 +137,11 @@ pub fn increment_with_checkpoint(
         if !request.operation_id.starts_with("proof-no-sync-") {
             storage.sync().await.map_err(internal)?;
         }
+        if applied && request.operation_id.starts_with("held-reply-quota-") {
+            // Valid generated output after durable count/receipt writes. The
+            // receiving transport, rather than the codec, must bound this reply.
+            return Ok(rejected(&"x".repeat(64 * 1024)));
+        }
         if applied && request.operation_id == "oversized-reply" {
             // Deliberate qualification-only bug after durable count/receipt
             // writes. The generated encoder must refuse with unknown effects;

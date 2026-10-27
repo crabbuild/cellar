@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 # Configure once. CPython allocates recursion/circular-reference state inside
 # each encode call; the encoder retains neither request values nor results.
 _value_encoder = _json.JSONEncoder(allow_nan=False, separators=(",", ":"))
+_rpc_control_encoder = _json.JSONEncoder(allow_nan=False, ensure_ascii=False, separators=(",", ":"))
 
 
 JSON: TypeAlias = type(None) | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
@@ -70,6 +71,15 @@ def _encode(value):
         return _value_encoder.encode(value)
     except (ValueError, TypeError, RecursionError) as error:
         raise ValidationError("Unsupported Cellar value") from error
+
+
+def _encode_rpc_control(value):
+    """Use UTF-8 wire bytes for the shared RPC control limit across languages."""
+    try:
+        _check_value(value)
+        return _rpc_control_encoder.encode(value)
+    except (ValueError, TypeError, RecursionError) as error:
+        raise ValidationError("Unsupported RPC control", "InvalidArgument", "not_committed") from error
 
 
 def _encode_response(value):
@@ -802,7 +812,7 @@ class Context:
         future = asyncio.get_running_loop().create_future()
         self._pending[sequence] = future
         try:
-            encoded = _encode(payload)
+            encoded = _encode_rpc_control(payload) if operation == "cell.call" else _encode(payload)
             try:
                 if _rpc_budget is not None:
                     self._bridge.submit(sequence, operation, encoded, _body, rpc_budget=_rpc_budget)
@@ -813,6 +823,8 @@ class Context:
             except BlockingIOError as error:
                 raise Overloaded(outcome="not_committed") from error
             except ValueError as error:
+                if operation == "cell.call":
+                    raise ValidationError("Invalid RPC control", "InvalidArgument", "not_committed") from error
                 raise ValidationError() from error
             except RuntimeError as error:
                 if str(error) == "ContextMismatch":

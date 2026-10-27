@@ -81,6 +81,7 @@ pub(crate) struct PendingRead {
     pub barrier_attempt: u64,
     pub barrier_retry_at: u64,
     pub leader_check: u64,
+    pub archive_wait: Option<crate::raft::performance::Timer>,
 }
 
 impl PendingRead {
@@ -146,6 +147,7 @@ impl PendingRead {
             barrier_attempt: 0,
             barrier_retry_at: 0,
             leader_check: 0,
+            archive_wait: None,
         }
     }
 

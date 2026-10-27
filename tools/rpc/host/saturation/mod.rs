@@ -18,6 +18,7 @@ const OWNER: &str = "saturation-owner";
 enum Side {
     Source,
     Receiver,
+    ReceiverReply,
 }
 
 impl Side {
@@ -25,6 +26,7 @@ impl Side {
         match self {
             Self::Source => "source",
             Self::Receiver => "receiver",
+            Self::ReceiverReply => "receiver-reply",
         }
     }
 
@@ -38,7 +40,7 @@ impl Side {
                 config.max_outbound_rpc_requests = requests;
                 config.max_outbound_rpc_bytes = bytes;
             }
-            Self::Receiver => {
+            Self::Receiver | Self::ReceiverReply => {
                 config.max_inbound_rpc_requests = requests;
                 config.max_inbound_rpc_bytes = bytes;
             }
@@ -123,7 +125,7 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -
             bucket.clone(),
             None,
             |config, _| {
-                if !remote || side == Side::Receiver {
+                if !remote || side != Side::Source {
                     side.configure(&mut config.runtime, limit);
                 }
                 Ok(())
@@ -194,8 +196,12 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
         (Side::Source, false),
         (Side::Source, true),
         (Side::Receiver, true),
+        (Side::ReceiverReply, true),
     ] {
         for limit in [Limit::Requests, Limit::Bytes] {
+            if side == Side::ReceiverReply && matches!(limit, Limit::Requests) {
+                continue;
+            }
             let report = topology(app.clone(), remote, limit, side).await?;
             cases.extend(
                 report
@@ -207,7 +213,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
         }
     }
     ensure!(
-        cases.len() == 96,
+        cases.len() == 112,
         "source/receiver saturation matrix incomplete"
     );
     Ok(

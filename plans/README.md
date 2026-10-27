@@ -11,6 +11,11 @@ qualification plans, source drift checks and an executable task inspector.
 MR-01 through MR-12 are implemented at their recorded native boundaries;
 MR-13 is in progress and MR-14 through MR-17 remain open.
 
+The [10 GB recovery-time strategy](multi-raft/010-large-cell-recovery-time.md) proposes
+bounded complete restoration, incremental activation and hard-failure qualification.
+RT-01 is in progress and RT-02 through RT-06 remain TODO; its 120-second and
+30-second targets are unqualified.
+
 ## Runtime integration proposals
 
 | Design | Status | Scope |
