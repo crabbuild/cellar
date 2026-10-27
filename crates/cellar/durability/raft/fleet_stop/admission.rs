@@ -82,3 +82,37 @@ pub(crate) struct Command {
 
 pub(crate) type Sender = mpsc::Sender<Command>;
 pub(crate) type Receiver = mpsc::Receiver<Command>;
+
+/// Receiver-owned access to the actual synced guard and reversible barriers.
+/// This capability is never serialized or supplied by a stop requester.
+#[derive(Clone)]
+pub(crate) struct LocalQuiescence {
+    log: crate::raft::storage::ReplicaLog,
+    admission: std::sync::Arc<Admission>,
+}
+
+impl LocalQuiescence {
+    pub(crate) fn new(
+        log: crate::raft::storage::ReplicaLog,
+        admission: std::sync::Arc<Admission>,
+    ) -> Self {
+        Self { log, admission }
+    }
+
+    pub(crate) fn check(&self, selector: &StopSelector) -> Result<(), FleetCatalogError> {
+        let guard = self
+            .log
+            .lifecycle_guard()
+            .map_err(|_| FleetCatalogError::Closed)?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if guard.boot != selector.boot
+            || guard.quiescing() != Some(selector)
+            || !self.admission.matches(selector)
+            || !self.admission.public_closed()
+            || !self.admission.raft_closed()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+}

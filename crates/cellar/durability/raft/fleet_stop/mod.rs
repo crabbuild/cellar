@@ -7,7 +7,7 @@ mod records;
 mod reporter;
 
 pub(crate) use admission::{
-    Admission as MaintenanceAdmission, Command as MaintenanceCommand,
+    Admission as MaintenanceAdmission, Command as MaintenanceCommand, LocalQuiescence,
     Receiver as MaintenanceReceiver, Sender as MaintenanceSender,
 };
 pub(crate) use closure::Sink;

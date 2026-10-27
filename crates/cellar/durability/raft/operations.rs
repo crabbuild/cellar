@@ -349,6 +349,7 @@ impl Starting {
                     shutdown,
                     self.owner.maintenance.clone(),
                     self.owner.maintenance_dispatch.clone(),
+                    service.clone(),
                 )
                 .map_err(|_| CommandFailure::Unavailable)?,
             );

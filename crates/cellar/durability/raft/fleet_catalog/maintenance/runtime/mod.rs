@@ -9,6 +9,7 @@ mod proof;
 mod readiness;
 mod reconcile;
 mod records;
+mod stop;
 
 use super::gate::Gate;
 use super::*;
@@ -41,6 +42,7 @@ pub struct FleetRestartVerification {
     genesis_checked: std::collections::BTreeSet<NodeId>,
     // Monotonic clock of this catalog owner only; never persisted.
     oldest_matched_sample: Option<u64>,
+    local_quiescence: Option<crate::raft::fleet_stop::LocalQuiescence>,
 }
 
 /// Descriptive progress for the history just consumed, never a readiness lease.
@@ -169,6 +171,7 @@ impl FleetCatalog {
                 exhausted: false,
                 genesis_checked: std::collections::BTreeSet::new(),
                 oldest_matched_sample: None,
+                local_quiescence: None,
             })
         })
     }
@@ -462,13 +465,14 @@ impl FleetRestartVerification {
         {
             return Err(FleetCatalogError::InventoryIncomplete);
         }
-        let current = proof::physical(
+        let current = proof::physical_locally_quiesced(
             &catalog,
             &self.snapshot,
             &self.book.basis,
             &self.gate,
             &self.observer,
             deadline,
+            self.local_quiescence.as_ref(),
         )
         .await?;
         if current.digest() != self.book.physical {

@@ -40,6 +40,13 @@ pub struct FleetRestartReadyAdmission {
 }
 
 impl FleetRestartReadyAdmission {
+    pub(in crate::raft::fleet_catalog) async fn check_current(
+        &self,
+        catalog: &FleetCatalog,
+    ) -> Result<()> {
+        self.candidate.candidate.basis.check_current(catalog).await
+    }
+
     pub fn identity(&self) -> &FleetRequestIdentity {
         &self.record.request
     }
@@ -169,7 +176,7 @@ impl FleetRestartVerification {
         })
     }
 
-    fn check_ready_samples(&self, started: u64) -> Result<()> {
+    pub(super) fn check_ready_samples(&self, started: u64) -> Result<()> {
         if self.book.matched != self.book.voting
             || self.book.voting != 0 && self.oldest_matched_sample.is_none()
         {
@@ -193,91 +200,95 @@ impl FleetCatalog {
         timeout: Duration,
     ) -> Result<Option<FleetRestartReadyAdmission>> {
         validate_request(&request.identity)?;
-        self.run(timeout, async {
-            let current = self.inner.current().await?;
-            let Some(record) = self.ready_candidate(request).await? else {
-                return Ok(None);
-            };
-            let mutation = record.mutation()?;
-            let Some(applied) = self
-                .inner
-                .committed(
-                    &current.head,
-                    &hex::encode(record.request.id),
-                    hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?),
-                )
-                .await?
-            else {
-                return Ok(None);
-            };
-            let gate = self
-                .restart_gate_candidate_for_id(record.gate_parent, record.request.operation)
-                .await?
-                .ok_or(FleetCatalogError::Corrupt("restart readiness gate"))?;
-            let candidate = self
-                .inner
-                .read::<Candidate>(
-                    &format!("restart-candidates/{}", hex::encode(record.candidate)),
-                    records::CANDIDATE_KIND,
-                    records::LIMIT,
-                )
-                .await?
-                .ok_or(FleetCatalogError::Corrupt("restart readiness candidate"))?
-                .0;
-            if applied
-                != record
-                    .request
-                    .expected_revision
-                    .checked_add(1)
-                    .ok_or(FleetCatalogError::Limit)?
-                || record.format != 1
-                || record.input_root == [0; 32]
-                || record.gate_digest != gate.digest()?
-                || record.request.expected_revision <= gate.request.expected_revision
-                || record.request.expected_revision < candidate.basis.revision
-                || candidate.format != 1
-                || candidate.physical == [0; 32]
-                || candidate.count != candidate.basis.histories
-                || candidate.covered_physical > candidate.count
-                || candidate.voting.checked_add(candidate.retained)
-                    != Some(candidate.covered_physical)
-                || candidate.matched != candidate.voting
-                || candidate.index.is_none() != (candidate.count == 0)
-                || hash(&encode(
-                    records::CANDIDATE_KIND,
-                    &candidate,
-                    records::LIMIT,
-                )?) != record.candidate
-            {
-                return Err(FleetCatalogError::Corrupt("restart readiness receipt"));
-            }
-            candidate.basis.check_gate(&gate)?;
-            let gate_mutation = gate.mutation()?;
-            if self
-                .inner
-                .committed(
-                    &current.head,
-                    &hex::encode(gate.request.id),
-                    hash(&encode(REQUEST_KIND, &gate_mutation, REQUEST_LIMIT)?),
-                )
-                .await?
-                != gate.request.expected_revision.checked_add(1)
-            {
-                return Err(FleetCatalogError::Corrupt("restart readiness parent"));
-            }
-            Ok(Some(FleetRestartReadyAdmission {
-                boot: gate.node.boot_binding(gate.preparation.catalog)?,
-                epoch: gate.node.epoch,
-                candidate: FleetRestartRuntimeCandidate {
-                    digest: record.candidate,
-                    candidate,
-                },
-                record,
-                applied,
-                observed: current.revision(),
-            }))
-        })
-        .await
+        self.run(timeout, self.restart_readiness_inner(request))
+            .await
+    }
+
+    pub(in crate::raft::fleet_catalog) async fn restart_readiness_inner(
+        &self,
+        request: &FleetRestartReadyRequest,
+    ) -> Result<Option<FleetRestartReadyAdmission>> {
+        let current = self.inner.current().await?;
+        let Some(record) = self.ready_candidate(request).await? else {
+            return Ok(None);
+        };
+        let mutation = record.mutation()?;
+        let Some(applied) = self
+            .inner
+            .committed(
+                &current.head,
+                &hex::encode(record.request.id),
+                hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?),
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let gate = self
+            .restart_gate_candidate_for_id(record.gate_parent, record.request.operation)
+            .await?
+            .ok_or(FleetCatalogError::Corrupt("restart readiness gate"))?;
+        let candidate = self
+            .inner
+            .read::<Candidate>(
+                &format!("restart-candidates/{}", hex::encode(record.candidate)),
+                records::CANDIDATE_KIND,
+                records::LIMIT,
+            )
+            .await?
+            .ok_or(FleetCatalogError::Corrupt("restart readiness candidate"))?
+            .0;
+        if applied
+            != record
+                .request
+                .expected_revision
+                .checked_add(1)
+                .ok_or(FleetCatalogError::Limit)?
+            || record.format != 1
+            || record.input_root == [0; 32]
+            || record.gate_digest != gate.digest()?
+            || record.request.expected_revision <= gate.request.expected_revision
+            || record.request.expected_revision < candidate.basis.revision
+            || candidate.format != 1
+            || candidate.physical == [0; 32]
+            || candidate.count != candidate.basis.histories
+            || candidate.covered_physical > candidate.count
+            || candidate.voting.checked_add(candidate.retained) != Some(candidate.covered_physical)
+            || candidate.matched != candidate.voting
+            || candidate.index.is_none() != (candidate.count == 0)
+            || hash(&encode(
+                records::CANDIDATE_KIND,
+                &candidate,
+                records::LIMIT,
+            )?) != record.candidate
+        {
+            return Err(FleetCatalogError::Corrupt("restart readiness receipt"));
+        }
+        candidate.basis.check_gate(&gate)?;
+        let gate_mutation = gate.mutation()?;
+        if self
+            .inner
+            .committed(
+                &current.head,
+                &hex::encode(gate.request.id),
+                hash(&encode(REQUEST_KIND, &gate_mutation, REQUEST_LIMIT)?),
+            )
+            .await?
+            != gate.request.expected_revision.checked_add(1)
+        {
+            return Err(FleetCatalogError::Corrupt("restart readiness parent"));
+        }
+        Ok(Some(FleetRestartReadyAdmission {
+            boot: gate.node.boot_binding(gate.preparation.catalog)?,
+            epoch: gate.node.epoch,
+            candidate: FleetRestartRuntimeCandidate {
+                digest: record.candidate,
+                candidate,
+            },
+            record,
+            applied,
+            observed: current.revision(),
+        }))
     }
 
     async fn ready_candidate(&self, request: &FleetRestartReadyRequest) -> Result<Option<Ready>> {

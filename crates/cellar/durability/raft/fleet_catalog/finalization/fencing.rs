@@ -608,8 +608,12 @@ impl FleetCatalog {
                 self.confirm_boot(&current, &sender.record).await?;
             }
             if selector.purpose == crate::raft::fleet_stop::LifecyclePurpose::Maintenance {
-                self.verify_restart_gate_request(&current, selector, action)
-                    .await?;
+                if action == crate::raft::fleet_stop::FleetStopAction::Stop {
+                    self.verify_restart_stop_request(&current, selector).await?;
+                } else {
+                    self.verify_restart_gate_request(&current, selector, action)
+                        .await?;
+                }
                 if self.inner.current().await?.token != current.token {
                     return Err(FleetCatalogError::Conflict);
                 }

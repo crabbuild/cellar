@@ -97,21 +97,53 @@ pub(super) async fn physical_with_unattached(
     observer: &RaftCells,
     deadline: &Deadline<'_>,
 ) -> Result<(Box<RaftPhysicalInventory>, u32)> {
+    physical_inner(catalog, snapshot, basis, gate, observer, deadline, None).await
+}
+
+pub(super) async fn physical_locally_quiesced(
+    catalog: &FleetCatalog,
+    snapshot: &FleetSnapshot,
+    basis: &Basis,
+    gate: &Gate,
+    observer: &RaftCells,
+    deadline: &Deadline<'_>,
+    local: Option<&crate::raft::fleet_stop::LocalQuiescence>,
+) -> Result<Box<RaftPhysicalInventory>> {
+    Ok(
+        physical_inner(catalog, snapshot, basis, gate, observer, deadline, local)
+            .await?
+            .0,
+    )
+}
+
+async fn physical_inner(
+    catalog: &FleetCatalog,
+    snapshot: &FleetSnapshot,
+    basis: &Basis,
+    gate: &Gate,
+    observer: &RaftCells,
+    deadline: &Deadline<'_>,
+    local: Option<&crate::raft::fleet_stop::LocalQuiescence>,
+) -> Result<(Box<RaftPhysicalInventory>, u32)> {
     let target =
         NodeId::new(gate.node.node).map_err(|_| FleetCatalogError::Corrupt("restart target"))?;
     catalog
         .run(deadline.remaining()?, basis.check_current(catalog))
         .await?;
     let request = gate.quiesce_request()?;
-    let accepted = observer
-        .request_peer_fleet_stop(request.clone(), basis.revision, deadline.remaining()?)
-        .await?;
-    if accepted.action() != FleetStopAction::Quiesce
-        || accepted.request() != request.request()
-        || accepted.operation() != gate.request.operation
-        || accepted.process() != gate.node.boot_binding(gate.preparation.catalog)?.process
-    {
-        return Err(FleetCatalogError::Unconfirmed);
+    if let Some(local) = local {
+        local.check(&request.selector)?;
+    } else {
+        let accepted = observer
+            .request_peer_fleet_stop(request.clone(), basis.revision, deadline.remaining()?)
+            .await?;
+        if accepted.action() != FleetStopAction::Quiesce
+            || accepted.request() != request.request()
+            || accepted.operation() != gate.request.operation
+            || accepted.process() != gate.node.boot_binding(gate.preparation.catalog)?.process
+        {
+            return Err(FleetCatalogError::Unconfirmed);
+        }
     }
     let started = now(catalog)?;
     let observed = observer
@@ -148,6 +180,9 @@ pub(super) async fn physical_with_unattached(
         })
         .await?;
     fresh(catalog, started, sampled)?;
+    if let Some(local) = local {
+        local.check(&request.selector)?;
+    }
     deadline.remaining()?;
     Ok((inventory, observed.view.unattached_engine_histories))
 }

@@ -41,10 +41,11 @@ pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsol
 pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
-    FleetRestartHistoryProgress, FleetRestartPendingWork, FleetRestartReadyAdmission,
-    FleetRestartReadyRequest, FleetRestartRequest, FleetRestartRuntimeCandidate,
-    FleetRestartRuntimeProgress, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
-    FleetRestartVerification,
+    FleetRestartHistoryProgress, FleetRestartOfflineAdmission, FleetRestartOfflineRequest,
+    FleetRestartPendingWork, FleetRestartReadyAdmission, FleetRestartReadyRequest,
+    FleetRestartRequest, FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress,
+    FleetRestartSettlementBlocker, FleetRestartSettlementProgress, FleetRestartStopAdmission,
+    FleetRestartStopRequest, FleetRestartVerification,
 };
 pub(crate) use maintenance::{RestartActionContext, RestartLeadershipCommand};
 pub use namespaces::FleetInventory;
@@ -412,6 +413,7 @@ impl FleetCatalog {
             .await?;
         self.check_restart_settlement_mutation(mutation, movement)?;
         self.check_restart_readiness_mutation(mutation, movement)?;
+        self.check_restart_stop_mutation(mutation, movement)?;
         self.check_resource_mutation(snapshot, mutation, movement)
             .await?;
         self.check_topology_mutation(snapshot, mutation, movement)

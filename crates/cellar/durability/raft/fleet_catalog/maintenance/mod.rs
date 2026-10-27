@@ -9,6 +9,7 @@ mod records;
 mod runtime;
 mod settle;
 mod settlement;
+mod stop;
 use super::evacuation::CanonicalRequest;
 use super::histories::validate_request;
 use super::*;
@@ -27,6 +28,10 @@ pub use settle::{
     FleetRestartSettlementProgress,
 };
 pub use settlement::FleetRestartPendingWork;
+pub use stop::{
+    FleetRestartOfflineAdmission, FleetRestartOfflineRequest, FleetRestartStopAdmission,
+    FleetRestartStopRequest,
+};
 
 /// Exact human intent. Grace postpones replacement only after owned stop is
 /// admitted; admission itself neither starts its clock nor permits shutdown.

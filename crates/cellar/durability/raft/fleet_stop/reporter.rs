@@ -38,6 +38,7 @@ pub(crate) struct Reporter {
     signaled: OnceLock<bool>,
     maintenance: Arc<MaintenanceAdmission>,
     maintenance_dispatch: Arc<OnceLock<MaintenanceSender>>,
+    gateway: crate::application::consensus::RaftCells,
 }
 
 impl Reporter {
@@ -46,6 +47,7 @@ impl Reporter {
         shutdown: mpsc::UnboundedSender<ShutdownMode>,
         maintenance: Arc<MaintenanceAdmission>,
         maintenance_dispatch: Arc<OnceLock<MaintenanceSender>>,
+        gateway: crate::application::consensus::RaftCells,
     ) -> Result<Arc<Self>> {
         let boot = services
             .log
@@ -71,6 +73,7 @@ impl Reporter {
             signaled: OnceLock::new(),
             maintenance,
             maintenance_dispatch,
+            gateway,
         });
         let worker = reporter.clone();
         crate::asyncrt::try_spawn(async move {
@@ -201,6 +204,23 @@ impl Reporter {
             )
             .await?;
         self.remaining(deadline)?;
+        let maintenance_stop = if request.action == FleetStopAction::Stop
+            && request.selector.purpose == LifecyclePurpose::Maintenance
+        {
+            Some(
+                self.catalog
+                    .renew_restart_stop(
+                        &request.selector,
+                        &self.gateway,
+                        LocalQuiescence::new(self.log.clone(), self.maintenance.clone()),
+                        self.remaining(deadline)?,
+                    )
+                    .await?,
+            )
+        } else {
+            None
+        };
+        self.remaining(deadline)?;
         if request.action == FleetStopAction::Quiesce && self.maintenance_dispatch.get().is_none() {
             return Err(FleetCatalogError::Invalid(
                 "maintenance application gate unavailable",
@@ -211,9 +231,16 @@ impl Reporter {
                 selector: request.selector.clone(),
                 deadline,
             },
-            FleetStopAction::Stop => LifecycleUpdate::Stop {
-                selector: request.selector.clone(),
-                deadline,
+            FleetStopAction::Stop => match maintenance_stop {
+                Some(proof) => LifecycleUpdate::MaintenanceStop {
+                    selector: request.selector.clone(),
+                    quiescence: Box::new(proof.quiescence),
+                    deadline: deadline.min(proof.deadline),
+                },
+                None => LifecycleUpdate::Stop {
+                    selector: request.selector.clone(),
+                    deadline,
+                },
             },
             FleetStopAction::Fence => LifecycleUpdate::Fence {
                 boot: request.selector.boot.clone(),

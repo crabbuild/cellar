@@ -163,8 +163,10 @@ node independently checks the canonical gate, history, boot, configuration,
 publication and load. At actual Raft execution, queued work checks its evidence
 expiry and a transfer checks the last synced gate. The evidence expiry uses the
 Raft owner's clock and cannot be extended by a longer SDK timeout. Normal
-elections, heartbeats, votes and replication continue. Final readiness renewal
-still remains; this adapter cannot issue `RestartReady` or stop.
+elections, heartbeats, votes and replication continue. The live walk now publishes
+M5 RestartReady; the separate Node receiver owns M6 live renewal and guarded
+stop. M7 records only signed physical join while retaining exclusions and the
+disruption slot. See the [lifecycle execution contract](lifecycle-execution.md#separate-maintenance-stop-and-joined-confirmation).
 
 `StopForMaintenance` is a separate mutation with its own idempotency key. It
 invokes the existing owned Node stop path; it does not power off a VM or delete a

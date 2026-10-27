@@ -57,7 +57,48 @@ The target remains quiesced in RestartPending, its placement capacity excluded
 and its shared disruption slot held. Cancellation still owns a synced exact
 process Fence. Stop requires separate consent and fresh receiving-owner proof;
 readiness does not start the repair-delay clock or authorize new boot, capacity
-resume or slot release. These later M6–M9 boundaries remain required.
+resume or slot release. The separate stop/join boundary follows; M8–M9 return and
+resume remain required.
+
+## Separate maintenance stop and joined confirmation
+
+`admit_restart_stop` records an exact human stop request referring to its Ready
+request, node, process and stable child stop identity. This is intent only: the
+process remains alive and the disruption slot stays held. Retry a lost consent
+confirmation with that same payload. The `restart-stop/` and `restart-offline/`
+projections reject generic catalog writes.
+
+`stop_restart_maintenance` submits that request through authenticated node
+control. The receiving Node owns work beyond the caller's response lifetime.
+It independently renews complete physical inventory and every affected group's
+actual quorum, publication and surviving matched leadership. No serialized
+health samples are restored. A regained primary may request handoff, but that
+attempt returns unconfirmed until an exact retry observes its surviving leader.
+Normal consensus continues. The existing five-second sample envelope and the
+original caller deadline both bound the final engine admission.
+
+The receiver checks its own synced quiescence and both reversible barriers.
+It avoids sending itself a quiesce request through the worker currently handling
+stop. The maintenance-specific engine update requires that exact quiescence,
+boot, epoch and operation; the ordinary evacuation stop update cannot substitute.
+A Fence or newer guard defeats a queued old stop. Accepted shutdown remains
+permanent and cannot be cancelled or applied to a later process.
+
+`restart_stop_closure` verifies the exact signed Node/domain/engine join. A
+missing response, closed port or raw process kill is insufficient. Only then
+can `confirm_restart_offline` journal that joined outcome; `restart_offline`
+recovers the fact across controllers. Lost successful confirmations reconcile
+before current live prerequisites. These receipts grant no fresh boot, capacity,
+resource release or disruption-slot release.
+
+Current stop consent pins the Ready inventory basis; relevant Root drift before
+admission refuses execution. Fenced cancellation and a new preparation remain
+the recovery path for stale consent. In-place consent refresh is unfinished.
+Retained-engine return under a fresh process, startup admission exclusion,
+catch-up, verified resume, grace/rolling/second-failure handling and complete
+maintenance SDK/admin/CLI operation sequencing remain delivery work. The
+namespace protocol ends in `/restart-stop-1`; use matching binaries and fresh
+data prefixes for this internal hard cutover. Numeric markers remain 1.
 
 ## Persist a resumable operation, not a worker's lifetime
 

@@ -46,6 +46,7 @@ pub(super) enum Authority {
     TopologyAdmission,
     RestartSettlement,
     RestartReadiness,
+    RestartStop,
 }
 mod movement;
 mod records;
