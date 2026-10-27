@@ -22,6 +22,7 @@
     "namespace.js",
     "container.js",
     "exec.js",
+    "exec-stdin.js",
     "port.js",
     "websocket.js",
     "websocket-upgrade.js",

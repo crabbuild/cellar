@@ -7,6 +7,7 @@ import { workersApplication } from "../../../packages/cellar-cloudflare/index.js
 
 const length = 2 * 1024 * 1024 + 17;
 let saved;
+let nativeContext;
 function check(condition, message) {
   if (!condition) throw new Error(message);
 }
@@ -38,6 +39,231 @@ class Workspace extends DurableObject {
       });
     await container.setInactivityTimeout(60_000);
     const route = new URL(request.url).pathname;
+    if (route === "/stdin") {
+      const native = nativeContext;
+      let offset = 0;
+      const input = new ReadableStream({
+        type: "bytes",
+        pull(controller) {
+          if (offset === length) {
+            controller.close();
+            return;
+          }
+          const bytes = new Uint8Array(Math.min(131_071, length - offset));
+          for (let index = 0; index < bytes.length; index++)
+            bytes[index] = (offset + index) % 251;
+          offset += bytes.length;
+          controller.enqueue(bytes);
+        },
+      });
+      const process = await this.ctx.blockConcurrencyWhile(() =>
+        container.exec(
+          [
+            "node",
+            "-e",
+            "const hash=require('node:crypto').createHash('sha256');let read=0;process.stdin.on('data',bytes=>{read+=bytes.length;hash.update(bytes)});process.stdin.on('end',()=>setTimeout(()=>process.stdout.write(JSON.stringify({read,sha256:hash.digest('hex')})),100))",
+          ],
+          { stdin: input },
+        ),
+      );
+      check(process.stdin === null, "source input exposed a second writer");
+      const output = await process.output();
+      check(
+        output.exitCode === 0 && !input.locked,
+        "source input did not join",
+      );
+      const received = JSON.parse(new TextDecoder().decode(output.stdout));
+      check(received.read === length, "source input length");
+
+      const silent = await this.ctx.blockConcurrencyWhile(() =>
+        container.exec(
+          [
+            "node",
+            "-e",
+            "process.stdin.resume();process.stdin.on('end',()=>setTimeout(()=>{process.stdout.write('out');process.stderr.write('err');setTimeout(()=>process.exit(0),100)},100))",
+          ],
+          {
+            stdin: new ReadableStream({
+              start(controller) {
+                controller.close();
+              },
+            }),
+            stdout: "ignore",
+            stderr: "ignore",
+          },
+        ),
+      );
+      const ignored = await silent.output();
+      check(
+        ignored.exitCode === 0 &&
+          ignored.stdout.byteLength === 0 &&
+          ignored.stderr.byteLength === 0,
+        "admitted process observations lost event ownership",
+      );
+
+      let pulls = 0,
+        refusal;
+      const transactional = new ReadableStream(
+        {
+          pull() {
+            pulls++;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      await this.ctx.storage.transaction(async () => {
+        try {
+          await container.exec(["node", "-e", "process.exit(99)"], {
+            stdin: transactional,
+          });
+        } catch (error) {
+          refusal = error;
+        }
+      });
+      check(
+        refusal?.code === "ValidationError" &&
+          refusal.outcome === "not_committed" &&
+          pulls === 0 &&
+          !transactional.locked,
+        "transactional process allocation was not refused before effects",
+      );
+      let outputRefusal;
+      await this.ctx.storage.transaction(async () => {
+        try {
+          await native.container.execOutput(
+            { cmd: ["node", "-e", "process.exit(99)"] },
+            32,
+          );
+        } catch (error) {
+          outputRefusal = error;
+        }
+      });
+      check(
+        outputRefusal?.code === "ValidationError" &&
+          outputRefusal.outcome === "not_committed",
+        "transactional buffered process allocation was not refused",
+      );
+
+      // Reuse source-retention and native-handle capacity beyond both limits.
+      for (let index = 0; index < 130; index++) {
+        const source = new ReadableStream({
+          start(controller) {
+            controller.enqueue(Uint8Array.of(index));
+            controller.close();
+          },
+        });
+        const process = await container.exec(["cat"], { stdin: source });
+        const output = await process.output();
+        check(
+          output.exitCode === 0 &&
+            output.stdout.byteLength === 1 &&
+            output.stderr.byteLength === 0 &&
+            new Uint8Array(output.stdout)[0] === index &&
+            !source.locked,
+          "sequential source process did not retire",
+        );
+      }
+
+      let cancelled = false;
+      const pending = new ReadableStream(
+        {
+          pull() {},
+          cancel() {
+            cancelled = true;
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const early = await container.exec(
+        ["node", "-e", "process.stdout.write('early')"],
+        { stdin: pending },
+      );
+      const stopped = await early.output();
+      check(
+        stopped.exitCode === 0 && cancelled && !pending.locked,
+        "early process exit stranded source input",
+      );
+
+      const invalid = new ReadableStream({
+        start(controller) {
+          controller.enqueue("not bytes");
+        },
+      });
+      const failed = await container.exec(
+        ["node", "-e", "process.stdin.resume();setInterval(()=>{},1000)"],
+        { stdin: invalid },
+      );
+      let refused = false;
+      try {
+        await failed.output();
+      } catch (error) {
+        refused = error instanceof TypeError;
+      }
+      check(
+        refused && !invalid.locked,
+        "invalid source became successful output",
+      );
+      return Response.json({
+        ...received,
+        early: true,
+        sourceFailure: true,
+        callback: true,
+        transaction: true,
+      });
+    }
+    if (route === "/late-read") {
+      const gate = Promise.withResolvers();
+      const native = nativeContext;
+      let late, storage;
+      const process = await this.ctx.blockConcurrencyWhile(async () => {
+        const process = await container.exec(
+          [
+            "node",
+            "-e",
+            "process.stdin.resume();process.stdin.on('end',()=>setTimeout(()=>process.stdout.write('late'),100))",
+          ],
+          { stdin: "pipe" },
+        );
+        late = gate.promise.then(async () => {
+          const reader = process.stdout.getReader();
+          try {
+            await reader.read();
+            throw new Error("closed callback read succeeded");
+          } catch (error) {
+            return { code: error.code, outcome: error.outcome };
+          } finally {
+            reader.releaseLock();
+          }
+        });
+        storage = gate.promise.then(async () => {
+          try {
+            await native._call("storage.apply", {
+              $event_owned: true,
+              puts: { "source-escape": true },
+            });
+            throw new Error("observation flag granted storage authority");
+          } catch (error) {
+            return { code: error.code, outcome: error.outcome };
+          }
+        });
+        return process;
+      });
+      await process.stdin.close();
+      gate.resolve();
+      const result = await late;
+      const mutation = await storage;
+      const snapshot = await native._call("storage.read", {
+        key: "source-escape",
+      });
+      check(
+        mutation.code === "ValidationError" &&
+          mutation.outcome === "not_committed" &&
+          !snapshot.present,
+        "event-owned observation escaped its read-only operation family",
+      );
+      await process.exitCode.catch(() => {});
+      return Response.json({ ...result, storageRefused: true });
+    }
     if (route === "/write") {
       const unavailable = await container.exec(["/cellar-missing-executable"]);
       const missingCommand = await unavailable.output();
@@ -188,7 +414,14 @@ const app = workersApplication(
   },
   { namespaces: { WORKSPACES: "Workspace" }, containers: ["Workspace"] },
 );
-export const cells = app.cells;
+export const cells = {
+  Workspace: class extends app.cells.Workspace {
+    fetch(frame, context) {
+      nativeContext = context;
+      return super.fetch(frame, context);
+    }
+  },
+};
 export async function fetch(request, context) {
   try {
     return await app.fetch(request, context);

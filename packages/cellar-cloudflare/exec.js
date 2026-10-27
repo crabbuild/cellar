@@ -1,8 +1,9 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { httpLimit, webRuntime } from "./http.js";
+import { ownedStdin } from "./exec-stdin.js";
 
-// One event's process controls share the bridge's conservative mutation slot.
+// One event's process controls serialize before entering the native provider.
 // Cleanup has its own bounded admission, so a full ordinary queue cannot strand
 // completed native handles. Nothing holds a native lock while waiting here.
 export function execControls() {
@@ -46,8 +47,12 @@ function optionsFor(cmd, options) {
     )
       throw new TypeError(`Unsupported exec option: ${key}`);
   }
-  if (options.stdin !== undefined && options.stdin !== "pipe")
-    throw new TypeError("Exec stdin requires pipe mode");
+  if (
+    options.stdin !== undefined &&
+    options.stdin !== "pipe" &&
+    !(options.stdin instanceof ReadableStream)
+  )
+    throw new TypeError("Exec stdin requires pipe mode or a ReadableStream");
   const stdout = options.stdout ?? "pipe",
     stderr = options.stderr ?? "pipe";
   if (
@@ -105,9 +110,29 @@ export async function containerExec(
   const nativeOptions = optionsFor(cmd, options);
   const limit = httpLimit(context);
   options.signal?.throwIfAborted();
-  const id = await admit(() =>
-    context._call("container.exec", { options: nativeOptions }),
-  );
+  const input =
+    options.stdin instanceof ReadableStream
+      ? ownedStdin(options.stdin)
+      : undefined;
+  let id, releaseInput;
+  try {
+    if (input) {
+      const retained = new Promise((resolve) => {
+        releaseInput = resolve;
+      });
+      // Reserve both event and active callback ownership before external effects.
+      context._containerMonitor(() => retained);
+      context._containerControl(retained);
+    }
+    id = await admit(() =>
+      context._call("container.exec", { options: nativeOptions }),
+    );
+  } catch (error) {
+    // No source read begins until allocation is acknowledged.
+    input?.release();
+    releaseInput?.();
+    throw error;
+  }
   const observations = new AbortController();
   let tail = Promise.resolve(),
     controls = 0,
@@ -141,12 +166,18 @@ export async function containerExec(
   };
   const dispose = () => {
     if (!disposal) {
-      observations.abort();
       // One cleanup reservation remains available after ordinary admission fills.
-      disposal = control(
-        () => context._call("container.release", { id }),
-        true,
-      );
+      // Publish the promise before invoking an application source's cancellation.
+      disposal = Promise.resolve().then(async () => {
+        observations.abort();
+        const cancelled = input?.cancel(new Error("Exec observation ended"));
+        const results = await Promise.allSettled([
+          control(() => context._call("container.release", { id }), true),
+          cancelled,
+        ]);
+        for (const result of results)
+          if (result.status === "rejected") throw result.reason;
+      });
       disposal.catch(() => {});
     }
     return disposal;
@@ -156,12 +187,14 @@ export async function containerExec(
       ? dispose()
       : Promise.resolve();
   const abort = () => {
+    input?.cancel(options.signal.reason).catch(() => {});
     if (!exited) kill(9).catch(() => {});
   };
   const exitCode = call("wait", {}, observations.signal).then(
     async (code) => {
       exited = true;
       options.signal?.removeEventListener("abort", abort);
+      input?.cancel(new Error("Exec process exited")).catch(() => {});
       await releaseIfFinished();
       return code;
     },
@@ -173,16 +206,32 @@ export async function containerExec(
     },
   );
   exitCode.catch(() => {});
-  function kill(signal = 9) {
+  function kill(signal = 15) {
     if (!Number.isInteger(signal) || signal < 1 || signal > 64)
       throw new RangeError("Exec signal must be 1..64");
     return control(() => call("kill", { signal }));
   }
   async function closeStdin() {
     if (stdinDone) return;
-    await control(() => call("close_stdin"));
+    if (!exited)
+      await control(() => (exited ? undefined : call("close_stdin")));
     stdinDone = true;
     await releaseIfFinished();
+  }
+  async function writeStdin(bytes) {
+    if (!(bytes instanceof Uint8Array))
+      throw new TypeError("Exec stdin requires Uint8Array chunks");
+    if (stdinDone) throw new TypeError("Exec stdin is closed");
+    for (let offset = 0; offset < bytes.byteLength; offset += limit) {
+      if (input && (input.cancelled || exited)) break;
+      await control(() => {
+        if (input && (input.cancelled || exited)) return;
+        if (exited) throw new TypeError("Exec stdin is closed");
+        return call("write", {
+          data: context._encode(bytes.subarray(offset, offset + limit)),
+        });
+      });
+    }
   }
   const drains = [];
   function readable(channel, ignored) {
@@ -192,16 +241,24 @@ export async function containerExec(
       await releaseIfFinished();
     };
     const read = async () =>
-      context._decode(await call(`read_${channel}`, {}, observations.signal));
+      context._decode(
+        await call(
+          `read_${channel}`,
+          ignored ? { $event_owned: true } : {},
+          observations.signal,
+        ),
+      );
     if (ignored) {
       const draining = (async () => {
         try {
           while ((await read()).byteLength) {}
           await done();
-        } catch {
+        } catch (error) {
           await dispose().catch(() => {});
+          throw error;
         }
       })();
+      draining.catch(() => {});
       drains.push(draining);
       return null;
     }
@@ -239,18 +296,7 @@ export async function containerExec(
     options.stdin === "pipe"
       ? new WritableStream(
           {
-            async write(bytes) {
-              if (!(bytes instanceof Uint8Array))
-                throw new TypeError("Exec stdin requires Uint8Array chunks");
-              for (let offset = 0; offset < bytes.byteLength; offset += limit)
-                await control(() =>
-                  call("write", {
-                    data: context._encode(
-                      bytes.subarray(offset, offset + limit),
-                    ),
-                  }),
-                );
-            },
+            write: writeStdin,
             close: closeStdin,
             abort: async () => {
               await closeStdin();
@@ -261,7 +307,29 @@ export async function containerExec(
       : null;
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) abort();
-  if (!stdin) {
+  let inputWork, inputFailure, inputRetirement;
+  if (input) {
+    const retire = (error) => {
+      if (!inputRetirement) {
+        // Preserve the initiating failure over secondary teardown cancellation.
+        if (!disposal) inputFailure = { error };
+        inputRetirement = (async () => {
+          if (!exited) await kill(9).catch(() => {});
+          await dispose().catch(() => {});
+        })();
+      }
+      return inputRetirement;
+    };
+    inputWork = input
+      .run(writeStdin, closeStdin, retire)
+      .catch(async (error) => {
+        await retire(error);
+        throw error;
+      });
+    inputWork.catch(() => {});
+    // output() reports pump failures; the reserved lifetime only joins work.
+    inputWork.then(releaseInput, releaseInput);
+  } else if (!stdin) {
     try {
       await closeStdin();
     } catch (error) {
@@ -312,7 +380,13 @@ export async function containerExec(
           reader.releaseLock();
         }
       }
-      const pending = [collect(stdout), collect(stderr), exitCode, ...drains];
+      const pending = [
+        collect(stdout),
+        collect(stderr),
+        exitCode,
+        ...drains,
+        inputWork,
+      ];
       try {
         const [out, err, code] = await Promise.all(pending);
         await releaseIfFinished();
@@ -320,7 +394,7 @@ export async function containerExec(
       } catch (error) {
         await dispose().catch(() => {});
         await Promise.allSettled(pending);
-        throw error;
+        throw inputFailure ? inputFailure.error : error;
       }
     },
   };

@@ -12,8 +12,9 @@ under development in the [delivery plan](../../plans/sandbox-provider-compatibil
 
 The separate [Sandbox 1.0.3 exec/Files profile](../../tools/sandbox/cloudflare-v1/README.md)
 uses native argv processes and the matching published helper. It adds Node
-stdin/stdout/stderr streams, bounded `output()`, observed `exitCode`, acknowledged
-`kill()` and inactivity timeout control. The 0.12.9 SDK/image profile keeps its
+stdin/stdout/stderr streams, automatic byte-source stdin, bounded `output()`,
+observed `exitCode`, acknowledged `kill()` and inactivity timeout control. The
+0.12.9 SDK/image profile keeps its
 own inputs. Neither profile establishes full Sandbox compatibility.
 
 ## How it works

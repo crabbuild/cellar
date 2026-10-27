@@ -315,11 +315,17 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // failures retain uncertain effect provenance. Container WebSocket output is
 // likewise independent: a received frame may trigger a storage write before
 // its matching send acknowledgement arrives. Native socket output gates remain.
+// Existing process I/O and resource retirement likewise use the provider's
+// control queue and output proofs, independently of SQLite mutation admission.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     !name.starts_with("workers.rpc.")
         && !matches!(
             name,
             "storage.sync"
+                | "container.exec.write"
+                | "container.exec.close_stdin"
+                | "container.exec.kill"
+                | "container.release"
                 | "container.websocket.send_text"
                 | "container.websocket.send_binary"
                 | "container.websocket.close"

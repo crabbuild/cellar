@@ -10,6 +10,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "support/counting_provider.rs"]
+mod counting_provider;
+
 #[path = "support/image_provider.rs"]
 mod image_provider;
 #[path = "support/joined_node.rs"]
@@ -29,8 +32,12 @@ fn published_sandbox_v1_files_use_matching_helper_and_owned_native_exec() -> Res
         "Sandbox 1.x build: {}",
         String::from_utf8_lossy(&built.stderr)
     );
+    let counts = Arc::new(counting_provider::Counts::default());
     let source = Source::module()
-        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .container_provider(Arc::new(counting_provider::CountingProvider {
+            inner: Arc::new(image_provider::DiagnosticNative),
+            counts: counts.clone(),
+        }))
         .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events(
@@ -50,12 +57,16 @@ fn published_sandbox_v1_files_use_matching_helper_and_owned_native_exec() -> Res
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(exercise(application))
+                .block_on(exercise(application, counts))
         },
     )
 }
 
-async fn exercise(application: Arc<dyn Application>) -> Result<()> {
+async fn exercise(
+    application: Arc<dyn Application>,
+    counts: Arc<counting_provider::Counts>,
+) -> Result<()> {
+    use std::sync::atomic::Ordering;
     let directory = tempfile::tempdir()?;
     let socket = PathBuf::from(
         std::env::var_os("CELLAR_SANDBOX_ENGINE_SOCKET").context("isolated engine socket")?,
@@ -118,12 +129,14 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(125))
             .build()?;
-        for route in ["write", "read", "faults", "destroy"] {
+        for route in ["stdin", "late-read", "write", "read", "faults", "destroy"] {
+            let before_exec = counts.exec_calls.load(Ordering::SeqCst);
+            let before_read = counts.stdout_reads.load(Ordering::SeqCst);
             let response = client.get(format!("{address}/{route}")).send().await?;
             let status = response.status();
             let body = response.text().await?;
             ensure!(status.is_success(), "{route}: {status}: {body}");
-            if route == "read" {
+            if route == "read" || route == "stdin" {
                 let value: Value = serde_json::from_str(&body)?;
                 let bytes = (0..2 * 1024 * 1024 + 17)
                     .map(|i| (i % 251) as u8)
@@ -131,10 +144,41 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
                 ensure!(
                     value["read"] == bytes.len()
                         && value["sha256"] == format!("{:x}", Sha256::digest(bytes)),
-                    "binary file round trip: {value}"
+                    "{route}: binary SHA-256 round trip: {value}"
+                );
+                if route == "stdin" {
+                    ensure!(
+                        value["early"] == true
+                            && value["sourceFailure"] == true
+                            && value["callback"] == true
+                            && value["transaction"] == true
+                    );
+                    ensure!(
+                        counts.exec_calls.load(Ordering::SeqCst) - before_exec == 134,
+                        "transactional exec reached the provider"
+                    );
+                }
+            }
+            if route == "late-read" {
+                let value: Value = serde_json::from_str(&body)?;
+                ensure!(value["code"] == "ValidationError" && value["outcome"] == "not_committed");
+                ensure!(value["storageRefused"] == true);
+                ensure!(
+                    counts.stdout_reads.load(Ordering::SeqCst) == before_read,
+                    "closed callback read reached the provider"
                 );
             }
+            ensure!(
+                counts.active.load(Ordering::SeqCst) == 0
+                    && counts.unreleased.load(Ordering::SeqCst) == 0,
+                "{route}: process handles survived their explicit retirement"
+            );
         }
+        ensure!(
+            counts.created.load(Ordering::SeqCst) == counts.released.load(Ordering::SeqCst)
+                && counts.created.load(Ordering::SeqCst) > 70,
+            "process release accounting"
+        );
         Ok::<_, anyhow::Error>(())
     }
     .await;

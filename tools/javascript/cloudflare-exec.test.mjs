@@ -9,36 +9,63 @@ function fixture({
   stdout = [[0, 255]],
   stderr = [[42]],
   code = 7,
+  killFinishes = true,
+  blockOutput = false,
 } = {}) {
   const calls = [],
-    writes = [];
+    writes = [],
+    work = [];
   const chunks = { read_stdout: [...stdout, []], read_stderr: [...stderr, []] };
   let closed;
   const eof = new Promise((resolve) => {
     closed = resolve;
   });
+  async function waitForExit(signal) {
+    let abort;
+    try {
+      await Promise.race([
+        eof,
+        new Promise((_, reject) => {
+          abort = () => reject(signal.reason);
+          signal?.addEventListener("abort", abort, { once: true });
+          if (signal?.aborted) abort();
+        }),
+      ]);
+    } finally {
+      signal?.removeEventListener("abort", abort);
+    }
+  }
   const context = {
     _sync: () => ({ max_body_bytes: limit }),
     _decode: (value) => Uint8Array.from(Buffer.from(value, "base64")),
     _encode: (value) => Buffer.from(value).toString("base64"),
-    async _call(name, input) {
+    _containerMonitor(make) {
+      const pending = make();
+      work.push(pending);
+      return pending;
+    },
+    _containerControl() {},
+    async _call(name, input, _body, signal) {
       calls.push([name, input]);
       if (name === "container.exec") return 1;
       if (name === "container.release") return null;
       assert.equal(input.id, 1);
       const method = name.split(".").at(-1);
-      if (chunks[method])
+      if (chunks[method]) {
+        if (blockOutput) await waitForExit(signal);
         return Buffer.from(chunks[method].shift()).toString("base64");
+      }
       if (method === "write") writes.push(input.data);
       if (method === "close_stdin") closed();
+      if (method === "kill" && killFinishes) closed();
       if (method === "wait") {
-        await eof;
+        await waitForExit(signal);
         return code;
       }
       return null;
     },
   };
-  return { context, calls, writes };
+  return { context, calls, writes, work, finish: () => closed() };
 }
 
 test("Workers exec closes omitted stdin and preserves binary output and nonzero exits", async () => {
@@ -125,6 +152,20 @@ test("an abort after observed process exit never signals a replacement", async (
   );
 });
 
+test("exec kill defaults to SIGTERM while abort remains an explicit SIGKILL", async () => {
+  const { context, calls } = fixture();
+  const process = await containerExec(context, ["tool"], { stdin: "pipe" });
+  await process.kill();
+  await process.stdin.close();
+  await process.output();
+  assert.deepEqual(
+    calls
+      .filter(([name]) => name === "container.exec.kill")
+      .map(([, input]) => input),
+    [{ id: 1, signal: 15 }],
+  );
+});
+
 test("argv and stream policy are captured before allocation acknowledgement", async () => {
   const { context, calls } = fixture();
   let acknowledge;
@@ -146,4 +187,456 @@ test("argv and stream policy are captured before allocation acknowledgement", as
   assert.ok(process.stdout instanceof ReadableStream);
   assert.deepEqual(calls[0][1].options.cmd, ["original"]);
   await process.output();
+});
+
+test("exec source streams bytes through bounded native writes and closes stdin", async () => {
+  const { context, calls, writes, work } = fixture({ limit: 3 });
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue(Uint8Array.of(0, 255, 2, 3, 4, 5, 6));
+      controller.enqueue(new Uint8Array());
+      controller.enqueue(Uint8Array.of(7));
+      controller.close();
+    },
+  });
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  assert.equal(process.stdin, null);
+  assert.equal((await process.output()).exitCode, 7);
+  await Promise.all(work);
+  assert.deepEqual(
+    writes.map((value) => [...Buffer.from(value, "base64")]),
+    [[0, 255, 2], [3, 4, 5], [6], [7]],
+  );
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.close_stdin").length,
+    1,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("exec source stops pulling while a native write awaits acknowledgement", async () => {
+  const { context, work } = fixture();
+  const entered = Promise.withResolvers(),
+    release = Promise.withResolvers();
+  const original = context._call.bind(context);
+  context._call = async (name, ...args) => {
+    if (name === "container.exec.write") {
+      entered.resolve();
+      await release.promise;
+    }
+    return original(name, ...args);
+  };
+  let pulls = 0;
+  const source = new ReadableStream(
+    {
+      pull(controller) {
+        pulls++;
+        if (pulls === 1) controller.enqueue(Uint8Array.of(1));
+        else controller.close();
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  await entered.promise;
+  assert.equal(pulls, 1);
+  assert.equal(source.locked, true);
+  release.resolve();
+  await process.output();
+  await Promise.all(work);
+  assert.equal(pulls, 2);
+  assert.equal(source.locked, false);
+});
+
+test("exec refuses locked and invalid sources before allocation", async () => {
+  const { context, calls } = fixture();
+  const source = new ReadableStream();
+  const reader = source.getReader();
+  await assert.rejects(
+    containerExec(context, ["tool"], { stdin: source }),
+    TypeError,
+  );
+  reader.releaseLock();
+  for (const stdin of [null, 1, "text", new Uint8Array(1)])
+    await assert.rejects(
+      containerExec(context, ["tool"], { stdin }),
+      TypeError,
+    );
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    containerExec(context, ["tool"], {
+      stdin: source,
+      signal: controller.signal,
+    }),
+    { name: "AbortError" },
+  );
+  assert.equal(source.locked, false);
+  assert.deepEqual(calls, []);
+});
+
+test("early process exit cancels a pending source and joins its cancellation", async () => {
+  const { context, calls, work, finish } = fixture();
+  const entered = Promise.withResolvers(),
+    release = Promise.withResolvers();
+  const source = new ReadableStream(
+    {
+      pull() {},
+      async cancel() {
+        entered.resolve();
+        await release.promise;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  finish();
+  assert.equal(await process.exitCode, 7);
+  await entered.promise;
+  let completed = false;
+  const output = process.output().then((value) => {
+    completed = true;
+    return value;
+  });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  assert.equal(source.locked, true);
+  release.resolve();
+  assert.equal((await output).exitCode, 7);
+  await Promise.all(work);
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("allocation failure unlocks a source without consuming or cancelling it", async () => {
+  const { context } = fixture();
+  let reads = 0,
+    cancelled = false;
+  const source = new ReadableStream(
+    {
+      pull() {
+        reads++;
+      },
+      cancel() {
+        cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const failure = new Error("allocation response lost");
+  context._call = async () => {
+    throw failure;
+  };
+  await assert.rejects(
+    containerExec(context, ["tool"], { stdin: source }),
+    (error) => error === failure,
+  );
+  assert.equal(reads, 0);
+  assert.equal(cancelled, false);
+  assert.equal(source.locked, false);
+});
+
+test("source lifetime admission refuses before allocation and returns its reader", async () => {
+  for (const method of ["_containerMonitor", "_containerControl"]) {
+    const { context, calls, work } = fixture();
+    const failure = Object.assign(new Error("lifetime admission refused"), {
+      code: "OperationLimit",
+      outcome: "not_committed",
+    });
+    context[method] = () => {
+      throw failure;
+    };
+    const source = new ReadableStream({}, { highWaterMark: 0 });
+    await assert.rejects(
+      containerExec(context, ["tool"], { stdin: source }),
+      (error) => error === failure,
+    );
+    await Promise.all(work);
+    assert.equal(source.locked, false);
+    assert.deepEqual(calls, []);
+  }
+});
+
+test("invalid source chunks preserve their error and retire native observation", async () => {
+  const { context, calls, work } = fixture({
+    killFinishes: false,
+    blockOutput: true,
+  });
+  let cancelled = false;
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue("not bytes");
+    },
+    cancel() {
+      cancelled = true;
+      throw new Error("secondary cancellation failure");
+    },
+  });
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  await assert.rejects(process.output(), {
+    name: "TypeError",
+    message: "Exec stdin requires Uint8Array chunks",
+  });
+  await Promise.all(work);
+  assert.equal(cancelled, true);
+  assert.equal(source.locked, false);
+  assert.equal(calls.filter(([name]) => name === "container.exec").length, 1);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    1,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("abort cancels a pending source and signals only the original process", async () => {
+  const { context, calls, work } = fixture();
+  const entered = Promise.withResolvers();
+  let cancellation;
+  const source = new ReadableStream(
+    {
+      pull() {
+        entered.resolve();
+      },
+      cancel(reason) {
+        cancellation = reason;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const controller = new AbortController();
+  const process = await containerExec(context, ["tool"], {
+    stdin: source,
+    signal: controller.signal,
+  });
+  await entered.promise;
+  const reason = new Error("stop this input");
+  controller.abort(reason);
+  await process.output();
+  await Promise.all(work);
+  assert.equal(cancellation, reason);
+  assert.equal(source.locked, false);
+  assert.deepEqual(
+    calls
+      .filter(([name]) => name === "container.exec.kill")
+      .map(([, input]) => input),
+    [{ id: 1, signal: 9 }],
+  );
+});
+
+test("lost native authority cancels an input read without another effect", async () => {
+  const { context, calls, work } = fixture();
+  const lost = Promise.withResolvers();
+  const original = context._call.bind(context);
+  context._call = (name, ...args) =>
+    name === "container.exec.wait" ? lost.promise : original(name, ...args);
+  let cancelled = false;
+  const source = new ReadableStream(
+    {
+      pull() {},
+      cancel() {
+        cancelled = true;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  const failure = Object.assign(new Error("event retired"), {
+    code: "ContextExpired",
+    outcome: "unknown",
+  });
+  lost.reject(failure);
+  await assert.rejects(process.output(), (error) => error === failure);
+  await Promise.all(work);
+  assert.equal(cancelled, true);
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) =>
+      [
+        "container.exec.write",
+        "container.exec.kill",
+        "container.exec.close_stdin",
+      ].includes(name),
+    ).length,
+    0,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("a lost write acknowledgement cancels its source without replay", async () => {
+  const { context, calls, work } = fixture();
+  const failure = Object.assign(new Error("write acknowledgement lost"), {
+    code: "Ambiguous",
+    outcome: "unknown",
+  });
+  const original = context._call.bind(context);
+  context._call = async (name, ...args) => {
+    const result = await original(name, ...args);
+    if (name === "container.exec.write") throw failure;
+    return result;
+  };
+  let reason;
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue(Uint8Array.of(1));
+    },
+    cancel(value) {
+      reason = value;
+    },
+  });
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  await assert.rejects(process.output(), (error) => error === failure);
+  await Promise.all(work);
+  assert.equal(reason, failure);
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.write").length,
+    1,
+  );
+  assert.equal(calls.filter(([name]) => name === "container.exec").length, 1);
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("abort during an accepted write prevents the remaining source chunks", async () => {
+  const { context, calls, work } = fixture({
+    limit: 2,
+    stdout: [],
+    stderr: [],
+  });
+  const entered = Promise.withResolvers(),
+    release = Promise.withResolvers();
+  const original = context._call.bind(context);
+  context._call = async (name, ...args) => {
+    if (name === "container.exec.write") {
+      entered.resolve();
+      await release.promise;
+    }
+    return original(name, ...args);
+  };
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array(9));
+    },
+  });
+  const controller = new AbortController();
+  const process = await containerExec(context, ["tool"], {
+    stdin: source,
+    signal: controller.signal,
+  });
+  await entered.promise;
+  controller.abort();
+  release.resolve();
+  await process.output();
+  await Promise.all(work);
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.write").length,
+    1,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    1,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("source failure retires native handles while source cancellation is still pending", async () => {
+  const { context, calls, work } = fixture();
+  const entered = Promise.withResolvers(),
+    release = Promise.withResolvers();
+  const source = new ReadableStream({
+    start(controller) {
+      controller.enqueue("not bytes");
+    },
+    async cancel() {
+      entered.resolve();
+      await release.promise;
+    },
+  });
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  const output = process.output();
+  output.catch(() => {});
+  try {
+    await entered.promise;
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(source.locked, true);
+    assert.equal(
+      calls.filter(([name]) => name === "container.exec.kill").length,
+      1,
+    );
+    assert.equal(
+      calls.filter(([name]) => name === "container.release").length,
+      1,
+    );
+  } finally {
+    release.resolve();
+    await Promise.allSettled([output, ...work]);
+  }
+  await assert.rejects(output, TypeError);
+  assert.equal(source.locked, false);
+});
+
+test("output quota keeps its failure when source teardown also fails", async () => {
+  const { context, calls, work } = fixture({ limit: 2 });
+  const source = new ReadableStream(
+    {
+      pull() {},
+      cancel() {
+        throw new Error("secondary source cancellation error");
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const process = await containerExec(context, ["tool"], { stdin: source });
+  await assert.rejects(process.output(), RangeError);
+  await Promise.all(work);
+  assert.equal(source.locked, false);
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("ignored output failures refuse output even after process exit resolves", async () => {
+  const { context, calls, work } = fixture();
+  const failure = Object.assign(new Error("lost stderr observation"), {
+    code: "ContextExpired",
+    outcome: "unknown",
+  });
+  const gate = Promise.withResolvers();
+  const original = context._call;
+  context._call = async (name, ...args) => {
+    if (name === "container.exec.read_stderr") {
+      await gate.promise;
+      throw failure;
+    }
+    return original(name, ...args);
+  };
+  const process = await containerExec(context, ["tool"], { stderr: "ignore" });
+  assert.equal(await process.exitCode, 7);
+  gate.resolve();
+  await assert.rejects(process.output(), (error) => error === failure);
+  await Promise.all(work);
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
 });

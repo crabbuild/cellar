@@ -614,12 +614,32 @@ impl JavaScriptApplication {
                         // if the awaiting JavaScript task has already been cancelled.
                         let _bytes = _bytes;
                         let result = match serde_json::from_str::<Value>(&payload) {
-                            Ok(payload) => {
+                            Ok(mut payload) => {
+                                // Automatic discard readers hold an invocation-owned
+                                // process capability. This route has no SQL view and
+                                // is limited to observations of that event's handles.
+                                let event_owned = match &mut payload {
+                                    Value::Object(fields)
+                                        if crate::callbacks::event_owned_observation(&name)
+                                            && fields.get("$event_owned")
+                                                == Some(&Value::Bool(true)) =>
+                                    {
+                                        fields.remove("$event_owned");
+                                        true
+                                    }
+                                    _ => false,
+                                };
                                 // A parent can be draining an unawaited child
                                 // after its JS callback returned. Completion is
                                 // owned by this invocation and the named child;
                                 // it must not borrow the already closed parent.
-                                let scope = if name == "workers.callback.finish" {
+                                let scope = if event_owned
+                                    || matches!(
+                                        name.as_str(),
+                                        "workers.callback.finish" | "container.release"
+                                    ) {
+                                    // Releasing an event-owned resource is cleanup,
+                                    // and never borrows a callback's storage view.
                                     Ok(None)
                                 } else {
                                     callback_scope
@@ -636,6 +656,8 @@ impl JavaScriptApplication {
                                                 name.as_str(),
                                                 "workers.container.admit"
                                                     | "workers.container.perform"
+                                                    | "container.exec"
+                                                    | "container.exec_output"
                                             ) =>
                                     {
                                         Err(anyhow::Error::new(cellar_guest::failure::Validation))
@@ -719,8 +741,14 @@ impl JavaScriptApplication {
                                             }
                                         };
                                         match scope {
-                                            Some(scope) => scope.run(&context, future).await,
-                                            None => future.await,
+                                            Some(scope)
+                                                if !crate::callbacks::event_owned_observation(
+                                                    &name,
+                                                ) =>
+                                            {
+                                                scope.run(&context, future).await
+                                            }
+                                            _ => future.await,
                                         }
                                     }
                                 }

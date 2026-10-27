@@ -37,10 +37,10 @@ await container.setInactivityTimeout(60_000);
 | Admission | Wait for earlier queued startup; literal argv, nonempty executable without a leading hyphen |
 | Environment / user | Explicit cwd/env; user requires numeric UID:GID |
 | stdout / stderr | Node byte streams with backpressure; pipe, ignore, or combined stderr |
-| stdin | Omitted sends EOF; pipe writes accept Uint8Array and split to the native body limit |
+| stdin | Omitted sends EOF; `"pipe"` exposes a byte writer; `ReadableStream<Uint8Array>` pumps automatically in native body-sized chunks |
 | `output()` | Collect once, with a combined native body-size limit; overflow fails without successful truncation |
 | `exitCode` | Nonzero codes resolve normally |
-| `kill(signal)` | Promise for native acknowledgement; differs from Cloudflare's void signature |
+| `kill(signal)` | Defaults to SIGTERM (15); promise for native acknowledgement differs from Cloudflare's void signature |
 | Signal | Already aborted refuses allocation; live abort requests SIGKILL; detach listener after exit |
 | Controls | Serialize per event; ordinary and cleanup queues each admit at most 64 pending controls |
 | Cleanup | Completed streams/exit release native handles; cancellation joins native observation cleanup |
@@ -55,6 +55,32 @@ no background reader until identity is known.
 Every handle retains its original invocation. Dropping streams or receiving an
 unknown result does not prove termination or undo file writes. Kill or destroy
 explicitly when the application requires termination.
+
+## Stream a command's input
+
+```ts
+const process = await container.exec(["sha256sum"], {
+  stdin: new Blob(["hello"]).stream(),
+});
+const output = await process.output();
+console.log(new TextDecoder().decode(output.stdout));
+```
+
+| Source boundary | Behavior |
+| --- | --- |
+| Admission | Reserve the reader and event/callback lifetime before allocation; locked, non-stream and pre-aborted input refuses before effects |
+| Allocation failure | Release the source lock without consuming or cancelling it; never replay the command |
+| Flow | Read one source chunk, split it to the existing native limit and await each write acknowledgement before pulling again |
+| EOF | Acknowledge native stdin closure, join the pump and release its reader |
+| Exit, abort or lost event | Cancel a pending read and join source cancellation; queued source writes recheck cancellation before dispatch |
+| Source/write failure | Start native retirement before awaiting application source cancellation; request SIGKILL, join cancellation and preserve the initiating failure in `output()`, with no write replay |
+| Callback lifetime | Input controls retain their accepted callback until input settles; admitted exec reads/waits and automatic ignored-output drains keep original event authority afterward. New ordinary reads from a closed callback still refuse |
+| Concurrent storage | Existing-handle writes, closure, signals and retirement use native control serialization without occupying the SQLite mutation slot; effect classification and output proofs remain unchanged |
+| Transactions | Refuse process creation before provider dispatch; release the unconsumed source |
+
+Stream mode returns `stdin: null`. Its pump remains owned by the original event
+after a response, under the existing runtime deadlines. An accepted command may
+have effects before a source failure; cleanup is not rollback or remote fencing.
 
 The published file API uses the same process surface:
 
@@ -99,12 +125,17 @@ cargo test --locked -p cellar-javascript --features node \
 | Acceptance | Boundary |
 | --- | --- |
 | Binary stdout/stderr, nonzero exit and missing executable | Native Linux exec and bounded output; shell-backed missing command exits 127 |
+| Source stdin, 2 MiB + 17 bytes | Exact length/SHA-256 through native chunked writes; callback returns before process exit |
+| 130 sequential source processes | Byte-for-byte echo, unlocked source readers and reusable retention/handle capacity; existing limits stay unchanged |
+| Early exit and invalid source chunks | Cancel pending input, release its reader and preserve the source `TypeError` over observation cancellation |
+| Closed callback | New ordinary stdout read and a forged observation flag on a storage write refuse before dispatch; automatic ignored stdout/stderr drains still finish |
+| Streamed or buffered process creation in a transaction | Typed `ValidationError` / `not_committed`, zero source pulls and zero provider allocation calls |
 | 2 MiB + 17 bytes write/read, rename and stat | Published Files, matching helper and SHA-256 round trip across events; 64 KiB native chunks |
 | 70 sequential and two parallel stats | Native handle retirement and mutation admission |
 | Missing file | Published `SandboxFileError.is()` and `ENOENT` |
 | Quota / live abort | No successful truncation; joined native observation cancellation and explicit container retirement |
 | Saved process in later event | Original authority refuses before effects |
-| Shutdown | Native cell/application drain; joined Node bridge has zero active invocations and retained bytes; no owned containers; remove only empty labelled test networks |
+| Handle retirement and shutdown | Explicit native release of every allocated process after each route, independently of event-drop cleanup; native cell/application drain, zero bridge invocations/bytes after join, no owned containers, only empty labelled test networks removed |
 
 Ordinary CI verifies inputs, builds the SDK fixture and tests the facade. The
 opt-in image campaign uses a 120-second native handler budget, a 30-second JS
@@ -131,12 +162,14 @@ engine, omit it to check production admission and report both measurements.
 
 ## Remaining compatibility
 
-This does not qualify all Sandbox 1.x operations. PID/PTY/resize, ReadableStream
-input to exec, image selection, snapshots, outbound handlers, S3 mounts,
+This does not qualify all Sandbox 1.x operations. PID/PTY/resize,
+image selection, snapshots, outbound handlers, S3 mounts,
 directory backups, full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
-requires Node; embedded V8 still lacks that web bootstrap. Supervised remote
-cleanup and ownership-transfer qualification remain separate framework work.
+requires Node; embedded V8 still lacks that web bootstrap. Shared-framework
+[native supervision](../../../crates/cellar-container/supervision.md) has selected
+protocol/fleet evidence; live remote accounts and provider-enforced fencing
+remain unqualified.
 
 Upstream contracts: [1.0 changes](https://developers.cloudflare.com/sandbox/sdk/migrate/changes-in-1-0/),
 [Files](https://developers.cloudflare.com/sandbox/reference/files/),

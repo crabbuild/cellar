@@ -185,6 +185,11 @@ async function processTypes(container: DurableObjectContainer) {
   const bytes: ArrayBuffer = output.stdout;
   const code: number = await process.exitCode;
   await container.setInactivityTimeout(30_000);
+  const input = new ReadableStream<Uint8Array>();
+  const streamed = await container.exec(["tool"], { stdin: input });
+  await streamed.output();
+  // @ts-expect-error: process stdin accepts byte streams, not text streams
+  await container.exec(["tool"], { stdin: new ReadableStream<string>() });
   // @ts-expect-error: PTY support is not implemented by this process profile
   await container.exec(["tool"], { pty: true });
   return { bytes, code };

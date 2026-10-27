@@ -103,7 +103,7 @@ export interface DurableObjectContainer {
   exec(
     cmd: string[],
     options?: {
-      stdin?: "pipe";
+      stdin?: "pipe" | ReadableStream<Uint8Array>;
       stdout?: "pipe" | "ignore";
       stderr?: "pipe" | "ignore" | "combined";
       cwd?: string;
@@ -137,6 +137,7 @@ export interface ContainerExecProcess {
   readonly stdout: ReadableStream<Uint8Array> | null;
   readonly stderr: ReadableStream<Uint8Array> | null;
   readonly exitCode: Promise<number>;
+  /** Acknowledged signal; defaults to SIGTERM (15). Abort requests SIGKILL (9). */
   kill(signal?: number): Promise<void>;
   output(): Promise<{
     stdout: ArrayBuffer;

@@ -130,6 +130,64 @@ fn node_refuses_overlapping_mutations() -> Result<()> {
 }
 
 #[test]
+fn node_process_io_and_cleanup_do_not_block_storage_mutations() -> Result<()> {
+    with_module(
+        r#"
+        export async function fetch(req, ctx) {
+            for (const name of ['container.exec.write', 'container.exec.close_stdin',
+                                'container.exec.kill', 'container.release']) {
+                const pending = ctx._call(name, {id:'1', data:'AQ==', signal:9});
+                try { await ctx.storage.apply({puts:{last:name}}); }
+                catch (error) { return {blocked:name, code:error.code}; }
+                await pending;
+            }
+            return {joined:true};
+        }
+        "#,
+        |app| {
+            let (id, mut receiver) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            for expected in [
+                "container.exec.write",
+                "container.exec.close_stdin",
+                "container.exec.kill",
+                "container.release",
+            ] {
+                let Event::Operation { id: io, name, .. } = event(&mut receiver) else {
+                    panic!("process control missing: {expected}")
+                };
+                assert_eq!(name, expected);
+                // Hold the process acknowledgement until storage has been
+                // admitted and acknowledged. A shared mutation slot deadlocks
+                // this ordering or rejects the legitimate storage mutation.
+                let Event::Operation {
+                    id: storage, name, ..
+                } = event(&mut receiver)
+                else {
+                    panic!("pending {expected} prevented independent storage admission")
+                };
+                assert_eq!(name, "storage.apply");
+                app.runtime
+                    .reply(id, storage, r#"{"ok":true,"value":null}"#.into())?;
+                app.runtime
+                    .reply(id, io, r#"{"ok":true,"value":null}"#.into())?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receiver)
+            else {
+                panic!("process I/O did not join")
+            };
+            assert!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!({"joined":true})
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
 fn node_process_survives_native_observer_pause() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let entry = directory.path().join("app.mjs");
