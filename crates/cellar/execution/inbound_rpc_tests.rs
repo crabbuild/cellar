@@ -3,6 +3,48 @@
 use super::*;
 
 #[tokio::test]
+async fn last_alias_drops_use_the_receiving_domains_clock() -> anyhow::Result<()> {
+    let owner = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (connection, ticket, before) = owner
+        .run(async {
+            let connection = crate::asyncrt::services().admit_rpc_tunnel("peer").unwrap();
+            let request = connection.request().unwrap();
+            let ticket = request.ticket();
+            drop(request);
+            crate::asyncrt::sleep(Duration::from_millis(20)).await;
+            (connection, ticket, crate::asyncrt::mono_ms())
+        })
+        .await?;
+    let foreign = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    foreign.run(async { drop(ticket) }).await?;
+    assert!(
+        connection.0.touched.load(Ordering::SeqCst) >= before,
+        "dropping a reply alias installed another execution domain's idle timestamp"
+    );
+    drop(connection);
+    assert_eq!(owner.services().inbound_rpc_usage(), Usage::default());
+    foreign.shutdown().await;
+    owner.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn last_alias_drops_after_the_receiving_domain_stops() -> anyhow::Result<()> {
+    let owner = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let ticket = owner
+        .run(async {
+            let connection = crate::asyncrt::services().admit_rpc_tunnel("peer").unwrap();
+            connection.request().unwrap().ticket()
+        })
+        .await?;
+    owner.shutdown().await;
+    assert_eq!(owner.services().inbound_rpc_usage().active_requests, 1);
+    drop(ticket);
+    assert_eq!(owner.services().inbound_rpc_usage(), Usage::default());
+    Ok(())
+}
+
+#[tokio::test]
 async fn quotas_follow_the_last_native_owner_and_remove_peer_entries() -> anyhow::Result<()> {
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     domain.services().configure_runtime(RuntimePolicy {

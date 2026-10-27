@@ -399,13 +399,14 @@ impl HostServices {
         if !self.accepts_work() {
             return None;
         }
+        let domain = self.domain_token()?;
         self.inbound_rpc
-            .get_or_init(|| crate::inbound_rpc::Budget::new(self.runtime_policy()))
+            .get_or_init(|| crate::inbound_rpc::Budget::new(self.runtime_policy(), domain))
             .connect(peer)
     }
 
     /// Receiving tunnel/request reservations, including input upload, native
-    /// drivers and retained reply bodies. Byte counts cover input/control
+    /// drivers and transport-owned reply buffers. Byte counts cover input/control
     /// allowances; responses, decoded graphs and guest heaps have other limits.
     pub fn inbound_rpc_usage(&self) -> InboundRpcUsage {
         self.inbound_rpc

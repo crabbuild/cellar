@@ -41,7 +41,9 @@ pub struct RuntimePolicy {
     pub max_inbound_rpc_tunnels: usize,
     /// Maximum receiving RPC tunnels owned by one authenticated peer name.
     pub max_rpc_tunnels_per_peer: usize,
-    /// Close a receiving RPC tunnel after this interval without an active call.
+    /// Maximum receiving RPC upgrade, idle and post-handler reply-write interval.
+    /// An original caller deadline can shorten delivery; handler execution keeps
+    /// its separate budget.
     pub rpc_tunnel_idle_timeout: Duration,
     /// How long a saturated stateless pool waits before refusing an event.
     /// Zero means refuse immediately.

@@ -56,6 +56,14 @@ an idle timeout bound pooled connections. Fragments do not accumulate list
 nodes, and empty chunks yield to timers/replies. Socket and dense-buffer tests
 also exercise quota recovery, idle retirement and native ticket retention.
 
+Reply admission follows each yielded transport buffer and its slices/clones,
+without copying the payload. Once a handler result is ready, the original
+caller deadline and peer transport interval cap delivery. A stalled socket
+closes within that budget; it cannot turn a lost reply into rollback evidence.
+Refunds use the receiving domain's clock, including late buffer drops after
+shutdown. Reply payload bytes and allocator/RSS accounting still need their
+separate qualification below.
+
 These are input/control reservations, not an RSS or exact allocator measurement.
 Native allocator overhead, response copies, decoded graphs, guest heaps and
 broader flood/disconnect/cancellation matrices need further qualification. See the host settings in

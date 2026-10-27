@@ -830,24 +830,39 @@ async fn serve_rpc(
                 },
             )
             .await;
-            Ok(reply.map(|body| {
-                RetainedRpcBody {
-                    body,
-                    _reservation: reservation,
+            let (parts, body) = reply.into_parts();
+            let body = match RetainedRpcBody::new(body, reservation, deadline_ms) {
+                Ok(body) => body,
+                Err(crate::application::rpc::Code::DeadlineExceeded) => {
+                    return Ok(close_rpc_reply(rpc_deadline::response()));
                 }
-                .boxed_unsync()
-            }))
+                Err(_) => {
+                    return Ok(close_rpc_reply(peer_response(response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "RPC receiver is stopping",
+                    ))))
+                }
+            };
+            Ok(Response::from_parts(parts, body.boxed_unsync()))
         }
     });
-    let mut builder = hyper::server::conn::http1::Builder::new();
-    // Existing framework authority may itself occupy 16 KiB. Bound the whole
-    // parser while leaving room for its scope, budget and ordinary HTTP fields.
-    builder.max_buf_size(64 * 1024).max_headers(128);
-    let serving = builder.serve_connection(upgraded, service);
+    let serving = rpc_server_builder().serve_connection(upgraded, service);
     crate::asyncrt::select_biased! { "idle receiving RPC tunnels release owned slots";
         _ = idle.idle() => {},
         _ = serving => {},
     }
+}
+
+fn rpc_server_builder() -> hyper::server::conn::http1::Builder {
+    let mut builder = hyper::server::conn::http1::Builder::new();
+    // Existing framework authority may itself occupy 16 KiB. Bound the whole
+    // parser while leaving room for its scope, budget and ordinary HTTP fields.
+    builder.max_buf_size(64 * 1024).max_headers(128);
+    // Keep body-frame owners in Hyper's write queue even if an I/O wrapper only
+    // implements scalar writes. Flattening copies bytes and drops their leases
+    // before the pending socket write has consumed that copy.
+    builder.writev(true);
+    builder
 }
 
 fn close_rpc_reply(mut reply: HttpReply) -> HttpReply {
@@ -860,7 +875,33 @@ fn close_rpc_reply(mut reply: HttpReply) -> HttpReply {
 
 struct RetainedRpcBody {
     body: UnsyncBoxBody<Bytes, std::io::Error>,
-    _reservation: crate::inbound_rpc::Request,
+    _reservation: crate::inbound_rpc::Reply,
+}
+
+impl RetainedRpcBody {
+    fn new(
+        body: UnsyncBoxBody<Bytes, std::io::Error>,
+        reservation: crate::inbound_rpc::Request,
+        deadline_ms: Option<u64>,
+    ) -> Result<Self, crate::application::rpc::Code> {
+        Ok(Self {
+            body,
+            _reservation: reservation.begin_reply(deadline_ms)?,
+        })
+    }
+}
+
+/// Hyper may retain a yielded frame after dropping its body. The shared ticket
+/// follows every slice/clone of the bytes until the last transport buffer drops.
+struct RetainedRpcData {
+    data: Bytes,
+    _reservation: crate::inbound_rpc::Reply,
+}
+
+impl AsRef<[u8]> for RetainedRpcData {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 impl Body for RetainedRpcBody {
@@ -871,7 +912,20 @@ impl Body for RetainedRpcBody {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
-        std::pin::Pin::new(&mut self.body).poll_frame(cx)
+        std::pin::Pin::new(&mut self.body)
+            .poll_frame(cx)
+            .map(|frame| {
+                frame.map(|result| {
+                    result.map(|frame| {
+                        frame.map_data(|data| {
+                            Bytes::from_owner(RetainedRpcData {
+                                data,
+                                _reservation: self._reservation.clone(),
+                            })
+                        })
+                    })
+                })
+            })
     }
 
     fn is_end_stream(&self) -> bool {
@@ -1042,3 +1096,7 @@ mod private_tests {
 #[cfg(test)]
 #[path = "peer_tunnel_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "peer_tunnel_reply_tests.rs"]
+mod reply_tests;
