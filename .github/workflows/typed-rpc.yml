@@ -54,14 +54,28 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm run --prefix tools/rpc build
+          node tools/rpc/profile/vectors.mjs --check
+          node --test tools/rpc/profile-vectors.test.mjs
+          .cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+          .cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
       - name: Qualifier checks
         run: |
+          cargo test --locked -p cellar-guest
           cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store
           cargo test --locked -p cellar-rpc-codegen --test descriptor_admission
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Live portable Protobuf profile
+        run: |
+          mkdir -p .cellar/rpc
+          if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+            --suite profile --report .cellar/rpc/profile.json > .cellar/rpc/profile.log 2>&1; then
+            tail -n 100 .cellar/rpc/profile.log
+            exit 1
+          fi
+          python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
       - name: Owned Node, V8 and Python lifecycle matrices
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
@@ -70,7 +84,7 @@ jobs:
             tail -n 100 .cellar/rpc/lifecycle.log
             exit 1
           fi
-          for rpc_suite in python-cancellation python-supervision peer-faults saturation; do
+          for rpc_suite in python-cancellation python-supervision peer-faults saturation guest-control; do
             if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
               --suite "$rpc_suite" --report ".cellar/rpc/$rpc_suite.json" \
               > ".cellar/rpc/$rpc_suite.log" 2>&1; then
@@ -80,6 +94,7 @@ jobs:
           done
           python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
           python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
+          python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
       - name: Retain lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -87,6 +102,8 @@ jobs:
           name: typed-rpc-lifecycle
           path: |
             .cellar/rpc/lifecycle.json
+            .cellar/rpc/profile.json
+            .cellar/rpc/profile.log
             .cellar/rpc/lifecycle.log
             .cellar/rpc/python-cancellation.json
             .cellar/rpc/python-cancellation.log
@@ -96,3 +113,5 @@ jobs:
             .cellar/rpc/peer-faults.log
             .cellar/rpc/saturation.json
             .cellar/rpc/saturation.log
+            .cellar/rpc/guest-control.json
+            .cellar/rpc/guest-control.log

@@ -20,9 +20,11 @@ def audit(report):
     assert report["source_reservations_after_drain"] == report["receiver_reservations_after_drain"] == report["receiver_tunnels_after_drain"] == 0
     assert report["all_memory_qualified"] is report["release_qualified"] is False
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 96
+    assert len(cases) == report["case_count"] == 112
     expected = {(side, route, limit, caller, provider) for side, route in (("source", "local"), ("source", "signed-peer"), ("receiver", "signed-peer"))
                 for limit, caller, provider in itertools.product(("requests", "bytes"), LANGUAGES, LANGUAGES)}
+    expected |= {("receiver-reply", "signed-peer", "bytes", caller, provider)
+                 for caller, provider in itertools.product(LANGUAGES, LANGUAGES)}
     keys = [(c["side"], c["route"], c["limit"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
     identities = {}
@@ -57,11 +59,28 @@ def audit(report):
             assert case["max_rpc_bytes"] == 128 * 1024
         assert case["first_refusal"] == {"code": "ResourceExhausted", "outcome": "not_committed" if case["side"] == "source" else "unknown"}
         assert case["refused_handler_count"] == case["factory_count_change"] == 0
-        assert case["total_handler_count"] == 4
-        assert case["explicit_receipt_retries"] == 2
+        reply_limit = case["side"] == "receiver-reply"
+        assert case["holder_caller"] == (caller if reply_limit else "rust")
+        assert case["holder_stored_count"] == str(before + 1)
+        assert case["holder_transaction_open"] is False
+        assert type(case["holder_write_position"]) is int and case["holder_write_position"] >= 0
+        assert type(case["holder_valid_message_bytes"]) is int
+        assert 0 < case["holder_valid_message_bytes"] <= 1024 * 1024
+        assert case["holder_receipt_replayed"] is reply_limit
+        if reply_limit:
+            assert case["holder_first_reply"] == {"code": "ResourceExhausted", "outcome": "unknown"}
+            assert case["holder_valid_message_bytes"] > 65536
+        else:
+            assert case["holder_first_reply"] == {"value": str(before + 1)}
+        assert case["total_handler_count"] == (5 if reply_limit else 4)
+        assert case["explicit_receipt_retries"] == (3 if reply_limit else 2)
         assert case["changed_command_refused"] is True and case["automatic_replay"] is False
         assert case["usage_after_case"] == zero
     assert set(counts.values()) == {8}
+
+
+def reply_case(report):
+    return next(case for case in report["cases"] if case["side"] == "receiver-reply")
 
 
 def negative_probes(report):
@@ -76,6 +95,13 @@ def negative_probes(report):
         lambda r: r["cases"][0]["held"].__setitem__("epoch", 0),
         lambda r: r["cases"][0].__setitem__("automatic_replay", True),
         lambda r: r.__setitem__("native_nodes_drained", False),
+        lambda r: reply_case(r)["holder_first_reply"].__setitem__("outcome", "not_committed"),
+        lambda r: reply_case(r).__setitem__("holder_valid_message_bytes", 1),
+        lambda r: reply_case(r).__setitem__("holder_receipt_replayed", False),
+        lambda r: reply_case(r).__setitem__("holder_stored_count", "0"),
+        lambda r: reply_case(r).__setitem__("holder_caller", "wrong-language"),
+        lambda r: reply_case(r).__setitem__("holder_transaction_open", True),
+        lambda r: reply_case(r).__setitem__("holder_write_position", None),
     )
     for mutation in mutations:
         damaged = copy.deepcopy(report)

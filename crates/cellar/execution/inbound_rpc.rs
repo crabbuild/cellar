@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Receiving RPC tunnels and request buffers share one execution-domain budget.
+//! Receiving RPC tunnels, request buffers and published replies share admission.
 use crate::{application::rpc::Code, rpc_reservation::Reservation, runtime_policy::RuntimePolicy};
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -23,7 +23,8 @@ pub struct Usage {
     pub peers: usize,
     /// Requests retained by upload, routing, native work or transport reply bytes.
     pub active_requests: usize,
-    /// Dense input capacity, one possible copy and fixed control allowance.
+    /// Bytes owned by receiving requests: dense input, a possible copy, fixed
+    /// control allowance and published reply payloads. This is not process RSS.
     pub reserved_request_bytes: usize,
 }
 
@@ -63,12 +64,13 @@ struct Admitted {
 /// Shared ownership of a published reply, independent of native driver cleanup.
 #[derive(Clone)]
 pub(crate) struct Reply {
-    _held: Arc<Published>,
+    held: Arc<Published>,
 }
 
 struct Published {
     request: Request,
     key: usize,
+    bytes: Mutex<OwnedSemaphorePermit>,
 }
 
 impl Budget {
@@ -207,6 +209,13 @@ impl Request {
         if deadline <= now {
             return Err(Code::DeadlineExceeded);
         }
+        let bytes = connection
+            .0
+            .inner
+            .bytes
+            .clone()
+            .try_acquire_many_owned(0)
+            .map_err(|_| Code::Unavailable)?;
         // The published lease holds this Arc until its key is removed, so its
         // private allocation identity cannot be reused by another live reply.
         let key = Arc::as_ptr(&self.0) as usize;
@@ -219,9 +228,10 @@ impl Request {
         }
         connection.0.changed.notify_one();
         Ok(Reply {
-            _held: Arc::new(Published {
+            held: Arc::new(Published {
                 request: self.clone(),
                 key,
+                bytes: Mutex::new(bytes),
             }),
         })
     }
@@ -249,6 +259,49 @@ impl Request {
 
     pub(crate) fn ticket(&self) -> Reservation {
         Reservation::shared(self.0.clone())
+    }
+}
+
+impl Reply {
+    /// Reserve the declared upper bound, or grow to the total bytes yielded so
+    /// far. One merged permit follows every transport alias until the last one
+    /// drops; consumed frames cannot repeatedly borrow the same host capacity.
+    pub(crate) fn buffer(&self, capacity: usize) -> Result<(), Code> {
+        let connection = &self.held.request.0.connection;
+        let now = connection
+            .0
+            .inner
+            .domain
+            .mono_ms()
+            .map_err(|_| Code::Unavailable)?;
+        let deadline = connection
+            .0
+            .replies
+            .lock()
+            .unwrap()
+            .get(&self.held.key)
+            .copied()
+            .ok_or(Code::Unavailable)?;
+        if deadline <= now {
+            return Err(Code::DeadlineExceeded);
+        }
+        let mut held = self.held.bytes.lock().unwrap();
+        if capacity > held.num_permits() {
+            let additional = u32::try_from(capacity - held.num_permits())
+                .map_err(|_| Code::ResourceExhausted)?;
+            let bytes = connection
+                .0
+                .inner
+                .bytes
+                .clone()
+                .try_acquire_many_owned(additional)
+                .map_err(|error| match error {
+                    tokio::sync::TryAcquireError::Closed => Code::Unavailable,
+                    tokio::sync::TryAcquireError::NoPermits => Code::ResourceExhausted,
+                })?;
+            held.merge(bytes);
+        }
+        Ok(())
     }
 }
 

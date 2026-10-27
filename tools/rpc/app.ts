@@ -4,7 +4,7 @@
 // the Node entry uses the separately generated JavaScript services.
 import { create } from "@bufbuild/protobuf";
 import { jsonResponse, utf8, type Context, type Json, type Request, type Snapshot } from "@cellar/sdk";
-import { CounterClient, type CounterHandler } from "./fixtures/generated/typescript/counter_cellar.js";
+import { CounterClient, CounterRegistration, type CounterHandler } from "./fixtures/generated/typescript/counter_cellar.js";
 import {
   GetCountResponseSchema, IncrementResponseSchema,
   type GetCountRequest, type GetCountResponse, type IncrementRequest, type IncrementResponse,
@@ -72,6 +72,11 @@ export class Counter implements CounterHandler {
       if (!request.operationId.startsWith("proof-no-sync-")) await ctx.storage.sync();
       await cycleAfterCommit(ctx, request.operationId);
       await provenanceAfterCommit(ctx, request.operationId);
+      if (request.operationId.startsWith("held-reply-quota-")) {
+        // Valid output after the receipt commits; only the host reply quota
+        // should refuse it. A same-ID retry returns the saved count above.
+        return reject("x".repeat(64 * 1024));
+      }
       if (request.operationId === "invalid-reply") {
         // Deliberate post-commit bug. The caller must receive unknown effects;
         // retrying this ID after restart must return the durable saved result.
@@ -106,6 +111,25 @@ export function handler(Client: Client, createController?: () => Controller) {
     }));
     const binding = params.target === "rust" ? "RUST" : params.target === "node" ? "NODE"
       : params.target === "python" ? "PYTHON" : "V8";
+    if (path.endsWith("/metadata-control")) {
+      try {
+        if (params.mode === "oversize") {
+          await Client.bind(ctx, binding, "x".repeat(32 * 1024)).getCount({});
+        } else if (params.mode === "unknown") {
+          // Probe the actual native decoder with a valid empty request and an
+          // undeclared control graph. Business methods must never receive it.
+          const rule = CounterRegistration.methods["example.counter.v1.Counter/GetCount"];
+          const transport = Reflect.get(ctx, Symbol.for("cellar.rpc"));
+          await transport.call({binding, name:"alice", method:rule.method,
+            contract_digest:rule.digest, extra:{items:[1, 2]}}, new Uint8Array());
+        } else throw Error("Unknown metadata-control probe");
+        return jsonResponse({admitted:true});
+      } catch (error) {
+        const failure = error as {code?:unknown; outcome?:unknown};
+        if (typeof failure?.code !== "string" || typeof failure?.outcome !== "string") throw error;
+        return jsonResponse({code:failure.code, outcome:failure.outcome});
+      }
+    }
     if (/\/budget-(capacity|hold|held|free|foreign)$/.test(path)) return budgetControl(path, ctx);
     if (path.endsWith("/cycle-control")) return jsonResponse(cycleControl(params.action));
     if (path.endsWith("/provenance-control")) return jsonResponse(provenanceControl(params.action === "clear"));

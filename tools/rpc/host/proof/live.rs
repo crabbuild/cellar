@@ -89,6 +89,8 @@ impl Watch<'_> {
                         Returned {
                             visit,
                             count_matching_storage: Some(self.expected.to_string()),
+                            stored_count: Some(self.expected.to_string()),
+                            valid_reply_message_bytes: None,
                             transaction_open: None,
                             write_position: None,
                         },

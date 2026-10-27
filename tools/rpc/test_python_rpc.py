@@ -91,6 +91,35 @@ class Context:
 
 
 class PythonRpc(unittest.TestCase):
+    def test_rpc_control_uses_utf8_without_changing_ordinary_sdk_encoding(self):
+        from cellar import Context as NativeContext, _current_invocation
+        class Bridge:
+            def __init__(self): self.payloads = []
+            def active(self): return True
+            def submit(self, sequence, operation, payload, *args):
+                self.payloads.append((operation, payload))
+                raise ValueError("stop after observing the actual wire control")
+        async def run():
+            bridge = Bridge()
+            token = _current_invocation.set(bridge)
+            try:
+                context = NativeContext(bridge, None)
+                name = "\ufeff😀" * 1500
+                with self.assertRaises(ValidationError):
+                    await context._call("cell.call", _body=b"", binding="COUNTERS", name=name,
+                                        method="example.counter.v1.Counter/GetCount", contract_digest="a" * 64)
+                with self.assertRaises(ValidationError):
+                    await context._call("var", name=name)
+                control = bridge.payloads[0][1]
+                self.assertLess(len(control.encode("utf-8")), 16 * 1024)
+                self.assertIn("😀", control)
+                self.assertEqual(json.loads(control)["name"], name)
+                self.assertTrue(bridge.payloads[1][1].isascii())
+                self.assertEqual(context._pending, {})
+            finally:
+                _current_invocation.reset(token)
+        asyncio.run(run())
+
     def setUp(self):
         self.increment = CounterRegistration.methods["example.counter.v1.Counter/Increment"]
 

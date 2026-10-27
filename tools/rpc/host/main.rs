@@ -23,9 +23,11 @@ mod fleet;
 #[allow(dead_code)]
 #[path = "../fixtures/generated/rust/example.counter.v1.rs"]
 mod generated;
+mod guest_control;
 #[path = "../../../crates/cellar-javascript/tests/support/native.rs"]
 mod native;
 mod peer_faults;
+mod profile;
 mod proof;
 mod provenance;
 mod qualify;
@@ -35,6 +37,8 @@ mod worker;
 
 #[derive(Clone, Copy)]
 enum Suite {
+    Profile,
+    GuestControl,
     Local,
     Remote,
     PeerFaults,
@@ -89,6 +93,8 @@ fn main() -> Result<()> {
             }
             "--suite" => {
                 suite = match arguments.next().as_deref() {
+                    Some("profile") => Suite::Profile,
+                    Some("guest-control") => Suite::GuestControl,
                     Some("local") => Suite::Local,
                     Some("remote") => Suite::Remote,
                     Some("peer-faults") => Suite::PeerFaults,
@@ -123,7 +129,7 @@ fn main() -> Result<()> {
                     Some("python-supervision") => Suite::PythonSupervision,
                     Some("python-supervision-smoke") => Suite::PythonSupervisionSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be local, remote, peer-faults, saturation, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, v8-forced-peer-repro, v8-forced-peer-deadline-repro, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be profile, guest-control, local, remote, peer-faults, saturation, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, v8-forced-peer-repro, v8-forced-peer-deadline-repro, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--python-lifecycle-child" => python_child = Some(PathBuf::from(arguments.next().context("missing Python child case file")?)),
@@ -132,7 +138,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite profile|guest-control|local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
             ),
         }
     }
@@ -160,6 +166,13 @@ fn main() -> Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
+    }
+    if matches!(suite, Suite::Profile) {
+        ensure!(
+            server.is_none() && python_child.is_none(),
+            "profile suite cannot serve a crash worker"
+        );
+        return publish(profile::execute()?, report_path);
     }
     let (proof_sender, proof_receiver) = std::sync::mpsc::sync_channel(1);
     let child_mode = python_child.is_some();
@@ -282,6 +295,10 @@ fn main() -> Result<()> {
     let proof = proof_receiver
         .try_recv()
         .context("qualification result is missing")?;
+    publish(proof, report_path)
+}
+
+fn publish(proof: serde_json::Value, report_path: Option<PathBuf>) -> Result<()> {
     let text = serde_json::to_string_pretty(&proof)?;
     if let Some(path) = report_path {
         if let Some(parent) = path
