@@ -6,9 +6,15 @@ use super::*;
 use cellar_ltx::stream_snapshot::{ScratchLimits, ScratchPool, ScratchUsage};
 
 pub(super) async fn multipart_fixture() -> Result<(Fixture, CommittedArchiveCut)> {
+    multipart_fixture_with_limits(ArchiveLimits::default()).await
+}
+
+async fn multipart_fixture_with_limits(
+    limits: ArchiveLimits,
+) -> Result<(Fixture, CommittedArchiveCut)> {
     let mut fixture = Fixture::new(ArchiveLimits {
         max_capture_bytes: 16 * 1024 * 1024,
-        ..Default::default()
+        ..limits
     })
     .await?;
     let image = images::image(
@@ -106,8 +112,15 @@ async fn confirmed_snapshot_parts_are_not_downloaded_again_by_the_producer() -> 
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unchanged_image_rebinds_configuration_without_uploading_image_parts() -> Result<()> {
-    let (fixture, first) = multipart_fixture().await?;
+    let (fixture, first) = multipart_fixture_with_limits(ArchiveLimits {
+        max_tails: 1,
+        ..Default::default()
+    })
+    .await?;
     fixture.publish(first).await?;
+    // Fill the explicit tail limit so this case continues to qualify a
+    // checkpoint rebind rather than the ordinary configuration-tail path.
+    fixture.publish(fixture.protocol(false).await?).await?;
     let parts = fixture.store.snapshot_part_puts.load(Ordering::Acquire);
     ensure!(parts >= 3);
     let changed = fixture.protocol(true).await?;
@@ -139,6 +152,7 @@ async fn owned_source_fixture() -> Result<(
 )> {
     let mut fixture = Fixture::new(ArchiveLimits {
         max_capture_bytes: 16 * 1024 * 1024,
+        max_tails: 1,
         ..Default::default()
     })
     .await?;
@@ -274,10 +288,14 @@ async fn failed_part_confirmation_releases_source_and_success_keeps_it_owned() -
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn confirmed_source_still_requires_independent_destination_sync() -> Result<()> {
-    for rebind in [false, true] {
+    for publication in ["initial", "tail", "rebind"] {
         let (fixture, first, _, scratch) = owned_source_fixture().await?;
-        let (cut, previous) = if rebind {
-            let set = fixture.publish(first).await?;
+        let (cut, previous) = if publication != "initial" {
+            let mut set = fixture.publish(first).await?;
+            if publication == "rebind" {
+                drop(set);
+                set = fixture.publish(fixture.protocol(false).await?).await?;
+            }
             let reference = set.reference();
             drop(set);
             (fixture.protocol(true).await?, Some(reference))
@@ -332,47 +350,60 @@ async fn confirmed_source_still_requires_independent_destination_sync() -> Resul
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn configuration_rebind_refuses_missing_prior_parts_without_repairing_them() -> Result<()> {
-    let (fixture, first) = multipart_fixture().await?;
-    let set = fixture.publish(first).await?;
-    let reference = set.reference();
-    let changed = fixture.protocol(true).await?;
-    let part = fixture
-        .store
-        .inner
-        .list(None)
-        .try_collect::<Vec<_>>()
-        .await?
-        .into_iter()
-        .find(|object| object.location.as_ref().contains("/snapshot-parts/"))
-        .context("snapshot part")?;
-    let bytes = fixture
-        .store
-        .inner
-        .get(&part.location)
-        .await?
-        .bytes()
+async fn configuration_tail_and_rebind_refuse_missing_prior_parts_without_repairing_them(
+) -> Result<()> {
+    for checkpoint in [false, true] {
+        let (fixture, first) = multipart_fixture_with_limits(ArchiveLimits {
+            max_tails: 1,
+            ..Default::default()
+        })
         .await?;
-    fixture.store.inner.delete(&part.location).await?;
-    let before = fixture.store.snapshot_part_puts.load(Ordering::Acquire);
-    ensure!(fixture.publish(changed.clone()).await.is_err());
-    ensure!(fixture.store.snapshot_part_puts.load(Ordering::Acquire) == before);
-    ensure!(
-        fixture
-            .archive
-            .recovery_metadata()
+        let mut set = fixture.publish(first).await?;
+        if checkpoint {
+            drop(set);
+            set = fixture.publish(fixture.protocol(false).await?).await?;
+        }
+        let reference = set.reference();
+        let changed = fixture.protocol(true).await?;
+        let part = fixture
+            .store
+            .inner
+            .list(None)
+            .try_collect::<Vec<_>>()
             .await?
-            .context("selected head")?
-            .reference()
-            == reference
-    );
-    fixture
-        .store
-        .inner
-        .put(&part.location, bytes.into())
-        .await?;
-    let repaired = fixture.publish(changed).await?;
-    ensure!(restored(&repaired, 7)? == fixture.bytes);
-    ensure!(repaired.configuration()?.learners == vec![2]);
-    fixture.close().await
+            .into_iter()
+            .find(|object| object.location.as_ref().contains("/snapshot-parts/"))
+            .context("snapshot part")?;
+        let bytes = fixture
+            .store
+            .inner
+            .get(&part.location)
+            .await?
+            .bytes()
+            .await?;
+        fixture.store.inner.delete(&part.location).await?;
+        let before = fixture.store.snapshot_part_puts.load(Ordering::Acquire);
+        ensure!(fixture.publish(changed.clone()).await.is_err());
+        ensure!(fixture.store.snapshot_part_puts.load(Ordering::Acquire) == before);
+        ensure!(
+            fixture
+                .archive
+                .recovery_metadata()
+                .await?
+                .context("selected head")?
+                .reference()
+                == reference
+        );
+        fixture
+            .store
+            .inner
+            .put(&part.location, bytes.into())
+            .await?;
+        let repaired = fixture.publish(changed).await?;
+        ensure!(repaired.tail_entries() == usize::from(!checkpoint));
+        ensure!(restored(&repaired, 7)? == fixture.bytes);
+        ensure!(repaired.configuration()?.learners == vec![2]);
+        fixture.close().await?;
+    }
+    Ok(())
 }

@@ -145,7 +145,11 @@ impl ArchiveRecoverySet {
         };
         let limits = images.apply_limits();
         for entry in &self.entries {
-            if entry.data.is_empty() {
+            // The recovery-set constructor already replayed and matched every
+            // configuration and member binding. They change no SQLite pages.
+            if entry.get_entry_type() != ::raft::prelude::EntryType::EntryNormal
+                || entry.data.is_empty()
+            {
                 continue;
             }
             // Flush before decoding the next envelope, so a large entry cannot

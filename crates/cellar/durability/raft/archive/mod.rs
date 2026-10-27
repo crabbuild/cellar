@@ -26,6 +26,7 @@ use std::{
 };
 
 pub(crate) mod bundle;
+mod configuration;
 mod physical;
 mod publication;
 mod replay;
@@ -434,11 +435,11 @@ impl ArchiveMetadata {
     }
 
     pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.snapshot.conf_state)
+        manifest::decode_conf(&self.manifest.conf_state)
     }
 
     pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.snapshot.membership.clone()
+        self.manifest.membership.clone()
     }
 }
 
@@ -623,8 +624,8 @@ impl CellArchive {
                         || old.index == cut.position.index.get()
                             && (old.term != cut.position.term.get()
                                 || metadata.manifest.image != Image::from(cut.image.pin().state())
-                                || metadata.manifest.snapshot.conf_state != cut.conf_state
-                                || metadata.manifest.snapshot.membership != cut.membership)
+                                || metadata.manifest.conf_state != cut.conf_state
+                                || metadata.manifest.membership != cut.membership)
                     {
                         return Err(ArchiveError::Conflict);
                     }
@@ -689,11 +690,6 @@ impl CellArchive {
                     && entries
                         .last()
                         .is_some_and(|e| e.index == cut.position.index.get())
-                    && entries
-                        .iter()
-                        .all(|e| e.get_entry_type() == EntryType::EntryNormal)
-                    && metadata.manifest.snapshot.conf_state == cut.conf_state
-                    && metadata.manifest.snapshot.membership == cut.membership
                     && metadata.manifest.tails.len() < self.limits.max_tails
                     && bytes <= self.limits.max_set_bytes as u64
                     && count <= self.limits.max_entries)
@@ -752,6 +748,8 @@ impl CellArchive {
                     });
                     manifest.position = cut.position.into();
                     manifest.image = cut.image.pin().state().into();
+                    manifest.conf_state = cut.conf_state.clone();
+                    manifest.membership = cut.membership.clone();
                     PreparedManifest {
                         manifest,
                         confirmed_snapshot: None,
@@ -919,6 +917,8 @@ impl CellArchive {
             tails: Vec::new(),
             position: cut.position.into(),
             image: cut.image.pin().state().into(),
+            conf_state: cut.conf_state.clone(),
+            membership: cut.membership.clone(),
             dependencies: Vec::new(),
         }
     }
@@ -932,17 +932,22 @@ impl CellArchive {
     ) -> Result<(), ArchiveError> {
         let position = cut.position;
         let image = Image::from(cut.image.pin().state());
+        let conf = cut.conf_state.clone();
+        let membership = cut.membership.clone();
         let verifier = verifier.clone();
         self.host
             .run_blocking(move || {
                 // This private replay input is consumed here. Its old object
                 // reference is never returned as a proof for the new position.
                 // The planner already bounded total encoded bytes/entries and
-                // required contiguous normal entries and identical membership.
+                // required contiguous entries. Validation replays both SQL
+                // updates and configuration changes to the exact captured tip.
                 previous.entries.extend(entries);
                 previous.position = position;
                 previous.manifest.position = position.into();
                 previous.manifest.image = image;
+                previous.manifest.conf_state = conf;
+                previous.manifest.membership = membership;
                 previous.validate_payloads()?;
                 verifier.verify(&previous)
             })
@@ -1384,11 +1389,11 @@ impl ArchiveRecoverySet {
     }
 
     pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.snapshot.conf_state)
+        manifest::decode_conf(&self.manifest.conf_state)
     }
 
     pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.snapshot.membership.clone()
+        self.manifest.membership.clone()
     }
 
     pub fn schema_digest(&self) -> [u8; 32] {
@@ -1411,27 +1416,27 @@ impl ArchiveRecoverySet {
             return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
         }
         self.snapshot.verify().map_err(ArchiveError::Physical)?;
-        let mut position = self.manifest.snapshot.position;
+        let mut configuration = configuration::Configuration::new(
+            self.manifest.snapshot.position,
+            &self.manifest.snapshot.conf_state,
+            self.manifest.snapshot.membership.clone(),
+        )?;
         for entry in &self.entries {
-            if position.index.checked_add(1) != Some(entry.index)
-                || entry.term < position.term
-                || entry.get_entry_type() != EntryType::EntryNormal
-            {
-                return Err(ArchiveError::Corrupt("archive entry coverage/domain"));
-            }
-            if !entry.data.is_empty() {
+            configuration.step(entry)?;
+            if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                 let update = self.update(entry, state)?;
                 state = result_state(&update)?;
                 if state.length > self.max_image_bytes {
                     return Err(ArchiveError::Limit);
                 }
             }
-            position = Position {
-                index: entry.index,
-                term: entry.term,
-            };
         }
-        if position != self.manifest.position || Image::from(state) != self.manifest.image {
+        if !configuration.matches(
+            self.manifest.position,
+            &self.manifest.conf_state,
+            &self.manifest.membership,
+        )? || Image::from(state) != self.manifest.image
+        {
             return Err(ArchiveError::Corrupt("archive final image/cut"));
         }
         Ok(())

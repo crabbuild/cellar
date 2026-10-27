@@ -4,8 +4,8 @@
 
 Status: proposed implementation strategy; no recovery-time target is qualified.
 Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
-Priority P1; effort L; correctness risk HIGH. RT-01 and RT-02 are in progress;
-RT-03 through RT-06 remain TODO. Implement them in dependency order and record evidence before
+Priority P1; effort L; correctness risk HIGH. RT-01 through RT-03 are in progress;
+RT-04 through RT-06 remain TODO. Implement them in dependency order and record evidence before
 updating their status. This plan does not close the existing MR or R1–R9 gates.
 
 The deliverable is faster, fault-safe native peer and RustFS recovery, through
@@ -168,7 +168,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | --- | --- | --- | --- | --- |
 | RT-01 | Stage evidence and a focused cold-recovery oracle | Existing materialized functional passes | M / medium | IN PROGRESS |
 | RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
-| RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | TODO |
+| RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | IN PROGRESS |
 | RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | TODO |
 | RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
 | RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
@@ -379,6 +379,33 @@ encodes, transfer throughput and total RTO, not throughput alone. Any retained
 whole-image copy/hash pass gets an explicit count and cost.
 
 ## RT-03: Keep a usable recovery source ready
+
+The first implementation removes the unconditional checkpoint rotation for
+configuration changes. A data update followed by learner admission now remains a
+bounded tail over the existing base. Manifests carry separate base and final
+configuration/member state, and recovery replays Raft's configuration changer
+plus the live revision-bound member intents to the exact final cut. Joint leave
+retains outgoing bindings until retirement; stale intents, unknown fields and
+oversized changes are refused. A source metadata grant still cannot activate a
+replacement before complete replay and independent physical sealing.
+
+This is a format-1 hard cutover under the `/images-1/config-tails-1` protocol
+identity; earlier namespaces and state are refused. The new regression failed
+before the implementation because learner admission rotated the base. All 662
+library, 71 archive, 44 native snapshot and nine ordinary large-image/recovery
+tests pass after the change. A real RustFS preflight also passes with an actual
+285,212,672-byte image, owner loss, local-state erasure, cold replacement,
+promotion, a new verified write, receipts, callback counts and joined cleanup.
+That preflight uses a debug executable and supplies no latency qualification.
+Forced-checkpoint tests use
+an explicit tail limit and keep their no-upload, exact-state, missing-part and
+failed-destination-sync assertions. The initial full archive run recorded one
+obsolete implicit-rotation expectation; the first native snapshot run found the
+same tail-phase assumption in its exact-reference fault fixture. Both corrected
+suites pass with their original refusal assertions preserved, and the failed
+logs are retained. This establishes no full-size latency gain. Prepared payload reuse,
+measured replay-cost rotation, foreground I/O and verified warm handoff remain
+open below; full-image download/verification/replay still runs.
 
 1. In the archive producer and controller, expose durable archived position,
    committed/applied position, tail bytes and estimated replay time. Archive lag

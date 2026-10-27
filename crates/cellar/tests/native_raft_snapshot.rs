@@ -420,10 +420,31 @@ async fn native_s3_seed_missing_selected_payload_refuses_newer_head_fallback() -
                     .await?;
                 assert_eq!(receipt.result, (sequence as i64 + 4).to_be_bytes());
             }
-            let newer = archive
+            let mut newer = archive
                 .recovery_set()
                 .await?
                 .context("newer S3 head missing")?;
+            // Learner admission can now occupy the one allowed tail. Keep
+            // the original two writes, then explicitly fill/rotate whichever
+            // tail phase the selected reference left behind. The final head
+            // must still be a distinct complete snapshot before deleting a
+            // payload needed by the replacement's exact selected reference.
+            if newer.tail_entries() != 0 {
+                let mut options = public_node::options(4)?;
+                options.durability = Durability::S3;
+                let receipt = handles[primary]
+                    .command(
+                        definitions[primary].increment.clone(),
+                        1_i64.to_be_bytes().to_vec(),
+                        options,
+                    )
+                    .await?;
+                assert_eq!(receipt.result, 8_i64.to_be_bytes());
+                newer = archive
+                    .recovery_set()
+                    .await?
+                    .context("rotated S3 head missing")?;
+            }
             ensure!(
                 newer.reference() != selected_ref && newer.tail_entries() == 0,
                 "fixture did not rotate a distinct complete snapshot"

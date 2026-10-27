@@ -781,8 +781,8 @@ head CAS. Partial publication across members is allowed; no cross-cell atomic
 commit or shared durability proof is claimed. Batching can retain two complete
 recovery sets; resource reservations are not a physical RSS qualification.
 
-This archive reference change is a marker-1 hard cutover with protocol identity
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`. Use a fresh
+The current marker-1 protocol identity is
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`. Use a fresh
 experimental namespace/prefix and local state. Earlier measurement evidence keeps
 its original executable and storage format; no migration reader is provided.
 
@@ -847,6 +847,20 @@ configuration/member bindings. No image parts are uploaded on this path.
 Missing or corrupt prior material remains a refusal. Full physical validation,
 independent destination sealing and head CAS still gate publication; ordinary
 recovery continues to download and verify every selected part.
+
+Bounded tails may also contain committed Raft configuration entries between
+ordinary SQLite updates. The manifest carries separate base and final
+configuration/member states. Recovery uses Raft's configuration changer and the
+same revision-bound member intents as live apply to replay simple changes,
+joint consensus and joint leave; its exact final state must match the manifest.
+Learner node/disk identities, join positions and retired-ID watermarks remain
+bound to the committed entries. A data update followed by learner admission can
+therefore retain the existing snapshot instead of uploading another full image.
+Tail count, byte and image-ratio limits still force checkpoints. Prior payload
+verification, complete image replay and independent destination sealing remain
+required, so this change alone does not eliminate full-image recovery work.
+Missing final-state fields are refused; this is a format-1 hard cutover under
+the protocol identity above, without an earlier-format reader.
 
 `archive/replay.rs` materializes bounded batches into a private image and seals
 only each batch's final generation. Every intermediate image still passes its
@@ -1051,7 +1065,7 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
 
 
@@ -1162,7 +1176,7 @@ during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; numeric format markers stay 1.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.
