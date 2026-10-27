@@ -10,8 +10,9 @@ controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Explicit add, status,
 qualification and activation commands pass local end-to-end verification;
 graceful evacuation, exact joined stop and terminal removal now have native
-SDK/API/CLI coverage too. Post-finalization continuation/cancellation,
-maintenance/rejoin and resize remain delivery targets.
+SDK/API/CLI coverage too. Audited cancel-and-restart recovery after
+post-finalization inventory churn passes native end-to-end verification.
+Same-identity maintenance/rejoin and resize remain delivery targets.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

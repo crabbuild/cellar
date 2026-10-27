@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "5a5f5fcb2b5fc75677bfc880a85f5c1a41d8760a",
+  "revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -20,7 +20,7 @@
     },
     {
       "path": "crates/cellar-admin/README.md",
-      "sha256": "7a77c7c27569d2d2ee838febe5e04a08e73d548316101e82baf2181a39402105"
+      "sha256": "77e9df401e140a794e89a6bc57494f15ed339646ac17cdbbe54deb4f9ea55437"
     },
     {
       "path": "crates/cellar-admin/api.rs",
@@ -28,7 +28,7 @@
     },
     {
       "path": "crates/cellar-admin/audit.rs",
-      "sha256": "31ec7c6e52cc315ddc9e6295a9f2db1401ecd1f0ea0d0f7a9a0bd7fa2f6ba40e"
+      "sha256": "24df422989251daf5cd0f6f516c760b0918482d8d06e7dd4d7d86b470401b3ea"
     },
     {
       "path": "crates/cellar-admin/auth.rs",
@@ -36,7 +36,7 @@
     },
     {
       "path": "crates/cellar-admin/lib.rs",
-      "sha256": "c82c8f276830a1a9a51d3694a6006e98c368c3a819ef1d39aace4ca1f54cbea4"
+      "sha256": "cc0d8e72eb0a95926783d98de7602f075f166365dd5f386c61469e7baf8f78eb"
     },
     {
       "path": "crates/cellar-admin/main.rs",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "8d965a0b3cc789c96011a502d5853cba7987bc83f3f1bed3834d332951f50d2f"
+      "sha256": "5424452787b60c5a06e7b1fb6bf013796d9a8bdf4bd73175854838a56d425a8f"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -264,7 +264,7 @@
     },
     {
       "path": "crates/cellar/fleet/management/mod.rs",
-      "sha256": "9adfd7db36d65522dd2a0d2ed4b9f069976bc74c2d0d9689394ecbb9909a873e"
+      "sha256": "52e1bbe7ae44d49751e91d9b251d6e827a31965fdc9007b5d6cc1eda0329594b"
     },
     {
       "path": "crates/cellar/fleet/management/nodes.rs",
@@ -304,7 +304,7 @@
     },
     {
       "path": "crates/cellar/sdk.rs",
-      "sha256": "48ac835b059999603790d5b594544479b84908980ece3e79574a3dac5478ac91"
+      "sha256": "fd686f06bcf1230ba71f21a8ca3465b82f5162247fb4ed9ddfdd9b1b959670ec"
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",
@@ -356,9 +356,9 @@
     },
     {
       "path": "crates/cellar-admin/tests/console.rs",
-      "sha256": "5d860a59f18295ed83b5543ada9fdade31f2e534f8c966ad6f8b565b9be2e207"
+      "sha256": "d8e1e8f728215c65fcef81424655dd9e15a5dbf53d21dfd445e42312c4e1d95a"
     }
   ],
-  "reviewed_from_revision": "4c5456d6648a76e86ce63fc2c1f52dc49ec64990",
-  "review_note": "Reviewed graceful-departure guards, descriptive lifecycle status, complete proof/replay ownership, canonical stop consent and operator permissions; merged main 5db6b475 without fleet-code conflict. Qualification remains separately attributed in progress."
+  "reviewed_from_revision": "641d259687b7f9ef6890e2826eb56609a48fbaec",
+  "review_note": "Reviewed the admin cancellation workflow documentation after implementation 641d2596. All Rust/Cargo inputs remain that qualified implementation; cancellation fencing, immutable retry identities, retained charges and capacity invalidation were reviewed at that source. Qualification and failed attempts are attributed separately in progress."
 }

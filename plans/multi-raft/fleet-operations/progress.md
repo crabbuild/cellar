@@ -9,9 +9,74 @@ replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
 isolation, managed maintenance/rejoin and resize remain unfinished. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
-the SDK, admin API and CLI.
+the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
+stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
+
+## Cancellation and fresh departure recovery
+
+Implementation `641d259687b7f9ef6890e2826eb56609a48fbaec` adds audited
+`cancel-evacuation` through SDK/admin/CLI. Before finalization, cancellation
+requires the exact rooted exclusion and grants no placement. After finalization,
+the catalog owns an authenticated exact-process fence RPC and requires a synced
+acknowledgement before atomically rooting Ready, its cancellation receipt and
+disruption-slot release. An accepted stop cannot be cancelled; permanent
+quarantine cannot be undone. No resource reservation, retained binding, archive
+or volume is deleted. The higher Ready epoch invalidates prior capacity.
+
+Both parent cancellation identity and child fence identity remain explicit.
+An unknown commit retries the same parent payload. A definite changed-root loss
+requires a fresh parent revision/ID while retaining the child fence for that
+unchanged process/epoch. Caller-provided acknowledgement fields are rejected.
+Historical committed retries need no observer and cannot restore Ready or
+release a later operation's slot. Current status separately exposes historical
+cancellation and the current node state, including later terminal removal.
+
+The new native scenario passes on the retained committed-source binary:
+new cancelled births invalidate a fresh stop; a held cancellation CAS loses to
+another history after its real process fence; a fresh parent with the same
+child fence reconciles a lost confirmation after management restart. Fresh
+capacity requalification and a new operation then replay all four histories,
+reject delayed old stop/fence requests, join the real owner, remove it and verify
+archive-backed SQL continuity. Separate targeted cases pass for retained resource-only debt,
+accepted-stop refusal and permanent-isolation refusal. CLI and admin cases pass.
+**201 distinct focused candidate cases pass across the aggregate and targeted
+rerun:** 63 resource/movement, 28 stop/replay lifecycle, six evacuation,
+75 archive/recovery, seven capacity, five CLI-process and seventeen admin cases.
+The audit verifies all 1,466 frozen Rust/Cargo/configuration inputs against
+`641d2596`, plus retained executable, CLI-child and output hashes. The four
+initial focused probes duplicate cases in these cohorts and are not added to
+the distinct count. These native tests use the in-process fault-injecting object
+store; they do not qualify a deployed RustFS fleet.
+
+All-target host/admin Clippy with warnings denied, Rust formatting/layout,
+native dependency checks, documentation links, ten plan tests, the 327-case
+manifest and 89-anchor source preflight pass. Source anchors at `eebf1d76`
+include the admin workflow documentation; its Rust inputs remain `641d2596`.
+Qualification artifacts are outside runtime data in checkout-private
+`qualification/fleet-operations/cancellation-operator-v2/`,
+`cancellation-operator-followups-v1/` and `cancellation-operator-checks-v1/`.
+Earlier probes and their failures remain beside them. Raw evidence files are
+not included in the PR. Full latest-head SDK CI and deployed RustFS/Colima
+resource-tier, throughput/p99 and soak qualification remain release gates.
+
+The first broad resource attempt passed 62/63. The existing graceful-departure
+case timed out while waiting for keep-set redistribution. That same case passes
+unchanged in the retained candidate (19.71 seconds) and pre-change control
+(17.45 seconds), with each control/candidate CLI child matched to its own retained
+source. The original failed aggregate remains retained. This comparison does
+not establish the timeout's cause or qualify deployed performance.
+
+Initial probes also encountered native startup/availability failures. The
+retained pre-change control failed in base startup as well; a later unchanged
+candidate run passed the complete new sequence. The first accepted-stop probe
+mistakenly selected the archive harness and ran zero tests. It was corrected to
+fleet enrollment, where the real case passes. Final qualification now explicitly
+requires a nonempty executed test selection. Original failures, the zero-test
+selection and all retained executables remain outside runtime data. No startup,
+request, stack or timing bound was increased, and no runtime assertion was
+weakened to obtain a pass.
 
 ## Graceful departure operator delivery
 
@@ -91,7 +156,7 @@ and no safety guard was bypassed.
 
 | Priority | Feature boundary | Deliverable acceptance |
 | --- | --- | --- |
-| 1 | Departure continuation/cancellation, then maintenance/rejoin (FO-07/FO-08) | First add owned revalidation or cancellation when inventory/policy/permits change after finalization but before stop admission. Existing `fleet_stop_changed_inventory_refuses_admission` correctly blocks the stale stop; no operator refresh path currently resolves that rooted departure. Preserve old-selector fencing and exact joined proof. Then add reversible admission exclusion, retained-engine restart with a fresh process, catch-up/capacity requalification and verified Active rejoin. Permanent removal is not the rejoin protocol. |
+| 1 | Maintenance/rejoin (FO-07/FO-08) | Deliver reversible maintenance admission, exact joined stop, retained-engine restart with a fresh process, catch-up/capacity requalification and verified Active rejoin through SDK/API/CLI. Hold the shared disruption slot until rejoin is verified. Cancel-and-restart now resolves stale departure proof before stop acceptance; it cannot undo an accepted stop. In-place certificate refresh is not implemented. |
 | 2 | Production failure policy (FO-06) | A configured trusted platform adapter supplies exact-boot isolation. Suspicion/timeouts cannot authorize it. Admit automatic repairs only with the existing quorum, inventory, retained-charge and two-action bounds; simultaneous failures with lost quorum refuse. |
 | 3 | Scalable convergence and desired capacity (FO-04/FO-09) | Bounded collection/planning at 500 and 1,500 histories, invalidation on changed rooted inputs and renewed live proof. Resolve the documented planner charge and retained-state-fit gaps through measured bounded work, before claiming those fleet sizes. Fewer cells alone cannot grant physical capacity credit. |
 | 4 | Workload balancing and resize (FO-05/FO-07/FO-09) | Fresh role/load costs, measured leader-transfer benefit, and safe profile grow/shrink through maintenance/rejoin. Optional performance changes require matched throughput or latency gains. |
