@@ -1,0 +1,25 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+[package]
+name = "cellar-egress"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+description = "Run-owned network transport for Cellar container interception"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+futures-util = { workspace = true, features = ["io"] }
+hickory-proto.workspace = true
+tokio = { workspace = true, features = ["sync", "macros", "io-util"] }
+tokio-util = { workspace = true, features = ["compat"] }
+yamux.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "io-util", "rt", "time"] }

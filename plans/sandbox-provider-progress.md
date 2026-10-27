@@ -168,6 +168,44 @@ library/test targets with `-D warnings`; Rust formatting/layout now cover 1,259
 files. Native-only dependency, JavaScript formatting, docs and whitespace gates
 also pass. Fresh CI is required for the resulting PR head.
 
+## Native outbound transport and rule control — 2026-10-27
+
+The new `cellar-egress` crate implements the private transport and rule-control
+boundary needed for published Sandbox outbound gateways. It is not wired into
+container startup and does not advertise `interceptOutboundHttp()` support.
+The full SP-07 acceptance criteria and original provider goal remain open.
+
+| Delivered component | Evidence |
+| --- | --- |
+| Canonical HTTP targets and rules | Host/glob, IP, IP:port, CIDR and catch-all matching; shared 128-entry budget; registration order; canonical default-port replacement; stale/foreign candidate and revision-exhaustion refusal |
+| Bounded Yamux transport | 129 live streams, eight pending opens, explicit aggregate window; half-close, binary traffic, saturation, cancellation and retirement checks |
+| Private Engine attach codec | Incremental Docker stdout framing with raw stdin; one-MiB frame ceiling; malformed/truncated/stderr frames poison both directions without frame-sized allocation |
+| Acknowledged rule controller | Eight pending commands; queued cancellation skips effects; entered installation survives waiter cancellation; same-revision ack precedes visibility; missing/wrong ack, idle disconnect and controller drop retire rules |
+| Helper control protocol | Session identity, monotonic revisions and acknowledgement only after the supplied network installer finishes; no claim that the callback itself installs kernel rules |
+| DNS policy | Pinned Hickory parser; section-count checks before allocation; bounded single-question A/AAAA replies, zero-TTL placeholders, family-specific `/0` grants and explicit offline drop/online forward decisions |
+| Current component campaign | 32 unit tests and one compiled README example pass; no existing deadline or assertion was relaxed |
+| Repository gates | All-target/all-feature crate Clippy passes with `-D warnings`; Rust format/layout cover 1,274 files; native-only graph has 480 packages and no JavaScript engine; docs validate 825 references and 11 crate guides; whitespace check passes |
+
+Two fault controls caught defects during implementation. A retained stream could
+release buffered bytes before its driver observed closure; it now checks the
+shared revocation flag on every I/O poll. An idle controller originally missed
+peer EOF and exceeded its unchanged three-second test deadline; it now keeps
+the control decoder polled while waiting for commands, without discarding a
+partially read frame. Both regressions pass after their fixes.
+
+Next connect DNS policy to UDP/TCP listeners in the helper's network namespace,
+install and acknowledge firewall rules, capture actual socket destinations and
+keep direct fallback inside the existing container fence. Then wire helper-first
+startup, run ownership and joined removal into the engine, and route requests
+through host-minted generation-bound Fetchers. Only after that integration should
+the public capability be exposed and the unmodified helper backup/restore and
+mount operations be positively qualified. HTTPS/CA handling, independent
+intercept/fallback connection budgets and full profile fault qualification remain
+required. E2B/Vercel live configuration remains deferred by the user.
+
+The [outbound transport guide](../crates/cellar-egress/README.md) contains the
+connection/installation diagrams, resource table and implementation boundaries.
+
 ## Verified implementation details
 
 ### Provider capability discovery
