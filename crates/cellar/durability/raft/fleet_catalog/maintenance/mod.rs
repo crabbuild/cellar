@@ -5,6 +5,7 @@ mod cancellation;
 mod gate;
 mod gate_cancel;
 mod records;
+mod settlement;
 use super::evacuation::CanonicalRequest;
 use super::histories::validate_request;
 use super::*;
@@ -13,6 +14,7 @@ use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
+pub use settlement::FleetRestartPendingWork;
 
 /// Exact human intent. Grace postpones replacement only after owned stop is
 /// admitted; admission itself neither starts its clock nor permits shutdown.

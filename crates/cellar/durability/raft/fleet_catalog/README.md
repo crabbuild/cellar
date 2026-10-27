@@ -104,6 +104,24 @@ the reservation; retry the original request identity/payload and reconcile it.
 Cancelled histories and their names remain retained. Neither a pending nor a
 cancelled history can mint group or membership authorization.
 
+`recover_birth_reservation` reconstructs a lost handle only after checking the
+original mutation's three index changes and permanent admission journal against
+the exact namespace, schema and birth digest. It remains the original capability
+after Live/Cancelled confirmation and cannot override the permanent name winner.
+Restart maintenance uses `pending_restart_work` for bounded complete inventory
+of reserved births and unresolved resource obligations. Existing exact-boot
+movement permits can finish through RestartPending; new placement stays excluded.
+Empty pending-work status supplies no live readiness or stop authority. See the
+[maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md)
+for the remaining controller and survivor-proof boundaries.
+
+Managed membership authorization pins the original reservation's destination
+boot. Placement checks compare that pin with current trust even after exclusion;
+dormant registration and fresh learner initialization also require the still
+active canonical reservation. A different boot or unrelated history refuses.
+Standalone low-level permits retain their existing API but carry no such pin
+and cannot authorize managed physical placement.
+
 `enroll_history` registers one already observed immutable birth for import. It
 does not assert that an import is complete, quiesce legacy creators, convert an
 unmanaged namespace or authorize maintenance/removal. The

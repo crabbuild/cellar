@@ -20,7 +20,7 @@ impl Driver {
         &self,
         scope: &GroupScope,
         plan: &RepairPlan,
-        minimum_revision: u64,
+        authorization: &FleetPermitAuthorization,
     ) -> Result<(), CommandFailure> {
         let cell = self.cells.get(scope).ok_or(CommandFailure::Unavailable)?;
         // A concurrent caller may have completed this exact admission while
@@ -38,7 +38,7 @@ impl Driver {
         }
         let members = super::membership::placement_nodes(&cell.group, &cell.birth)?;
         self.transport
-            .check_fleet_placement(scope, &members, &plan.replacement, minimum_revision)
+            .check_fleet_placement(scope, &members, &plan.replacement, authorization)
             .map_err(|error| match error {
                 super::super::transport::TransportError::Identity
                 | super::super::transport::TransportError::Refused => {
@@ -173,11 +173,7 @@ impl Driver {
             Ok(())
         });
         match checked {
-            Ok(()) => match self.check_fleet_placement(
-                &request.scope,
-                &plan,
-                authorization.minimum_trust_revision(),
-            ) {
+            Ok(()) => match self.check_fleet_placement(&request.scope, &plan, &authorization) {
                 Ok(()) => self.begin_repair(*request, plan, Some(authorization)),
                 Err(error) => reply(&mut request, Err(error)),
             },

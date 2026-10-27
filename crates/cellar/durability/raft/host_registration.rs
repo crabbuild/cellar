@@ -114,8 +114,12 @@ impl Driver {
                     && birth.voters().iter().any(|member| member.node == current.node());
                 let settling = matches!(current.state(),
                     FleetNodeState::Draining | FleetNodeState::RestartPending | FleetNodeState::ResizePending);
+                let admitted_learner = if settling && !admitted_initial {
+                    current.admitted_learner(&scope, remaining()?).await.map_err(catalog_failure)?;
+                    true
+                } else { false };
                 if !matches!(current.state(), FleetNodeState::Registered | FleetNodeState::Ready | FleetNodeState::Active)
-                    && !(settling && admitted_initial)
+                    && !(settling && (admitted_initial || admitted_learner))
                 {
                     return Err(CommandFailure::Unavailable);
                 }

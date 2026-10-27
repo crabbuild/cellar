@@ -156,7 +156,8 @@ pub mod verification {
         FleetInventory, FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetMutation,
         FleetNamespaceImport, FleetPage, FleetRemovalAdmission, FleetRemovalRequest,
         FleetRestartAdmission, FleetRestartGateAdmission, FleetRestartGateCancelRequest,
-        FleetRestartGateRequest, FleetRestartRequest, FleetSnapshot, FleetTable,
+        FleetRestartGateRequest, FleetRestartPendingWork, FleetRestartRequest, FleetSnapshot,
+        FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

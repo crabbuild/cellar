@@ -9,6 +9,7 @@ mod completion;
 mod execution;
 mod intent;
 mod ledger;
+mod maintenance;
 mod membership;
 mod repair;
 pub use completion::{

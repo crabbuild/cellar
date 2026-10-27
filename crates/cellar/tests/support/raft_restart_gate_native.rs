@@ -170,6 +170,21 @@ async fn admit(
             .admit_restart_gate(&committed.snapshot, &gate, TIMEOUT)
             .await
             .context("root reversible gate epoch")?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let pending =
+        s.f.catalog
+            .pending_restart_work(
+                &cut,
+                ProposalId::new(preparing.identity.operation)?,
+                std::slice::from_ref(&s.namespace),
+                TIMEOUT,
+            )
+            .await?;
+    ensure!(
+        pending.pending_births == 0
+            && pending.movements.is_empty()
+            && pending.reservations.is_empty()
+    );
     let current =
         s.f.remote(&s.spare, gate.node, admission.observed_revision())
             .await

@@ -73,10 +73,8 @@ impl FleetCatalog {
                 .map_err(|_| invalid())?,
             };
             let host = self.host_from(snapshot, node).await?;
-            if !matches!(
-                host.state(),
-                FleetNodeState::Active | FleetNodeState::Draining
-            ) || !nodes.insert(node)
+            if !host.state().permits_admitted_movement()
+                || !nodes.insert(node)
                 || snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts
                     && !hosts.insert(host.physical_host())
             {
@@ -324,10 +322,7 @@ impl FleetCatalog {
         if !matches
             || host.boot_binding()? != *boot
             || view.fleet_boot.as_ref() != Some(boot)
-            || !matches!(
-                host.state(),
-                FleetNodeState::Active | FleetNodeState::Draining
-            )
+            || !host.state().permits_admitted_movement()
             || view.node.identity.node.bytes() != boot.node
             || view.node.identity.disk.bytes() != boot.disk
             || view.node.identity.process.bytes() != boot.process

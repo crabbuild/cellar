@@ -97,10 +97,7 @@ impl FleetCatalog {
         node: NodeId,
     ) -> Result<BootBinding> {
         let host = self.host_from(snapshot, node).await?;
-        if !matches!(
-            host.state(),
-            FleetNodeState::Active | FleetNodeState::Draining
-        ) {
+        if !host.state().permits_admitted_movement() {
             return Err(FleetCatalogError::Conflict);
         }
         let boot = host.boot_binding()?;

@@ -19,6 +19,46 @@ pub(crate) fn command_failure(error: CommandFailure) -> FleetCatalogError {
 }
 
 impl FleetHostAuthorization {
+    /// Only an active exact reservation may initialize a learner after placement
+    /// exclusion. A history descriptor or old member permit alone is insufficient.
+    pub(crate) async fn admitted_learner(
+        &self,
+        scope: &GroupScope,
+        timeout: Duration,
+    ) -> Result<FleetPermitAuthorization> {
+        let catalog = &self.catalog;
+        catalog
+            .run(timeout, async {
+                let snapshot = catalog.inner.current().await?;
+                let current = catalog.host_from_record(&snapshot, self.node()).await?;
+                self.require_running_successor(&current)?;
+                let key = catalog.binding(scope)?.key().map_err(|_| invalid())?;
+                let bytes = catalog
+                    .inner
+                    .lookup(snapshot.head.tables[FleetTable::Admissions.slot()], &key)
+                    .await?
+                    .ok_or(FleetCatalogError::Conflict)?;
+                let permit = crate::raft::member_state::FleetMembershipPermit::decode(&bytes)
+                    .map_err(|_| invalid())?;
+                let row = catalog.admitted_resource(&snapshot, permit.id()).await?;
+                catalog.check_executable_movement(&snapshot, &row).await?;
+                if row.node != self.node()
+                    || row.permit.as_ref() != Some(&permit)
+                    || permit.binding() != &catalog.binding(scope)?
+                    || catalog.movement_boot(&snapshot, &row, self.node()).await?
+                        != current.boot_binding()?
+                {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(FleetPermitAuthorization::admitted(
+                    permit,
+                    snapshot.revision(),
+                    Some(row.request.attestation.boot),
+                ))
+            })
+            .await
+    }
+
     pub(crate) async fn execute_movement(
         &self,
         command: MovementCommand,
@@ -46,10 +86,7 @@ impl FleetHostAuthorization {
                     .host_from(&snapshot, NodeId::new(origin.node).map_err(|_| invalid())?)
                     .await?;
                 if origin_host.boot_binding()? != origin
-                    || !matches!(
-                        origin_host.state(),
-                        FleetNodeState::Active | FleetNodeState::Draining
-                    )
+                    || !origin_host.state().permits_admitted_movement()
                 {
                     return Err(FleetCatalogError::Conflict);
                 }

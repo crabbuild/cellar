@@ -78,7 +78,11 @@ impl FleetCatalog {
             .permit
             .clone()
             .ok_or(FleetCatalogError::Corrupt("missing isolated repair permit"))?;
-        let authorization = FleetPermitAuthorization::admitted(permit, resources.applied);
+        let authorization = FleetPermitAuthorization::admitted(
+            permit,
+            resources.applied,
+            Some(resources.record.request.attestation.boot.clone()),
+        );
         Ok(FleetMovementAdmission {
             resources,
             authorization,

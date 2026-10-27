@@ -411,6 +411,106 @@ impl FleetCatalog {
         .await
     }
 
+    /// Recover the original birth capability after losing its in-memory handle.
+    /// The immutable admission journal, namespace and exact history must agree.
+    /// A later Live/Cancelled disposition does not erase the reservation's
+    /// identity or override the permanent namespace winner.
+    pub async fn recover_birth_reservation(
+        &self,
+        snapshot: &FleetSnapshot,
+        namespace: &NamespaceCatalog,
+        scope: &GroupScope,
+        timeout: Duration,
+    ) -> Result<FleetBirthAuthorization> {
+        self.check_snapshot(snapshot)?;
+        let binding = self.binding(scope)?;
+        let key = binding
+            .key()
+            .map_err(|_| FleetCatalogError::Invalid("history key"))?;
+        self.run(timeout, async {
+            if self.inner.current().await?.token != snapshot.token {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let mut history = self.history_inner(snapshot, &key).await?;
+            if history.binding != binding || history.origin != Origin::Managed {
+                return Err(FleetCatalogError::Conflict);
+            }
+            // Only state changes during confirmation. Reconstruct the exact
+            // reservation and verify all three original index changes below.
+            history.state = FleetHistoryState::Reserved;
+            let (mutation, _) = self
+                .inner
+                .read::<FleetMutation>(
+                    &format!("requests/{}", hex::encode(history.admission)),
+                    REQUEST_KIND,
+                    REQUEST_LIMIT,
+                )
+                .await?
+                .ok_or(FleetCatalogError::Corrupt("missing birth admission"))?;
+            mutation.validate()?;
+            let request = FleetRequestIdentity {
+                id: mutation.id,
+                operation: mutation.operation,
+                principal: mutation.principal.clone(),
+                expected_revision: mutation.expected_revision,
+            };
+            let expected = history_mutation(
+                &request,
+                vec![
+                    FleetChange {
+                        table: FleetTable::Histories,
+                        key: key.clone(),
+                        value: Some(history.encode()?),
+                    },
+                    FleetChange {
+                        table: FleetTable::Policy,
+                        key: history.name_key()?,
+                        value: Some(key.as_bytes().to_vec()),
+                    },
+                    FleetChange {
+                        table: FleetTable::Policy,
+                        key: history.group_key()?,
+                        value: Some(key.as_bytes().to_vec()),
+                    },
+                ],
+            );
+            if mutation.id != history.admission
+                || mutation.operation != history.operation
+                || mutation != expected
+            {
+                return Err(FleetCatalogError::Corrupt("birth admission projection"));
+            }
+            let applied = self
+                .inner
+                .committed(
+                    &snapshot.head,
+                    &hex::encode(mutation.id),
+                    hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?),
+                )
+                .await?;
+            if applied.is_none() || applied != request.expected_revision.checked_add(1) {
+                return Err(FleetCatalogError::Corrupt("unadmitted birth reservation"));
+            }
+            let owner = self.managed_owner_for_birth(snapshot, namespace).await?;
+            let (proposal, digest) = namespace
+                .prepare_birth_with_owner(history.initial_placement()?, Some(&owner))
+                .map_err(catalog_error)?;
+            let authorization = FleetBirthAuthorization {
+                history,
+                proposal,
+                owner,
+            };
+            authorization
+                .check_namespace(namespace)
+                .map_err(catalog_error)?;
+            if digest != authorization.history.birth_digest {
+                return Err(FleetCatalogError::Corrupt("birth reservation digest"));
+            }
+            Ok(authorization)
+        })
+        .await
+    }
+
     /// Exact-key reconciliation, followed by the original revision's CAS.
     /// Missing or mismatched births preserve the reserved inventory reference.
     pub async fn confirm_birth(

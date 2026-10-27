@@ -5,6 +5,9 @@ use super::*;
 use cellar::application::consensus::verification::FleetRestartRequest;
 use sha2::{Digest, Sha256};
 
+#[path = "raft_restart_birth_settlement.rs"]
+mod birth_settlement;
+
 fn restart(id: u8, revision: u64, boot: &FleetBootBinding) -> Result<FleetRestartRequest> {
     Ok(FleetRestartRequest {
         identity: request(id, revision),
@@ -307,6 +310,7 @@ async fn fleet_restart_preparation_fences_new_boot_and_later_epoch_cancellation(
         f,
         nodes,
         cells,
+        namespace,
         spare_root,
         spare_node,
         ..
@@ -398,6 +402,17 @@ async fn fleet_restart_preparation_fences_new_boot_and_later_epoch_cancellation(
         Err(FleetCatalogError::Conflict)
     ));
     ensure!(f.catalog.read(TIMEOUT).await?.revision() == later.snapshot.revision());
+    ensure!(matches!(
+        f.catalog
+            .pending_restart_work(
+                &later.snapshot,
+                ProposalId::new(intent.identity.operation)?,
+                std::slice::from_ref(&namespace),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::Conflict)
+    ));
     for node in nodes {
         stopped(node.node).await?;
     }

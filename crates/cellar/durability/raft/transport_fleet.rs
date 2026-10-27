@@ -1,7 +1,9 @@
 //! A rooted fleet cut fences every physical endpoint before advisory discovery.
 //! It never changes committed membership or treats placement exclusion as revoke.
 use super::*;
-use crate::raft::fleet_catalog::{FleetReplicaSeparation, FleetTrustSnapshot};
+use crate::raft::fleet_catalog::{
+    FleetNodeState, FleetPermitAuthorization, FleetReplicaSeparation, FleetTrustSnapshot,
+};
 use crate::raft::member_state::JoiningMember;
 
 impl Registry {
@@ -35,15 +37,15 @@ impl RaftTransport {
             .is_some_and(|node| node.is_isolated()))
     }
 
-    /// Check a fresh learner against the installed rooted contract and actual
-    /// durable configuration. Exclusions preserve old voters' transport and
-    /// quorum obligations; only the proposed target must accept new placement.
+    /// Check a rooted admission against current trust and actual durable
+    /// configuration. Exclusion may continue the exact reserved destination
+    /// boot; it cannot substitute another process or admit fresh placement.
     pub(crate) fn check_fleet_placement(
         &self,
         scope: &GroupScope,
         members: &[NodeId],
         target: &JoiningMember,
-        minimum_revision: u64,
+        authorization: &FleetPermitAuthorization,
     ) -> Result<(), TransportError> {
         let state = &self.handle.0;
         let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
@@ -52,14 +54,32 @@ impl RaftTransport {
             .fleet_trust
             .as_ref()
             .ok_or(TransportError::Refused)?;
-        if trust.revision() < minimum_revision {
+        if trust.revision() < authorization.minimum_trust_revision() {
             return Err(TransportError::StalePeer);
         }
         if scope.cluster != trust.cluster() {
             return Err(TransportError::Refused);
         }
         let destination = trust.node(target.node).ok_or(TransportError::Refused)?;
-        if !destination.eligibility().receive_replicas || destination.storage_instance().is_none() {
+        let original_boot = authorization.target_boot().ok_or(TransportError::Refused)?;
+        if authorization
+            .permit()
+            .replacement()
+            .map_err(|_| TransportError::Identity)?
+            != *target
+        {
+            return Err(TransportError::Identity);
+        }
+        let continuing = matches!(
+            destination.state(),
+            FleetNodeState::Draining | FleetNodeState::RestartPending
+        );
+        if !destination.permits_transport()
+            || (!destination.eligibility().receive_replicas && !continuing)
+            || destination.boot_binding().ok().as_ref() != Some(original_boot)
+            || !authorization.matches_scope(scope)
+            || destination.storage_instance().is_none()
+        {
             return Err(TransportError::StalePeer);
         }
         if destination.disk() != target.disk {

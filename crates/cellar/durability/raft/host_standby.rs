@@ -162,11 +162,19 @@ impl Initializer {
                             .into());
                         }
                         // Startup enrollment is not current placement admission.
-                        // An existing synced member may resume to settle its exact
-                        // permit after exclusion; a fresh slot requires eligibility
-                        // from this invocation's bounded root read.
+                        // Existing members may resume. A blank excluded slot
+                        // requires the still-active exact original-boot debit;
+                        // neither a history descriptor nor an old permit suffices.
                         if existing.is_none() && !current.eligibility().receive_replicas {
-                            return Err(CommandFailure::Unavailable.into());
+                            let admitted = current
+                                .admitted_learner(dormant.birth.scope(), remaining()?)
+                                .await?;
+                            if authorization
+                                .as_ref()
+                                .is_none_or(|permit| permit.permit() != admitted.permit())
+                            {
+                                return Err(CommandFailure::CommandConflict.into());
+                            }
                         }
                         Ok::<_, anyhow::Error>(())
                     }

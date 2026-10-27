@@ -27,6 +27,12 @@ pub struct FleetNodeEligibility {
 }
 
 impl FleetNodeState {
+    // Only callers that independently check an already admitted permit and
+    // its exact original boot may use this. It grants no new placement.
+    pub(super) fn permits_admitted_movement(self) -> bool {
+        matches!(self, Self::Active | Self::Draining | Self::RestartPending)
+    }
+
     pub fn eligibility(self) -> FleetNodeEligibility {
         FleetNodeEligibility {
             receive_replicas: self == Self::Active,

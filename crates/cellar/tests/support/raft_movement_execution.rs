@@ -7,6 +7,9 @@ use anyhow::Context;
 #[path = "raft_movement_service.rs"]
 mod service_tests;
 
+#[path = "raft_restart_settlement_native.rs"]
+mod restart_settlement;
+
 async fn reserved(
     s: &Setup,
     cells: &[RaftCellHandle],
@@ -58,6 +61,7 @@ async fn finish(
     s.f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
             let mut phases = Vec::new();
+            let mut last_error = None;
             for _ in 0..64 {
                 let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
                 let cut = match catalog.read(TIMEOUT).await {
@@ -84,16 +88,18 @@ async fn finish(
                         }
                     }
                     Err(
-                        FleetCatalogError::Overloaded
+                        error @ (FleetCatalogError::Overloaded
                         | FleetCatalogError::Unconfirmed
                         | FleetCatalogError::Conflict
-                        | FleetCatalogError::Storage(_),
-                    ) => (),
+                        | FleetCatalogError::Storage(_)),
+                    ) => last_error = Some(error.to_string()),
                     Err(error) => return Err(error.into()),
                 }
                 cellar::asyncrt::sleep(Duration::from_millis(20)).await;
             }
-            anyhow::bail!("bounded movement turns exhausted: {phases:?}")
+            anyhow::bail!(
+                "bounded movement turns exhausted: {phases:?}; last error: {last_error:?}"
+            )
         }))
         .await??
 }

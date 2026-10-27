@@ -79,14 +79,26 @@ impl FleetGroupAuthorization {
 pub struct FleetPermitAuthorization {
     permit: FleetMembershipPermit,
     minimum_trust_revision: u64,
+    // Low-level unmanaged permits have no physical reservation. Such a
+    // capability cannot authorize managed placement or excluded-slot creation.
+    target: Option<crate::raft::fleet_stop::BootBinding>,
 }
 
 impl FleetPermitAuthorization {
-    pub(super) fn admitted(permit: FleetMembershipPermit, minimum_trust_revision: u64) -> Self {
+    pub(super) fn admitted(
+        permit: FleetMembershipPermit,
+        minimum_trust_revision: u64,
+        target: Option<crate::raft::fleet_stop::BootBinding>,
+    ) -> Self {
         Self {
             permit,
             minimum_trust_revision,
+            target,
         }
+    }
+
+    pub(crate) fn target_boot(&self) -> Option<&crate::raft::fleet_stop::BootBinding> {
+        self.target.as_ref()
     }
 
     pub(crate) fn minimum_trust_revision(&self) -> u64 {
@@ -172,10 +184,7 @@ impl FleetCatalog {
             if permit.binding() != &expected {
                 return Err(FleetCatalogError::Conflict);
             }
-            Ok(FleetPermitAuthorization {
-                permit,
-                minimum_trust_revision: snapshot.revision(),
-            })
+            self.resource_permit_authorization(snapshot, permit).await
         })
         .await
     }
