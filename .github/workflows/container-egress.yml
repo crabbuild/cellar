@@ -6,7 +6,7 @@ on:
   pull_request:
     paths:
       - "crates/cellar-egress/**"
-      - "crates/cellar/containers/docker*.rs"
+      - "crates/cellar/containers/**"
       - "crates/cellar/tests/native_container_egress.rs"
       - "crates/cellar/Cargo.toml"
       - "tools/sandbox/egress/**"
@@ -17,7 +17,7 @@ on:
     branches: [main]
     paths:
       - "crates/cellar-egress/**"
-      - "crates/cellar/containers/docker*.rs"
+      - "crates/cellar/containers/**"
       - "crates/cellar/tests/native_container_egress.rs"
       - "crates/cellar/Cargo.toml"
       - "tools/sandbox/egress/**"
