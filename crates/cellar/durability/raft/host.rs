@@ -3028,12 +3028,13 @@ impl Driver {
             // Each cut remains in inflight, and retains its capture permit,
             // until this entire publication returns through on_job.
             let verifier = owner.verifier.clone();
+            let prepared = self.transport.prepared_snapshot_cache();
             let timer = self
                 .local
                 .performance
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                let completed = super::host_archive::publish(pending, verifier).await;
+                let completed = super::host_archive::publish(pending, verifier, prepared).await;
                 timer.finish(
                     !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
                 );

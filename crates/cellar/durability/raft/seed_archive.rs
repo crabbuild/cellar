@@ -124,8 +124,19 @@ impl RaftTransport {
         let timer = state
             .performance
             .timer(crate::raft::performance::Operation::RecoveryArchiveFetch);
+        let prepared = state.prepared_snapshot.clone();
+        let retention = reservation.clone();
+        let trim = state.domain.blocking(move || {
+            // Retain receive admission if the grant/waiter expires while the
+            // physical owner closes an idle prepared file from another cell.
+            let _retention = retention;
+            prepared.trim_idle()
+        })?;
         let result = state
             .seed_process_until(grant.process_epoch(), grant.deadline(), async {
+                trim.await
+                    .map_err(|_| TransportError::Closed)?
+                    .map_err(super::super::snapshots::snapshot_error)?;
                 Ok(archive.recovery_set_at(grant.reference()).await)
             })
             .await;

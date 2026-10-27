@@ -71,6 +71,7 @@ impl Driver {
         };
         let checkpoint = matches!(&purpose, SqlPurpose::Checkpoint);
         let performance = self.local.performance.clone();
+        let prepared = self.transport.prepared_snapshot_cache();
         let queued = performance.timer(super::super::performance::Operation::SnapshotEncodeQueue);
         let job = self.log.domain().blocking(move || {
             queued.finish(true);
@@ -78,10 +79,10 @@ impl Driver {
             let timer = performance.timer(Operation::SnapshotEncode);
             let purpose_timer = observation.map(|(operation, _)| performance.timer(operation));
             let result = capture
-                .encode_with_io_profile(reservation.io_profile())
+                .encode_prepared(&prepared, reservation.io_profile())
                 .map_err(super::super::execution::storage)
-                .map(|package| {
-                    if let Some((_, counter)) = observation {
+                .map(|(package, reused)| {
+                    if let Some((_, counter)) = observation.filter(|_| !reused) {
                         performance.increment(counter, package.encoded_length() as u64);
                     }
                     let value = if checkpoint {

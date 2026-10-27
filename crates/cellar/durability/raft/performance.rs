@@ -213,9 +213,12 @@ pub(crate) enum Counter {
     SnapshotSeedEncodedBytes,
     SnapshotCheckpointEncodedBytes,
     SnapshotTransferEncodedBytes,
+    SnapshotPreparedHits,
+    SnapshotPreparedMisses,
+    SnapshotPreparedReusedBytes,
 }
 
-const COUNTERS: [Counter; 39] = [
+const COUNTERS: [Counter; 42] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -255,6 +258,9 @@ const COUNTERS: [Counter; 39] = [
     Counter::SnapshotSeedEncodedBytes,
     Counter::SnapshotCheckpointEncodedBytes,
     Counter::SnapshotTransferEncodedBytes,
+    Counter::SnapshotPreparedHits,
+    Counter::SnapshotPreparedMisses,
+    Counter::SnapshotPreparedReusedBytes,
 ];
 
 impl Counter {
@@ -307,6 +313,9 @@ impl Counter {
             Self::SnapshotSeedEncodedBytes => "snapshot_seed_encoded_bytes",
             Self::SnapshotCheckpointEncodedBytes => "snapshot_checkpoint_encoded_bytes",
             Self::SnapshotTransferEncodedBytes => "snapshot_transfer_encoded_bytes",
+            Self::SnapshotPreparedHits => "snapshot_prepared_hits",
+            Self::SnapshotPreparedMisses => "snapshot_prepared_misses",
+            Self::SnapshotPreparedReusedBytes => "snapshot_prepared_reused_bytes",
         }
     }
 }

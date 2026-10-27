@@ -398,6 +398,28 @@ encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
 The `snapshot_encode` performance timer records this work separately from SQL.
 Source observations also distinguish seed, checkpoint and transfer encoders,
 with completed encoded-byte counters and a separate blocking-queue timer.
+The host keeps one prepared encoded peer/checkpoint body under the shared
+snapshot scratch byte/file limits. Reuse requires the same engine owner, complete
+replica identity, birth, schema and immutable generation marker, plus compatible
+consumer limits. Each request independently rebuilds its durable cut,
+configuration, membership and authorization. The fixed
+`snapshot_prepared_hits`, `snapshot_prepared_misses` and
+`snapshot_prepared_reused_bytes` counters report reuse; purpose-specific encoded
+bytes count only new encoding.
+
+A node-wide registered blocking owner alone reads, evicts and closes the cached
+file. Consumer handles own metadata/mailboxes only. One operation slot, one key
+slot and two handle slots bound additional metadata to 256 KiB. Source admission
+continues to cover codec/wire work. Replacement or incoming peer/archive recovery
+can evict an idle body; live consumers prevent replacement. A physical archive
+publisher also trims idle bytes on scratch exhaustion before its ordinary retry,
+so the cache cannot strand publication on a small bank. Cancellation retains
+admission through physical work, and transport shutdown joins the owner even
+with held handles or an unpolled stop observer. The outgoing complete-stream
+digest invalidates corrupt cached bytes before the final chunk. Independent
+destination sealing remains required. Standalone capture and archive publication
+keep their existing file/proof paths.
+
 Recovery observations separate authorization, peer receive/append, archive fetch,
 physical verification/replay and durable installation. Source archive-wait timing
 includes retries until coverage reaches the fresh ReadIndex; outcomes preserve

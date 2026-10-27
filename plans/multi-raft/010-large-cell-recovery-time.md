@@ -272,6 +272,37 @@ writes; these counters do not isolate one object or qualify sustained throughput
 No object-store probes ran during the trial. Source/cache/hardware and hard-kill
 qualification remain unverified.
 
+At `78d37a18`, the configuration-tail 9,999,998,976-byte RustFS trial also
+passed the complete functional oracle. Failure to first verified write was
+1,348.780124 s (22m29s): admission 14.746032 s, archive waiting 1,077.730958 s,
+seed installation 209.863706 s, promotion 0.691219 s and first write/read-back
+44.899275 s. The full drill took 1,928.95 s, including untimed setup. The
+120-second target was missed. The release executable hash is
+`72d1f4ff274edab4629ad0e8a96be4319240a143ed6dba96d9b640f2ad9f1753`;
+source-input hash is
+`a764dbb3e0564a9203b264a9280764ed66b2812c209b6888b9b22a1beab1295e`.
+
+The same-publisher/requested-cut trace shows cut 2 encoded before the fault but
+never confirmed as an archive base. Cut 3 then took 26.613036 s to encode,
+485.333165 s to upload/confirm and 33.813185 s to replay. Configuration-only
+cut 6 reused that base without a new full encode/upload, but still took about
+515.77 s from acquisition to confirmed head; prior-material reading accounted
+for 193.514499 s and later replay for 270.291608 s. The 10,824 publication
+failures were `Unconfirmed` deferrals; no permanent verification error or
+archive timeout was reproduced. Archive readiness and repeated whole-image
+verification remain the dominant costs.
+
+This single shared-host sample cannot establish a causal speedup over the
+`986d7a7f` observation. Upload code was unchanged despite a different observed
+confirmation rate; fault timing, initial base cut, OS caches and competing work
+were uncontrolled. Separate-checkout validation overlapped initial setup. The
+fault used joined domain shutdown followed by local erasure, not a hard process
+kill. The frozen trial predates `33d897d6` destination batching and prepared-body
+reuse, so it measures neither. Campaign JSON, native ledger/log, executable
+manifest and same-publisher attribution are retained in the task's private
+`recovery-time-rustfs-10gb-config-tails-1` evidence directory. One passing sample
+remains unqualified; the analyzer exits nonzero for the missed target.
+
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
 not a controlled latency comparison; the stall needs an unobserved reproduction
@@ -368,6 +399,49 @@ Clippy for both affected crates and repository format/layout/dependency/docs
 checks pass. These are functional checks on a shared host; the physical preflight
 overlapped the frozen full-size campaign's setup and supplies no RTO comparison.
 
+Prepared peer/checkpoint bodies now have a single node-owned physical cache.
+Keys bind the engine owner, complete replica identity, birth/schema and exact
+immutable image; compatible caller limits are checked again. A hit reuses bytes
+while rebuilding the current cut and membership. One operation, one key and two
+handle metadata slots add a fixed 256 KiB bound; ordinary scratch and source
+admission remain held through physical work. Async consumers never own the file.
+Idle replacement, peer/archive receive reclamation and joined shutdown close it
+on the registered blocking owner. Complete source-stream hashes invalidate
+corrupt cache entries; destination physical verification is unchanged. Archive
+publication is not yet a consumer of this cache. Fixed hit/miss/reused-byte
+counters supplement the existing purpose timers; a reuse timer adds no newly
+encoded bytes. Physical archive publishers release idle cached bytes on typed
+scratch exhaustion before their ordinary retry, including wrapped image errors;
+other errors and live consumers preserve the cached file.
+
+Eight cache tests pass: compatible reuse, identity separation, active-key and
+limit refusal, corrupt-stream invalidation/rebuild, physical-close ownership,
+held-handle shutdown, cancellation retention and real scratch-pressure recovery.
+The final source passes all 671 library, 71 archive, 45 native snapshot and nine
+ordinary large-image/recovery cases. The native reuse case prepares before
+learner admission, then requires fresh membership, no second seed encoding,
+zero seed callbacks and subsequent version-bound reads. The metrics case requires
+42 fixed counters and exactly 1,233 performance series. A real RustFS preflight
+passes at 285,212,672 bytes through owner loss, local erasure, cold replacement,
+new writes, receipts, payloads and joined cleanup. Its retained debug executable
+hash is `9dc81eaf71375b8638ac8c9e3ccc1724f9a03b2e443e00400e13fd9227e0ef84`;
+source-input hash is
+`981e474f3cc55ee5d65f3510140e98aa633e1a067ab2a9527f51c1e521f090df`.
+Clippy for both affected crates with all targets/features and warnings denied,
+format/layout (1,196 Rust files), native dependency and docs guards pass.
+
+The resource regression first reproduced a stale nine-resident-task expectation;
+the fixture now explicitly requires eleven, including the physical cache pair,
+and retains its original overload and deadline assertions. The first pressure
+fixture had only one spool slot and correctly failed before creating its initial
+snapshot. Two slots admit the body/index encoder, then the retained cached body
+causes an actual subsequent encoder refusal until eviction. An unchanged daemon
+route timing case failed once in the broad suite before receiving its actor
+request; its isolated rerun and the final complete 671-case run pass. Its cause
+remains unqualified. All failed/obsolete-source logs are retained. These are
+functional checks on a shared host; full-size latency after the cache remains
+unmeasured and unqualified.
+
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,
    transport and decoded buffers together. Preserve Compact for providers that
@@ -422,9 +496,24 @@ failed-destination-sync assertions. The initial full archive run recorded one
 obsolete implicit-rotation expectation; the first native snapshot run found the
 same tail-phase assumption in its exact-reference fault fixture. Both corrected
 suites pass with their original refusal assertions preserved, and the failed
-logs are retained. This establishes no full-size latency gain. Prepared payload reuse,
-measured replay-cost rotation, foreground I/O and verified warm handoff remain
-open below; full-image download/verification/replay still runs.
+logs are retained. This establishes no full-size latency gain. That source
+predates the RT-02 prepared-body cache. Measured replay-cost rotation, foreground
+I/O and verified warm handoff remain open below; full-image download,
+verification and replay still run.
+
+The `78d37a18` trace prioritizes a separately verified physical replay memo
+before increasing bulk concurrency: configuration-only cut 6 reused its base
+but still reread and replayed the complete image. A proposed node-owned memo may
+reuse only a prior successful physical replay of the exact scope/birth/schema,
+encoded base identity, ordered data-bearing entry projection and final image
+state. Configuration and membership validation still run at every new cut.
+Every publication must still load and authenticate its exact remote dependency
+set; a memo cannot turn missing/corrupt objects into a successful head or replace
+the receiver's independent physical seal. Keep one bounded metadata key, never
+cache failures, and preserve verifier quarantine after physical errors. First
+prove cross-history, changed SQL, missing-part, corruption, configuration and
+shutdown refusals with deterministic physical-I/O counts. This is proposed work;
+it is not implemented or a basis for claiming reduced replay duration.
 
 1. In the archive producer and controller, expose durable archived position,
    committed/applied position, tail bytes and estimated replay time. Archive lag

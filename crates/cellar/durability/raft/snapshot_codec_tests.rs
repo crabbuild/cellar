@@ -52,3 +52,21 @@ fn codec_memory_stays_independent_of_large_image_size() {
     options.max_snapshot_image_bytes = 10_000_000_000;
     assert_eq!(memory_bound(&options), large);
 }
+
+#[tokio::test]
+async fn prepared_owner_shutdown_joins_even_if_the_stop_waiter_was_never_polled() -> Result<()> {
+    let fixture = Fixture::start(TransportOptions::default(), vec![]).await?;
+    let cache = fixture.transport.prepared_snapshot_cache();
+    // This is the same outside-future guard capture used by start_prepared.
+    // Dropping an unpolled observer must wake its blocking mailbox owner.
+    let stop = StopPrepared(cache.clone());
+    let observer = async move {
+        let _stop = stop;
+        std::future::pending::<()>().await;
+    };
+    drop(observer);
+    ensure!(cache.trim_idle().is_err());
+    fixture.domain.run(fixture.transport.close()).await?;
+    ensure!(fixture.transport.usage().tasks == 0);
+    fixture.close().await
+}

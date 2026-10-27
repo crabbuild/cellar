@@ -22,7 +22,9 @@ const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
 const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-snapshot-chunk-1";
 
-fn snapshot_error(error: impl Into<crate::raft::snapshot::SnapshotError>) -> TransportError {
+pub(super) fn snapshot_error(
+    error: impl Into<crate::raft::snapshot::SnapshotError>,
+) -> TransportError {
     let error = error.into();
     if error.scratch_full() {
         TransportError::Overloaded
@@ -46,6 +48,43 @@ fn io_profile(options: &TransportOptions) -> cellar_ltx::stream_snapshot::IoProf
     } else {
         cellar_ltx::stream_snapshot::IoProfile::Compact
     }
+}
+
+struct StopPrepared(crate::raft::snapshot::prepared::Cache);
+
+impl Drop for StopPrepared {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+
+pub(super) fn start_prepared(
+    state: &Arc<State>,
+    owner: crate::raft::snapshot::prepared::Owner,
+) -> Result<(), TransportError> {
+    let physical = state.reserve_task()?;
+    let observer = state.reserve_task()?;
+    let mut stop = state.stop.subscribe();
+    let abort = StopPrepared(state.prepared_snapshot.clone());
+    let (done, stopped) = tokio::sync::oneshot::channel();
+    state
+        .domain
+        .blocking(move || {
+            let _guard = physical;
+            owner.run();
+            let _ = done.send(());
+        })
+        .map_err(|_| TransportError::Closed)?
+        .detach();
+    state.spawn_reserved(observer, async move {
+        // Cancellation before the first poll must still wake the physical
+        // owner. Files close there even when source handles remain unpolled.
+        let _abort = abort;
+        if *stop.borrow() {
+            return;
+        }
+        crate::asyncrt::select! { _ = stop.changed() => (), _ = stopped => (), }
+    })
 }
 
 pub(crate) struct SourceReservation {
@@ -151,6 +190,10 @@ struct Chunk {
 }
 
 impl RaftTransport {
+    pub(crate) fn prepared_snapshot_cache(&self) -> crate::raft::snapshot::prepared::Cache {
+        self.handle.0.prepared_snapshot.clone()
+    }
+
     pub(crate) fn snapshot_limits(
         &self,
         image_bytes: u64,
@@ -246,9 +289,11 @@ impl RaftTransport {
             .acquire(memory_bound(&state.options))
             .ok_or(TransportError::Overloaded)?;
         let profile = io_profile(&state.options);
+        let prepared = state.prepared_snapshot.clone();
         let (download, reservation) = state
             .domain
             .blocking(move || {
+                prepared.trim_idle()?;
                 let download = SnapshotDownload::new(&download_group, schema, snapshot, limits)?
                     .with_io_profile(profile);
                 Ok::<_, crate::raft::snapshot::SnapshotError>((download, reservation))
@@ -476,6 +521,7 @@ impl State {
             .map_err(|_| TransportError::Overloaded)?;
         let mut first = Some(prefix);
         let mut offset = 0;
+        let mut encoded_hash = Sha256::new();
         let mut transfer = None;
         let mut selected: Option<ActiveSource> = None;
         loop {
@@ -543,6 +589,13 @@ impl State {
                 .await
                 .map_err(|_| TransportError::Closed)?
                 .map_err(snapshot_error)?;
+            encoded_hash.update(&body);
+            if offset + body.len() == lease.package.encoded_length() {
+                lease
+                    .package
+                    .validate_encoded_hash(encoded_hash.clone().finalize().into())
+                    .map_err(snapshot_error)?;
+            }
             let response = Chunk {
                 route: request.route.reversed(),
                 request: head.tag,
@@ -748,6 +801,7 @@ impl RaftTransport {
         )?;
         let scratch_directory = state.runtime.log().limits().directory.clone();
         let snapshot_scratch = state.runtime.log().snapshot_scratch();
+        let prepared = state.prepared_snapshot.clone();
         let birth = birth.clone();
         let reservation = state
             .snapshot_receive_budget
@@ -757,6 +811,7 @@ impl RaftTransport {
         let (download, reservation) = state
             .domain
             .blocking(move || {
+                prepared.trim_idle()?;
                 let download = crate::raft::snapshot::SeedDownload::new(
                     grant,
                     &birth,

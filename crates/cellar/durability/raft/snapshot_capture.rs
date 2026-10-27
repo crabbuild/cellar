@@ -123,7 +123,7 @@ impl SnapshotCapture {
     /// The host's source reservation covers this profile through physical
     /// encoding and all consumers. Standalone capture retains Compact defaults.
     pub(crate) fn encode_with_io_profile(
-        mut self,
+        self,
         profile: stream_snapshot::IoProfile,
     ) -> Result<SnapshotPackage, SnapshotError> {
         let bytes = self
@@ -131,11 +131,50 @@ impl SnapshotCapture {
             .as_ref()
             .map(|pin| encode_image(pin, self.limits, profile))
             .transpose()?;
-        let identity = payload_identity(bytes.as_ref());
+        self.finish(bytes.map(SourcePayload::Local))
+    }
+
+    pub(crate) fn encode_prepared(
+        self,
+        cache: &prepared::Cache,
+        profile: stream_snapshot::IoProfile,
+    ) -> Result<(SnapshotPackage, bool), SnapshotError> {
+        let Some(pin) = self.pin.as_ref() else {
+            return Ok((self.finish(None)?, false));
+        };
+        let key = prepared::Key::new(
+            &self.group,
+            self.descriptor.schema,
+            marker(pin),
+            self.limits,
+        )?;
+        let pin = pin.clone();
+        let limits = self.limits;
+        let result = cache.prepare(key, move || encode_image(&pin, limits, profile))?;
+        let reused = result.reused;
+        Ok((
+            self.finish(Some(SourcePayload::Shared(result.payload)))?,
+            reused,
+        ))
+    }
+
+    fn finish(mut self, bytes: Option<SourcePayload>) -> Result<SnapshotPackage, SnapshotError> {
+        let identity = bytes.as_ref().map_or_else(
+            || (0, Sha256::digest([]).into()),
+            |body| {
+                (
+                    body.metadata().encoded_length as usize,
+                    body.metadata().encoded_digest,
+                )
+            },
+        );
         if self
             .expected_payload
             .is_some_and(|expected| expected != identity)
         {
+            if let Some(body) = &bytes {
+                body.invalidate();
+            }
             return Err(SnapshotError::Invalid(
                 "retained checkpoint payload binding",
             ));

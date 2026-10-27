@@ -24,6 +24,9 @@ use sha2::{Digest, Sha256};
 mod capture;
 pub(crate) use capture::SnapshotCapture;
 
+#[path = "snapshot_prepared.rs"]
+pub(crate) mod prepared;
+
 #[derive(Debug)]
 pub enum SnapshotError {
     Invalid(&'static str),
@@ -264,10 +267,49 @@ impl Descriptor {
 pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
-    bytes: Option<stream_snapshot::SnapshotFile>,
+    bytes: Option<SourcePayload>,
     pin: Option<GenerationPin>,
     limits: SnapshotLimits,
     membership: super::member_state::GroupMembership,
+}
+
+enum SourcePayload {
+    Local(stream_snapshot::SnapshotFile),
+    Shared(prepared::Shared),
+}
+
+impl SourcePayload {
+    fn metadata(&self) -> stream_snapshot::Metadata {
+        match self {
+            Self::Local(file) => file.metadata(),
+            Self::Shared(shared) => shared.metadata(),
+        }
+    }
+
+    fn chunk(&self, offset: usize, length: usize) -> Result<Vec<u8>, SnapshotError> {
+        match self {
+            Self::Local(file) => {
+                let mut bytes = vec![0; length];
+                file.read_into(offset as u64, &mut bytes)?;
+                Ok(bytes)
+            }
+            Self::Shared(shared) => shared.chunk(offset, length),
+        }
+    }
+
+    fn invalidate(&self) {
+        if let Self::Shared(shared) = self {
+            shared.invalidate();
+        }
+    }
+
+    fn validate_digest(&self, digest: [u8; 32]) -> Result<(), SnapshotError> {
+        if digest != self.metadata().encoded_digest {
+            self.invalidate();
+            return Err(SnapshotError::Physical(stream_snapshot::Error::Integrity));
+        }
+        Ok(())
+    }
 }
 
 impl SnapshotPackage {
@@ -309,7 +351,17 @@ impl SnapshotPackage {
     }
 
     pub fn encoded_length(&self) -> usize {
-        payload_identity(self.bytes.as_ref()).0
+        self.bytes
+            .as_ref()
+            .map_or(0, |bytes| bytes.metadata().encoded_length as usize)
+    }
+
+    pub(crate) fn validate_encoded_hash(&self, digest: [u8; 32]) -> Result<(), SnapshotError> {
+        match &self.bytes {
+            Some(bytes) => bytes.validate_digest(digest),
+            None if digest == <[u8; 32]>::from(Sha256::digest([])) => Ok(()),
+            None => Err(SnapshotError::Physical(stream_snapshot::Error::Integrity)),
+        }
     }
 
     /// Bounded file I/O; call on the owning blocking domain. The returned chunk
@@ -327,9 +379,7 @@ impl SnapshotPackage {
         // The source reservation already covers this complete wire window.
         // Native providers fill it directly; injected providers retain their
         // bounded fallback. A failed read never exposes a partial response.
-        let mut bytes = vec![0; length];
-        source.read_into(offset as u64, &mut bytes)?;
-        Ok(bytes)
+        source.chunk(offset, length)
     }
 
     /// Mechanical fixture write with data publication quiesced. A live runtime

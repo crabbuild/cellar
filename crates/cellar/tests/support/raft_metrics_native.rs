@@ -239,13 +239,18 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
         ensure!(
-            observed.operations.len() == 41 && observed.counters.len() == 39,
+            observed.operations.len() == 41 && observed.counters.len() == 42,
             "performance inventory changed: {} operations, {} counters",
             observed.operations.len(), observed.counters.len()
         );
         let snapshot_operations = observed.operations.iter().map(|operation| operation.name)
             .filter(|name| name.starts_with("snapshot_")).collect::<BTreeSet<_>>();
         ensure!(snapshot_operations == BTreeSet::from(["snapshot_encode", "snapshot_encode_queue", "snapshot_seed_encode", "snapshot_checkpoint_encode", "snapshot_transfer_encode"]));
+        let prepared_counters = observed.counters.iter().map(|counter| counter.name)
+            .filter(|name| name.starts_with("snapshot_prepared_")).collect::<BTreeSet<_>>();
+        ensure!(prepared_counters == BTreeSet::from([
+            "snapshot_prepared_hits", "snapshot_prepared_misses", "snapshot_prepared_reused_bytes",
+        ]));
         // Archive admission/publication observations are fixed vocabulary,
         // just like engine and transport metrics. Check their identities as
         // well as the total so a missing series cannot hide behind another.
@@ -285,10 +290,10 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        // Two gauges, 39 counters, and 29 samples per operation (five outcome
+        // Two gauges, 42 counters, and 29 samples per operation (five outcome
         // counters, 22 buckets, a sum and a count). This remains independent
         // of the observed inventory and of the group population.
-        ensure!(perf_ids.len() == 1230);
+        ensure!(perf_ids.len() == 1233);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);

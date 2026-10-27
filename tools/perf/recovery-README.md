@@ -121,7 +121,33 @@ Snapshot encoding retains the aggregate `snapshot_encode` timer, with separate
 `*_seed_encode`, `*_checkpoint_encode` and `*_transfer_encode` operations and
 completed encoded-byte counters. This identifies competing encoder purposes.
 `snapshot_encode_queue` records blocking-worker queue time. These counters do
-not measure physical device I/O or prove publication/delivery.
+not measure physical device I/O or prove publication/delivery. A cache hit still
+runs the purpose's preparation timer, but adds no bytes to that purpose's encoded
+counter. `snapshot_prepared_hits`, `snapshot_prepared_misses` and
+`snapshot_prepared_reused_bytes` distinguish byte reuse from new encoding. These
+are node-wide fixed counters; they do not assert that a particular cell received
+or installed a body.
+
+The host retains at most one prepared peer/checkpoint body. Its key includes the
+engine owner, complete replica identity, birth/schema and immutable image marker;
+each consumer must satisfy its current limits. Every capture rebuilds its own
+cut, configuration, membership, grant and transfer lease. Archive publication
+and standalone capture retain their own physical proof paths.
+
+The cache keeps the anonymous file's ordinary byte/file scratch reservation until
+a registered blocking owner physically closes it. Async handles retain metadata
+and a mailbox only. One operation slot, one key slot and two handle slots reserve
+at most 256 KiB of additional node metadata; source codec/wire reservations still
+cover encoding and reads. A new key replaces only an idle body, and incoming
+recovery may trim an idle body before scratch allocation. A live different-key
+source refuses replacement. Archive scratch exhaustion trims idle cached bytes
+before the ordinary publication retry; unrelated errors preserve the cache.
+Transport shutdown wakes and joins the physical
+owner even if a consumer or an unpolled stop waiter is retained. The source hashes
+the outgoing stream and checks its complete encoded digest before its final
+chunk; corruption invalidates reuse and refuses that attempt. Destination physical
+verification remains required. Reuse saves preparation only for matching bytes;
+it does not provide a faster cold restore for arbitrary new generations.
 
 `--mode qualify` requires at least 100 trials, the full-size fixture, verified
 reference hardware/workload evidence and a matching hard-failure/contention
