@@ -15,6 +15,73 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Stop-consent refresh and read-only operator status
+
+Source `119063ec` closes the SDK stale stop-consent boundary.
+A separately authorized refresh names the exact prior consent and a fresh owned
+Ready assessment. The operation, gate, boot, process and physical stop child stay
+fixed. The original admitted consent anchors the physical selector for its whole
+life; bounded canonical journal checks reject an orphan original and avoid an
+unbounded predecessor walk. Competing refreshes use one expected-Root CAS.
+Relevant input drift and changed predecessor/scope payloads refuse.
+
+A queued original selector consumes the current same-scope consent and the
+receiving Node renews actual physical/quorum proof. An accepted stop can finish
+while a refresh CAS is held: later publication preserves the exact signed joined
+closure, allowing offline confirmation and retained-engine return/resume. Lost
+refresh confirmation reconciles before current live prerequisites. Cancellation
+fencing still defeats delayed stop. Refresh restores no samples or clocks and
+releases neither capacity nor the disruption slot.
+
+`restart_stop_consent` reads historical canonical consent. The new
+`restart_operator_status` reads a selected Root without a driver or observer,
+reporting intent, durable phase, SDK execution attempt, historical Ready reference
+and cancellation/terminal facts. Polling performs no mutation or physical work.
+Absent means absent at that snapshot; Ready is historical assessment. Neither
+confers live-health or lifecycle authority.
+
+**933 distinct selected cases pass in 934 executions of completed passing
+cohorts:** 785 library, 103 native fleet, 13 catalog, 25 membership-permit and seven
+CLI cases. Seven new native refresh cases cover Root drift, unknown confirmation,
+signed closure through actual stop/return/resume/capacity restoration, a held CAS
+across actual join, competing writers, changed scope/predecessor, current-input
+refusal, multiple generations/cancellation and an unadmitted original. One new
+status case verifies durable read-only progress across adapters and snapshots;
+existing preparation cases also verify Ready references. All 12 controller cases,
+44 restart, nine resume, four return, eight stop, eight scoped-stop, nine operator
+and ordinary-boot checks pass. Default-stack verification remains unchanged.
+
+The earlier seven-case overlap probe passed six and failed because the fixture
+passed one adapter's snapshot to another; the diagnostic reproduced
+`Invalid("snapshot owner")`. The fixture now uses each adapter's own matching
+snapshot. No production guard, assertion, timeout, retry, stack or resource bound
+was relaxed, and no warning was suppressed. Earlier-source Overloaded,
+dispatch-timeout and quorum-observation causes remain unproven; their retained
+records are not current-source qualifications.
+
+Host/admin all-target Clippy, format/layout, native dependencies, docs, ten plan
+tests, the 433-case manifest and preflight with 100 reviewed input anchors pass.
+Audits match **1,584 frozen Rust/Cargo/configuration inputs** and retained
+executable/result hashes. Primary artifacts remain outside runtime data in
+`qualification/fleet-operations/stop-refresh-v3/`, `stop-refresh-regressions-v1/`
+and `stop-refresh-checks-v1/`; the earlier overlap probe and diagnostic remain
+retained separately. The fingerprint adds `/stop-consent-refresh-1`, with numeric
+markers still 1, matching binaries/fresh prefixes and no legacy reader/migration.
+
+This delivers SDK refresh and read-only status. Management SDK/admin/CLI
+sequencing, owned periodic execution and full fleet goal remain active. Full CI,
+loaded language modes, deployed RustFS/Colima, enforced 1-vCPU/3-GiB limits,
+large-fleet freshness, TPS/p99 and soak are unqualified. No throughput gain is
+claimed.
+
+**Next feature delivery:** expose maintenance operations and status through
+management SDK/admin/CLI and own their execution under Node shutdown/join.
+Sequence the separate stop/return/resume grants using the existing SDK receipts
+and stable stop anchor. Then deliver grace/rolling/second-failure recovery and
+production failure classification/isolation, followed by balancing, capacity/resize,
+scalable convergence and resource-enforced qualification. FO-07 and FO-08 remain
+in progress until their complete operator workflows pass.
+
 ## Durable maintenance preparation and cancellation controller
 
 Source `94702658` adds the SDK operator controller above the guarded

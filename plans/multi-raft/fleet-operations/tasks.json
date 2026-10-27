@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "94702658fd6d72e8404c593a9355e725b29ffd0c",
+  "baseline_revision": "119063ec57bd6bd46fb575eec5198881781c9dd5",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3893,7 +3893,10 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/cancellation/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/cancellation/work.rs",
         "crates/cellar/tests/support/raft_restart_operator_native.rs",
-        "crates/cellar/tests/support/raft_restart_operator_cancel_native.rs"
+        "crates/cellar/tests/support/raft_restart_operator_cancel_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/stop/refresh.rs",
+        "crates/cellar/tests/support/raft_restart_stop_refresh_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/status.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -5042,6 +5045,100 @@
         {
           "name": "fleet_restart_operator_cancel_admitted_preparation_before_gate",
           "oracle": "Cancellation after admitted M1 and before gate admission uses its exact SDK preparation cancellation, leaves the process running, returns it to excluded Ready, preserves SQL, releases the disruption/operator slots and retains a historical receipt that cannot clear another operator.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_lost_confirmation_preserves_closure_through_resume",
+          "oracle": "Relevant policy drift defeats the original consent; a fresh owned Ready assessment and separate same-scope refresh preserve its physical selector across lost confirmation, queued original delivery, signed closure, offline confirmation, retained return, verified resume, capacity restoration and S3 SQL continuity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_independent_writers_race_one_projection",
+          "oracle": "Independent catalog adapters racing two consent refreshes against one expected Root admit exactly one projection while the process remains running.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_rejects_rebound_scope_and_changed_replay_predecessor",
+          "oracle": "Changed stop child, node, process and previous principal refuse; even exact replay of an admitted refresh refuses a changed canonical predecessor payload.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_requires_current_ready_inputs",
+          "oracle": "Relevant Root inputs changing after the fresh Ready assessment refuse consent refresh without changing Root or admitting physical shutdown.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_retains_selector_across_multiple_generations_and_fence",
+          "oracle": "Repeated refreshes retain the first physical selector without an unbounded chain; a synced cancellation fence defeats it, while exact historical refresh still confirms its journal.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_orphan_original_consent_grants_no_authority",
+          "oracle": "An immutable original consent whose held CAS loses to another writer cannot anchor a refreshed consent or authorize physical shutdown.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_stop_refresh_held_cas_preserves_already_joined_closure",
+          "oracle": "An independent refresh CAS is held while the original selector causes actual Node/domain/engine join. Its later Root publication retains the same signed closure and can confirm offline from the refreshed consent.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_status_is_durable_read_only_and_does_not_drive_work",
+          "oracle": "An independent adapter without a driver observes Requested, Preparing, CancelRequested and terminal Cancelled facts from explicit Root snapshots, never gates a node or advances Root, and preserves older-snapshot progress after terminal completion.",
           "invariants": [
             "F02",
             "F03",

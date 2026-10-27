@@ -91,9 +91,27 @@ recovers the fact across controllers. Lost successful confirmations reconcile
 before current live prerequisites. These receipts grant no fresh boot, capacity,
 resource release or disruption-slot release.
 
-Current stop consent pins the Ready inventory basis; relevant Root drift before
-admission refuses execution. Fenced cancellation and a new preparation remain
-the recovery path for stale consent. In-place consent refresh is unfinished.
+Stop consent pins the Ready inventory basis; relevant Root drift before
+execution refuses. `refresh_restart_stop` accepts separate human consent naming
+the exact previous consent and a fresh owned Ready assessment. It requires the
+same operation, gate, boot, process and physical stop child. A Root CAS replaces
+only the current consent projection; a competing refresh or changed input cut
+refuses. An uncommitted original request cannot anchor a refresh.
+
+The original admitted consent fixes the physical selector's finalization ID for
+its entire life. Refreshes keep that anchor and validate its canonical committed
+journal in bounded reads. They never walk an unbounded predecessor chain. A stop
+already accepted while a refresh CAS is pending retains its original signed
+closure; the refreshed consent can confirm that same joined outcome and proceed
+through retained return/resume. No second physical stop scope is created.
+
+`restart_stop_consent` is a read-only historical reader. Exact refresh replay
+reconciles before current live prerequisites, including after cancellation or
+physical join, but rejects a changed predecessor payload. Neither reader nor
+refresh restores live evidence or releases capacity/the disruption slot. The
+receiving Node still renews current physical/quorum proof, and a synced Fence
+still defeats delayed stop. The protocol adds `/stop-consent-refresh-1`; markers
+stay at 1, with matching binaries/fresh prefixes and no legacy reader.
 The M8/M9 SDK return and verified-resume boundaries below are delivered.
 Grace/rolling/second-failure handling and complete maintenance SDK/admin/CLI
 operation sequencing remain delivery work. Use matching binaries and fresh
@@ -393,9 +411,16 @@ mint intent, attempts, cancellation commands or terminal facts. The operator
 fingerprint adds `/maintenance-operator-1`; internal markers stay at 1 and no
 legacy reader or migration is provided.
 
-This delivers SDK preparation and cancellation orchestration. The management API,
-CLI, independently authorized stop/return/resume sequence and owned periodic
-execution remain required before the complete operator workflow is usable. See
+`restart_operator_status` reads explicit Root snapshots without a configured
+driver or observer. It reports the canonical human intent, durable phase,
+execution-attempt identity, historical Ready reference and cancellation/terminal
+facts. Polling performs no physical work or mutation. A missing operation is only
+absence at the selected Root, and Ready is a historical assessment; neither is a
+live-health lease. Older-snapshot progress remains tied to its original cut.
+
+This delivers SDK preparation, cancellation and read-only durable status. The
+management API, CLI, independently authorized stop/return/resume sequence and
+owned periodic execution remain required before the complete workflow is usable. See
 [implementation progress](progress.md) for qualified source and test limits.
 
 ## Maintenance must remain safe when the controller or operator disappears
