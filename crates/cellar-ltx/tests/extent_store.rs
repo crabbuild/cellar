@@ -197,6 +197,120 @@ fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() 
 }
 
 #[test]
+fn local_sqlite_reads_do_not_copy_durable_extents_into_scratch_files() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    f.files.metrics.max_write.store(0, Ordering::Release);
+    assert_eq!(f.query(sealed.view()), 7);
+    assert_eq!(
+        f.files.metrics.max_write.load(Ordering::Acquire),
+        0,
+        "a local read rewrote already durable, pinned extent bytes"
+    );
+}
+
+#[test]
+fn local_reads_refuse_scratch_exhaustion_before_opening_any_extent() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let scratch = ScratchPool::new(ScratchLimits {
+        max_bytes: 1,
+        max_files: 1,
+    })
+    .unwrap();
+    let image = sealed
+        .view()
+        .image(
+            f.root.path().join("cache"),
+            scratch.clone(),
+            CacheLimits::default(),
+        )
+        .unwrap();
+    f.files.metrics.max_read.store(0, Ordering::Release);
+    assert!(matches!(
+        image.read_exact_at(0, 100),
+        Err(cellar_ltx::stream_snapshot::Error::ScratchFull)
+    ));
+    assert_eq!(f.files.metrics.max_read.load(Ordering::Acquire), 0);
+    assert_eq!(f.files.metrics.active_handles.load(Ordering::Acquire), 0);
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+}
+
+#[test]
+fn local_descriptor_verification_refuses_corruption_before_and_after_caching() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let scratch = f.scratch();
+    let image = sealed
+        .view()
+        .image(
+            f.root.path().join("cache"),
+            scratch.clone(),
+            CacheLimits::default(),
+        )
+        .unwrap();
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    assert!(image.read_exact_at(0, 100).is_err());
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+    assert_eq!(image.read_exact_at(0, 16).unwrap(), b"SQLite format 3\0");
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    assert!(
+        image.read_exact_at(0, 100).is_err(),
+        "cached bytes escaped block re-verification"
+    );
+    drop(image);
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+}
+
+#[test]
+fn reopened_local_read_requires_file_and_directory_persistence_proofs() {
+    for directory_sync in [false, true] {
+        let f = Fixture::new(0);
+        let store = f.store();
+        f.fill(&store);
+        let sealed = store.seal_root(f.manifest.clone()).unwrap();
+        let reference = sealed.view().reference();
+        drop(sealed);
+        drop(store);
+        let store = f.store();
+        let view = store.open_root(reference).unwrap();
+        let scratch = f.scratch();
+        let image = view
+            .image(
+                f.root.path().join("cache"),
+                scratch.clone(),
+                CacheLimits::default(),
+            )
+            .unwrap();
+        if directory_sync {
+            f.files.metrics.fail_dir_sync.store(true, Ordering::Release);
+        } else {
+            f.files.metrics.fail_sync.store(true, Ordering::Release);
+        }
+        assert!(image.read_exact_at(0, 100).is_err());
+        assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+        assert!(matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ));
+        assert_eq!(image.read_exact_at(0, 16).unwrap(), b"SQLite format 3\0");
+        store.seal_root(f.manifest.clone()).unwrap();
+    }
+}
+
+#[test]
 fn whole_extent_reads_are_bound_to_the_pinned_root_and_bounded_file_windows() {
     let f = Fixture::new(5 * 1024 * 1024);
     let store = f.store();

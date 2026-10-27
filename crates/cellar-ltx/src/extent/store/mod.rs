@@ -7,6 +7,7 @@
 mod image;
 mod inventory;
 mod publication;
+mod read;
 mod reclaim;
 mod workspace;
 
@@ -403,9 +404,8 @@ impl RootView {
         scratch: ScratchPool,
         limits: CacheLimits,
     ) -> Result<ExtentImage, StoreError> {
-        Ok(ExtentImage::new(
-            self.data.manifest.clone(),
-            Arc::new(self.clone()),
+        Ok(ExtentImage::from_local(
+            self.clone(),
             self.inner.filesystem.clone(),
             cache_directory,
             scratch,

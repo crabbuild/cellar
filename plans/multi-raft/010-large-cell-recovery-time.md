@@ -1068,6 +1068,42 @@ The exact raw source is shared with the peer pilot and hashes to
 `24a5f2ff65789e9bbc66b4fa69b470b2f98fe45cd7a3262f1434526d25778764`.
 Full-size RustFS remains unqualified despite the successful earlier stages.
 
+The retained cold replacement supplies an isolated query diagnosis at the exact
+applied marker (index 10, root `77c8ca4b92aff5a3364361f7b4a588bac3205850097adfd894f607510bdbefc8`).
+The private qualification probe copies its native log/inventory before opening
+either and re-establishes the complete local closure proof before timing the
+query. Its debug-profile baseline returns counter 9, 9,953,083,392 payload
+bytes and three sampled payload hashes in 35.963040 s. It reads 20,326,170,624
+bytes, writes 10,025,164,800 disposable cache bytes and creates/syncs 2,391
+temporary files (9.605389 s in sync). This isolated success does not reproduce
+the fleet deadline; competing archive I/O remains a candidate contributor.
+
+Pinned local inventory reads now cache independently verified read-only file
+handles, retaining the same conservative scratch byte/file admission and root
+pin until last close. Reopened entries still require file/directory barriers;
+cache hits still recheck block hashes. Generic sources keep the separate
+anonymous download, destination verification and sync path. The no-copy SQLite
+regression fails before the change and passes afterward, with added admission,
+corruption, persistence-failure and final-reader/GC lifetime checks.
+
+The same retained-root probe then returns matching state and sampled hashes in
+13.651191 s, reading 10,301,005,824 bytes with no cache writes, temporary files
+or query syncs. Complete closure verification runs separately in 9.642850 s.
+These are individual uncontrolled-cache/shared-host diagnostics, not a native
+RTO or a qualified speedup. The full-size RustFS failure remains open until a
+fresh native drill passes the unchanged payload and receipt oracle.
+
+The final probe also takes the original worker's native-log and inventory locks
+before copying, refusing a live source. Its repeat finishes in 14.071599 s with
+the same marker, state, three payload hashes and zero cache writes/syncs.
+The affected LTX suites pass 68 cases (two physical cases ignored); native
+recovery passes 16 cases (12 physical cases ignored), and native rooted-image
+coverage passes 24 cases (two physical cases ignored). All-feature/all-target
+Clippy for LTX and the qualification package, formatting, layout (1,246 Rust
+files), native dependency and documentation guards pass. An initial diagnostic
+logging-policy lint was corrected using the existing output helper; no lint
+was suppressed. These checks do not replace the pending fresh full-size drill.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775

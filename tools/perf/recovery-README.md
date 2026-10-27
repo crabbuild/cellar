@@ -23,6 +23,15 @@ recovery. Both modes currently install a complete locally verified closure
 before the first read. Extent selection does not enable demand loading or
 change the meaning of hydration, readiness or qualification.
 
+The ignored `retained_root_query` target in `cellar-recovery-tests` diagnoses an
+offline member-4 worker from the full-capacity fixture. Set
+`CELLAR_RETAINED_QUERY_WORKER` to its absolute directory and run
+`cargo test --locked -p cellar-recovery-tests --test retained_root_query -- --ignored --nocapture`.
+It locks the source, privately copies its log/inventory, selects the applied
+native marker and records verification/query time plus completed file I/O.
+It retains the 60-second payload-query budget. This physical query probe cannot
+qualify native admission, cold recovery or a production latency percentile.
+
 ## Run a pilot
 
 Choose a Cargo target directory on the workspace volume, unique to this checkout.
