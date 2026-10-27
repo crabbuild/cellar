@@ -51,6 +51,32 @@ Vercel live qualification remains deferred until configuration is supplied; it
 does not block the local Cloudflare or common-framework milestones. This order
 does not mark any partial SP profile complete.
 
+## Native resumable upload foundation — 2026-10-27
+
+The native Blob API now exposes backend-owned multipart identities separately
+from the existing process-owned append pipeline. The local SQLite backend
+persists replaceable indexed parts and current receipts across client/process
+replacement. Completion validates receipts and publishes bytes/metadata while
+retiring the upload in one transaction; abort preserves the current object.
+Mutations retain native event authority and the Blob durability gate.
+
+| Evidence | Result |
+| --- | --- |
+| Local object-store tests | 24 pass, including fresh-process resume, stale/foreign receipt refusal and concurrent completion/abort |
+| Metadata capability refusal | 1 pass; unsupported metadata refuses before backend allocation |
+| Native Blob integration | 1 pass at the existing 30 s budget; cell eviction, rebuilt bucket client, durable receipts, gate refusal and exact completed bytes/metadata |
+| Fresh-process 64 MiB completion | Peak RSS growth 5,980,160 bytes, below the unchanged 16 MiB bound; exact streaming readback and upload-row retirement |
+| Core Clippy | All library/test targets pass with `-D warnings` |
+| Repository gates | Rust formatting/layout, native-only dependency guard, docs and whitespace checks pass |
+
+See the [API and backend guide](../crates/cellar/application/blob/README.md).
+This is a local native storage foundation: Workers R2 bindings,
+`FixedLengthStream`, positive published backup/mount gateway tests and outbound
+interception remain next. Automatic upload expiry/orphan cleanup and cloud
+metadata initiation/qualification remain open. The pinned S3/GCS low-level API
+cannot initiate metadata-bearing resumable uploads; that profile refuses before
+allocation. No live account or container-image campaign is claimed here.
+
 ## Verified implementation details
 
 ### Provider capability discovery

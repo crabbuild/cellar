@@ -28,6 +28,7 @@
 //! that carries no CAS token is an error, never an empty token a later
 //! conditional write would trust.
 
+pub use crate::object_multipart::ResumableMultipartStore;
 use anyhow::anyhow;
 use anyhow::Context;
 use bytes::Bytes;
@@ -188,6 +189,7 @@ pub struct Bucket {
     /// so the concrete client has to be kept here as it is built —
     /// `Arc<dyn ObjectStore>` cannot be widened to it later.
     paginated: Arc<dyn PaginatedListStore>,
+    multipart: Option<Arc<dyn ResumableMultipartStore>>,
     /// Conditional writes only, built with retries OFF: a retried CAS put
     /// can land on the first attempt's own token change and report a clean
     /// 412 — converting "may have committed" into a false rejection. The
@@ -609,10 +611,102 @@ impl Bucket {
             store,
             cas_store,
             paginated,
+            multipart: None,
             backend,
             name,
             prefix: crate::replica_storage::normalize_prefix(&prefix)?,
         })
+    }
+
+    /// Supply resumable upload support over the same root as `store` and
+    /// `cas_store`. Mutating transport retries must be disabled: a lost create
+    /// or completion response cannot establish whether it committed.
+    pub fn with_resumable_multipart_client(
+        mut self,
+        client: Arc<dyn ResumableMultipartStore>,
+    ) -> Self {
+        self.multipart = Some(client);
+        self
+    }
+
+    /// Metadata support is an independent backend capability.
+    pub fn supports_resumable_multipart(&self, metadata: bool) -> bool {
+        self.multipart
+            .as_ref()
+            .is_some_and(|client| !metadata || client.supports_metadata())
+    }
+
+    fn multipart_client(&self) -> anyhow::Result<&dyn ResumableMultipartStore> {
+        self.multipart
+            .as_deref()
+            .context("bucket has no resumable multipart backend")
+    }
+
+    /// Allocate a backend-owned identity. No in-process handle is required to
+    /// resume it on a later client or node. Missing capabilities refuse first.
+    pub async fn create_resumable_multipart(
+        &self,
+        key: &str,
+        attributes: &BlobAttributes,
+    ) -> anyhow::Result<String> {
+        let client = self.multipart_client()?;
+        let attributes = attributes.write(self.backend);
+        anyhow::ensure!(
+            attributes.is_empty() || client.supports_metadata(),
+            "bucket lacks resumable multipart metadata support"
+        );
+        Ok(client
+            .create_with_options(
+                &self.blob_path(key),
+                PutMultipartOptions {
+                    attributes,
+                    ..Default::default()
+                },
+            )
+            .await?)
+    }
+
+    /// Replace the zero-based part index with the exact submitted bytes.
+    pub async fn upload_resumable_part(
+        &self,
+        key: &str,
+        id: &str,
+        index: usize,
+        body: PutPayload,
+    ) -> anyhow::Result<object_store::multipart::PartId> {
+        anyhow::ensure!(index < 10_000, "multipart part index exceeds 9999");
+        Ok(self
+            .multipart_client()?
+            .put_part(&self.blob_path(key), &id.to_string(), index, body)
+            .await?)
+    }
+
+    /// Complete consecutive part indexes with their current backend receipts.
+    /// Invalid or stale receipts must never be silently discarded.
+    pub async fn complete_resumable_multipart(
+        &self,
+        key: &str,
+        id: &str,
+        parts: Vec<object_store::multipart::PartId>,
+    ) -> anyhow::Result<object_store::PutResult> {
+        anyhow::ensure!(
+            !parts.is_empty()
+                && parts.len() <= 10_000
+                && parts.iter().all(|part| !part.content_id.is_empty()),
+            "multipart completion requires 1 to 10000 part receipts"
+        );
+        Ok(self
+            .multipart_client()?
+            .complete_multipart(&self.blob_path(key), &id.to_string(), parts)
+            .await?)
+    }
+
+    /// Retire an explicitly named upload without affecting the current object.
+    pub async fn abort_resumable_multipart(&self, key: &str, id: &str) -> anyhow::Result<()> {
+        Ok(self
+            .multipart_client()?
+            .abort_multipart(&self.blob_path(key), &id.to_string())
+            .await?)
     }
 
     /// Builds a bucket from separate ordinary and paginated stores.
@@ -627,6 +721,7 @@ impl Bucket {
             cas_store: store.clone(),
             store,
             paginated,
+            multipart: None,
             backend: StorageBackend::S3,
             name: "telemetry-test".to_string(),
             prefix,
@@ -647,6 +742,7 @@ impl Bucket {
             store,
             paginated: Arc::new(UnpaginatedStore),
             cas_store,
+            multipart: None,
             backend,
             name,
             prefix,
@@ -705,6 +801,7 @@ impl Bucket {
         Ok(Bucket {
             store: store.clone(),
             paginated: store.clone(),
+            multipart: Some(store.clone()),
             cas_store: store,
             backend: StorageBackend::Local,
             name: database.display().to_string(),
@@ -773,6 +870,7 @@ impl Bucket {
             retry_timeout: Duration::from_secs(30),
             ..RetryConfig::default()
         };
+        let multipart: Option<Arc<dyn ResumableMultipartStore>>;
         let (store, paginated, cas_store): (
             Arc<dyn ObjectStore>,
             Arc<dyn PaginatedListStore>,
@@ -815,11 +913,9 @@ impl Bucket {
                 }
                 let cas_builder = builder.clone().with_retry(cas_retry);
                 let client = Arc::new(builder.build().context("build s3 client")?);
-                (
-                    client.clone(),
-                    client,
-                    Arc::new(cas_builder.build().context("build s3 cas client")?),
-                )
+                let conditional = Arc::new(cas_builder.build().context("build s3 cas client")?);
+                multipart = Some(conditional.clone());
+                (client.clone(), client, conditional)
             }
             StorageBackend::Gcs => {
                 // The generation dialect only. cellar's S3 client fences
@@ -845,11 +941,9 @@ impl Bucket {
                     .with_client_options(options);
                 let cas_builder = builder.clone().with_retry(cas_retry);
                 let client = Arc::new(builder.build().context("build gcs client")?);
-                (
-                    client.clone(),
-                    client,
-                    Arc::new(cas_builder.build().context("build gcs cas client")?),
-                )
+                let conditional = Arc::new(cas_builder.build().context("build gcs cas client")?);
+                multipart = Some(conditional.clone());
+                (client.clone(), client, conditional)
             }
             StorageBackend::Azure => {
                 // The etag dialect again — Put Blob applies If-None-Match
@@ -874,6 +968,7 @@ impl Bucket {
                     .with_client_options(options);
                 let cas_builder = builder.clone().with_retry(cas_retry);
                 let client = Arc::new(builder.build().context("build azure client")?);
+                multipart = None;
                 (
                     client.clone(),
                     client,
@@ -888,6 +983,7 @@ impl Bucket {
             store,
             paginated,
             cas_store,
+            multipart,
             backend,
             name: bucket.to_string(),
             prefix,
