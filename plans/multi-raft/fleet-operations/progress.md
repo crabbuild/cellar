@@ -15,6 +15,77 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Durable maintenance preparation and cancellation controller
+
+Source `94702658` adds the SDK operator controller above the guarded
+maintenance transitions. A Root-journaled human intent fixes the original boot,
+grace and birth-resolution choice. Its operator pointer serializes intent; M1
+still must acquire the actual shared disruption slot. Bounded turns persist
+child attempts before effects, own gate admission and physical quiescence as
+separate steps, settle admitted work, hand off leadership and publish actual
+Ready proof. Dropped/recreated controllers repeat live physical/quorum evidence.
+Independent controllers compare exact step predecessors before advancing.
+
+The stable human operation is distinct from an underlying SDK execution attempt.
+M1 fixes its entire immutable request before its Root CAS; after a definite CAS
+loss, a coordination CAS fences the old request before choosing a fresh SDK
+operation. Admitted M1 and all later steps retain that exact execution scope.
+The preparation probes exposed a committed gate followed by physical Conflict;
+separating catalog admission from quiescence preserves that admitted gate and the
+receiving node's current-epoch boundary. No failed physical request becomes Ready.
+
+Separate human cancellation is intent only. Before M1, a Root CAS fences older
+uncommitted work. An admitted preparation uses its canonical SDK cancellation;
+a rooted gate requires the synced exact-process Fence. Pending winning work
+retains its original resolution and must settle. Only the checked SDK receipt
+permits terminal cancellation and operator-pointer release. The target remains
+excluded Ready after admitted cancellation, with retained occupancy charged.
+Historical retry cannot clear a later operator. Generic projection forgery refuses.
+
+**925 distinct selected cases pass in 927 executions of completed passing
+cohorts:** 785 library, 95 native fleet, 13 catalog, 25 membership-permit and seven
+CLI cases. Eleven new native controller cases cover real SQL continuity, intent
+races, protected rows, controller recreation, competing step predecessors, held
+M1 CAS loss, four cancellation cuts, old-stop fencing and lost human/SDK/terminal
+confirmations. Existing return/resume, stop, scoped-stop, 44 restart, nine operator
+and ordinary-boot regressions pass. The unchanged operator stack regression also
+passes on default stacks.
+
+The first 44-case current-source restart cohort passed 43 and failed the dynamic
+leader handoff case with `consensus operation failed: Overloaded`. That case
+passed in isolation and the full 44-case confirmation passed without source,
+assertion or bound changes. Its cause remains unproven; the failed log is retained
+in `restart-operator-regressions-v1/`. Earlier preparation probes and the Clippy
+unused-unit diagnostic remain retained separately. No timeout, retry, stack,
+startup/resource bound or assertion was relaxed, and no warning was suppressed.
+The earlier dispatch-timeout and quorum-observation causes remain unproven;
+their older-source records are not current-source qualifications.
+
+Host/admin all-target Clippy, format/layout, native dependency rules, docs, ten
+plan tests, the 425-case manifest and preflight with 100 reviewed input anchors
+pass. Audits bind all
+**1,581 frozen repository Rust/Cargo/configuration inputs** and retained executable
+and result hashes. Primary artifacts are outside runtime data in
+`qualification/fleet-operations/restart-operator-v4/`,
+`restart-operator-followups-v1/`, `restart-operator-handoff-isolation-v1/` and
+`restart-operator-checks-v1/`; the initial regression run is retained separately.
+The protocol fingerprint adds `/maintenance-operator-1`, retaining marker 1,
+matching-binary/fresh-prefix requirements and no legacy reader or migration.
+
+This delivers SDK preparation and cancellation orchestration. It does not yet
+provide management SDK/admin/CLI sequencing for stop, return and resume or an
+owned periodic operation service. Full CI and loaded language modes, deployed
+RustFS/Colima, enforced 1-vCPU/3-GiB limits, large-fleet freshness, TPS/p99 and soak
+remain unqualified. No throughput gain is claimed. The full fleet goal is active.
+
+**Next feature delivery:** expose the durable operator workflow and read-only
+status through management SDK/admin/CLI; complete separately authorized
+stop/return/resume and in-place stale stop-consent refresh. Then deliver grace
+expiry, rolling operations, subsequent-process/second-failure recovery and
+production failure classification/isolation. Follow with load-aware balancing,
+desired capacity/resize and scalable convergence. FO-07 and FO-08 remain in
+progress until those complete workflows and their acceptance boundaries pass.
+
 ## Verified maintenance resume M9 SDK delivery
 
 Source `aab046e5` closes the intact-return SDK path from stop through capacity

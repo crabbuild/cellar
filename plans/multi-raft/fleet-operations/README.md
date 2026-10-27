@@ -4,8 +4,11 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. The current verified-resume source passes 914 distinct selected
-core/SDK cases in 929 passing executions, with earlier failed probes retained; deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
+with local verification. The current preparation/cancellation controller source passes
+925 distinct selected core/SDK cases in 927 executions of completed passing cohorts.
+An initial restart cohort failure is retained with unchanged-source isolation and
+full confirmation passes; its Overloaded cause remains unproven. Deployed
+qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Explicit add, status,
@@ -52,8 +55,12 @@ paused leadership, records separate consent and renews proof at the receiving
 Node before consuming its exact synced quiescence. Physical reopening retains
 capacity exclusion and the disruption slot; fresh terminal verification restores
 Active capacity and releases only that slot. Same-scope consent refresh handles
-Root drift before and after reopening. The complete maintenance operator driver,
-rolling execution, failure/grace policy and resize remain delivery targets. Graceful departure now reports typed proof waiting without
+Root drift before and after reopening. Durable SDK preparation and cancellation
+now resume journaled child attempts across controller loss and competing writers.
+Gate admission and physical quiescence are separate durable steps; terminal
+cancellation requires the actual SDK fence/receipt and preserves capacity exclusion.
+The complete management SDK/admin/CLI stop/return/resume sequence, owned periodic
+execution, rolling/failure/grace policy and resize remain delivery targets. Graceful departure now reports typed proof waiting without
 consuming a history or releasing the disruption slot. Status retains local progress
 only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
 native qualification passes, while the underlying intermittent observation cause

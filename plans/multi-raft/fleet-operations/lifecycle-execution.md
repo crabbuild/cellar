@@ -94,11 +94,10 @@ resource release or disruption-slot release.
 Current stop consent pins the Ready inventory basis; relevant Root drift before
 admission refuses execution. Fenced cancellation and a new preparation remain
 the recovery path for stale consent. In-place consent refresh is unfinished.
-Retained-engine return under a fresh process, startup admission exclusion,
-catch-up, verified resume, grace/rolling/second-failure handling and complete
-maintenance SDK/admin/CLI operation sequencing remain delivery work. The
-namespace protocol ends in `/restart-stop-1`; use matching binaries and fresh
-data prefixes for this internal hard cutover. Numeric markers remain 1.
+The M8/M9 SDK return and verified-resume boundaries below are delivered.
+Grace/rolling/second-failure handling and complete maintenance SDK/admin/CLI
+operation sequencing remain delivery work. Use matching binaries and fresh
+data prefixes for the current protocol fingerprint. Numeric markers remain 1.
 
 ## Retained-engine return and startup exclusion
 
@@ -349,6 +348,55 @@ last known profile requires the platform to provide its limits and the boot to
 verify them again. A failed/OOM boot never advances the effective profile or
 releases the disruption slot. A platform change outside this sequence is an
 observed mismatch to reconcile, not automatic capacity authorization.
+
+## Durable maintenance preparation controller
+
+`begin_restart_operator` fixes the original physical boot, bounded grace and
+birth-resolution choice in a canonical journal and one Root CAS. The active
+operator pointer serializes controller intent; it does not claim the actual
+shared disruption slot or authorize quiescence. The configured
+`FleetRestartOperatorDriver` calls the existing guarded SDK transitions. Its
+bounded `reconcile` turns do not start a background task or grant consent to stop,
+return, resume, restore placement capacity or release the disruption slot.
+
+The driver persists a child attempt before each effect. A stable human operator
+ID is separate from its underlying SDK execution operation. M1 writes an immutable
+operation request before its Root CAS; if that CAS loses, a replacement must use
+a fresh underlying operation. A coordination CAS first fences the delayed old
+request. Once M1 is admitted, every subsequent child retains that exact SDK
+operation. Each step checks its persisted predecessor, so a stale controller
+cannot overwrite a later admitted step. Unknown results reconcile exact canonical
+receipts before a replacement is considered.
+
+Gate admission and physical quiescence are separate durable steps. The receiving
+node must observe the rooted enrollment epoch before consuming the physical
+request. The driver retains the admitted gate identity, settles the original
+birth/movement choice and performs the actual complete inventory, physical and
+quorum walk. Ready requires matched surviving leadership. A recreated controller
+resumes its Root children and repeats ephemeral proof; neither the journal nor
+progress counters restore health samples. Relevant Root drift restarts proof.
+
+`cancel_restart_operator` roots a separate human command and fences uncommitted
+older CAS requests. Before M1 is admitted, terminal cancellation releases only the
+operator pointer and has no physical effect. An admitted preparation uses its
+actual SDK cancellation. Once the physical gate is rooted, cancellation must own
+the synced exact-process Fence; an already accepted stop refuses. Pending winning
+birth/movement work retains its original resolution and must settle first.
+Only the checked canonical SDK cancellation receipt permits the terminal Root
+fact and operator-pointer release. An admitted target returns to excluded Ready;
+its retained occupancy is charged and capacity activation remains separate.
+
+`restart_operator_cancelled` reads the historical terminal fact and its canonical
+SDK predecessor after a lost confirmation. Retrying the old human cancellation
+cannot clear another operation's active pointer. Generic catalog writes cannot
+mint intent, attempts, cancellation commands or terminal facts. The operator
+fingerprint adds `/maintenance-operator-1`; internal markers stay at 1 and no
+legacy reader or migration is provided.
+
+This delivers SDK preparation and cancellation orchestration. The management API,
+CLI, independently authorized stop/return/resume sequence and owned periodic
+execution remain required before the complete operator workflow is usable. See
+[implementation progress](progress.md) for qualified source and test limits.
 
 ## Maintenance must remain safe when the controller or operator disappears
 

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "aab046e598d4f1efde0759afed6bb5b4f42b70c6",
+  "baseline_revision": "94702658fd6d72e8404c593a9355e725b29ffd0c",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3884,7 +3884,16 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/verification/publication.rs",
         "crates/cellar/durability/raft/fleet_stop/resume.rs",
         "crates/cellar/durability/raft/replica_leadership_tests.rs",
-        "crates/cellar/tests/support/raft_restart_resume_native.rs"
+        "crates/cellar/tests/support/raft_restart_resume_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/attempt.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/driver.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/cancellation/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/cancellation/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/cancellation/work.rs",
+        "crates/cellar/tests/support/raft_restart_operator_native.rs",
+        "crates/cellar/tests/support/raft_restart_operator_cancel_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -4912,6 +4921,127 @@
         {
           "name": "fleet_restart_resume_drift_after_opening_holds_slot_until_renewed_completion",
           "oracle": "A Root policy input change after physical reopening invalidates terminal verification and retains RestartPending/capacity exclusion/disruption. A fresh same-scope consent in Resumed mode and a fresh complete walk restore capacity without resetting or reclosing the admitted physical effect.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_intent_is_durable_without_gate_or_slot_authority",
+          "oracle": "Lost operator-intent confirmation reconciles through an independent adapter with the original boot/grace/birth choice; intent alone claims neither a physical gate nor the disruption slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_independent_intents_race_one_controller_slot",
+          "oracle": "Two independent Root writers admit exactly one controller intent and leave all physical hosts open.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_generic_intent_and_cursor_projection_refuse",
+          "oracle": "Generic metadata mutations cannot forge or overwrite operator intent, active pointer, child attempt, cancellation command or terminal cancellation.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_preparation_owns_gate_settlement_and_handoff",
+          "oracle": "Bounded SDK-controller turns own actual preparation, gate admission, physical quiescence, settlement and matched surviving leadership before publishing Ready; surviving SQL continues and no stop or capacity release occurs.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_recreated_controller_repeats_live_proof",
+          "oracle": "A recreated preparation controller resumes rooted children and repeats ephemeral physical/quorum proof before publishing the actual Ready receipt.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_two_controllers_preserve_step_predecessors",
+          "oracle": "Independent controllers racing the same intent preserve the rooted predecessor and admitted SDK identity, converge to Ready, and cannot replace a later child with stale progress.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_fences_unadmitted_preparation_after_root_cas_loss",
+          "oracle": "An independent catalog update defeats a held M1 CAS after its immutable operation request exists; a coordinated replacement uses a distinct underlying SDK operation, retains the human intent and reaches actual Ready.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_cancel_unexecuted_reconciles_lost_confirmations",
+          "oracle": "Lost human-cancel and terminal confirmations reconcile from their exact journals after controller recreation; no node is gated and the historical cancellation cannot clear a later active operator.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_cancel_ready_fences_old_stop_and_releases_only_operator_slot",
+          "oracle": "Cancellation after Ready and separate stop consent owns the synced exact-process Fence before terminal release; an old stop refuses, SQL continues, capacity stays excluded, and another operator intent is admissible. A lost successful SDK cancellation confirmation reconciles after recreation while the node is already Ready.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_cancel_fences_held_unadmitted_preparation",
+          "oracle": "A human cancellation CAS wins against held M1 work; the delayed original preparation CAS loses, no disruption slot or gate is admitted, and the retained terminal fact permits another operator intent.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_cancel_admitted_preparation_before_gate",
+          "oracle": "Cancellation after admitted M1 and before gate admission uses its exact SDK preparation cancellation, leaves the process running, returns it to excluded Ready, preserves SQL, releases the disruption/operator slots and retains a historical receipt that cannot clear another operator.",
           "invariants": [
             "F02",
             "F03",
