@@ -156,6 +156,18 @@ expiry/orphan cleanup and cloud qualification remain outstanding. Additional
 providers and SP-08–SP-10 work remain in the original plan; E2B/Vercel live
 configuration is still deferred by the user.
 
+## Updated main qualification — 2026-10-27
+
+Merged `a9da48ac` cleanly after the feature commits. This includes verified
+object-store extent snapshots and actual loaded Python ABI qualification.
+The merged-head campaign passes 88 Rust tests: native Blob integration,
+28 shared guest cases, 57 Node library cases and both Worker integration
+fixtures. The entered-I/O capacity and earlier storage resource controls remain
+separately recorded above. Combined core/guest/Node/V8 Clippy passes for all
+library/test targets with `-D warnings`; Rust formatting/layout now cover 1,259
+files. Native-only dependency, JavaScript formatting, docs and whitespace gates
+also pass. Fresh CI is required for the resulting PR head.
+
 ## Verified implementation details
 
 ### Provider capability discovery
