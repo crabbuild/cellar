@@ -39,6 +39,7 @@ independent of the optional Workers runtime.
 | Delivered fix; profile partial | Overlapping callback/alarm resumptions | The original extra-barrier image probe passes after async alarm APIs use the asynchronous native bridge; deadlines and native gates remain intact |
 | Delivered Node slice | Worker/DO/container upgrade forwarding and published Sandbox WebSocket previews | Native network tests, held-receiver disconnect and exact-image text/binary round trips with joined cleanup |
 | Delivered selected slice | Concurrency-block controls and published error/exit hooks | Void controls join before native admission releases; nested blocks execute; transactions, inherited transaction views and late continuation admission refuse. Node exercises published readiness errors and nonzero exit/stop parameters |
+| Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation and named portable bindings | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; no provider mutation replay |
 | 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer faults | Host-owned controllers, completion fencing and recoverable cleanup; never retain an application Context as perpetual authority |
@@ -1580,3 +1581,49 @@ The extra-slot language fixtures use local protocol peers, not configured cloud
 accounts. Exact Sandbox image scenarios were not rerun for this shared-framework
 slice. The earlier cold-process and Homebrew Node 26 packaging failures remain
 open; this campaign does not broaden those qualification claims.
+
+### Linux Node bootstrap size and private input
+
+The merged named-binding change exposed a Linux startup failure in both the
+JavaScript SDK and typed-RPC lifecycle jobs: every Node launch failed before
+application admission. The combined runtime was 134,996 bytes in one `--eval`
+argument. A Linux differential probe launched 131,071 bytes and rejected the
+actual runtime with `argument list too long`; executable lookup was successful.
+This failure is separate from the earlier cold 250 ms dispatch timeout.
+
+| Boundary | Delivered behavior / evidence |
+| --- | --- |
+| Process arguments | A fixed launcher replaces the full runtime argument; source and configuration use the inherited private pipe |
+| Configuration | Passed to the loaded module as a function argument; authentication never enters its module URL, argv, environment or a bootstrap file |
+| Input failures | Malformed JSON and initialization errors exit with a fixed status without printing private input or error stacks |
+| Budgets | The original startup deadline covers pipe writes; configuration retains its value-size check; owned process-group cleanup remains joined |
+| Regression | The real Rust worker, padded by 128 KiB, fails through a Linux-bound argv wrapper before the fix and passes afterward |
+| Linux execution | Actual 136,073-byte combined runtime on pinned Node 24.13.1 launches with an 872-byte maximum argument, authenticates and completes a native-protocol variable call |
+
+The JavaScript CI job now runs independent Rust test cases serially, matching
+the testing guide and avoiding interference between lease-sensitive fixtures.
+No assertion, timeout or required test was relaxed.
+
+| Bootstrap qualification campaign | Result |
+| --- | --- |
+| Native Node/V8 runtime and selected integrations | 110 passed, including HTTP-message RPC, streaming, module dispatch, upgrades and providers |
+| Node-only runtime library | 54 passed |
+| Owned-runtime RPC lifecycle matrix | 96 passed: 16 worker-failure, 32 worker-shutdown, 16 V8-termination and 32 V8-shutdown cases |
+| Exact Sandbox 0.12.9 image | All four ignored opt-in image scenarios pass, including published SDK operations, portable archives, RPC files and preview routing |
+| JS/tool/type checks | 97 passed; includes large private bootstrap and malformed-input/initialization privacy regressions |
+| Strict Clippy / static checks | Node/V8 all-target Clippy, 1,190-file Rust format/layout, 96 JS sources, documentation references and the 466-package native-only guard pass |
+
+The Linux probe uses
+`node@sha256:a81a03dd965b4052269a57fac857004022b522a4bf06e7a739e25e18bce45af2`
+on `linux/arm64` with networking disabled. It exercises the actual JS runtime
+against a local authenticated protocol peer, not a Linux native Cellar host.
+The native and exact-image suites run on macOS, with the manifest-pinned
+`linux/amd64` Sandbox image on the isolated engine. The lifecycle report keeps
+`remote_fleet_qualified: false`. Fresh Linux CI remains necessary to confirm the
+complete native-host path; the failed upstream jobs were 121893367312
+(JavaScript SDK) and 121893367015 (typed RPC).
+
+The original cold 250 ms dispatch issue, Homebrew Node 26 package-copy path,
+host-supervised cleanup and ownership-transfer qualification remain open.
+SP-02–SP-06 remain partial; Sandbox 1.x, additional providers and Dynamic Workers
+still require their separate profiles and evidence.

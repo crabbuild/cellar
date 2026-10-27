@@ -336,6 +336,43 @@ fn node_worker_loss_after_submission_never_replays_mutation() {
 
 #[cfg(unix)]
 #[test]
+fn node_large_bootstrap_stays_out_of_process_arguments() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let executable = Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()?;
+    ensure!(executable.status.success(), "Node executable lookup failed");
+    let executable = String::from_utf8(executable.stdout)?.trim().to_owned();
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    std::fs::write(&entry, "export const fetch = () => null;")?;
+    let wrapper = directory.path().join("bounded-node");
+    // Model Linux's per-argument bound on every Unix test host. The padded
+    // real bootstrap must still initialize the worker through its private pipe.
+    std::fs::write(&wrapper, "#!/bin/sh\nexport LC_ALL=C\nfor cellar_boot_arg do\n  if [ \"${#cellar_boot_arg}\" -ge 131072 ]; then\n    echo 'bootstrap argument exceeds Linux bound' >&2\n    exit 86\n  fi\ndone\nexec \"$CELLAR_TEST_BOOTSTRAP_NODE\" \"$@\"\n")?;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))?;
+    let mut options = NodeOptions::new(entry);
+    options.executable = wrapper;
+    options.bootstrap_padding = 128 * 1024;
+    options
+        .environment
+        .insert("CELLAR_TEST_BOOTSTRAP_NODE".into(), executable);
+    let mut entered = false;
+    NodeRuntime::run(
+        Options::default(),
+        options,
+        Source::module().events([EventKind::Fetch]),
+        |_| {
+            entered = true;
+            Ok(())
+        },
+    )?;
+    ensure!(entered, "large bootstrap did not reach host admission");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn node_bootstrap_pipe_is_covered_by_startup_deadline() -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir()?;
