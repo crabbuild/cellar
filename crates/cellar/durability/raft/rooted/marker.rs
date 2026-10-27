@@ -21,7 +21,7 @@ pub(super) fn position(manifest: &ExtentManifest) -> Result<LtxImage, ImageApply
     })
 }
 
-pub(super) fn encode(image: &SealedImageRoot) -> CommittedImage {
+pub(in crate::raft) fn encode(image: &SealedImageRoot) -> CommittedImage {
     let reference = image.reference();
     let binding = image.manifest().binding();
     let geometry = image.manifest().geometry();
@@ -36,7 +36,7 @@ pub(super) fn encode(image: &SealedImageRoot) -> CommittedImage {
     }
 }
 
-pub(super) fn reference_key(group: &GroupLog, role: u8) -> [u8; 32] {
+pub(in crate::raft) fn reference_key(group: &GroupLog, role: u8) -> [u8; 32] {
     let scope = &group.identity().scope;
     let mut hash = Sha256::new();
     hash.update(b"cellar.native-image-reference.v1\0");

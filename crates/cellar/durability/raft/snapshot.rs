@@ -31,6 +31,10 @@ pub(crate) mod prepared;
 mod rooted;
 pub use rooted::{RootSnapshotSet, RootSnapshotSource};
 
+#[path = "snapshot_pin.rs"]
+mod retention;
+use retention::SnapshotPin;
+
 #[derive(Debug)]
 pub enum SnapshotError {
     Invalid(&'static str),
@@ -622,7 +626,7 @@ impl SnapshotDownload {
         Ok(PreparedSnapshot {
             group: self.group,
             snapshot: self.snapshot,
-            pin,
+            pin: pin.map(SnapshotPin::Materialized),
             membership: self.descriptor.membership,
         })
     }
@@ -631,7 +635,7 @@ impl SnapshotDownload {
 pub struct PreparedSnapshot {
     group: GroupLog,
     snapshot: Snapshot,
-    pin: Option<GenerationPin>,
+    pin: Option<SnapshotPin>,
     membership: super::member_state::GroupMembership,
 }
 
@@ -640,7 +644,7 @@ pub struct PreparedSnapshot {
 #[derive(Clone)]
 pub struct SnapshotReference {
     group: GroupLog,
-    pin: Option<GenerationPin>,
+    pin: Option<SnapshotPin>,
     position: LogPosition,
     digest: [u8; 32],
     membership: super::member_state::GroupMembership,
@@ -665,17 +669,16 @@ impl SnapshotReference {
         ticket: &ApplyTicket,
         applied: &super::cache::DurableApply,
     ) -> bool {
-        ticket.replica() == self.group.identity()
+        ticket.belongs_to(&self.group)
             && ticket.position() == self.position
             && ticket.entry_digest() == self.digest
             && applied.position == self.position
-            && applied.image == self.pin.as_ref().map(marker)
+            && applied.image == self.pin.as_ref().map(SnapshotPin::marker)
     }
 
     pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            pin.retain_reference(SNAPSHOT_REFERENCE, self.position.index.get())?;
-            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.position.index.get())?;
+            pin.retain(&self.group, self.position.index.get())?;
         }
         Ok(())
     }
@@ -684,10 +687,7 @@ impl SnapshotReference {
         let Some(pin) = &self.pin else {
             return Ok(());
         };
-        if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.position.index.get())? {
-            return Err(SnapshotError::Invalid("stale prospective install"));
-        }
-        Ok(())
+        pin.retain_pending(&self.group, self.position.index.get())
     }
 }
 
@@ -700,7 +700,7 @@ impl PreparedSnapshot {
                 .map_err(|_| SnapshotError::Invalid("snapshot protobuf"))?,
         )
         .into();
-        if ticket.replica() != self.group.identity()
+        if !ticket.belongs_to(&self.group)
             || ticket.position().index.get() != metadata.index
             || ticket.position().term.get() != metadata.term
             || ticket.entry_digest() != digest
@@ -711,7 +711,7 @@ impl PreparedSnapshot {
             ticket: ticket.clone(),
             applied: super::cache::DurableApply {
                 position: ticket.position(),
-                image: self.pin.as_ref().map(marker),
+                image: self.pin.as_ref().map(SnapshotPin::marker),
             },
             reference: Some(SnapshotReference {
                 group: self.group.clone(),
@@ -726,10 +726,35 @@ impl PreparedSnapshot {
     /// This observes the durable engine marker. An accepted completion alone
     /// does not make the image queryable or acknowledge installation.
     pub fn publish(self, applier: &mut ImageApplier) -> Result<PublishedImage, SnapshotError> {
-        let pin = self.pin.ok_or(SnapshotError::Invalid(
-            "empty snapshot has no queryable image",
-        ))?;
+        let pin = match self.pin {
+            Some(SnapshotPin::Materialized(pin)) => pin,
+            Some(SnapshotPin::Rooted { .. }) => {
+                return Err(SnapshotError::Invalid(
+                    "materialized publisher requires a flat image",
+                ));
+            }
+            None => {
+                return Err(SnapshotError::Invalid(
+                    "empty snapshot has no queryable image",
+                ))
+            }
+        };
         Ok(applier.publish_snapshot(&self.group, &self.snapshot, pin)?)
+    }
+
+    /// Observe this destination's exact synced engine marker before exposing
+    /// its complete local extent root. Run on the owning physical worker.
+    pub fn publish_root(
+        self,
+        applier: &mut super::rooted::RootImageApplier,
+        workspace: &mut [u8],
+    ) -> Result<super::rooted::RootPublishedImage, SnapshotError> {
+        let Some(SnapshotPin::Rooted { image, .. }) = self.pin else {
+            return Err(SnapshotError::Invalid(
+                "extent publisher requires a root image",
+            ));
+        };
+        Ok(applier.publish_snapshot(&self.group, &self.snapshot, &image, workspace)?)
     }
 
     pub fn publish_empty(self, applier: &mut ImageApplier) -> Result<(), SnapshotError> {

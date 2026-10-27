@@ -333,8 +333,13 @@ archive work overlap the trial; source/store cache state and background load
 remain uncontrolled. Neither a speedup nor a regression against the older peer
 pilot is established by this observation. Logs, executable, exact source and
 operation attribution are retained; after the complete oracle and closed-handle
-audit, only the two synthetic local worker trees are retired. Bucket data and
-all evidence remain available.
+audit, the two synthetic local worker trees were retired. A later capacity
+cleanup inventoried and retired only this completed peer campaign's isolated
+bucket prefix (1,796 objects, 7,478,450,006 logical bytes), confirming no current
+objects remained under that exact prefix. Its full object inventory, deletion
+responses and audit join the retained source, executable, ledger and logs.
+The latest completed 10 GB RustFS prefix, failed samples and golden source remain
+available; this fixture cleanup is not the production remote retention/GC work.
 
 The matching prepared-body RustFS pilot at the same frozen `bc3b95aa` source
 and executable passes all nine correctness checks and joined cleanup at
@@ -350,6 +355,20 @@ prevent causal comparisons with earlier observations. The native executable,
 source inventory, ledger, logs and bucket prefix are retained in the private
 `recovery-time-rustfs-10gb-prepared-1` campaign; only its closed synthetic local
 worker trees were retired after joined cleanup and an open-handle audit.
+
+Publisher-correlated attribution of that same frozen RustFS trial separates
+the successful cut-3 publication (23.696246 s encoding, 202.360348 s from encode
+completion to upload confirmation, 27.103586 s replay; 269.208142 s from
+publication acquisition to confirmation) from the successful metadata-only
+cut-6 publication. Cut 6 uses a different publisher and takes 175.312080 s to
+read material and 208.755513 s to replay; its publication-to-confirmation
+interval is 415.123302 s. Other owners independently read/replay cut 6 as well.
+These publisher wall-clock spans are not additive with controller intervals.
+The later per-verifier replay memo starts empty on a new owner and cannot
+eliminate that owner's first physical proof. Public extent recovery and source
+readiness remain necessary; this attribution is not evidence of a memo speedup.
+The raw log digest and complete phase groups are retained in
+`publication-attribution.json` beside the campaign.
 
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
@@ -676,9 +695,35 @@ cover 1,201 Rust files; native dependency and docs guards pass. The tested sourc
 input SHA-256 is
 `2feba3554b2d094b663d3835fcddb642006f16e09d64f056c2674c28c808b259`.
 This is not yet public peer/archive seed integration: transport adapters,
-physical owners, native installs, node-wide inventory recovery/GC and backend
-selection remain open below. No new metadata/data value supplies voting or
+physical owners, fresh-learner seed installs, node-wide inventory recovery/GC
+and backend selection remain open below. No new metadata/data value supplies voting or
 installation authority, and no partially hydrated seal is introduced.
+
+The next native-install slice connects a complete local root to the existing
+`PreparedSnapshot`, ticketed completion, pending/post-sync references and rooted
+image publisher. Runtime tickets retain their original runtime-owner token and
+now also bind the engine that issued them. The source/receiver still transfers
+immutable extents without encoding a complete flat image. The publisher requires
+the exact durable snapshot/image marker and adopts through its own inventory;
+a same-named root held elsewhere cannot stand in for local bytes. This does not
+add fresh-member authorization or the public peer/RustFS adapters. All 13
+native rooted cases pass, including three new cases for install/restart and a
+subsequent committed update, delayed engine sync with premature/foreign-inventory
+publication refusal, and exact engine identity with otherwise identical replica
+metadata. The original receive path failed the new root-install regression; the
+first prototype also exposed the distinction between runtime and engine owner
+tokens. Both failures are retained. The correction explicitly binds both owners;
+no refusal assertion or deadline was relaxed.
+
+The same checked tree passes 76 archive, nine ordinary cold/large-image, 23
+operations, 19 runtime, 45 ordinary snapshot and 676 library cases. Existing
+ignored tests remain ignored. Both affected crates pass all-feature/all-target
+Clippy with warnings denied; formatting/layout cover 1,203 Rust files and native
+dependency/docs guards pass. Tested input SHA-256:
+`58fb0b021198dba47b99b54e0a6ddf38c1d491ef74b0233541acf834c0fc7722`.
+Native executables and source bindings are retained outside the disposable build
+cache. This is functional native-boundary evidence; no new full-size latency
+result or public extent-backend qualification is claimed.
 
 1. Reuse the existing domain-separated `ImageRoot`, 4 MiB `ExtentId` and
    canonical manifest; do not invent another page index. A 10 GB image has

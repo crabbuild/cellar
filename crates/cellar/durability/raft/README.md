@@ -401,10 +401,18 @@ verification and sync barriers, and seal only after the entire local closure is
 verified. Exact existing objects are verified and reused without being
 overwritten. The caller admits the 4 MiB object buffer and sealing workspace
 and runs their I/O on a registered blocking owner. These are data/metadata
-capabilities; they do not create a seed grant, runtime completion or applied
-engine marker. Peer and RustFS transfer adapters, joined physical ownership,
-root inventory reconciliation and public backend selection remain to be wired.
-Partial residency still cannot produce a `SealedImageRoot`.
+capabilities; they do not create a seed grant or applied engine marker.
+`RootSnapshotSet::prepare` revalidates the receiving group and seals its complete
+local closure into the ordinary `PreparedSnapshot`. Its completion requires the
+exact runtime ticket, engine owner, replica, cut and snapshot digest. Pending
+root retention precedes engine persistence; post-sync retention selects the
+snapshot root before releasing the pending reference. `publish_root` then
+observes the matching durable engine marker and independently adopts the image
+through the publishing applier's own inventory. Metadata, another inventory's
+root or a successful completion request cannot make an image queryable early.
+Peer and RustFS transfer adapters, joined physical ownership, fresh-learner seed
+installation, root inventory reconciliation and public backend selection remain
+to be wired. Partial residency still cannot produce a `SealedImageRoot`.
 
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a

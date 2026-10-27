@@ -4,7 +4,7 @@
 //! shared extent inventory; this group never reconciles or reclaims other
 //! groups' roots. SDK working copies and remote root transfer are separate.
 
-mod marker;
+pub(super) mod marker;
 mod query;
 
 pub(crate) use query::query_registered_rooted_controlled;
@@ -371,6 +371,71 @@ impl RootImageApplier {
             ticket,
             image: marker,
         })
+    }
+
+    /// A received root is queryable only after this exact native snapshot and
+    /// image marker are durable. Re-adopt through this applier's inventory;
+    /// another store's same-named root is not a local physical proof.
+    pub(crate) fn publish_snapshot(
+        &mut self,
+        group: &GroupLog,
+        snapshot: &::raft::prelude::Snapshot,
+        image: &SealedImageRoot,
+        buffer: &mut [u8],
+    ) -> Result<RootPublishedImage, ImageApplyError> {
+        if self.pending.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        let selected = marker::encode(image);
+        let position = {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if group.identity() != self.group.identity()
+                || !Arc::ptr_eq(&group.owner, &self.group.owner)
+                || cache.snapshot != *snapshot
+                || cache.applied.image.as_ref() != Some(&selected)
+                || cache.applied.position.index.get() < snapshot.get_metadata().index
+            {
+                return Err(ImageApplyError::Unpublished);
+            }
+            cache.applied.position
+        };
+        let image = marker::adopt(
+            &self.group,
+            &self.store,
+            self.application_digest,
+            &selected,
+            self.limits.decode.max_image_bytes,
+            buffer,
+        )?;
+        self.refresh_snapshot(buffer)?;
+        self.store
+            .retain_reference(
+                marker::reference_key(&self.group, 1),
+                position.index.get(),
+                image.reference(),
+            )
+            .map_err(ImageApplyError::Extents)?;
+        let head = RootPublishedImage {
+            image: Arc::new(image),
+            position,
+            scope: self.group.identity().scope.clone(),
+            proposal: None,
+            application_digest: self.application_digest,
+        };
+        let previous = self.current.replace(head.clone());
+        if let Some(previous) = previous {
+            if previous.image.reference() != head.image.reference()
+                && self
+                    .snapshot
+                    .as_ref()
+                    .is_none_or(|(_, image)| image.reference() != previous.image.reference())
+            {
+                self.store
+                    .retire_root(previous.image.reference())
+                    .map_err(ImageApplyError::Extents)?;
+            }
+        }
+        Ok(head)
     }
 
     /// Engine call success is insufficient. Observe its exact durable marker

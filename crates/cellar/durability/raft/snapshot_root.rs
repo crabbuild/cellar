@@ -273,4 +273,32 @@ impl RootSnapshotSet {
             .seal_image_root(self.manifest.clone(), workspace)
             .map_err(SnapshotError::from)
     }
+
+    /// Prepare this complete destination root for the ordinary native snapshot
+    /// ticket. Revalidate against the receiving engine's current configuration;
+    /// this does not persist a marker or make the image queryable.
+    pub fn prepare(
+        self,
+        group: &GroupLog,
+        schema: [u8; 32],
+        store: &NodeExtentStore,
+        limits: SnapshotLimits,
+        workspace: &mut [u8],
+    ) -> Result<PreparedSnapshot, SnapshotError> {
+        let descriptor = Descriptor::decode(group, schema, &self.snapshot, limits)?;
+        descriptor.membership.succeeds(&group.membership()?)?;
+        let image = self.seal(store, workspace)?;
+        if super::super::rooted::marker::encode(&image) != self.marker {
+            return Err(SnapshotError::Invalid("sealed root marker binding"));
+        }
+        Ok(PreparedSnapshot {
+            group: group.clone(),
+            snapshot: self.snapshot,
+            pin: Some(SnapshotPin::Rooted {
+                image: Arc::new(image),
+                store: store.clone(),
+            }),
+            membership: descriptor.membership,
+        })
+    }
 }

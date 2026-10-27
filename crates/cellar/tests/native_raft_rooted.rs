@@ -10,6 +10,8 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/raft_rooted_install.rs"]
+mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]
 mod snapshots;
 
@@ -126,6 +128,18 @@ impl Host {
         schema: [u8; 32],
         history: [u8; 32],
     ) -> Result<Self> {
+        Self::open_members(root, resume, process, schema, history, 1, vec![]).await
+    }
+
+    async fn open_members(
+        root: &Path,
+        resume: bool,
+        process: u8,
+        schema: [u8; 32],
+        history: [u8; 32],
+        member: u64,
+        learners: Vec<MemberId>,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let gate = fault::Gate::new(None);
         let log = domain
@@ -147,10 +161,10 @@ impl Host {
         if !resume {
             log.create_group(GroupBootstrap {
                 scope: scope(),
-                member: MemberId::new(1)?,
+                member: MemberId::new(member)?,
                 birth_digest: history,
                 voters: vec![MemberId::new(1)?],
-                learners: vec![],
+                learners,
             })
             .await?;
         }

@@ -5,12 +5,20 @@
 use super::*;
 use anyhow::ensure;
 
-async fn source(root: &Path) -> Result<(Host, RootSnapshotSource)> {
+pub(super) async fn source(root: &Path) -> Result<(Host, RootSnapshotSource)> {
     source_history(root, [7; 32]).await
 }
 
 async fn source_history(root: &Path, history: [u8; 32]) -> Result<(Host, RootSnapshotSource)> {
-    let mut host = Host::open_history(root, false, 1, [9; 32], history).await?;
+    source_members(root, history, vec![]).await
+}
+
+pub(super) async fn source_members(
+    root: &Path,
+    history: [u8; 32],
+    learners: Vec<MemberId>,
+) -> Result<(Host, RootSnapshotSource)> {
+    let mut host = Host::open_members(root, false, 1, [9; 32], history, 1, learners).await?;
     host.elect().await?;
     let bytes = images::image(None, "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(7); CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(9437184))")?;
     let mut change = update(&[], &bytes, 0)?;
