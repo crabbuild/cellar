@@ -11,6 +11,8 @@ COPY vendor ./vendor
 COPY examples ./examples
 COPY tools/perf/*.rs ./tools/perf/
 COPY tools/xtask ./tools/xtask
+COPY tools/cellar-rpc-codegen ./tools/cellar-rpc-codegen
+COPY tools/cellar-rpc-qualification ./tools/cellar-rpc-qualification
 # Archived source can predate cached artifacts; force Cargo to check this snapshot.
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
@@ -20,7 +22,7 @@ RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry 
 COPY tools/perf ./tools/perf
 # Include embedded SQL, protobuf, C, assets and build recipes as well as Rust.
 # Match source_manifest() and the context's node_modules/.cellar exclusions.
-RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask \
+RUN find Cargo.toml Cargo.lock crates vendor examples tools/perf tools/xtask tools/cellar-rpc-codegen tools/cellar-rpc-qualification \
     \( -name .git -o -name .cellar -o -name node_modules -o -name __pycache__ \) -prune -o \
     \( -type f -o -type l \) ! -name '*.pyc' ! -name .DS_Store -print0 | \
     LC_ALL=C sort -z | xargs -0 sha256sum > /out/raft-source.sha256
