@@ -183,8 +183,10 @@ fn run(
 
     // The factory is captured before importing application modules. The channel
     // secret is delivered only over inherited stdin, never argv or the environment.
+    // A data URL otherwise repeats the compiled source in every stack frame.
+    // Keep internal locations fixed and short before application errors exist.
     let script = format!(
-        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}",
+        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}\n//# sourceURL=cellar:node-bootstrap\n",
         include_str!("rejections.js"),
         include_str!("budget.js"),
         include_str!("../runner.js"),
@@ -197,6 +199,9 @@ fn run(
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );
+    let source_length = u32::try_from(script.len())
+        .context("Node bootstrap source exceeds length limit")?
+        .to_be_bytes();
     let mut command = Command::new(&node.executable);
     if let Some(directory) = &node.working_directory {
         command.current_dir(directory);
@@ -213,7 +218,11 @@ fn run(
                 "--max-old-space-size={}",
                 runtime.options.heap_bytes / (1024 * 1024)
             ))
-            .args(["--input-type=module", "--eval", &script])
+            .args([
+                "--input-type=module",
+                "--eval",
+                include_str!("bootstrap.mjs"),
+            ])
             .envs(&node.environment)
             .env_remove("NODE_OPTIONS")
             .env_remove("NODE_PATH")
@@ -258,16 +267,23 @@ fn run(
         );
     }
 
-    let mut remaining = config.as_slice();
-    while !remaining.is_empty() {
-        ensure!(Instant::now() < deadline, "Node bootstrap timed out");
-        match stdin.write(remaining) {
-            Ok(0) => anyhow::bail!("Node bootstrap pipe closed"),
-            Ok(n) => remaining = &remaining[n..],
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                std::thread::sleep(Duration::from_millis(1))
+    // Borrow the static source and configuration separately: do not concatenate
+    // another bootstrap copy. The original startup deadline covers every write.
+    for mut remaining in [
+        source_length.as_slice(),
+        script.as_bytes(),
+        config.as_slice(),
+    ] {
+        while !remaining.is_empty() {
+            ensure!(Instant::now() < deadline, "Node bootstrap timed out");
+            match stdin.write(remaining) {
+                Ok(0) => anyhow::bail!("Node bootstrap pipe closed"),
+                Ok(n) => remaining = &remaining[n..],
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+                Err(error) => return Err(error.into()),
             }
-            Err(error) => return Err(error.into()),
         }
     }
     // EOF completes the bootstrap document; the worker then opens the IPC socket.
