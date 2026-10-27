@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow, including adapters, streaming/restart, package delivery, agent recovery and fleet recovery. Fresh typed-RPC, SDK and Python-example gates remain queued/pending. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
+| P0 — hosted verification | Final hosted gates | Head `dda440e4` passes both hosted Python modes' complete typed-RPC workflow, including profile, lifecycle, full failure driver and independent audits; Python examples also pass. Its SDK workflow remains in progress and JavaScript workflow was cancelled. Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 112 cases and peer faults 80. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion now validates borrowed frames and copies one business body; five measured allocation guards pass after reproducing four failures. Broader local/peer response pools, business decoders, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
@@ -73,6 +73,94 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Ordinary peer replies now use dense, finite and cooperative accumulation.**
+  Three main-lock regressions fail against the real ordinary response path:
+  a ready-frame flood consumes its entire body in one poll, an oversized
+  declared body is polled/accepted, and 1,024 one-byte fragments retain all
+  1,024 frame owners. The preserved red executable SHA-256 is
+  `e3a46275f7515b7a21d59e78dee6a4c5a56ba94408cc2440d840ea35f4a38533`;
+  exact source, lock, binary and logs are under
+  `.cellar/rpc/diagnostics/ordinary-reply-red-v3/`. An initial command selected
+  the physical rather than logical Rust module path and ran zero tests; it is
+  not counted as passing evidence. The corrected filter reproduces the failures.
+
+  Ordinary replies now share the dense accumulator and its 64-frame/64-KiB
+  cooperation quantum. Their existing generic forwarding allowance remains
+  larger than the separate 64 MiB event-control ceiling. Protocol/allocation
+  refusal is `ResourceExhausted/unknown` and receives no transport-retry tag;
+  event failures retain their original ambiguous operation outcome, and actual
+  body I/O failures keep their transport provenance. Fragment ownership falls
+  from 1,024 to one; owned fragments are released after dense copying.
+
+  All **722 core tests**, including the **22 collector cases**, pass together.
+  Expanded tests cover ordinary chunk overflow/suffix refusal, actual Hyper
+  oversized/truncated responses and an untyped value larger than the 64 MiB
+  event ceiling. One compatibility fixture initially used 32 MiB; its assertion
+  caught that setup error. The corrected input retains the same assertion.
+  Typed-RPC CI includes the owning collector suite.
+
+  The frozen continuation records **42 checks: 39 pass, three fail**. Both
+  actual Python modes pass 40 qualifier guards, all-target qualifier Clippy,
+  the 576-call profile, 112-case provenance, 80-case peer-fault and 112-case
+  saturation suites, plus their independent mode/result audits. Fifteen
+  remaining native RPC tests, Python's 31 unit tests and streaming/typed-RPC
+  integrations, JavaScript all-target Clippy, Node-only checking and standard
+  format/layout/dependency/docs checks also pass. All **3,733 watched inputs**
+  and both preserved executables stay unchanged. The source manifest SHA-256 is
+  `5ee21ffff111c5d3e2fba096757b3bf6ce92703f52e99845288402bebb735825`.
+
+  The original native provenance request `/refusal` reaches its unchanged
+  **250 ms** handler budget. The continued JavaScript command passes Node
+  compatibility, both streaming backends and stale-codec refusal, then reaches
+  that same budget at
+  `/v8/codec-budget?target=rust&phase=verify&id=codec-budget-v8`.
+  Cargo stops before the later Workers-module target. Both failures remain
+  recorded; the continuation deliberately preserves the original native
+  failure instead of rerunning it to obtain a green status. The third failure
+  is Clippy's byte-character-slice warning in the new fragment-owner fixture;
+  its equivalent byte-string spelling is corrected separately. The corrected
+  source passes all 22 collector tests and core all-target Clippy. The separate
+  Workers-module command also passes all five integrations; it had not run in
+  the failed combined JavaScript command. Logs, exact
+  sources and failing executables are retained under
+  `.cellar/rpc/diagnostics/ordinary-reply-checks-v1-failure/` and
+  `.cellar/rpc/diagnostics/ordinary-reply-javascript-timeout-v1/`.
+
+  A separate temporary phase observer passes ten serial and twenty concurrent
+  native provenance samples. Those samples neither reproduce nor fix the
+  original timeout; the largest observed local routing interval is 50 ms.
+  Temporary observer edits were removed, and all original frozen source
+  hashes were restored before the continuation. Native wake completion removes
+  its operation before polling the handler again; inspection alone does not
+  establish a lost notification. The timeout cause remains open.
+
+  This closes the demonstrated collector mechanisms, not aggregate response
+  pools, per-method early receive caps, allocator/backing capacity or RSS.
+
+  Hosted [typed-RPC workflow 40576152667](https://github.com/crabbuild/cellar/actions/runs/40576152667)
+  passes at the preceding reply-copy head `dda440e4`. Both `3.14` and `3.14t`
+  jobs pass fixture/static checks, the portable profile, owned lifecycle suites
+  and the complete generated RPC/failure driver. Python examples also pass at
+  that head. These are hosted results for the reply-copy change, not the later
+  collector source or an explanation of the local handler timeouts.
+
+- **Native inline layouts need an additional allocation boundary.** A bounded
+  diagnostic constructs 128 empty messages whose absent optional child type
+  declares 512 strings. The 256-byte wire message correctly uses 386 logical
+  slots and passes that exact shared slot budget; 385 slots refuses it. Prost's
+  inline `Option<Wide>` still makes each outer Rust value 12,288 bytes. Decoding
+  allocates **1,572,864 Layout bytes**, even though every child is absent.
+  Boxing the absent child in the diagnostic reduces this to **1,024 bytes**.
+
+  The shared slot profile deliberately does not recursively initialize absent
+  ordinary message fields; this is evidence that its estimate cannot qualify
+  native ABI allocations. No generated API or profile was changed. A native
+  allocation/heap boundary remains required alongside the language-neutral
+  slot check. Source, binary, separate lockfile and report are preserved under
+  `.cellar/rpc/diagnostics/native-inline-layout-v1/`; report SHA-256 is
+  `5fe77bc7d178d536e4cf802a3aa85d3bb456f494c4b8838e0ec83b102dc8b03c`.
+  This diagnostic is not a main-lock regression or a process-RSS qualification.
 
 - **Both frozen diagnostic full drivers pass without explaining earlier failures.**
   At `fd89b1b4`, both actual Python modes complete all 19 suites, totaling
@@ -154,11 +242,10 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   tables. The full-driver pass above qualifies the preceding diagnostic source;
   current full-driver/hosted qualification remains separate.
 
-  Aggregate response/codec pools remain P0. Source inspection also finds that
-  ordinary peer RPC replies use `body.collect()` while only event replies have
-  dense bounded accumulation and cooperative yielding. Reproduce that ordinary
-  receive path before changing it; preserve event error provenance, untyped
-  replies and unknown outcomes without replaying submitted mutations.
+  Aggregate response/codec pools remain P0. This earlier source still used
+  `body.collect()` for ordinary peer replies. The subsequent collector slice
+  above reproduces and closes its demonstrated finite/dense/cooperative
+  accumulation gaps while retaining the broader resource work.
 
 - **Original full-driver warmup failures remain unexplained.**
   At `8f8c93d3`, the GIL run closes its HTTP connection during

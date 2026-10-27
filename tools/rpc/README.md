@@ -406,6 +406,13 @@ cargo test --locked -p cellar --test native_rpc_reply_allocation
 This guard covers framework reply conversion. Business-message decoders, queued
 responses, shared backing allocations and process RSS require separate evidence.
 
+Ordinary peer value replies also use dense collection and yield after 64 frames
+or 64 KiB, including empty/trailer floods. They retain the generic forwarding
+ceiling; event controls keep their stricter 64 MiB ceiling. Oversize/allocation
+refusal after a successful ordinary reply head is `ResourceExhausted/unknown`,
+without a network-retry tag. Real transport failures keep their original tag.
+Per-method early receive limits and aggregate response/codec pools remain open.
+
 The generated inventory now records structural codec shapes. Provider startup
 compares live JS/Python descriptors with the native artifact before readiness;
 clients verify their codecs before encoding. Tests alter real descriptor fields,

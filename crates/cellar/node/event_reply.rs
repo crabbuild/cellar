@@ -35,12 +35,16 @@ where
                 collecting.await
             }
         } else {
-            body.collect()
-                .await
-                .map(|body| body.to_bytes())
-                .map_err(|error| {
-                    remote_rpc_failure(anyhow::Error::new(error)).context("remote RPC body")
-                })
+            // Ordinary values need the same dense accumulation and scheduling
+            // fairness as event replies. Keep the generic forwarding ceiling
+            // so existing untyped values retain their supported sizes; typed
+            // message limits remain an independent validation boundary.
+            accumulate(
+                body,
+                super::MAX_PEER_FORWARD_BODY_BYTES,
+                ReplyKind::Ordinary,
+            )
+            .await
         }
     };
     let result = match cancel {
@@ -66,14 +70,24 @@ fn timed_out() -> anyhow::Error {
     .into()
 }
 
-fn too_large() -> anyhow::Error {
-    // Execution can have committed. A protocol budget refusal is not a
-    // network failure and must not enter activation's transport retry loop.
-    DeliveryError::new(
-        ErrorCode::Ambiguous,
-        "event RPC result exceeds its byte budget",
-    )
-    .into()
+#[derive(Clone, Copy)]
+enum ReplyKind {
+    Event,
+    Ordinary,
+}
+
+impl ReplyKind {
+    fn exhausted(self, message: &'static str) -> anyhow::Error {
+        // Execution can have committed. A protocol/allocation refusal never
+        // receives the transport retry tag or claims that effects rolled back.
+        match self {
+            Self::Event => DeliveryError::new(ErrorCode::Ambiguous, message).into(),
+            Self::Ordinary => crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::ResourceExhausted,
+            )
+            .into(),
+        }
+    }
 }
 
 async fn bounded<B>(body: B, limit: usize) -> Result<Bytes>
@@ -81,8 +95,16 @@ where
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    accumulate(body, limit, ReplyKind::Event).await
+}
+
+async fn accumulate<B>(body: B, limit: usize, kind: ReplyKind) -> Result<Bytes>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     if body.size_hint().lower() > limit as u64 {
-        return Err(too_large());
+        return Err(kind.exhausted("event RPC result exceeds its byte budget"));
     }
     let mut body = std::pin::pin!(body);
     let mut bytes = Vec::new();
@@ -98,7 +120,7 @@ where
                 .len()
                 .checked_add(data.len())
                 .filter(|length| *length <= limit)
-                .ok_or_else(too_large)?;
+                .ok_or_else(|| kind.exhausted("event RPC result exceeds its byte budget"))?;
             if length > bytes.capacity() {
                 let capacity = length
                     .max(bytes.capacity().saturating_mul(2))
@@ -107,10 +129,7 @@ where
                 bytes
                     .try_reserve_exact(capacity - bytes.len())
                     .map_err(|_| {
-                        anyhow::Error::new(DeliveryError::new(
-                            ErrorCode::Ambiguous,
-                            "event RPC result buffer could not be allocated",
-                        ))
+                        kind.exhausted("event RPC result buffer could not be allocated")
                     })?;
             }
             copied = copied.saturating_add(data.len());
