@@ -1906,8 +1906,7 @@ pub(crate) fn rpc_cell(
     name: Option<String>,
     method: String,
     args: RpcData,
-    deadline_ms: Option<u64>,
-    signal: Option<cellar_native::web::AbortSignal>,
+    call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
@@ -1920,13 +1919,7 @@ pub(crate) fn rpc_cell(
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
     Box::pin(crate::host_rpc::call_scoped(
-        gate,
-        scope,
-        name,
-        method,
-        args,
-        None,
-        crate::host_rpc::CallScope::in_context(context, deadline_ms, signal),
+        gate, scope, name, method, args, None, call_scope,
     ))
 }
 

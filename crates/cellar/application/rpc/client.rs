@@ -222,12 +222,16 @@ impl Client {
             let response_signal = options.signal.clone();
             let operation = async {
                 let result = stub
-                    .rpc_with_deadline(
+                    .rpc_scoped(
                         &context,
                         &method.name,
                         args,
-                        Some(deadline),
-                        response_signal.clone(),
+                        crate::host_rpc::CallScope::in_context(
+                            &context,
+                            Some(deadline),
+                            response_signal.clone(),
+                        )
+                        .with_reply_limit(envelope::response_transport_limit(contract.limits())),
                     )
                     .await;
                 check_completion(deadline, response_signal.as_ref())?;

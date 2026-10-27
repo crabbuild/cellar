@@ -15,6 +15,7 @@ pub(crate) struct CallScope {
     pub deadline_ms: Option<u64>,
     pub parent_cancellation: Option<std::sync::Arc<crate::runtime::InvocationCancellation>>,
     pub signal: Option<cellar_native::web::AbortSignal>,
+    reply_limit: Option<usize>,
 }
 
 impl CallScope {
@@ -27,7 +28,13 @@ impl CallScope {
             deadline_ms,
             parent_cancellation: context.io.rpc_cancellation.get().cloned(),
             signal,
+            reply_limit: None,
         }
+    }
+
+    pub(crate) fn with_reply_limit(mut self, bytes: usize) -> Self {
+        self.reply_limit = Some(bytes);
+        self
     }
 }
 
@@ -107,6 +114,7 @@ pub(crate) async fn call_scoped(
                     };
                 }
             };
+        let reservation = reservation.with_reply_limit(call_scope.reply_limit);
         let (request_id, cancel, mut cancellation) = begin_call_cancellation();
         let (reply, receive) = tokio::sync::oneshot::channel();
         let call = RpcCallReq {

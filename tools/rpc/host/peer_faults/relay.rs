@@ -28,6 +28,8 @@ pub(super) enum Fault {
     MethodRefusal,
     ElementRefusal,
     ByteRefusal,
+    DeclaredReplyOverflow,
+    StreamedReplyOverflow,
 }
 
 impl Fault {
@@ -38,6 +40,8 @@ impl Fault {
             Self::MethodRefusal => "method_refusal",
             Self::ElementRefusal => "element_refusal",
             Self::ByteRefusal => "byte_refusal",
+            Self::DeclaredReplyOverflow => "declared_reply_overflow",
+            Self::StreamedReplyOverflow => "streamed_reply_overflow",
         }
     }
 
@@ -47,6 +51,13 @@ impl Fault {
             Self::ElementRefusal | Self::ByteRefusal => Some(rpc::Code::ResourceExhausted),
             _ => None,
         }
+    }
+
+    pub fn reply_overflow(self) -> bool {
+        matches!(
+            self,
+            Self::DeclaredReplyOverflow | Self::StreamedReplyOverflow
+        )
     }
 }
 
@@ -369,7 +380,7 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
             }
         }
         let _live = Live(&control.live);
-        while let Some(head) = framing::head(&mut owner_read).await? {
+        while let Some(mut head) = framing::head(&mut owner_read).await? {
             let body = framing::body(&head, &mut owner_read).await?;
             let selected = action.lock().unwrap().take();
             if let Some((arm, mut proof)) = selected {
@@ -401,6 +412,27 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     proof["successful_owner_reply_observed"] = json!(true);
                 }
                 proof["reply_lost"] = json!(arm.fault == Fault::ReplyLoss);
+                let reply_limit = control.contract.limits().max_message_bytes + 2 * 1024;
+                if arm.fault.reply_overflow() {
+                    // Preserve the real committed owner result above, then
+                    // withhold a replacement response's end. Correct native
+                    // collection must refuse the caller's declared byte limit
+                    // before waiting for completion or decoding business data.
+                    proof["response_byte_limit"] = json!(reply_limit);
+                    proof["reply_suffix_withheld"] = json!(true);
+                    proof["declared_reply_bytes"] =
+                        json!(if arm.fault == Fault::DeclaredReplyOverflow {
+                            reply_limit + 1
+                        } else {
+                            0
+                        });
+                    proof["streamed_reply_bytes"] =
+                        json!(if arm.fault == Fault::StreamedReplyOverflow {
+                            reply_limit + 1
+                        } else {
+                            0
+                        });
+                }
                 {
                     let mut observations = control.observations.lock().unwrap();
                     ensure!(observations.is_empty(), "relay proof bound exceeded");
@@ -408,6 +440,29 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                 }
                 if arm.fault == Fault::ReplyLoss {
                     return Ok::<_, anyhow::Error>(());
+                }
+                if arm.fault.reply_overflow() {
+                    if arm.fault == Fault::DeclaredReplyOverflow {
+                        head.replace("content-length", &(reply_limit + 1).to_string())?;
+                        client_write.write_all(&head.raw).await?;
+                    } else {
+                        head.chunked()?;
+                        client_write.write_all(&head.raw).await?;
+                        let fragment = [0; 4096];
+                        let mut remaining = reply_limit + 1;
+                        while remaining != 0 {
+                            let count = remaining.min(fragment.len());
+                            client_write
+                                .write_all(format!("{count:x}\r\n").as_bytes())
+                                .await?;
+                            client_write.write_all(&fragment[..count]).await?;
+                            client_write.write_all(b"\r\n").await?;
+                            remaining -= count;
+                        }
+                    }
+                    // Owned by the connection's select and the relay join set.
+                    // Never send the declared body or the final chunk marker.
+                    return std::future::pending().await;
                 }
             }
             framing::write(&mut client_write, &head, &body).await?;

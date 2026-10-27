@@ -62,6 +62,8 @@ async fn cases(
     let mut cases = Vec::new();
     let mut counts = BTreeMap::<&str, i64>::new();
     for fault in [
+        Fault::DeclaredReplyOverflow,
+        Fault::StreamedReplyOverflow,
         Fault::Reconnect,
         Fault::ReplyLoss,
         Fault::MethodRefusal,
@@ -130,6 +132,11 @@ async fn cases(
                             first == json!({"code":"Unavailable","outcome":"unknown"}),
                             "lost committed reply claimed a known outcome: {first}"
                         );
+                    } else if fault.reply_overflow() {
+                        ensure!(
+                            first == json!({"code":"InvalidResponse","outcome":"unknown"}),
+                            "oversized committed reply was not refused before its withheld suffix: {first}"
+                        );
                     } else {
                         ensure!(
                             first == expected && relay.handshakes() > handshakes,
@@ -190,7 +197,7 @@ async fn cases(
             }
         }
     }
-    ensure!(cases.len() == 80, "peer fault matrix is incomplete");
+    ensure!(cases.len() == 112, "peer fault matrix is incomplete");
     Ok(
         json!({"format":1,"contract_digest":app.contract.digest(),"topology":"signed-peer-fault-relay",
         "case_count":cases.len(),"cases":cases,"fleet_durability":true,

@@ -14,6 +14,44 @@ fn authority() -> Result<crate::runtime::RpcAuthority> {
 }
 
 #[tokio::test]
+async fn typed_reply_limit_survives_queue_and_reservation_cloning() -> Result<()> {
+    use std::future::Future as _;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+            crate::host_channels::set_rpc_call_tx(sender);
+            let mut call = Box::pin(call_scoped(
+                EgressGate::NoCell,
+                "Counter:alice".into(),
+                None,
+                "example.Counter/GetCount".into(),
+                RpcData::Json("[]".into()),
+                None,
+                CallScope::default().with_reply_limit(2176),
+            ));
+            std::future::poll_fn(|cx| {
+                assert!(call.as_mut().poll(cx).is_pending());
+                std::task::Poll::Ready(())
+            })
+            .await;
+            let queued = receiver.try_recv()?;
+            let held = queued.reservation.as_ref().unwrap().clone();
+            assert_eq!(held.reply_limit(), Some(2176));
+            drop(call);
+            drop(queued);
+            assert_eq!(held.reply_limit(), Some(2176));
+            assert_eq!(domain.services().outbound_rpc_usage().active_requests, 1);
+            drop(held);
+            assert_eq!(domain.services().outbound_rpc_usage(), Default::default());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn native_rpc_source_queue_refuses_while_a_previous_request_is_queued() -> Result<()> {
     use std::future::Future as _;
     let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(

@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Head `dda440e4` passes both hosted Python modes' complete typed-RPC workflow, including profile, lifecycle, full failure driver and independent audits; Python examples also pass. Its SDK workflow remains in progress and JavaScript workflow was cancelled. Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
+| P0 — hosted verification | Final hosted gates | Head `dda440e4` passes both hosted Python modes' complete typed-RPC workflow, including profile, lifecycle, full failure driver and independent audits; Python examples also pass. Its SDK and JavaScript workflows were cancelled after the next push. Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow. New collector/response-limit source still needs fresh hosted gates. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 112 cases and peer faults 80. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
-| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion now validates borrowed frames and copies one business body; five measured allocation guards pass after reproducing four failures. Broader local/peer response pools, business decoders, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
+| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion copies one validated business body; ordinary peer collection is finite/dense/cooperative. Typed limits now reach local publication and peer collection, with 112 signed-peer cases passing in both Python modes. Broader response/codec pools, native inline layouts, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
 | P1 | Language/profile coverage | Frozen diagnostic head `fd89b1b4` passes all 19 Counter/failure suites in both local CPython modes, 952 cases per mode, with independent audits and unchanged source/executable identities. Earlier source passes the hosted matrices; original local warmup failures remain unexplained. The reply-copy fix passes both 576-call profiles and 112-case provenance matrices. Complete its broader full-driver/hosted qualification and remaining descriptor, regression and packaging requirements. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -73,6 +73,68 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Typed response ceilings reach native routing and peer collection.** The
+  real signed-peer relay first observes the owner's proven count/receipt, then
+  replaces the reply with an oversized declared body and withholds its bytes.
+  Before the fix, the generated Rust caller waits until its original deadline
+  and returns `DeadlineExceeded/unknown`, instead of refusing the declaration.
+  The preserved red executable SHA-256 is
+  `2d4c83eed153253888f84da7a923bbd6d63c4e9525fb8d4b1529996d3c44e641`;
+  source, binary, lockfile and log are under
+  `.cellar/rpc/diagnostics/typed-reply-cap-red-v1/`.
+
+  Native typed clients now attach their immutable response ceiling to the
+  existing shared admission reservation. It survives gates, queues, routing
+  and clones without changing public request types or wire formats. Peer
+  collection checks declared size before polling and streamed size before
+  buffer growth. Local results are checked before publication to the caller;
+  typed methods reject leased resources before receiving their transport.
+  The ceiling includes the business allowance plus separate 1 KiB Protobuf
+  and clone controls. Rejection is `InvalidResponse/unknown`, with no network
+  replay tag; generic untyped allowances and deadlines stay unchanged.
+
+  The expanded **112-case signed-peer suite** passes initially with GIL
+  CPython. It adds both declared and chunked reply overflow with withheld ends
+  across all 16 generated caller/provider pairs. Every case preserves the
+  committed count, performs no automatic retry, returns the saved receipt on
+  two explicit retries, rejects changed commands and permits fresh reads.
+  Both nodes drain, all relay connections/tasks join and the independent
+  auditor rejects twelve corrupt reports.
+
+  All **41 frozen checks pass** for the production change: **725 core tests**,
+  **23 native integrations** (including large untyped values and SQL), **10
+  JavaScript integrations**, Python's 31 unit tests and streaming/typed-RPC
+  integrations. Both actual Python modes pass 40 qualifier guards, all-target
+  qualifier Clippy, the **576-call profile**, **112-case provenance**, expanded
+  **112-case peer-fault** and **112-case saturation** suites with independent
+  mode/result audits. Core/JavaScript all-target Clippy, Node-only checking,
+  format/layout (1,242 Rust files), dependency and documentation checks pass.
+  Original handler budgets stay unchanged. Earlier timeout failures remain
+  preserved; these passing checks do not establish their cause or fix.
+
+  All **3,732 watched source/fixture inputs** and both executable hashes remain
+  unchanged during `.cellar/rpc/typed-reply-cap-checks-v1-*`. The manifest
+  SHA-256 is `998ff32d35ea63525538ad4a2eb01f73a644c07d73e71a7a003cab24f8418d16`.
+  Qualification executable SHA-256 values are
+  `20e0b96088dc4fc8eee43f0c97d36fee9d14ba87338e61befa4452f1cc1f040a`
+  (GIL) and
+  `60fe8d80256ca9a675010b512c71e0d34d24bd73b68b44b78c039a19d81f9620`
+  (free-threaded). Peer-report SHA-256 values are
+  `796af1c5057a364faa8d099e43c0ce3c1ff5fec6eed2de923e37965d0db85179`
+  and `d94611bdbbeef559f7a26e478774499fb6034111b6f92834a8166cbea1ec4f73`;
+  saturation-report values are
+  `fc35dbcd1133925ecaf58d7509341af9a6ad06e86e515071d3b4904a9c920f11`
+  and `9a943a97148fe46bb64059dc0061167687060a9000c876ceae181327ccd58215`.
+  Profile/provenance hashes match the earlier tables. A subsequent test-only
+  addition checks real HTTP lease cleanup when a response is refused at its
+  header. All **five lease tests** pass, including unconsumed-body refusal,
+  caller drop, server revocation and domain shutdown; both HTTP drivers join.
+  Core all-target Clippy passes again. Only that test file and this ledger
+  differ from the frozen source; production code remains byte-for-byte equal.
+
+  This closes neither aggregate response/codec pools nor native inline-layout,
+  retained backing/copy/RSS and complete method/runtime/host minima evidence.
 
 - **Ordinary peer replies now use dense, finite and cooperative accumulation.**
   Three main-lock regressions fail against the real ordinary response path:

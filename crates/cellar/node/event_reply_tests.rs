@@ -594,6 +594,60 @@ async fn ordinary_chunk_overflow_is_unknown_and_does_not_poll_the_suffix() {
 }
 
 #[tokio::test]
+async fn typed_reply_limits_refuse_declared_and_streamed_overflow_before_suffix() -> Result<()> {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let failure = receive_typed(
+        DeclaredBody {
+            polls: polls.clone(),
+            length: 5,
+        },
+        4,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(polls.load(Ordering::SeqCst), 0);
+    assert_invalid_typed_reply(&failure);
+
+    let observed = polls.clone();
+    let frames =
+        futures_util::stream::iter([b"ab".as_slice(), b"cd", b"e", b"suffix"].into_iter().map(
+            move |bytes| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Frame::data(Bytes::from_static(bytes)))
+            },
+        ));
+    let failure = receive_typed(StreamBody::new(frames), 4).await.unwrap_err();
+    assert_eq!(polls.load(Ordering::SeqCst), 3);
+    assert_invalid_typed_reply(&failure);
+    assert_eq!(
+        receive_typed(Full::new(Bytes::from_static(b"abcd")), 4).await?,
+        "abcd"
+    );
+    Ok(())
+}
+
+fn assert_invalid_typed_reply(failure: &anyhow::Error) {
+    let failure_kind = failure
+        .downcast_ref::<crate::application::rpc::Failure>()
+        .unwrap();
+    assert_eq!(
+        failure_kind.code(),
+        crate::application::rpc::Code::InvalidResponse
+    );
+    assert_eq!(
+        failure_kind.outcome(),
+        crate::application::rpc::EffectOutcome::Unknown
+    );
+    assert!(failure
+        .downcast_ref::<super::super::RemoteRpcTransportFailure>()
+        .is_none());
+    assert_eq!(
+        super::super::classify_remote_attempt(failure),
+        cellar_logic::routing::Attempt::Ambiguous
+    );
+}
+
+#[tokio::test]
 async fn ordinary_values_preserve_the_larger_untyped_reply_allowance() -> Result<()> {
     // Untyped values keep the generic forwarding allowance rather than
     // inheriting the stricter event-control or Protobuf message ceilings.

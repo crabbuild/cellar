@@ -411,7 +411,13 @@ or 64 KiB, including empty/trailer floods. They retain the generic forwarding
 ceiling; event controls keep their stricter 64 MiB ceiling. Oversize/allocation
 refusal after a successful ordinary reply head is `ResourceExhausted/unknown`,
 without a network-retry tag. Real transport failures keep their original tag.
-Per-method early receive limits and aggregate response/codec pools remain open.
+Typed callers additionally carry their declared response ceiling through their
+native reservation. Peer collection refuses an oversized declaration before
+polling the body, or stops streamed growth at that ceiling. The allowance is
+the business byte limit plus 1 KiB for each of the Protobuf and clone controls.
+Malformed or oversized typed replies remain `InvalidResponse/unknown`; typed
+methods also refuse resource-lease replies. Untyped values keep their allowance.
+Aggregate response/codec pools and native decoder layout bounds remain open.
 
 The generated inventory now records structural codec shapes. Provider startup
 compares live JS/Python descriptors with the native artifact before readiness;
@@ -642,7 +648,7 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
 ```
 
-All **80 cases** use generated clients: Rust, Python, embedded V8 and Node callers
+The **112-case suite** uses generated clients: Rust, Python, embedded V8 and Node callers
 against each of the four providers, at each fault below. The owner keeps real
 SQLite state, signed peer authentication and normal fleet durability proof.
 
@@ -659,6 +665,8 @@ generated client -> native source -> relay -> signed owner -> typed handler
 | --- | --- | --- |
 | Close a warm RPC tunnel | Fresh signed upgrade; successful generated call | Exact method, request ID, remaining budget, scope and owner epoch; one handler entry |
 | Drop a complete successful owner reply | `Unavailable/unknown`; no automatic replay | Closed mutation transaction and exact stored count; one handler entry before explicit retries |
+| Replace a proven reply with an oversized declared body; withhold its bytes | `InvalidResponse/unknown` before the original deadline | Real owner commit/receipt observed first; no replay, successful explicit receipt retries |
+| Stream beyond the caller's reply ceiling; withhold the terminating chunk | `InvalidResponse/unknown` without waiting for the suffix | Same committed owner evidence; source enforces its limit while the body grows |
 | Change the inner method to an unregistered name | `MethodNotFound/not_committed` from the real owner | No additional factory or business-handler entry; unchanged count before explicit retry |
 | Add valid unknown fields beyond the receiving element cap | `ResourceExhausted/not_committed` | Caller validation still passes; five occurrences exceed the owner's four-element limit, within its byte limit; no handler entry |
 | Add one valid unknown byte field beyond the receiving byte cap | `ResourceExhausted/not_committed` | Caller validation still passes; three occurrences stay below the element cap, but exceed the owner's 128-byte limit; no handler entry |
@@ -666,10 +674,10 @@ generated client -> native source -> relay -> signed owner -> typed handler
 The owner snapshots a stricter native catalog (128 message bytes and four
 Protobuf occurrences) than the source's default limits. Its real Rust, Python,
 V8 and Node providers retain their generated implementations. The relay changes
-only one admitted wire request, validates it against the source contract, and
+one admitted wire request or one observed, proven reply. It validates the request against the source contract and
 preserves its method, operation ID, request ID, scope and remaining deadline.
 The independent report auditor checks the actual byte/element geometry and
-rejects ten corrupted-coverage, admission, provenance and cleanup reports.
+rejects twelve corrupted-coverage, admission, response-limit, provenance and cleanup reports.
 
 Host admission borrows the encoded body instead of decoding a clone graph and
 copying its buffer merely to inspect it. It bounds envelope metadata to 1 KiB,
@@ -683,24 +691,28 @@ that same ID. Native audits verify execution stays on the original remote owner,
 scope and epoch. The relay checks the actual descriptor digest and Protobuf
 request/reply; a requested target or a guest error string cannot certify a case.
 
-The relay bounds inner headers to 16 KiB, bodies to 64 KiB and connection tasks
-to 128. It rejects unsupported inner framing. Ordinary outer HTTP requests ask
+The relay bounds observed inner headers to 16 KiB, ordinary bodies to 64 KiB and
+connection tasks to 128. The streamed overflow uses a fixed 4 KiB scratch buffer
+and sends only the declared caller ceiling plus one byte. Its selected response
+may use chunked framing; other observed traffic must use full-body framing.
+Ordinary outer HTTP requests ask
 the real server for `Connection: close`: an unrelated keepalive must not later
 hide an RPC upgrade inside an unobserved byte stream. Signed upgrade headers,
 request signatures, payloads and proof responses retain their production paths.
 These are fixture bounds, not evidence of production-wide memory limits.
 
 Successful reports require both native nodes to drain and every relay task and
-language runtime to join. The independent auditor verifies all 48 unique tuples
-and rejects six corrupted reports covering missing/duplicate pairs, forged
+language runtime to join. The independent auditor verifies all 112 unique tuples
+and rejects twelve corrupted reports covering missing/duplicate pairs, forged
 rollback, business execution after refusal, invalid budgets and retained sockets.
 This suite runs in `all` and Linux lifecycle CI, which retains its raw report/log.
 
-This closes the described generated-client reconnect, reply-loss and method
-refusal boundaries with GIL CPython. The deliberate warm-tunnel close does not
+The described reconnect, reply-loss and receiving-refusal boundaries have both
+GIL and free-threaded evidence; the ledger records the source and pending
+qualification of the response-limit additions. The deliberate warm-tunnel close does not
 force every provably-unsent Hyper race; the native transport regression separately
 checks that retry preserves identity and decreases its original budget. Full
-admission/saturation, parser/RSS, portable-profile, free-threaded Python and
+admission/saturation, parser/RSS, remaining profile/interpreter modes and
 packaging qualification remain open.
 
 ## Failures after a parent commits

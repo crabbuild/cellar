@@ -74,6 +74,7 @@ fn timed_out() -> anyhow::Error {
 enum ReplyKind {
     Event,
     Ordinary,
+    Typed,
 }
 
 impl ReplyKind {
@@ -86,8 +87,27 @@ impl ReplyKind {
                 crate::application::rpc::Code::ResourceExhausted,
             )
             .into(),
+            Self::Typed => crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::InvalidResponse,
+            )
+            .into(),
         }
     }
+}
+
+/// Typed clients carry their immutable application allowance through routing.
+/// The caller's cancellation/deadline owner surrounds this entire collection.
+pub(super) async fn receive_typed<B>(body: B, limit: usize) -> Result<Bytes>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    accumulate(
+        body,
+        limit.min(super::MAX_PEER_FORWARD_BODY_BYTES),
+        ReplyKind::Typed,
+    )
+    .await
 }
 
 async fn bounded<B>(body: B, limit: usize) -> Result<Bytes>

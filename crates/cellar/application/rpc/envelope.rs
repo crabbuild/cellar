@@ -75,6 +75,13 @@ fn clone_limits(limit: usize) -> clone::Limits {
     }
 }
 
+// Both framework layers need their own fixed allowance: the Protobuf reply
+// control and its structured-clone wrapper. A minimum business limit must still
+// carry a refusal; the transport ceiling must also accept every valid reply.
+pub(super) fn response_transport_limit(limits: Limits) -> usize {
+    clone_limits(limits.reply_limit()).bytes
+}
+
 pub(super) fn valid_digest(value: &str) -> bool {
     value.len() == 64
         && value

@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 LANGUAGES = {"rust": "RustCounter", "python": "PythonCounter", "v8": "V8Counter", "node": "NodeCounter"}
-SCENARIOS = ("reconnect", "reply_loss", "method_refusal", "element_refusal", "byte_refusal")
+SCENARIOS = ("reconnect", "reply_loss", "method_refusal", "element_refusal", "byte_refusal",
+             "declared_reply_overflow", "streamed_reply_overflow")
 
 
 def audit(report):
@@ -22,7 +23,7 @@ def audit(report):
     assert report["remote_fleet_qualified"] is report["abrupt_crash_qualified"] is False
     assert re.fullmatch(r"[0-9a-f]{64}", report["contract_digest"])
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 80
+    assert len(cases) == report["case_count"] == 112
     expected = set(itertools.product(SCENARIOS, LANGUAGES, LANGUAGES))
     keys = [(c["scenario"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
@@ -78,10 +79,17 @@ def audit(report):
             assert peer["successful_owner_reply_observed"] is True
             if scenario == "reply_loss":
                 assert case["first_reply"] == {"code": "Unavailable", "outcome": "unknown"}
+            elif scenario.endswith("_reply_overflow"):
+                assert case["first_reply"] == {"code": "InvalidResponse", "outcome": "unknown"}
+                limit = peer["source_max_message_bytes"] + 2 * 1024
+                assert peer["response_byte_limit"] == limit
+                assert peer["reply_suffix_withheld"] is True
+                assert peer["declared_reply_bytes"] == (limit + 1 if scenario == "declared_reply_overflow" else 0)
+                assert peer["streamed_reply_bytes"] == (limit + 1 if scenario == "streamed_reply_overflow" else 0)
             else:
                 assert case["first_reply"] == {"value": after}
                 assert case["new_signed_handshakes"] > 0
-    assert all(values == set(range(20)) for values in totals.values())
+    assert all(values == set(range(28)) for values in totals.values())
 
 
 def main():
@@ -102,6 +110,8 @@ def main():
         lambda r: next(c for c in r["cases"] if c["scenario"] == "element_refusal")["peer"].update(forwarded_elements=4),
         lambda r: r["cases"][0]["peer"].update(source_message_valid=False),
         lambda r: r["cases"][0]["peer"].update(receiver_max_message_bytes=1048576),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "declared_reply_overflow")["peer"].update(declared_reply_bytes=0),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "streamed_reply_overflow")["peer"].update(reply_suffix_withheld=False),
     )
     for mutate in probes:
         changed = copy.deepcopy(report)
@@ -111,7 +121,7 @@ def main():
         except AssertionError:
             continue
         raise AssertionError("peer report auditor accepted corrupted evidence")
-    print(json.dumps({"cases": 80, "negative_audit_probes": len(probes),
+    print(json.dumps({"cases": 112, "negative_audit_probes": len(probes),
                       "sha256": hashlib.sha256(data).hexdigest(), "release_qualified": False}, indent=2))
 
 
