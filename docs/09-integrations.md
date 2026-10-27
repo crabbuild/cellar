@@ -175,6 +175,14 @@ output streams concurrently while awaiting `wait`. An empty read marks EOF.
 Observations such as monitor, process wait and stream reads can overlap a
 mutation; issue control operations sequentially.
 
+Native exec signalling requires `/bin/sh` in the image. A private prelude captures
+its container namespace PID before replacing the shell with the literal command;
+arguments never enter shell source. The prelude is removed from stdout, and the
+shell's builtin delivers subsequent signals. Commands must name a nonempty
+executable without a leading hyphen (use an explicit path for such filenames).
+Images without `/bin/sh` retain direct exec, but process signalling refuses an
+unverified PID. Docker's daemon PID is never used inside the container.
+
 HTTP forwarding rewrites the destination to the cell-owned port, preserving
 path/query, method, headers and buffered body. Redirects are returned to the
 caller. Adapter body, encoded-value, operation and concurrency limits still

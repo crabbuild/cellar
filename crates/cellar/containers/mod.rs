@@ -36,6 +36,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
+mod exec_identity;
 mod files;
 mod ports;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
@@ -1772,12 +1773,38 @@ impl ContainerEngine {
         if !cell.running() {
             return Err(anyhow!("exec() requires a running container."));
         }
+        // A shell handshake supplies a PID in the same namespace as a later
+        // signal. Images without /bin/sh retain direct argv execution, but no
+        // verified PID: kill must refuse rather than use Docker's daemon PID.
+        let shell = self
+            .docker
+            .call(
+                "HEAD",
+                &format!("/containers/{}/archive?path=/bin/sh", cell.name),
+                None,
+            )
+            .await?;
+        let tracked = if shell.status.is_success() {
+            true
+        } else {
+            anyhow::ensure!(
+                shell.status.as_u16() == 404,
+                "inspect exec shell failed: {}",
+                shell.message()
+            );
+            false
+        };
+        let command = if tracked {
+            exec_identity::command(&params.cmd)?
+        } else {
+            params.cmd
+        };
         let mut body = json!({
             "AttachStdin": true,
             "AttachStdout": true,
             "AttachStderr": true,
             "Tty": false,
-            "Cmd": params.cmd,
+            "Cmd": command,
         });
         if !params.env.is_empty() {
             body["Env"] = json!(params
@@ -1814,35 +1841,33 @@ impl ContainerEngine {
                 json!({ "Detach": false, "Tty": false }),
             )
             .await?;
-        // Docker reports `Running: false` with no pid before it has spawned
-        // the process, and a finished exec keeps its pid, so a pid of zero
-        // is the one answer that means "not yet": retry it briefly, as
-        // workerd does. Breaking on `Running: false` here lost the pid of a
-        // short command whenever the inspect landed in that window.
-        let mut pid = 0;
-        for _ in 0..20 {
-            let info = self
-                .docker
-                .expect(
-                    "GET",
-                    &format!("/exec/{exec_id}/json"),
-                    None,
-                    "inspect exec",
-                )
-                .await?
-                .json()?;
-            pid = info.get("Pid").and_then(Value::as_i64).unwrap_or(0);
-            if pid != 0 {
-                break;
-            }
-            asyncrt::sleep(Duration::from_millis(50)).await;
-        }
-        let (read, write) = tokio::io::split(stream);
+        let (mut read, write) = tokio::io::split(stream);
+        let identity = if tracked {
+            Some(exec_identity::receive(&mut read).await?)
+        } else {
+            None
+        };
+        let pid = identity.as_ref().map_or(0, |identity| identity.pid);
         let (stdout_tx, stdout_rx) = mpsc::channel(16);
         let (stderr_tx, stderr_rx) = mpsc::channel(16);
         let combined = params.combined;
         let ended = watch::channel(false).0;
         let completion = ExecCompletion(ended.clone());
+        if let Some(identity) = identity {
+            // Admission retained at most 15 stderr chunks and one stdout
+            // remainder, so these sends cannot wait for a future consumer.
+            for chunk in identity.stderr {
+                let target = if combined { &stdout_tx } else { &stderr_tx };
+                target
+                    .try_send(chunk)
+                    .context("exec prelude channel capacity")?;
+            }
+            if !identity.stdout.is_empty() {
+                stdout_tx
+                    .try_send(identity.stdout)
+                    .context("exec prelude channel capacity")?;
+            }
+        }
         let reader = asyncrt::spawn(async move {
             let _completion = completion;
             demux(read, stdout_tx, stderr_tx, combined).await;
@@ -1886,6 +1911,8 @@ pub struct ExecProcess {
     reader: Mutex<Option<asyncrt::TaskHandle<()>>>,
     exec_id: String,
     container: String,
+    /// Container namespace PID verified by the exec prelude, or zero when the
+    /// image has no POSIX shell. Docker daemon PIDs are never used for signals.
     pub pid: i64,
     docker: Docker,
     stdin: tokio::sync::Mutex<Option<WriteHalf>>,
@@ -2095,17 +2122,38 @@ impl ExecProcess {
         Ok(code)
     }
 
-    /// The Engine API has no exec kill, so the signal is delivered by a
-    /// second exec of `kill`, as workerd does.
+    /// Signal only a PID verified inside this container. The Engine API has no
+    /// exec kill; the image's POSIX shell delivers the signal in its namespace.
     pub async fn kill(&self, signal: u32) -> anyhow::Result<()> {
         self.check_open()?;
+        anyhow::ensure!((1..=64).contains(&signal), "invalid exec signal");
         if *self.ended.borrow() {
             return Ok(());
         }
-        anyhow::ensure!(self.pid > 0, "exec process has no live PID");
+        anyhow::ensure!(
+            self.pid > 0,
+            "exec signalling requires /bin/sh and a verified container PID"
+        );
+        let info = self
+            .docker
+            .expect(
+                "GET",
+                &format!("/exec/{}/json", self.exec_id),
+                None,
+                "inspect exec before signal",
+            )
+            .await?
+            .json()?;
+        if !info
+            .get("Running")
+            .and_then(Value::as_bool)
+            .context("exec running observation missing")?
+        {
+            return Ok(());
+        }
         let body = json!({
             "AttachStdin": false, "AttachStdout": false, "AttachStderr": false,
-            "Cmd": ["kill", format!("-{signal}"), self.pid.to_string()],
+            "Cmd": ["/bin/sh", "-c", "kill -\"$1\" \"$2\"", "cellar-exec-signal", signal.to_string(), self.pid.to_string()],
         });
         let created = self
             .docker
@@ -2151,12 +2199,16 @@ async fn demux(
         if read.read_exact(&mut payload).await.is_err() {
             return;
         }
+        let payload = Bytes::from(payload);
+        if payload.is_empty() {
+            continue;
+        }
         let target = if stream == 2 && !combined {
             &stderr
         } else {
             &stdout
         };
-        if target.send(Bytes::from(payload)).await.is_err() {
+        if target.send(payload).await.is_err() {
             // The reader went away; keep draining so the process is not
             // blocked on a full pipe.
             continue;
