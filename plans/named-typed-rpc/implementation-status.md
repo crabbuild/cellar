@@ -63,9 +63,9 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Final reply/startup source passes all 167 adapter tests; six external image/fleet tests remain ignored. Earlier V8/HTTP/SSE/native-container timing and hosted wake/lease failures remain unexplained. Both SDK interpreter jobs now fail the same native stale-receipt transport race. Full T19 stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Before the latest main merge, reply/startup source passes all 167 adapter tests. Integrated `239796d5` records 169 passed, two failed (module count's original 250 ms budget and alarm-start HTTP 500), six external ignored. The SDK stale-receipt transport race also reproduces locally. Earlier V8/HTTP/SSE/native-container timing and hosted wake/lease failures remain unexplained. Full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Final reply/startup source passes 111 core RPC tests, 167 adapter tests, 35 qualifier guards, all-target Clippy, Node-only checking and standard checks. The preceding frozen reply source also passes 18 selected native integrations and Python streaming/typed RPC. Hosted and broader qualification stay open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Integrated `239796d5` passes 111 core RPC tests, 35 qualifier guards, Python streaming/typed-RPC/E2B/Vercel integrations, all-target Clippy, Node-only checking and standard checks. Full adapter and focused native SDK verification retain failures. Earlier frozen source passes 18 selected native integrations and all 167 adapters; hosted and broader qualification stay open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,42 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Integrate main's sandbox bindings without dropping joined cleanup.**
+  Merge head **`239796d5`** includes main through **`5db6b475`** (#134).
+  The one conflict is in `workers_module.rs`: retain main's sandbox coverage
+  and native drain assertion, and use the shared wrapper for its same
+  after-join stopped/zero-invocations/zero-bytes invariant. Production changes
+  from both branches remain. The earlier 631-case reply pass and final 272-case
+  startup pass below precede this merge.
+
+  Post-merge source passes all **272 selected live cases** (saturation 96,
+  peer faults 80, lifecycle 96); both auditors reject ten corrupt reports.
+  All **3,655 hashes** remain unchanged, manifest SHA-256:
+  `3d78edc921d6974c2def2b360fde3a6f213857a39122980529b1bd73bd26d9e1`.
+  Reports are `.cellar/rpc/reply-startup-main-{suite}.json`; peer-fault SHA-256:
+  `75f683d444ee68effb94349b5d191ee9117a0c925b1861265b81c4a34c8f10ac`;
+  lifecycle SHA-256:
+  `e26ac5f9eecf7f95dc6c076b121d5aa19b4db58f6af48d28005cb2183c14166d`.
+  **111 core RPC tests, 35 qualifier guards**, Python streaming/typed RPC and
+  both changed Python provider integrations pass. All-target Clippy, Node-only
+  checking, Rust/JS formatting, 1,202-file layout, docs and the 466-package
+  engine-free native dependency guard pass. This subsequent ledger edit is
+  prose only; it changes no executed source or fixture.
+
+  The full `--no-fail-fast` adapter command retains **169 passed, two failed,
+  six external ignored**. `module_http_and_activation_owned_bindings_survive_events_and_restart`
+  reaches the original 250 ms handler limit; `rearmed_alarm_waits_for_the_active_handler_and_drains`
+  receives HTTP 500 at alarm start. Both observe stopped runtimes, zero native
+  invocations and zero bridge bytes after join. Other streaming, container
+  lifecycle, input-error and reply-cleanup integrations pass. Do not call this
+  a full post-merge adapter pass or infer an alarm failure cause from HTTP 500.
+
+  The exact native SDK stale-receipt case reproduces locally in 30.63 seconds
+  under its original 30-second delivery lease and three-second operation budget.
+  The held ack returns `Ambiguous` after transport closure; the held extension
+  returns `StaleReceipt`. Live-owner and caller-budget assertions pass first.
+  This is a local reproducer, not a fix or proof of the idle-pool hypothesis.
 
 - **Reply delivery retains admission until its last transport owner retires.**
   The original `RetainedRpcBody` releases receiving request, byte, tunnel and
