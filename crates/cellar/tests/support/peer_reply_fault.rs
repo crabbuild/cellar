@@ -371,10 +371,23 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
         .await
         .context("connect proxy upstream")?;
     let mut owner = BufReader::new(upstream);
-    while let Some(request) = caller_request(&mut client, &capture)
-        .await
-        .context("read proxy caller request")?
-    {
+    loop {
+        // A clean idle owner close must retire the caller's pooled tunnel.
+        // Waiting only on the caller hides that EOF, then a later signed
+        // request hits a dead socket and can take down unrelated relays.
+        // Never replay it: the proxy cannot establish execution outcome.
+        let request = cellar::asyncrt::select_biased! { "propagate idle upstream EOF before accepting another submission";
+            available = owner.fill_buf() => {
+                ensure!(available.context("observe idle proxy upstream")?.is_empty(), "unsolicited proxy upstream data");
+                return Ok(());
+            },
+            request = caller_request(&mut client, &capture) => {
+                let Some(request) = request.context("read proxy caller request")? else {
+                    return Ok(());
+                };
+                request
+            },
+        };
         let hold = {
             let mut methods = capture.held_methods.lock().unwrap();
             request
@@ -408,7 +421,7 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             .await
             .context("read proxy upstream reply")?
         else {
-            break;
+            return Ok(());
         };
         let method = request.header("x-cells-rpc-method");
         if matches!(
@@ -501,7 +514,6 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             return Ok(());
         }
     }
-    Ok(())
 }
 
 /// A pooled caller can reset between requests, or cancel during upload. Its
@@ -671,6 +683,96 @@ async fn idle_caller_reset_preserves_listener_and_other_relays() -> Result<()> {
     })
     .await
     .context("idle caller reset regression stalled")
+    .and_then(|result| result);
+    let joined = proxy.stop().await;
+    outcome.with_context(|| format!("proxy_join={joined:?}"))?;
+    joined?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn idle_destination_eof_closes_only_its_relay() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let capture = proxy.capture.clone();
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        let mut first = BufReader::new(TcpStream::connect(proxy.address).await?);
+        first
+            .get_mut()
+            .write_all(b"GET /first HTTP/1.1\r\nHost: test\r\n\r\n")
+            .await?;
+        let (owner, _) = upstream.accept().await?;
+        let mut owner = BufReader::new(owner);
+        ensure!(message(&mut owner, false).await?.is_some());
+        owner
+            .get_mut()
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+            .await?;
+        ensure!(
+            message(&mut first, true)
+                .await?
+                .context("first reply missing")?
+                .body
+                == b"ok"
+        );
+
+        // Another original signed request stays live while this idle owner
+        // closes. No shutdown cut, retry or replay is supplied by the proxy.
+        let mut second = BufReader::new(TcpStream::connect(proxy.address).await?);
+        second
+            .get_mut()
+            .write_all(b"GET /second HTTP/1.1\r\nHost: test\r\n\r\n")
+            .await?;
+        let (other, _) = upstream.accept().await?;
+        let mut other = BufReader::new(other);
+        ensure!(message(&mut other, false).await?.is_some());
+        drop(owner);
+        ensure!(
+            message(&mut first, true).await?.is_none(),
+            "idle owner EOF did not reach caller"
+        );
+        ensure!(
+            capture.failure().is_none(),
+            "idle owner EOF killed proxy: {:?}",
+            capture.failure()
+        );
+        ensure!(!proxy.task.as_ref().unwrap().is_finished());
+        other
+            .get_mut()
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nother")
+            .await?;
+        ensure!(
+            message(&mut second, true)
+                .await?
+                .context("other reply lost")?
+                .body
+                == b"other"
+        );
+        drop(second);
+        drop(other);
+
+        let mut third = BufReader::new(TcpStream::connect(proxy.address).await?);
+        third
+            .get_mut()
+            .write_all(b"GET /third HTTP/1.1\r\nHost: test\r\n\r\n")
+            .await?;
+        let (last, _) = upstream.accept().await?;
+        let mut last = BufReader::new(last);
+        ensure!(message(&mut last, false).await?.is_some());
+        last.get_mut()
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nlast")
+            .await?;
+        ensure!(
+            message(&mut third, true)
+                .await?
+                .context("new reply lost")?
+                .body
+                == b"last"
+        );
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("idle owner EOF was hidden from caller")
     .and_then(|result| result);
     let joined = proxy.stop().await;
     outcome.with_context(|| format!("proxy_join={joined:?}"))?;

@@ -2246,3 +2246,31 @@ in the settlement races. Both retain an upstream `Broken pipe` in the fault
 proxy; the earlier caller-reset correction did not qualify these races. Fresh
 CI must qualify this entrypoint revision; passing local controls do not close
 the earlier cold-first-call or heartbeat findings.
+
+## Forward idle upstream EOF to pooled callers
+
+The preceding revision's Linux SDK jobs finished with three free-threaded and
+two standard settlement failures. Both retained `forward proxy request
+upstream: Broken pipe`. Caller-reset handling alone did not qualify those races.
+
+A real TCP control proves another proxy defect: after a complete reply, an idle
+upstream can close cleanly while the proxy keeps the caller's pooled connection
+open. The original control fails its two-second deadline. The proxy now observes
+upstream EOF while waiting for the next caller request, retiring only that relay
+before another submission. It neither reconnects nor replays signed requests.
+Unexpected resets, partial messages and unsolicited upstream bytes remain fatal.
+
+| Campaign | Result |
+| --- | --- |
+| Deterministic idle EOF | Fails before the correction; passes afterward, preserving another active relay and a subsequent connection |
+| Proxy boundary | All 13 cases pass, including malformed framing, undeclared reset, binary upgrades, caller cancellation and armed reply cuts |
+| Broad native node | 95 pass, one fails; all three settlement races pass with their existing deadlines |
+| Remaining native failure | Direct consumer overlap after acknowledgment loses its new-fetch RPC to a peer reset near the 30-second lease boundary, returning `Ambiguous`; this case does not use the changed proxy |
+| Isolated overlap control | Passes in 38.23 seconds; the original callback spans expiry for 851 ms within the unchanged three-second budget, with two effects and final checkpoint 2 |
+| Adapter regression | 128 Rust and 129 JS tests, both pinned SDK/helper identity checks, strict guest/Node/V8/native-node Clippy and native dependency guard pass |
+
+The broad campaign is not green. The isolated overlap control and fresh Linux
+qualification remain separate evidence; the passing rerun does not establish a fix.
+No lease, operation, handler or heartbeat deadline has changed. The optional
+entrypoint delivery and this connection-lifetime correction remain partial
+SP-02/SP-07 and qualification work; the full provider goal stays open.
