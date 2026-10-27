@@ -126,8 +126,19 @@ standalone existing-root connections cannot perform live proof or dispatch stop.
 Status and exact committed receipt reconciliation remain metadata operations.
 See the [departure workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
 for CLI syntax, restart behavior and retained reservation reporting. Removal
-retains volumes and archives. Maintenance/rejoin, resize and infrastructure
-provisioning remain separate delivery work.
+retains volumes and archives.
+
+The `fleet_cancel` grant also authorizes node `cancel-evacuation`. Before
+finalization this is a metadata operation. Afterwards the server owns an exact
+process-fence RPC and requires its synced acknowledgement before Ready and slot
+release. Cancellation refuses after stop acceptance or permanent quarantine. Keep the child
+fence ID across changed-root parent requests; never treat a timeout as successful
+cancellation. Ready invalidates old capacity and retains all resource charges.
+Historical retries need no live observer and cannot rewrite later node state.
+See [cancel and restart](../../plans/multi-raft/fleet-operations/operator-workflows.md#cancel-and-restart-a-departure)
+for the audited recovery sequence and identity rules. In-place certificate
+refresh, maintenance/rejoin, resize and infrastructure provisioning remain
+separate delivery work.
 
 ## Validate changes
 
