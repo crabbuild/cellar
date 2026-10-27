@@ -9,8 +9,11 @@ try {
   const { source, config } = JSON.parse(readFileSync(0, "utf8"));
   // Configuration (including authentication) is a function argument, never part
   // of the module URL, argv, environment or an on-disk bootstrap file.
+  // V8 otherwise includes the entire data URL in each runtime stack frame,
+  // exhausting clone quotas before native RPC can strip producer stacks.
+  const namedSource = `${source}\n//# sourceURL=cellar-runtime.mjs\n`;
   const { default: bootstrap } = await import(
-    `data:text/javascript;base64,${Buffer.from(source, "utf8").toString("base64")}`
+    `data:text/javascript;base64,${Buffer.from(namedSource, "utf8").toString("base64")}`
   );
   await bootstrap(config);
 } catch {
