@@ -26,8 +26,10 @@ mod configuration;
 mod physical;
 mod publication;
 mod replay;
+mod rooted;
 mod verifier;
 
+pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
 
 const READ_WINDOW: usize = 4;
@@ -54,6 +56,7 @@ pub enum ArchiveError {
     Log(super::storage::LogError),
     Images(GenerationError),
     Physical(stream_snapshot::Error),
+    Root(Box<super::snapshot::SnapshotError>),
     Storage(object_store::Error),
     Worker(cellar_ltx::host::HostTaskError),
 }
@@ -74,7 +77,7 @@ impl ArchiveError {
                 | Self::Images(GenerationError::Snapshot(
                     stream_snapshot::Error::ScratchFull
                 ))
-        )
+        ) || matches!(self, Self::Root(error) if error.scratch_full())
     }
 }
 
