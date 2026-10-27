@@ -14,6 +14,58 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Current-main integration and delivery qualification
+
+Source `7f873686` integrates removal proof waiting from `cbf19149` with main
+`784edc1b`, including the upstream RPC and recovery pipeline changes. The merge
+preserves fleet seed guards, canonical-empty archives, original image publication
+positions and independent per-cell publication completion. Configuration tails
+now validate the actual tip membership used by fleet coverage. The fixed-size
+physical replay memo still checks lifecycle expiry after acquiring its exclusive
+workspace, including on a hit; canonical-empty verification cannot hide a changed
+configuration. Prepared snapshot sources retain scratch-pressure cleanup on
+individual and global publication failures. The protocol fingerprint binds both
+fleet and configuration-tail features; numeric markers remain 1.
+
+**984 distinct core/SDK cases pass in 984 executions, plus 21 admin tests.** This
+includes all 777 library tests, 81 native archive cases, 47 snapshot cases, 16
+rooted-recovery cases, 51 native fleet cases, seven CLI cases and five Node module
+cases. Two snapshot helper entries are ignored when invoked directly and belong
+to the process-kill harness; they are excluded from the passing count. The native
+snapshot suite includes the parent crash matrices. Node qualification uses Node
+24.19.0 on macOS; Linux CI for this integrated source remains a separate gate.
+
+Host/admin all-target Clippy and Node module-target Clippy pass with warnings
+denied. Formatting/layout for 1,451 Rust files, native dependency rules,
+documentation, ten plan tests, the 377-case manifest and source preflight with
+100 reviewed anchors pass. The audit maps **1,545 frozen Rust/Cargo/configuration
+inputs** to the source commit and verifies retained executable/result hashes.
+Artifacts remain outside runtime data in `qualification/fleet-operations/` under
+`proof-wait-main-v4/`, `proof-wait-main-followups-v1/`,
+`proof-wait-main-js-v1/` and `proof-wait-main-checks-v1/`.
+
+Earlier failures and the intentionally interrupted build remain retained. After
+the merge, the isolated-removal scenario overflowed the default stack during
+startup. A diagnostic probe and the actual crash trace identified overlapping
+setup/removal poll frames, including approximately 600 KiB for the larger removal
+phase. Startup now completes before that phase is constructed and polled. All
+operations and assertions remain, and the complete cohort passes on the default
+stack. Temporary diagnostics were removed. No timeout, retry, stack/startup limit,
+resource bound or assertion was relaxed.
+
+Full CI and deployment qualification remain open. The parent `90529386` Rust SDK
+event-delivery failures described below are not declared fixed by local fleet
+results. The original intermittent quorum Unavailable cause also remains unproven;
+current typed waiting and the full selected operator cohort pass. No new deployed
+RustFS, 1-vCPU/3-GiB, TPS/p99 or soak result is claimed.
+
+The next delivery target remains the complete maintenance workflow: M5 fresh
+RestartReady, M6–M9 separate exact-process stop/join, original-engine return under
+a fresh process, catch-up and verified resume before slot release, exposed through
+SDK/admin/CLI. Then complete rolling/grace/second-failure behavior, production
+failure classification/isolation, load-aware leader balancing and desired
+capacity/resize. The full fleet-operations goal remains active.
+
 ## Resumable removal proof verification
 
 Source `cbf19149` delivers typed waiting at the read-only quorum boundaries of
