@@ -820,6 +820,50 @@ digests and both validation phases are retained outside the disposable build
 cache. No assertion or deadline changed. No full-size root latency or public
 backend result is claimed.
 
+### Immutable root objects in RustFS
+
+`CellArchive::store_root_snapshot` now confirms a committed source's distinct
+extent objects before returning a separate immutable `RootArchiveReference`.
+Its bounded metadata object binds the namespace, canonical native snapshot and
+extent manifest. `load_root_snapshot_at` checks that exact reference and reads
+every declared remote dependency, independently imports/verifies/syncs the
+destination and retains its complete local seal through native preparation.
+Two object windows include both response and output copies within the existing
+physical allowance. The 4 MiB sealing workspace is allocated after those reads
+finish. A complete seal can be reused only through its exact inventory owner;
+matching root content elsewhere supplies no local capability.
+
+The owning native regression closes the source, removes its entire local tree,
+restores from object storage, installs through a real runtime ticket, publishes
+the image and reopens the receiver. Separate cases refuse closed sources,
+malformed metadata before import and corrupt/missing remote objects despite a
+populated local cache. A real RustFS run passes the same small fixture. Its
+24 MiB padding is recycled to create repeated extents; the preserved bucket
+inventory contains three extent objects totaling 8,588,288 bytes and one
+1,420-byte root metadata object. No archive head is published. This is data-path
+evidence, not a 10 GB latency or public fresh-learner qualification.
+
+Resource review found that this new path initially bypassed a configured
+per-object limit smaller than 4 MiB. A new regression first fails with a 64 KiB
+object cap. The correction validates all declared dependencies before upload or
+import and enforces the bound at individual object operations too. The same
+regression then passes both directions without remote writes or local imports
+on refusal. No assertion or deadline was weakened.
+
+Before that correction, input
+`8120d5f192a8de2b774d186900de53513b94a799a48782906821ba249ab31f41`
+passes 679 library, 76 archive, 45 snapshot and 16 extent-store cases. Its
+validation pipeline was deliberately stopped after those functional checks to
+add the object-limit regression. Corrected input
+`b811b8350b1ff426b83fc6e61fea1f9414d34f1209cae00acb3448529b169776`
+passes all 21 native rooted cases and the repeated RustFS drill. Both affected
+crates pass all-feature/all-target Clippy with warnings denied; formatting and
+layout cover 1,207 Rust files, and native dependency/documentation guards pass.
+The tested corrected binary, source bindings, failing regression and both
+RustFS observations are retained. These results do not close RT-04: selected
+archive-head publication, live fresh-learner grants, public backend selection
+and node-wide inventory/GC integration still need implementation and proof.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained
