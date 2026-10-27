@@ -806,6 +806,7 @@ impl NativeWorker {
                         Err(crate::runtime::source_recovery::unavailable())
                     }));
                 }
+                let entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
                         if let Invocation::CellRpc { method, args } = &invocation {
@@ -861,15 +862,17 @@ impl NativeWorker {
                             }
                         };
                         let context = context.clone();
-                        Ok(Box::pin(
-                            async move { cell.invoke(context, invocation).await },
-                        ))
+                        Ok(Box::pin(async move {
+                            let output = cell.invoke(context, invocation).await?;
+                            Ok(entered.finish(output)?)
+                        }))
                     }
                     None => {
                         let application = self.application.clone();
                         let context = context.clone();
                         Ok(Box::pin(async move {
-                            application.invoke(context, invocation).await
+                            let output = application.invoke(context, invocation).await?;
+                            Ok(entered.finish(output)?)
                         }))
                     }
                 }

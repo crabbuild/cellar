@@ -686,18 +686,23 @@ packaging qualification remain open.
 
 ```sh
 cargo run --locked -p cellar-rpc-qualification --features full -- \
-  --suite provenance --report .cellar/rpc/provenance-matrix.json
+  --suite provenance --python-mode gil --report .cellar/rpc/provenance-matrix.json
+python3 tools/rpc/check_provenance.py .cellar/rpc/provenance-matrix.json
+cargo test --locked -p cellar --test native_rpc_failure_provenance -- --test-threads=1
 ```
 
-The T06 matrix executes **96 cases**: all 16 Rust/Python/V8/Node
+The T06 matrix executes **112 cases**. Its original 96 cover all 16 Rust/Python/V8/Node
 caller/provider pairs, local and signed-peer ingress, and three failures after
-the provider syncs its atomic count and receipt.
+the provider syncs its atomic count and receipt. Sixteen additional cases use
+every generated caller against a custom native cell that returns a raw envelope.
 
 | Failure inside the parent | Parent's caller receives |
 | --- | --- |
 | Generated child call expires before its own submission | `DeadlineExceeded/unknown` |
 | Exception claims `MethodNotFound` and `not_committed` | `MethodNotFound/unknown` |
 | Exception has an unrecognized private code | `Internal/unknown` |
+| Native cell fabricates a raw `not_committed` reply | `MethodNotFound/unknown` |
+| Native cell forwards an honest host refusal after its own write | `MethodNotFound/unknown` |
 
 ```text
 generated Increment -> parent commits exact i64 count + operation receipt
@@ -717,17 +722,44 @@ Its refusal is call-local evidence. The original parent must still read its
 own committed state before throwing, proving child expiry did not revoke the
 parent. Forged outcome accessors must never run. Fixed categories cross the
 guest completion channel; private text, unknown codes and outcome fields do not.
-The native dispatcher always assigns unknown effects to entered-handler errors.
+The native host also checks raw typed outputs from custom cells. Only its own
+catalog refusal before business construction may retain `not_committed`.
+
+```text
+typed request -> host catalog
+                   |
+           +-------+----------------+
+           |                        |
+     reject before factory     construct/invoke application
+           |                        |
+     not_committed           generated or raw failure reply
+                                    |
+                              host: unknown effects
+                                    |
+                              normal output proof
+```
+
+Raw failure normalization borrows the existing response buffer. Only a valid
+framework failure within the fixed 1 KiB control allowance is decoded and
+rewritten; successful business buffers retain their ownership. Non-minimal
+varints cannot bypass this rule. Malformed controls still fail as invalid
+responses, and untyped calls retain their original value behavior.
 
 Counts exceed JavaScript's exact-number range and are checked as canonical
 64-bit values. Native observations verify the actual caller node, provider
-owner, scope, epoch, four warmed factories and exactly three Increment entries
+owner, scope, epoch, six warmed factories and exactly three Increment entries
 (one original plus two explicit retries). No refused child is constructed and
 no mutation is automatically replayed. Reports publish after native/guest drains.
+Both raw-test objects are warmed before the peer joins, so caller location
+cannot silently change which route the test exercises. The standalone native
+regression also reopens the node and verifies durable receipts and safe retries.
 
-This covers a locally proven child refusal and forged exception metadata through
-real local/peer parent calls with GIL CPython. Broader peer/admission provenance,
-interpreter modes and resource/lifecycle qualification remain open.
+The independent auditor checks all pairs and exact counts and rejects missing
+coverage, false rollback, altered child proof, duplicate mutations, extra
+factories, changed authority and incomplete cleanup. The same check accepts a
+full `--suite all` report. Use `--python-mode free-threaded` with the corresponding
+interpreter build. Broader peer/admission provenance, resource/RSS, descriptor
+and package qualification retain their separate gates.
 
 ## Deadlines and cancellation during native construction
 

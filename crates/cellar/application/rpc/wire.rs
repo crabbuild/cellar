@@ -100,6 +100,17 @@ pub(super) fn validate_reply(bytes: &[u8], limits: Limits) -> Result<()> {
     walk(messages, None, control, "Reply", bytes, 0, &mut budget)
 }
 
+/// Borrow the sole failure arm without decoding a business-response buffer.
+/// Full control validation still precedes the caller's failure codec. Reuse the
+/// wire parser so non-minimal varints cannot bypass outcome normalization.
+pub(super) fn failure_payload(mut bytes: &[u8]) -> Option<&[u8]> {
+    if varint(&mut bytes).ok()? != 0x12 {
+        return None;
+    }
+    let payload = delimited(&mut bytes).ok()?;
+    bytes.is_empty().then_some(payload)
+}
+
 fn charge(remaining: &mut Budget) -> Result<()> {
     remaining.elements = remaining
         .elements

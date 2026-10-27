@@ -15,6 +15,7 @@ mod envelope;
 mod failure;
 mod graph;
 mod lease;
+mod provenance;
 mod router;
 mod schema;
 mod shape;
@@ -31,6 +32,7 @@ pub use graph::{
     discard_message, encode_message, validate_graph, GraphBudget, GraphDiscard, MessageGraph,
 };
 pub use lease::{Lease, LeaseClosed, LeaseControl, LeaseRevocation};
+pub(crate) use provenance::Entered;
 pub use router::{HandlerFuture, Prepared, Router};
 
 /// Only the SDK submission boundary uses this: no request has left its host.

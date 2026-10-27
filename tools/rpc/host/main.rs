@@ -251,16 +251,30 @@ fn main() -> Result<()> {
                     let live_checkpoint = live.clone();
                     let provenance = Arc::new(provenance::Native::default());
                     let provenance_checkpoint = provenance.clone();
+                    let raw_contract = contract.clone();
                     let rust = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
-                        .cell("RustCounter", move |_, _| {
-                            Ok(Arc::new(generated::CounterRegistration::register(
-                                rpc::Router::new(),
-                                Arc::new(crash::Counter {
-                                    crash: transaction_checkpoint.clone(),
-                                    live: live_checkpoint.clone(),
-                                    provenance: provenance_checkpoint.clone(),
-                                }),
-                            )?))
+                        .cell("RustCounter", move |_, identity| {
+                            let inner: Arc<dyn cellar::sdk::Cell> =
+                                Arc::new(generated::CounterRegistration::register(
+                                    rpc::Router::new(),
+                                    Arc::new(crash::Counter {
+                                        crash: transaction_checkpoint.clone(),
+                                        live: live_checkpoint.clone(),
+                                        provenance: provenance_checkpoint.clone(),
+                                    }),
+                                )?);
+                            if identity
+                                .name
+                                .as_deref()
+                                .is_some_and(|name| name.starts_with("t06-raw-"))
+                            {
+                                return Ok(Arc::new(provenance::Raw::new(
+                                    inner,
+                                    raw_contract.clone(),
+                                    provenance_checkpoint.clone(),
+                                )));
+                            }
+                            Ok(inner)
                         })?
                         .rpc_service(
                             "RustCounter",

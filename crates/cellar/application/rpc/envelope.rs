@@ -150,3 +150,45 @@ pub fn response(digest: &str, data: &RpcData, limits: Limits) -> Result<Vec<u8>,
         _ => Err(Failure::new(Code::InvalidResponse)),
     }
 }
+
+/// Normalize a raw typed result from entered application code, including
+/// custom native cells that bypass Prepared::finish. Borrow successful payloads;
+/// only a valid, fixed-size framework failure may require re-encoding.
+pub(super) fn entered_reply(data: RpcData) -> Result<RpcData, Failure> {
+    let Ok((digest, bytes)) = view(&data) else {
+        // Malformed/non-value results already fail the caller's exact decoder
+        // with unknown effects. Do not turn them into valid typed responses.
+        return Ok(data);
+    };
+    // A valid failure contains two enums and at most 256 message bytes. Even
+    // non-minimal varints fit this fixed control allowance. Larger frames are
+    // either business responses or invalid failures; never copy their bodies.
+    if bytes.len() > OVERHEAD {
+        return Ok(data);
+    }
+    let Some(payload) = super::wire::failure_payload(bytes) else {
+        return Ok(data);
+    };
+    let limits = Limits {
+        max_message_bytes: 0,
+        ..Default::default()
+    };
+    if super::wire::validate_reply(bytes, limits).is_err() {
+        return Ok(data);
+    }
+    let Ok(error) = WireFailure::decode(payload) else {
+        return Ok(data);
+    };
+    if error.message.len() > 256 {
+        return Ok(data);
+    }
+    let Ok(failure) = Failure::received(error.code, error.outcome) else {
+        return Ok(data);
+    };
+    if failure.outcome() != super::EffectOutcome::NotCommitted {
+        return Ok(data);
+    }
+    // Entry into this parent is the authority boundary. Neither a forged
+    // envelope nor an honest child's refusal can prove the parent rolled back.
+    reply(&digest, Err(Failure::new(failure.code())), limits)
+}
