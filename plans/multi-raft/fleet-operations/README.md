@@ -21,9 +21,12 @@ Owned bounded settlement turns now retain birth decisions across controller
 loss, block cancellation while their outcomes are unresolved, atomically root
 the actual winner, and advance admitted movements with explicit service/debit
 blockers. Finish versus Cancel is an explicit immutable action choice.
-Complete survivor verification, owned handoff/readiness,
-stop/rejoin, rolling execution and maintenance operator surfaces, plus resize,
-remain delivery targets.
+A bounded runtime inspection walk now checks the complete target physical
+inventory and both current survivors per voting history. Retired copies stay
+accounted; missing rightful genesis and failed proofs block historical candidate
+publication. Rightful genesis materialization, matched progress, observed
+handoff/readiness, stop/rejoin, rolling execution and maintenance operator
+surfaces, plus resize, remain delivery targets.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

@@ -11,8 +11,78 @@ isolation, managed maintenance/rejoin and resize remain unfinished. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
-The task manifest is the package-status source of truth. Historical
-sections below record earlier states.
+The task manifest is the package-status source of truth. The latest verified
+milestone follows; later sections retain earlier states.
+
+## Bounded restart runtime inspection
+
+Implementation `16d16fa1` delivers `prepare_restart_verification`, an owned
+bounded walk of complete canonical history and target physical inventory.
+Preparation owns exact-gate quiescence after M2 clears. Each voting-history turn
+obtains actual safe-ReadIndex and durable publication proof from the target and
+both current survivors. The settled managed membership journal determines those
+voters; immutable genesis is not treated as current placement. Exact boots,
+current enrollment, RF3, settled permits, term/leader agreement, failure domains
+and both survivor publications covering the fixed target cut are checked under
+the original deadline and existing five-second evidence-age envelope.
+
+Retired copies stay accounted without votes or release credit. Empty targets
+still consume the full canonical inventory. Unknown physical slots, unsettled
+roles, missing rightful genesis and relevant root drift refuse completion.
+Failed attempts retain the same pending history. `finish` requires exact physical
+coverage, repeats quiescence and checks a second complete physical cut before
+publishing a bounded immutable receipt index. A synced cancellation fence defeats
+that replay even when its root CAS timed out. Candidate data remains historical;
+it cannot authorize RestartReady, handoff, stop, a new boot, capacity or slot release.
+
+**155 distinct cases pass on this source, in 162 executions.** This includes nine
+new native runtime cases and six physical-inventory cases, plus the existing
+settlement, movement, gate, preparation, catalog, standalone permit/import,
+CLI/operator and library fleet cohorts. Seven cases overlap between cohorts
+and are counted once. The new native cases cover primary and follower targets,
+both surviving voters, writable quorum refusing maintenance, actual
+replacement and retired-copy accounting, empty capacity, missing genesis,
+root churn and synced cancellation with an unchanged root. A quiesced primary
+refuses new business commands; the fixture then uses the existing explicit
+transfer API and observes the survivor leader before verifying SQL continuity.
+That fixture transfer does not claim runtime-owned M4 handoff.
+
+All-target host/admin Clippy passes with warnings denied. The audit matches all
+**1,502 frozen Rust/Cargo/configuration inputs** to this implementation commit
+and verifies retained executable and output hashes. Evidence stays outside
+runtime data under checkout-private `qualification/fleet-operations/` runs
+`restart-runtime-v4/` and `restart-runtime-followups-v1/`. The physical role byte
+has strict wire decoding. Byte-aligned scalar storage keeps maximum-size wire
+copies plus decoded inventory inside the unchanged 1 MiB reservation.
+
+Formatting/layout for 1,408 Rust files, native dependency rules, documentation,
+ten plan tests, the 354-case manifest and source preflight with 95 anchors pass.
+Static checks are retained in `restart-runtime-checks-v1/`; publication-only
+documentation checks are retained separately.
+
+The existing Node.js 24 published-container lifecycle case also passes locally
+on macOS (`restart-runtime-js-v1/`). The previous published head `d5872e39`
+[failed that case in Linux CI](https://github.com/crabbuild/cellar/actions/runs/40473349010/job/122085492229)
+with a five-second `/wake` timeout. A local pass does not establish its Linux
+outcome; latest-head CI must repeat it. Deployed RustFS/Colima, enforced
+1-vCPU/3-GiB resource bounds, TPS/p99, fault and soak qualification remain open.
+
+Failed probes remain retained. They found a test using a private accessor, a
+new validator incorrectly requiring the quiesced target's application-paused
+profile to be false, and fixtures sending new writes to a quiesced leader. The
+validator now requires a paused target and unpaused survivors. The fixtures
+assert target refusal, observe an explicit handoff, and retain the same SQL,
+quorum, cancellation and resource assertions. No deadline, stack/startup bound,
+resource/value bound or production assertion was relaxed.
+
+Next deliver rightful genesis materialization for M3, leader-local matched
+progress plus owned observed handoff for M4, and final proof renewal/RestartReady
+for M5. Then deliver exact-process stop/join, fresh-process retained-engine
+return, catch-up and verified capacity resume before slot release (M6–M9),
+followed by rolling/grace/second-failure handling and maintenance operator
+surfaces. Production failure classification/isolation, desired capacity/resize,
+scaled convergence and resource-enforced deployment qualification remain
+unfinished. The full fleet-operations goal remains active.
 
 ## Owned restart settlement turns
 

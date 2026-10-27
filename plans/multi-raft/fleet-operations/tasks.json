@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ce0c199dc7ced535748d67eb8189de9df6c6a7bf",
+  "baseline_revision": "16d16fa1d3b38d11f7a1a9d3e8d1d062cf647eb8",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3822,17 +3822,24 @@
         "crates/cellar/tests/support/raft_restart_birth_settlement.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/birth_action.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/settle.rs",
-        "crates/cellar/tests/support/raft_restart_settler_native.rs"
+        "crates/cellar/tests/support/raft_restart_settler_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/basis.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/proof.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/records.rs",
+        "crates/cellar/tests/support/raft_restart_retained_runtime.rs",
+        "crates/cellar/tests/support/raft_restart_runtime_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
-        "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming-action inventory, original birth-capability recovery and exact-boot continuation through RestartPending are implemented. Pending-work reports preserve resource-only debt and grant no readiness. Owned bounded settlement turns now journal namespace actions before I/O, retain cancellation ownership across unknown replies, atomically confirm the actual winner, recover historical receipts and advance admitted movements with explicit evidence/resource blockers. Both-survivor proof, owned handoff/readiness, maintenance stop/rejoin, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
+        "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming-action inventory, original birth-capability recovery and exact-boot continuation through RestartPending are implemented. Pending-work reports preserve resource-only debt and grant no readiness. Owned bounded settlement turns now journal namespace actions before I/O, retain cancellation ownership across unknown replies, atomically confirm the actual winner, recover historical receipts and advance admitted movements with explicit evidence/resource blockers. CatalogClear grants no runtime proof. The bounded runtime candidate and remaining lifecycle work are tracked separately below. Qualification is separately attributed in progress.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
         "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot.",
         "Separate monotonic absence closure from expiring health proofs; reconcile lost stop replies before releasing disruption ownership.",
-        "Complete terminal isolated-node evacuation through a distinct admitted isolation selector and receipt. Preserve complete inventory, fresh RF3 survivor and physical archive replay checks; quarantine remains permanent, retained storage is not reclaimed, and the exact shared disruption slot is released only by the terminal CAS. Reconcile finalization/removal lost replies before live prerequisites and reject proof-kind rebinding."
+        "Complete terminal isolated-node evacuation through a distinct admitted isolation selector and receipt. Preserve complete inventory, fresh RF3 survivor and physical archive replay checks; quarantine remains permanent, retained storage is not reclaimed, and the exact shared disruption slot is released only by the terminal CAS. Reconcile finalization/removal lost replies before live prerequisites and reject proof-kind rebinding.",
+        "Runtime inspection owns quiescence, complete target physical inventory and a bounded canonical-history walk. Settled managed membership locates current RF3 obligations, including dynamic voters and retired copies. Each voting turn requires actual fresh safe-ReadIndex and durable publication proof on target and both survivors. Root drift, missing genesis, unsettled roles, unknown slots and cancellation fences block historical candidate publication. This candidate grants no readiness, stop, boot, capacity or slot release; rightful genesis materialization, matched-progress handoff and readiness remain next."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -4194,6 +4201,95 @@
             "F01",
             "F04",
             "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_verifies_primary_and_both_survivors",
+          "oracle": "A live primary target and both current survivors supply coherent fresh quorum/publication proofs. The complete historical candidate leaves Root RestartPending and refuses new target business writes; an explicit existing-API fixture handoff observes the survivor leader and verifies SQL continuity without granting runtime-owned handoff, stop or capacity authority.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_verifies_follower_and_both_survivors",
+          "oracle": "A follower-only target requires the same two-survivor proof and complete physical accounting without assuming it has leadership to transfer.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_missing_second_survivor_keeps_history_pending",
+          "oracle": "After one survivor physically stops, the remaining pair can write but maintenance verification fails, retains the same pending history and cannot publish a complete candidate.",
+          "invariants": [
+            "F01",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_root_churn_invalidates_walk",
+          "oracle": "A real namespace/root change invalidates an existing runtime walk before progress or candidate publication.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_unmaterialized_genesis_is_never_absent",
+          "oracle": "A confirmed rightful genesis with no local physical slot blocks rather than being skipped or counted as absence; the exact history stays pending.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_empty_target_walks_unrelated_histories",
+          "oracle": "An empty managed target still consumes the complete canonical inventory, classifies unrelated histories without voter proof and publishes zero affected/physical histories without readiness authority.",
+          "invariants": [
+            "F05",
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_synced_fence_defeats_candidate_with_unchanged_root",
+          "oracle": "A cancellation fence syncs before a deliberately held root CAS times out. Root stays RestartPending, but physical quiescence replay defeats the old candidate; the exact cancellation remains reconcilable.",
+          "invariants": [
+            "F03",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_retired_copy_stays_accounted_without_votes",
+          "oracle": "After actual replacement and terminal settlement, the obsolete durable copy has no configuration role, remains physically accounted and supplies neither a vote nor resource-release credit.",
+          "invariants": [
+            "F02",
+            "F05",
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_runtime_dynamic_voter_requires_both_current_survivors",
+          "oracle": "After actual replacement and terminal settlement, the dynamically joined voter is verified against the two current survivors rather than the immutable genesis placement.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F07",
             "F10"
           ]
         }

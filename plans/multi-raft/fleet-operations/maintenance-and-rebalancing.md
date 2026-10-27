@@ -47,8 +47,9 @@ a quiescence response nor gate metadata grants RestartReady, stop or new-boot
 authority. Native qualification is separately recorded in [progress](progress.md).
 
 The reversible gate is a prerequisite within M2–M4, not completion of those
-phases. Complete fresh both-survivor inspection,
-owned observed handoff/readiness, guarded maintenance stop, intact-engine rejoin,
+phases. The bounded historical runtime candidate below now verifies both
+survivor publications per voting history. Rightful genesis materialization,
+matched progress and observed handoff/readiness, guarded maintenance stop, intact-engine rejoin,
 grace expiry, rolling execution and SDK/admin/CLI maintenance surfaces remain
 unfinished. The protocol below is still the full delivery contract.
 
@@ -144,6 +145,18 @@ makes it safe to stop a node hours later.
 | M7 Offline | Observe shutdown/physical owner exit or report an ambiguous stop | Persist `WaitingForRejoin`; no second offline operation is admitted |
 | M8 Return | Restart original engine, install current trust/profile and catch up | New process generation, same immutable storage pin, verified membership and published/archive cuts |
 | M9 Resume | Recheck healthy placement and clear exclusions | CAS terminal receipt; only now release disruption slot and admit new targets/leaders |
+
+The runtime inspection adapter now implements a bounded historical candidate
+walk. It physically quiesces the exact gate, captures every durable target slot,
+locates current voters through settled membership journals, and requires actual
+safe-ReadIndex/publication proof from the target and both survivors for each
+voting obligation. Retired copies remain occupancy; empty targets still consume
+the complete canonical inventory. Relevant root drift, unknown slots, missing
+rightful genesis and synced cancellation fences block completion. Each voting
+turn keeps the existing five-second evidence-age envelope; the complete
+candidate has no current-health lease. Rightful genesis materialization,
+leader-local matched progress, observed handoff and final readiness renewal are
+still required to complete M3–M5. The adapter cannot issue `RestartReady` or stop.
 
 `StopForMaintenance` is a separate mutation with its own idempotency key. It
 invokes the existing owned Node stop path; it does not power off a VM or delete a
