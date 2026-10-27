@@ -298,6 +298,7 @@ pub struct CellArchive {
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
     root_store: Option<cellar_ltx::internal::NodeExtentStore>,
+    image_storage: super::catalog::RaftImageStorage,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -413,6 +414,7 @@ impl CellArchive {
             read_retention: None,
             bundle_client: None,
             root_store: None,
+            image_storage: super::catalog::RaftImageStorage::Materialized,
         }
     }
 
@@ -505,7 +507,8 @@ impl CellArchive {
 
     /// Refuse a cut from another history or application before advisory I/O.
     fn validate_materialized_cut(&self, cut: &MaterializedCut) -> Result<(), ArchiveError> {
-        if cut.image.scope() != &self.scope
+        if self.image_storage != super::catalog::RaftImageStorage::Materialized
+            || cut.image.scope() != &self.scope
             || cut.image.application_digest() != self.schema
             || cut.birth_digest != self.birth
             || !cut.membership.same_birth(&self.initial_membership)

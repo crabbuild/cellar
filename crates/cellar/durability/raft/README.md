@@ -41,10 +41,36 @@ a newer head. Physical APIs refuse the other representation instead of
 flattening or converting commitments. Existing-member installation still needs
 the receiving engine's exact ticket. The fresh-learner preparation path uses
 the same authenticated grant, birth, learner/barrier and owner checks as flat
-seeding, then retains the already sealed root. These internal paths do not
-enable public root backend selection or retain remote dependencies for
-production GC; complete public fresh-learner and full-size qualification remain
-under implementation.
+seeding, then retains the already sealed root. Remote dependency retention/GC,
+demand loading and full-size recovery qualification remain under implementation.
+
+`NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by
+default or explicitly selects `Extents`. The choice is persisted in the immutable
+namespace contract. Extent replicas, standbys and joining members require
+`RaftHostOptions::extents`; startup checks this physical policy before writing
+catalog state. The `/extent-owners-1` protocol capability is a coordinated
+marker-1 hard cutover, with no history conversion or older-state reader.
+`RaftCellsConfig::with_extent_image_limit` configures an extent-only deployment
+up to decimal 10 GB without reserving full-image snapshot spools. Command/delta
+limits remain bounded independently. Its inventory must admit current,
+checkpoint, prepared and receiving roots plus a private workspace; capacity
+checks are admission floors, not a promise that every configured cell fits.
+
+One node owner shares `<raft-cells>/extent-inventory` across every group. Before
+GC starts, it rebuilds references from all durable engine groups, including
+groups omitted from the current registrations. A joined blocking job reclaims
+bounded batches; per-cell receive pins protect in-flight dependency closures.
+Already sealed capabilities update checkpoint retention through metadata only,
+so the async Raft driver does not wait for inventory I/O. Physical mutations
+serialize on blocking owners. Each cell's disposable cache is outside the
+inventory, and the node's shared cache scratch pool bounds those files.
+`RaftCells::resource_usage().extents` reports actual inventory counters through
+a weak observer that releases the directory lock after joined shutdown.
+
+Both representations use the existing physical image owner for committed
+queries, Blob archive capture and the effect scheduler. Extent recovery still
+requires every selected extent to be verified locally before installation;
+public selection alone does not establish the 10 GB recovery-time targets.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
@@ -93,10 +119,11 @@ business/output, control, archive-capture and query-reader usage/capacity withou
 I/O or group enumeration. The internal generation-bound, authenticated
 `/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
 and incoming/outgoing transport and snapshot/metadata banks, without identity
-labels or callback execution. Available sources use 68 fixed sample identities;
-unavailable sources omit their values rather than synthesizing zero. A weak
-transport observer cannot retain the transport/engine after joined shutdown.
-Image, lag, connection concurrency and controller views remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+labels or callback execution. Live SQL, image, group and transport sources use
+111 fixed samples. A configured controller and a live extent inventory each
+add 13 samples. Unavailable sources omit their values rather than synthesizing
+zero. Weak transport and inventory observers cannot retain physical resources
+after joined shutdown. The [operations contract](../../../../plans/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.

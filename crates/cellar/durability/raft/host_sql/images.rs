@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Physical dispatch beneath the SQL worker's existing command/read controller.
-//! Extent selection is internal until snapshot, seed and archive transport share
-//! this owner. An unsupported physical operation refuses rather than falling
+//! Snapshot, seed, archive and effect discovery share this physical owner.
+//! An unsupported physical operation refuses rather than falling
 //! back to a different commitment or opening a second private writer.
 
 use super::*;
@@ -31,6 +31,31 @@ pub(super) struct RootOwnerOptions {
     query_services: ReadServices,
     application_digest: [u8; 32],
     limits: ExecutionLimits,
+}
+
+impl RootOwnerOptions {
+    fn database(
+        &self,
+        image: &crate::raft::rooted::RootPublishedImage,
+    ) -> Result<crate::storage::ImmutableQuery, ExecutionError> {
+        let view = image
+            .image()
+            .view()
+            .image(
+                self.storage.cache_directory.clone(),
+                self.storage.cache_pool.clone(),
+                self.storage.cache,
+            )
+            .map_err(super::super::execution::storage)?;
+        crate::storage::open_immutable_extent_image(
+            view,
+            crate::storage::ImmutableQueryOptions {
+                services: self.query_services.clone(),
+                sqlite_vec: false,
+            },
+        )
+        .map_err(super::super::execution::storage)
+    }
 }
 
 pub(super) enum ImageOwner {
@@ -73,23 +98,7 @@ impl ImageOwner {
                 .map_err(super::super::execution::storage)?
                 .map(|image| {
                     let dependencies = if let Some(blobs) = class.blob_limits() {
-                        let view = image
-                            .image()
-                            .view()
-                            .image(
-                                options.storage.cache_directory.clone(),
-                                options.storage.cache_pool.clone(),
-                                options.storage.cache,
-                            )
-                            .map_err(super::super::execution::storage)?;
-                        let database = crate::storage::open_immutable_extent_image(
-                            view,
-                            crate::storage::ImmutableQueryOptions {
-                                services: options.query_services.clone(),
-                                sqlite_vec: false,
-                            },
-                        )
-                        .map_err(super::super::execution::storage)?;
+                        let database = options.database(&image)?;
                         effects::capture_connection_dependencies(
                             database.connection(),
                             blobs,
@@ -432,12 +441,47 @@ impl ImageOwner {
         }
     }
 
-    pub fn materialized(&mut self) -> Result<(&PrivateOptions, &mut ImageApplier), ExecutionError> {
+    pub fn scan_effects(
+        &self,
+        class: &RaftClass,
+        now: u64,
+        prefer_delivery: bool,
+        reservation: Permit,
+    ) -> Result<Option<super::super::effects::scan::EffectScan>, ExecutionError> {
+        use super::super::{effects::scan, execution::storage};
         match self {
-            Self::Materialized { options, applier } => Ok((options, applier)),
-            Self::Rooted { .. } => Err(ExecutionError::Invalid(
-                "extent transport/effects are not installed",
-            )),
+            Self::Materialized { options, applier } => applier
+                .queryable()
+                .map_err(storage)?
+                .map(|image| {
+                    scan::scan(
+                        image,
+                        class,
+                        options.query_services.clone(),
+                        now,
+                        prefer_delivery,
+                        reservation,
+                    )
+                })
+                .transpose()
+                .map_err(storage),
+            Self::Rooted { options, applier } => applier
+                .queryable()
+                .map_err(storage)?
+                .map(|image| {
+                    let database = options.database(&image)?;
+                    scan::scan_connection(
+                        database.connection(),
+                        image.scope(),
+                        image.position(),
+                        class,
+                        now,
+                        prefer_delivery,
+                        reservation,
+                    )
+                    .map_err(storage)
+                })
+                .transpose(),
         }
     }
 }

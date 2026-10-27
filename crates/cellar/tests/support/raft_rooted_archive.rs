@@ -20,6 +20,7 @@ pub(super) async fn history(
         [9; 32],
     );
     config.voters = VoterPolicy::SingleVoterDevelopment;
+    config.image_storage = cellar::sdk::consensus::RaftImageStorage::Extents;
     let namespace = catalog.open_namespace(config).await?;
     let birth = namespace
         .resolve_birth(BirthProposal {

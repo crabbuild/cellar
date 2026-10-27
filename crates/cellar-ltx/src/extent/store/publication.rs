@@ -190,6 +190,28 @@ impl NodeExtentStore {
         result
     }
 
+    /// Pin an authenticated receive closure before importing its objects. A
+    /// newly created root is reclaimable after its view closes unless native
+    /// marker retention subsequently selects it. Existing retention is kept.
+    pub fn stage_transient_root(&self, manifest: ExtentManifest) -> Result<RootView, StoreError> {
+        let operation = self.begin()?;
+        let result = (|| {
+            let existed = self.inner.state()?.roots.contains_key(&manifest.root());
+            let view = self.stage_inner(manifest)?;
+            if !existed {
+                self.inner
+                    .state()?
+                    .roots
+                    .get_mut(&view.reference.root)
+                    .ok_or(StoreError::Missing)?
+                    .retained = false;
+            }
+            Ok(view)
+        })();
+        operation.finish()?;
+        result
+    }
+
     pub fn seal_root(&self, manifest: ExtentManifest) -> Result<SealedRoot, StoreError> {
         let operation = self.begin()?;
         let result = self.seal_root_inner(manifest);

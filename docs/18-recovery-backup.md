@@ -74,6 +74,16 @@ do not establish in-flight network-partition or ambiguous-acknowledgment recover
 Any newer result must identify its exact code and image before it can qualify
 a release.
 
+For the experimental native 10 GB Raft path, [Plan 010](../plans/multi-raft/010-large-cell-recovery-time.md#targets-and-measurement-contract)
+sets proposed p95 targets of 120 seconds for complete cold recovery, with a
+60-second stretch, and 30 seconds for a declared hot workload under incremental
+activation. None is qualified. The timer includes failure detection, replacement
+startup, source/archive waits, verification, replay, promotion and the first
+verified read and acknowledged small write. Full hydration is measured
+separately when activation can precede it. These targets assume a surviving
+quorum and a declared infrastructure profile; a warm-replica failover result
+cannot establish cold-node recovery time.
+
 Sources: [SDK recovery contract](../crates/cellar/sdk.rs),
 [node logs](../crates/cellar/durability/log/mod.rs),
 [reference recovery](../tools/perf/results/2026-10-12-embedded-10000-reference.md),

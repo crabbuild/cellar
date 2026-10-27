@@ -109,7 +109,8 @@ impl RootCut {
     }
 
     pub fn validate(&self, archive: &CellArchive) -> Result<(), ArchiveError> {
-        if self.scope != archive.scope
+        if archive.image_storage != super::super::catalog::RaftImageStorage::Extents
+            || self.scope != archive.scope
             || self.birth_digest != archive.birth
             || self.schema != archive.schema
             || !self.membership.same_birth(&archive.initial_membership)

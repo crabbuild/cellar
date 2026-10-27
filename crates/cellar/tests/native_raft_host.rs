@@ -2088,6 +2088,34 @@ async fn close(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn namespace_image_storage_is_immutable_and_requires_raft() -> Result<()> {
+    let catalog = catalog(Arc::new(store::Store::default()))?;
+    let original = config(12, NamespaceMode::Raft, true);
+    catalog.open_namespace(original.clone()).await?;
+    let mut changed = original.clone();
+    changed.image_storage = RaftImageStorage::Extents;
+    ensure!(matches!(
+        catalog.open_namespace(changed).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let mut rooted = config(13, NamespaceMode::Raft, true);
+    rooted.image_storage = RaftImageStorage::Extents;
+    catalog.open_namespace(rooted.clone()).await?;
+    rooted.image_storage = RaftImageStorage::Materialized;
+    ensure!(matches!(
+        catalog.open_namespace(rooted).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let mut fleet = config(14, NamespaceMode::Fleet, true);
+    fleet.image_storage = RaftImageStorage::Extents;
+    ensure!(matches!(
+        catalog.open_namespace(fleet).await,
+        Err(CatalogError::Invalid(_))
+    ));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn namespace_mode_conflict() -> Result<()> {
     let store = Arc::new(store::Store::default());
     let catalog = catalog(store.clone())?;

@@ -97,6 +97,9 @@ impl CellArchive {
     }
 
     fn root_limits(&self) -> Result<SnapshotLimits, ArchiveError> {
+        if self.image_storage != super::super::catalog::RaftImageStorage::Extents {
+            return Err(ArchiveError::Invalid("extent archive namespace required"));
+        }
         let limits = SnapshotLimits {
             max_image_bytes: self.limits.max_image_bytes,
             max_encoded_bytes: usize::try_from(self.limits.max_snapshot_bytes)
@@ -338,6 +341,17 @@ impl CellArchive {
         tracing::info!(event = "raft_archive_phase", phase = "root_material_read_start", cell = %self.scope.cell, index = position.index.get());
         let metadata = self.get_object(&reference.0).await?;
         let set = Arc::new(self.decode_root_index(reference, &metadata)?);
+        let pin_set = set.clone();
+        let inventory = store.clone();
+        let retention = self.read_retention.clone();
+        let receive_pin = self
+            .host
+            .run_blocking(move || {
+                let _retention = retention;
+                pin_set.pin_receive(&inventory).map_err(root_error)
+            })
+            .await
+            .map_err(ArchiveError::Worker)??;
         let extents: Vec<_> = set.extents().collect();
         let pending = extents
             .into_iter()
@@ -377,6 +391,7 @@ impl CellArchive {
             })
             .await
             .map_err(ArchiveError::Worker)??;
+        drop(receive_pin);
         tracing::info!(event = "raft_archive_phase", phase = "root_material_read_done", cell = %self.scope.cell, index = position.index.get());
         Ok(image)
     }

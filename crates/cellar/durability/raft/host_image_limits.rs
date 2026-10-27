@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Coherent opt-in bounds for the fully materialized Raft image path.
+//! Coherent opt-in bounds for materialized and extent-backed Raft images.
 use super::*;
 
 impl RaftCellsConfig {
@@ -13,15 +13,46 @@ impl RaftCellsConfig {
     /// page size. Configure quotas identically on all replicas. This policy is
     /// not by itself capacity or recovery-latency qualification.
     pub fn with_materialized_image_limit(mut self, bytes: u64) -> anyhow::Result<Self> {
+        self.configure_image_limit(bytes, true)?;
+        Ok(self)
+    }
+
+    /// Configure an extent-only deployment with the same logical quota and
+    /// bounded command limits. Root transfers do not reserve full-image spools;
+    /// one shared node inventory admits durable extents and private workspaces.
+    /// This does not convert a materialized namespace or qualify recovery time.
+    pub fn with_extent_image_limit(
+        mut self,
+        bytes: u64,
+        options: super::RaftExtentOptions,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            self.cells
+                .iter()
+                .all(|cell| cell.namespace.image_storage == super::RaftImageStorage::Extents),
+            "extent image policy requires extent namespaces"
+        );
+        self.host.extents = Some(options);
+        self.configure_image_limit(bytes, false)?;
+        Ok(self)
+    }
+
+    fn configure_image_limit(
+        &mut self,
+        bytes: u64,
+        materialized_scratch: bool,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             (4096..=cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES).contains(&bytes)
                 && bytes.is_multiple_of(512),
-            "materialized image quota must be a multiple of 512, at most 10,000,000,000 bytes"
+            "image quota must be a multiple of 512, at most 10,000,000,000 bytes"
         );
         let encoded = cellar_ltx::ltx::full_snapshot_bound(bytes, 512)
             .ok_or_else(|| anyhow::anyhow!("snapshot size bound overflow"))?;
         let scratch = &mut self.infrastructure.log.snapshot_scratch;
-        scratch.max_bytes = scratch.max_bytes.max(4 * encoded as u64);
+        if materialized_scratch {
+            scratch.max_bytes = scratch.max_bytes.max(4 * encoded as u64);
+        }
         scratch.validate()?;
         self.host.execution.max_image_bytes = bytes;
         // Leave room for receipts/sequence floors without preallocating pages.
@@ -60,7 +91,7 @@ impl RaftCellsConfig {
         self.host.validate()?;
         transport.validate()?;
         transport.snapshot_limits(bytes)?;
-        Ok(self)
+        Ok(())
     }
 }
 

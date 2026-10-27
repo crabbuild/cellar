@@ -336,6 +336,15 @@ impl RootSnapshotSet {
         self.dependencies.iter().copied()
     }
 
+    /// Protect the declared closure from node GC while individual imports and
+    /// their network waits run. This metadata pin is not a local image seal.
+    pub(crate) fn pin_receive(
+        &self,
+        store: &NodeExtentStore,
+    ) -> Result<cellar_ltx::internal::RootView, SnapshotError> {
+        Ok(store.stage_transient_root(self.manifest.clone())?)
+    }
+
     /// Run on the node's physical owner with the complete object already under
     /// receive admission. NodeExtentStore independently verifies/syncs its own
     /// destination and never overwrites an existing corrupt object.

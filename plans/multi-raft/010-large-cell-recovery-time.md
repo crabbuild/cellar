@@ -915,6 +915,68 @@ two head manifests, four extents totaling 13,707,264 bytes, one dependency and
 one selected head. These small drills do not qualify full-size root recovery,
 public fresh learners, hard process loss or recovery percentiles.
 
+### Public node extent ownership and backend selection
+
+The current integration persists `RaftImageStorage` in the immutable namespace
+contract and requires explicit node-wide `RaftExtentOptions` for local extent
+participants. The `/extent-owners-1` capability is a marker-1 hard cutover;
+materialized and extent histories cannot reinterpret each other's archive
+heads. The extent-only quota helper accepts decimal 10 GB without full-image
+scratch spools, while preserving ordinary command/delta bounds and checking
+shared inventory capacity before activation.
+
+One inventory supplies every resident, standby and receiver. Startup rebuilds
+current and checkpoint references from every durable log group, including
+unregistered groups, before a joined blocking GC job can reclaim files.
+Transient receive pins protect the complete manifest's declared closure across
+import, network waits and cancellation. Physical mutations serialize on bounded
+blocking owners; retention of an already sealed, exact-owner capability uses
+metadata only. Weak resource observers do not retain the inventory lock after
+shutdown. Failed startup also joins physical-owner cleanup. Blob capture and
+alarm/outbox discovery now dispatch through the same image owner as queries.
+
+The initial concurrent two-cell checkpoint fixture exposed an async retention
+call waiting behind inventory I/O; a lease renewal took 1.489 seconds and the
+node fenced itself under its unchanged one-second TTL. Moving sealed-capability
+retention to metadata-only work removes that wait. The next failure came from
+the test dropping its callback notification receiver. Retaining that receiver
+lets the unchanged write, closed-group, GC, restart and receipt assertions pass.
+A separate new quarantine test initially injected a directory-sync error whose
+successful cleanup correctly left the inventory healthy. It now injects failed
+cleanup to exercise an actually quarantined inventory; sealed retention must
+refuse it. All failed logs remain retained.
+
+Input `ab1f11dca62a6997fa379ca3c1889212be62ecae9415a583f8abca471a7044df`
+passes 715 library and 214 native cases: 76 archive, 18 effects, two shared
+ownership/preflight, 33 host, nine ordinary large-image, 24 rooted and 52
+snapshot cases. Existing ignored cases remain ignored. The unchanged extent
+store inputs also pass 21 owning cases. The explicit real RustFS public-learner
+drill passes in 4.21 seconds with its tiny counter image; this is whole functional
+drill duration, not RTO. It verifies live grants, cold seeding, catch-up and
+joined-node restart. The preserved prefix contains three extent objects totaling
+73,728 bytes, five root snapshots, five head manifests and one selected head.
+Matching tested binaries and source/log inventories are retained.
+
+Clippy then finds a redundant `Ok(...?)` in the new ownership fixture. A focused
+metrics regression also catches the newly added availability gauge: a live
+materialized node now has exactly 111 fixed samples rather than 110. The final
+test-only correction removes that wrapper, retains the exact cardinality check
+with its new gauge, and checks a live inventory's 14 label-free extent samples.
+The operations run then catches the corresponding JSON field-count change;
+its exact ten-field assertion now also requires `extents: null` when absent.
+The failed lint, series and JSON regression logs remain retained.
+
+Final input `eb9ab3d133f83ac01a1688bc2114608f5f0e28f02003d47ab3876859fb328602`
+differs from the broad passing input only in those two fixtures and their
+metrics documentation. All production implementation inputs are unchanged.
+It passes all 23 operations, two shared-ownership and 21 extent-store cases,
+plus a rebuilt peer recovery check and a repeat real RustFS public-learner
+drill. Both affected crates pass all-feature/all-target Clippy with warnings
+denied. Format/layout check 1,240 Rust files; documentation and native dependency
+guards pass. Source inputs remain unchanged, and matching final binaries and
+source/log bindings are retained. These small drills provide no new full-size
+root latency result; RT-04, RT-05 and the M1/M2 gates remain open.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained

@@ -952,6 +952,40 @@ pub(crate) fn snapshot_image(
     Ok(descriptor.image)
 }
 
+/// Recover retention for every durable local group, including groups absent
+/// from this process's application registrations. The schema comes from the
+/// canonical native descriptor solely to preserve bytes, never to serve them.
+pub(crate) fn retained_image(group: &GroupLog) -> Result<Option<CommittedImage>, SnapshotError> {
+    let (snapshot, applied) = {
+        let cache = group.read()?;
+        (cache.snapshot.clone(), cache.applied.clone())
+    };
+    if snapshot.get_metadata().index == 1 && snapshot.data.is_empty() {
+        return Ok(None);
+    }
+    if snapshot.compute_size() > 64 * 1024 {
+        return Err(SnapshotError::Limit);
+    }
+    let declared: Descriptor = serde_json::from_slice(&snapshot.data)
+        .map_err(|_| SnapshotError::Invalid("retained snapshot descriptor"))?;
+    let image = snapshot_image(
+        group,
+        declared.schema,
+        &snapshot,
+        SnapshotLimits {
+            max_image_bytes: stream_snapshot::MAX_IMAGE_BYTES,
+            max_encoded_bytes: stream_snapshot::MAX_ENCODED_BYTES as usize,
+            ..Default::default()
+        },
+    )?;
+    if applied.position.index.get() == snapshot.get_metadata().index && applied.image != image {
+        return Err(SnapshotError::Invalid(
+            "retained snapshot/applied image binding",
+        ));
+    }
+    Ok(image)
+}
+
 fn encode_image(
     pin: &GenerationPin,
     limits: SnapshotLimits,

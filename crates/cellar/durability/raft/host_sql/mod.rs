@@ -957,22 +957,9 @@ impl Cell {
                 prefer_delivery,
                 reservation,
             } => {
-                let (options, applier) = self.images.materialized()?;
-                let scan = applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                    .map(|image| {
-                        super::effects::scan::scan(
-                            image,
-                            &self.class,
-                            options.query_services.clone(),
-                            now,
-                            prefer_delivery,
-                            reservation,
-                        )
-                    })
-                    .transpose()
-                    .map_err(super::execution::storage)?;
+                let scan =
+                    self.images
+                        .scan_effects(&self.class, now, prefer_delivery, reservation)?;
                 Ok(Value::EffectScan(scan.map(Box::new)))
             }
             Action::CaptureSeed {

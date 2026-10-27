@@ -26,7 +26,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard, Weak},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +51,21 @@ impl Default for NodeExtentLimits {
             max_references: 16384,
             max_workspaces: 256,
         }
+    }
+}
+
+impl NodeExtentLimits {
+    pub fn validate(self) -> Result<(), StoreError> {
+        if self.max_bytes == 0
+            || self.max_objects == 0
+            || self.max_roots == 0
+            || self.max_root_extents == 0
+            || self.max_references == 0
+            || !(1..=1024).contains(&self.max_workspaces)
+        {
+            return Err(StoreError::Limit);
+        }
+        Ok(())
     }
 }
 
@@ -168,6 +183,8 @@ struct Inner {
     filesystem: Arc<dyn FileSystem>,
     limits: NodeExtentLimits,
     state: Mutex<State>,
+    idle: Condvar,
+    serialized: bool,
     _lock: HostFileLock,
 }
 
@@ -204,7 +221,25 @@ pub struct NodeExtentStore {
     inner: Arc<Inner>,
 }
 
+/// Counter metadata only. Keeping an observer cannot retain the node's files
+/// or exclusive inventory lock after all physical owners have exited.
+#[derive(Clone)]
+pub struct NodeExtentObserver(Weak<Inner>);
+
+impl NodeExtentObserver {
+    pub fn capture(&self) -> Option<(NodeExtentUsage, NodeExtentLimits)> {
+        let store = NodeExtentStore {
+            inner: self.0.upgrade()?,
+        };
+        Some((store.usage().ok()?, store.inner.limits))
+    }
+}
+
 impl NodeExtentStore {
+    pub fn observer(&self) -> NodeExtentObserver {
+        NodeExtentObserver(Arc::downgrade(&self.inner))
+    }
+
     /// Compare exact open inventory owners without granting access or doing I/O.
     pub fn same_inventory(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
@@ -226,6 +261,7 @@ impl Operation {
     fn finish(mut self) -> Result<(), StoreError> {
         self.inner.state()?.busy = false;
         self.complete = true;
+        self.inner.idle.notify_all();
         Ok(())
     }
 }
@@ -240,6 +276,8 @@ impl Drop for Operation {
                 .unwrap_or_else(|error| error.into_inner());
             state.quarantined = true;
             state.busy = false;
+            drop(state);
+            self.inner.idle.notify_all();
         }
     }
 }
@@ -255,11 +293,23 @@ impl NodeExtentStore {
 
     fn start(&self, allow_quarantine: bool) -> Result<Operation, StoreError> {
         let mut state = self.inner.state()?;
-        if state.quarantined && !allow_quarantine {
-            return Err(StoreError::Quarantined);
-        }
-        if state.busy {
-            return Err(StoreError::Busy);
+        loop {
+            if state.quarantined && !allow_quarantine {
+                return Err(StoreError::Quarantined);
+            }
+            if !state.busy {
+                break;
+            }
+            if !self.inner.serialized {
+                return Err(StoreError::Busy);
+            }
+            // A bounded native blocking owner may wait for another physical
+            // operation. No state mutex remains held during its I/O or wait.
+            state = self
+                .inner
+                .idle
+                .wait(state)
+                .map_err(|_| StoreError::Quarantined)?;
         }
         state.busy = true;
         Ok(Operation {

@@ -271,6 +271,14 @@ impl ArchiveRecoverySet {
 }
 
 impl CellArchive {
+    pub(crate) fn with_image_storage(
+        mut self,
+        storage: super::super::catalog::RaftImageStorage,
+    ) -> Self {
+        self.image_storage = storage;
+        self
+    }
+
     /// Choose the destination inventory for complete root recovery. This does
     /// not convert materialized archives or admit incomplete local closures.
     pub fn with_root_store(mut self, store: NodeExtentStore) -> Self {
@@ -357,7 +365,11 @@ impl CellArchive {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
         let bytes = self.get_object(object).await?;
-        if bytes.get(8) == Some(&super::root_head::KIND) {
+        let rooted = bytes.get(8) == Some(&super::root_head::KIND);
+        if rooted != (self.image_storage == super::super::catalog::RaftImageStorage::Extents) {
+            return Err(ArchiveError::Corrupt("archive image representation"));
+        }
+        if rooted {
             self.decode_root_metadata(object, &bytes)
                 .await
                 .map(|metadata| ArchiveMetadata {

@@ -78,6 +78,15 @@ pub struct NamespaceConfig {
     pub schema_digest: [u8; 32],
     pub minimum_durability: Durability,
     pub voters: VoterPolicy,
+    pub image_storage: RaftImageStorage,
+}
+
+/// Immutable physical representation for every cell in one Raft namespace.
+/// Changing it requires a fresh namespace; images are never converted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RaftImageStorage {
+    Materialized,
+    Extents,
 }
 
 impl NamespaceConfig {
@@ -94,6 +103,7 @@ impl NamespaceConfig {
             schema_digest,
             minimum_durability: Durability::Quorum,
             voters: VoterPolicy::ThreeVoters,
+            image_storage: RaftImageStorage::Materialized,
         }
     }
 }
@@ -314,7 +324,8 @@ impl NamespaceCatalog {
             self.config.schema_digest,
             limits,
             host,
-        ))
+        )
+        .with_image_storage(self.config.image_storage))
     }
 
     pub fn require_mode(&self, mode: NamespaceMode) -> Result<(), CatalogError> {
