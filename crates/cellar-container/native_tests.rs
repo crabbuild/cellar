@@ -29,6 +29,7 @@ fn invalid_options_are_proven_refusals_before_native_effects() {
         ),
         ("container.signal", json!({"signal":0})),
         ("container.signal", json!({"signal":65})),
+        ("container.reconcile", json!({"generation":"1"})),
         ("container.port.connect", json!({"port":65536})),
         ("container.port.connect", json!({"port":0})),
         (
@@ -111,6 +112,7 @@ fn only_observations_may_overlap_a_control_operation() {
     }
     for name in [
         "container.start",
+        "container.reconcile",
         "container.exec",
         "container.exec_output",
         "container.port.fetch",

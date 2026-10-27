@@ -15,6 +15,12 @@ async def refuses(action):
 class Counter:
     async def fetch(self, request, ctx):
         container = ctx.container
+        backup = ctx.containers.get("backup")
+        bindings = await ctx.containers.list()
+        assert tuple(binding.name for binding in bindings) == ("container", "backup")
+        assert all(binding.capabilities.provider == request.path.strip("/").split("/")[0] for binding in bindings)
+        await refuses(lambda: ctx.containers.get("missing").running())
+        await refuses(lambda: ctx.containers.get("../escape").running())
         capabilities = await container.capabilities()
         assert capabilities.provider == request.path.strip("/").split("/")[0]
         assert capabilities.fencing == "local_checks_and_expiry"
@@ -25,16 +31,32 @@ class Counter:
         if request.path.endswith("/destroy"):
             await container.destroy()
             assert not await container.running()
+            assert await backup.running()
+            await backup.destroy()
+            retired = await container.reconcile()
+            assert (retired.state, retired.generation) == ("deleted", "1")
             return Response("ok")
         if request.path.endswith("/second"):
             await refuses(lambda: self.old.running())
+            await refuses(lambda: self.old.reconcile())
+            await refuses(lambda: self.old_backup.running())
+            assert await backup.read_file(path, max_bytes=3) == b"\x01\x02\x03"
+            current = await container.reconcile()
+            assert (current.state, current.generation) == ("running", "1")
             assert await container.running()
             assert await container.read_file(path, max_bytes=3) == b"\x00\xff*"
             return Response("ok")
 
+        assert "container.reconcile" in capabilities.operations
+        empty = await container.reconcile()
+        assert (empty.state, empty.generation) == ("unbound", None)
         await refuses(lambda: container.signal(9))
         assert await container.start(env=[("HELLO", "world")]) == "1"
+        assert (await backup.reconcile()).state == "unbound"
+        assert await backup.start(env=[("HELLO", "world")]) == "1"
+        await backup.write_file(path, b"\x01\x02\x03", mode=0o640)
         self.old = container
+        self.old_backup = backup
         await container.write_file(path, b"\x00\xff*", mode=0o640)
         assert await container.read_file(path, max_bytes=3) == b"\x00\xff*"
         metadata = await container.stat_file(path)

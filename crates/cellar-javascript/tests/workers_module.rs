@@ -429,11 +429,13 @@ fn published_container_sleeps_wakes_and_joins_lifecycle_hooks() -> Result<()> {
                 "Counter",
                 [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
             );
+        let mut retained = None;
         NodeRuntime::run(
             Options::default(),
             NodeOptions::new(fixture("container-lifecycle")?),
             source,
             |application| {
+                retained = Some(application.clone());
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()?
@@ -444,6 +446,16 @@ fn published_container_sleeps_wakes_and_joins_lifecycle_hooks() -> Result<()> {
                     ))
             },
         )?;
+        // Native host drain finishes inside the callback. The live Node
+        // transport can still own control/heartbeat frames at that point;
+        // assert complete byte release after NodeRuntime joins it as well.
+        let usage = retained
+            .context("lifecycle runtime missing")?
+            .bridge_usage();
+        ensure!(
+            usage.stopped && usage.active_invocations == 0 && usage.retained_bytes == 0,
+            "joined lifecycle leaked: {usage:?}"
+        );
     }
     Ok(())
 }
@@ -537,8 +549,8 @@ async fn lifecycle_round(
         "lifecycle did not drain"
     );
     ensure!(
-        usage.active_invocations == 0 && usage.retained_bytes == 0,
-        "lifecycle leaked: {usage:?}"
+        usage.active_invocations == 0,
+        "lifecycle retained native invocations: {usage:?}"
     );
     Ok(())
 }

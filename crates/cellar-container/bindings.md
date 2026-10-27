@@ -12,6 +12,92 @@ SQLite tables. It is a host API; guest KV/SQL cannot forge or erase its records.
 This is the persistence contract for remote providers. It does not install a
 cloud backend, schedule orphan cleanup or supply remote fencing by itself.
 
+## Select a host-declared provider slot
+
+Applications can select additional providers declared by the host. `ctx.container`
+and Cloudflare's container surface use the default slot, named `container`.
+
+```javascript
+const declared = await ctx.containers.list();
+const build = ctx.containers.get("builds");
+const state = await build.reconcile();
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Host registration | `Source::container_binding(name, provider)?` in Python/JS hosts; `cellar_container::Bindings` in Rust |
+| Python / JS / TS selection | `ctx.containers.get("builds")`; same container methods and event authority |
+| Discovery | `await ctx.containers.list()` returns names and per-slot capabilities; no remote resource allocation or credential exposure |
+| Names | 1–128 ASCII letters/digits/`-_.`; at most 63 additional slots |
+| Unknown slot | Refuse before provider effects; no default-provider fallback |
+| Durable identity | Provider `binding_name()` must equal the registered slot; E2B/Vercel use their configured journal name |
+| Conflicts | Duplicate names, mismatched identities and default/named journal collisions refuse; startup revalidates after later builder overrides |
+| Native engine | Owns the existing default slot; extra slots require providers declaring their own binding identity |
+| Handles | Process/socket/response facades carry the selected slot through later calls; invocation handles expire with their original event |
+
+Configure the provider's durable name before registering it:
+
+```rust,no_run
+use cellar_container::{Bindings, e2b::{Config, E2b}};
+use std::sync::Arc;
+
+fn build_binding(config: Config) -> anyhow::Result<Bindings> {
+    let mut bindings = Bindings::default();
+    bindings.insert("builds", Arc::new(E2b::new(config.binding("builds")?)))?;
+    Ok(bindings)
+}
+```
+
+Rust callers open `bindings.sessions()` once per event and select with
+`sessions.get("builds")?`. When combining it with a default `Adapter`, call
+`bindings.validate(adapter.provider())?` before admission. Discovery lists the
+default slot first, then additional slots in name order. Provider limits apply
+per slot; discovery itself must fit the host's response byte limit.
+
+These declarations select configured execution providers. They do not add native
+engine instances, automatic provider failover or a background cleanup controller.
+
+## Reconcile from a later invocation
+
+`container.reconcile()` observes the host-selected binding and checkpoints
+verified recovery or expiry. It never creates, resumes or deletes compute.
+Reacquire the current event's container/session before calling it.
+
+```javascript
+const observed = await ctx.container.reconcile();
+if (observed.state === "running") {
+  // Fresh event authority, same durable resource generation.
+  const output = await ctx.container.execOutput({ cmd: ["/app/check"] });
+}
+```
+
+| Result `state` | Meaning | `generation` |
+| --- | --- | --- |
+| `unbound` | No durable provider reservation exists; no provider request is sent | `null` |
+| `running` | Verified resource is running; a matching pending create can now be confirmed | Original decimal generation |
+| `stopped` | Verified resource exists but is paused, stopped or transitioning; no automatic resume | Original decimal generation |
+| `deleting` | Deletion intent is durable, but the resource is still visible | Original decimal generation |
+| `deleted` | Retirement was already confirmed, or verified absence now confirms deletion/expiry | Retired decimal generation |
+| Error | Unresolved create, ambiguous identity, mismatched metadata, timeout or provider failure | Reservation retained |
+
+The native Docker/Podman provider returns `running` or `stopped` with a `null`
+generation: its lifecycle belongs to the native engine rather than this remote
+journal. A stopped remote resource remains allocated; explicitly destroy it
+before replacement.
+
+| Language | Call |
+| --- | --- |
+| Rust shared adapter | `session.execute(ctx, Operation::Reconcile, json!({}), limits).await?`; deserialize as `Reconciliation` |
+| Python | `observed = await ctx.container.reconcile()`; frozen `ContainerReconciliation` |
+| JavaScript / TypeScript | `const observed = await ctx.container.reconcile()`; readonly result |
+
+An empty listing or a 404 for an unconfirmed create cannot authorize a new
+allocation. Pending deletion stays pending while the resource is visible, even
+after a successful DELETE acknowledgement. Reconciliation checks that evidence
+without repeating the DELETE. Use `destroy()` explicitly to request cleanup.
+This event-driven API does not install a background orphan sweeper or strengthen
+the configured provider's fencing guarantee.
+
 ## Record and checkpoint
 
 | Field | Meaning |

@@ -6,10 +6,18 @@ import {
   type Container,
   type ContainerFileMetadata,
   type ContainerExecOutput,
+  type ContainerReconciliation,
 } from "../../packages/cellar-sdk/index.js";
 
 async function control(ctx: Context) {
   const container: Container = ctx.container;
+  const backup: Container = ctx.containers.get("backup");
+  const bindings = await ctx.containers.list();
+  const name: string = bindings[0].name;
+  void name;
+  void backup;
+  // @ts-expect-error Declared binding metadata is readonly.
+  bindings[0].name = "forged";
   const fencing:
     | "unspecified"
     | "native_cell"
@@ -21,6 +29,11 @@ async function control(ctx: Context) {
   void synchronous;
   const queued: boolean = (await container.capabilities()).queued_lifecycle;
   void queued;
+  const reconciliation: ContainerReconciliation = await container.reconcile();
+  const generation: string | null = reconciliation.generation;
+  void generation;
+  // @ts-expect-error Lifecycle evidence cannot be changed by the application.
+  reconciliation.state = "running";
   const running: boolean = await container.running();
   if (!running) {
     const run: string = await container.start({

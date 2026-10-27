@@ -55,6 +55,8 @@ pub struct State {
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
     pub lost_delete: AtomicBool,
+    pub defer_delete: AtomicBool,
+    pub unknown_status: AtomicBool,
     pub hide_list: AtomicBool,
     pub mismatched_metadata: AtomicBool,
     pub changed_session: AtomicBool,
@@ -110,6 +112,10 @@ impl Peer {
     }
 
     pub fn provider(&self) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.provider_binding("container")
+    }
+
+    pub fn provider_binding(&self, binding: &str) -> Result<Arc<dyn cellar_container::Provider>> {
         use cellar_container::vercel::{Config, Ownership, Vercel};
         Ok(Arc::new(Vercel::new(
             Config::new(
@@ -120,6 +126,7 @@ impl Peer {
                 "fixture-image",
                 Ownership::LocalChecksAndExpiry,
             )?
+            .binding(binding)?
             .api_endpoint(&self.address)?
             .lifetime_ms(60_000)?
             .request_timeout_ms(2000)?,
@@ -175,6 +182,20 @@ fn metadata(path: &str, file: &File) -> Value {
 }
 
 impl State {
+    pub fn set_running(&self, running: bool) {
+        for info in self.sandboxes.lock().unwrap().values_mut() {
+            let state = json!(if running { "running" } else { "stopped" });
+            info["sandbox"]["status"] = state.clone();
+            info["session"]["status"] = state;
+        }
+    }
+
+    /// Provider lifetime elapses independently of any Cellar invocation.
+    pub fn expire(&self) {
+        self.sandboxes.lock().unwrap().clear();
+        self.files.lock().unwrap().clear();
+    }
+
     async fn answer(&self, request: Request<Incoming>) -> Result<Response<Body>> {
         let method = request.method().as_str().to_owned();
         let path = request.uri().path().to_owned();
@@ -392,6 +413,9 @@ impl State {
             if method == "DELETE" {
                 ensure!(query.get("deleteOrphanSnapshots").map(String::as_str) == Some("true"));
                 self.deletes.fetch_add(1, Ordering::SeqCst);
+                if self.defer_delete.load(Ordering::SeqCst) {
+                    return Ok(value(200, json!({})));
+                }
                 let info = self.sandboxes.lock().unwrap().remove(name);
                 if let Some(info) = &info {
                     let id = info["session"]["id"].as_str().unwrap();
@@ -417,6 +441,9 @@ impl State {
             };
             if self.mismatched_metadata.load(Ordering::SeqCst) {
                 info["sandbox"]["tags"]["cellar"] = json!("foreign");
+            }
+            if self.unknown_status.load(Ordering::SeqCst) {
+                info["sandbox"]["status"] = json!("unknown-status");
             }
             if self.changed_session.load(Ordering::SeqCst) {
                 info["sandbox"]["currentSessionId"] = json!("sbx_foreign");

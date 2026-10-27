@@ -69,6 +69,7 @@ impl EventKind {
 pub struct Source {
     pub(crate) workers_lifetimes: bool,
     containers: cellar_guest::containers::Adapter,
+    container_bindings: cellar_guest::containers::Bindings,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
@@ -90,6 +91,7 @@ impl Source {
         Self {
             workers_lifetimes: false,
             containers: Default::default(),
+            container_bindings: Default::default(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
@@ -157,6 +159,19 @@ impl Source {
         self
     }
 
+    /// Declare an additional provider slot before runtime startup. The provider's
+    /// durable binding name must equal `name`; duplicate slots refuse.
+    pub fn container_binding(
+        mut self,
+        name: impl Into<String>,
+        provider: Arc<dyn cellar_guest::containers::Provider>,
+    ) -> Result<Self> {
+        self.container_bindings.insert(name, provider)?;
+        self.container_bindings
+            .validate(self.containers.provider())?;
+        Ok(self)
+    }
+
     /// Enable native-owned Workers event/background lifetimes. This selects
     /// lifetime semantics only, not a complete Workers API compatibility profile.
     pub fn workers_lifetimes(mut self) -> Self {
@@ -195,6 +210,8 @@ impl Source {
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
+        self.container_bindings
+            .validate(self.containers.provider())?;
         ensure!(
             !self.code.is_empty() && !self.filename.is_empty(),
             "JavaScript source and filename must be supplied"
@@ -325,6 +342,7 @@ impl JavaScriptApplication {
     ) -> Result<Output> {
         let mut state = state;
         state.containers = self.source.containers.session();
+        state.container_bindings = self.source.container_bindings.sessions();
         let state = Arc::new(state);
         let callbacks = Arc::new(crate::callbacks::Callbacks::default());
         let _permit = self

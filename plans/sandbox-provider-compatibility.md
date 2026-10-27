@@ -199,7 +199,7 @@ qualification remains open.
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
 | 1 — qualification | Cold-first-call investigation and remaining callback failure/cancellation/timeouts | The 250 ms module timeout and alarm-start failure reproduced in this campaign; a fresh full module run passes unchanged. Timing narrows the delay to native routing/activation before the DO's JS handler, but does not establish a fix |
-| 2 — feature delivery | Named provider bindings, reconnect/expiry and orphan reconciliation | Concurrency-block controls now join before releasing native admission, including nested controls and late-continuation refusal; selected published error/nonzero-stop hooks pass. Make the common framework useful across events and ownership changes |
+| 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer failure qualification | Explicit reconciliation and host-declared named slot discovery/selection now work through the shared language boundary. Background controllers still need host-owned authority, completion fencing and recoverable cleanup |
 | 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local

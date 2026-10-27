@@ -22,6 +22,13 @@ fn binary(value: &Value, limit: usize) -> Result<usize> {
 pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Result<()> {
     use Operation::*;
     match operation {
+        Reconcile => {
+            ensure!(
+                value.get("generation").is_some(),
+                "missing reconciliation generation"
+            );
+            serde_json::from_value::<crate::Reconciliation>(value.clone())?.validate()?;
+        }
         ReadStdout | ReadStderr | ReadSocket | ReadFile => {
             binary(value, limit)?;
         }
@@ -98,6 +105,30 @@ mod tests {
     use super::*;
     use crate::Validation;
     use serde_json::json;
+
+    #[test]
+    fn reconciliation_rejects_forged_or_unbounded_generation_results() {
+        for valid in [
+            json!({"state":"unbound","generation":null}),
+            json!({"state":"stopped","generation":null}),
+            json!({"state":"running","generation":"18446744073709551615"}),
+        ] {
+            validate(Operation::Reconcile, &valid, 256).unwrap();
+        }
+        for invalid in [
+            json!({"state":"running"}),
+            json!({"state":"running","generation":0}),
+            json!({"state":"running","generation":"0"}),
+            json!({"state":"running","generation":"01"}),
+            json!({"state":"running","generation":"18446744073709551616"}),
+            json!({"state":"unbound","generation":"1"}),
+            json!({"state":"unknown","generation":"1"}),
+            json!({"state":"running","generation":"1","token":"secret"}),
+        ] {
+            let error = validate(Operation::Reconcile, &invalid, 256).unwrap_err();
+            assert!(!error.is::<Validation>());
+        }
+    }
 
     #[test]
     fn upgraded_sockets_require_headers_without_pre_effect_failure_provenance() {
