@@ -396,6 +396,16 @@ and any application work until encoding exits. The same source admission bounds
 checkpoints and transfers. Queries and commands can continue while a snapshot is
 encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
 The `snapshot_encode` performance timer records this work separately from SQL.
+Source observations also distinguish seed, checkpoint and transfer encoders,
+with completed encoded-byte counters and a separate blocking-queue timer.
+Recovery observations separate authorization, peer receive/append, archive fetch,
+physical verification/replay and durable installation. Source archive-wait timing
+includes retries until coverage reaches the fresh ReadIndex; outcomes preserve
+failure and abandonment. Duration buckets resolve recovery costs through one
+hour. These are node-wide bounded observations, not publication proofs or exact
+recovery percentiles. The [cold-recovery campaign](../../../../tools/perf/recovery-README.md)
+measures owner-loss through the first local verified read and durable write;
+its embedded pilots do not qualify hard OS-process crashes or an RTO.
 Physical verification and runtime checkpoint/install authorization still precede
 publication, and shutdown joins the encoder before releasing its owners.
 

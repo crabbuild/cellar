@@ -477,6 +477,8 @@ impl Pool {
                                 Measured::SqlQuery
                             }
                             Action::CaptureArchive { .. } => Measured::SqlArchiveCapture,
+                            Action::SealSeed { .. } => Measured::RecoveryPeerVerify,
+                            Action::SealArchiveSeed { .. } => Measured::RecoveryArchiveReplay,
                             _ => Measured::SqlOther,
                         };
                         let timer = performance.timer(measured);

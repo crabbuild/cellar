@@ -1,0 +1,500 @@
+<!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
+
+# Plan 010: Bound recovery time for 10 GB cells
+
+Status: proposed implementation strategy; no recovery-time target is qualified.
+Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
+Priority P1; effort L; correctness risk HIGH. RT-01 is in progress; RT-02 through RT-06
+remain TODO. Implement them in dependency order and record evidence before
+updating their status. This plan does not close the existing MR or R1–R9 gates.
+
+The deliverable is faster, fault-safe native peer and RustFS recovery, through
+the first durable write on the replacement. Improving only historical reads or
+showing a faster file download does not satisfy it. The current 10 GB logical
+quota and independent command/value limits remain unchanged.
+
+## Baseline and current implementation
+
+The configured native materialized paths pass at 9,999,998,976 SQLite bytes
+(the page-rounded decimal 10 GB quota). The clean source is `106a961f`; all
+1,265 tracked Rust/Cargo inputs at the plan revision match that executable.
+These are individual functional drills on a documented two-volume layout,
+not latency distributions or controlled comparisons between backends.
+
+| Observation | RustFS path | Direct peer path |
+| --- | ---: | ---: |
+| Complete functional drill | 1,873.19 s | 2,434.59 s |
+| Empty-worker join through first local read | 125.56 s after archive confirmation | 1,383.78 s including source preparation |
+| Required archive-head catch-up wait | 1,112.36 s | No latest-head wait before peer seed |
+| Restored owner's first write acknowledgement | 27.40 s | 30.94 s |
+
+The functional drill contains other work between stages; do not add selected
+numbers and label the sum failure-to-service RTO. See the exact source, log
+hashes, scope and caveats in the
+[current qualification](10gb-implementation.md#current-qualification).
+The previously fixed synchronous snapshot-close defect is a separate regression;
+the complete archive job, including failure cleanup, must remain off the driver.
+
+Confirmed implementation constraints:
+
+- Public activation constructs `CellStorage { rooted: None, ... }` in
+  `crates/cellar/durability/raft/host.rs`.
+- Materialized execution/apply still copies or clones and verifies complete
+  images. Bounded RAM does not remove full-image disk/CPU work.
+- `snapshot.rs::encode_image` calls `pin.snapshot(limits.physical())`; its
+  default codec profile is Compact. Archive encoding already selects buffered
+  I/O for large images. Measure the peer path before choosing its profile.
+- `snapshot_transport.rs` receives one chunk, verifies it, awaits a blocking
+  append, then requests the next. The default and maximum chunk are 1 MiB.
+- Both `SealSeed` and `SealArchiveSeed` in `host_sql/mod.rs` reject rooted
+  storage with `extent seed transport is not installed`.
+- `NodeExtentStore::seal_image_root` requires a verified local dependency
+  closure. `stage_root` deliberately does not claim missing extents are durable.
+  A staged manifest cannot substitute for a sealed local image.
+- `performance.rs::BOUNDS_US` ends at 30 seconds followed by infinity; current
+  aggregate histograms cannot resolve 60–120-second recovery percentiles.
+
+Two complete source spools were observed concurrently during the peer run.
+Their consumers and the shares of source encoding, transfer and destination
+verification remain unproven. Investigate before adding deduplication. The
+existing native file adapter already supports caller-owned large I/O windows;
+quota accounting already restricts dbstat work to framework btrees. Neither is
+a missing implementation to redo.
+
+## Targets and measurement contract
+
+These are proposed acceptance targets on a declared reference profile, not
+universal service promises. Record the profile and source with every result.
+
+| Gate | Proposed acceptance | Meaning |
+| --- | --- | --- |
+| M1: complete recovery | Observed p95 <=120 s, independently for peer and RustFS | Blank authorized replacement reaches first verified read and durable small write; complete base is local |
+| M1 stretch | Observed p95 <=60 s; explore 30–60 s | Same contract after reducing materialization and verification overhead |
+| M2: incremental activation | Observed p95 <=30 s; aim for 10–30 s | Exact installed root serves the declared hot read/write workload before full hydration |
+| Full hydration | Separate measured duration and bytes | All dependencies are locally verified; never equate this with M2 readiness |
+
+Define timestamps in the qualification controller's monotonic clock:
+
+- `t_fault`: injected owner loss, or the maintenance handoff request.
+- `t_repair`: replacement admission starts with an empty worker data directory.
+- `t_read`: replacement returns the required version and expected indexed data.
+- `t_write`: replacement, after authorized promotion/leadership, acknowledges a
+  new small command and passes an version-bound follow-up read. Verify its
+  receipt and duplicate callback count as part of the trial's correctness oracle.
+- `t_hydrated`: the entire selected root's local dependency closure is verified.
+
+Report service failover on an existing warm voter separately. Report
+`cold_ready = max(t_read,t_write)-t_repair` and
+`cold_failure_to_ready = max(t_read,t_write)-t_fault`. The M1/M2 target applies
+to the latter in an immediate-repair failure drill. Include detection, placement,
+queue waits, grant acquisition, archive lag, source preparation, transfer,
+verification, replay and promotion. The smaller metric helps diagnosis but
+cannot replace the target. A maintenance drill reports its own timing.
+
+The preliminary 120-second engineering budget is 15 seconds for detection,
+admission and authority; 15 seconds for source availability; 65 seconds for
+transfer/physical installation; 10 seconds for remaining committed-tail replay;
+and 15 seconds for promotion, first operations and scheduling margin. This is
+a budgeting hypothesis. RT-01 must measure critical-path overlap and revise
+allocations without silently raising the overall target. A missing prepared
+snapshot consumes the same budget; its preparation is never excluded.
+
+Reference profile, initially proposed and then calibrated in RT-01:
+
+- Three original voters across independent failure domains, with a surviving
+  majority, plus one empty replacement. Fresh disk loss uses a fresh identity
+  and authorized learner repair. Object bytes do not recreate a lost quorum.
+- Replacement compute and the executable are provisioned for this reference
+  profile; the replacement process starts cold and its entire local data directory
+  is absent. Include process startup in the timer. If production also waits for
+  VM provisioning or executable distribution, report those delays in actual
+  failure-to-ready time and qualify that broader envelope separately.
+- Near-quota deterministic incompressible data and separately compressible data.
+  A timed indexed read touches a declared hot set <=256 MiB; the small counter
+  command and receipt use ordinary delta/value limits. Full payload checks run
+  afterward and can still fail the entire sample. Broad scans get separate
+  results and do not inherit the hot-workload M2 target.
+- Record CPU count/model/quotas, memory, storage/fsync semantics, topology,
+  RTT/loss, TLS, store version, build profile and process/filesystem cache state.
+  Component preflight targets are >=250 MB/s sustained source object/TLS reads
+  and >=500 MB/s local sequential reads/writes and checksum processing. Measure
+  simultaneous read/write contention too; these figures alone do not prove RTO.
+- One active large recovery initially; then qualify two and a fleet repair burst.
+  Bound the tail by both bytes and measured replay cost (initial budget 10 s).
+  If write rate exceeds archive/catch-up capacity, report overload and target
+  ineligibility; do not claim a fixed RTO for an unbounded backlog.
+
+One 10,000 MB transfer takes at least 100 s at 100 MB/s, 40 s at 250 MB/s or
+20 s at 500 MB/s. Repeated passes, source preparation and durable installation
+add work. M2 removes complete hydration from first-use latency; it does not
+remove eventual bandwidth, disk capacity or quorum requirements.
+
+## Scope, conventions and source map
+
+Keep the pure `cellar-logic` boundary free of I/O and async work. Use existing
+execution-domain clocks, blocking jobs, cancellation and joined shutdown. Keep
+typed errors, immutable generations, schema/history/position checks and output
+proofs. Match the bounded ownership pattern in `host_snapshot.rs::encode_snapshot`
+and the complete-job cleanup pattern in `host_archive.rs::publish`.
+
+Production work belongs beside its owning component, with private focused
+modules and preserved public paths. Never create both `feature.rs` and a Rust
+`feature/` directory. New dependencies go through workspace Cargo.toml only if
+an existing contract cannot serve the requirement. No JavaScript engine belongs
+in this native recovery work.
+
+| Responsibility | Existing implementation to inspect before editing |
+| --- | --- |
+| Timers, socket/store bytes | `crates/cellar/durability/raft/{performance,transport_metrics,object_metrics}.rs` |
+| Public activation and ownership | `crates/cellar/durability/raft/{host,host_seed,host_snapshot}.rs` |
+| Source and peer receiver | `crates/cellar/durability/raft/{snapshot,snapshot_capture,snapshot_transport,seed_transport,transport_options}.rs` |
+| Archive selection/publication/replay | `crates/cellar/durability/raft/{host_archive.rs,archive/mod.rs,archive/publication.rs,archive/physical.rs,archive/replay.rs,seed_archive.rs}` |
+| Root image execution/apply | `crates/cellar/durability/raft/{rooted/,execution/rooted_working.rs,execution/images.rs,host_sql/mod.rs,host_sql/images.rs}` |
+| Immutable storage/codec | `crates/cellar-ltx/src/{generation.rs,stream_snapshot/,extent/}` |
+| Functional acceptance fixtures | `crates/cellar/tests/{native_raft_large_images.rs,support/raft_full_capacity.rs}` |
+| Native process/fault patterns | `crates/cellar/tests/{native_raft_daemon.rs,support/raft_seed_crash.rs,support/raft_seed_fault.rs}` |
+| Physical process harness | `tools/perf/raft.py`, `tools/perf/raft-README.md`, `tools/multi-raft/README.md` |
+
+Scope also includes new owning-component tests, a proposed recovery campaign
+runner/analyzer under `tools/perf/`, explicit recovery profiles, and updated
+component/operations documentation when behavior lands. Implementation changes stay within these owning components. Unrelated RPC, language adapters, UI, dependency
+upgrades, higher quotas and LTX format redesign are outside the implementation.
+Coordinate any required root/snapshot contract change in one format-1 hard
+cutover; do not introduce legacy readers, silent backend fallback or migrations.
+
+## Execution order and status
+
+| Package | Deliverable | Depends on | Effort / risk | Status |
+| --- | --- | --- | --- | --- |
+| RT-01 | Stage evidence and a focused cold-recovery oracle | Existing materialized functional passes | M / medium | IN PROGRESS |
+| RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | TODO |
+| RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | TODO |
+| RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | TODO |
+| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
+| RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
+
+RT-02 and RT-03 need not wait for the entire extent backend. Establish M1 after
+they land. RT-04 first restores a complete local extent closure, preserving the
+existing sealed-image contract; RT-05 separately introduces remote dependency
+capabilities. Establish M2 only after its first-write and fault gates pass.
+
+## RT-01: Measure and establish a focused recovery oracle
+
+Implementation began from updated `main` at `b3ff49a6` after PR #128 merged.
+The campaign guide at `tools/perf/recovery-README.md` describes the native
+phase ledger, strict source/profile-bound runner and analyzer. Minute-scale
+histograms and native peer/archive observations are implemented; the focused
+ordinary-size pilots and broader regression checks are being verified. Full-size
+stage attribution, repeated physical pilots and all later milestones remain open.
+The measurement-core run passed 648 library, 70 archive, six ordinary large-image,
+23 operations and 44 snapshot cases, including existing small process-crash
+matrices. The fixed metric inventory is 41 operations, 39 counters and 22 buckets;
+its native cardinality test checks exactly 1,230 performance series independent
+of group count. The subsequently strengthened fixture recreates the replacement
+SDK runtime inside the timer and passes three small cases, including a follower
+seed source after a leader change. The initial fixed-source repair orchestrator
+failed with `NotLeader`; the corrected orchestrator retains the same plan and
+resolves the current leader for each mutation. The earlier uninstrumented stall
+is not fully attributed by that deterministic regression. All-target/all-feature Clippy for `cellar` and `cellar-ltx` passes with warnings
+denied. Formatting and layout checks cover 1,188 Rust files, and the native-only
+dependency guard reports 466 packages with no JavaScript engine. The runner
+owns per-trial worker directories through interruption and requires a source-bound
+release build manifest. Full-size physical pilots remain open. These counts do not qualify a new
+10 GB recovery time.
+
+1. Extend the existing finite metric families with source admission/encoding,
+   fetch queue, actual received bytes, append, destination verification/sync,
+   install, tail replay, promotion, first read/write and cleanup observations.
+   Add useful long-duration histogram buckets, or a separate bounded recovery
+   histogram. Update registry/cardinality tests. Do not add cell IDs, root IDs
+   or request IDs as unbounded metric labels. Exact per-trial samples belong in
+   the private evidence ledger, joined by a bounded trial identity.
+2. Attribute source spools to capture purpose and exact generation. Count bytes
+   scanned, hashed, encoded, transferred, written and retained separately. Keep
+   kernel socket bytes, object payload bytes, logical DB bytes and fsync counts
+   distinct. Record queue time even when no progress bytes are produced.
+3. Add a focused immediate-repair fixture alongside the existing full-capacity
+   drill. Reuse its source template, known payload oracle, receipts and native
+   SDK paths. Preserve the existing long functional drill unchanged. The new
+   fixture times the entire replacement read/write path without interleaved
+   quota experiments; its later full verification still gates acceptance.
+4. Add `tools/perf/recovery.py`, `analyze_recovery.py`, `test_recovery.py` and
+   `recovery-profiles.json` (proposed new artifacts). Follow existing isolated
+   process/container ownership patterns. Provide one owner for all child
+   processes and backend resources; cancel and join them on failure. The runner
+   needs four worker slots for immediate repair; the existing three-node harness
+   is a starting pattern, not an already complete 10 GB recovery runner.
+
+Verification: existing large-image, archive and snapshot targets below pass;
+new ordinary-size tests prove stage completion/failure/cancellation accounting.
+The analyzer's unit tests reject zero selected tests, missing phases, bad values,
+source/profile drift and a timed-out sample disguised as success. A pilot with
+three actual 10 GB trials per path produces a complete stage ledger. It is
+baseline evidence, not a qualified p95. Do not choose pipeline parameters until
+source/transfer/destination measurements identify the dominant work.
+
+## RT-02: Remove avoidable materialized-path work
+
+1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
+   large peer snapshots under explicit memory admission. Account for codec,
+   transport and decoded buffers together. Preserve Compact for providers that
+   cannot admit the larger profile; encoded bytes and proof checks must match.
+2. Overlap receiving chunk N+1 with writing verified chunk N using a bounded
+   queue. Start with two 1 MiB slots; measure 2/4/8 slots. If RTT remains dominant,
+   add bounded request pipelining with exact response correlation. Keep the
+   existing frame bound initially. Wire-window changes require coordinated
+   capability checks and independent tests, not simply a larger constant.
+3. Coalesce expensive immutable payload preparation only for identical source
+   generation/content, geometry, schema/history and compatible codec limits.
+   A small node-owned cache pins prepared bytes under explicit byte/file limits.
+   Each consumer still gets its own current cut, grant, lease and membership
+   checks; shared payload bytes must never share authority. Do not assume the
+   two observed encoders necessarily represent reusable work.
+4. Cancellation detaches a waiter without dropping buffers/files still in use.
+   The last physical owner releases the charge after blocking cleanup joins.
+   Preserve authentication, ordered offsets, per-chunk digest, complete encoded
+   integrity, destination verification and sync before publication. Keep full
+   image verification wherever the current contract requires it; reducing such
+   scans requires a separately specified proof, not trusting a filename/reflink.
+
+Verification: snapshot tests add slow-disk/network, wrong-order/tag/digest,
+expired lease, shared-consumer cancellation, cache eviction and shutdown cases.
+Measured buffers stay within the declared window plus existing codec allowance.
+Re-run both exact 10 GB drills and the focused campaign. Report saved source
+encodes, transfer throughput and total RTO, not throughput alone. Any retained
+whole-image copy/hash pass gets an explicit count and cost.
+
+## RT-03: Keep a usable recovery source ready
+
+1. In the archive producer and controller, expose durable archived position,
+   committed/applied position, tail bytes and estimated replay time. Archive lag
+   is not just elapsed age or entry count. Maintain the existing conditional
+   publication and independently verified dependency proof.
+2. Keep a reusable verified checkpoint and bounded committed tail ready during
+   normal operation. Coalesce obsolete pending work only when its retained
+   history is covered by a newer verified recovery set. Rotate on measured
+   replay bytes/time as well as entry count; avoid creating another full 10 GB
+   snapshot on every small command.
+3. Make recovery/foreground I/O scheduling explicit, node-wide and bounded.
+   Reserve capacity for Raft control, queries and small-cell commands; bulk
+   encoders and hydration share a separate queue. Include queue delay in RTO.
+   Choose peer or archive based on authorized coverage and measured source
+   readiness. Avoid unbounded speculative duplicate full-image downloads.
+4. Preserve write durability semantics. Quorum acknowledgement does not prove
+   current RustFS coverage; report degraded archive readiness and apply existing
+   backlog admission rather than inventing an archive proof. If the source is
+   behind, fetch the necessary committed tail through an authorized path or
+   refuse readiness. Do not return stale state to meet the timer.
+5. For maintenance, require the target voter's exact applied position, prepared
+   writer and capacity before leadership transfer and drain. A blank standby
+   must first seed and catch up. Keep at least a surviving voting majority.
+
+Verification: archive tests cover slow/stalled store, competing publishers,
+independent cells, backlog pressure and retained dependencies during rotation.
+Controller/operations tests cover stale applied state, interrupted handoff,
+quorum loss and concurrent repair. Campaigns include both ready and deliberately
+lagged archives; waiting for the head must remain in their reported duration.
+If the 10-second replay budget is infeasible, record the measured bound and
+redesign snapshot frequency/catch-up before accepting M1.
+
+## RT-04: Connect complete extent recovery end to end
+
+1. Reuse the existing domain-separated `ImageRoot`, 4 MiB `ExtentId` and
+   canonical manifest; do not invent another page index. A 10 GB image has
+   2,385 extents and a 76,432-byte manifest. Roots bind schema, history,
+   geometry and LTX state; the authenticated native record binds scope,
+   incarnation and exact committed term/index/membership separately.
+2. Define peer and archive snapshot descriptors containing the exact root,
+   bounded manifest and immutable extent identities. Persist/upload missing
+   extent objects with verified exact content and lengths. Publish the root
+   conditionally only after its dependency closure has the required durability.
+   Keep a bounded subsequent tail and protect references before log truncation.
+3. Implement both source and receive/seal paths in snapshot/seed, archive replay,
+   rooted apply and host SQL. For this package, receive and verify all missing
+   extents locally before producing `SealedImageRoot` or installing a durable
+   engine marker. Duplicate transfers reuse only independently verified objects.
+4. Wire node-owned extent inventory, workspace budgets, root-reference recovery
+   and GC through startup, checkpoints, retirement, membership repair and joined
+   shutdown. Rebuild the complete reference set before reclaim. A single cell's
+   restore must never reclaim another cell's live roots.
+5. Enable public backend selection only after both peer and archive recovery
+   have passed the same admission/receipt/fault oracles. Persist an unambiguous
+   representation/capability contract, keep Cellar-owned markers at 1, and make
+   mismatches refuse startup. Use a coordinated fresh-deployment hard cutover;
+   no automatic conversion of an existing materialized history is in scope.
+
+Verification: existing extent tests plus new native rooted peer/archive seed
+and restart tests pass. Corruption, missing dependencies, truncation/growth,
+reserved lock-page holes and offsets above 4 GiB must be tested. Repeat both
+near-quota drills with the public extent path and the same payload/receipt
+oracle. Backend flags without remote recovery are not completion.
+
+## RT-05: Serve safely before complete hydration
+
+1. Introduce an explicit installed-root capability backed by durable retained
+   remote dependencies. This is a new contract, not a relaxed
+   `SealedImageRoot`. Stage/sync metadata, verify the authenticated root and
+   restore the exact committed tail before installation. Prove what base
+   durability permits voting, log truncation and write acknowledgement before
+   allowing a partially hydrated voter to contribute to those proofs.
+2. Pin remote dependencies for each installed root, snapshot, seed and in-flight
+   reader/writer. Retention must outlive a temporary source lease and survive
+   worker restart. GC and promotion must inspect authoritative references;
+   neither latest-head-only GC nor a cache-presence bit is sufficient.
+3. Supply `ExtentSource` through the owning execution domain with bounded,
+   coalesced fetches, deadlines and priority over background hydration. Verify
+   exact length/content before exposing bytes. The synchronous SQLite VFS must
+   not block the async driver; source unavailability/corruption yields a typed
+   read/admission failure, never a zero-filled or different-version page.
+4. Fetch schema/root pages and the declared hot set first; hydrate the rest with
+   bounded background concurrency. Atomically record verified local presence or
+   rediscover verified objects after restart. Resumption is by exact extent ID,
+   never an unverified raw download prefix. Reads remain pinned to their root.
+5. Complete incremental private-writer and apply integration so a small first
+   command fetches/hashes only touched extents plus bounded metadata, publishes
+   its new root under ordinary output proofs and retains unchanged dependencies.
+   Do not fall back to full-image hashing on writer open, receipt access, quota
+   checks or WAL recycling. Respect existing WAL/workspace/delta limits.
+
+Verification: while hydration is intentionally paused below 100%, the authorized
+replacement reads an uncached extent, performs and verifies a new durable small
+command, reconciles a duplicate receipt and survives a fresh process restart.
+Kill it before and after each root/extent/marker sync boundary. Delete its cache
+and verify recovery at the same root. Loss of a required remote extent fails
+safely. A read-only or learner-only demonstration does not complete M2.
+For the same hot workload, first-use bytes/RAM stay bounded as total database
+size increases from 256 MiB to 10 GB. Full-scan workloads are reported separately.
+
+## RT-06: Harden and qualify the targets
+
+Use deterministic small fault tests in ordinary CI and source-pinned physical
+campaigns for actual size, process loss and performance. Runtime tests precede
+each package's rollout; do not defer all fault coverage to this final gate.
+
+| Matrix axis | Required cases |
+| --- | --- |
+| Physical recovery | Live peer and real RustFS, new process and empty local disk, then retained-disk restart |
+| Crash boundaries | Hard process kill during source preparation, download, extent sync, root sync, engine install, first write and background hydration |
+| Authority | Old owner returns, stale epoch/incarnation, expired grant, membership change, lost quorum, source changes mid-transfer |
+| Integrity/capacity | Missing/corrupt objects or manifests, partial writes, disk full, growth/truncation, >4 GiB offsets, quota refusal and cleanup |
+| Retry/lifecycle | Lost replies, same command ID, canceled waiters, overloaded queues, retries, joined shutdown with no premature refunds |
+| Workloads | 256 MiB, 1 GiB, 4 GiB, near decimal 10 GB; compressible/incompressible; fixed hot set and broad/random reads |
+| Interference | One/two recoveries and repair burst with foreground small cells; source/store stalls; realistic RTT and bandwidth limits |
+
+Begin with three pilot trials per backend, then at least 100 timed trials for
+each claimed backend/storage/reference-profile combination. Report nearest-rank
+p50/p95/p99, sample count, spread, failures and censored deadlines. Treat failed
+or timed-out samples as target misses, never discard them from the denominator.
+The ordinary per-operation deadlines and all correctness assertions stay intact.
+One hundred observations provide an empirical percentile, not a universal tail
+probability guarantee; retain confidence/variability information with the claim.
+
+Bind every result to source/tree/executable hashes, exact selected tests, profile,
+limits and complete phase ledger. Keep backend credentials and cell contents out
+of published artifacts. No SQL readers or full payload samplers may warm the
+replacement before its timed first operations. Label source/store OS caches
+separately; an empty worker is not evidence of a cold source cache. Use disposable
+VMs for cold OS-cache experiments; do not drop the shared development host cache.
+
+A scoped pass requires zero durability/integrity/ownership violations and the
+chosen target met in its declared envelope. Separately report unavailable or
+underprovisioned runs. Backpressure may refuse excess work safely, but a refused
+recovery is not a successful RTO sample. Measure foreground latency/throughput
+against a same-source control; initially require <=10% degradation at the declared
+non-saturating load. This interference bound is proposed and must be calibrated.
+
+## Verification commands and expected results
+
+Use a writable Cargo target unique to the implementation checkout on the workspace
+volume. For example, choose a fresh name before the first build:
+
+```sh
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-recovery-time-010"
+cargo format --check
+cargo check-layout
+python3 tools/check_native_dependencies.py
+python3 tools/docs/check.py
+cargo test --locked -p cellar-ltx --all-features --lib --tests
+cargo test --locked -p cellar --lib
+cargo test --locked -p cellar --test native_raft_large_images
+cargo test --locked -p cellar --test native_raft_archive
+cargo test --locked -p cellar --test native_raft_snapshot
+cargo test --locked -p cellar --test native_raft_rooted
+cargo test --locked -p cellar --test native_raft_execution
+cargo test --locked -p cellar --test native_raft_operations
+cargo test --locked -p cellar --test native_raft_daemon
+cargo clippy --locked -p cellar -p cellar-ltx --all-targets --all-features -- -D warnings
+```
+
+Expected: nonzero selected tests for each named target, all pass, guards and
+Clippy exit zero; no lint allowances or weaker timeout/proof assertions. Apply
+owning-crate feature checks from `.github/workflows/native-sdk.yml` and its wider
+release gates before deployment. Do not enable `cellar_internal_tests` manually.
+
+Existing explicit full-size commands (supply the documented private RustFS/S3
+environment and work directories; never print credentials):
+
+```sh
+cargo test --locked --release -p cellar --test native_raft_large_images full_capacity::decimal_ten_gb_rustfs_restores_native_serving_after_owner_and_local_state_loss -- --ignored --exact --nocapture --test-threads=1
+cargo test --locked --release -p cellar --test native_raft_large_images full_capacity::decimal_ten_gb_peer_restores_native_serving_after_owner_and_local_state_loss -- --ignored --exact --nocapture --test-threads=1
+```
+
+Expected: exactly one selected test per command, both pass with payloads, quota,
+new writes, restart, receipts and joined shutdown. These commands alone do not
+qualify M1/M2. They currently select the materialized representation; RT-04 must
+add equally explicit extent commands and verify their actual selected backend.
+
+The following initial campaign interface is implemented for materialized
+embedded-node pilots. Qualification still requires the remaining fault and
+hardware gates; see `tools/perf/recovery-README.md` for current behavior:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_recovery.py' -v
+python3 tools/perf/recovery.py --backend rustfs --storage materialized --profile reference-10gb --repetitions 3 --output /tmp/cellar-recovery-010-rustfs
+python3 tools/perf/recovery.py --backend peer --storage materialized --profile reference-10gb --repetitions 3 --output /tmp/cellar-recovery-010-peer
+python3 tools/perf/analyze_recovery.py /tmp/cellar-recovery-010-rustfs --mode pilot --target-seconds 120 --minimum-samples 3
+```
+
+The pilot analyzer must clearly label its result unqualified. For acceptance,
+use fresh private run directories, `--repetitions 100` and
+`--mode qualify --minimum-samples 100`; require all phases, the exact target-sized fixture,
+post-recovery value/receipt checks, hard-kill suite evidence and source/profile
+identity. Repeat independently for peer and RustFS. RT-05 adds `--storage extents`
+and a distinct activation profile/30-second target; a hydrated-first fixture
+cannot satisfy that profile. Qualification mode must exit nonzero with inadequate
+evidence or an unmet target; pilot mode must never emit a qualified result.
+
+## Completion, stop conditions and maintenance
+
+Before editing, compare the current implementation with the source map and
+record `git diff --stat c6338ad45f64425e44ba54a9ad04f2058b947089..HEAD -- crates/cellar/durability/raft crates/cellar-ltx tools/perf`.
+Reconcile drift in these contracts before executing a step. Use a `codex/`
+branch and reuse an active relevant PR; after it merges, start from updated main.
+Keep each package independently reviewable. Update this status table and the
+current qualification ledger with exact evidence; never mark the entire existing
+multi-Raft delivery complete from a recovery-only pass.
+
+Stop the affected rollout and report a contract/design decision when a step
+would require trusting unverified bytes, losing a live root reference, counting
+a partially hydrated voter without a valid durability proof, changing history
+or weakening ownership/output/deadline checks. Safe work on independent packages
+can continue. Hardware that cannot meet the profile should yield an honest
+measured envelope and revised design, not a concealed timing exclusion.
+
+All of these must hold before claiming this plan implemented:
+
+- [ ] RT-01–RT-06 evidence is source-bound and their table rows are DONE.
+- [ ] Peer and RustFS M1 each meet the 120-second observed-p95 gate.
+- [ ] Public extent peer/archive recovery passes the full native correctness oracle.
+- [ ] Both extent sources satisfy M2 with verified durable first writes before full hydration.
+- [ ] Process-loss, corruption, stale authority, replay, GC, retry, resource and interference cases pass.
+- [ ] Ordinary tests/Clippy/guards pass, including unchanged archive-close regressions.
+- [ ] Operators can inspect the selected root/cut, source freshness, tail cost,
+      queue/phase progress, verified cache bytes and full-hydration status.
+- [ ] Documentation names the qualified hardware, workload, concurrency, cache
+      state and sample population; deferred matrix items remain explicit.
+
+Review future changes to command envelopes, root formats, archive compaction,
+log retention, WAL policy, storage providers and execution-domain lifecycle against
+these gates. Source lag and per-small-write full-image work are recovery costs
+that must remain visible even after the bulk network path becomes faster.

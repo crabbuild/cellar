@@ -681,6 +681,23 @@ impl RaftTransport {
         schema: [u8; 32],
         limits: SnapshotLimits,
     ) -> Result<ReceivedSeed, TransportError> {
+        self.handle
+            .0
+            .performance
+            .measure(
+                crate::raft::performance::Operation::RecoveryPeerFetch,
+                self.fetch_seed_inner(grant, birth, schema, limits),
+            )
+            .await
+    }
+
+    async fn fetch_seed_inner(
+        &self,
+        grant: super::seeds::SeedGrant,
+        birth: &crate::raft::catalog::GroupBirth,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<ReceivedSeed, TransportError> {
         let state = &self.handle.0;
         if !grant.authorized(&state.runtime.log().owner(), grant.local()) {
             return Err(TransportError::Identity);
@@ -777,43 +794,69 @@ impl RaftTransport {
                 length,
             };
             let received = state
-                .seed_process_io(&process, deadline, async {
-                    let request_head =
-                        wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
-                    write_head(&mut stream, &request_head).await?;
-                    let head =
-                        read_bulk_head(&mut stream, None, RESPONSE_MAGIC, length, &state.options)
-                            .await?;
-                    let response: Chunk = wire.decode(
-                        RESPONSE_MAGIC,
-                        RESPONSE_PURPOSE,
-                        &head,
-                        Some(&request_head.tag),
-                    )?;
-                    if head.payload_len == 0
-                        || response.request != request_head.tag
-                        || response.route != request.route.reversed()
-                        || response.snapshot != request.snapshot
-                        || response.transfer != request.transfer
-                        || response.offset != request.offset
-                    {
-                        return Err(TransportError::Authentication);
-                    }
-                    let mut body = vec![0; head.payload_len];
-                    stream.read_exact(&mut body).await?;
-                    if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-                        return Err(TransportError::Authentication);
-                    }
-                    Ok(body)
-                })
+                .performance
+                .measure(
+                    crate::raft::performance::Operation::RecoveryPeerReceive,
+                    state.seed_process_io(&process, deadline, async {
+                        let request_head =
+                            wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
+                        write_head(&mut stream, &request_head).await?;
+                        let head = read_bulk_head(
+                            &mut stream,
+                            None,
+                            RESPONSE_MAGIC,
+                            length,
+                            &state.options,
+                        )
+                        .await?;
+                        let response: Chunk = wire.decode(
+                            RESPONSE_MAGIC,
+                            RESPONSE_PURPOSE,
+                            &head,
+                            Some(&request_head.tag),
+                        )?;
+                        if head.payload_len == 0
+                            || response.request != request_head.tag
+                            || response.route != request.route.reversed()
+                            || response.snapshot != request.snapshot
+                            || response.transfer != request.transfer
+                            || response.offset != request.offset
+                        {
+                            return Err(TransportError::Authentication);
+                        }
+                        let mut body = vec![0; head.payload_len];
+                        stream.read_exact(&mut body).await?;
+                        if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
+                            return Err(TransportError::Authentication);
+                        }
+                        Ok(body)
+                    }),
+                )
                 .await?;
             let received_length = received.len();
+            state.performance.increment(
+                crate::raft::performance::Counter::RecoveryPeerReceivedBytes,
+                received_length as u64,
+            );
+            let queued = state
+                .performance
+                .timer(crate::raft::performance::Operation::RecoveryAppendQueue);
+            let performance = state.performance.clone();
             // Move the entire scratch owner into registered blocking work. A
             // cancelled waiter cannot close its file underneath an active write.
             download = state
                 .domain
                 .blocking(move || {
-                    download.append(offset, &received)?;
+                    queued.finish(true);
+                    let timer =
+                        performance.timer(crate::raft::performance::Operation::RecoveryAppend);
+                    let result = download.append(offset, &received);
+                    timer.finish(result.is_ok());
+                    result?;
+                    performance.increment(
+                        crate::raft::performance::Counter::RecoveryPeerAppendedBytes,
+                        received_length as u64,
+                    );
                     Ok::<_, crate::raft::snapshot::SnapshotError>(download)
                 })
                 .map_err(|_| TransportError::Closed)?

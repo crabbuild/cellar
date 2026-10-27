@@ -292,24 +292,33 @@ impl RaftTransport {
         schema: [u8; 32],
         deadline: u64,
     ) -> Result<SeedGrant, TransportError> {
-        let (authorization, body, lease) = self
-            .request_seed_authorization(local, source, schema, deadline, SeedKind::Peer)
-            .await?;
-        let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
-            .map_err(|_| TransportError::Protocol)?;
-        if snapshot.get_metadata().index < authorization.barrier.get()
-            || snapshot
-                .write_to_bytes()
-                .map_err(|_| TransportError::Protocol)?
-                != body
-        {
-            return Err(TransportError::Authentication);
-        }
-        Ok(SeedGrant {
-            authorization,
-            snapshot,
-            lease,
-        })
+        self.handle
+            .0
+            .performance
+            .measure(
+                crate::raft::performance::Operation::RecoveryAuthorize,
+                async move {
+                    let (authorization, body, lease) = self
+                        .request_seed_authorization(local, source, schema, deadline, SeedKind::Peer)
+                        .await?;
+                    let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
+                        .map_err(|_| TransportError::Protocol)?;
+                    if snapshot.get_metadata().index < authorization.barrier.get()
+                        || snapshot
+                            .write_to_bytes()
+                            .map_err(|_| TransportError::Protocol)?
+                            != body
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    Ok(SeedGrant {
+                        authorization,
+                        snapshot,
+                        lease,
+                    })
+                },
+            )
+            .await
     }
 
     pub(crate) async fn request_archive_seed(
@@ -319,22 +328,32 @@ impl RaftTransport {
         schema: [u8; 32],
         deadline: u64,
     ) -> Result<ArchiveSeedGrant, TransportError> {
-        let (authorization, body, lease) = self
-            .request_seed_authorization(local, source, schema, deadline, SeedKind::S3)
-            .await?;
-        let reference: crate::raft::archive::ArchiveReference =
-            serde_json::from_slice(&body).map_err(|_| TransportError::Protocol)?;
-        let position = reference.position().map_err(|_| TransportError::Protocol)?;
-        if lease != 0
-            || position.index < authorization.barrier
-            || serde_json::to_vec(&reference).map_err(|_| TransportError::Protocol)? != body
-        {
-            return Err(TransportError::Authentication);
-        }
-        Ok(ArchiveSeedGrant {
-            authorization,
-            reference,
-        })
+        self.handle
+            .0
+            .performance
+            .measure(
+                crate::raft::performance::Operation::RecoveryAuthorize,
+                async move {
+                    let (authorization, body, lease) = self
+                        .request_seed_authorization(local, source, schema, deadline, SeedKind::S3)
+                        .await?;
+                    let reference: crate::raft::archive::ArchiveReference =
+                        serde_json::from_slice(&body).map_err(|_| TransportError::Protocol)?;
+                    let position = reference.position().map_err(|_| TransportError::Protocol)?;
+                    if lease != 0
+                        || position.index < authorization.barrier
+                        || serde_json::to_vec(&reference).map_err(|_| TransportError::Protocol)?
+                            != body
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    Ok(ArchiveSeedGrant {
+                        authorization,
+                        reference,
+                    })
+                },
+            )
+            .await
     }
 
     async fn request_seed_authorization(

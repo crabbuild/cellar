@@ -121,11 +121,16 @@ impl RaftTransport {
                 .ok_or(TransportError::Overloaded)?,
         );
         let archive = archive.with_read_retention(reservation.clone());
-        let set = state
+        let timer = state
+            .performance
+            .timer(crate::raft::performance::Operation::RecoveryArchiveFetch);
+        let result = state
             .seed_process_until(grant.process_epoch(), grant.deadline(), async {
                 Ok(archive.recovery_set_at(grant.reference()).await)
             })
-            .await??;
+            .await;
+        timer.finish(result.as_ref().is_ok_and(|set| set.is_ok()));
+        let set = result??;
         if set.reference() != *grant.reference() {
             return Err(TransportError::Authentication.into());
         }

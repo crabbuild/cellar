@@ -143,7 +143,12 @@ impl Initializer {
         let Value::Seeded(seed) = output.value else {
             anyhow::bail!("standby SQL seed response")
         };
-        log.create_seeded(*seed).await?;
+        log.performance()
+            .measure(
+                super::super::performance::Operation::RecoveryInstall,
+                log.create_seeded(*seed),
+            )
+            .await?;
         transport
             .seed_control_until(deadline, async {
                 Ok(dormant

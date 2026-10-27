@@ -11,6 +11,8 @@ mod full_capacity;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_recovery.rs"]
+mod recovery;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::Catalog;

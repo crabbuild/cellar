@@ -705,7 +705,14 @@ async fn initialize(
                             let Value::Seeded(seed) = output.value else {
                                 anyhow::bail!("SQL seed response")
                             };
-                            service.log.create_seeded(*seed).await?;
+                            service
+                                .log
+                                .performance()
+                                .measure(
+                                    super::performance::Operation::RecoveryInstall,
+                                    service.log.create_seeded(*seed),
+                                )
+                                .await?;
                             namespace
                                 .resume_joined(&birth, &service.log, member)
                                 .await?
@@ -1246,6 +1253,9 @@ impl Driver {
             if result.is_err() {
                 read.request.control.cancel();
             }
+            if let Some(timer) = read.archive_wait.take() {
+                timer.finish(result.is_ok());
+            }
             reply(&mut read.request, result);
         }
     }
@@ -1351,6 +1361,13 @@ impl Driver {
                             continue;
                         }
                         if *kind == super::transport::seeds::SeedKind::S3 {
+                            // One owner spans all metadata retries and waiting
+                            // for the archive to cover this exact ReadIndex.
+                            read.archive_wait.get_or_insert_with(|| {
+                                self.local
+                                    .performance
+                                    .timer(super::performance::Operation::RecoveryArchiveWait)
+                            });
                             let archive = cell.archive.clone().with_read_retention(charge.clone());
                             read.phase = ReadPhase::Executing;
                             self.jobs.push(Box::pin(async move {
