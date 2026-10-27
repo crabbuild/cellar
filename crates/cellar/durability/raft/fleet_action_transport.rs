@@ -1,26 +1,26 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Exact admitted membership actions over the rooted authenticated control lane.
+//! Exact admitted fleet actions over the rooted authenticated control lane.
 //! Lost responses never prove whether configuration or initialization committed.
 use super::inspections::META_BYTES;
 use super::snapshots::{read_bulk_head, Wire};
 use super::*;
 use crate::application::consensus::RaftCells;
 use crate::raft::fleet_catalog::FleetCatalogError;
-use crate::raft::fleet_catalog::{MovementAction, MovementCommand};
+use crate::raft::fleet_catalog::{FleetExecutionCommand, MovementAction};
 use crate::raft::fleet_stop::BootBinding;
 use crate::raft::node_inspection_wire::NodeRoute;
 use sha2::{Digest, Sha256};
 
 #[cfg(test)]
-#[path = "fleet_move_transport_tests.rs"]
+#[path = "fleet_action_transport_tests.rs"]
 mod tests;
 
-pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLMQ";
-const RESPONSE_MAGIC: &[u8; 4] = b"CLMR";
-pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-fleet-move-1";
-const REQUEST_PURPOSE: &[u8] = b"cellar-fleet-move-request-1";
-const RESPONSE_PURPOSE: &[u8] = b"cellar-fleet-move-response-1";
+pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLXQ";
+const RESPONSE_MAGIC: &[u8; 4] = b"CLXR";
+pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-fleet-action-1";
+const REQUEST_PURPOSE: &[u8] = b"cellar-fleet-action-request-1";
+const RESPONSE_PURPOSE: &[u8] = b"cellar-fleet-action-response-1";
 const MAX_BODY: usize = 4096;
 
 #[derive(Serialize, Deserialize)]
@@ -44,7 +44,7 @@ impl RequestHead {
         Ok(deadline)
     }
 
-    fn decode_body(&self, bytes: &[u8]) -> Result<MovementCommand, TransportError> {
+    fn decode_body(&self, bytes: &[u8]) -> Result<FleetExecutionCommand, TransportError> {
         if frame::decimal(&self.nonce)? == 0
             || !(1..=60_000).contains(&self.timeout_ms)
             || bytes.len() > MAX_BODY
@@ -52,7 +52,7 @@ impl RequestHead {
         {
             return Err(TransportError::Protocol);
         }
-        let request: MovementCommand =
+        let request: FleetExecutionCommand =
             serde_json::from_slice(bytes).map_err(|_| TransportError::Protocol)?;
         check_request(&self.route, &request)?;
         self.check_origin()?;
@@ -133,11 +133,11 @@ impl ReplyHead {
     }
 }
 
-fn check_request(route: &NodeRoute, request: &MovementCommand) -> Result<(), TransportError> {
+fn check_request(route: &NodeRoute, request: &FleetExecutionCommand) -> Result<(), TransportError> {
     request.validate().map_err(|_| TransportError::Identity)?;
     let (_, target) = route.identities()?;
-    let boot = &request.target;
-    if matches!(request.action, MovementAction::Activate { source_node, .. } if source_node == boot.node)
+    let boot = request.target();
+    if matches!(request, FleetExecutionCommand::Movement(command) if matches!(command.action, MovementAction::Activate { source_node, .. } if source_node == boot.node))
     {
         return Err(TransportError::Identity);
     }
@@ -193,9 +193,9 @@ fn preflight_error(error: TransportError) -> FleetCatalogError {
 }
 
 impl RaftTransport {
-    pub(crate) fn request_movement(
+    pub(crate) fn request_fleet_action(
         &self,
-        request: MovementCommand,
+        request: FleetExecutionCommand,
         minimum_revision: u64,
         deadline: u64,
     ) -> Result<Delivery, FleetCatalogError> {
@@ -207,7 +207,7 @@ impl RaftTransport {
         if deadline <= now || deadline - now > 60_000 {
             return Err(FleetCatalogError::Unconfirmed);
         }
-        let target = NodeId::new(request.target.node)
+        let target = NodeId::new(request.target().node)
             .map_err(|_| FleetCatalogError::Invalid("movement target"))?;
         let (peer, route, budget) = state
             .node_metadata_route(target, minimum_revision)
@@ -246,7 +246,7 @@ impl RaftTransport {
                 if *cancelled.borrow() { return Err(TransportError::Closed); }
                 crate::asyncrt::select_biased! { "movement caller cancellation leaves physical owners intact";
                     _ = cancelled.changed() => Err(TransportError::Closed),
-                    result = operation.movement_exchange(&peer, &route, origin, nonce, deadline, &bytes) => result,
+                    result = operation.fleet_action_exchange(&peer, &route, origin, nonce, deadline, &bytes) => result,
                 }
             }).await;
             // After transmission, even a malformed or lost reply cannot prove
@@ -265,7 +265,7 @@ impl RaftTransport {
 }
 
 impl State {
-    async fn movement_exchange(
+    async fn fleet_action_exchange(
         &self,
         peer: &RaftPeerNode,
         route: &NodeRoute,
@@ -317,7 +317,7 @@ impl State {
         reply.check(&request)
     }
 
-    pub(super) async fn receive_movement<S: AsyncRead + AsyncWrite + Unpin>(
+    pub(super) async fn receive_fleet_action<S: AsyncRead + AsyncWrite + Unpin>(
         &self,
         stream: &mut S,
         exporter: &[u8; 32],
@@ -391,7 +391,7 @@ impl State {
                 .as_ref().and_then(|handle| handle.upgrade()).ok_or(TransportError::Refused)?;
             let remaining = deadline.checked_sub(self.domain.mono_ms().map_err(|_| TransportError::Closed)?)
                 .filter(|ms| *ms > 0).ok_or(TransportError::Timeout)?;
-            let work = RaftCells { handle }.execute_local_movement(command, request.origin.clone(),
+            let work = RaftCells { handle }.execute_local_fleet_action(command, request.origin.clone(),
                 request.route.minimum_revision()?, std::time::Duration::from_millis(remaining));
             let mut extra = [0; 1];
             let result = crate::asyncrt::select_biased! { "disconnect cancels the waiter, not committed movement";

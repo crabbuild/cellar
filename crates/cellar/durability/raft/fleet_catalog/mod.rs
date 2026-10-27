@@ -6,6 +6,7 @@ mod capacity;
 mod deadline;
 mod disruption;
 mod evacuation;
+mod execution;
 mod finalization;
 mod histories;
 mod imports;
@@ -24,6 +25,7 @@ pub use capacity::{
     FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
 };
 pub use evacuation::FleetEvacuationAdmission;
+pub(crate) use execution::FleetExecutionCommand;
 pub use finalization::{
     FleetEvacuationArchive, FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
     FleetEvacuationCancellation, FleetEvacuationCandidate, FleetEvacuationVerification,
@@ -35,12 +37,13 @@ pub use histories::{
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
+pub(crate) use maintenance::RestartGenesisCommand;
 pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
     FleetRestartHistoryProgress, FleetRestartPendingWork, FleetRestartRequest,
-    FleetRestartRuntimeCandidate, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
-    FleetRestartVerification,
+    FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartSettlementBlocker,
+    FleetRestartSettlementProgress, FleetRestartVerification,
 };
 pub use namespaces::FleetInventory;
 pub use nodes::{

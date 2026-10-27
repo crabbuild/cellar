@@ -34,10 +34,10 @@ mod control_sender;
 mod directory;
 #[path = "transport_fleet.rs"]
 mod fleet;
+#[path = "fleet_action_transport.rs"]
+pub(crate) mod fleet_actions;
 #[path = "fleet_inspection_transport.rs"]
 pub(crate) mod fleet_inspections;
-#[path = "fleet_move_transport.rs"]
-pub(crate) mod fleet_moves;
 #[path = "fleet_stop_transport.rs"]
 pub(crate) mod fleet_stops;
 #[path = "inspection_transport.rs"]
@@ -1225,7 +1225,7 @@ impl State {
                     .receive_node_inspection(&mut stream, &exporter, prefix)
                     .await;
             }
-            if &prefix[..4] == fleet_moves::REQUEST_MAGIC {
+            if &prefix[..4] == fleet_actions::REQUEST_MAGIC {
                 if lane != Lane::Control
                     || sequence != 0
                     || !self.inspection_enabled.load(Ordering::Acquire)
@@ -1235,10 +1235,10 @@ impl State {
                 let exporter = stream
                     .get_ref()
                     .1
-                    .export_keying_material([0; 32], fleet_moves::EXPORT_LABEL, None)
+                    .export_keying_material([0; 32], fleet_actions::EXPORT_LABEL, None)
                     .map_err(|error| TransportError::Tls(error.to_string()))?;
                 return self
-                    .receive_movement(&mut stream, &exporter, prefix, connected_at)
+                    .receive_fleet_action(&mut stream, &exporter, prefix, connected_at)
                     .await;
             }
             if &prefix[..4] == fleet_stops::REQUEST_MAGIC {

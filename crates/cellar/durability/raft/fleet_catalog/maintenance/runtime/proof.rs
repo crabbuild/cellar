@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 // Preserve the existing fleet physical-evidence freshness envelope.
 const MAX_SAMPLE_AGE_MS: u64 = 5000;
 
-fn now(catalog: &FleetCatalog) -> Result<u64> {
+pub(super) fn now(catalog: &FleetCatalog) -> Result<u64> {
     catalog
         .inner
         .domain
@@ -18,7 +18,7 @@ fn now(catalog: &FleetCatalog) -> Result<u64> {
         .map_err(|_| FleetCatalogError::Closed)
 }
 
-fn fresh(catalog: &FleetCatalog, started: u64, sampled: u64) -> Result<()> {
+pub(super) fn fresh(catalog: &FleetCatalog, started: u64, sampled: u64) -> Result<()> {
     if now(catalog)?
         .checked_sub(started.min(sampled))
         .is_none_or(|age| age > MAX_SAMPLE_AGE_MS)
@@ -28,7 +28,7 @@ fn fresh(catalog: &FleetCatalog, started: u64, sampled: u64) -> Result<()> {
     Ok(())
 }
 
-fn node(
+pub(super) fn node(
     catalog: &FleetCatalog,
     snapshot: &FleetSnapshot,
     view: &RaftHostObservation,
@@ -73,6 +73,21 @@ pub(super) async fn physical(
     observer: &RaftCells,
     deadline: &Deadline<'_>,
 ) -> Result<Box<RaftPhysicalInventory>> {
+    Ok(
+        physical_with_unattached(catalog, snapshot, basis, gate, observer, deadline)
+            .await?
+            .0,
+    )
+}
+
+pub(super) async fn physical_with_unattached(
+    catalog: &FleetCatalog,
+    snapshot: &FleetSnapshot,
+    basis: &Basis,
+    gate: &Gate,
+    observer: &RaftCells,
+    deadline: &Deadline<'_>,
+) -> Result<(Box<RaftPhysicalInventory>, u32)> {
     let target =
         NodeId::new(gate.node.node).map_err(|_| FleetCatalogError::Corrupt("restart target"))?;
     catalog
@@ -125,7 +140,7 @@ pub(super) async fn physical(
         .await?;
     fresh(catalog, started, sampled)?;
     deadline.remaining()?;
-    Ok(inventory)
+    Ok((inventory, observed.view.unattached_engine_histories))
 }
 
 fn stable(configuration: &FleetMembershipConfiguration, voters: &BTreeSet<MemberId>) -> bool {

@@ -1,17 +1,17 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Internal movement controls preserve one original bounded waiter.
+//! Internal fleet actions preserve one original bounded waiter.
 use super::*;
-use crate::raft::fleet_catalog::{FleetCatalogError, MovementCommand};
+use crate::raft::fleet_catalog::{FleetCatalogError, FleetExecutionCommand, MovementCommand};
 use crate::raft::fleet_stop::BootBinding;
 
-pub(crate) struct PeerMovementCall {
-    pub command: MovementCommand,
+pub(crate) struct PeerFleetActionCall {
+    pub command: FleetExecutionCommand,
     pub minimum_revision: u64,
 }
 
-pub(crate) struct LocalMovementCall {
-    pub command: MovementCommand,
+pub(crate) struct LocalFleetActionCall {
+    pub command: FleetExecutionCommand,
     pub origin: BootBinding,
     pub minimum_revision: u64,
 }
@@ -26,7 +26,7 @@ impl RaftCells {
             .node_call(NodeKind::StartMovementService(Box::new(work)), timeout)
             .await
         {
-            Ok(Response::FleetMovementAction(result)) => result,
+            Ok(Response::FleetExecutionAction(result)) => result,
             Err(CommandFailure::Overloaded) => Err(FleetCatalogError::Overloaded),
             _ => Err(FleetCatalogError::Unconfirmed),
         }
@@ -38,11 +38,24 @@ impl RaftCells {
         minimum_revision: u64,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = Result<(), FleetCatalogError>> + Send>> {
+        self.request_peer_fleet_action(
+            FleetExecutionCommand::Movement(command),
+            minimum_revision,
+            timeout,
+        )
+    }
+
+    pub(crate) fn request_peer_fleet_action(
+        &self,
+        command: FleetExecutionCommand,
+        minimum_revision: u64,
+        timeout: Duration,
+    ) -> Pin<Box<dyn Future<Output = Result<(), FleetCatalogError>> + Send>> {
         if command.validate().is_err() {
-            return Box::pin(async { Err(FleetCatalogError::Invalid("movement command")) });
+            return Box::pin(async { Err(FleetCatalogError::Invalid("fleet execution command")) });
         }
-        self.movement_call(
-            NodeKind::PeerMovement(Box::new(PeerMovementCall {
+        self.fleet_action_call(
+            NodeKind::PeerFleetAction(Box::new(PeerFleetActionCall {
                 command,
                 minimum_revision,
             })),
@@ -51,15 +64,15 @@ impl RaftCells {
         )
     }
 
-    pub(crate) fn execute_local_movement(
+    pub(crate) fn execute_local_fleet_action(
         &self,
-        command: MovementCommand,
+        command: FleetExecutionCommand,
         origin: BootBinding,
         minimum_revision: u64,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = Result<(), FleetCatalogError>> + Send>> {
-        self.movement_call(
-            NodeKind::LocalMovement(Box::new(LocalMovementCall {
+        self.fleet_action_call(
+            NodeKind::LocalFleetAction(Box::new(LocalFleetActionCall {
                 command,
                 origin,
                 minimum_revision,
@@ -69,7 +82,7 @@ impl RaftCells {
         )
     }
 
-    fn movement_call(
+    fn fleet_action_call(
         &self,
         kind: NodeKind,
         minimum_revision: u64,
@@ -80,12 +93,12 @@ impl RaftCells {
             || timeout.as_millis() == 0
             || timeout > Duration::from_secs(60)
         {
-            return Box::pin(async { Err(FleetCatalogError::Invalid("movement bounds")) });
+            return Box::pin(async { Err(FleetCatalogError::Invalid("fleet action bounds")) });
         }
         let call = self.node_call(kind, timeout);
         Box::pin(async move {
             match call.await {
-                Ok(Response::FleetMovementAction(result)) => result,
+                Ok(Response::FleetExecutionAction(result)) => result,
                 Err(CommandFailure::Overloaded) => Err(FleetCatalogError::Overloaded),
                 _ => Err(FleetCatalogError::Unconfirmed),
             }

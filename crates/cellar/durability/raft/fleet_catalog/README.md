@@ -546,9 +546,8 @@ whole turn's observations must fit the existing five-second freshness envelope.
 Retired copies remain physical occupancy, never votes or release credit.
 Unrelated histories require no quorum probes. Unknown slots, unsettled roles,
 cancelled histories with physical state and missing rightful genesis refuse
-completion. The latter needs materialization through a subsequent owned runtime
-step, not an absence default. Failed verification leaves the same history
-pending. Policy, Nodes, Histories, Admissions, the exact gate and active-settlement
+completion. Missing original voters require the owned materialization turn
+described below. Failed verification leaves the same history pending. Policy, Nodes, Histories, Admissions, the exact gate and active-settlement
 pointer are revalidated around every catalog turn; relevant drift invalidates
 the walk. Unrelated Operations journal progress may proceed.
 
@@ -561,6 +560,40 @@ proof, and it grants no RestartReady, leadership handoff, stop, fresh boot,
 capacity or slot release. Leader-local matched progress, observed transfer,
 final readiness renewal and the remaining stop/return/resume phases remain
 unfinished. These explicit APIs add no work to business write acknowledgement.
+
+### Owned original-voter materialization
+
+`FleetRestartVerification::reconcile_next` adds bounded construction to the pure
+inspection path. Each turn initializes at most one missing original voter or
+verifies the pending history. It uses the existing immutable Live birth and
+one-time member claim as intent. The command pins the exact gate parent,
+operation, relevant inventory inputs, history digest and destination boot.
+The receiver independently checks those current rooted values, current settled
+placement and original-member identity, then invokes the existing guarded
+registration and initial-member pipeline. An imported birth, dynamic member,
+retired slot or claimed blank engine cannot grant fresh genesis.
+
+The shared fleet action lane now carries explicit Movement and RestartGenesis
+variants. Their receiving authorities remain separate; a movement permit cannot
+authorize genesis. TLS exporter/purpose binding, route, nonce, body digest,
+reply ownership, original deadlines and existing metadata/connection budgets
+are preserved. This internal wire is a hard cutover: old flat movement bodies
+and the old movement channel purpose are refused. The body limit remains 4 KiB.
+
+Materialization retains the same pending history. A successful local activation
+receipt is checked against complete physical occupancy with no initializer,
+registration or seed work still running. If a durable slot remains unattached,
+the same original-voter pipeline can reconcile it; an occupied engine is never
+reset. The target inventory may absorb only the exact pending genesis history;
+any other changed physical slot invalidates the walk. At most three attachment
+checks are retained for that pending history and discarded after verification.
+Lost replies leave the irreversible history and physical owner intact. A reopened
+controller repeats actual inspection and idempotent activation where needed;
+it cannot manufacture progress from stored counts or a timeout.
+
+All three current voters must exist before the separate fresh quorum/publication
+turn can consume the history. Initialization does not attest health, transfer
+leadership, issue RestartReady, permit stop or release capacity/disruption debt.
 
 ## Terminal removal and recovery
 

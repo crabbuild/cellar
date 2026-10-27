@@ -26,6 +26,25 @@ pub(super) struct Basis {
 }
 
 impl Basis {
+    // A current Root may have unrelated Operations progress. Pin every input
+    // that this walk actually verified, without turning revision into a lease.
+    pub fn input_digest(&self) -> Result<[u8; 32]> {
+        Ok(hash(&encode(
+            84,
+            &(
+                self.operation,
+                self.histories,
+                self.namespaces,
+                self.gate,
+                self.parent,
+                self.slot,
+                self.tables,
+                self.separation,
+            ),
+            4096,
+        )?))
+    }
+
     pub fn capture(snapshot: &FleetSnapshot, gate: &Gate) -> Result<Self> {
         Ok(Self {
             operation: gate.request.operation,

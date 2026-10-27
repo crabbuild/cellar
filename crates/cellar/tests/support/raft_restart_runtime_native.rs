@@ -2,6 +2,8 @@
 
 //! Actual bounded runtime walk; both survivors, not just quorum availability.
 use super::*;
+#[path = "raft_restart_genesis_native.rs"]
+mod genesis;
 use cellar::application::consensus::verification::{
     FleetRestartHistoryProgress, FleetRestartVerification,
 };

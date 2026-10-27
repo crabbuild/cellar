@@ -1193,7 +1193,7 @@ enum SqlPurpose {
 
 enum Job {
     FleetMovementServiceStopped,
-    FleetMovement(Box<fleet_execution::Completed>),
+    FleetAction(Box<fleet_execution::Completed>),
     PeerFleetStop(Box<fleet_stop::Completed>),
     PeerFleetInspection(Box<fleet_inspection::PeerCompleted>),
     LocalFleetInspection(Box<fleet_inspection::LocalCompleted>),
@@ -3186,7 +3186,7 @@ impl Driver {
     fn on_job(&mut self, job: Job) {
         match job {
             Job::FleetMovementServiceStopped => (),
-            Job::FleetMovement(completed) => self.finish_fleet_movement(*completed),
+            Job::FleetAction(completed) => self.finish_fleet_action(*completed),
             Job::PeerFleetStop(completed) => self.finish_peer_fleet_stop(*completed),
             Job::FleetAdmission(completed) => self.finish_fleet_admission(*completed),
             Job::HistoryRegistered(completed) => self.finish_history_registration(*completed),

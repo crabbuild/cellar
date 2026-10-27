@@ -4,8 +4,8 @@ use super::*;
 
 pub(crate) enum NodeKind {
     StartMovementService(Box<crate::raft::fleet_catalog::MovementServiceWork>),
-    PeerMovement(Box<super::PeerMovementCall>),
-    LocalMovement(Box<super::LocalMovementCall>),
+    PeerFleetAction(Box<super::PeerFleetActionCall>),
+    LocalFleetAction(Box<super::LocalFleetActionCall>),
     Drain,
     Observe,
     ObservePhysical,

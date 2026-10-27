@@ -23,9 +23,9 @@ use tokio::sync::{mpsc, oneshot, Notify};
 #[path = "client_fleet.rs"]
 mod fleet;
 pub(crate) use fleet::FleetRequest;
-#[path = "client_movement.rs"]
-mod movement;
-pub(crate) use movement::{LocalMovementCall, PeerMovementCall};
+#[path = "client_execution.rs"]
+mod execution;
+pub(crate) use execution::{LocalFleetActionCall, PeerFleetActionCall};
 
 #[path = "client_bindings.rs"]
 mod bindings;
@@ -1170,7 +1170,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
-    FleetMovementAction(Result<(), crate::raft::fleet_catalog::FleetCatalogError>),
+    FleetExecutionAction(Result<(), crate::raft::fleet_catalog::FleetCatalogError>),
     PeerFleetStop(
         Result<
             Box<crate::raft::fleet_stop::FleetStopAcceptance>,

@@ -4,7 +4,7 @@
 //! committed configuration and physical initialization retain their owners.
 use super::*;
 use crate::raft::fleet_catalog::FleetCatalogError;
-use crate::raft::transport::fleet_moves::Delivery;
+use crate::raft::transport::fleet_actions::Delivery;
 use std::time::Duration;
 
 pub(super) struct Completed {
@@ -33,15 +33,15 @@ impl Driver {
                 Job::FleetMovementServiceStopped
             }));
         }
-        reply_node(&mut request, Ok(Response::FleetMovementAction(result)));
+        reply_node(&mut request, Ok(Response::FleetExecutionAction(result)));
     }
 
-    pub(super) fn start_peer_movement(
+    pub(super) fn start_peer_fleet_action(
         &mut self,
         mut request: NodeRequest,
-        call: client::PeerMovementCall,
+        call: client::PeerFleetActionCall,
     ) {
-        if call.command.target.node == self.log.limits().node.bytes() {
+        if call.command.target().node == self.log.limits().node.bytes() {
             let origin = self
                 .log
                 .lifecycle_guard()
@@ -49,9 +49,9 @@ impl Driver {
                 .flatten()
                 .map(|guard| guard.boot);
             if let Some(origin) = origin {
-                self.start_local_movement(
+                self.start_local_fleet_action(
                     request,
-                    client::LocalMovementCall {
+                    client::LocalFleetActionCall {
                         command: call.command,
                         minimum_revision: call.minimum_revision,
                         origin,
@@ -60,7 +60,7 @@ impl Driver {
             } else {
                 reply_node(
                     &mut request,
-                    Ok(Response::FleetMovementAction(Err(
+                    Ok(Response::FleetExecutionAction(Err(
                         FleetCatalogError::Closed,
                     ))),
                 );
@@ -68,7 +68,7 @@ impl Driver {
             return;
         }
         let delivery = if self.options.managed.is_some() {
-            self.transport.request_movement(
+            self.transport.request_fleet_action(
                 call.command,
                 call.minimum_revision,
                 request.control.deadline(),
@@ -79,7 +79,7 @@ impl Driver {
         let delivery: Delivery = match delivery {
             Ok(delivery) => delivery,
             Err(error) => {
-                reply_node(&mut request, Ok(Response::FleetMovementAction(Err(error))));
+                reply_node(&mut request, Ok(Response::FleetExecutionAction(Err(error))));
                 return;
             }
         };
@@ -88,14 +88,14 @@ impl Driver {
                 _ = request.control.cancellation() => Err(FleetCatalogError::Unconfirmed),
                 result = delivery.receive() => result,
             };
-            Job::FleetMovement(Box::new(Completed { request: Box::new(request), result, _memory: None }))
+            Job::FleetAction(Box::new(Completed { request: Box::new(request), result, _memory: None }))
         }));
     }
 
-    pub(super) fn start_local_movement(
+    pub(super) fn start_local_fleet_action(
         &mut self,
         mut request: NodeRequest,
-        call: client::LocalMovementCall,
+        call: client::LocalFleetActionCall,
     ) {
         let setup = (|| {
             call.command.validate()?;
@@ -112,7 +112,7 @@ impl Driver {
                 .map_err(|_| FleetCatalogError::Closed)?
                 .ok_or(FleetCatalogError::Closed)?
                 .boot;
-            if boot != call.command.target {
+            if &boot != call.command.target() {
                 return Err(FleetCatalogError::Conflict);
             }
             let memory = self
@@ -124,7 +124,7 @@ impl Driver {
         let (host, memory) = match setup {
             Ok(setup) => setup,
             Err(error) => {
-                reply_node(&mut request, Ok(Response::FleetMovementAction(Err(error))));
+                reply_node(&mut request, Ok(Response::FleetExecutionAction(Err(error))));
                 return;
             }
         };
@@ -136,17 +136,17 @@ impl Driver {
             let work = async {
                 let remaining = request.control.deadline().checked_sub(domain.mono_ms().map_err(|_| FleetCatalogError::Closed)?)
                     .filter(|ms| *ms > 0).map(Duration::from_millis).ok_or(FleetCatalogError::Unconfirmed)?;
-                host.execute_movement(call.command, call.origin, call.minimum_revision, &gateway, remaining).await
+                host.execute_fleet_command(call.command, call.origin, call.minimum_revision, &gateway, remaining).await
             };
             let result = crate::asyncrt::select_biased! { "cancel receiver waiter while physical owners retain admitted work";
                 _ = request.control.cancellation() => Err(FleetCatalogError::Unconfirmed),
                 result = work => result,
             };
-            Job::FleetMovement(Box::new(Completed { request: Box::new(request), result, _memory: Some(memory) }))
+            Job::FleetAction(Box::new(Completed { request: Box::new(request), result, _memory: Some(memory) }))
         }));
     }
 
-    pub(super) fn finish_fleet_movement(&mut self, completed: Completed) {
+    pub(super) fn finish_fleet_action(&mut self, completed: Completed) {
         let Completed {
             mut request,
             result,
@@ -160,6 +160,6 @@ impl Driver {
         } else {
             Err(FleetCatalogError::Unconfirmed)
         };
-        reply_node(&mut request, Ok(Response::FleetMovementAction(result)));
+        reply_node(&mut request, Ok(Response::FleetExecutionAction(result)));
     }
 }

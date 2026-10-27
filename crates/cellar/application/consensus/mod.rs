@@ -158,7 +158,7 @@ pub mod verification {
         FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
         FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
         FleetRestartHistoryProgress, FleetRestartPendingWork, FleetRestartRequest,
-        FleetRestartRuntimeCandidate, FleetRestartSettlementBlocker,
+        FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartSettlementBlocker,
         FleetRestartSettlementProgress, FleetRestartVerification, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{

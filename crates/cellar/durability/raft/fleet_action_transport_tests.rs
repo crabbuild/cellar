@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
-use crate::raft::fleet_catalog::MovementAction;
+use crate::raft::fleet_catalog::{MovementAction, MovementCommand};
 
 fn fixture() -> (RequestHead, Vec<u8>) {
     let endpoint = |id: u8| serde_json::json!({"node":vec![id;16],"disk":vec![id+10;16],"process":vec![id+20;16],"storage_instance":vec![id+30;16],"label":format!("node-{id}")});
@@ -28,7 +28,7 @@ fn fixture() -> (RequestHead, Vec<u8>) {
         target: boot(5),
         action: MovementAction::Begin,
     };
-    let bytes = serde_json::to_vec(&command).unwrap();
+    let bytes = serde_json::to_vec(&FleetExecutionCommand::Movement(command)).unwrap();
     assert!(bytes.len() <= MAX_BODY);
     (
         RequestHead {
@@ -63,6 +63,7 @@ fn fleet_move_wire_binds_channel_purpose_body_and_response() {
     for purpose in [
         b"cellar-fleet-stop-request-1".as_slice(),
         b"cellar-fleet-quorum-request-1",
+        b"cellar-fleet-move-request-1",
         RESPONSE_PURPOSE,
     ] {
         assert!(wire
@@ -103,10 +104,10 @@ fn fleet_move_wire_binds_channel_purpose_body_and_response() {
 #[test]
 fn fleet_move_wire_refuses_wrong_boot_scope_and_invalid_action() {
     let (request, bytes) = fixture();
-    let original: MovementCommand = serde_json::from_slice(&bytes).unwrap();
+    let original: FleetExecutionCommand = serde_json::from_slice(&bytes).unwrap();
     for field in ["catalog", "fleet", "node", "disk", "process", "engine"] {
         let mut value = serde_json::to_value(&original).unwrap();
-        let array = value["target"][field].as_array_mut().unwrap();
+        let array = value["command"]["target"][field].as_array_mut().unwrap();
         array[0] = serde_json::json!(99);
         let bytes = serde_json::to_vec(&value).unwrap();
         let head = RequestHead {
@@ -115,9 +116,11 @@ fn fleet_move_wire_refuses_wrong_boot_scope_and_invalid_action() {
         };
         assert!(head.decode_body(&bytes).is_err(), "{field}");
     }
-    let mut command = original;
+    let FleetExecutionCommand::Movement(mut command) = original else {
+        panic!("movement fixture");
+    };
     command.action = MovementAction::Promote { revision: 0 };
-    let bytes = serde_json::to_vec(&command).unwrap();
+    let bytes = serde_json::to_vec(&FleetExecutionCommand::Movement(command)).unwrap();
     let head = RequestHead {
         digest: Sha256::digest(&bytes).into(),
         ..request
@@ -139,4 +142,62 @@ fn fleet_move_deadline_includes_connection_and_body_time() {
     request.timeout_ms = 60_001;
     assert!(request.decode_body(&bytes).is_err());
     assert!(request.deadline(u64::MAX, u64::MAX).is_err());
+}
+
+#[test]
+fn fleet_action_wire_refuses_legacy_and_unknown_commands() {
+    let (mut head, bytes) = fixture();
+    let FleetExecutionCommand::Movement(movement) = serde_json::from_slice(&bytes).unwrap() else {
+        panic!("movement fixture");
+    };
+    let legacy = serde_json::to_vec(&movement).unwrap();
+    head.digest = Sha256::digest(&legacy).into();
+    assert!(head.decode_body(&legacy).is_err());
+    let mut value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    value["kind"] = serde_json::json!("untracked_initial_member");
+    let unknown = serde_json::to_vec(&value).unwrap();
+    head.digest = Sha256::digest(&unknown).into();
+    assert!(head.decode_body(&unknown).is_err());
+}
+
+#[test]
+fn fleet_action_genesis_wire_binds_boot_and_input_pins() {
+    let (mut head, bytes) = fixture();
+    let original: FleetExecutionCommand = serde_json::from_slice(&bytes).unwrap();
+    let command =
+        FleetExecutionCommand::RestartGenesis(crate::raft::fleet_catalog::RestartGenesisCommand {
+            parent: [2; 16],
+            operation: [3; 16],
+            inputs: [4; 32],
+            group: "ab".repeat(32),
+            history: [5; 32],
+            target: original.target().clone(),
+        });
+    let bytes = serde_json::to_vec(&command).unwrap();
+    assert!(bytes.len() <= MAX_BODY);
+    head.digest = Sha256::digest(&bytes).into();
+    assert!(head.decode_body(&bytes).is_ok());
+    for field in ["parent", "operation", "inputs", "history"] {
+        let mut value = serde_json::to_value(&command).unwrap();
+        for byte in value["command"][field].as_array_mut().unwrap() {
+            *byte = serde_json::json!(0);
+        }
+        let bytes = serde_json::to_vec(&value).unwrap();
+        head.digest = Sha256::digest(&bytes).into();
+        assert!(head.decode_body(&bytes).is_err(), "{field}");
+    }
+    for field in ["catalog", "fleet", "node", "disk", "process", "engine"] {
+        let mut value = serde_json::to_value(&command).unwrap();
+        value["command"]["target"][field][0] = serde_json::json!(99);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        head.digest = Sha256::digest(&bytes).into();
+        assert!(head.decode_body(&bytes).is_err(), "{field}");
+    }
+    for group in ["0".repeat(63), "AB".repeat(32), "zz".repeat(32)] {
+        let mut value = serde_json::to_value(&command).unwrap();
+        value["command"]["group"] = serde_json::json!(group);
+        let bytes = serde_json::to_vec(&value).unwrap();
+        head.digest = Sha256::digest(&bytes).into();
+        assert!(head.decode_body(&bytes).is_err());
+    }
 }

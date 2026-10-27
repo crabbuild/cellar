@@ -2,6 +2,7 @@
 
 //! Owned runtime reconciliation for intact-engine maintenance. No stop grant.
 mod basis;
+mod genesis;
 mod proof;
 mod records;
 
@@ -14,6 +15,8 @@ use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory
 use basis::Basis;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use futures_util::future::BoxFuture;
+pub use genesis::FleetRestartRuntimeProgress;
+pub(crate) use genesis::RestartGenesisCommand;
 use records::{Candidate, Entry, Evidence};
 
 /// A complete history walk with one pending history and one bounded physical
@@ -28,6 +31,8 @@ pub struct FleetRestartVerification {
     cursor: Option<FleetCursor>,
     pending: Option<(FleetEntry, FleetHistory)>,
     exhausted: bool,
+    // At most three idempotent attachment checks for this pending history.
+    genesis_checked: std::collections::BTreeSet<NodeId>,
 }
 
 /// Descriptive progress for the history just consumed, never a readiness lease.
@@ -147,6 +152,7 @@ impl FleetCatalog {
                 cursor: None,
                 pending: None,
                 exhausted: false,
+                genesis_checked: std::collections::BTreeSet::new(),
             })
         })
     }
@@ -364,6 +370,7 @@ impl FleetRestartVerification {
             self.book.voting = voting;
             self.book.retained = retained;
             self.pending = None;
+            self.genesis_checked.clear();
             Ok(Some(progress))
         })
     }
