@@ -493,10 +493,8 @@ impl SnapshotPayload {
             return Err(SnapshotError::Limit);
         }
         let download = self.download.as_mut().ok_or(SnapshotError::Limit)?;
-        for chunk in bytes.chunks(64 * 1024) {
-            download.append(self.received as u64, chunk)?;
-            self.received += chunk.len();
-        }
+        download.append_window(self.received as u64, bytes)?;
+        self.received += bytes.len();
         Ok(())
     }
 

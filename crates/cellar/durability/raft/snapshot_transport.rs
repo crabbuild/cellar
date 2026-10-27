@@ -10,6 +10,9 @@ use cellar_logic::consensus::MemberId;
 use sha2::{Digest, Sha256};
 use std::sync::{atomic::AtomicBool, Weak};
 
+#[path = "snapshot_receive.rs"]
+mod receive;
+
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLSP";
 const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
 const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
@@ -92,8 +95,7 @@ impl SnapshotSource {
 /// The reservation follows the buffer onto the blocking SQL owner, through
 /// verification/sealing and durable publication or pre-authorization discard.
 pub(crate) struct ReceivedSnapshot {
-    download: SnapshotDownload,
-    reservation: Permit,
+    receiver: receive::Received<(PreparedSnapshot, Permit)>,
 }
 
 impl ReceivedSnapshot {
@@ -101,7 +103,7 @@ impl ReceivedSnapshot {
         self,
         images: &cellar_ltx::generation::GenerationStore,
     ) -> Result<(PreparedSnapshot, Permit), crate::raft::snapshot::SnapshotError> {
-        Ok((self.download.finish(images)?, self.reservation))
+        self.receiver.seal(images)
     }
 }
 
@@ -217,7 +219,7 @@ impl RaftTransport {
         let (route, peer, pool) = state.snapshot_peer(scope, source)?;
         let schema = route.schema_digest;
         let download_group = group.clone();
-        let mut download = state
+        let download = state
             .domain
             .blocking(move || SnapshotDownload::new(&download_group, schema, snapshot, limits))
             .map_err(|_| TransportError::Closed)?
@@ -231,127 +233,130 @@ impl RaftTransport {
             .snapshot_receive_budget
             .acquire(memory_bound(&state.options))
             .ok_or(TransportError::Overloaded)?;
-        // Configuration-only snapshots contain no bytes and need no socket.
-        if download.encoded_length() == 0 {
-            return Ok(ReceivedSnapshot {
-                download,
-                reservation,
-            });
-        }
-        let deadline = state
-            .domain
-            .mono_ms()
-            .map_err(|_| TransportError::Closed)?
-            .saturating_add(state.options.snapshot_timeout_ms);
-        let wire_route = Route::new(
-            group.identity(),
-            state.auth.source(),
-            &peer.replica,
-            &peer.label,
-            route.schema_digest,
-        )?;
-        let _connection = state.outgoing_connections.acquire(Lane::Data);
-        let mut stream = state
-            .snapshot_io(&pool, deadline, async {
-                let tcp = TcpStream::connect(peer.data_address).await?;
-                tcp.set_nodelay(true)?;
-                let tcp = state.observed_socket(tcp, metrics::Lane::Data);
-                let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
-                    .map_err(|_| TransportError::Identity)?;
-                tokio_rustls::TlsConnector::from(state.tls.client.clone())
-                    .connect(name, tcp)
-                    .await
-                    .map_err(|e| TransportError::Tls(e.to_string()))
-            })
-            .await?;
-        let exporter = stream
-            .get_ref()
-            .1
-            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
-            .map_err(|e| TransportError::Tls(e.to_string()))?;
-        let transfer = state
-            .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| TransportError::Closed)?
-            .checked_add(1)
-            .ok_or(TransportError::Closed)?
-            .to_string();
         let total = download.encoded_length();
-        let mut offset = 0;
-        let wire = Wire {
-            auth: &state.auth,
-            exporter: &exporter,
-            options: &state.options,
-            max_body: state.options.snapshot_chunk_bytes,
-        };
-        while offset < total {
+        let receiver = receive::collect(state, download, reservation, |send| async move {
+            // Configuration-only snapshots contain no bytes and need no socket.
+            if total == 0 {
+                return Ok(());
+            }
+            let deadline = state
+                .domain
+                .mono_ms()
+                .map_err(|_| TransportError::Closed)?
+                .saturating_add(state.options.snapshot_timeout_ms);
+            let wire_route = Route::new(
+                group.identity(),
+                state.auth.source(),
+                &peer.replica,
+                &peer.label,
+                route.schema_digest,
+            )?;
+            let _connection = state.outgoing_connections.acquire(Lane::Data);
+            let mut stream = state
+                .snapshot_io(&pool, deadline, async {
+                    let tcp = TcpStream::connect(peer.data_address).await?;
+                    tcp.set_nodelay(true)?;
+                    let tcp = state.observed_socket(tcp, metrics::Lane::Data);
+                    let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
+                        .map_err(|_| TransportError::Identity)?;
+                    tokio_rustls::TlsConnector::from(state.tls.client.clone())
+                        .connect(name, tcp)
+                        .await
+                        .map_err(|e| TransportError::Tls(e.to_string()))
+                })
+                .await?;
+            let exporter = stream
+                .get_ref()
+                .1
+                .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
+                .map_err(|e| TransportError::Tls(e.to_string()))?;
+            let transfer = state
+                .sequence
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+                .map_err(|_| TransportError::Closed)?
+                .checked_add(1)
+                .ok_or(TransportError::Closed)?
+                .to_string();
+            let mut offset = 0;
+            let wire = Wire {
+                auth: &state.auth,
+                exporter: &exporter,
+                options: &state.options,
+                max_body: state.options.snapshot_chunk_bytes,
+            };
+            while offset < total {
+                let slot = send.reserve().await.map_err(|_| TransportError::Closed)?;
+                if !state.current_route(scope, &route, &peer) {
+                    return Err(TransportError::StalePeer);
+                }
+                let length = (total - offset)
+                    .min(state.options.snapshot_chunk_bytes)
+                    .min(limits.max_chunk_bytes);
+                let request = Pull {
+                    route: wire_route.clone(),
+                    snapshot: ticket.entry_digest(),
+                    transfer: transfer.clone(),
+                    lease: "0".into(),
+                    offset: offset.to_string(),
+                    length,
+                };
+                let received = state
+                    .snapshot_io(&pool, deadline, async {
+                        let request_head =
+                            wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
+                        write_head(&mut stream, &request_head).await?;
+                        let head = read_bulk_head(
+                            &mut stream,
+                            None,
+                            RESPONSE_MAGIC,
+                            length,
+                            &state.options,
+                        )
+                        .await?;
+                        let response: Chunk = wire.decode(
+                            RESPONSE_MAGIC,
+                            RESPONSE_PURPOSE,
+                            &head,
+                            Some(&request_head.tag),
+                        )?;
+                        if head.payload_len == 0
+                            || response.request != request_head.tag
+                            || response.route != request.route.reversed()
+                            || response.snapshot != request.snapshot
+                            || response.transfer != request.transfer
+                            || response.offset != request.offset
+                        {
+                            return Err(TransportError::Authentication);
+                        }
+                        let mut body = vec![0; head.payload_len];
+                        stream.read_exact(&mut body).await?;
+                        if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
+                            return Err(TransportError::Authentication);
+                        }
+                        Ok(body)
+                    })
+                    .await?;
+                let received_length = received.len();
+                state.performance.increment(
+                    crate::raft::performance::Counter::RecoveryPeerReceivedBytes,
+                    received_length as u64,
+                );
+                slot.send(receive::Chunk {
+                    offset,
+                    bytes: received,
+                    queued: state
+                        .performance
+                        .timer(crate::raft::performance::Operation::RecoveryAppendQueue),
+                })?;
+                offset += received_length;
+            }
             if !state.current_route(scope, &route, &peer) {
                 return Err(TransportError::StalePeer);
             }
-            let length = (total - offset)
-                .min(state.options.snapshot_chunk_bytes)
-                .min(limits.max_chunk_bytes);
-            let request = Pull {
-                route: wire_route.clone(),
-                snapshot: ticket.entry_digest(),
-                transfer: transfer.clone(),
-                lease: "0".into(),
-                offset: offset.to_string(),
-                length,
-            };
-            let received = state
-                .snapshot_io(&pool, deadline, async {
-                    let request_head =
-                        wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
-                    write_head(&mut stream, &request_head).await?;
-                    let head =
-                        read_bulk_head(&mut stream, None, RESPONSE_MAGIC, length, &state.options)
-                            .await?;
-                    let response: Chunk = wire.decode(
-                        RESPONSE_MAGIC,
-                        RESPONSE_PURPOSE,
-                        &head,
-                        Some(&request_head.tag),
-                    )?;
-                    if head.payload_len == 0
-                        || response.request != request_head.tag
-                        || response.route != request.route.reversed()
-                        || response.snapshot != request.snapshot
-                        || response.transfer != request.transfer
-                        || response.offset != request.offset
-                    {
-                        return Err(TransportError::Authentication);
-                    }
-                    let mut body = vec![0; head.payload_len];
-                    stream.read_exact(&mut body).await?;
-                    if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-                        return Err(TransportError::Authentication);
-                    }
-                    Ok(body)
-                })
-                .await?;
-            let received_length = received.len();
-            // Move the entire scratch owner into registered blocking work. A
-            // cancelled waiter cannot close its file underneath an active write.
-            download = state
-                .domain
-                .blocking(move || {
-                    download.append(offset, &received)?;
-                    Ok::<_, crate::raft::snapshot::SnapshotError>(download)
-                })
-                .map_err(|_| TransportError::Closed)?
-                .await
-                .map_err(|_| TransportError::Closed)?
-                .map_err(snapshot_error)?;
-            offset += received_length;
-        }
-        if !state.current_route(scope, &route, &peer) {
-            return Err(TransportError::StalePeer);
-        }
-        Ok(ReceivedSnapshot {
-            download,
-            reservation,
+            Ok(())
         })
+        .await?;
+        Ok(ReceivedSnapshot { receiver })
     }
 }
 
@@ -656,20 +661,20 @@ pub(super) async fn read_bulk_head<S: AsyncRead + Unpin>(
 }
 
 pub(crate) struct ReceivedSeed {
-    download: crate::raft::snapshot::SeedDownload,
-    reservation: Permit,
+    scope: GroupScope,
+    receiver: receive::Received<crate::raft::snapshot::PreparedSeed>,
 }
 
 impl ReceivedSeed {
     pub(crate) fn scope(&self) -> &GroupScope {
-        self.download.scope()
+        &self.scope
     }
 
     pub(crate) fn finish(
         self,
         images: &cellar_ltx::generation::GenerationStore,
     ) -> Result<crate::raft::snapshot::PreparedSeed, crate::raft::snapshot::SnapshotError> {
-        self.download.finish(images, self.reservation)
+        self.receiver.seal(images)
     }
 }
 
@@ -717,7 +722,7 @@ impl RaftTransport {
         let scratch_directory = state.runtime.log().limits().directory.clone();
         let snapshot_scratch = state.runtime.log().snapshot_scratch();
         let birth = birth.clone();
-        let mut download = state
+        let download = state
             .domain
             .blocking(move || {
                 crate::raft::snapshot::SeedDownload::new(
@@ -735,6 +740,7 @@ impl RaftTransport {
             .map_err(|_| TransportError::Closed)?
             .map_err(snapshot_error)?;
         let total = download.encoded_length();
+        let scope = download.scope().clone();
         if total > state.options.max_snapshot_bytes || (total == 0) != (lease == 0) {
             return Err(TransportError::Limit);
         }
@@ -742,132 +748,113 @@ impl RaftTransport {
             .snapshot_receive_budget
             .acquire(memory_bound(&state.options))
             .ok_or(TransportError::Overloaded)?;
-        if total == 0 {
-            return Ok(ReceivedSeed {
-                download,
-                reservation,
-            });
-        }
-        let _connection = state.outgoing_connections.acquire(Lane::Data);
-        let mut stream = state
-            .seed_process_io(&process, deadline, async {
-                let tcp = TcpStream::connect(peer.data_address).await?;
-                tcp.set_nodelay(true)?;
-                let tcp = state.observed_socket(tcp, metrics::Lane::Data);
-                let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
-                    .map_err(|_| TransportError::Identity)?;
-                tokio_rustls::TlsConnector::from(state.tls.client.clone())
-                    .connect(name, tcp)
-                    .await
-                    .map_err(|e| TransportError::Tls(e.to_string()))
-            })
-            .await?;
-        let exporter = stream
-            .get_ref()
-            .1
-            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
-            .map_err(|e| TransportError::Tls(e.to_string()))?;
-        let wire = Wire {
-            auth: &state.auth,
-            exporter: &exporter,
-            options: &state.options,
-            max_body: state.options.snapshot_chunk_bytes,
-        };
-        let transfer = state
-            .sequence
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
-            .map_err(|_| TransportError::Closed)?
-            .checked_add(1)
-            .ok_or(TransportError::Closed)?
-            .to_string();
-        let mut offset = 0;
-        while offset < total {
-            let length = (total - offset)
-                .min(state.options.snapshot_chunk_bytes)
-                .min(limits.max_chunk_bytes);
-            let request = Pull {
-                route: wire_route.clone(),
-                snapshot: digest,
-                transfer: transfer.clone(),
-                lease: lease.to_string(),
-                offset: offset.to_string(),
-                length,
-            };
-            let received = state
-                .performance
-                .measure(
-                    crate::raft::performance::Operation::RecoveryPeerReceive,
-                    state.seed_process_io(&process, deadline, async {
-                        let request_head =
-                            wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
-                        write_head(&mut stream, &request_head).await?;
-                        let head = read_bulk_head(
-                            &mut stream,
-                            None,
-                            RESPONSE_MAGIC,
-                            length,
-                            &state.options,
-                        )
-                        .await?;
-                        let response: Chunk = wire.decode(
-                            RESPONSE_MAGIC,
-                            RESPONSE_PURPOSE,
-                            &head,
-                            Some(&request_head.tag),
-                        )?;
-                        if head.payload_len == 0
-                            || response.request != request_head.tag
-                            || response.route != request.route.reversed()
-                            || response.snapshot != request.snapshot
-                            || response.transfer != request.transfer
-                            || response.offset != request.offset
-                        {
-                            return Err(TransportError::Authentication);
-                        }
-                        let mut body = vec![0; head.payload_len];
-                        stream.read_exact(&mut body).await?;
-                        if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
-                            return Err(TransportError::Authentication);
-                        }
-                        Ok(body)
-                    }),
-                )
-                .await?;
-            let received_length = received.len();
-            state.performance.increment(
-                crate::raft::performance::Counter::RecoveryPeerReceivedBytes,
-                received_length as u64,
-            );
-            let queued = state
-                .performance
-                .timer(crate::raft::performance::Operation::RecoveryAppendQueue);
-            let performance = state.performance.clone();
-            // Move the entire scratch owner into registered blocking work. A
-            // cancelled waiter cannot close its file underneath an active write.
-            download = state
-                .domain
-                .blocking(move || {
-                    queued.finish(true);
-                    let timer =
-                        performance.timer(crate::raft::performance::Operation::RecoveryAppend);
-                    let result = download.append(offset, &received);
-                    timer.finish(result.is_ok());
-                    result?;
-                    performance.increment(
-                        crate::raft::performance::Counter::RecoveryPeerAppendedBytes,
-                        received_length as u64,
-                    );
-                    Ok::<_, crate::raft::snapshot::SnapshotError>(download)
+        let receiver = receive::collect(state, download, reservation, |send| async move {
+            if total == 0 {
+                return Ok(());
+            }
+            let _connection = state.outgoing_connections.acquire(Lane::Data);
+            let mut stream = state
+                .seed_process_io(&process, deadline, async {
+                    let tcp = TcpStream::connect(peer.data_address).await?;
+                    tcp.set_nodelay(true)?;
+                    let tcp = state.observed_socket(tcp, metrics::Lane::Data);
+                    let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())
+                        .map_err(|_| TransportError::Identity)?;
+                    tokio_rustls::TlsConnector::from(state.tls.client.clone())
+                        .connect(name, tcp)
+                        .await
+                        .map_err(|e| TransportError::Tls(e.to_string()))
                 })
+                .await?;
+            let exporter = stream
+                .get_ref()
+                .1
+                .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
+                .map_err(|e| TransportError::Tls(e.to_string()))?;
+            let wire = Wire {
+                auth: &state.auth,
+                exporter: &exporter,
+                options: &state.options,
+                max_body: state.options.snapshot_chunk_bytes,
+            };
+            let transfer = state
+                .sequence
+                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
                 .map_err(|_| TransportError::Closed)?
-                .await
-                .map_err(|_| TransportError::Closed)?
-                .map_err(snapshot_error)?;
-            offset += received_length;
-        }
-        Ok(ReceivedSeed {
-            download,
-            reservation,
+                .checked_add(1)
+                .ok_or(TransportError::Closed)?
+                .to_string();
+            let mut offset = 0;
+            while offset < total {
+                let slot = send.reserve().await.map_err(|_| TransportError::Closed)?;
+                let length = (total - offset)
+                    .min(state.options.snapshot_chunk_bytes)
+                    .min(limits.max_chunk_bytes);
+                let request = Pull {
+                    route: wire_route.clone(),
+                    snapshot: digest,
+                    transfer: transfer.clone(),
+                    lease: lease.to_string(),
+                    offset: offset.to_string(),
+                    length,
+                };
+                let received = state
+                    .performance
+                    .measure(
+                        crate::raft::performance::Operation::RecoveryPeerReceive,
+                        state.seed_process_io(&process, deadline, async {
+                            let request_head =
+                                wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
+                            write_head(&mut stream, &request_head).await?;
+                            let head = read_bulk_head(
+                                &mut stream,
+                                None,
+                                RESPONSE_MAGIC,
+                                length,
+                                &state.options,
+                            )
+                            .await?;
+                            let response: Chunk = wire.decode(
+                                RESPONSE_MAGIC,
+                                RESPONSE_PURPOSE,
+                                &head,
+                                Some(&request_head.tag),
+                            )?;
+                            if head.payload_len == 0
+                                || response.request != request_head.tag
+                                || response.route != request.route.reversed()
+                                || response.snapshot != request.snapshot
+                                || response.transfer != request.transfer
+                                || response.offset != request.offset
+                            {
+                                return Err(TransportError::Authentication);
+                            }
+                            let mut body = vec![0; head.payload_len];
+                            stream.read_exact(&mut body).await?;
+                            if response.digest != <[u8; 32]>::from(Sha256::digest(&body)) {
+                                return Err(TransportError::Authentication);
+                            }
+                            Ok(body)
+                        }),
+                    )
+                    .await?;
+                let received_length = received.len();
+                state.performance.increment(
+                    crate::raft::performance::Counter::RecoveryPeerReceivedBytes,
+                    received_length as u64,
+                );
+                slot.send(receive::Chunk {
+                    offset,
+                    bytes: received,
+                    queued: state
+                        .performance
+                        .timer(crate::raft::performance::Operation::RecoveryAppendQueue),
+                })?;
+                offset += received_length;
+            }
+            Ok(())
         })
+        .await?;
+        Ok(ReceivedSeed { scope, receiver })
     }
 }

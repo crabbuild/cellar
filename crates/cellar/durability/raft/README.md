@@ -948,15 +948,17 @@ the aggregate durable log cache reaches half its byte capacity, eligible groups
 above an average share also checkpoint before reaching that entry count;
 `checkpoint_entries = 0` disables automatic compaction. The host pins and registers
 the exact requested source cut before sending `MsgSnapshot`. The receiver validates
-the descriptor against its local ticket, fetches ordered chunks and seals on its
-SQL owner. It waits for `SnapshotInstalled` before publishing the image and
+the descriptor against its local ticket and fetches ordered chunks. The SQL
+owner requests sealing from the receiver's registered file worker. It waits for
+`SnapshotInstalled` before publishing the image and
 releasing waiting reads. A snapshot arriving during older physical apply is
 aborted so that owner can complete before a fresh transfer. Late completions cannot
 authorize the new ticket. An authorized install must instead be joined.
 
 Snapshot bodies have separate node admission: one source capture/lease and one
-receiver, each charged for encoded bytes plus four maximum-image working copies.
-Neither consumes command/query output budgets. Defaults allow 128 MiB encoded,
+receiver. RAM admission covers bounded codec/wire windows; file-backed bodies
+and image generations have separate disk admission. Neither consumes command/query
+output budgets. Defaults allow 128 MiB encoded,
 1 MiB chunks, a 30-second whole-transfer deadline and the existing five-second I/O
 idle deadline. Source leases also bind the current member/process route; source
 pins survive checkpoint replacement until the lease completes or expires. Empty
@@ -965,6 +967,17 @@ source lease; it never proves install. TLS framing authenticates both directions
 the descriptor digest, full physical route, transfer/offset and payload digest.
 Revisions and membership are rechecked throughout a transfer. Public status
 includes the durable checkpoint boundary without granting any authority.
+
+Peer snapshot and fresh-learner downloads reserve two payload windows before
+reading bodies, allowing the next authenticated chunk to arrive while the
+previous chunk is written. One registered blocking worker owns the scratch file
+through assembly, sealing and discard. Network buffers and file work share the
+same memory charge; cancellation refunds it only after their last owner drops.
+The transport joins that worker and its stop observer, including when a caller
+retains an unpolled download or an assembled handle. The SQL owner still owns
+installation/publication authority. No image-sized buffer or worker per cell is
+introduced. Native file adapters append each admitted window directly; injected
+providers retain their bounded fallback and uncertain writes poison the download.
 
 The native recovery drills isolate a follower until its leader has compacted the
 missing prefix, then require physical snapshot installation and an AtLeast query.

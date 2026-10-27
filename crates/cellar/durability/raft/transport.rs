@@ -921,7 +921,9 @@ impl State {
     }
 
     fn task_limit(&self) -> usize {
-        3 + 6 * self.options.max_peers
+        // One physical receive owner and its stop observer are independent of
+        // peer/group count. Snapshot admission permits only one such pair.
+        5 + 6 * self.options.max_peers
             + 3 * self.options.max_connections_per_lane
             + usize::from(self.inspection_enabled.load(Ordering::Acquire)) * inspections::SLOTS
     }
@@ -947,6 +949,11 @@ impl State {
         self: &Arc<Self>,
         future: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), TransportError> {
+        let guard = self.reserve_task()?;
+        self.spawn_reserved(guard, future)
+    }
+
+    fn reserve_task(self: &Arc<Self>) -> Result<TaskGuard, TransportError> {
         let mut registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
         self.admit(&registry)?;
         if registry.tasks >= self.task_limit() {
@@ -954,7 +961,7 @@ impl State {
         }
         registry.tasks += 1;
         drop(registry);
-        self.spawn_reserved(TaskGuard(self.clone()), future)
+        Ok(TaskGuard(self.clone()))
     }
 
     fn spawn_reserved(
