@@ -182,6 +182,46 @@ pub(crate) async fn remove(
     finish_progress(&console, &mut audit, result)
 }
 
+pub(crate) async fn cancel(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, node)): Path<(String, String)>,
+    body: Result<Json<RaftFleetNodeCancel>, JsonRejection>,
+) -> Result<Response, ApiError> {
+    principal.require(&fleet, Permission::FleetCancel)?;
+    let request = match body {
+        Ok(Json(request)) => request,
+        Err(_) => {
+            return Ok(failure(RaftFleetFailure::invalid(
+                "invalid evacuation cancellation",
+            )))
+        }
+    };
+    if let Err(error) = request.validate() {
+        return Ok(failure(error));
+    }
+    let mut audit = match begin(
+        &console,
+        &fleet,
+        &principal.id,
+        &node,
+        &request.operation,
+        "raft_node_cancel",
+        &request,
+    ) {
+        Ok(a) => a,
+        Err(e) => return Ok(audit_failure(e)),
+    };
+    let result = match backend(&console, &fleet) {
+        Ok(c) => {
+            c.cancel_node_evacuation(&principal.id, &node, request, TIMEOUT)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+    finish_progress(&console, &mut audit, result)
+}
+
 fn begin(
     console: &Console,
     fleet: &str,

@@ -29,6 +29,7 @@ pub(super) struct Scope<'a> {
     pub verb: &'a str,
     pub process: Option<&'a str>,
     pub stop: Option<&'a str>,
+    pub fence: Option<&'a str>,
 }
 
 pub(super) async fn execute(
@@ -65,10 +66,12 @@ pub(super) async fn execute(
                 .process
                 .is_some_and(|p| progress.process.as_deref() != Some(p))
             || progress.stop_id.as_deref() != scope.stop
+            || progress.fence_id.as_deref() != scope.fence
         {
             return Err(unavailable());
         }
         let valid = match scope.verb {
+            "cancel-evacuation" => progress.phase == RaftFleetEvacuationPhase::Cancelled,
             "evacuate" => progress.phase == RaftFleetEvacuationPhase::Excluded,
             "prepare-removal" => matches!(
                 progress.phase,

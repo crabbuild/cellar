@@ -69,6 +69,10 @@ pub fn router(console: Console) -> Result<Router> {
             get(raft_lifecycle::status),
         )
         .route(
+            "/fleets/{fleet}/raft/nodes/{node}/cancel-evacuation",
+            post(raft_lifecycle::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
             "/fleets/{fleet}/raft/nodes/{node}/evacuate",
             post(raft_lifecycle::evacuate).layer(DefaultBodyLimit::max(16 * 1024)),
         )

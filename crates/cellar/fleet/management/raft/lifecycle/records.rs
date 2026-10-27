@@ -52,6 +52,31 @@ impl RaftFleetNodeStop {
     }
 }
 
+/// A cancellation before finalization has neither selector field. Afterwards
+/// retain the exact process and child fence ID across changed-root retries.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RaftFleetNodeCancel {
+    pub operation: RaftFleetNodeOperation,
+    pub expected_process: Option<String>,
+    pub fence_id: Option<String>,
+}
+
+impl RaftFleetNodeCancel {
+    pub fn validate(&self) -> Result<()> {
+        self.operation.validate()?;
+        if self.expected_process.is_some() != self.fence_id.is_some() {
+            return Err(RaftFleetFailure::invalid(
+                "cancellation process and fence ID must be supplied together",
+            ));
+        }
+        for id in self.expected_process.iter().chain(self.fence_id.iter()) {
+            super::super::records::id(id)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RaftFleetNodeRemove {
@@ -77,6 +102,7 @@ pub enum RaftFleetEvacuationPhase {
     Joined,
     VerifyingRemoval,
     Removed,
+    Cancelled,
 }
 
 /// Verification progress is local and ephemeral. Finalizing/Removed are
@@ -98,6 +124,7 @@ pub struct RaftFleetEvacuationProgress {
     pub closure_digest: Option<String>,
     pub process: Option<String>,
     pub stop_id: Option<String>,
+    pub fence_id: Option<String>,
     pub terminal: bool,
 }
 
@@ -114,8 +141,8 @@ impl RaftFleetEvacuationProgress {
         if let Some(process) = &self.process {
             super::super::records::id(process)?;
         }
-        if let Some(stop) = &self.stop_id {
-            super::super::records::id(stop)?;
+        for id in self.stop_id.iter().chain(self.fence_id.iter()) {
+            super::super::records::id(id)?;
         }
         for digest in self
             .candidate_digest
@@ -129,6 +156,7 @@ impl RaftFleetEvacuationProgress {
             RaftFleetEvacuationPhase::Excluded
                 | RaftFleetEvacuationPhase::Finalizing
                 | RaftFleetEvacuationPhase::Removed
+                | RaftFleetEvacuationPhase::Cancelled
         );
         let stopping = matches!(
             self.phase,
@@ -143,7 +171,10 @@ impl RaftFleetEvacuationProgress {
                 | RaftFleetEvacuationPhase::StopRequested
                 | RaftFleetEvacuationPhase::Joined
         );
-        if stopping != self.stop_id.is_some()
+        if self.phase != RaftFleetEvacuationPhase::Cancelled && self.fence_id.is_some()
+            || self.phase == RaftFleetEvacuationPhase::Cancelled
+                && (self.fence_id.is_some() != self.process.is_some())
+            || stopping != self.stop_id.is_some()
             || process_required && self.process.is_none()
             || matches!(
                 self.phase,
@@ -152,7 +183,11 @@ impl RaftFleetEvacuationProgress {
             || self.checked_histories > self.total_histories
             || self.total_histories > 10_000
             || self.observed_revision < self.expected_revision
-            || self.terminal != (self.phase == RaftFleetEvacuationPhase::Removed)
+            || self.terminal
+                != matches!(
+                    self.phase,
+                    RaftFleetEvacuationPhase::Removed | RaftFleetEvacuationPhase::Cancelled
+                )
             || admitted != self.applied_revision.is_some()
             || self
                 .applied_revision
@@ -218,6 +253,7 @@ pub struct RaftFleetEvacuationStatus {
     pub exclusion_revision: u64,
     pub finalization: Option<RaftFleetEvacuationProgress>,
     pub removal: Option<RaftFleetEvacuationProgress>,
+    pub cancellation: Option<RaftFleetEvacuationProgress>,
     pub pending_movements: Vec<RaftFleetEvacuationDebt>,
 }
 
@@ -229,11 +265,20 @@ impl RaftFleetEvacuationStatus {
         if self.exclusion_revision == 0
             || self.exclusion_revision > self.observed_revision
             || self.pending_movements.len() > 2
-            || (self.state == RaftFleetNodeState::Removed) != self.removal.is_some()
+            || self.removal.is_some()
+                && (self.state != RaftFleetNodeState::Removed || self.cancellation.is_some())
+            || self.state == RaftFleetNodeState::Removed
+                && self.removal.is_none()
+                && self.cancellation.is_none()
         {
             return Err(RaftFleetFailure::invalid("inconsistent evacuation status"));
         }
-        for progress in self.finalization.iter().chain(self.removal.iter()) {
+        for progress in self
+            .finalization
+            .iter()
+            .chain(self.removal.iter())
+            .chain(self.cancellation.iter())
+        {
             progress.validate()?;
             if progress.catalog_id != self.catalog_id
                 || progress.operation_id != self.operation_id

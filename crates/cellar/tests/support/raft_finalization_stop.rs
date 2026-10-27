@@ -821,3 +821,63 @@ async fn fleet_stop_changed_inventory_refuses_admission() -> Result<()> {
     s.f.domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_evacuation_cancellation_refuses_an_accepted_stop() -> Result<()> {
+    use cellar::application::consensus::verification::{
+        FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
+    };
+    let (s, gate) = Box::pin(guarded()).await?;
+    let (operation, admission) = finalizing(&s).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let process = admission.process()?;
+    let hold = gate.arm(fault::HOLD_LOCK_DROP);
+    let stop_id = ProposalId::new([238; 16])?;
+    s.observer_node
+        .request_fleet_stop(admission.stop_request(stop_id)?, TIMEOUT)
+        .await?;
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, gate.entered.notified()))
+        .await??;
+    let request = FleetEvacuationCancelRequest {
+        identity: FleetRequestIdentity {
+            id: [249; 16],
+            operation: operation.bytes(),
+            principal: "cancel-after-accepted-stop".into(),
+            expected_revision: cut.revision(),
+        },
+        node: NodeId::new([7; 16])?,
+        fence: Some(FleetEvacuationCancelFence {
+            process,
+            request: ProposalId::new([250; 16])?,
+        }),
+    };
+    ensure!(s
+        .f
+        .catalog
+        .cancel_evacuation(&cut, &request, Some(&s.nodes[0].host), TIMEOUT)
+        .await
+        .is_err());
+    let current = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(current.revision() == cut.revision());
+    ensure!(s
+        .f
+        .catalog
+        .evacuation_cancellation(&current, operation, TIMEOUT)
+        .await?
+        .is_none());
+    ensure!(s
+        .f
+        .catalog
+        .get(&current, FleetTable::Policy, "active-disruption", TIMEOUT)
+        .await?
+        .is_some());
+    drop(hold);
+    finished(s.observer_node, &s.f).await?;
+    s.f.catalog
+        .verify_physical_closure(&current, operation, stop_id, TIMEOUT)
+        .await?;
+    stop(s.nodes).await?;
+    s.f.domain.shutdown().await;
+    Ok(())
+}

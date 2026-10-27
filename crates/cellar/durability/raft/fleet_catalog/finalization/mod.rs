@@ -2,10 +2,14 @@
 
 //! Bounded receipt material for inventory-consuming terminal verification.
 //! Stored descriptors grant no completion or disruption-release authority.
+mod cancellation;
 mod fencing;
 mod receipts;
 mod survivors;
 mod terminal;
+pub use cancellation::{
+    FleetEvacuationCancelFence, FleetEvacuationCancelRequest, FleetEvacuationCancellation,
+};
 pub use fencing::FleetFinalizationAdmission;
 pub use terminal::{
     FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetRemovalAdmission,

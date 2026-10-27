@@ -23,7 +23,8 @@ pub use capacity::{
 };
 pub use evacuation::FleetEvacuationAdmission;
 pub use finalization::{
-    FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
+    FleetEvacuationArchive, FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
+    FleetEvacuationCancellation, FleetEvacuationCandidate, FleetEvacuationVerification,
     FleetFinalizationAdmission, FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest,
     FleetRemovalAdmission, FleetRemovalRequest,
 };

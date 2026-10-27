@@ -932,6 +932,7 @@ fn raft_node_accepted_audit_cannot_be_downgraded_by_late_failure() {
         "raft_node_prepare_removal",
         "raft_node_stop",
         "raft_node_remove",
+        "raft_node_cancel",
     ]
     .into_iter()
     .enumerate()

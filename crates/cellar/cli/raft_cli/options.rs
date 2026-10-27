@@ -5,6 +5,7 @@ use super::*;
 use std::io::Read;
 
 pub(super) const HELP: &str = "cellar raft fleet nodes evacuate NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R
+cellar raft fleet nodes cancel-evacuation NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R [--expected-process PROCESS --fence-id FENCE]
 cellar raft fleet nodes prepare-removal NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R [--wait]
 cellar raft fleet nodes stop NODE_HEX --operation-id OP --request-id STOP --expected-process PROCESS --expected-revision R
 cellar raft fleet nodes remove NODE_HEX --operation-id OP --request-id REQUEST --stop-id STOP --expected-revision R [--wait]
@@ -38,6 +39,7 @@ pub(super) enum Action {
     PrepareRemoval(String, Box<RaftFleetNodeOperation>),
     StopNode(String, Box<RaftFleetNodeStop>),
     RemoveNode(String, Box<RaftFleetNodeRemove>),
+    CancelEvacuation(String, Box<RaftFleetNodeCancel>),
     NodeRegister(Box<RaftFleetRegisterNode>),
     NodeCapacity(String, Box<RaftFleetNodeCapacity>, bool),
     Begin(RaftFleetBegin),
@@ -91,6 +93,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut request_id = None;
     let mut expected_process = None;
     let mut stop_id = None;
+    let mut fence_id = None;
     let mut keep = None;
     let mut policy = None;
     let mut descriptor = None;
@@ -119,6 +122,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--request-id" => set(&mut request_id, value)?,
             "--expected-process" => set(&mut expected_process, value)?,
             "--stop-id" => set(&mut stop_id, value)?,
+            "--fence-id" => set(&mut fence_id, value)?,
             "--expected-revision" => set(
                 &mut expected_revision,
                 value
@@ -174,7 +178,11 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             Action::EvacuationStatus(operation)
         }
         (
-            verb @ ("nodes_evacuate" | "nodes_prepare-removal" | "nodes_stop" | "nodes_remove"),
+            verb @ ("nodes_evacuate"
+            | "nodes_prepare-removal"
+            | "nodes_stop"
+            | "nodes_remove"
+            | "nodes_cancel-evacuation"),
             Some(node),
         ) if cursor.is_none() => {
             validate_id(&node)?;
@@ -205,6 +213,15 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
                     };
                     request.validate()?;
                     Action::StopNode(node, Box::new(request))
+                }
+                "nodes_cancel-evacuation" if !wait => {
+                    let request = RaftFleetNodeCancel {
+                        operation: request,
+                        expected_process: expected_process.take(),
+                        fence_id: fence_id.take(),
+                    };
+                    request.validate()?;
+                    Action::CancelEvacuation(node, Box::new(request))
                 }
                 "nodes_remove" => {
                     let request = RaftFleetNodeRemove {
@@ -322,6 +339,7 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || request_id.is_some()
         || expected_process.is_some()
         || stop_id.is_some()
+        || fence_id.is_some()
     {
         return Err(invalid("options do not apply to this command"));
     }

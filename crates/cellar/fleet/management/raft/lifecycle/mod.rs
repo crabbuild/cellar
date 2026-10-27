@@ -48,6 +48,7 @@ fn progress(
         closure_digest: None,
         process: None,
         stop_id: None,
+        fence_id: None,
         terminal: phase == Phase::Removed,
     }
 }
@@ -94,6 +95,29 @@ fn removed(
     value.candidate_digest = Some(hex::encode(admission.candidate_digest()));
     value.closure_digest = Some(hex::encode(admission.closure_digest()));
     value.stop_id = Some(hex::encode(admission.stop_id()));
+    value
+}
+
+fn cancelled(
+    control: &RaftFleetControl,
+    node: &str,
+    request: &RaftFleetNodeOperation,
+    receipt: &crate::raft::fleet_catalog::FleetEvacuationCancellation,
+    histories: u64,
+) -> RaftFleetEvacuationProgress {
+    let mut value = progress(
+        control,
+        node,
+        request,
+        Phase::Cancelled,
+        0,
+        histories,
+        receipt.observed_revision(),
+    );
+    value.applied_revision = Some(receipt.applied_revision());
+    value.process = receipt.process().map(hex::encode);
+    value.fence_id = receipt.fence_id().map(hex::encode);
+    value.terminal = true;
     value
 }
 
@@ -508,6 +532,74 @@ impl RaftFleetControl {
         Ok(removed(self, node, &request.operation, &receipt, count))
     }
 
+    /// Cancel to excluded Ready. Finalized cancellation requires a synced
+    /// exact-process fence; already accepted stops refuse. Neither retained
+    /// resources nor current placement capacity are released by this operation.
+    pub async fn cancel_node_evacuation(
+        &self,
+        principal: &str,
+        node: &str,
+        request: RaftFleetNodeCancel,
+        timeout: Duration,
+    ) -> Result<RaftFleetEvacuationProgress> {
+        use crate::raft::fleet_catalog::{
+            FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
+        };
+        request.validate()?;
+        self.check_catalog(&request.operation.catalog_id)?;
+        let identity = request.operation.identity(principal)?;
+        let node_value = node_id(node)?;
+        let operation = operation_id(&request.operation.operation_id)?;
+        let fence = match (&request.expected_process, &request.fence_id) {
+            (Some(process), Some(id)) => Some(FleetEvacuationCancelFence {
+                process: ProcessGeneration::new(super::records::id(process)?)
+                    .map_err(|_| RaftFleetFailure::invalid("process ID"))?,
+                request: operation_id(id)?,
+            }),
+            (None, None) => None,
+            _ => return Err(RaftFleetFailure::invalid("cancellation selector")),
+        };
+        let turn = Turn::new(&self.domain, timeout)?;
+        let root = self.catalog.read(turn.remaining()?).await?;
+        let admission = self
+            .catalog
+            .evacuation_admission(&root, operation, turn.remaining()?)
+            .await?;
+        if admission.node() != node_value {
+            return Err(FleetCatalogError::PayloadConflict.into());
+        }
+        if fence.is_some()
+            && self.node_observer.is_none()
+            && self
+                .catalog
+                .evacuation_cancellation(&root, operation, turn.remaining()?)
+                .await?
+                .is_none()
+        {
+            return Err(RaftFleetFailure::unsupported());
+        }
+        let receipt = self
+            .catalog
+            .cancel_evacuation(
+                &root,
+                &FleetEvacuationCancelRequest {
+                    identity,
+                    node: node_value,
+                    fence,
+                },
+                self.node_observer.as_ref(),
+                turn.remaining()?,
+            )
+            .await?;
+        Ok(cancelled(
+            self,
+            node,
+            &request.operation,
+            &receipt,
+            admission.histories(),
+        ))
+    }
+
     pub async fn evacuation_status(
         &self,
         operation: &str,
@@ -555,6 +647,23 @@ impl RaftFleetControl {
             }
             None => None,
         };
+        let cancellation = match self
+            .catalog
+            .evacuation_cancellation(&root, op, turn.remaining()?)
+            .await?
+        {
+            Some(receipt) => {
+                let request = request_from(receipt.identity(), &self.catalog_id);
+                Some(cancelled(
+                    self,
+                    &node,
+                    &request,
+                    &receipt,
+                    admission.histories(),
+                ))
+            }
+            None => None,
+        };
         let pending_movements = self
             .catalog
             .pending_reservations(&root, turn.remaining()?)
@@ -587,6 +696,7 @@ impl RaftFleetControl {
             exclusion_revision: admission.applied_revision(),
             finalization,
             removal,
+            cancellation,
             pending_movements,
         })
     }

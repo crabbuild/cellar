@@ -3,6 +3,9 @@
 //! Actual CLI -> authenticated admin -> complete proof walks -> joined stop.
 use super::*;
 
+#[path = "raft_operator_cancel_native.rs"]
+mod cancellation_cases;
+
 impl Server {
     fn departure_args(
         &self,
@@ -69,31 +72,14 @@ async fn fleet_operator_departure_redistributes_verifies_joins_and_removes() -> 
     Box::pin(departure()).await
 }
 
-async fn departure() -> Result<()> {
-    let mut f = Box::pin(Scenario::new(true)).await?;
-    let mut admin = server(&f).await?;
-    let node = hex::encode([4; 16]);
-    let revision = f.s.f.catalog.read(TIMEOUT).await?.revision();
-    let refused = operation(&admin, 165, revision);
-    let (exit, value) = admin
-        .cli(
-            &admin.departure_args(&node, "evacuate", &refused),
-            "evacuator",
-        )
-        .await?;
-    ensure!(
-        exit != 0,
-        "departure before completed keep-set exclusion: {value}"
-    );
-    ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
-
-    let mut begin = request(&f, 164).await?;
-    begin.keep.retain(|n| n != &node);
+async fn redistribute(f: &mut Scenario, admin: &Server, node: &str) -> Result<()> {
+    let mut begin = request(f, 164).await?;
+    begin.keep.retain(|n| n.as_str() != node);
     let (exit, value) = admin
         .cli(&admin.begin_args(&begin, "departure-keep.json")?, "owner")
         .await?;
     ensure!(exit == 0, "redistribution admission {exit}: {value}");
-    let evidence = Arc::new(Inputs::new(&f).await?);
+    let evidence = Arc::new(Inputs::new(f).await?);
     let service =
         f.s.f
             .catalog
@@ -113,11 +99,34 @@ async fn departure() -> Result<()> {
         "redistribution {exit}: {value}"
     );
     service.shutdown().await;
-    completed_sql(&mut f, 164).await?;
+    completed_sql(f, 164).await?;
     ensure!(f
         .live
         .iter()
         .all(|members| members.iter().all(|(n, _)| n.bytes() != [4; 16])));
+
+    Ok(())
+}
+
+async fn departure() -> Result<()> {
+    let mut f = Box::pin(Scenario::new(true)).await?;
+    let mut admin = server(&f).await?;
+    let node = hex::encode([4; 16]);
+    let revision = f.s.f.catalog.read(TIMEOUT).await?.revision();
+    let refused = operation(&admin, 165, revision);
+    let (exit, value) = admin
+        .cli(
+            &admin.departure_args(&node, "evacuate", &refused),
+            "evacuator",
+        )
+        .await?;
+    ensure!(
+        exit != 0,
+        "departure before completed keep-set exclusion: {value}"
+    );
+    ensure!(f.s.f.catalog.read(TIMEOUT).await?.revision() == revision);
+
+    redistribute(&mut f, &admin, &node).await?;
 
     let exclusion = operation(&admin, 167, f.s.f.catalog.read(TIMEOUT).await?.revision());
     let args = admin.departure_args(&node, "evacuate", &exclusion);
@@ -427,6 +436,79 @@ async fn retained_debt() -> Result<()> {
                 .pending_movements
         )? == serde_json::to_value(status.pending_movements)?
     );
+    let metadata = Server::configured(&f.s.f, &f.s.namespace, None).await?;
+    let cancel = RaftFleetNodeCancel {
+        operation: operation(&metadata, 176, root.revision()),
+        expected_process: None,
+        fence_id: None,
+    };
+    let args = metadata.departure_args(
+        &hex::encode([8; 16]),
+        "cancel-evacuation",
+        &cancel.operation,
+    );
+    let (exit, value) = metadata.cli(&args, "canceller").await?;
+    ensure!(
+        exit == 0,
+        "cancel before finalization without observer {exit}: {value}"
+    );
+    let receipt = accepted(value)?;
+    ensure!(
+        receipt.phase == RaftFleetEvacuationPhase::Cancelled
+            && receipt.fence_id.is_none()
+            && receipt.terminal
+    );
+    let view = metadata
+        .control
+        .node(&hex::encode([8; 16]), TIMEOUT)
+        .await?;
+    ensure!(view.state == RaftFleetNodeState::Ready && view.capacity.is_none());
+    let cancelled = metadata.evacuation_view(&request.operation_id).await?;
+    ensure!(cancelled.cancellation.is_some() && cancelled.pending_movements.len() == 1);
+    let current = f.s.f.catalog.read(TIMEOUT).await?;
+    f.s.f
+        .catalog
+        .begin_evacuation(
+            &current,
+            &FleetRequestIdentity {
+                id: [178; 16],
+                operation: [179; 16],
+                principal: "next-disruption".into(),
+                expected_revision: current.revision(),
+            },
+            NodeId::new([4; 16])?,
+            std::slice::from_ref(&f.s.namespace),
+            TIMEOUT,
+        )
+        .await?;
+    let current = f.s.f.catalog.read(TIMEOUT).await?;
+    let slot =
+        f.s.f
+            .catalog
+            .get(&current, FleetTable::Policy, "active-disruption", TIMEOUT)
+            .await?
+            .context("next slot")?;
+    let (exit, value) = metadata.cli(&args, "canceller").await?;
+    ensure!(exit == 0 && accepted(value)?.observed_revision == current.revision());
+    let after = f.s.f.catalog.read(TIMEOUT).await?;
+    ensure!(after.revision() == current.revision());
+    ensure!(
+        f.s.f
+            .catalog
+            .get(&after, FleetTable::Policy, "active-disruption", TIMEOUT)
+            .await?
+            .as_ref()
+            == Some(&slot)
+    );
+    ensure!(
+        serde_json::to_value(
+            metadata
+                .evacuation_view(&request.operation_id)
+                .await?
+                .pending_movements
+        )? == serde_json::to_value(cancelled.pending_movements)?
+    );
+    metadata.close().await?;
     admin.close().await?;
     f.close().await
 }

@@ -245,6 +245,22 @@ impl NodeRecord {
         Ok(())
     }
 
+    pub(super) fn cancel_evacuation(&mut self, operation: [u8; 16]) -> Result<()> {
+        if !matches!(
+            self.state,
+            FleetNodeState::Draining | FleetNodeState::Finalizing
+        ) || self.operation != Some(operation)
+            || self.isolation.is_some()
+            || self.storage_instance.is_none()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.state = FleetNodeState::Ready;
+        self.operation = None;
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
+
     pub(super) fn complete_removal(&mut self, operation: [u8; 16]) -> Result<()> {
         if self.state != FleetNodeState::Finalizing
             || self.operation != Some(operation)

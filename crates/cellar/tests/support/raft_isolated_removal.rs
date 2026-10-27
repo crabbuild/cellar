@@ -370,6 +370,26 @@ async fn fleet_isolated_removal_repairs_replays_and_releases_slot() -> Result<()
     let controller = Fixture::open_catalog(&r.s.f.domain, r.s.f.store.clone())?;
     let mut proof = r.verification(&controller).await?;
     let cut = controller.read(TIMEOUT).await?;
+    // Cancellation must never return a permanently quarantined boot to Ready.
+    ensure!(controller
+        .cancel_evacuation(
+            &cut,
+            &cellar::application::consensus::verification::FleetEvacuationCancelRequest {
+                identity: request(248, cut.revision()),
+                node: r.old_spec.node,
+                fence: Some(
+                    cellar::application::consensus::verification::FleetEvacuationCancelFence {
+                        process: ProcessGeneration::new(r.boot.process)?,
+                        request: ProposalId::new([249; 16])?,
+                    }
+                ),
+            },
+            Some(&r.s.observer),
+            TIMEOUT
+        )
+        .await
+        .is_err());
+    ensure!(controller.read(TIMEOUT).await?.revision() == cut.revision());
     let intent = FleetIsolatedRemovalRequest {
         identity: request(240, cut.revision()),
         isolation: ProposalId::new(ISOLATION)?,

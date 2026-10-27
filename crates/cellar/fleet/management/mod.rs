@@ -28,9 +28,10 @@ pub use raft::{
     RaftFleetEvacuationPhase, RaftFleetEvacuationProgress, RaftFleetEvacuationStatus,
     RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement, RaftFleetMovements,
     RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance, RaftFleetNodeAction,
-    RaftFleetNodeAdmission, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
-    RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
-    RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
+    RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity, RaftFleetNodeDescriptor,
+    RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus,
+    RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode,
+    RaftFleetStatus,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;

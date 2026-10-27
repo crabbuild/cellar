@@ -150,7 +150,8 @@ pub mod verification {
     pub use crate::raft::fleet_catalog::{
         FleetBirthAuthorization, FleetBirthReservation, FleetCatalog, FleetCatalogError,
         FleetChange, FleetCommit, FleetCursor, FleetEntry, FleetEvacuationAdmission,
-        FleetEvacuationArchive, FleetEvacuationCandidate, FleetEvacuationVerification,
+        FleetEvacuationArchive, FleetEvacuationCancelFence, FleetEvacuationCancelRequest,
+        FleetEvacuationCancellation, FleetEvacuationCandidate, FleetEvacuationVerification,
         FleetFinalizationAdmission, FleetHistory, FleetHistoryState, FleetImportPhase,
         FleetInventory, FleetIsolatedRemovalAdmission, FleetIsolatedRemovalRequest, FleetMutation,
         FleetNamespaceImport, FleetPage, FleetRemovalAdmission, FleetRemovalRequest, FleetSnapshot,

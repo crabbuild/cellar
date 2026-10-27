@@ -200,7 +200,7 @@ pub mod fleet_operations {
         RaftFleetEvacuationDebt, RaftFleetEvacuationPhase, RaftFleetEvacuationProgress,
         RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement,
         RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
-        RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCapacity,
+        RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
         RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
         RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
         RaftFleetRegisterNode, RaftFleetStatus,

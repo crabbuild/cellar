@@ -422,12 +422,11 @@ The uppercase values above are placeholders. IDs are canonical nonzero
 reported by the finalization receipt. `R2` is the root after exclusion; `R3` is
 the root after finalization. Stop does not mutate that root. Reconcile the exact
 request after any unknown outcome. A policy, inventory or permit change after
-finalization can refuse a fresh stop even at a newer expected revision. This
-delivery does not yet revalidate that stop basis or cancel the rooted departure;
-retain the operation and all data. A new request ID cannot repair stale proof.
-That continuation/cancellation boundary is the next lifecycle deliverable. An
-already signed exact joined closure remains a physical fact; terminal removal
-still needs fresh complete verification against the current inventory.
+finalization can refuse a fresh stop even at a newer expected revision. A new
+stop ID cannot repair stale proof. Use the cancellation/restart workflow below
+when the process has not accepted a stop. An already signed exact joined closure
+remains a physical fact; terminal removal still needs fresh complete verification
+against the current inventory.
 
 `evacuate` uses the independent `fleet_evacuate` grant. It roots `Draining` and
 claims the single disruption slot after checking the completed keep set.
@@ -469,6 +468,67 @@ this graceful CLI cannot turn a timeout into isolation or force a quorumless
 group through removal. Restore original durable voters or use a separately
 qualified disaster procedure when quorum is lost. Maintenance/rejoin of the
 same retained identity and resize are separate unfinished workflows.
+
+## Cancel and restart a departure
+
+Cancellation ends the old operation and returns the node to **Ready**. It grants
+no capacity or new membership, revives no retired binding, and retains every
+resource debit, data directory and archive. It releases only that operation's
+disruption slot. The independent `fleet_cancel` grant authorizes the SDK method
+`RaftFleetControl::cancel_node_evacuation`, the bounded authenticated POST route
+`/api/v1/fleets/{fleet}/raft/nodes/{node}/cancel-evacuation`, and the CLI command.
+The audit action is `raft_node_cancel`.
+
+Before finalization, no scoped stop is admissible for this operation. Cancel
+without process/fence fields, including through a metadata-only management server:
+
+```sh
+cellar raft fleet nodes cancel-evacuation NODE --operation-id OLD_OP --request-id CANCEL --expected-revision CURRENT
+```
+
+After finalization, supply its exact process and a separately retained child
+fence ID. The catalog owns an authenticated RPC to the actual process. The
+receiver must sync a fence denying every old stop at that epoch before the
+catalog may atomically root Ready, the cancellation receipt and slot release:
+
+```sh
+cellar raft fleet nodes cancel-evacuation NODE --operation-id OLD_OP --request-id CANCEL --expected-revision CURRENT --expected-process PROCESS --fence-id FENCE
+cellar raft fleet nodes evacuation-status OLD_OP
+```
+
+A synced fence cannot undo an accepted stop. If the target accepted stop or its
+physical outcome is unknown, cancellation refuses and retains the rooted
+operation. Reconcile the original stop ID and signed joined closure, then use
+fresh complete removal verification. Choosing another fence ID cannot override
+an accepted stop. Permanent exact-boot quarantine also refuses cancellation.
+
+Retain **both** cancellation and child fence identities. An unknown root outcome
+requires the same CANCEL/revision/payload retry; the permanent journal determines
+whether it committed. If a concurrent catalog change definitively prevents that
+CAS, a new CANCEL/revision may use the **same FENCE** for the unchanged finalized
+process/epoch. A different fence ID at the same already-fenced epoch conflicts.
+If a lower-level caller previously fenced that epoch, use its known exact fence
+ID. The API never guesses an unknown selector. Process and fence fields must be
+supplied together; callers cannot submit a purported fence acknowledgement.
+
+A disconnected waiter or expired deadline cannot turn unconfirmed work into a
+successful root transition. Receiver-owned narrowing may still complete; repeat
+its exact child fence. Committed cancellation retries require neither observer
+nor replay services and do not rewrite current node state or release a later
+operation's slot. Historical finalization and cancellation receipts can coexist
+in status; read the separate current node state. `cancelled` is terminal for the
+old operation, including if that node is later Active or Removed by another one.
+There is no `--wait` retry loop for cancellation.
+
+Ready invalidates the prior node-epoch capacity. Obtain a fresh trusted platform
+attestation and live capacity qualification/activation through the existing
+node-capacity commands. Retained physical high water and reservations still
+count. Then start evacuation with a **new operation ID and new request IDs**;
+its preparation must verify the entire current inventory again, including births
+that appeared during the old operation. The old operation remains cancelled.
+This is explicit cancel-and-restart recovery, not an in-place upgrade of an old
+verification certificate. The owning application may keep serving ordinary
+writes throughout cancellation; a later stop still requires separate consent.
 
 ## Return hardware after evacuation
 

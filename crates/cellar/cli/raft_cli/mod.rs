@@ -54,6 +54,7 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     verb: "evacuate",
                     process: None,
                     stop: None,
+                    fence: None,
                 },
                 request.as_ref(),
                 false,
@@ -73,6 +74,7 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     verb: "prepare-removal",
                     process: None,
                     stop: None,
+                    fence: None,
                 },
                 request.as_ref(),
                 options.wait,
@@ -92,6 +94,7 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     verb: "stop",
                     process: Some(&request.expected_process),
                     stop: Some(&request.operation.request_id),
+                    fence: None,
                 },
                 request.as_ref(),
                 false,
@@ -111,9 +114,30 @@ async fn execute(options: &options::Options) -> Result<Value> {
                     verb: "remove",
                     process: None,
                     stop: Some(&request.stop_id),
+                    fence: None,
                 },
                 request.as_ref(),
                 options.wait,
+                options.timeout,
+            )
+            .await
+        }
+        Action::CancelEvacuation(node, request) => {
+            lifecycle::execute(
+                &client,
+                lifecycle::Scope {
+                    node,
+                    catalog: &request.operation.catalog_id,
+                    request: &request.operation.request_id,
+                    operation: &request.operation.operation_id,
+                    revision: request.operation.expected_revision,
+                    verb: "cancel-evacuation",
+                    process: request.expected_process.as_deref(),
+                    stop: None,
+                    fence: request.fence_id.as_deref(),
+                },
+                request.as_ref(),
+                false,
                 options.timeout,
             )
             .await

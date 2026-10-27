@@ -203,7 +203,7 @@ async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown(
     let operation = hex::encode([3; 16]);
     let catalog = hex::encode([4; 32]);
     let process = hex::encode([5; 16]);
-    for variant in 0..10 {
+    for variant in 0..13 {
         let mut receipt = serde_json::json!({"progress": {
             "catalog_id":catalog,"operation_id":operation,"request_id":request,"node_id":node,
             "expected_revision":1,"phase":"finalizing","checked_histories":1,"total_histories":1,
@@ -213,6 +213,7 @@ async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown(
         let verb = match variant {
             8 => "stop",
             9 => "remove",
+            10..=12 => "cancel-evacuation",
             _ => "prepare-removal",
         };
         match variant {
@@ -250,6 +251,20 @@ async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown(
                 } else {
                     Value::Null
                 };
+            }
+            10..=12 => {
+                receipt["progress"]["phase"] = serde_json::json!("cancelled");
+                receipt["progress"]["terminal"] = serde_json::json!(variant != 11);
+                receipt["progress"]["checked_histories"] = serde_json::json!(0);
+                receipt["progress"]["candidate_digest"] = Value::Null;
+                receipt["progress"]["fence_id"] = serde_json::json!(if variant == 10 {
+                    hex::encode([9; 16])
+                } else {
+                    request.clone()
+                });
+                if variant == 12 {
+                    receipt["progress"]["process"] = serde_json::json!(hex::encode([9; 16]));
+                }
             }
             _ => anyhow::bail!("unexpected receipt variant"),
         }
@@ -307,6 +322,8 @@ async fn fleet_operator_departure_cli_checks_receipts_and_never_retries_unknown(
         ];
         if variant == 8 {
             args.extend(["--expected-process", &process]);
+        } else if variant >= 10 {
+            args.extend(["--expected-process", &process, "--fence-id", &request]);
         } else {
             args.push("--wait");
         }
