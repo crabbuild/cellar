@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",
+  "revision": "dac800a693b3f25cc99761f2d0f51ceb0045bd50",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -72,7 +72,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "5424452787b60c5a06e7b1fb6bf013796d9a8bdf4bd73175854838a56d425a8f"
+      "sha256": "88fda9478908d991979ac7be9deeb1568d1f1a851cf0ce17b8125eb3a14aa82d"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -359,6 +359,6 @@
       "sha256": "d8e1e8f728215c65fcef81424655dd9e15a5dbf53d21dfd445e42312c4e1d95a"
     }
   ],
-  "reviewed_from_revision": "641d259687b7f9ef6890e2826eb56609a48fbaec",
-  "review_note": "Reviewed the admin cancellation workflow documentation after implementation 641d2596. All Rust/Cargo inputs remain that qualified implementation; cancellation fencing, immutable retry identities, retained charges and capacity invalidation were reviewed at that source. Qualification and failed attempts are attributed separately in progress."
+  "reviewed_from_revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",
+  "review_note": "Reviewed owned restart preparation, canonical process/grace intent, mode-aware shared disruption admission and original-epoch cancellation. New boots remain fenced before joined-owner proof; M1 grants no readiness/stop/rejoin authority. Frozen source, actual tests and failed attempts are separately attributed in progress."
 }

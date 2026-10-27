@@ -8,6 +8,34 @@ The [lifecycle execution contract](lifecycle-execution.md) adds crash/retry
 ownership, shrink admission fencing, prediction-versus-observation rules and
 the exact evidence behind each operator-visible result.
 
+## Implemented restart preparation boundary
+
+The catalog now has owned M1 restart preparation and preparation-only
+cancellation. `begin_restart_maintenance` pins exact process, request identity,
+complete namespace/history inventory and requested grace (1–300 seconds). One
+CAS changes Active to RestartPending, increments its enrollment epoch and claims
+the same disruption slot used by evacuation. It preserves voters, running
+consensus and retained resource charges. `restart_maintenance_admission` is a
+historical observation, not a RestartReady or stop receipt. Grace has not started.
+
+A new boot remains fenced while preparation is unresolved; an ordinary Node
+shutdown does not supply managed joined-owner proof. The unchanged original
+preparation epoch can use `cancel_restart_preparation` to return to Ready without
+capacity. Original confirmations reconcile through the permanent journal, and
+historical retries cannot release a later operation's slot. A different process,
+grace, principal or request cannot rebind the same intent.
+
+Before a later phase issues a physical admission gate or stop capability, it
+must advance the node epoch. Preparation-only cancellation then refuses. That
+later phase requires owned fence/outcome reconciliation; metadata cancellation
+cannot reopen an admitted shutdown. The new native cases and qualification
+results are recorded in [progress](progress.md).
+
+M2–M9, reversible command admission, handoff/readiness, guarded maintenance stop,
+intact-engine rejoin, grace expiry, rolling execution and SDK/admin/CLI maintenance
+surfaces remain unfinished. The protocol below is still the full delivery
+contract; preparing metadata does not satisfy it.
+
 ## Select the correct maintenance mode
 
 | Work | Mode | Membership and storage treatment |

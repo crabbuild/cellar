@@ -14,6 +14,66 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Intact restart preparation
+
+Implementation `dac800a693b3f25cc99761f2d0f51ceb0045bd50` delivers the catalog's
+M1 preparation boundary. It records exact process and grace intent, rereads
+complete inventory and atomically claims the disruption slot shared with
+evacuation while moving Active to RestartPending. Existing voters and consensus
+continue. New incoming placement and capacity admission refuse. The requested
+grace remains descriptive until a later owned stop is admitted.
+
+A new boot cannot treat RestartPending as restart permission. Preparation-only
+cancellation requires the exact unchanged original node epoch and returns Ready
+without capacity or resource credit. Later physical gate/readiness steps must
+advance that epoch before dispatch; they cannot use metadata cancellation to
+reopen an admitted shutdown. Parent identity, process, grace and principal stay
+immutable across retries. Historical admission/cancellation receipts cannot
+rewrite current node state or release a later operation's slot.
+
+The new native cases obtain an actual rooted capacity certificate for a running
+leader, invalidate it at preparation, refuse a fresh incoming birth, preserve
+all three original voters and verify SQL 7 → 12 → 21. Lost admission and
+cancellation confirmations reconcile across adapter recreation; cross-mode
+restart/evacuation contention and generic slot deletion refuse. A separate case
+physically joins an ordinary shutdown, attempts intact-volume Resume with a
+fresh process and confirms boot refusal without replacing rooted identity or
+deleting storage. Its later-epoch injection also refuses preparation-only
+cancellation. Deployment resource values in these cases are explicit trusted
+fixture attestations, not measurements of enforced container limits.
+
+**46 distinct focused candidate cases have passing results across the aggregate
+and targeted rerun:** eight evacuation/preparation, 28 stop/replay lifecycle,
+seven capacity and three operator departure/cancellation cases. The two initial
+preparation probes are included in the eight-case cohort and are not added to
+the distinct count. All-target host/admin Clippy with warnings denied, Rust
+formatting/layout, native dependency checks, documentation links, ten plan tests,
+the 329-case manifest and 89-anchor source preflight pass. Static-check outputs
+are retained in `restart-preparation-checks-v1/` beside the native runs.
+The audit matches all 1,471 frozen Rust/Cargo/configuration inputs to `dac800a6`
+and verifies native executable, CLI-child and output hashes. Later changes are
+documentation/manifest updates only.
+
+The broad stop/replay cohort initially passed 27/28. The existing isolated-removal
+failed-survivor case returned Unconfirmed; it passes unchanged in the retained
+candidate (4.39 seconds) and pre-change control (3.83 seconds). The cause remains
+unresolved. An earlier strengthened preparation case sampled local enrollment
+before the capacity revision reached its cached trust view. Its precondition now
+uses the authenticated minimum-revision observation; the exact epoch assertion
+remains. Clippy also rejected a direct test filesystem check; retained storage
+is now checked through injected execution-domain filesystem metadata. No deadline,
+stack bound, production guard or assertion was relaxed. All original outputs
+remain outside runtime data beside retained executables in checkout-private
+`qualification/fleet-operations/restart-preparation-v1/` through
+`restart-preparation-v4/` and `restart-preparation-followups-v1/`.
+
+This is not complete maintenance delivery. M2–M9 still require incoming-action
+settlement, a reversible admission gate, observed handoff and both-survivor
+readiness, guarded maintenance stop, intact-engine rejoin/capacity resume,
+grace-expiry and second-failure handling, rolling execution and operator
+SDK/admin/CLI surfaces. No new throughput or independent-node resource claim is
+made. Full latest-head SDK CI and deployed qualification remain release gates.
+
 ## Cancellation and fresh departure recovery
 
 Implementation `641d259687b7f9ef6890e2826eb56609a48fbaec` adds audited
@@ -156,7 +216,7 @@ and no safety guard was bypassed.
 
 | Priority | Feature boundary | Deliverable acceptance |
 | --- | --- | --- |
-| 1 | Maintenance/rejoin (FO-07/FO-08) | Deliver reversible maintenance admission, exact joined stop, retained-engine restart with a fresh process, catch-up/capacity requalification and verified Active rejoin through SDK/API/CLI. Hold the shared disruption slot until rejoin is verified. Cancel-and-restart now resolves stale departure proof before stop acceptance; it cannot undo an accepted stop. In-place certificate refresh is not implemented. |
+| 1 | Maintenance/rejoin M2–M9 (FO-07/FO-08) | M1 catalog preparation and original-epoch cancellation are implemented. Next settle incoming actions, add the reversible admission gate and observed handoff/both-survivor readiness, then exact joined stop, retained-engine restart with a fresh process and verified Active rejoin through SDK/API/CLI. Hold the shared disruption slot through catch-up/capacity requalification; complete grace-expiry, second-failure and rolling execution. Departure cancel-and-restart cannot undo an accepted stop; in-place certificate refresh is not implemented. |
 | 2 | Production failure policy (FO-06) | A configured trusted platform adapter supplies exact-boot isolation. Suspicion/timeouts cannot authorize it. Admit automatic repairs only with the existing quorum, inventory, retained-charge and two-action bounds; simultaneous failures with lost quorum refuse. |
 | 3 | Scalable convergence and desired capacity (FO-04/FO-09) | Bounded collection/planning at 500 and 1,500 histories, invalidation on changed rooted inputs and renewed live proof. Resolve the documented planner charge and retained-state-fit gaps through measured bounded work, before claiming those fleet sizes. Fewer cells alone cannot grant physical capacity credit. |
 | 4 | Workload balancing and resize (FO-05/FO-07/FO-09) | Fresh role/load costs, measured leader-transfer benefit, and safe profile grow/shrink through maintenance/rejoin. Optional performance changes require matched throughput or latency gains. |

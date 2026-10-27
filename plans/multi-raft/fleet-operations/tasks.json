@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",
+  "baseline_revision": "dac800a693b3f25cc99761f2d0f51ceb0045bd50",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3795,17 +3795,26 @@
         "crates/cellar/durability/raft/fleet_catalog/finalization/fencing.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/terminal.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/mod.rs",
-        "crates/cellar/tests/support/raft_evacuation_verification.rs"
+        "crates/cellar/tests/support/raft_evacuation_verification.rs",
+        "crates/cellar/durability/raft/fleet_catalog/boots.rs",
+        "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/raft_evacuation_native.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
         "crates/cellar/tests/native_raft_fleet_maintenance.rs",
         "crates/cellar/tests/support/raft_isolated_removal.rs",
-        "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs"
+        "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
+        "crates/cellar/durability/raft/fleet_catalog/disruption.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/cancellation.rs",
+        "crates/cellar/tests/support/raft_restart_maintenance_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
-        "Implement separate restart and evacuation lifecycle transitions with durable operator intent.",
+        "Owned restart preparation is implemented in the catalog: exact process/grace intent, complete inventory, atomic exclusion/shared disruption admission, no new boot before joined-owner proof, and preparation-only cancellation to Ready. It retains existing voters and resource charges. Readiness/handoff, reversible command admission, owned maintenance stop, rejoin/capacity resume, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
@@ -3999,6 +4008,28 @@
             "F05",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_restart_preparation_retains_voters_and_reconciles_cancellation",
+          "oracle": "An actual leader obtains a rooted capacity certificate, then restart preparation claims the shared slot while existing RF3 voters and SQL continue. Lost admission/cancellation confirmations reconcile across adapter recreation, altered intent and fresh incoming births refuse, and original receipts cannot release a later evacuation slot. Ready requires fresh capacity qualification.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_preparation_fences_new_boot_and_later_epoch_cancellation",
+          "oracle": "After actual owner shutdown, an intact-volume Resume with a fresh process refuses while restart preparation is unresolved. The refused startup joins its infrastructure without replacing the rooted boot or deleting storage. A later node epoch cannot use preparation-only cancellation to lift its exclusions.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -4021,6 +4052,18 @@
           "--test",
           "native_raft_fleet_maintenance",
           "--locked",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_restart_preparation_",
           "--",
           "--test-threads=1"
         ]
