@@ -26,6 +26,9 @@ local tool effects and recovery alarms, with credential-free and OpenAI modes.
 The [Vercel AI SDK agent](vercel-agent/README.md) runs TypeScript `ToolLoopAgent`
 through the JavaScript bridge with durable decisions, atomic tool receipts,
 alarm-driven cold recovery, and concurrent task qualification.
+The [filesystem session agent](filesystem-agent/README.md) uses `ctx.fs` with
+saved decisions and atomic file-tool receipts; follow-up turns share one cell's
+files through the explicit SDK primitive.
 Its React/shadcn chat UI renders live Markdown with Streamdown and includes
 GPT-6 Luna qualification for local and external tool recovery.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
@@ -36,7 +39,7 @@ The catalog borrows application patterns from the
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
-commands, expected output, interpretation and cleanup. The catalog contains 33
+commands, expected output, interpretation and cleanup. The catalog contains 34
 entries, including the original standalone embedding and stream hosts.
 Each entry demonstrates its named feature with runnable code. The catalog does
 not claim Workers SDK compatibility or production fleet certification.

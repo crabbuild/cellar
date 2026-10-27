@@ -421,13 +421,17 @@ impl NativeWorker {
                 root: storage::embedded_root_gate(&identity.scope),
             });
         }
+        let state = Arc::new(EventState::default());
+        io.native_event
+            .set(Arc::downgrade(&state))
+            .map_err(|_| anyhow!("native invocation already owns an event state"))?;
         Ok(Context {
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
             catalog_authority: None,
             name_authority: None,
             io,
-            state: Arc::new(EventState::default()),
+            state,
             identity,
             facet: scope.and_then(|scope| self.facets.get(scope).cloned()),
             trace,
@@ -718,9 +722,13 @@ impl NativeWorker {
             source_authority.is_some()
                 || state_authority.is_some()
                 || inventory_authority.is_some()
-                || work
-                    .as_ref()
-                    .is_some_and(|work| work.reason == cellar_logic::work::Reason::Outbox),
+                || work.as_ref().is_some_and(|work| {
+                    matches!(
+                        work.reason,
+                        cellar_logic::work::Reason::Outbox
+                            | cellar_logic::work::Reason::FilesystemMaintenance
+                    )
+                }),
             Ordering::Release,
         );
         if scope
@@ -767,7 +775,13 @@ impl NativeWorker {
                 if let Some(authority) = state_authority {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
-                        crate::runtime::event_state::invoke(context, invocation, authority).await
+                        if authority.is_filesystem() {
+                            crate::runtime::filesystem_state::invoke(context, invocation, authority)
+                                .await
+                        } else {
+                            crate::runtime::event_state::invoke(context, invocation, authority)
+                                .await
+                        }
                     }));
                 }
                 if let Some(authority) = source_authority {
@@ -796,6 +810,10 @@ impl NativeWorker {
                                     installation,
                                 )
                                 .await
+                            }
+                            cellar_logic::work::Reason::FilesystemMaintenance => {
+                                crate::application::filesystem::maintain(context, installation)
+                                    .await
                             }
                         }
                     }));

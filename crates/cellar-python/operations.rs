@@ -45,6 +45,7 @@ pub(crate) async fn execute(
 ) -> anyhow::Result<Output> {
     use anyhow::Context as _;
     let limits = cellar_guest::Limits {
+        max_value_bytes: options.max_value_bytes,
         max_body_bytes: options.max_body_bytes,
         max_batch_operations: options.max_batch_operations,
     };

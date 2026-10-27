@@ -208,6 +208,8 @@ impl Reachable {
                 Some(crate::runtime::event_inventory::MAX_REPLY_BYTES)
             } else if route == "event-state" {
                 Some(crate::runtime::event_state::MAX_REPLY_BYTES)
+            } else if route == "filesystem-state" {
+                Some(crate::runtime::filesystem_state::MAX_REPLY_BYTES)
             } else {
                 matches!(route, "outbox" | "streams" | "catalogs")
                     .then_some(crate::runtime::source_control::MAX_REPLY_BYTES)

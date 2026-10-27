@@ -18,6 +18,7 @@ pub async fn call_raw(
         context,
         input,
         &crate::Limits {
+            max_value_bytes: maximum,
             max_body_bytes: maximum,
             max_batch_operations: 0,
         },

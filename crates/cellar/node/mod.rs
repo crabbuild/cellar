@@ -62,7 +62,6 @@ mod event_inventory;
 mod event_metrics;
 mod event_reply;
 mod event_resources;
-mod event_state;
 mod event_wait;
 mod ingress;
 pub(crate) mod operations;
@@ -70,6 +69,7 @@ mod raft_metrics;
 mod raft_startup;
 mod rpc_deadline;
 mod source_operator;
+mod state_sampling;
 mod stream_operator;
 mod wake_discovery;
 #[cfg(not(cellar_internal_tests))]
@@ -3449,7 +3449,10 @@ async fn handle_internal(
             event_inventory::handle(&app, request).await
         }
         _ if path.starts_with("/event-state/") && app.runtime.is_some() => {
-            event_state::handle(&app, request).await
+            state_sampling::handle(&app, request, state_sampling::SampleKind::Events).await
+        }
+        _ if path.starts_with("/filesystem-state/") && app.runtime.is_some() => {
+            state_sampling::handle(&app, request, state_sampling::SampleKind::Filesystem).await
         }
         _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
             source_operator::handle(&app, request).await

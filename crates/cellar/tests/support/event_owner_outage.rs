@@ -11,14 +11,14 @@ use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 
 #[derive(Debug)]
-pub(super) struct Outage {
+pub(crate) struct Outage {
     store: Arc<dyn ObjectStore>,
     isolated: AtomicBool,
     refused: AtomicUsize,
 }
 
 impl Outage {
-    pub(super) fn wrap(
+    pub(crate) fn wrap(
         bucket: &cellar::bucket::Bucket,
     ) -> Result<(cellar::bucket::Bucket, Arc<Self>)> {
         let fault = Arc::new(Self {
@@ -37,11 +37,11 @@ impl Outage {
         Ok((isolated, fault))
     }
 
-    pub(super) fn isolate(&self) {
+    pub(crate) fn isolate(&self) {
         self.isolated.store(true, Ordering::Release);
     }
 
-    pub(super) fn refused(&self) -> usize {
+    pub(crate) fn refused(&self) -> usize {
         self.refused.load(Ordering::Acquire)
     }
 

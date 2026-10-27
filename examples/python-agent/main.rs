@@ -40,6 +40,7 @@ fn main() -> Result<()> {
             Source::new(include_str!("app.py"), "app.py")
                 .events([EventKind::Fetch])
                 .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm])
+                .filesystem("DurableAgent", cellar::sdk::filesystem::Policy::default())?
                 .require_distribution("annotated-types", "0.8.0")
                 .require_distribution("anyio", "4.15.1")
                 .require_distribution("certifi", "2026.10.19")

@@ -5,12 +5,15 @@
 //! `unrestricted()` removes Cellar's compatibility ceilings. SQLite's compiled
 //! limits, the structured-value codec, integer ranges and the storage provider
 //! still constrain operations. Admission, durability and ownership are separate.
+//! Filesystem transfers, handles and transaction work retain explicit finite
+//! bounds under `unrestricted()`; filesystem size/inode quotas can use i64 maxima.
 
 use anyhow::{ensure, Result};
 
 /// Limits applied to every cell in one execution domain.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CellLimits {
+    pub filesystem: super::filesystem::FilesystemLimits,
     pub kv: KvLimits,
     pub sql: SqlLimits,
     pub blob: BlobLimits,
@@ -22,6 +25,13 @@ pub struct CellLimits {
 impl CellLimits {
     pub fn unrestricted() -> Self {
         Self {
+            filesystem: super::filesystem::FilesystemLimits {
+                max_file_bytes: i64::MAX as u64,
+                max_logical_bytes: i64::MAX as u64,
+                max_allocated_bytes: i64::MAX as u64,
+                max_inodes: i64::MAX as u64,
+                ..Default::default()
+            },
             kv: KvLimits {
                 max_key_bytes: usize::MAX,
                 max_value_bytes: usize::MAX,
@@ -56,6 +66,7 @@ impl CellLimits {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.filesystem.validate()?;
         self.events.validate()?;
         for (name, value) in [
             ("kv.max_key_bytes", self.kv.max_key_bytes),

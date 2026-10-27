@@ -21,33 +21,43 @@ pub(super) struct InstalledHost {
 
 impl InstalledHost {
     pub async fn start(host: &Path, store: &Path, work: &Path, name: &str) -> Result<Self> {
+        Self::start_configured(host, store, work, name, |_| {}).await
+    }
+
+    pub async fn start_configured(
+        host: &Path,
+        store: &Path,
+        work: &Path,
+        name: &str,
+        configure: impl FnOnce(&mut Command),
+    ) -> Result<Self> {
         let output = work.join(format!("{name}.log"));
         let stdout = std::fs::File::create(&output)?;
-        let mut process = Process(
-            Command::new(host)
-                .env_clear()
-                .args([
-                    "--no-control-plane",
-                    "--listen",
-                    "127.0.0.1:0",
-                    "--internal-listen",
-                    "127.0.0.1:0",
-                ])
-                .env("CELLAR_NATIVE_FLEET", "1")
-                .env("CELLAR_INTERNAL_DEV_STORE", store)
-                .env("CELLAR_BUCKET", "cellar-dev")
-                .env("CELLAR_NODE", name)
-                .env("CELLAR_TEST_DATA_DIR", work.join(format!("{name}-node")))
-                .env("CELLAR_TOKIO_THREADS", "2")
-                .env("CELLAR_PLACEMENT_WEIGHT", "1")
-                .env("CELLAR_REBALANCE_INTERVAL_MS", "0")
-                .env("CELLAR_DURABILITY", "bucket")
-                .env("CELLAR_SHUTDOWN_TOTAL_MS", "8000")
-                .env("CELLAR_SHUTDOWN_REPORT_JSON", "1")
-                .stdout(Stdio::from(stdout.try_clone()?))
-                .stderr(Stdio::from(stdout))
-                .spawn()?,
-        );
+        let mut command = Command::new(host);
+        command
+            .env_clear()
+            .args([
+                "--no-control-plane",
+                "--listen",
+                "127.0.0.1:0",
+                "--internal-listen",
+                "127.0.0.1:0",
+            ])
+            .env("CELLAR_NATIVE_FLEET", "1")
+            .env("CELLAR_INTERNAL_DEV_STORE", store)
+            .env("CELLAR_BUCKET", "cellar-dev")
+            .env("CELLAR_NODE", name)
+            .env("CELLAR_TEST_DATA_DIR", work.join(format!("{name}-node")))
+            .env("CELLAR_TOKIO_THREADS", "2")
+            .env("CELLAR_PLACEMENT_WEIGHT", "1")
+            .env("CELLAR_REBALANCE_INTERVAL_MS", "0")
+            .env("CELLAR_DURABILITY", "bucket")
+            .env("CELLAR_SHUTDOWN_TOTAL_MS", "8000")
+            .env("CELLAR_SHUTDOWN_REPORT_JSON", "1")
+            .stdout(Stdio::from(stdout.try_clone()?))
+            .stderr(Stdio::from(stdout));
+        configure(&mut command);
+        let mut process = Process(command.spawn()?);
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()?;
@@ -127,6 +137,14 @@ impl InstalledHost {
             std::fs::read_to_string(&self.log)?
         );
         Ok(())
+    }
+
+    /// Abruptly stop this owned child for crash-recovery qualification.
+    #[allow(dead_code)] // Shared qualification entries exercise different shutdown modes.
+    pub fn crash(mut self) -> Result<std::process::ExitStatus> {
+        self.ensure_live()?;
+        self.process.0.kill()?;
+        Ok(self.process.0.wait()?)
     }
 
     pub async fn observe_refused_replacement(&mut self, version: &str) -> Result<()> {

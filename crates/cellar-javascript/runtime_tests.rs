@@ -55,6 +55,84 @@ fn source(body: &str) -> Source {
 }
 
 #[test]
+fn filesystem_helpers_preserve_preflight_failure_outcomes() -> Result<()> {
+    let code = r#"
+      const file = await ctx.fs.open('/note', {access:'read_write'});
+      const results = [];
+      for (let round = 0; round < 2; round++) {
+        for (const call of [
+          () => file.readExact(0), () => file.readExact(1),
+          () => file.writeAll(new Uint8Array()), () => file.writeAll(new Uint8Array([1])),
+        ]) {
+          try { await call(); throw new Error('preflight unexpectedly succeeded'); }
+          catch(error) {
+            results.push({code:error.code, errno:error.errno, operation:error.operation,
+              outcome:error.outcome, completed_bytes:error.completed_bytes});
+          }
+        }
+      }
+      return results;
+    "#;
+    JavaScriptRuntime::run(Options::default(), source(code), |app| {
+        let runtime = &app.runtime;
+        let id = runtime.id()?;
+        let mut receive = start(runtime, id, Arc::new(AtomicBool::new(true)));
+        let Event::Operation {
+            id: operation,
+            name,
+            ..
+        } = event(&mut receive)
+        else {
+            panic!("helper did not open its protocol descriptor")
+        };
+        assert_eq!(name, "filesystem.open");
+        runtime.reply(
+            id,
+            operation,
+            json!({"ok":true,"value":{"handle":"test"}}).to_string(),
+        )?;
+        let mut expected = Vec::new();
+        for outcome in ["not_committed", "unknown"] {
+            for method in ["read_exact", "read_exact", "write_all", "write_all"] {
+                let Event::Operation {
+                    id: operation,
+                    name,
+                    ..
+                } = event(&mut receive)
+                else {
+                    panic!("helper did not await its capability preflight")
+                };
+                // No read/write operation can be submitted after this refusal.
+                assert_eq!(name, "filesystem.capabilities");
+                runtime.reply(
+                    id,
+                    operation,
+                    json!({"ok":false,"code":"Overloaded",
+                    "errno":"EIO","operation":"filesystem.capabilities", "outcome":outcome,
+                    "completed_bytes":0})
+                    .to_string(),
+                )?;
+                expected.push(json!({"code":"Overloaded","errno":"EIO",
+                    "operation":format!("filesystem.{method}"), "outcome":outcome,
+                    "completed_bytes":0}));
+            }
+        }
+        let Event::Complete {
+            payload, failed, ..
+        } = event(&mut receive)
+        else {
+            panic!("preflight refusal admitted another byte operation")
+        };
+        assert!(!failed);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&payload)?,
+            json!(expected)
+        );
+        Ok(())
+    })
+}
+
+#[test]
 fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
     let code = r#"
       const c = ctx.containers.get('backup');

@@ -99,6 +99,7 @@ pub struct HostServices {
     inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
+    filesystem_handles: crate::application::filesystem::HostRegistry,
     events: Arc<crate::application::event_stream::service::Service>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -131,6 +132,7 @@ impl HostServices {
             inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            filesystem_handles: crate::application::filesystem::HostRegistry::default(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -164,6 +166,7 @@ impl HostServices {
             inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            filesystem_handles: crate::application::filesystem::HostRegistry::default(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -477,6 +480,10 @@ impl HostServices {
 
     pub fn cell_limits(&self) -> crate::application::limits::CellLimits {
         *self.cell_limits.get_or_init(Default::default)
+    }
+
+    pub(crate) fn filesystem_handles(&self) -> &crate::application::filesystem::HostRegistry {
+        &self.filesystem_handles
     }
 
     pub(crate) fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {

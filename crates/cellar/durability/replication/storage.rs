@@ -36,6 +36,9 @@ pub trait ReplicaRangeReaderFactory: Send + Sync {
 /// and provider refresh. Per-cell clients only change the object key prefix.
 /// Signed blocking S3 reads are an explicit opt-in; a supplied page-reader
 /// factory can own their transport and executor.
+/// The default generic-store page bridge polls each range under the activation's
+/// captured execution domain. Closing that domain refuses later faults, even
+/// when the caller has entered another domain.
 #[derive(Clone)]
 pub struct ReplicaStorage {
     store: Arc<dyn ObjectStore>,
@@ -134,7 +137,139 @@ impl ReplicaStorage {
                     .create(&format!("{}cells/{cell}/ltx/e{epoch}", self.config.path))
                     .await
             }
-            None => Ok(self.client_for(cell, epoch).blocking_range_reader().await?),
+            None if self.s3.is_some() => {
+                Ok(self.client_for(cell, epoch).blocking_range_reader().await?)
+            }
+            None => {
+                // The LTX helper owns a separate runtime. Supplied stores can
+                // require Cellar services while polling metadata/body reads,
+                // so retain this activation's domain across that boundary.
+                let owner = crate::asyncrt::services()
+                    .domain_token()
+                    .ok_or(crate::asyncrt::DomainClosed)?;
+                Ok(Box::new(
+                    cellar_ltx::client::object_store::StoreRangeReader::new(
+                        Arc::new(PageReadStore {
+                            inner: self.store.clone(),
+                            owner,
+                        }),
+                        format!("{}cells/{cell}/ltx/e{epoch}", self.config.path),
+                    ),
+                ))
+            }
         }
     }
 }
+
+/// Fault-only facade: exactly the supplied client's range operation, polled and
+/// dropped under its captured owner. Ordinary replication clients and custom
+/// page-reader factories retain their own contracts. This facade permits no
+/// mutation or listing, and never substitutes a process-global owner.
+struct PageReadStore {
+    inner: Arc<dyn ObjectStore>,
+    owner: crate::asyncrt::DomainToken,
+}
+
+impl std::fmt::Debug for PageReadStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PageReadStore")
+    }
+}
+
+impl std::fmt::Display for PageReadStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("owner-bound replica page reads")
+    }
+}
+
+fn unsupported_page_operation() -> object_store::Error {
+    object_store::Error::NotSupported {
+        source: Box::new(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "replica page adapter permits only range reads",
+        )),
+    }
+}
+
+#[async_trait::async_trait]
+impl ObjectStore for PageReadStore {
+    async fn get_range(
+        &self,
+        path: &object_store::path::Path,
+        range: std::ops::Range<u64>,
+    ) -> object_store::Result<bytes::Bytes> {
+        self.owner
+            .run(self.inner.get_range(path, range))
+            .await
+            .map_err(|error| object_store::Error::Generic {
+                store: "owner-bound replica page reads",
+                source: Box::new(error),
+            })?
+    }
+
+    async fn put_opts(
+        &self,
+        _: &object_store::path::Path,
+        _: object_store::PutPayload,
+        _: object_store::PutOptions,
+    ) -> object_store::Result<object_store::PutResult> {
+        Err(unsupported_page_operation())
+    }
+
+    async fn put_multipart_opts(
+        &self,
+        _: &object_store::path::Path,
+        _: object_store::PutMultipartOptions,
+    ) -> object_store::Result<Box<dyn object_store::MultipartUpload>> {
+        Err(unsupported_page_operation())
+    }
+
+    async fn get_opts(
+        &self,
+        _: &object_store::path::Path,
+        _: object_store::GetOptions,
+    ) -> object_store::Result<object_store::GetResult> {
+        Err(unsupported_page_operation())
+    }
+
+    async fn delete(&self, _: &object_store::path::Path) -> object_store::Result<()> {
+        Err(unsupported_page_operation())
+    }
+
+    fn list(
+        &self,
+        _: Option<&object_store::path::Path>,
+    ) -> futures_util::stream::BoxStream<'static, object_store::Result<object_store::ObjectMeta>>
+    {
+        Box::pin(futures_util::stream::once(async {
+            Err(unsupported_page_operation())
+        }))
+    }
+
+    async fn list_with_delimiter(
+        &self,
+        _: Option<&object_store::path::Path>,
+    ) -> object_store::Result<object_store::ListResult> {
+        Err(unsupported_page_operation())
+    }
+
+    async fn copy(
+        &self,
+        _: &object_store::path::Path,
+        _: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        Err(unsupported_page_operation())
+    }
+
+    async fn copy_if_not_exists(
+        &self,
+        _: &object_store::path::Path,
+        _: &object_store::path::Path,
+    ) -> object_store::Result<()> {
+        Err(unsupported_page_operation())
+    }
+}
+
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod tests;

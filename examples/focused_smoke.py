@@ -178,7 +178,7 @@ def main():
     parser.add_argument("--with-cron", action="store_true")
     args = parser.parse_args()
     catalog = json.loads(Path(__file__).with_name("catalog.json").read_text())["examples"]
-    entries = [e for e in catalog if "project" in e and e["status"] not in ("requires-container-engine", "requires-python-runtime")]
+    entries = [e for e in catalog if "project" in e and e["status"] not in ("requires-container-engine", "requires-python-runtime", "requires-node-runtime")]
     if args.example:
         names = {e["name"] for e in entries}
         missing = set(args.example) - names

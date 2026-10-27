@@ -210,6 +210,7 @@ impl Pump<'_> {
                         &call.name,
                         input,
                         &cellar_guest::Limits {
+                            max_value_bytes: self.runtime.options.max_value_bytes,
                             max_body_bytes: self.runtime.options.max_body_bytes,
                             max_batch_operations: self.runtime.options.max_batch_operations,
                         },

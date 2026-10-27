@@ -63,6 +63,22 @@ and escaped views refuse access after termination. Synchronous helpers cannot
 start asynchronous transaction blocks. Use parameterized SQL and bound values
 for untrusted inputs. Close or drop cursors promptly and cap scans.
 
+## Per-cell filesystem
+
+The opt-in `context.fs()` primitive stores regular files and directories in this
+cell's database. Within a transaction use `tx.fs()` to commit file changes with
+local business state, receipts and alarms. Files use the existing WAL/LTX and
+proof path. A separately bound KV/SQL/queue resource does not join that boundary.
+
+The [filesystem guide](../crates/cellar/application/filesystem/README.md) covers
+registration, POSIX-compatible operations, invocation/transaction-bound handles,
+byte paths, quotas, short I/O and durability barriers. Guest code uses `ctx.fs`
+and checked `storage.apply` file batches. The
+[session agent](../examples/filesystem-agent/README.md) saves decisions before
+executing atomic file tools. Qualification remains
+[in progress](../plans/per-cell-filesystem-implementation-status.md); core file
+access has no mounting or execution dependency.
+
 ## Durability and external side effects
 
 A local SQLite commit and an externally acknowledged durable result are

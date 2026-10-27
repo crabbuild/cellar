@@ -223,6 +223,10 @@ impl Cell for Leaf {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             assert_eq!(context.facet().unwrap().props, graph());
+            let error = context.fs().err().unwrap();
+            assert_eq!(error.errno, cellar::sdk::filesystem::Errno::EOPNOTSUPP);
+            assert_eq!(error.operation, "filesystem.acquire");
+            assert_eq!(error.outcome, cellar::sdk::filesystem::Outcome::NotApplied);
             match invocation {
                 Invocation::CellRpc { method, args } => {
                     assert_eq!(method, "echo");

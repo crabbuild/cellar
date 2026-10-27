@@ -13,6 +13,7 @@ on:
       - 'examples/bindings/**'
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
+      - 'examples/filesystem-agent/**'
       - 'tools/javascript/**'
       - 'tools/sandbox/**'
       - 'tools/rpc/**'
@@ -52,6 +53,7 @@ jobs:
           npm ci --prefix examples/bindings --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
+          npm ci --prefix examples/filesystem-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
@@ -64,7 +66,7 @@ jobs:
           npm test --prefix examples/vercel-agent
           npm run --prefix examples/vercel-agent format:check
           node --test packages/cellar-sdk/test/streaming.test.mjs
-          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts
+          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts packages/cellar-sdk/test/filesystem-types.ts
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
           npm test --prefix tools/rpc
@@ -105,6 +107,10 @@ jobs:
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:e2e
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
+      - name: Filesystem agent atomic tools and cold recovery
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-filesystem-agent-example
+          CELLAR_FS_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-filesystem-agent-example" npm run --prefix examples/filesystem-agent test:e2e
       - name: Vercel agent cold recovery from RustFS
         shell: bash
         run: |
@@ -189,5 +195,11 @@ jobs:
           cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
           mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
           CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
+      - name: Filesystem agent installed package and session recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/filesystem-agent/runtime.json .cellar/filesystem-agent-runtime
+          cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
+          mv .cellar/filesystem-agent-runtime .cellar/filesystem-agent-runtime-captured
+          CELLAR_FS_PACKAGE="$PWD/.cellar/filesystem-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package filesystem_agent_package -- --ignored --nocapture
       - name: SDK archive
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts

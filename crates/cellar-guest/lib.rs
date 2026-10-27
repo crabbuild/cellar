@@ -5,6 +5,8 @@
 //! from a language runtime thread. Applications should use their typed facade.
 pub mod containers;
 pub mod failure;
+pub mod filesystem;
+mod filesystem_batch;
 pub mod operations;
 mod rpc_control;
 pub mod rpc_failure;
@@ -17,6 +19,7 @@ pub mod workers;
 /// Limits enforced before entering native effects.
 #[derive(Clone, Debug)]
 pub struct Limits {
+    pub max_value_bytes: usize,
     pub max_body_bytes: usize,
     pub max_batch_operations: usize,
 }

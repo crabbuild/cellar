@@ -12,7 +12,7 @@ const run = promisify(execFile);
 // Inspect only application rows, without opening a writer or reading the
 // model journal's private replay metadata. These observations never feed the
 // replacement worker: it must recover its own database from the bucket.
-export async function workerState(directory) {
+export async function workerState(directory, { filesystem = false } = {}) {
   const cells = [];
   async function visit(path) {
     for (const item of await readdir(path, { withFileTypes: true })) {
@@ -28,12 +28,34 @@ export async function workerState(directory) {
               "SELECT k, v FROM __sys_cell_kv WHERE k = 'count' OR k LIKE 'note:%' ORDER BY k",
             )
             .all();
+          const files = filesystem
+            ? db
+                .prepare(
+                  `
+            SELECT hex(e.name) AS name_hex, CAST(i.id AS TEXT) AS inode,
+              CAST(i.version AS TEXT) AS version, CAST(i.size AS TEXT) AS size,
+              (SELECT substr(data, 1, min(i.size, 4096)) FROM __sys_fs_chunks
+                WHERE inode=i.id AND chunk_index=0) AS prefix
+            FROM __sys_fs_entries e JOIN __sys_fs_inodes i ON i.id=e.inode
+            WHERE e.parent=1 AND i.kind=0 ORDER BY e.name LIMIT 32
+          `,
+                )
+                .all()
+                .map((row) => ({
+                  ...row,
+                  prefix:
+                    row.prefix === null
+                      ? null
+                      : Buffer.from(row.prefix).toString("base64"),
+                }))
+            : undefined;
           cells.push({
             cell: relative(directory, file).split(/[\\/]/)[0],
             count: JSON.parse(rows.find((row) => row.k === "count")?.v ?? "0"),
             notes: rows
               .filter((row) => row.k.startsWith("note:"))
               .map((row) => JSON.parse(row.v)),
+            ...(filesystem ? { files } : {}),
           });
         } finally {
           db.close();

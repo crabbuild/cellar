@@ -253,6 +253,74 @@ JSON response.
 represents a stored JSON null. Bind `storage = ctx.storage` when reusing a handle
 within one invocation: each property access creates a lightweight handle.
 
+### Per-cell filesystem
+
+The native bootstrap enables `Source::filesystem(class, Policy::default())`
+after registering a cell class. Its invocations use `ctx.fs`. Files live in that
+cell's SQLite state and follow its authority, transactions and proof path.
+The [filesystem guide](../cellar/application/filesystem/README.md) documents
+POSIX-compatible operations, finite limits and remaining release qualification.
+Use `Policy { read_only: true, ..Policy::default() }` in the native bootstrap
+for reader classes. `(await ctx.fs.capabilities())["read_only"]` reports the
+policy; filesystem mutations raise SDKError with errno EROFS while local
+business-state updates remain available.
+
+```python
+async with await ctx.fs.open("/notes.txt", access="read_write", create=True) as file:
+    await file.pwrite(b"hello", 0)
+    content = await file.pread(5, 0)
+    await file.fsync()
+```
+
+The context manager closes the descriptor; it supplies no implicit durability
+barrier. Descriptors expire with their invocation. Python `bytes` preserve
+binary filenames; integer offsets/versions are checked native-width values.
+Compose file changes and receipts through `ctx.storage.apply`'s
+`filesystem_checks` and `filesystem_mutations` arguments. Separate awaits are
+separate operations; Python built-in `open` still addresses process files.
+Sources enabling this capability require `max_value_bytes >= 4096`; capability
+transfer/helper/page limits account for the encoded bridge budget.
+Looping `read_exact` / `write_all` errors identify the helper and its confirmed
+`completed_bytes`, including zero for capability/size preflight failures. They
+preserve uncertain outcomes; a failed loop can have a committed write prefix
+or an advanced read offset.
+
+`cellar_filesystem_tools` is an embedded SDK module with bounded read/stat/list/
+write/replace/edit/rename/unlink/search tools:
+
+```python
+from cellar_filesystem_tools import FilesystemTools
+
+tools = FilesystemTools(ctx)
+saved = await tools.execute("turn-1:tool-1", {
+    "operation": "write", "path": "/notes.txt", "content": "hello",
+})
+```
+
+Use an ID from a saved model decision. `execute` snapshots its arguments before
+its first wait, compares the full canonical request on replay, commits file
+effects and a bounded receipt together, then awaits proof. Reads replay saved
+bytes after later edits. Known no-commit refusals are saved results; unknown
+outcomes propagate for later reconciliation. Optional `checks`/`puts` join the
+same transaction. The default receipt count is 256, read/write payloads are
+32 KiB, directory pages are 128 entries, and searches inspect at most 16 files,
+16 directories and 128 KiB of file prefixes.
+Receipt admission includes the future storage-read envelope and JSON escaping.
+An oversized result can become a recorded refusal. If the request plus refusal
+cannot fit a readable receipt, the call rejects before file mutation. Native
+transport budgets can therefore refuse input below a configured tool ceiling.
+
+Agent frameworks with their own journal use `await tools.prepare(request)`.
+It commits nothing. Save its `result` in the existing receipt and commit all
+returned `filesystem_checks`/`filesystem_mutations` with that receipt and the
+original journal guards in one `storage.apply`, then sync. Check the saved
+receipt before preparation on replay. Bound the complete external journal and
+checked batch to fit storage read/request envelopes.
+`filesystem_tool_refusal(error)` produces
+a receipt value only for a proven no-commit refusal; never repeat a submitted
+mutation after an unknown outcome. The [PydanticAI example](../../examples/python-agent/README.md)
+demonstrates this deferred-tool path.
+
 ### Infrastructure and event controls
 
 | API | Behavior |

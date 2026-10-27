@@ -305,6 +305,291 @@ class WebSocketResponse(Response):
         return {"websocket": self.socket.id, "headers": self.headers}, b""
 
 
+@dataclass(frozen=True)
+class FileStat:
+    inode: int
+    kind: str
+    mode: int
+    uid: int
+    gid: int
+    size: int
+    nlink: int
+    atime_ns: int
+    mtime_ns: int
+    ctime_ns: int
+    version: int
+    allocated_bytes: int
+
+    @classmethod
+    def _decode(cls, value):
+        value = value.copy()
+        for key in ("inode", "size", "nlink", "atime_ns", "mtime_ns", "ctime_ns", "version", "allocated_bytes"):
+            value[key] = int(value[key])
+        return cls(**value)
+
+
+@dataclass(frozen=True)
+class DirectoryEntry:
+    name: bytes
+    inode: int
+    kind: str
+
+
+def _filesystem_path(path):
+    if isinstance(path, str):
+        return path
+    if isinstance(path, (bytes, bytearray, memoryview)):
+        return {"bytes_base64": base64.b64encode(path).decode("ascii")}
+    raise ValidationError("Filesystem paths must be text or bytes")
+
+
+def _filesystem_integer(value):
+    if type(value) is int or type(value) is str:
+        return str(value)
+    raise ValidationError("Filesystem integers must be exact integers or decimal strings")
+
+
+def _filesystem_progress(error, completed, operation, committed):
+    if not isinstance(error, SDKError):
+        error = SDKError("Filesystem helper failed", "HostError", "unknown")
+    error.completed_bytes = completed + getattr(error, "completed_bytes", 0)
+    error.operation = "filesystem." + operation
+    if completed and error.outcome == "not_committed":
+        error.outcome = "locally_committed" if committed else "unknown"
+    return error
+
+
+class File:
+    """Invocation-local cell descriptor; closing never implicitly fsyncs."""
+    def __init__(self, filesystem, handle):
+        self._fs, self._handle = filesystem, handle
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        await self.close()
+
+    async def read(self, count):
+        value = await self._fs._call("read", handle=self._handle, count=count)
+        return base64.b64decode(value["data_base64"], validate=True)
+
+    async def pread(self, count, offset):
+        value = await self._fs._call("pread", handle=self._handle, count=count, offset=_filesystem_integer(offset))
+        return base64.b64decode(value["data_base64"], validate=True)
+
+    async def write(self, data):
+        return await self._fs._call("write", handle=self._handle, data_base64=base64.b64encode(data).decode("ascii"))
+
+    async def pwrite(self, data, offset):
+        return await self._fs._call("pwrite", handle=self._handle, data_base64=base64.b64encode(data).decode("ascii"), offset=_filesystem_integer(offset))
+
+    async def write_all(self, data):
+        data = memoryview(data).cast("B")
+        completed = 0
+        try:
+            limits = (await self._fs.capabilities())["limits"]
+            limit = limits["max_file_helper_bytes"]
+            if data.nbytes > limit:
+                raise ValidationError("Filesystem write_all exceeds helper limit")
+            if not data:
+                await self.write(data)
+            while data:
+                count = await self.write(data[:min(65536, limits["max_transfer_bytes"])])
+                if count <= 0:
+                    raise SDKError("Filesystem write made no progress", "HostError", "unknown")
+                completed += count
+                data = data[count:]
+        except Exception as error:
+            raise _filesystem_progress(error, completed, "write_all", True) from None
+
+    async def read_exact(self, count):
+        completed = 0
+        try:
+            limits = (await self._fs.capabilities())["limits"]
+            if type(count) is not int or not 0 <= count <= limits["max_file_helper_bytes"]:
+                raise ValidationError("Filesystem read_exact exceeds helper limit")
+            chunks = []
+            if not count:
+                await self.read(0)
+            while count:
+                chunk = await self.read(min(count, 65536))
+                if not chunk:
+                    error = SDKError("Filesystem read reached end of file", "UnexpectedEof", "not_committed")
+                    error.errno = "EIO"
+                    raise error
+                completed += len(chunk)
+                chunks.append(chunk)
+                count -= len(chunk)
+            return b"".join(chunks)
+        except Exception as error:
+            raise _filesystem_progress(error, completed, "read_exact", False) from None
+
+    async def lseek(self, offset, whence="start"):
+        return int(await self._fs._call("lseek", handle=self._handle, offset=_filesystem_integer(offset), whence=whence))
+
+    async def fstat(self):
+        return FileStat._decode(await self._fs._call("fstat", handle=self._handle))
+
+    async def ftruncate(self, size):
+        return await self._fs._call("ftruncate", handle=self._handle, size=_filesystem_integer(size))
+
+    async def fchmod(self, mode):
+        return await self._fs._call("fchmod", handle=self._handle, mode=mode)
+
+    async def dup(self):
+        return File(self._fs, (await self._fs._call("dup", handle=self._handle))["handle"])
+
+    async def close(self):
+        return await self._fs._call("close", handle=self._handle)
+
+    async def fsync(self):
+        return await self._fs._call("fsync", handle=self._handle)
+
+    async def fdatasync(self):
+        return await self._fs._call("fdatasync", handle=self._handle)
+
+
+@dataclass(frozen=True)
+class FileVersion:
+    inode: int
+    version: int
+
+
+@dataclass(frozen=True)
+class DirectoryPage:
+    entries: list[DirectoryEntry]
+    next: dict | None
+
+
+class Directory:
+    def __init__(self, filesystem, handle):
+        self._fs, self._handle = filesystem, handle
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        await self.closedir()
+
+    async def readdir(self):
+        value = await self._fs._call("readdir", handle=self._handle)
+        return None if value is None else DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"])
+
+    async def read_page(self, limit):
+        return [DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in await self._fs._call("read_page", handle=self._handle, limit=limit)]
+
+    async def telldir(self):
+        return await self._fs._call("telldir", handle=self._handle)
+
+    async def seekdir(self, cookie):
+        return await self._fs._call("seekdir", handle=self._handle, cookie=cookie)
+
+    async def rewinddir(self):
+        return await self._fs._call("rewinddir", handle=self._handle)
+
+    async def closedir(self):
+        return await self._fs._call("closedir", handle=self._handle)
+
+    async def fstat(self):
+        return FileStat._decode(await self._fs._call("fstat", handle=self._handle))
+
+    async def fsync(self):
+        return await self._fs._call("fsync", handle=self._handle)
+
+
+class Filesystem:
+    def __init__(self, context):
+        self._context = context
+
+    async def _call(self, operation, **value):
+        return await self._context._call("filesystem." + operation, **value)
+
+    async def capabilities(self):
+        value = await self._call("capabilities")
+        for key in ("max_file_bytes", "max_logical_bytes", "max_allocated_bytes", "max_inodes"):
+            value["limits"][key] = int(value["limits"][key])
+        return value
+
+    async def statvfs(self):
+        return {key: int(value) for key, value in (await self._call("statvfs")).items()}
+
+    async def open(self, path, **options):
+        return File(self, (await self._call("open", path=_filesystem_path(path), options=options))["handle"])
+
+    async def creat(self, path, mode=0o666):
+        return File(self, (await self._call("creat", path=_filesystem_path(path), mode=mode))["handle"])
+
+    async def openat(self, directory, path, **options):
+        return File(self, (await self._call("openat", directory=directory._handle, path=_filesystem_path(path), options=options))["handle"])
+
+    async def stat(self, path):
+        return FileStat._decode(await self._call("stat", path=_filesystem_path(path)))
+
+    async def lstat(self, path):
+        return FileStat._decode(await self._call("lstat", path=_filesystem_path(path)))
+
+    async def fstatat(self, directory, path, no_follow=False):
+        return FileStat._decode(await self._call("fstatat", directory=directory._handle, path=_filesystem_path(path), no_follow=no_follow))
+
+    async def truncate(self, path, size):
+        return await self._call("truncate", path=_filesystem_path(path), size=_filesystem_integer(size))
+
+    async def mkdir(self, path, mode=0o777):
+        return await self._call("mkdir", path=_filesystem_path(path), mode=mode)
+
+    async def mkdirat(self, directory, path, mode=0o777):
+        return await self._call("mkdirat", directory=directory._handle, path=_filesystem_path(path), mode=mode)
+
+    async def rmdir(self, path):
+        return await self._call("rmdir", path=_filesystem_path(path))
+
+    async def unlink(self, path):
+        return await self._call("unlink", path=_filesystem_path(path))
+
+    async def unlinkat(self, directory, path, remove_directory=False):
+        return await self._call("unlinkat", directory=directory._handle, path=_filesystem_path(path), remove_directory=remove_directory)
+
+    async def rename(self, old, new):
+        return await self._call("rename", old=_filesystem_path(old), new=_filesystem_path(new))
+
+    async def renameat(self, old_directory, old, new_directory, new):
+        return await self._call("renameat", old_directory=old_directory._handle, old=_filesystem_path(old), new_directory=new_directory._handle, new=_filesystem_path(new))
+
+    async def chmod(self, path, mode):
+        return await self._call("chmod", path=_filesystem_path(path), mode=mode)
+
+    async def utimens(self, path, mtime_ns="now"):
+        value = mtime_ns if mtime_ns is None or mtime_ns == "now" else _filesystem_integer(mtime_ns)
+        return await self._call("utimens", path=_filesystem_path(path), mtime_ns=value)
+
+    async def opendir(self, path):
+        return Directory(self, (await self._call("opendir", path=_filesystem_path(path)))["handle"])
+
+    async def read_file(self, path, max_bytes=None):
+        return base64.b64decode((await self._call("read_file", path=_filesystem_path(path), max_bytes=max_bytes))["data_base64"], validate=True)
+
+    async def write_file(self, path, data):
+        return await self._call("write_file", path=_filesystem_path(path), data_base64=base64.b64encode(data).decode("ascii"))
+
+    async def sync(self):
+        return await self._call("sync")
+
+    async def replace_file(self, path, data):
+        return await self._call("replace_file", path=_filesystem_path(path), data_base64=base64.b64encode(data).decode("ascii"))
+
+    async def edit_file(self, path, expected, *, offset, delete_bytes, insert):
+        value = await self._call("edit_file", path=_filesystem_path(path), inode=_filesystem_integer(expected.inode), version=_filesystem_integer(expected.version), offset=_filesystem_integer(offset), delete_bytes=_filesystem_integer(delete_bytes), data_base64=base64.b64encode(insert).decode("ascii"))
+        return FileVersion(int(value["inode"]), int(value["version"]))
+
+    async def read_dir(self, path, limit=100, cursor=None):
+        page = await self._call("read_dir", path=_filesystem_path(path), limit=limit, cursor=cursor)
+        return DirectoryPage([DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in page["entries"]], page["next"])
+
+    async def collect_garbage(self):
+        return await self._call("collect_garbage")
+
+
 class Storage:
     def __init__(self, context: Context) -> None:
         self._context = context
@@ -324,13 +609,14 @@ class Storage:
         snapshot = await self.read_json(key)
         return snapshot.value if snapshot.present else default
 
-    async def apply(self, *, checks: Mapping[str, Snapshot] | None = None, puts: Mapping[str, JSON] | None = None, deletes: Iterable[str] = (), alarm_at_ms: int | None = None, delete_alarm: bool = False) -> None:
+    async def apply(self, *, checks: Mapping[str, Snapshot] | None = None, puts: Mapping[str, JSON] | None = None, deletes: Iterable[str] = (), alarm_at_ms: int | None = None, delete_alarm: bool = False, filesystem_checks=(), filesystem_mutations=()) -> None:
         checks = checks or {}
         if any(not isinstance(value, Snapshot) for value in checks.values()):
             raise ValidationError("checks must contain Snapshot values from read_json or MISSING")
         return await self._context._call(
             "storage.apply", checks={key: dict(present=s.present, value=s.value) for key, s in checks.items()},
-            puts=puts or {}, deletes=list(deletes), alarm_at_ms=alarm_at_ms, delete_alarm=delete_alarm)
+            puts=puts or {}, deletes=list(deletes), alarm_at_ms=alarm_at_ms, delete_alarm=delete_alarm,
+            filesystem_checks=list(filesystem_checks), filesystem_mutations=list(filesystem_mutations))
 
     async def put_json(self, key: str, value: JSON) -> None:
         await self.apply(puts={key: value})
@@ -745,6 +1031,10 @@ class Context:
         }) if initial_storage else _EMPTY_INITIAL_STORAGE)
 
     @property
+    def fs(self) -> Filesystem:
+        return Filesystem(self)
+
+    @property
     def storage(self) -> Storage:
         # A handle retains its invocation, but the invocation must not retain
         # the handle: that cycle otherwise delays every request's reclamation.
@@ -861,7 +1151,11 @@ class Context:
             error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
                           "Overloaded": Overloaded, "Ambiguous": Ambiguous,
                           "OwnershipLost": OwnershipLost}.get(code, SDKError)
-            future.set_exception(error_type(error, code, value["outcome"]))
+            failure = error_type(error, code, value["outcome"])
+            failure.errno = value.get("errno")
+            failure.operation = value.get("operation")
+            failure.completed_bytes = value.get("completed_bytes", 0)
+            future.set_exception(failure)
 
     def _close(self, finished=False):
         if not self._pending:

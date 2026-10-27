@@ -81,3 +81,8 @@ required-features = ["node"]
 name = "cellar-bindings-javascript"
 path = "../../examples/bindings/javascript.rs"
 required-features = ["embed"]
+
+[[bin]]
+name = "cellar-filesystem-agent-example"
+path = "../../examples/filesystem-agent/main.rs"
+required-features = ["node"]

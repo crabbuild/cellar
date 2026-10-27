@@ -9,7 +9,7 @@ mod cursor;
 mod inbox;
 mod outbox;
 mod outbox_inspection;
-mod transaction;
+pub(crate) mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
 pub use cursor::{KvCursor, SqlCursor, SqlRow};
 pub use inbox::Inbox;
@@ -31,6 +31,7 @@ pub(crate) struct Resources {
     cleanup: Mutex<Vec<Cleanup>>,
     pub(crate) transaction: Mutex<Option<Arc<Transaction>>>,
     pub(crate) facets: Mutex<Option<Arc<super::facets::State>>>,
+    pub(crate) filesystem: super::filesystem::Registry,
     open_transaction: Mutex<Option<Arc<Transaction>>>,
     transaction_queue: transaction::Queue,
     transaction_serial: AtomicU64,
@@ -337,7 +338,7 @@ impl Storage {
         Ok(())
     }
 
-    fn scope(&self) -> Result<&str> {
+    pub(crate) fn scope(&self) -> Result<&str> {
         self.check_transaction_authority()?;
         let scope = self.activation_scope()?;
         if let Some(error) = crate::storage::sql_critical_error(scope) {
@@ -462,6 +463,14 @@ impl Storage {
     /// The compatibility flag chooses whether deleteAll also removes alarms.
     pub fn delete_all(&self) -> Result<()> {
         let scope = self.scope()?;
+        if self.0.resources.filesystem.has_live() {
+            return Err(super::filesystem::Error::new(
+                super::filesystem::Errno::EBUSY,
+                "filesystem descriptors remain open",
+            )
+            .with_code("FilesystemPresent")
+            .into());
+        }
         crate::storage::delete_all_with_alarm(scope, self.0.delete_all_deletes_alarm)?;
         crate::native_worker::refresh_wake_gate(scope)
     }

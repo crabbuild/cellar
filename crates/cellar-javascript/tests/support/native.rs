@@ -41,7 +41,7 @@ pub async fn start_configured(
     .await
 }
 
-async fn start_with_configuration(
+pub async fn start_with_configuration(
     path: &Path,
     application: Arc<dyn Application>,
     classes: Vec<String>,

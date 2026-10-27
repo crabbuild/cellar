@@ -145,6 +145,7 @@ jobs:
           export CELLAR_RPC_PYTHON_SITE="$(.cellar/rpc/python/bin/python -c 'import site; print(site.getsitepackages()[0])')"
           .cellar/rpc/python/bin/python -B tools/rpc/test_python_rpc.py
           cargo test -p cellar-python --features embed --locked -- --test-threads=1
+          cargo test --locked -p cellar-python --features embed --test filesystem -- --read-only
       - name: Verify native and Python baseline harness
         run: |
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
@@ -250,6 +251,7 @@ jobs:
         env:
           # Failed native fixtures retain synthetic recovery observations here.
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
+          CELLAR_FS_FAULT_REPORT: ${{ runner.temp }}/filesystem-proof-fault.json
         run: |
           mkdir -p "$TMPDIR"
           # Fleet fixtures own concurrent runtimes and short authority leases.
@@ -260,6 +262,27 @@ jobs:
           cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
           cargo test --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --doc --locked
           cargo clippy --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-targets --all-features --locked -- -D warnings
+      - name: Preserve filesystem proof and recovery ledger
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: filesystem-proof-fault-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-proof-fault.json
+          if-no-files-found: ignore
+      - name: Qualify dense filesystem writes and cold recovery
+        env:
+          CELLAR_FS_CAPACITY_MIB: "10"
+          CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
+        run: |
+          cargo test --locked -p cellar --all-features --test native_node \
+            filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
+      - name: Preserve dense filesystem observations
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: dense-filesystem-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-dense-capacity.json
+          if-no-files-found: ignore
       - name: Test Axum feature modes and generated contract
         run: |
           cargo test -p cellar-axum --no-default-features --locked

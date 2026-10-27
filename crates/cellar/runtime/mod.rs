@@ -893,6 +893,7 @@ pub(crate) mod catalog_control;
 pub use cancellation::InvocationCancellation;
 pub(crate) mod event_inventory;
 pub(crate) mod event_state;
+pub(crate) mod filesystem_state;
 pub(crate) mod rpc_authority;
 pub(crate) mod source_control;
 pub(crate) mod source_destruction;

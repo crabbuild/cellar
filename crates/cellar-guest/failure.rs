@@ -85,6 +85,15 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
 pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
+    if let Some(failure) = error.downcast_ref::<cellar::sdk::filesystem::Error>() {
+        use cellar::sdk::filesystem::Outcome;
+        let outcome = match failure.outcome {
+            Outcome::NotApplied => "not_committed",
+            Outcome::LocallyCommitted => "locally_committed",
+            Outcome::Unknown => "unknown",
+        };
+        return json!({"ok":false,"error":failure.code,"code":failure.code,"errno":failure.errno,"operation":name,"outcome":outcome,"completed_bytes":failure.completed_bytes});
+    }
     if let Some(failure) = error.downcast_ref::<cellar::sdk::rpc::Failure>() {
         // This is the outcome of this child SDK operation. An enclosing RPC
         // handler must still sanitize any escaping failure to unknown effects.

@@ -10,6 +10,11 @@ function storage() {
   let alarm;
   const ctx = {
     now: async () => 1000,
+    fs: {
+      capabilities: async () => ({
+        transport: { max_value_bytes: 2 * 1024 * 1024 },
+      }),
+    },
     storage: {
       read: async (key) =>
         data.has(key)
@@ -142,6 +147,36 @@ test("retry exhaustion preserves journal and configuration changes refuse execut
   for (let n = 0; n < 5; n++) await assert.rejects(execute(ctx, provider));
   await execute(ctx, provider);
   assert.equal((await readRun(ctx)).status, "failed");
+  assert.equal(alarm(), undefined);
+});
+
+test("small transport refuses a large decision and still saves retry exhaustion", async () => {
+  const { ctx, data, alarm } = storage();
+  ctx.fs.capabilities = async () => ({ transport: { max_value_bytes: 8192 } });
+  const apply = ctx.storage.apply;
+  ctx.storage.apply = async (batch) => {
+    assert.ok(Buffer.byteLength(JSON.stringify(batch)) <= 8192);
+    return apply(batch);
+  };
+  const provider = fixtureModel();
+  const generate = provider.doGenerate;
+  provider.doGenerate = async (...args) => {
+    const result = await generate(...args);
+    result.content.push({ type: "text", text: "x".repeat(9000) });
+    return result;
+  };
+  await accept(ctx, "Add three", provider);
+  for (let n = 0; n < 5; n++)
+    await assert.rejects(execute(ctx, provider), {
+      code: "ValidationError",
+      outcome: "not_committed",
+    });
+  await execute(ctx, provider);
+  const run = await readRun(ctx);
+  assert.equal(run.status, "failed");
+  assert.equal(run.attempts, 5);
+  assert.equal(run.models.length, 0);
+  assert.equal(data.has("count"), false);
   assert.equal(alarm(), undefined);
 });
 
