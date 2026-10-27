@@ -37,7 +37,6 @@ pub use histories::{
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
-pub(crate) use maintenance::RestartGenesisCommand;
 pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
@@ -45,6 +44,7 @@ pub use maintenance::{
     FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartSettlementBlocker,
     FleetRestartSettlementProgress, FleetRestartVerification,
 };
+pub(crate) use maintenance::{RestartActionContext, RestartLeadershipCommand};
 pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,

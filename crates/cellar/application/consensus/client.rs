@@ -457,7 +457,15 @@ impl RaftCellHandle {
         &self,
     ) -> impl Future<Output = Result<super::ReplicationStatus, CommandFailure>> + Send + 'static
     {
-        let call = self.call(Kind::ReplicationStatus, Duration::from_secs(5));
+        self.replication_status_for(Duration::from_secs(5))
+    }
+
+    pub(crate) fn replication_status_for(
+        &self,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<super::ReplicationStatus, CommandFailure>> + Send + 'static
+    {
+        let call = self.call(Kind::ReplicationStatus, timeout);
         async move {
             match call.await? {
                 Response::Replication(status) => Ok(status),
@@ -475,6 +483,20 @@ impl RaftCellHandle {
         timeout: Duration,
     ) -> impl Future<Output = Result<(), CommandFailure>> + Send + 'static {
         let call = self.call(Kind::TransferLeadership(transfer), timeout);
+        async move {
+            match call.await? {
+                Response::LeadershipRequested => Ok(()),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
+    pub(crate) fn restart_leadership(
+        &self,
+        check: crate::raft::completion::RestartLeadershipCheck,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<(), CommandFailure>> + Send + 'static {
+        let call = self.call(Kind::RestartLeadership(Box::new(check)), timeout);
         async move {
             match call.await? {
                 Response::LeadershipRequested => Ok(()),
@@ -906,6 +928,17 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
+                Kind::RestartLeadership(check) => {
+                    if self.binding.member().is_none()
+                        || check.deadline == 0
+                        || check.expected_term.get() == 0
+                        || check.expected_revision.get() == 0
+                        || check.through.get() == 0
+                        || timeout > Duration::from_secs(60)
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
                 Kind::TransferLeadership(transfer) => {
                     if self.binding.member().is_none()
                         || transfer.expected_term.get() == 0
@@ -1061,6 +1094,7 @@ pub(crate) enum Kind {
     ActivateLearner(LearnerActivation),
     ReplicationStatus,
     TransferLeadership(super::LeadershipTransfer),
+    RestartLeadership(Box<crate::raft::completion::RestartLeadershipCheck>),
     BeginRepair {
         plan: crate::raft::member_state::RepairPlan,
     },
@@ -1117,6 +1151,7 @@ impl Kind {
             | Self::AdvanceRepair { .. }
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
+            | Self::RestartLeadership(_)
             | Self::ActivateLearner(_)
             | Self::ActivateManaged { .. }
             | Self::ActivateInitial(_)
@@ -1141,6 +1176,7 @@ impl Kind {
             | Self::AdvanceRepair { .. }
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
+            | Self::RestartLeadership(_)
             | Self::ActivateLearner(_)
             | Self::ActivateManaged { .. }
             | Self::ActivateInitial(_)

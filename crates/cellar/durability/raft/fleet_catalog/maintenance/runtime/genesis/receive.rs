@@ -2,56 +2,29 @@
 
 //! Receiving authority is the current gate plus the immutable admitted birth.
 use super::*;
+use crate::raft::fleet_stop::BootBinding;
 
 impl FleetCatalog {
     pub(super) async fn restart_genesis_history(
         &self,
         snapshot: &FleetSnapshot,
-        command: &RestartGenesisCommand,
+        command: &RestartActionContext,
     ) -> Result<FleetHistory> {
-        command.validate()?;
-        let gate = self
-            .checked_restart_gate(snapshot, command.operation)
-            .await?;
-        if gate.request.id != command.parent
-            || Basis::capture(snapshot, &gate)?.input_digest()? != command.inputs
-        {
-            return Err(FleetCatalogError::Conflict);
-        }
-        self.require_restart_settlement_idle(snapshot, command.operation)
-            .await?;
-        let history = self.history_inner(snapshot, &command.group).await?;
-        if *history.state() != FleetHistoryState::Live
-            || !history.allows_managed_genesis()
-            || hash(&history.encode()?) != command.history
-        {
-            return Err(FleetCatalogError::Conflict);
-        }
-        let main = NodeId::new(gate.node.node)
-            .map_err(|_| FleetCatalogError::Corrupt("genesis maintenance node"))?;
-        let Some((voters, _)) = self.restart_voters(snapshot, &history, main).await? else {
-            return Err(FleetCatalogError::Conflict);
-        };
+        let action = self.restart_action_history(snapshot, command).await?;
         let target = NodeId::new(command.target.node)
             .map_err(|_| FleetCatalogError::Invalid("genesis target"))?;
-        let member = voters.get(&target).ok_or(FleetCatalogError::Conflict)?;
-        if !history
+        let member = action
             .voters
-            .iter()
-            .any(|v| v.node == command.target.node && v.member == member.get())
+            .get(&target)
+            .ok_or(FleetCatalogError::Conflict)?;
+        let history = action.history;
+        if !history.allows_managed_genesis()
+            || !history
+                .voters
+                .iter()
+                .any(|v| v.node == command.target.node && v.member == member.get())
         {
             return Err(FleetCatalogError::InventoryIncomplete);
-        }
-        let host = self.host_from_record(snapshot, target).await?;
-        if host.boot_binding()? != command.target
-            || host.state()
-                != if target == main {
-                    FleetNodeState::RestartPending
-                } else {
-                    FleetNodeState::Active
-                }
-        {
-            return Err(FleetCatalogError::Conflict);
         }
         Ok(history)
     }
@@ -60,7 +33,7 @@ impl FleetCatalog {
 impl FleetHostAuthorization {
     pub(crate) fn execute_restart_genesis<'a>(
         &'a self,
-        command: RestartGenesisCommand,
+        command: RestartActionContext,
         origin: BootBinding,
         minimum_revision: u64,
         gateway: &'a RaftCells,

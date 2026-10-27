@@ -26,6 +26,10 @@ use tokio::sync::{mpsc, oneshot, Notify};
 mod scheduler_tests;
 
 #[cfg(test)]
+#[path = "runtime_restart_leadership_tests.rs"]
+mod restart_leadership_tests;
+
+#[cfg(test)]
 #[path = "runtime_persistence_tests.rs"]
 mod persistence_tests;
 
@@ -33,6 +37,7 @@ pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
     TransferLeadership(LeadershipTransfer),
+    RestartLeadership(Box<RestartLeadershipCheck>),
     Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
     Propose {
@@ -655,6 +660,16 @@ impl RaftRuntime {
             .map(|_| ())
     }
 
+    pub(crate) async fn restart_leadership(
+        &self,
+        scope: &GroupScope,
+        check: Box<RestartLeadershipCheck>,
+    ) -> Result<(), RuntimeError> {
+        self.group(scope, GroupAction::RestartLeadership(check), 4096)
+            .await
+            .map(|_| ())
+    }
+
     pub async fn attach(&self, scope: &GroupScope) -> Result<(), RuntimeError> {
         self.call(4096, Command::Attach(scope.clone()))
             .await
@@ -1109,10 +1124,40 @@ impl Worker {
                     };
                     let new_read = matches!(&action, GroupAction::ReadIndex(_))
                         || matches!(&action,GroupAction::Step(m) if m.get_msg_type()==::raft::prelude::MessageType::MsgReadIndex);
+                    // Recheck at execution after any queueing. A synced fence
+                    // must defeat a delayed maintenance transfer even when its
+                    // catalog cancellation CAS was lost. Read-only observation
+                    // on a surviving leader needs no local quiescence.
+                    let gate = match &action {
+                        GroupAction::RestartLeadership(check)
+                            if self
+                                .domain
+                                .mono_ms()
+                                .map_or(true, |now| now >= check.deadline) =>
+                        {
+                            Err(RuntimeError::Closed)
+                        }
+                        GroupAction::RestartLeadership(check) => match &check.transfer {
+                            Some((_, selector)) => self
+                                .log
+                                .lifecycle_guard()
+                                .map_err(RuntimeError::from)
+                                .and_then(|guard| {
+                                    if guard.as_ref().and_then(|g| g.quiescing()) == Some(selector)
+                                    {
+                                        Ok(())
+                                    } else {
+                                        Err(RuntimeError::NotReady)
+                                    }
+                                }),
+                            None => Ok(()),
+                        },
+                        _ => Ok(()),
+                    };
                     let result = if new_read && pending_reads >= self.options.max_pending_reads {
                         Err(RuntimeError::Overloaded)
                     } else {
-                        group.replica.execute(action, &self.options)
+                        gate.and_then(|()| group.replica.execute(action, &self.options))
                     };
                     drop(request._permit);
                     drop(request._inbound);

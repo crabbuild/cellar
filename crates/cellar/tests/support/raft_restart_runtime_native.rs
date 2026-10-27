@@ -4,6 +4,8 @@
 use super::*;
 #[path = "raft_restart_genesis_native.rs"]
 mod genesis;
+#[path = "raft_restart_handoff_native.rs"]
+mod handoff;
 use cellar::application::consensus::verification::{
     FleetRestartHistoryProgress, FleetRestartVerification,
 };

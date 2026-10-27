@@ -1,9 +1,12 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Owned runtime reconciliation for intact-engine maintenance. No stop grant.
+mod action;
 mod basis;
 mod genesis;
+mod handoff;
 mod proof;
+mod reconcile;
 mod records;
 
 use super::gate::Gate;
@@ -12,11 +15,12 @@ use crate::application::consensus::RaftCells;
 use crate::raft::fleet_catalog::deadline::Deadline;
 use crate::raft::fleet_catalog::finalization::receipts::Publication;
 use crate::raft::physical_inventory::{RaftPhysicalHistory, RaftPhysicalInventory};
+pub(crate) use action::RestartActionContext;
 use basis::Basis;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use futures_util::future::BoxFuture;
-pub use genesis::FleetRestartRuntimeProgress;
-pub(crate) use genesis::RestartGenesisCommand;
+pub(crate) use handoff::RestartLeadershipCommand;
+pub use reconcile::FleetRestartRuntimeProgress;
 use records::{Candidate, Entry, Evidence};
 
 /// A complete history walk with one pending history and one bounded physical
@@ -91,6 +95,12 @@ impl FleetRestartRuntimeCandidate {
     pub fn retained_histories(&self) -> u64 {
         self.candidate.retained
     }
+
+    /// Histories whose surviving leader and matched progress were observed by
+    /// owned reconciliation. Historical coverage is not a readiness lease.
+    pub fn matched_histories(&self) -> u64 {
+        self.candidate.matched
+    }
 }
 
 impl FleetCatalog {
@@ -147,6 +157,7 @@ impl FleetCatalog {
                     covered_physical: 0,
                     voting: 0,
                     retained: 0,
+                    matched: 0,
                 },
                 inventory,
                 cursor: None,
@@ -217,8 +228,25 @@ impl FleetRestartVerification {
         timeout: Duration,
     ) -> BoxFuture<'_, Result<Option<FleetRestartHistoryProgress>>> {
         Box::pin(async move {
+            match self.verify_one(timeout, false).await? {
+                Some(FleetRestartRuntimeProgress::Verified(progress)) => Ok(Some(progress)),
+                None => Ok(None),
+                _ => Err(FleetCatalogError::Corrupt(
+                    "inspection produced a runtime action",
+                )),
+            }
+        })
+    }
+
+    fn verify_one(
+        &mut self,
+        timeout: Duration,
+        handoff: bool,
+    ) -> BoxFuture<'_, Result<Option<FleetRestartRuntimeProgress>>> {
+        Box::pin(async move {
             let catalog = self.catalog.clone();
             let deadline = Deadline::new(&catalog, timeout)?;
+            let started = proof::now(&catalog)?;
             let Some(history) = self.next_history(deadline.remaining()?).await? else {
                 return Ok(None);
             };
@@ -289,9 +317,21 @@ impl FleetRestartVerification {
                         {
                             return Err(FleetCatalogError::InventoryIncomplete);
                         }
-                        let voting =
+                        let mut voting =
                             proof::voting(self, &history, &voters, permit.as_ref(), &deadline)
                                 .await?;
+                        if handoff {
+                            if let Some(progress) =
+                                handoff::reconcile(self, &history, &voters, &voting, &deadline)
+                                    .await?
+                            {
+                                return Ok(Some(progress));
+                            }
+                            proof::fresh(&catalog, started, started)?;
+                            voting.leadership = records::Leadership::Matched {
+                                through: voting.fixed.applied_position()?.index.get(),
+                            };
+                        }
                         let survivors = voters
                             .keys()
                             .copied()
@@ -347,6 +387,9 @@ impl FleetRestartVerification {
                 self.book.voting + u64::from(matches!(entry.evidence, Evidence::Voting(_)));
             let retained =
                 self.book.retained + u64::from(matches!(entry.evidence, Evidence::Retained));
+            let matched = self.book.matched
+                + u64::from(matches!(&entry.evidence,
+                Evidence::Voting(v) if matches!(v.leadership, records::Leadership::Matched { .. })));
             let index = catalog
                 .run(deadline.remaining()?, async {
                     self.book.basis.check_current(&catalog).await?;
@@ -369,9 +412,10 @@ impl FleetRestartVerification {
             self.book.covered_physical = covered;
             self.book.voting = voting;
             self.book.retained = retained;
+            self.book.matched = matched;
             self.pending = None;
             self.genesis_checked.clear();
-            Ok(Some(progress))
+            Ok(Some(FleetRestartRuntimeProgress::Verified(progress)))
         })
     }
 
@@ -390,6 +434,7 @@ impl FleetRestartVerification {
                 || !self.exhausted
                 || self.book.count != self.book.basis.histories
                 || self.book.covered_physical != self.inventory.histories().len() as u64
+                || self.book.matched > self.book.voting
             {
                 return Err(FleetCatalogError::InventoryIncomplete);
             }

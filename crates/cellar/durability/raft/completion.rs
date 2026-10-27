@@ -120,6 +120,19 @@ pub struct LeadershipTransfer {
     pub expected_revision: LogIndex,
 }
 
+/// Internal descriptor, not authority. The worker checks the synced gate at
+/// execution; the replica checks current matched progress and configuration.
+#[derive(Clone, Debug)]
+pub(crate) struct RestartLeadershipCheck {
+    /// Raft-owner-domain evidence expiry, tightened by the SDK request deadline.
+    pub deadline: u64,
+    pub expected_term: Term,
+    pub expected_revision: LogIndex,
+    pub through: LogIndex,
+    pub survivors: [MemberId; 2],
+    pub transfer: Option<(MemberId, super::fleet_stop::StopSelector)>,
+}
+
 /// Leader-local replication observations. These are neither apply nor quorum
 /// proofs; the owner rechecks actual progress when accepting a transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]

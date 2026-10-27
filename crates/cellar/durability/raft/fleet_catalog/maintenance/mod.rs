@@ -17,11 +17,11 @@ use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
-pub(crate) use runtime::RestartGenesisCommand;
 pub use runtime::{
     FleetRestartHistoryProgress, FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress,
     FleetRestartVerification,
 };
+pub(crate) use runtime::{RestartActionContext, RestartLeadershipCommand};
 pub use settle::{
     FleetRestartBirthAction, FleetRestartBirthResolution, FleetRestartSettlementBlocker,
     FleetRestartSettlementProgress,

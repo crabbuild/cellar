@@ -3802,7 +3802,13 @@
         "crates/cellar/tests/support/raft_evacuation_native.rs",
         "crates/cellar/application/consensus/client_execution.rs",
         "crates/cellar/durability/raft/fleet_action_transport.rs",
-        "crates/cellar/durability/raft/fleet_action_transport_tests.rs"
+        "crates/cellar/durability/raft/fleet_action_transport_tests.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/replica_leadership.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/receipts.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
@@ -3836,7 +3842,14 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/receive.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/materialize.rs",
-        "crates/cellar/tests/support/raft_restart_genesis_native.rs"
+        "crates/cellar/tests/support/raft_restart_genesis_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/action.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/reconcile.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/handoff/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/handoff/receive.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/handoff/reconcile.rs",
+        "crates/cellar/durability/raft/runtime_restart_leadership_tests.rs",
+        "crates/cellar/tests/support/raft_restart_handoff_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -4343,6 +4356,126 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_restart_handoff_observes_primary_and_preserves_sql",
+          "oracle": "An owned transfer retains the pending history; only a fresh survivor-leader and leader-local matched/publication check consumes it. SQL remains durable and no readiness/stop/capacity authority is issued.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_verifies_survivor_without_transfer",
+          "oracle": "A follower maintenance target verifies the actual surviving leader and both survivors through their fixed published cut without issuing a transfer.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_reopens_after_request_and_observes_actual_leader",
+          "oracle": "Dropping the controller after transfer acceptance does not mint progress. A reopened controller observes the surviving leader, verifies actual matched progress and preserves SQL.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_missing_second_survivor_keeps_obligation",
+          "oracle": "A missing second survivor refuses owned handoff verification and preserves the exact pending history and disruption debt.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_moves_dynamic_leader_using_current_membership",
+          "oracle": "An actual replacement member becomes leader before maintenance; owned handoff uses settled current membership rather than immutable genesis and preserves archived SQL.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_retained_copy_grants_no_matched_votes",
+          "oracle": "A retired physical copy remains counted as retained occupancy and cannot add a voting or matched-progress obligation.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_handoff_observes_survivor_while_archive_write_waits",
+          "oracle": "A real archive-acknowledged write remains outstanding while follower maintenance verifies the live surviving leader; control observation does not wait for archive I/O and the write later receives its archive acknowledgement.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "runtime_restart_handoff_queued_request_refuses_synced_fence",
+          "oracle": "A request queued while the local maintenance gate is open is refused after its exact cancellation fence syncs, even with no catalog mutation.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "runtime_restart_handoff_queued_request_refuses_expired_deadline",
+          "oracle": "The actual Raft owner refuses a queued maintenance request after its original local deadline, preserving the live gate and configuration.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_action_restart_leadership_wire_pins_context_and_indices",
+          "oracle": "The authenticated action decoder binds restart context and destination boot, rejects invalid term/configuration/cut indices and same-node transfers, and preserves the unchanged body bound.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -4413,6 +4546,29 @@
           "native_raft_fleet_enrollment",
           "--locked",
           "fleet_restart_settler_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_restart_handoff_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "runtime_restart_handoff_",
           "--",
           "--test-threads=1"
         ]

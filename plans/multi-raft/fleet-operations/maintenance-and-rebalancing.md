@@ -154,9 +154,17 @@ voting obligation. Retired copies remain occupancy; empty targets still consume
 the complete canonical inventory. Relevant root drift, unknown slots, missing
 rightful genesis and synced cancellation fences block completion. Each voting
 turn keeps the existing five-second evidence-age envelope; the complete
-candidate has no current-health lease. Rightful genesis materialization,
-leader-local matched progress, observed handoff and final readiness renewal are
-still required to complete M3–M5. The adapter cannot issue `RestartReady` or stop.
+candidate has no current-health lease. Owned reconciliation now materializes
+missing original voters through their immutable admitted birth, then checks
+both survivors' matched progress at the actual leader. It requests transfer to
+an eligible current survivor and leaves that history pending until a surviving
+leader is actually observed. Transfer admission is not completion. The receiving
+node independently checks the canonical gate, history, boot, configuration,
+publication and load. At actual Raft execution, queued work checks its evidence
+expiry and a transfer checks the last synced gate. The evidence expiry uses the
+Raft owner's clock and cannot be extended by a longer SDK timeout. Normal
+elections, heartbeats, votes and replication continue. Final readiness renewal
+still remains; this adapter cannot issue `RestartReady` or stop.
 
 `StopForMaintenance` is a separate mutation with its own idempotency key. It
 invokes the existing owned Node stop path; it does not power off a VM or delete a

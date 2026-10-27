@@ -8,7 +8,7 @@ use crate::raft::member_state::{FleetMembershipPermit, FleetMembershipStatus};
 use std::collections::{BTreeMap, BTreeSet};
 
 // Preserve the existing fleet physical-evidence freshness envelope.
-const MAX_SAMPLE_AGE_MS: u64 = 5000;
+pub(super) const MAX_SAMPLE_AGE_MS: u64 = 5000;
 
 pub(super) fn now(catalog: &FleetCatalog) -> Result<u64> {
     catalog
@@ -175,10 +175,46 @@ pub(super) async fn voting(
     latest: Option<&FleetMembershipPermit>,
     deadline: &Deadline<'_>,
 ) -> Result<records::Voting> {
-    let catalog = &verification.catalog;
-    let snapshot = &verification.snapshot;
-    let target = NodeId::new(verification.gate.node.node)
-        .map_err(|_| FleetCatalogError::Corrupt("restart target"))?;
+    observe_voting(
+        VotingContext {
+            catalog: &verification.catalog,
+            snapshot: &verification.snapshot,
+            basis: &verification.book.basis,
+            gate: &verification.gate,
+            observer: &verification.observer,
+        },
+        history,
+        expected,
+        latest,
+        deadline,
+    )
+    .await
+}
+
+pub(super) struct VotingContext<'a> {
+    pub catalog: &'a FleetCatalog,
+    pub snapshot: &'a FleetSnapshot,
+    pub basis: &'a Basis,
+    pub gate: &'a Gate,
+    pub observer: &'a RaftCells,
+}
+
+pub(super) async fn observe_voting(
+    context: VotingContext<'_>,
+    history: &FleetHistory,
+    expected: &BTreeMap<NodeId, MemberId>,
+    latest: Option<&FleetMembershipPermit>,
+    deadline: &Deadline<'_>,
+) -> Result<records::Voting> {
+    let VotingContext {
+        catalog,
+        snapshot,
+        basis,
+        gate,
+        observer,
+    } = context;
+    let target =
+        NodeId::new(gate.node.node).map_err(|_| FleetCatalogError::Corrupt("restart target"))?;
     let scope = history
         .binding()
         .scope()
@@ -192,12 +228,11 @@ pub(super) async fn voting(
     for peer in
         std::iter::once(target).chain(expected.keys().copied().filter(|peer| *peer != target))
     {
-        let observation = verification
-            .observer
+        let observation = observer
             .observe_peer_fleet_membership(
                 peer,
                 authorization.clone(),
-                verification.book.basis.revision,
+                basis.revision,
                 deadline.remaining()?,
             )
             .await
@@ -217,7 +252,7 @@ pub(super) async fn voting(
         .ok_or(FleetCatalogError::Unconfirmed)?;
     let result = catalog
         .run(deadline.remaining()?, async {
-            verification.book.basis.check_current(catalog).await?;
+            basis.check_current(catalog).await?;
             let first = observations[0].membership();
             let first_member = observations[0]
                 .progress()
@@ -303,6 +338,12 @@ pub(super) async fn voting(
                     epoch: auth.epoch(),
                     member: replica.member.get(),
                     publication: hash(&encode(57, &Publication::from(cut), records::LIMIT)?),
+                    leader_load: observed
+                        .progress()
+                        .leader_load
+                        .as_ref()
+                        .filter(|load| load.sample_age_ms <= MAX_SAMPLE_AGE_MS)
+                        .map(|load| [load.leaders, load.capacity]),
                 });
             }
             if snapshot.replica_separation() == FleetReplicaSeparation::PhysicalHosts
@@ -310,8 +351,9 @@ pub(super) async fn voting(
             {
                 return Err(FleetCatalogError::Conflict);
             }
-            verification.book.basis.check_current(catalog).await?;
+            basis.check_current(catalog).await?;
             Ok(records::Voting {
+                leadership: records::Leadership::Inspected,
                 fixed: fixed.into(),
                 voters: results
                     .try_into()

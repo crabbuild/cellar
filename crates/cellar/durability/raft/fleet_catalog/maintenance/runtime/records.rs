@@ -42,11 +42,14 @@ pub(super) struct Voter {
     pub epoch: u64,
     pub member: u64,
     pub publication: [u8; 32],
+    #[serde(deserialize_with = "nullable")]
+    pub leader_load: Option<[u32; 2]>,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Voting {
+    pub leadership: Leadership,
     pub fixed: Publication,
     pub voters: [Voter; 3],
     pub leader: u64,
@@ -73,4 +76,18 @@ pub(super) struct Candidate {
     pub covered_physical: u64,
     pub voting: u64,
     pub retained: u64,
+    pub matched: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum Leadership {
+    Inspected,
+    Matched { through: u64 },
+}
+
+fn nullable<'de, T: Deserialize<'de>, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<T>, D::Error> {
+    Option::deserialize(decoder)
 }

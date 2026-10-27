@@ -28,9 +28,14 @@ an already-admitted Live birth, one node per turn. It reuses permanent member
 claims, verifies physical attachment after the reply, and retains the pending
 history across interruption. Claimed blank engines, dynamic replacements and
 changed rooted inputs refuse initialization. Actual both-survivor quorum and
-publication checks still precede historical candidate completion. Matched
-progress, observed handoff/readiness, stop/rejoin, rolling execution and
-maintenance operator surfaces, plus resize, remain delivery targets.
+publication checks still precede historical candidate completion. Owned
+reconciliation now checks both survivors' matched progress at the actual leader,
+requests an eligible transfer when needed, and retains the history until a
+survivor is observed as leader. Queued work rechecks the synced gate and an
+expiry measured by the Raft owner's clock. Final proof renewal and RestartReady,
+stop/rejoin, rolling execution, maintenance operator surfaces and resize remain
+delivery targets. Departure observation failures and deployed qualification
+remain open; the progress log records their exact limits.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

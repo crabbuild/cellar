@@ -6,7 +6,7 @@ use crate::raft::fleet_catalog::FleetExecutionCommand;
 use crate::raft::host::RaftPeerNodeObservation;
 use std::collections::BTreeMap;
 
-pub(super) async fn next(
+pub(in crate::raft::fleet_catalog::maintenance::runtime) async fn next(
     verification: &mut FleetRestartVerification,
     history: &FleetHistory,
     deadline: &Deadline<'_>,
@@ -80,7 +80,7 @@ pub(super) async fn next(
         let command = catalog
             .run(deadline.remaining()?, async {
                 verification.book.basis.check_current(&catalog).await?;
-                let command = RestartGenesisCommand {
+                let command = RestartActionContext {
                     parent: verification.gate.request.id,
                     operation: verification.gate.request.operation,
                     inputs: verification.book.basis.input_digest()?,

@@ -245,6 +245,23 @@ impl From<&FleetPublishedCut> for Publication {
 }
 
 impl Publication {
+    pub(in crate::raft::fleet_catalog) fn applied_position(
+        &self,
+    ) -> Result<cellar_logic::consensus::LogPosition> {
+        self.applied
+            .decode()
+            .map_err(|_| FleetCatalogError::Corrupt("receipt publication position"))
+    }
+
+    pub(in crate::raft::fleet_catalog) fn configuration_revision(
+        &self,
+    ) -> Result<cellar_logic::consensus::LogIndex> {
+        if self.revision == 0 || self.revision >= u64::MAX - 2 {
+            return Err(FleetCatalogError::Corrupt("receipt configuration revision"));
+        }
+        Ok(cellar_logic::consensus::LogIndex::new(self.revision))
+    }
+
     pub(super) fn restore(&self, current: &FleetPublishedCut) -> Result<FleetPublishedCut> {
         validate_image(self.applied, self.image_position, self.image)?;
         let image = match (self.image_position, self.image) {

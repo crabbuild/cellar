@@ -135,6 +135,10 @@
       "sha256": "b0820910d55f3752edced555e92fea7c44a06a538dce6495fdfc6bcb5a1b7f1f"
     },
     {
+      "path": "crates/cellar/durability/raft/completion.rs",
+      "sha256": "dbaf0c7031f84c85b7bc7dd8762a3add840c28404175e41fadc518ade700fd73"
+    },
+    {
       "path": "crates/cellar/durability/raft/controller_action.rs",
       "sha256": "dfc56bd6d713db609c9bfc2b5a37fca1c0267d03365421ccb33757eb011567bb"
     },
@@ -245,6 +249,10 @@
     {
       "path": "crates/cellar/durability/raft/replica.rs",
       "sha256": "6aec12cad6253c031b752b6a0582afadea09235bda5e0f4e75fc0299fb1b190f"
+    },
+    {
+      "path": "crates/cellar/durability/raft/replica_leadership.rs",
+      "sha256": "ae3218c2b84f447214c84ac2eb787559194e3bcb35f0fb3b92232f996092a9c0"
     },
     {
       "path": "crates/cellar/durability/raft/runtime.rs",

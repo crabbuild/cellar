@@ -14,6 +14,71 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Guarded restart leadership reconciliation
+
+`FleetRestartVerification::reconcile_next` now owns the handoff step after
+original-voter materialization. Each voting history checks the current settled
+membership, both surviving voters and their publications, then asks the actual
+leader to check its replication tracker. A transfer selects an eligible survivor
+with fresh capacity. `HandoffRequested` acknowledges admission only and retains
+the pending history; another turn must observe a surviving leader before the
+historical matched entry is published. Reopening the controller repeats actual
+inspection instead of trusting an old request acknowledgement.
+
+Receiving authorization independently pins the gate, operation, rooted inputs,
+history and exact boot. The leader checks term, configuration, settled RF3 and
+both survivors' recent matched progress. The Raft owner checks an evidence expiry
+before execution and checks the last synced quiescence selector before transfer.
+That expiry is captured on the Raft owner's clock before gathering proof and
+tightened by the SDK request deadline. A longer request timeout cannot extend
+the five-second evidence window; catalog and engine clock origins are not
+interchangeable. A synced cancellation fence defeats queued transfers. Already
+admitted transfer work and ordinary elections may still change leadership, so
+later readiness and stop must renew proof.
+
+Observation on a surviving leader can finish while an application write waits
+for archive publication. Transfer still requires accepted work to drain. The
+historical candidate exposes matched coverage without granting RestartReady,
+stop, rejoin, capacity or disruption-slot release. Business write acknowledgement
+acquires no catalog dependency.
+
+The latest frozen source passes **28 focused Rust cases and five Node module
+cases**. The Rust cases include seven
+native handoff cases, four original-voter cases, nine runtime inspection cases,
+two queued-fence/deadline cases and six wire cases. The native cases exercise
+actual SQL continuity and S3-level acknowledgements, controller reopen, a dynamic
+replacement leader, retained copies, a missing second survivor and a held archive
+write. The earlier frozen probe passed 115 core executions, including all 45
+movement cases, and 78 permit/CLI/library executions. These earlier results are
+attributed to that probe rather than counted as final-source qualification.
+
+Broader qualification **did not pass**. One 27-case resource cohort had 26 passes
+and a failure in
+`fleet_operator_cancels_stale_departure_and_restarts_with_fresh_proof`.
+The same retained binary passed that case in isolation, then failed in both an
+operator cohort and another isolated probe. Temporary diagnostics reproduced an
+unavailable live quorum observation before the first history was verified.
+The cause remains open; no timeout, retry, resource bound or assertion was
+relaxed. The temporary diagnostics were removed. A previous retained host passed
+an operator cohort using the current CLI; that component comparison is not a
+complete old-head qualification and does not establish causality.
+
+The published Node lifecycle fixture now requests its declared port 8080.
+Previously its ephemeral listener worked through macOS port mapping while Linux
+connected directly to port 8080. The full module suite passes on macOS with Node
+24.19.0. Linux CI confirmation remains required. The
+previous published head also has event-delivery CI failures with ambiguous RPC
+results; those remain separate release gaps. No full-CI pass is claimed.
+
+Next deliver reliable proof renewal with explicit pending/blocked observation
+status and RestartReady (M5), preserving unknown mutation outcomes. Then complete
+exact-process stop/join, retained-engine return under a fresh process, catch-up
+and verified capacity resume before slot release (M6–M9). Follow with maintenance
+SDK/admin/CLI, rolling/grace/second-failure handling, production failure
+classification/isolation and desired capacity/resize. Resource-enforced
+RustFS/Colima performance, faults and soak remain unqualified. The full goal
+stays active; these shared-host native tests make no new TPS or p99 claim.
+
 ## Owned original-voter materialization
 
 Implementation `703c5bcb65fa469303c29d79260e322b48dd5220` delivers the missing

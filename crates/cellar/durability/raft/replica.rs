@@ -277,6 +277,10 @@ impl Replica {
                 self.transfer_leadership(transfer)?;
                 Ok(Response::Unit)
             }
+            GroupAction::RestartLeadership(check) => {
+                self.restart_leadership(*check)?;
+                Ok(Response::Unit)
+            }
             GroupAction::Checkpoint(checkpoint) => {
                 if self.node.has_ready() || self.apply_ticket.is_some() || !self.apply.is_empty() {
                     return Err(RuntimeError::NotReady);

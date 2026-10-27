@@ -165,7 +165,7 @@ fn fleet_action_genesis_wire_binds_boot_and_input_pins() {
     let (mut head, bytes) = fixture();
     let original: FleetExecutionCommand = serde_json::from_slice(&bytes).unwrap();
     let command =
-        FleetExecutionCommand::RestartGenesis(crate::raft::fleet_catalog::RestartGenesisCommand {
+        FleetExecutionCommand::RestartGenesis(crate::raft::fleet_catalog::RestartActionContext {
             parent: [2; 16],
             operation: [3; 16],
             inputs: [4; 32],
@@ -200,4 +200,50 @@ fn fleet_action_genesis_wire_binds_boot_and_input_pins() {
         head.digest = Sha256::digest(&bytes).into();
         assert!(head.decode_body(&bytes).is_err());
     }
+}
+
+#[test]
+fn fleet_action_restart_leadership_wire_pins_context_and_indices() {
+    let (mut head, bytes) = fixture();
+    let original: FleetExecutionCommand = serde_json::from_slice(&bytes).unwrap();
+    let command = serde_json::json!({
+        "kind":"restart_leadership", "command": {
+            "context": {"parent":vec![2;16], "operation":vec![3;16], "inputs":vec![4;32],
+                "group":"ab".repeat(32), "history":vec![5;32], "target":original.target()},
+            "term":2, "revision":1, "through":1, "action":{"kind":"observe"}
+        }
+    });
+    let bytes = serde_json::to_vec(&command).unwrap();
+    assert!(bytes.len() <= MAX_BODY);
+    head.digest = Sha256::digest(&bytes).into();
+    assert!(head.decode_body(&bytes).is_ok());
+    for field in ["term", "revision", "through"] {
+        for n in [0, u64::MAX - 2, u64::MAX] {
+            let mut changed = command.clone();
+            changed["command"][field] = n.into();
+            let bytes = serde_json::to_vec(&changed).unwrap();
+            head.digest = Sha256::digest(&bytes).into();
+            assert!(head.decode_body(&bytes).is_err(), "{field}={n}");
+        }
+    }
+    let mut changed = command.clone();
+    changed["command"]["context"]["target"]["process"][0] = 99.into();
+    let bytes = serde_json::to_vec(&changed).unwrap();
+    head.digest = Sha256::digest(&bytes).into();
+    assert!(head.decode_body(&bytes).is_err());
+    let mut valid = command.clone();
+    let mut destination = serde_json::to_value(original.target()).unwrap();
+    destination["node"][0] = 71.into();
+    valid["command"]["action"] =
+        serde_json::json!({"kind":"transfer", "destination":destination, "member":2});
+    let bytes = serde_json::to_vec(&valid).unwrap();
+    assert!(bytes.len() <= MAX_BODY);
+    head.digest = Sha256::digest(&bytes).into();
+    assert!(head.decode_body(&bytes).is_ok());
+    let mut changed = command;
+    changed["command"]["action"] =
+        serde_json::json!({"kind":"transfer", "destination":original.target(), "member":2});
+    let bytes = serde_json::to_vec(&changed).unwrap();
+    head.digest = Sha256::digest(&bytes).into();
+    assert!(head.decode_body(&bytes).is_err(), "same-node transfer");
 }

@@ -6,13 +6,56 @@ use cellar::application::consensus::verification::{
     FleetRestartGateRequest, FleetRestartHistoryProgress, FleetRestartRequest,
 };
 
-async fn verified(dynamic: bool) -> Result<()> {
+async fn verified(dynamic: bool, owned: bool) -> Result<()> {
     let s = Box::pin(Setup::with_histories(true, 2, 1)).await?;
-    let r = replace(&s, true).await?;
+    let r = replace(&s, true)
+        .await
+        .context("replace before restart handoff")?;
     let (cut, completion) = completion(&s, &r.request, 230).await?;
     s.f.catalog
         .complete_movement(&cut, &completion, &s.nodes[r.source].host, TIMEOUT)
-        .await?;
+        .await
+        .context("settle replacement before restart handoff")?;
+    if owned && dynamic {
+        let cells = [
+            r.cells[r.source].clone(),
+            r.cells[(r.source + 2) % 3].clone(),
+            r.target.clone(),
+        ];
+        let leader = primary(&s.f, &cells)
+            .await
+            .context("find replacement transfer source")?;
+        let state = cells[leader]
+            .inspect()
+            .await?
+            .member
+            .context("replacement leader state")?;
+        cells[leader]
+            .transfer_leadership(
+                LeadershipTransfer {
+                    target: r.request.plan.replacement.member,
+                    expected_term: state.term,
+                    expected_revision: state.membership_revision,
+                },
+                TIMEOUT,
+            )
+            .await
+            .context("make dynamic replacement the leader before maintenance")?;
+        s.f.domain
+            .run(cellar::asyncrt::timeout(TIMEOUT, async {
+                while !r
+                    .target
+                    .inspect()
+                    .await?
+                    .member
+                    .is_some_and(|m| m.is_leader)
+                {
+                    cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_, anyhow::Error>(())
+            }))
+            .await???;
+    }
     let retired = r.request.plan.obsolete.get() as usize - 1;
     let host = if dynamic {
         &s.target
@@ -84,7 +127,27 @@ async fn verified(dynamic: bool) -> Result<()> {
                 TIMEOUT,
             )
             .await?;
-    let progress = walk.verify_next(TIMEOUT).await?.context("history")?;
+    let progress = if owned {
+        s.f.domain.run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match walk.reconcile_next(TIMEOUT).await {
+                    Ok(Some(cellar::application::consensus::verification::FleetRestartRuntimeProgress::Verified(p))) => return Ok::<_, anyhow::Error>(p),
+                    Ok(Some(cellar::application::consensus::verification::FleetRestartRuntimeProgress::HandoffRequested { from, to, .. })) => {
+                        ensure!(dynamic && from == r.request.plan.replacement.member && from != to);
+                    }
+                    Err(FleetCatalogError::Unconfirmed | FleetCatalogError::Overloaded)
+                    | Err(FleetCatalogError::Observation(cellar::application::consensus::InspectionError::Unavailable
+                        | cellar::application::consensus::InspectionError::Overloaded)) => {
+                        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                    }
+                    other => anyhow::bail!("replacement handoff: {other:?}"),
+                }
+            }
+        })).await???
+    } else {
+        walk.verify_next(TIMEOUT).await?.context("history")?
+    };
+
     if dynamic {
         let FleetRestartHistoryProgress::Voting {
             member, survivors, ..
@@ -99,8 +162,12 @@ async fn verified(dynamic: bool) -> Result<()> {
         };
         ensure!(member == r.request.plan.obsolete);
     }
-    let candidate = walk.finish(TIMEOUT).await?;
+    let candidate = walk
+        .finish(TIMEOUT)
+        .await
+        .context("finish current-membership runtime candidate")?;
     ensure!(candidate.histories() == 1 && candidate.physical_histories() == 1);
+    ensure!(candidate.matched_histories() == u64::from(owned && dynamic));
     ensure!(
         candidate.voting_histories() == u64::from(dynamic)
             && candidate.retained_histories() == u64::from(!dynamic)
@@ -116,16 +183,27 @@ async fn verified(dynamic: bool) -> Result<()> {
         9,
         21,
     )
-    .await?;
+    .await
+    .context("SQL after current-membership handoff verification")?;
     s.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_runtime_retired_copy_stays_accounted_without_votes() -> Result<()> {
-    verified(false).await
+    verified(false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_runtime_dynamic_voter_requires_both_current_survivors() -> Result<()> {
-    verified(true).await
+    verified(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_handoff_moves_dynamic_leader_using_current_membership() -> Result<()> {
+    verified(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_handoff_retained_copy_grants_no_matched_votes() -> Result<()> {
+    verified(false, true).await
 }

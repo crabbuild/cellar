@@ -16,7 +16,8 @@ use serde::Deserialize;
 )]
 pub(crate) enum FleetExecutionCommand {
     Movement(MovementCommand),
-    RestartGenesis(RestartGenesisCommand),
+    RestartGenesis(RestartActionContext),
+    RestartLeadership(Box<RestartLeadershipCommand>),
 }
 
 impl FleetExecutionCommand {
@@ -24,6 +25,7 @@ impl FleetExecutionCommand {
         match self {
             Self::Movement(command) => &command.target,
             Self::RestartGenesis(command) => &command.target,
+            Self::RestartLeadership(command) => &command.context.target,
         }
     }
 
@@ -31,6 +33,7 @@ impl FleetExecutionCommand {
         match self {
             Self::Movement(command) => command.validate(),
             Self::RestartGenesis(command) => command.validate(),
+            Self::RestartLeadership(command) => command.validate(),
         }
     }
 }
@@ -49,6 +52,16 @@ impl FleetHostAuthorization {
                 FleetExecutionCommand::Movement(command) => {
                     self.execute_movement(command, origin, minimum_revision, gateway, timeout)
                         .await
+                }
+                FleetExecutionCommand::RestartLeadership(command) => {
+                    self.execute_restart_leadership(
+                        *command,
+                        origin,
+                        minimum_revision,
+                        gateway,
+                        timeout,
+                    )
+                    .await
                 }
                 FleetExecutionCommand::RestartGenesis(command) => {
                     self.execute_restart_genesis(

@@ -2047,6 +2047,35 @@ impl Driver {
                     }
                 }));
             }
+            Kind::RestartLeadership(mut check) => {
+                if check.transfer.is_some()
+                    && (cell.pending.is_some()
+                        || cell.configuration.is_some()
+                        || cell.incoming.is_some())
+                {
+                    reply(&mut request, Err(CommandFailure::Unavailable));
+                    return;
+                }
+                if !request.control.begin_submission() {
+                    return;
+                }
+                check.deadline = check.deadline.min(request.control.deadline());
+                let runtime = self.runtime.clone();
+                self.jobs.push(Box::pin(async move {
+                    let result = if request.control.cancelled() {
+                        Err(RuntimeError::Closed)
+                    } else {
+                        runtime
+                            .restart_leadership(&scope, check)
+                            .await
+                            .map(|()| Response::LeadershipRequested)
+                    };
+                    Job::Leadership {
+                        request: Box::new(request),
+                        result,
+                    }
+                }));
+            }
             Kind::Inspect
             | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }

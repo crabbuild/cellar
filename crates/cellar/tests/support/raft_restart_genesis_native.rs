@@ -71,6 +71,14 @@ async fn converge(
                         ensure!(group == *scope);
                         actions.push((node, member, previously_present));
                     }
+                    Ok(Some(FleetRestartRuntimeProgress::HandoffRequested {
+                        group,
+                        from,
+                        to,
+                        ..
+                    })) => {
+                        ensure!(group == *scope && from != to);
+                    }
                     Ok(Some(FleetRestartRuntimeProgress::Verified(
                         FleetRestartHistoryProgress::Voting { group, .. },
                     ))) => {
