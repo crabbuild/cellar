@@ -254,3 +254,29 @@ new FixedLengthStream("3");
 // @ts-expect-error: byte stream writers reject text
 fixed.writable.getWriter().write("text");
 void [fixedInput, fixedOutput, identityOutput];
+
+import type { R2Bucket } from "../../packages/cellar-cloudflare/index.js";
+declare const backups: R2Bucket;
+async function backupTypes() {
+  const upload = await backups.createMultipartUpload("archive", {
+    httpMetadata: { contentType: "application/zstd", cacheExpiry: new Date() },
+    customMetadata: { name: "backup" },
+  });
+  const part = await upload.uploadPart(1, new Uint8Array([0, 255]));
+  const object = await upload.complete([part]);
+  const date: Date = object.uploaded;
+  const body = await backups.get("archive", {
+    range: { offset: 1, length: 1 },
+  });
+  if (body) {
+    const bytes: ArrayBuffer = await body.arrayBuffer();
+    void bytes;
+  }
+  // @ts-expect-error: unsupported profile options must not be advertised
+  backups.createMultipartUpload("archive", { ssecKey: "unsupported" });
+  // @ts-expect-error: the current native subset does not declare put
+  backups.put("archive", "bytes");
+  void date;
+}
+workersApplication({ default: Greeting }, { r2: ["BACKUPS"] });
+void backupTypes;

@@ -40,12 +40,23 @@ impl ResumableMultipart {
         number: u32,
         bytes: impl Into<Vec<u8>>,
     ) -> Result<UploadedPart> {
+        self.upload_part_bytes(context, number, bytes.into().into())
+            .await
+    }
+
+    /// Retain the byte buffer's owner through backend I/O, including entered
+    /// blocking work after the awaiting operation has been cancelled.
+    pub async fn upload_part_bytes(
+        &self,
+        context: &Context,
+        number: u32,
+        bytes: bytes::Bytes,
+    ) -> Result<UploadedPart> {
         context.check_turn()?;
         ensure!(
             (1..=10_000).contains(&number),
             "multipart part number must be in 1..=10000"
         );
-        let bytes = bytes.into();
         ensure!(
             bytes.len()
                 <= crate::application::limits::current()

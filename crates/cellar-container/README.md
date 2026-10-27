@@ -315,6 +315,10 @@ published `Files` package runs the matching helper; full 1.x lifecycle, persiste
 open. Native process signalling requires a POSIX `/bin/sh` in the image; direct
 exec remains available without it, while signalling refuses an unverified PID.
 See the [native exec contract](../../docs/09-integrations.md#apis-in-each-language).
+The optional [R2 backup gateway subset](../../packages/cellar-cloudflare/r2.md)
+adds native resumable object storage for published gateway operations; complete
+helper backup/restore and outbound interception remain separate delivery work.
+
 
 ## Understand lifetime and failure outcomes
 

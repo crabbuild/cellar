@@ -461,6 +461,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "bytes",
  "cellar",
  "cellar-container",
  "cellar-logic",
@@ -488,6 +489,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

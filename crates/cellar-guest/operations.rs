@@ -248,6 +248,15 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name.starts_with("workers.r2.") {
+        ensure!(state.workers_lifetimes, crate::failure::Validation);
+        return state
+            .workers
+            .r2_with_capacity(context, name, value, options, &state.transport, |_| {
+                anyhow::bail!("R2 upload requires a host byte reservation")
+            })
+            .await;
+    }
     if name == "workers.fetch_stream" {
         return state
             .workers

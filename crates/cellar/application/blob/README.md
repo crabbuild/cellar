@@ -14,9 +14,9 @@ state have separate commits; persist references and reconcile uncertain results.
 | `create_multipart` | Process-owned append pipeline; pending parts can be replaced | Requires the already-flushed part order |
 | `create_resumable_multipart` | Backend-owned upload ID; indexed parts can be replaced across clients/processes | Requires consecutive part numbers starting at 1 and their current, nonempty receipts |
 
-The resumable API is the native foundation for the pending Workers R2 binding
-and Sandbox backup gateway. It does not yet qualify that binding or the complete
-Cloudflare backup/restore profile.
+The resumable API backs the optional [Workers R2 backup subset](../../../../packages/cellar-cloudflare/r2.md).
+Its published gateway uses native storage; complete helper backup/restore and
+Cloudflare production profile qualification remain open.
 
 ```mermaid
 stateDiagram-v2

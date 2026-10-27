@@ -8,6 +8,74 @@ use anyhow::{ensure, Result};
 use object_store::multipart::{MultipartStore, PartId};
 
 #[tokio::test]
+async fn cancelled_part_keeps_capacity_until_entered_sqlite_work_finishes() -> Result<()> {
+    use std::future::Future as _;
+
+    struct OwnedPart {
+        bytes: Vec<u8>,
+        _capacity: tokio::sync::OwnedSemaphorePermit,
+    }
+
+    impl AsRef<[u8]> for OwnedPart {
+        fn as_ref(&self) -> &[u8] {
+            &self.bytes
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let store = LocalStore::open(directory.path().join("objects.sqlite"))?;
+            let key = Path::from("blob/capacity/part");
+            let id = store.create_multipart(&key).await?;
+            // Fault injection: an independent writer holds SQLite admission while
+            // the already-entered worker retains its real byte buffer.
+            let blocked = store.connect()?;
+            blocked.execute_batch("BEGIN IMMEDIATE")?;
+            let capacity = Arc::new(tokio::sync::Semaphore::new(16));
+            let permit = capacity.clone().try_acquire_many_owned(16)?;
+            let bytes = Bytes::from_owner(OwnedPart {
+                bytes: vec![0, 255, 42],
+                _capacity: permit,
+            });
+            let mut pending =
+                Box::pin(MultipartStore::put_part(&store, &key, &id, 0, bytes.into()));
+            let first =
+                std::future::poll_fn(|cx| std::task::Poll::Ready(pending.as_mut().poll(cx))).await;
+            ensure!(
+                first.is_pending(),
+                "SQLite writer did not hold part admission"
+            );
+            drop(pending);
+            ensure!(
+                capacity.available_permits() == 0,
+                "cancel released entered payload capacity"
+            );
+            blocked.execute_batch("COMMIT")?;
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while capacity.available_permits() != 16 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+            let count: u64 = store.connect()?.query_row(
+                "SELECT count(*) FROM __sys_local_parts WHERE upload_id = ?1 AND body = ?2",
+                params![id, [0_u8, 255, 42].as_slice()],
+                |row| row.get(0),
+            )?;
+            ensure!(
+                count == 1,
+                "lost waiter did not retain the actual accepted part"
+            );
+            store.abort_multipart(&key, &id).await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
 async fn receipts_replacement_and_failed_completion_preserve_the_upload() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let path = directory.path().join("objects.sqlite");

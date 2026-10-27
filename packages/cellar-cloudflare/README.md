@@ -109,6 +109,7 @@ const app = workersApplication(worker, {
 | Worker services | Native service/loopback fetch and value RPC, public inherited properties/methods, nested receiver paths, copied `ctx.props` and stateless instances; `ctx.exports` also exposes declared DO namespaces | Callable/stream/HTTP-message RPC capabilities, transferable service bindings and service capabilities inside props |
 | HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Worker/DO WebSocket forwarding and container-port/local pair upgrades, Set-Cookie fields, manual redirects and aborts | Embedded web bootstrap and complete versioned HTTP/upgrade qualification |
 | Streams | Byte-only `IdentityTransformStream` and counted `FixedLengthStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance and fixed-length external response framing |
+| R2 backup subset | Explicit native Blob binding, durable multipart IDs/current receipts, metadata, streamed/ranged reads and published gateway operations | Full R2 API, large streaming parts, expiry/orphan cleanup and complete backup/restore |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
 | Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions, byte streams and HTTP messages in results/arguments preserve graph identity through native leases | Callback arguments and returned `RpcTarget` |
@@ -231,6 +232,13 @@ return new Response(readable);
 Cloned/teed stream length inference and fixed-length external response framing
 remain unqualified. This API slice does not establish full Workers stream
 conformance or R2/backup compatibility.
+
+### Native R2 backup gateway binding
+
+Declare `{ r2: ["BACKUPS"] }` to expose a host-configured native Blob binding.
+The [R2 subset guide](r2.md) covers resumable multipart uploads, metadata,
+streamed/ranged reads, event ownership, limits and the remaining compatibility
+gaps. The published 1.0.3 `DirectoryBackupGateway` uses the actual native backend.
 
 ### Returned RPC byte streams
 

@@ -112,6 +112,50 @@ This stream delivery does not qualify Workers R2 storage or the positive
 backup/mount gateway paths. The native resumable storage foundation above and
 these streams enable the next R2 binding slice.
 
+## Native R2 gateway delivery — 2026-10-27
+
+Explicit Workers `r2` bindings now call the native Blob backend. The supported
+subset implements head, streamed/ranged get, single-key delete and resumable
+multipart create/part/complete/abort. The native bridge validates fields/options
+before effects; decoded part bytes retain their own runtime reservation through
+entered backend work. Transaction callbacks refuse R2 I/O before dispatch.
+
+The separately pinned `r2.mjs` fixture imports the unmodified published
+`DirectoryBackupGateway`. It drives actual control RPC and HTTP operations
+against native SQLite storage, rebuilding the node/client between the first part
+and completion. No JavaScript bucket substitute supplies successful results.
+
+| Qualification boundary | Evidence |
+| --- | --- |
+| Published gateway | Create, binary upload/replacement, stale-receipt refusal, short-part failure, oversized source cancellation, completion and exact ranged reads |
+| Metadata and lifetime | Actual HTTP/custom metadata and uploaded date, direct body consumption, saved-binding/body refusal in later events and transaction refusal |
+| Cleanup | Explicit abort/delete, drained nodes/runtime and zero remaining upload/part rows |
+| Native capacity | A cancelled waiter retains its byte reservation while an independent SQLite writer blocks admission; the accepted part remains after backend completion |
+| Current Rust tests | 89 unique cases: 28 shared guest, 57 Node library, two Worker integration fixtures, native Blob integration and the entered-I/O capacity control |
+| JavaScript/TypeScript | 139 tooling/contract tests; both SDK input-identity suites and fixture builds pass |
+| Quality | Strict core/guest and combined Node/V8 library/new-integration Clippy; 1,255-file Rust format/layout, 110-source JavaScript formatting, 466-package native-only dependency guard, docs and whitespace checks |
+
+The initial direct `get()` fixture found an undefined optional `range` in a
+strict JSON frame; omitted fields are now omitted before native submission.
+The local compiler also reported an incremental-cache ICE. Validation reruns
+with incremental compilation disabled; no test assertion or existing deadline
+was relaxed. The dedicated storage fixture declares its own five-second handler
+budget; the older 250 ms routing fixture remains unchanged and passes its final
+campaign. Its separately recorded intermittent cold-dispatch failure is still
+open.
+
+All four Linux workflows for the preceding pushed head `274af242` are green,
+including SDK runs for both standard/free-threaded Python ABIs and the complete
+JavaScript/Node campaign. The new feature commits require fresh head CI after
+push; prior-head green results are not qualification of these changes.
+
+See the [R2 subset guide](../packages/cellar-cloudflare/r2.md). Full helper
+backup/restore now requires outbound interception and complete grant lifetime.
+S3 mounts, full R2 options/part-size semantics, large unbuffered uploads, automatic
+expiry/orphan cleanup and cloud qualification remain outstanding. Additional
+providers and SP-08–SP-10 work remain in the original plan; E2B/Vercel live
+configuration is still deferred by the user.
+
 ## Verified implementation details
 
 ### Provider capability discovery

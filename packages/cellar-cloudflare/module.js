@@ -3,6 +3,7 @@
 import { activateDurableObject } from "./activation.js";
 import { durableObjectContainer } from "./container.js";
 import { namespaceBinding } from "./namespace.js";
+import { r2Binding } from "./r2.js";
 import { decodeRequest, webRuntime } from "./http.js";
 import { encodeStreamResponse } from "./output.js";
 import { installSocketGlobals } from "./websocket-pair.js";
@@ -13,7 +14,7 @@ import {
   workerContext,
 } from "./service.js";
 
-function environment(current, namespaces, variables, services) {
+function environment(current, namespaces, variables, services, r2) {
   const env = Object.create(null);
   for (const binding of Object.keys(namespaces)) {
     Object.defineProperty(env, binding, {
@@ -37,31 +38,51 @@ function environment(current, namespaces, variables, services) {
       enumerable: true,
     });
   }
+  for (const binding of r2)
+    Object.defineProperty(env, binding, {
+      value: r2Binding(current, binding),
+      enumerable: true,
+    });
   return Object.freeze(env);
 }
 
 /** Adapt unchanged module exports to declared native Cellar event handlers. */
 export function workersApplication(
   module,
-  { namespaces = {}, containers = [], variables = [], services = [] } = {},
+  {
+    namespaces = {},
+    containers = [],
+    variables = [],
+    services = [],
+    r2 = [],
+  } = {},
 ) {
   webRuntime();
   if (
-    !Array.isArray(services) ||
-    services.some(
-      (name) =>
-        typeof name !== "string" ||
-        !name.length ||
-        name.length > 512 ||
-        name.includes("\0"),
+    [services, r2].some(
+      (bindings) =>
+        !Array.isArray(bindings) ||
+        bindings.some(
+          (name) =>
+            typeof name !== "string" ||
+            !name.length ||
+            name.length > 512 ||
+            name.includes("\0"),
+        ),
     )
   )
-    throw new TypeError("Worker services require binding names");
+    throw new TypeError("Worker services and R2 require binding names");
   namespaces = Object.freeze({ ...namespaces });
   containers = Object.freeze([...containers]);
   variables = Object.freeze([...variables]);
   services = Object.freeze([...services]);
-  const bindings = [...Object.keys(namespaces), ...variables, ...services];
+  r2 = Object.freeze([...r2]);
+  const bindings = [
+    ...Object.keys(namespaces),
+    ...variables,
+    ...services,
+    ...r2,
+  ];
   if (new Set(bindings).size !== bindings.length)
     throw new TypeError("Duplicate Worker binding");
   const worker = module.default;
@@ -100,7 +121,7 @@ export function workersApplication(
         exports(() => context),
         props,
       ),
-      environment(() => context, namespaces, variables, services),
+      environment(() => context, namespaces, variables, services, r2),
     );
   };
   const classes = new Set(Object.values(namespaces));
@@ -118,7 +139,7 @@ export function workersApplication(
         if (!this.activation) {
           const current = context._activation();
           this.activation = activateDurableObject(Target, context, {
-            env: environment(current, namespaces, variables, services),
+            env: environment(current, namespaces, variables, services, r2),
             exports: () => exports(current),
             container: containers.includes(name)
               ? durableObjectContainer(context)
@@ -190,7 +211,7 @@ export function workersApplication(
         ? await target.fetch(decodeRequest(frame))
         : await target.fetch(
             decodeRequest(frame),
-            environment(() => context, namespaces, variables, services),
+            environment(() => context, namespaces, variables, services, r2),
             workerContext(
               context,
               exports(() => context),

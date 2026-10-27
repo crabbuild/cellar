@@ -207,6 +207,29 @@ streaming replies retain Cellar's chunked framing policy. These checks do not
 qualify R2 multipart storage, outbound interception, directory backup/restore or
 S3 mounts. Those remain required delivery steps with the actual helper/image.
 
+## Native R2 gateway storage
+
+The separate [R2 fixture](r2.mjs) drives the same published
+`DirectoryBackupGateway` against a real native SQLite Blob bucket:
+
+| Path | Evidence |
+| --- | --- |
+| Control RPC | Create upload, complete actual current receipts, explicit abort/delete |
+| HTTP | Upload/replace binary parts and stream exact ranged reads |
+| Restart | Rebuild native node and bucket client between part upload and completion |
+| Refusal | Stale receipt, short/oversized input, saved event resources and transaction I/O |
+| Cleanup | Drained nodes/runtime and no remaining upload/part rows |
+
+```sh
+cargo test -p cellar-javascript --features node --locked --test workers_r2
+```
+
+The fixture declares a separate five-second storage handler budget for real
+fsync/fleet bootstrap; existing 250 ms routing tests retain their bounds. See the
+[R2 subset guide](../../../packages/cellar-cloudflare/r2.md) for binding setup,
+byte ownership, supported operations and profile gaps. Full helper backup/restore
+and outbound interception remain unqualified.
+
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,

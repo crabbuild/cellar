@@ -1,6 +1,15 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 /// <reference lib="esnext.disposable" />
+export type {
+  R2Bucket,
+  R2Object,
+  R2ObjectBody,
+  R2MultipartUpload,
+  R2MultipartOptions,
+  R2UploadedPart,
+  R2HTTPMetadata,
+} from "./r2.js";
 
 /** The implemented partial profile. This is not the full Cloudflare API. */
 declare const durableObjectId: unique symbol;
@@ -318,6 +327,8 @@ export function workersApplication<M extends { default: unknown }>(
     containers?: readonly (Exclude<keyof M, "default"> & string)[];
     variables?: readonly string[];
     services?: readonly string[];
+    /** Explicitly declared native Blob bindings; backup-gateway R2 subset. */
+    r2?: readonly string[];
   },
 ): {
   cells: Record<string, unknown>;
