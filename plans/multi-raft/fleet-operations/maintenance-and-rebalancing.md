@@ -31,9 +31,9 @@ maintenance-purpose selector distinguishes it from evacuation. The catalog owns
 `quiesce_restart` through the authenticated control lane and a configured
 surviving observer. The engine syncs the exact boot/epoch selector before public
 and peer application admission close. The owning Node driver continues polling
-accepted handlers; their final SDK writes can finish before SDK business
-admission seals. A registration barrier and a later work sample precede the
-quiescence acknowledgement. Consensus and administrative traffic remain running.
+accepted handlers and their post-response `wait_until` producers; their final
+SDK writes finish before SDK business admission seals. A registration barrier
+and a later work sample precede the quiescence acknowledgement. Consensus and administrative traffic remain running.
 There is no additional idle tick when no gate turn is pending.
 
 `cancel_restart_gate` owns a synced exact-process fence before its atomic Ready,

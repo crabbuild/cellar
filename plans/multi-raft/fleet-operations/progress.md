@@ -14,6 +14,48 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Current main and post-response background work
+
+Implementation `4d7ba0fd615874b60738ded7874c54a335f4e5ff` includes main
+`927d3f34` through merge `6816581f`. The RPC tunnel conflict preserves main's
+receiving quotas, original deadlines and reply ownership together with
+maintenance admission. A maintenance refusal closes its RPC reply before any
+request-buffer reservation. This is branch integration, not PR merge.
+
+A new native regression exposed a gap after an HTTP response had completed:
+accepted `wait_until` work attempted its SDK write after the gate had sealed SDK
+admission and received Unavailable. The retained pre-fix case fails at that
+exact boundary. The gate now waits for complete application event lifetimes
+before sealing SDK admission, then samples work again after the registration
+barrier. The same case commits the background write, completes quiescence,
+refuses new SDK work and verifies SQL continuity after cancellation. The earlier
+`f0ea0f71` qualification below covered held handlers, not this post-response edge.
+
+**200 distinct focused cases pass:** twelve evacuation/preparation/gate, thirteen
+admission/lifecycle/transport, 111 RPC, 28 archive/recovery, seven capacity, five
+accepted-work shutdown, six external ingress, sixteen effects/alarms and two
+background-SQL cases. Separately repeating four gate and two preparation cases
+gives 206 candidate case executions; duplicates are excluded from the distinct
+count. RPC coverage includes request/reply quotas, retained aliases, upload
+bounds, caller deadlines and stalled reply retirement from the merged main.
+
+All-target host/admin Clippy with warnings denied, Rust formatting/layout for
+1,395 files, native dependency checks, documentation links, ten plan tests, the
+335-case manifest and source preflight with 95 input anchors pass. The audit
+matches all **1,489 frozen Rust/Cargo/configuration inputs** to `4d7ba0fd` and
+verifies retained executable and output hashes. Current artifacts are outside
+runtime data in checkout-private `qualification/fleet-operations/` under
+`restart-gate-v7/`, `restart-gate-followups-v5/`, `restart-gate-checks-v3/` and
+`restart-gate-plan-checks-v3/`. The failing pre-fix native executable, inputs and
+output remain in `restart-gate-background-repro-v1/`.
+
+No deadline, startup/stack bound, value bound or runtime assertion was relaxed.
+These are shared-host native tests with an in-process fault-injecting store.
+Full latest-head CI and deployed RustFS/Colima limits, TPS/p99 and soak remain
+unqualified. The gate still grants no RestartReady, stop, new boot or capacity.
+M2 incoming-action settlement, complete fresh both-survivor proof, owned observed
+handoff/readiness, guarded stop/rejoin and operator surfaces remain next.
+
 ## Reversible maintenance admission
 
 Implementation `f0ea0f7102e24206533f1e177bc674c62206fcd0` adds a physical

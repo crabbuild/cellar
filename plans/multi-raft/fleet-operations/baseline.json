@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "f0ea0f7102e24206533f1e177bc674c62206fcd0",
+  "revision": "4d7ba0fd615874b60738ded7874c54a335f4e5ff",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -276,7 +276,7 @@
     },
     {
       "path": "crates/cellar/lib.rs",
-      "sha256": "fe3283cf6131411f8ac08e95b14d7f0df4e1e68515110e9447c18ec6d182c56a"
+      "sha256": "46452a1542d656ebba540738a4b6f9ebfb4d6551fa28b8f189c9d203549b23ff"
     },
     {
       "path": "crates/cellar/node/driver.rs",
@@ -292,11 +292,11 @@
     },
     {
       "path": "crates/cellar/node/mod.rs",
-      "sha256": "5fbb84d32783d3844a8b6f0780726e6568d2f6243a514fc0d5e444993d1879f0"
+      "sha256": "36bc26100ad60604418711b5d085a2b94a2d65e531aea322ab8f4aa9ae650bde"
     },
     {
       "path": "crates/cellar/node/network/management.rs",
-      "sha256": "daedc1c4134a87a3cb21997502015391683b929a67f2f6a222460166b375c5a8"
+      "sha256": "73ed03e5e2e119894c419c2786faab70dedad2a0944a682871f85157fe6fea46"
     },
     {
       "path": "crates/cellar/node/raft_startup.rs",
@@ -372,7 +372,7 @@
     },
     {
       "path": "crates/cellar/execution/services.rs",
-      "sha256": "7b0027a6d9c0cd258c4ca624b4b8a3be8b17a5d160af044c62c6d07fa81de2a7"
+      "sha256": "f14ac71453a0bdb46fe9b6e57c4ca42216028d108bcf9c430c51961dcf950030"
     },
     {
       "path": "crates/cellar/node/ingress.rs",
@@ -380,7 +380,7 @@
     },
     {
       "path": "crates/cellar/node/network/peer_tunnel.rs",
-      "sha256": "ff95e1611e79283beb671a7ef4a65c84c82d100b3b9ab25563d74adbf46c8d1b"
+      "sha256": "1f38792bc3683c72603dfb69c56133048b4816f411b27aba3950878aef14b8ce"
     }
   ],
   "reviewed_from_revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",

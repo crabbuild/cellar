@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "f0ea0f7102e24206533f1e177bc674c62206fcd0",
+  "baseline_revision": "4d7ba0fd615874b60738ded7874c54a335f4e5ff",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -4075,6 +4075,15 @@
         {
           "name": "maintenance_reopens_application_without_resetting_permanent_shutdown",
           "oracle": "Reversible admission preserves control and accepted SDK completion; cancellation never resets permanent shutdown or admits stale gate epochs.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_gate_drains_post_response_background_sdk_writes",
+          "oracle": "An HTTP response completes before held accepted wait_until work; the background SDK write must still commit before quiescence acknowledges. New SDK work refuses afterward, and synced cancellation preserves SQL continuity.",
           "invariants": [
             "F02",
             "F03",
