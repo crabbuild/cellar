@@ -12,24 +12,23 @@ use crate::application::consensus::{CellUpdate, EnvelopeLimits};
 use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState};
-use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
+use cellar_ltx::generation::GenerationError;
 use cellar_ltx::{host::IoActivity, ltx, stream_snapshot, LtxHost};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 pub(crate) mod bundle;
 mod configuration;
 mod physical;
 mod publication;
 mod replay;
+mod verifier;
+
+pub use verifier::ArchiveVerifier;
 
 const READ_WINDOW: usize = 4;
 
@@ -152,82 +151,6 @@ impl ArchiveLimits {
 /// referenced by the committed image; unsupported effects must remain refused.
 #[derive(Clone)]
 pub struct ArchiveDependency(pub Vec<u8>);
-
-/// One bounded scratch owner may verify many cells. The exclusively opened
-/// store must initially be empty; no pin from it is exposed outside this owner.
-/// A failed replay quarantines it until its directory owner performs recovery.
-#[derive(Clone)]
-pub struct ArchiveVerifier {
-    inner: Arc<Mutex<VerifierState>>,
-}
-
-struct VerifierState {
-    images: GenerationStore,
-    nonce: ImageId,
-    sequence: u64,
-    failed: bool,
-}
-
-impl ArchiveVerifier {
-    pub fn new(images: GenerationStore, nonce: ImageId) -> Result<Self, ArchiveError> {
-        if images.usage().map_err(ArchiveError::Images)?.generations != 0 {
-            return Err(ArchiveError::Invalid("archive verifier store is not empty"));
-        }
-        Ok(Self {
-            inner: Arc::new(Mutex::new(VerifierState {
-                images,
-                nonce,
-                sequence: 0,
-                failed: false,
-            })),
-        })
-    }
-
-    fn verify(&self, set: &ArchiveRecoverySet) -> Result<(), ArchiveError> {
-        let mut state = self
-            .inner
-            .lock()
-            .map_err(|_| ArchiveError::Invalid("archive verifier owner is poisoned"))?;
-        if state.failed {
-            return Err(ArchiveError::Invalid("archive verifier requires recovery"));
-        }
-        state.sequence = state.sequence.checked_add(1).ok_or(ArchiveError::Limit)?;
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-archive-verifier-1");
-        hash.update(state.nonce.bytes());
-        hash.update(state.sequence.to_be_bytes());
-        let digest: [u8; 32] = hash.finalize().into();
-        let nonce = ImageId::new(
-            digest[..16]
-                .try_into()
-                .map_err(|_| ArchiveError::Invalid("archive verification nonce"))?,
-        )
-        .map_err(ArchiveError::Images)?;
-        // Set before any filesystem work. An interrupted/panicking verifier
-        // cannot silently reuse partially restored scratch state.
-        state.failed = true;
-        let pin = set.restore(&state.images, nonce)?;
-        state
-            .images
-            .retire(pin.id())
-            .map_err(ArchiveError::Images)?;
-        drop(pin);
-        state.images.reclaim(8).map_err(ArchiveError::Images)?;
-        if state
-            .images
-            .usage()
-            .map_err(ArchiveError::Images)?
-            .generations
-            != 0
-        {
-            return Err(ArchiveError::Invalid(
-                "archive verifier retained scratch images",
-            ));
-        }
-        state.failed = false;
-        Ok(())
-    }
-}
 
 /// Constructed only from an exact durable engine/image pair. Holding this value
 /// pins the image even if a newer image replaces it or the archive is unavailable.
@@ -447,6 +370,7 @@ impl ArchiveMetadata {
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
 pub struct ArchiveRecoverySet {
+    validated: Option<verifier::Validated>,
     activity: Option<IoActivity>,
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
@@ -949,7 +873,7 @@ impl CellArchive {
                 previous.manifest.conf_state = conf;
                 previous.manifest.membership = membership;
                 previous.validate_payloads()?;
-                verifier.verify(&previous)
+                verifier.verify(&previous).map(|_| ())
             })
             .await
             .map_err(ArchiveError::Worker)?
@@ -962,15 +886,15 @@ impl CellArchive {
     ) -> Result<ArchiveRecoverySet, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
-        let set = self
+        let (set, replay) = self
             .host
             .run_blocking(move || {
-                verifier.verify(&set)?;
-                Ok::<_, ArchiveError>(set)
+                let replay = verifier.verify(&set)?;
+                Ok::<_, ArchiveError>((set, replay))
             })
             .await
             .map_err(ArchiveError::Worker)??;
-        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get());
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = replay == verifier::Replay::Reused, image_bytes = set.manifest.image.length);
         Ok(set)
     }
 
@@ -1164,7 +1088,8 @@ impl CellArchive {
                     entries.extend(decoded);
                 }
                 let position = manifest.position.decode()?;
-                let set = ArchiveRecoverySet {
+                let mut set = ArchiveRecoverySet {
+                    validated: None,
                     activity,
                     _retention,
                     reference,
@@ -1410,7 +1335,8 @@ impl ArchiveRecoverySet {
             .map(|(r, bytes)| (r.digest, bytes.as_slice()))
     }
 
-    fn validate_payloads(&self) -> Result<(), ArchiveError> {
+    fn validate_payloads(&mut self) -> Result<(), ArchiveError> {
+        self.validated = None;
         let mut state = self.manifest.snapshot.image.decode()?;
         if self.snapshot.metadata().image != state {
             return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
@@ -1439,6 +1365,7 @@ impl ArchiveRecoverySet {
         {
             return Err(ArchiveError::Corrupt("archive final image/cut"));
         }
+        self.validated = Some(verifier::Validated::record(self)?);
         Ok(())
     }
 

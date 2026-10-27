@@ -5,7 +5,10 @@
 //! Unchanged conditional versions age on each observer's monotonic clock.
 
 use super::*;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 const MAX_BYTES: usize = 4096;
 const MAX_VERSION_BYTES: usize = 8192;

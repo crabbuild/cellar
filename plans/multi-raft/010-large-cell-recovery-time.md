@@ -303,6 +303,39 @@ manifest and same-publisher attribution are retained in the task's private
 `recovery-time-rustfs-10gb-config-tails-1` evidence directory. One passing sample
 remains unqualified; the analyzer exits nonzero for the missed target.
 
+The prepared-body peer pilot freezes native source at `bc3b95aa`. Its first
+package-wide release build did not finish and produced no native recovery
+observation. Cargo had already emitted a completed release artifact for the
+selected `native_raft_large_images` test target (`fresh=false`, compiled during
+that build). The retained compiler
+record, unchanged source-input inventory, copied executable and verified binary
+manifest bind the restarted prebuilt-target pilot to that exact artifact; this
+does not turn the aggregate build into a pass. The executable SHA-256 is
+`b9fd52951e57ae681dfe6bf36d632f97417af77fb25d45bca1b9b368ce220086`
+and source-input SHA-256 is
+`981e474f3cc55ee5d65f3510140e98aa633e1a067ab2a9527f51c1e521f090df`.
+The `recovery-time-peer-10gb-prepared-2` campaign passes all functional checks
+and joined cleanup, with unchanged source inputs. Failure to first verified
+write is 697.738511 s (11m38s): repair admission 105.851003 s, seed installation
+558.496863 s, promotion 1.089778 s and first write/read-back 31.795360 s. The
+complete native drill takes 1,441.54 s including untimed setup; cleanup finishes
+865.879726 s after the fault. The 120-second target is missed, so the analyzer
+returns nonzero despite the native process returning zero.
+
+The source records one prepared-body miss, no hits, no checkpoint encoding and
+no reused bytes. Its seed encoding takes 277.578266 s after 0.006967 s of
+encoding queue time. The receiver records 10,058,313,680 exact received/appended
+bytes, 228.864360 s of fetch, 227.493027 s summed receive time, 15.840001 s summed
+append time and 42.041766 s of destination verification. Append overlaps receive;
+owner-clock sums are not a controller-clock critical-path sum. This sample does
+not measure a pre-existing prepared body's benefit. Shared-host compilation and
+archive work overlap the trial; source/store cache state and background load
+remain uncontrolled. Neither a speedup nor a regression against the older peer
+pilot is established by this observation. Logs, executable, exact source and
+operation attribution are retained; after the complete oracle and closed-handle
+audit, only the two synthetic local worker trees are retired. Bucket data and
+all evidence remain available.
+
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
 not a controlled latency comparison; the stall needs an unobserved reproduction
@@ -451,6 +484,14 @@ not import that counter consumer, and its raw native observations still bind
 the recorded source and executable. The tooling-only follow-up supplies no new
 native timing result.
 
+At `fb518fa6`, the Python application examples and typed-RPC workflows pass.
+The SDK free-threaded lane fails an event-settlement race: obsolete ack and
+extension requests return `Ambiguous` after their transports close, rather than
+the result required by that fixture. The JavaScript lane fails the published
+container lifecycle fixture on a `/wake` request timeout. These CI failures are
+retained with their exact head/job identities. Their causes are not established
+by the passing native recovery suites; full SDK CI remains an open gate.
+
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,
    transport and decoded buffers together. Preserve Compact for providers that
@@ -521,8 +562,45 @@ set; a memo cannot turn missing/corrupt objects into a successful head or replac
 the receiver's independent physical seal. Keep one bounded metadata key, never
 cache failures, and preserve verifier quarantine after physical errors. First
 prove cross-history, changed SQL, missing-part, corruption, configuration and
-shutdown refusals with deterministic physical-I/O counts. This is proposed work;
-it is not implemented or a basis for claiming reduced replay duration.
+shutdown refusals with deterministic physical-I/O counts. This work is under
+verification and supplies no measured 10 GB replay improvement yet.
+
+The implementation makes the validation boundary explicit. A
+recovery set receives a private record only after complete source decoding,
+object verification and current metadata/configuration validation. Its full
+fingerprint binds the manifest/reference, logical position and all framed
+entries; the separate physical key omits only metadata-only transitions. Before
+memo lookup both fingerprints are recomputed over bounded resident material,
+with streamed metadata serialization. A stale or missing record refuses replay;
+no second full-image scan is needed to establish that the validated input values
+still match. Physical misses retain the original full replay/seal/cleanup path;
+only a successful empty workspace can record a key. Physical errors keep the
+existing recovery-required latch. Fresh remote reads and the receiver's own
+independent seal remain mandatory. The native no-op regression failed before
+the change because it created another destination image. The first positive
+regression and all five private fingerprint tests pass. All five native memo
+cases pass, including missing/corrupt parts, failed physical verification,
+fresh verifier ownership and identical SQLite bytes under another history.
+The complete 76-case archive and 676-case library suites pass, as do all 45
+ordinary snapshot cases (two ignored), nine ordinary large-image/cold-recovery
+cases (eight ignored) and the native metric inventory check. All-target,
+all-feature Clippy for `cellar`/`cellar-ltx`, formatting/layout (1,199 Rust files),
+native dependency and documentation guards pass. A misspelled snapshot target
+was refused before test selection; the corrected complete target passes. The
+failed selector, original no-op regression and initial compile repair logs are
+retained without assertion or deadline changes.
+
+A source-bound debug RustFS preflight at 285,212,672 bytes also passes owner
+loss, local erasure, cold replacement, promotion, new durable writes, exact
+receipts, payload checks, single callbacks and joined cleanup. Its trace records
+three performed replays and one reuse; the receiver still restores independently.
+Its retained executable SHA-256 is
+`0cae442bcd864d34a92e0c57acade4974ddbfae47e4eaf6180c9f2a277695962`
+and validated source-input SHA-256 is
+`ce5184dded8c75813e33e634368c16999a418bb7018468f06b31a50c199e3b0c`.
+This establishes functional behavior only. The completed full-size peer pilot
+uses the preceding `bc3b95aa` source and contains no replay memo; neither this
+preflight nor the deterministic I/O-count regression proves a 10 GB latency gain.
 
 1. In the archive producer and controller, expose durable archived position,
    committed/applied position, tail bytes and estimated replay time. Archive lag

@@ -798,8 +798,9 @@ root, birth, schema, object kind, exact term/index range, offset, length and
 payload checksum. Ordered, non-overlapping members partition the body exactly.
 Recovery verifies the complete bounded bundle and selected member before replay;
 a foreign member or corrupt byte cannot supply a successful recovery set. Each
-cell physically replays its own complete snapshot/tail/dependency set before its
-head CAS. Partial publication across members is allowed; no cross-cell atomic
+cell supplies its own verified physical replay projection before its head CAS.
+A node-owned memo may reuse an earlier successful replay of identical inputs,
+as described below. Partial publication across members is allowed; no cross-cell atomic
 commit or shared durability proof is claimed. Batching can retain two complete
 recovery sets; resource reservations are not a physical RSS qualification.
 
@@ -828,6 +829,34 @@ replay without downloading the producer's own parts again. It remains bound to
 the exact snapshot reference and complete image state. Source scratch admission
 stays charged until the recovery set's last physical owner drops; failed
 confirmation or replay returns no new head proof.
+
+The verifier keeps one fixed SHA-256 key for its last successful physical
+replay. It binds scope/root/birth/schema, the actual encoded base identity,
+base/final image states, policy bounds, all ordered data-bearing entries and
+verified dependencies. Configuration-only entries and logical cuts are excluded
+from this SQL projection. They still undergo complete current configuration and
+member-binding validation.
+
+A recovery-set constructor records two private fingerprints only after its full
+source decode, object checks and metadata validation succeed. One is the physical
+projection; the other binds the complete manifest/reference, current cut and every
+entry, including configuration/context bytes. Before lookup, the verifier
+recomputes these fingerprints over bounded resident material and rejects changes
+since validation. Metadata streams into the hash without another serialization
+buffer. A hit needs no new destination or repeated full snapshot scan; the
+current set's constructor already verified its source. Each publication still
+reloads and authenticates its exact remote dependency closure. Missing/corrupt
+objects cannot be hidden or repaired by the memo.
+
+First use or changed physical inputs still require full independent destination
+replay, sealing, retirement and cleanup before the key is recorded. The scratch
+store stays empty between successful verifications; any physical failure
+quarantines it before lookup on later calls. New verifier owners start empty, and
+only one history's key is retained. The key owns no image, file, grant, remote
+retention capability or activation authority. Receiver restoration always
+performs its own physical seal. The existing `replay_complete` trace adds
+`reused` and `image_bytes` to distinguish the performed work. This optimization
+changes no wire marker or namespace protocol identity.
 
 Part publication overlaps at most two conditional writes/read-back confirmations
 per producer. Source reads and the whole-stream hash remain ordered; the index
