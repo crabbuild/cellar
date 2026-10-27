@@ -209,6 +209,12 @@ impl NodeExtentStore {
     pub fn same_inventory(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
+
+    /// Check the physical owner of a complete image seal without doing I/O.
+    /// A matching root identity in another inventory is not a local seal.
+    pub fn owns_image(&self, image: &SealedImageRoot) -> bool {
+        Arc::ptr_eq(&self.inner, &image.view().inner)
+    }
 }
 
 struct Operation {
