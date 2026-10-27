@@ -3,6 +3,8 @@
 //! Real engine markers, runtime tickets and SQLite extent images. This owning
 //! boundary does not qualify the unfinished SDK writer or remote-root transport.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_rooted_archive.rs"]
+mod archive;
 #[path = "support/raft_rooted_execution.rs"]
 mod execution;
 #[path = "support/raft_storage_fault.rs"]
