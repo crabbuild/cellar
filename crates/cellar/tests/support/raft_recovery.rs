@@ -43,6 +43,15 @@ const CHECKS: &[&str] = &[
     "cleanup_joined",
 ];
 
+fn keep_node_state() -> Result<bool> {
+    match std::env::var("CELLAR_RECOVERY_KEEP_NODE_STATE") {
+        Ok(value) if value == "1" => Ok(true),
+        Ok(value) if value == "0" => Ok(false),
+        Err(std::env::VarError::NotPresent) => Ok(false),
+        _ => anyhow::bail!("CELLAR_RECOVERY_KEEP_NODE_STATE must be 0 or 1"),
+    }
+}
+
 struct Ledger {
     started: Instant,
     file: Option<File>,
@@ -251,7 +260,14 @@ async fn drill(
     backend: &str,
     force_leader_change: bool,
 ) -> Result<serde_json::Value> {
-    let source_root = tempfile::tempdir_in(workdir)?;
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("cellar::raft::archive=info")
+        .with_ansi(false)
+        .with_writer(std::io::stderr)
+        .try_init();
+    let keep = keep_node_state()?;
+    let mut source_root = tempfile::tempdir_in(workdir)?;
+    source_root.disable_cleanup(keep);
     let path = source_root.path().to_path_buf();
     let preparation = ExecutionDomain::new(tokio::runtime::Handle::current());
     let receipt_reserve = (quota / 16).min(32 * 1024 * 1024) / 512 * 512;
@@ -300,11 +316,13 @@ async fn drill(
     };
     let roots = (0..4)
         .map(|index| {
-            tempfile::tempdir_in(if index % 2 == 1 {
+            let mut root = tempfile::tempdir_in(if index % 2 == 1 {
                 secondary.unwrap_or(workdir)
             } else {
                 workdir
-            })
+            })?;
+            root.disable_cleanup(keep);
+            Ok(root)
         })
         .collect::<std::io::Result<Vec<_>>>()?;
     let mut host = RaftHostOptions::default();
@@ -437,11 +455,13 @@ async fn drill(
             )?;
             tokio::time::timeout(Duration::from_secs(1800), async {
                 loop {
-                    if archive
-                        .recovery_metadata()
-                        .await?
-                        .is_some_and(|head| head.position().index >= admitted.started_at)
-                    {
+                    let observed = archive.recovery_metadata().await?;
+                    let index = observed.as_ref().map(|head| head.position().index.get());
+                    if ledger.value["archive_observed_index"] != serde_json::json!(index) {
+                        ledger.value["archive_observed_index"] = serde_json::json!(index);
+                        ledger.save()?;
+                    }
+                    if observed.is_some_and(|head| head.position().index >= admitted.started_at) {
                         return Ok::<_, anyhow::Error>(());
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -615,17 +635,30 @@ async fn drill(
         .await?;
         ledger.check("payloads_verified")?;
         ledger.mark("payloads_verified")?;
-        ledger.value["observations"] = serde_json::to_value(
-            cluster
-                .services
-                .iter()
-                .map(RaftCells::performance)
-                .collect::<Vec<_>>(),
-        )?;
         Ok(())
     }
     .await;
+    // Capture failed and in-flight work too. Observability must not disappear
+    // precisely when a recovery stage fails; incomplete ledgers still fail the
+    // runner's acceptance checks.
+    let observations = serde_json::to_value(
+        cluster
+            .services
+            .iter()
+            .map(RaftCells::performance)
+            .collect::<Vec<_>>(),
+    );
+    if let Err(error) = &result {
+        ledger.value["failure"] = format!("{error:#}").into();
+    }
     let closed = cluster.close().await;
+    if let Ok(value) = &observations {
+        ledger.value["observations"] = value.clone();
+    }
+    if closed.is_ok() {
+        ledger.check("cleanup_joined")?;
+    }
+    let saved = ledger.save();
     match (result, closed) {
         (Err(error), Err(cleanup)) => {
             return Err(error.context(format!("recovery cleanup also failed: {cleanup}")))
@@ -634,6 +667,8 @@ async fn drill(
         (_, Err(error)) => return Err(error),
         (Ok(()), Ok(())) => (),
     }
+    observations?;
+    saved?;
     ledger.check("cleanup_joined")?;
     ledger.mark("cleanup_joined")?;
     ensure!(ledger.value["events"].as_array().context("events")?.len() == PHASES.len());
@@ -646,10 +681,11 @@ async fn drill(
 }
 
 async fn small(backend: &str, force_leader_change: bool) -> Result<()> {
-    let root = match std::env::var_os("CELLAR_RECOVERY_WORKDIR") {
+    let mut root = match std::env::var_os("CELLAR_RECOVERY_WORKDIR") {
         Some(directory) => tempfile::tempdir_in(directory)?,
         None => tempfile::tempdir()?,
     };
+    root.disable_cleanup(keep_node_state()?);
     let quota = 12 * 1024 * 1024;
     let source = fixture::make_template(root.path(), quota, false)?;
     let evidence = drill(
@@ -712,7 +748,8 @@ async fn small_peer_leader_change_does_not_strand_repair() -> Result<()> {
 
 async fn physical(from_s3: bool, quota: u64, reuse_fixture: bool) -> Result<()> {
     let workdir = PathBuf::from(std::env::var_os("CELLAR_LARGE_IMAGE_WORKDIR").context("workdir")?);
-    let fixture_directory = tempfile::tempdir_in(&workdir)?;
+    let mut fixture_directory = tempfile::tempdir_in(&workdir)?;
+    fixture_directory.disable_cleanup(keep_node_state()?);
     let supplied = reuse_fixture
         .then(|| std::env::var_os("CELLAR_LARGE_IMAGE_FIXTURE"))
         .flatten();
@@ -737,6 +774,7 @@ async fn physical(from_s3: bool, quota: u64, reuse_fixture: bool) -> Result<()> 
         "cold-recovery-qualification/{:032x}",
         rand::random::<u128>()
     ));
+    eprintln!("cold-recovery object_prefix={prefix}");
     let store = Arc::new(object_store::prefix::PrefixStore::new(store, prefix));
     let secondary = std::env::var_os("CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR").map(PathBuf::from);
     drill(
@@ -768,4 +806,10 @@ async fn decimal_ten_gb_rustfs_recovers_with_complete_phase_ledger() -> Result<(
 #[ignore = "requires actual 272 MiB fixture, workspace disk and RustFS credentials"]
 async fn buffered_archive_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
     physical(true, 272 * 1024 * 1024, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires actual 1,280 MiB fixture, workspace disk and RustFS credentials"]
+async fn gigabyte_archive_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
+    physical(true, 1280 * 1024 * 1024, false).await
 }

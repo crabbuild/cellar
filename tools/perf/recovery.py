@@ -138,6 +138,7 @@ def worker_environment(parent, trial_dir, *, physical, keep=False):
         owned.append(primary)
         env['CELLAR_LARGE_IMAGE_WORKDIR'] = str(primary)
         env['CELLAR_RECOVERY_WORKDIR'] = str(primary)
+        env['CELLAR_RECOVERY_KEEP_NODE_STATE'] = '1' if keep else '0'
         if physical and parent.get('CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR'):
             secondary = Path(tempfile.mkdtemp(prefix='cold-recovery-', dir=parent['CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR']))
             owned.append(secondary)

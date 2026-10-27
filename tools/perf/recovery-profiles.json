@@ -29,6 +29,18 @@
       "failure_mode": "joined_domain_loss",
       "reference_profile_verified": false
     },
+    "gigabyte-archive-1280mib": {
+      "image_bytes": 1342177280,
+      "logical_quota_bytes": 1342177280,
+      "backends": ["rustfs"],
+      "fixture": "gigabyte_archive",
+      "ignored": true,
+      "target_seconds": 120,
+      "replacement_cache": "empty",
+      "source_cache": "not_controlled",
+      "failure_mode": "joined_domain_loss",
+      "reference_profile_verified": false
+    },
     "small-peer-regression": {
       "image_bytes": 12582912,
       "logical_quota_bytes": 12582912,

@@ -41,6 +41,8 @@ alternating workers on a second volume; record the layout with your run.
 ```sh
 python3 tools/perf/recovery.py --backend rustfs --profile buffered-archive-272mib \
   --repetitions 3 --output /tmp/cellar-recovery-272mib-001
+python3 tools/perf/recovery.py --backend rustfs --profile gigabyte-archive-1280mib \
+  --repetitions 1 --output /tmp/cellar-recovery-1280mib-001
 python3 tools/perf/recovery.py --backend peer --profile reference-10gb \
   --repetitions 3 --output /tmp/cellar-recovery-peer-10gb-001
 python3 tools/perf/recovery.py --backend rustfs --profile reference-10gb \
@@ -72,6 +74,19 @@ untouched; test operation deadlines remain unchanged. The CLI handles SIGTERM
 and Ctrl-C by unwinding those owners: it stops and joins the test child before
 removing its worker data. Further termination signals are ignored during this
 bounded cleanup so they cannot interrupt the join.
+
+Retention reaches the native TempDir owners too, preserving surviving and
+replacement node files. The fault injection still erases the failed owner's
+directory and recreates the replacement. The default removes every allocated
+worker directory after the test process has joined.
+
+The raw log names the synthetic object prefix and includes archive encode,
+upload, material-read, replay and head-confirmation phases. Failed native drills
+also save the latest observed archive index, failure message, node performance
+observations and cleanup outcome when the process can unwind. A hard process
+kill may leave only the last incomplete ledger; neither outcome counts as a
+successful trial. The 1,280 MiB diagnostic profile crosses SQLite's reserved-lock
+page boundary and creates its own incompressible template.
 
 The native ledger records monotonic timestamps for owner loss, joined stop,
 local erasure, repair admission, archive waiting, seed installation, complete
