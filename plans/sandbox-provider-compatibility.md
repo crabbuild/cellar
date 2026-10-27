@@ -198,7 +198,7 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Cold-first-call, event-settlement transport and remaining failure/cancellation/timeouts | Cold 250 ms dispatch failures and the earlier 2 s heartbeat remain open; both SDK CI variants return `Ambiguous` in the stale-receipt race. Linux wake now has a verified port-8080 fixture fix; differential evidence for resolved failures is in the ledger |
+| 1 — qualification | Cold-first-call, heartbeat and remaining failure/cancellation/timeouts | Cold 250 ms dispatch failures and the earlier 2 s heartbeat remain open. Linux wake has a verified port-8080 fixture fix; the stale-receipt race now uses fresh callers with unchanged budgets and passes all three local cases. Fresh SDK CI remains required |
 | 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Store/provider outages, partitions, deletion and provider-enforced fencing remain open |
 | 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice now includes byte-source stdin, callback-independent observations and explicit handle retirement with independent SDK/helper/image evidence; remaining APIs require explicit operation/version and failure evidence |
 

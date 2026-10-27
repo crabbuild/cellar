@@ -1925,6 +1925,37 @@ The separate 250 ms first module call still fails in the wider macOS campaign.
 On `ebe31c33`, both SDK CI Python variants also fail
 `settlement_race_expiry_replacement_refuses_old_ack_and_extension`: old ack and
 extend calls return `Ambiguous` after a closed peer transport rather than the
-expected `StaleReceipt`. That native event-delivery qualification and the earlier
-two-second Node heartbeat failure remain open; the port correction does not
-claim to fix them.
+expected `StaleReceipt`. The following campaign isolates that receipt-state
+race; the earlier two-second Node heartbeat failure remains open.
+
+## Receipt-state race and idle peer transport
+
+The SDK CI failure reproduces locally: the original expiry race returns
+`Ambiguous` for an old acknowledgement after the proxy's upstream connection
+closes, while the extension can still return `StaleReceipt`. Its ordinary
+30-second delivery lease and the RPC tunnel's 30-second idle lifetime can expire
+together while the signed requests are held before owner submission.
+
+The fixture now prepares the original append, projection and competing-lease
+probe on the destination. It starts the consumer during the final ten seconds
+of the expiry wait, initializes the separate remote ack/extend callers, and
+preserves the original one-second submission lead. An added assertion requires
+the consumer node's whole age plus the original call budget to remain below the
+existing tunnel idle limit. Even startup-created connections must satisfy that
+bound. Requests still come from the actual SDK and cross the real peer proxy.
+
+| Evidence | Result |
+| --- | --- |
+| Original isolated expiry control | Fails with `Ambiguous` ack / `StaleReceipt` extension after 30.63 seconds, matching the SDK CI transport failure |
+| Setup-call minimization | Moving initial work alone still fails: the consumer can already have opened RPC tunnels during setup. Temporary connection probes were removed from the final change |
+| Fresh-consumer campaign | All three expiry/reset/acknowledgement-replay races pass; original receipt, extension target, captured packet bytes, replacement generation and checkpoint assertions remain intact |
+| Isolated expiry repeat | Both obsolete operations return `StaleReceipt`; the complete case passes again in 36.67 seconds, including original drain assertions |
+| Refusal / replay | Expiry returns `StaleReceipt` for both obsolete requests; reset returns `SubscriptionReset`; replay acknowledges only the original lease and preserves its successor |
+| Limits / shutdown | Original 30-second delivery lease, three-second operation budget, ten-second node lease and tunnel policy remain unchanged. The original no-timeout/no-node-closure assertions and joined shutdown remain required |
+| Quality | Strict core/native-node Clippy, Rust layout and documentation checks pass; repository formatting is applied and checked independently |
+
+This is a fixture correction with an additional freshness precondition.
+Production receipt decisions, peer transport, retry classification and proof
+gates are unchanged. Transport loss still has an uncertain outcome; it cannot
+serve as evidence of a receipt-state refusal. Linux SDK CI must qualify the
+updated PR head independently; full failure qualification remains partial.
