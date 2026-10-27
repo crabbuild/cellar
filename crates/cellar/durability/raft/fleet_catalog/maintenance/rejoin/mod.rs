@@ -8,6 +8,7 @@ use super::gate::Gate;
 use super::*;
 use crate::raft::fleet_stop::{LifecyclePurpose, LifecycleUpdate, StopSelector};
 use crate::raft::storage::ReplicaLog;
+pub(super) use boot::ReturnedCut;
 use records::{Return, KIND, LIMIT, PREFIX};
 
 #[derive(Clone, Debug)]
@@ -261,6 +262,9 @@ impl FleetCatalog {
         if authority != Authority::RestartReturn {
             if let Some(old) = old.filter(|n| n.state == FleetNodeState::RestartPending) {
                 let next = next.ok_or(FleetCatalogError::Conflict)?;
+                if next.state == FleetNodeState::Active && authority != Authority::RestartResume {
+                    return Err(FleetCatalogError::Invalid("restart resume authority"));
+                }
                 if old.boot != next.boot || old.storage_instance != next.storage_instance {
                     return Err(FleetCatalogError::Invalid("restart return boot authority"));
                 }

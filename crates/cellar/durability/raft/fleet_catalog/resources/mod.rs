@@ -48,6 +48,7 @@ pub(super) enum Authority {
     RestartReadiness,
     RestartStop,
     RestartReturn,
+    RestartResume,
 }
 mod movement;
 mod records;

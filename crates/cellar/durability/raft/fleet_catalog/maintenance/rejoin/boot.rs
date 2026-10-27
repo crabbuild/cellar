@@ -320,3 +320,79 @@ impl FleetCatalog {
         })
     }
 }
+
+/// Canonical returned owner and structural pre-stop inventory, never health.
+#[derive(Clone)]
+pub(in crate::raft::fleet_catalog::maintenance) struct ReturnedCut {
+    pub node: NodeRecord,
+    pub quiescence: StopSelector,
+    pub returning: FleetRequestIdentity,
+    pub boot_request: FleetRequestIdentity,
+    pub digest: [u8; 32],
+    pub slot: [u8; 32],
+    pub stopped_index: Option<[u8; 32]>,
+}
+
+impl FleetCatalog {
+    pub(in crate::raft::fleet_catalog::maintenance) fn historical_returned_cut<'a>(
+        &'a self,
+        snapshot: &'a FleetSnapshot,
+        operation: [u8; 16],
+    ) -> BoxFuture<'a, Result<Box<ReturnedCut>>> {
+        Box::pin(async move {
+            let (consent, stop, gate) = self.checked_restart_return(snapshot, operation).await?;
+            let record = self
+                .returned_boot(snapshot, operation, &consent, &gate)
+                .await?
+                .ok_or(FleetCatalogError::Unconfirmed)?;
+            let (_, canonical_stop, canonical_gate) =
+                self.checked_restart_offline(snapshot, operation).await?;
+            if canonical_stop.selector(&canonical_gate)? != stop {
+                return Err(FleetCatalogError::Conflict);
+            }
+            let ready = self
+                .restart_stop_ready(&canonical_stop, &canonical_gate)
+                .await?;
+            Ok(Box::new(ReturnedCut {
+                node: record.node.clone(),
+                quiescence: record.quiescence(&gate)?,
+                returning: consent.request,
+                boot_request: record.request.clone(),
+                digest: hash(&encode(KIND, &record, LIMIT)?),
+                slot: gate.disruption,
+                stopped_index: ready.stopped_index(),
+            }))
+        })
+    }
+
+    pub(in crate::raft::fleet_catalog::maintenance) fn checked_returned_cut<'a>(
+        &'a self,
+        snapshot: &'a FleetSnapshot,
+        operation: [u8; 16],
+    ) -> BoxFuture<'a, Result<Box<ReturnedCut>>> {
+        Box::pin(async move {
+            let cut = self.historical_returned_cut(snapshot, operation).await?;
+            let current = self
+                .host_from_record(
+                    snapshot,
+                    NodeId::new(cut.node.node)
+                        .map_err(|_| FleetCatalogError::Corrupt("returned node"))?,
+                )
+                .await?;
+            let Some(super::super::super::disruption::Disruption::Restart(preparation)) =
+                self.active_disruption(snapshot).await?
+            else {
+                return Err(FleetCatalogError::Conflict);
+            };
+            if current.record != cut.node
+                || preparation.request.operation != operation
+                || snapshot.head.disruption != Some(cut.slot)
+            {
+                return Err(FleetCatalogError::Conflict);
+            }
+            self.require_restart_settlement_idle(snapshot, operation)
+                .await?;
+            Ok(cut)
+        })
+    }
+}

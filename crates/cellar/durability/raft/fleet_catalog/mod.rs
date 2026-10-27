@@ -43,12 +43,16 @@ pub use maintenance::{
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
     FleetRestartHistoryProgress, FleetRestartOfflineAdmission, FleetRestartOfflineRequest,
     FleetRestartPendingWork, FleetRestartReadyAdmission, FleetRestartReadyRequest,
-    FleetRestartRequest, FleetRestartReturnAdmission, FleetRestartReturnRequest,
-    FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartSettlementBlocker,
-    FleetRestartSettlementProgress, FleetRestartStopAdmission, FleetRestartStopRequest,
-    FleetRestartVerification,
+    FleetRestartRequest, FleetRestartResumeAdmission, FleetRestartResumeCompleteRequest,
+    FleetRestartResumeCompletion, FleetRestartResumePhase, FleetRestartResumeProgress,
+    FleetRestartResumeRequest, FleetRestartResumeVerification, FleetRestartReturnAdmission,
+    FleetRestartReturnRequest, FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress,
+    FleetRestartSettlementBlocker, FleetRestartSettlementProgress, FleetRestartStopAdmission,
+    FleetRestartStopRequest, FleetRestartVerification,
 };
-pub(crate) use maintenance::{RestartActionContext, RestartLeadershipCommand};
+pub(crate) use maintenance::{
+    RestartActionContext, RestartLeadershipCommand, ResumeLeadershipCommand,
+};
 pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,
@@ -416,6 +420,7 @@ impl FleetCatalog {
         self.check_restart_readiness_mutation(mutation, movement)?;
         self.check_restart_stop_mutation(mutation, movement)?;
         self.check_restart_return_mutation(mutation, movement)?;
+        self.check_restart_resume_mutation(mutation, movement)?;
         self.check_resource_mutation(snapshot, mutation, movement)
             .await?;
         self.check_topology_mutation(snapshot, mutation, movement)

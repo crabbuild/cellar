@@ -250,6 +250,7 @@ impl FleetHostAuthorization {
                     expected_revision: LogIndex::new(command.revision),
                     through: progress.committed,
                     survivors,
+                    all_voters: false,
                     transfer,
                 },
                 deadline.remaining()?,

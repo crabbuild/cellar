@@ -14,6 +14,7 @@ use tokio::sync::{mpsc, oneshot};
 struct State {
     epoch: u64,
     selector: Option<StopSelector>,
+    resumed: Option<StopSelector>,
 }
 
 #[derive(Default)]
@@ -55,6 +56,7 @@ impl Admission {
         }
         state.epoch = selector.epoch;
         state.selector = Some(selector.clone());
+        state.resumed = None;
         self.public.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -68,6 +70,31 @@ impl Admission {
         Ok(())
     }
 
+    pub fn resume(
+        &self,
+        quiescence: &StopSelector,
+        selector: &StopSelector,
+    ) -> Result<(), FleetCatalogError> {
+        let mut state = self.state.lock().map_err(|_| FleetCatalogError::Closed)?;
+        if state.resumed.as_ref() == Some(selector) {
+            return Ok(());
+        }
+        if state.selector.as_ref() != Some(quiescence) || state.epoch != selector.epoch {
+            return Err(FleetCatalogError::Conflict);
+        }
+        state.selector = None;
+        state.resumed = Some(selector.clone());
+        self.raft.store(false, Ordering::SeqCst);
+        self.public.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn resumed(&self, selector: &StopSelector) -> bool {
+        self.state
+            .lock()
+            .is_ok_and(|state| state.resumed.as_ref() == Some(selector))
+    }
+
     pub fn fence(&self, selector: &StopSelector) -> Result<(), FleetCatalogError> {
         let mut state = self.state.lock().map_err(|_| FleetCatalogError::Closed)?;
         if selector.epoch < state.epoch {
@@ -75,6 +102,7 @@ impl Admission {
         }
         state.epoch = selector.epoch;
         state.selector = None;
+        state.resumed = None;
         self.raft.store(false, Ordering::SeqCst);
         self.public.store(false, Ordering::SeqCst);
         Ok(())
@@ -119,6 +147,69 @@ impl LocalQuiescence {
             || !self.admission.raft_closed()
         {
             return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResumeMode {
+    Paused,
+    Resumed,
+}
+
+#[derive(Clone)]
+pub(crate) struct LocalResume {
+    log: crate::raft::storage::ReplicaLog,
+    admission: std::sync::Arc<Admission>,
+}
+
+impl LocalResume {
+    pub fn new(
+        log: crate::raft::storage::ReplicaLog,
+        admission: std::sync::Arc<Admission>,
+    ) -> Self {
+        Self { log, admission }
+    }
+
+    pub fn mode(
+        &self,
+        quiescence: &StopSelector,
+        selector: &StopSelector,
+    ) -> Result<ResumeMode, FleetCatalogError> {
+        let guard = self
+            .log
+            .lifecycle_guard()
+            .map_err(|_| FleetCatalogError::Closed)?
+            .ok_or(FleetCatalogError::Conflict)?;
+        if guard.boot != selector.boot {
+            return Err(FleetCatalogError::Conflict);
+        }
+        if guard.quiescing() == Some(quiescence)
+            && self.admission.matches(quiescence)
+            && self.admission.public_closed()
+            && self.admission.raft_closed()
+        {
+            return Ok(ResumeMode::Paused);
+        }
+        if guard.resumed() == Some((selector, quiescence))
+            && self.admission.resumed(selector)
+            && !self.admission.public_closed()
+            && !self.admission.raft_closed()
+        {
+            return Ok(ResumeMode::Resumed);
+        }
+        Err(FleetCatalogError::Unconfirmed)
+    }
+
+    pub fn check(
+        &self,
+        quiescence: &StopSelector,
+        selector: &StopSelector,
+        mode: ResumeMode,
+    ) -> Result<(), FleetCatalogError> {
+        if self.mode(quiescence, selector)? != mode {
+            return Err(FleetCatalogError::Unconfirmed);
         }
         Ok(())
     }

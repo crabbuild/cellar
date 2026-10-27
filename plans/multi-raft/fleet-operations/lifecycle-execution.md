@@ -58,7 +58,7 @@ and its shared disruption slot held. Cancellation still owns a synced exact
 process Fence. Stop requires separate consent and fresh receiving-owner proof;
 readiness does not start the repair-delay clock or authorize new boot, capacity
 resume or slot release. The separate stop/join and M8 return boundaries follow;
-M9 verified resume remains required.
+M9 verified resume is a separate SDK boundary described below; the complete maintenance operator driver remains required.
 
 ## Separate maintenance stop and joined confirmation
 
@@ -130,18 +130,64 @@ Consensus and archive recovery can run while public and SDK application writes
 remain closed. Old-process cancellation and stop cannot affect the fresh boot.
 No permanent shutdown flag is reset.
 
-M8 startup is not an intact-restart completion certificate. M9 must inventory
-the current configuration, verify retained/retired copies and fresh matched
-catch-up, qualify the actual profile and own resume before capacity/slot release.
-The resume driver must also recheck actual leadership after return: application
-gating does not suppress Raft elections. Regained target leadership needs owned
-matched handoff/reconciliation to preserve service while it remains paused.
-A subsequent process death, changed signer after a failed startup, grace expiry,
-repair that retired old membership, rolling execution and operator workflow
-reconciliation remain explicit delivery work. No old live sample or serialized
-clock is revived during return. The protocol fingerprint adds
-`/restart-return-1`; numeric markers remain 1 with matching binaries and fresh
-prefixes, without migration or legacy readers.
+M8 startup is not an intact-restart completion certificate. The verified resume
+boundary follows. A subsequent process death, changed signer after a failed
+startup, grace expiry, rolling execution and operator workflow reconciliation
+remain explicit delivery work. No old live sample or serialized clock is revived
+during return. The protocol fingerprint adds `/restart-return-1`; numeric markers
+remain 1 with matching binaries and fresh prefixes, without migration or legacy
+readers.
+
+## Verified returned-boot resume
+
+`prepare_restart_resume` creates a live bounded walk over the complete current
+namespace/history cut and the exact returned boot. A new human request names its
+return consent, stable resume child and intended open-profile deployment
+attestation. The physical observation must actually report paused; only that
+paused bit is normalized for comparison with the planned profile digest.
+Preparation refuses incomplete inventory or touching births, reservations and
+movements. It grants no resume or capacity authority.
+
+`reconcile_next` compares the structural pre-stop inventory with current settled
+membership and actual physical occupancy. It never recreates a retired member
+or treats retained occupancy as free capacity. Each affected live history needs
+current RF3, actual safe ReadIndex/publication evidence on all three voters and
+matched progress at the serialized leader. The returned paused voter can win an
+election. Owned reconciliation requests a matched transfer to an eligible Active
+survivor, retaining the history until surviving leadership is actually observed.
+In Resumed phase, the returned voter can remain a matched current leader.
+
+`admit_resume` consumes the complete live walk to persist separate resume consent.
+The receiving Node resolves that canonical consent and independently renews its
+physical inventory, actual profile and all-current-voter proof. It submits an
+engine update bound to the exact synced quiescence and a deadline on the actual
+engine owner's clock. The update consumes that quiescence atomically and persists
+the distinct resume child. Only then do local reversible public and SDK gates
+open. Permanent shutdown flags are never reset. Exact already-synced work finishes
+even after its request waiter or reply is lost; it grants no new scope or health.
+
+Physical reopening leaves Root RestartPending, quantified capacity excluded,
+resource charges retained and the disruption slot held. Consume a fresh walk in
+Resumed phase and call `complete_resume`. A single guarded Root CAS installs the
+exact Active Node, its matching capacity row and terminal completion, then clears
+only the original disruption slot. The terminal record binds the canonical Node
+change by digest rather than duplicating its boot inside the bounded record.
+
+A relevant Root input change refuses old consent before physical opening. Repeat
+current verification and use a fresh human identity with the same return/profile/
+resume child scope. If inputs change after physical reopening, capacity exclusion
+and the slot remain until renewed consent and fresh terminal proof succeed;
+recovery does not reclose or reset an already admitted physical effect.
+`restart_resume_admission`, `restart_resume_completion` and `restart_resumed`
+reconcile exact historical journal facts, including lost confirmations and another
+controller's completion. Reading those facts restores no live samples or clocks.
+
+All actual voting evidence must fit the existing five-second envelope at effect
+execution or the Root CAS. Generic intent, completion and Active-node projections
+cannot bypass the private transition. The protocol fingerprint adds
+`/restart-resume-1`, retaining numeric marker 1 and requiring matching binaries
+and fresh prefixes. This SDK boundary does not itself implement the management
+operation driver, rolling policy, grace expiry or failure classification.
 
 ## Persist a resumable operation, not a worker's lifetime
 

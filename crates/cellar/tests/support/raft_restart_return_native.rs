@@ -2,6 +2,8 @@
 
 //! Retained physical startup catches up behind a closed application gate.
 use super::*;
+#[path = "raft_restart_resume_native.rs"]
+mod resume;
 use cellar::application::consensus::verification::FleetRestartReturnRequest;
 
 async fn offline(s: &mut Setup, p: usize) -> Result<(Running, FleetRestartReturnRequest)> {

@@ -184,6 +184,21 @@ impl Reporter {
         if request.selector.boot != self.boot {
             return Err(FleetCatalogError::Conflict);
         }
+        if matches!(
+            request.action,
+            FleetStopAction::Resume
+                | FleetStopAction::ObserveResume
+                | FleetStopAction::ObserveQuiescence
+        ) {
+            return super::resume::Receiver {
+                catalog: &self.catalog,
+                log: &self.log,
+                admission: self.maintenance.clone(),
+                gateway: &self.gateway,
+            }
+            .apply(request, origin, deadline)
+            .await;
+        }
         let cached = self
             .log
             .lifecycle_guard()
@@ -227,6 +242,9 @@ impl Reporter {
             ));
         }
         let update = match request.action {
+            FleetStopAction::Resume
+            | FleetStopAction::ObserveResume
+            | FleetStopAction::ObserveQuiescence => return Err(FleetCatalogError::PayloadConflict),
             FleetStopAction::Quiesce => LifecycleUpdate::Quiesce {
                 selector: request.selector.clone(),
                 deadline,
@@ -332,7 +350,7 @@ fn signal_stop(
     }
 }
 
-fn log_error(error: LogError) -> FleetCatalogError {
+pub(super) fn log_error(error: LogError) -> FleetCatalogError {
     match error {
         LogError::WrongIdentity | LogError::AlreadyExists => FleetCatalogError::Conflict,
         LogError::Overloaded => FleetCatalogError::Overloaded,

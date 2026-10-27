@@ -114,6 +114,7 @@ impl Fixture {
                     expected_revision: LogIndex::new(1),
                     through: LogIndex::new(1),
                     survivors: [MemberId::new(2)?, MemberId::new(3)?],
+                    all_voters: false,
                     transfer: Some((MemberId::new(2)?, self.selector.clone())),
                 })),
             },

@@ -595,6 +595,45 @@ All three current voters must exist before the separate fresh quorum/publication
 turn can consume the history. Initialization does not attest health, transfer
 leadership, issue RestartReady, permit stop or release capacity/disruption debt.
 
+## Verified maintenance resume
+
+After a retained-engine return, `prepare_restart_resume` creates a live, paged
+`FleetRestartResumeVerification`. Supply the exact return identity, the new
+boot's deployment attestation for its intended open profile, and a stable resume
+child ID. This is separate consent from the earlier stop and return requests.
+The physical view must actually report paused; only that paused bit is normalized
+when comparing the intended open profile digest.
+
+`reconcile_next` checks complete current logical and physical inventory without
+materializing or reviving a retired member. Every affected live history requires
+current settled RF3, authenticated safe ReadIndex/publication proof and all
+current voters matched at the serialized leader. A returned paused voter can
+still win an election: reconciliation requests an owned matched handoff and
+retains the history until a surviving leader is observed. Retired occupancy
+continues to consume resources and is reported separately from intact voters.
+
+`admit_resume` consumes the complete live walk to publish intent. The receiving
+Node independently renews current proof before `resume_restart_maintenance`
+atomically consumes its synced quiescence and an owner-clock evidence deadline.
+Only then do its reversible public/SDK gates open; permanent shutdown flags are
+never reset. Exact accepted work finishes despite lost waiters or replies.
+The target remains RestartPending, capacity excluded and the disruption slot held.
+
+Prepare and consume a new walk in Resumed phase, then call `complete_resume`.
+Its fresh proof and one Root CAS install Active plus the matching capacity row,
+record terminal completion and release the exact original disruption slot.
+Resource charges remain. `restart_resume_admission`, `restart_resume_completion`
+and `restart_resumed` recover journal-confirmed historical facts without restoring
+samples or granting a current health lease. A relevant Root change requires a new
+live walk and fresh human consent identity with the same return/profile/resume
+child scope. If it occurs after physical reopening, exclusion and the slot stay
+held until that renewed terminal verification succeeds.
+
+All current voting samples must still fit the existing five-second envelope at
+the effect or CAS. The SDK backend does not itself create an automatic controller,
+restart a process, resize infrastructure or implement rolling/grace failure policy.
+The maintenance operator driver and deployed qualification remain separate work.
+
 ## Terminal removal and recovery
 
 `prepare_evacuation_verification` also resumes a rooted Finalizing operation.

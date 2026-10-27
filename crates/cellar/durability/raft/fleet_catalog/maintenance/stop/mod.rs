@@ -251,7 +251,7 @@ impl FleetCatalog {
             .map(|_| ())
     }
 
-    async fn restart_stop_ready(
+    pub(in crate::raft::fleet_catalog::maintenance) async fn restart_stop_ready(
         &self,
         record: &Consent,
         gate: &Gate,

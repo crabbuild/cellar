@@ -5,10 +5,10 @@ mod action;
 mod basis;
 mod genesis;
 mod handoff;
-mod proof;
+pub(super) mod proof;
 mod readiness;
 mod reconcile;
-mod records;
+pub(super) mod records;
 mod stop;
 
 use super::gate::Gate;
@@ -21,6 +21,7 @@ pub(crate) use action::RestartActionContext;
 use basis::Basis;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use futures_util::future::BoxFuture;
+pub(super) use handoff::LeadershipAction;
 pub(crate) use handoff::RestartLeadershipCommand;
 pub use readiness::{FleetRestartReadyAdmission, FleetRestartReadyRequest};
 pub use reconcile::FleetRestartRuntimeProgress;
@@ -498,4 +499,33 @@ impl FleetRestartVerification {
         deadline.remaining()?;
         Ok(digest)
     }
+}
+
+// Immutable pre-stop inventory is descriptive only. M9 compares it with current
+// configuration without restoring samples, health or the original gate.
+pub(super) async fn stopped_slot(
+    catalog: &FleetCatalog,
+    index: Option<[u8; 32]>,
+    key: &str,
+) -> Result<Option<(MemberId, bool)>> {
+    catalog
+        .inner
+        .lookup(index, key)
+        .await?
+        .map(|bytes| {
+            let entry: Entry = decode(records::ENTRY_KIND, &bytes, records::LIMIT)?;
+            if entry.format != 1 {
+                return Err(FleetCatalogError::Corrupt("stopped inventory entry"));
+            }
+            entry
+                .physical
+                .map(|p| {
+                    MemberId::new(p.member)
+                        .map(|m| (m, p.in_configuration))
+                        .map_err(|_| FleetCatalogError::Corrupt("stopped member"))
+                })
+                .transpose()
+        })
+        .transpose()
+        .map(Option::flatten)
 }

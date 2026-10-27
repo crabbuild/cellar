@@ -76,6 +76,13 @@ pub(crate) async fn action(
                     cellar::sdk::consensus::FleetStopAction::Stop => "fleet_stop",
                     cellar::sdk::consensus::FleetStopAction::Fence => "fleet_stop_fence",
                     cellar::sdk::consensus::FleetStopAction::Quiesce => "fleet_quiesce",
+                    cellar::sdk::consensus::FleetStopAction::ObserveQuiescence => {
+                        "fleet_observe_quiescence"
+                    }
+                    cellar::sdk::consensus::FleetStopAction::ObserveResume => {
+                        "fleet_observe_resume"
+                    }
+                    cellar::sdk::consensus::FleetStopAction::Resume => "fleet_resume",
                 },
                 _ => label.as_str().unwrap_or("evict"),
             },

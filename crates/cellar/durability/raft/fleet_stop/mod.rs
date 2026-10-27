@@ -5,10 +5,11 @@ mod admission;
 mod closure;
 mod records;
 mod reporter;
+mod resume;
 
 pub(crate) use admission::{
-    Admission as MaintenanceAdmission, Command as MaintenanceCommand, LocalQuiescence,
-    Receiver as MaintenanceReceiver, Sender as MaintenanceSender,
+    Admission as MaintenanceAdmission, Command as MaintenanceCommand, LocalQuiescence, LocalResume,
+    Receiver as MaintenanceReceiver, ResumeMode, Sender as MaintenanceSender,
 };
 pub(crate) use closure::Sink;
 pub use closure::VerifiedFleetClosure;

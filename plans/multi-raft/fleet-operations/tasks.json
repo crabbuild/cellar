@@ -3817,7 +3817,10 @@
         "crates/cellar/durability/raft/fleet_stop/mod.rs",
         "crates/cellar/durability/raft/host_directory.rs",
         "crates/cellar/node/raft_startup.rs",
-        "crates/cellar/durability/raft/fleet_catalog/isolation.rs"
+        "crates/cellar/durability/raft/fleet_catalog/isolation.rs",
+        "crates/cellar-admin/nodes.rs",
+        "crates/cellar/durability/raft/fleet_catalog/capacity.rs",
+        "crates/cellar/durability/raft/fleet_catalog/nodes.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
@@ -3870,7 +3873,18 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/rejoin/boot.rs",
-        "crates/cellar/tests/support/raft_restart_return_native.rs"
+        "crates/cellar/tests/support/raft_restart_return_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/basis.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/leadership.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/receiver.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/verification/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/verification/physical.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/resume/verification/publication.rs",
+        "crates/cellar/durability/raft/fleet_stop/resume.rs",
+        "crates/cellar/durability/raft/replica_leadership_tests.rs",
+        "crates/cellar/tests/support/raft_restart_resume_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -3885,7 +3899,8 @@
         "reconcile_next owns at most one original-voter materialization per turn, or the existing fresh quorum/publication verification. The shared authenticated fleet-action lane has separate Movement and RestartGenesis receiving authorities. Genesis pins gate, input/history digests and exact boot, reuses immutable Live birth intent plus permanent claims, and refuses imported/dynamic/retired or claimed-blank genesis. Partial initialization remains owned after a waiter is cancelled. Actual occupancy and attachment reconciliation update only the pending physical history; no readiness or release credit is issued.",
         "M5 publishes journal-confirmed RestartReady only from the live matched runtime walk. The owner retains actual replica sample ages without serializing clock values, renews the exact physical quiesce/inventory cut and checks freshness at the Root CAS. Typed historical receipt recovery resolves lost confirmation without granting stop, capacity or slot release; generic catalog mutations cannot mint or delete readiness. Guarded stop/join and intact-engine rejoin/resume remain separate M6-M9 work.",
         "M6/M7 SDK backend qualified at 676752f5: independent Root stop consent references exact Ready/process/child identity; receiving Node-owned work renews physical inventory, both-survivor quorum and matched leadership, then submits a maintenance-specific engine update that consumes its exact synced quiescence and original evidence deadline. Missing proof, basis drift and cancellation fences refuse shutdown. Signed Node/domain/engine join can be journal-confirmed offline while retaining the disruption slot and resource charges. Consent/offline lost confirmations reconcile exact identities. New protocol identity ends in /restart-stop-1. Retained-engine fresh-process return, verified resume, maintenance operator surfaces, grace/rolling/second-failure behavior and in-place stale-consent refresh remain required.",
-        "M8 retained-engine return SDK backend locally qualified at 05b38d4b: a separate Root consent pins confirmed signed offline closure and a fresh process. The exclusive engine owner validates the actual persisted predecessor stop, retains the boot nonce across unknown startup confirmations, and atomically syncs a maintenance boot with a closed reversible application gate before publishing endpoints. Root stays RestartPending; resource charges, exclusion and disruption slot remain. Generic projections, reused/wrong processes and replacement engines refuse. M9 catch-up certification, resume/slot release and maintenance operator workflow remain required."
+        "M8 retained-engine return SDK backend locally qualified at 05b38d4b: a separate Root consent pins confirmed signed offline closure and a fresh process. The exclusive engine owner validates the actual persisted predecessor stop, retains the boot nonce across unknown startup confirmations, and atomically syncs a maintenance boot with a closed reversible application gate before publishing endpoints. Root stays RestartPending; resource charges, exclusion and disruption slot remain. Generic projections, reused/wrong processes and replacement engines refuse. M9 catch-up certification, resume/slot release and maintenance operator workflow remain required.",
+        "M9 SDK backend implements current returned-boot verification, all-current-voter matched handoff, separate resume consent, independent receiver proof and exact synced quiescence consumption. Fresh Resumed-phase completion restores Active capacity and releases only the original disruption slot while retaining resource charges. Root drift requires fresh same-scope consent; exact journal readers resolve lost confirmations. The maintenance operator driver, grace/rolling/second-failure policy, retirement-after-grace qualification and deployed density remain delivery work."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -4765,6 +4780,138 @@
         {
           "name": "fleet_lifecycle_return_requires_exact_stop_and_persists_closed_gate",
           "oracle": "Actual serialized engine return requires exact predecessor stop, retained owner, distinct process and operation. Expiry or changed identity leaves the stop intact; successful idempotent sync and reopen retain quiescence and reject ordinary boot or old-process fencing.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_primary_restores_capacity_only_after_fresh_completion",
+          "oracle": "A real joined primary returns on its retained engine, stays gated and excluded, renews all current voters before physical reopening, then restores Active capacity and releases the slot only through fresh terminal verification. SQL remains intact and the next operation can claim the slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_follower_recovers_lost_consent_and_completion",
+          "oracle": "Lost Root confirmation for consent and terminal completion reconciles the same canonical identity through a recreated adapter; historical receipts grant no new physical health.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_missing_voter_refuses_opening_and_retains_debt",
+          "oracle": "After consent a missing current voter refuses physical reopening while RestartPending, application closure and disruption/capacity debt remain.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_expired_live_walk_cannot_publish_consent",
+          "oracle": "A live all-voter walk retained beyond the unchanged five-second envelope cannot publish resume consent or change Root.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_root_drift_requires_fresh_same_scope_consent",
+          "oracle": "Relevant namespace inventory drift refuses old consent; a complete current inventory and new consent identity can renew the same return/profile/physical child scope.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_rechecks_and_hands_off_regained_leadership",
+          "oracle": "A paused returned voter becomes the actual leader through a real transfer; reconciliation owns a matched handoff and retains its history until a survivor leader is observed before reopening.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_forged_projection_wrong_child_and_scope_refuse",
+          "oracle": "Generic intent and Active-node projections, wrong resume child/operation/finalization and conflicting receipt scope refuse without opening application admission or changing Root.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_expired_consent_renews_actual_proof_before_opening",
+          "oracle": "Persisted consent remains intent after its samples expire; the actual receiver renews current physical/RF3/matched proof after survivor SQL advances, without restoring old samples.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_resume_requires_exact_gate_and_survives_reopen",
+          "oracle": "The actual serialized fsync boundary consumes only the exact quiescence and distinct scoped resume child. Wrong scope, expiry and delayed same-epoch Fence refuse; exact sync retries and retained reopen preserve the resume fact; an old resume cannot affect the next boot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_resume_refuses_cancelled_or_replaced_gate",
+          "oracle": "A synced cancellation Fence or newer quiescence refuses the old resume without changing the current guard.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "runtime_restart_resume_owner_requires_third_voter_matched_and_active",
+          "oracle": "The actual serialized Raft owner refuses a lagging or inactive third voter even when the old survivor pair passes; only all current matched active voters satisfy resume.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_resume_drift_after_opening_holds_slot_until_renewed_completion",
+          "oracle": "A Root policy input change after physical reopening invalidates terminal verification and retains RestartPending/capacity exclusion/disruption. A fresh same-scope consent in Resumed mode and a fresh complete walk restore capacity without resetting or reclosing the admitted physical effect.",
           "invariants": [
             "F02",
             "F03",

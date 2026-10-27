@@ -36,7 +36,7 @@ pub(super) enum Evidence {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Voter {
+pub(in crate::raft::fleet_catalog::maintenance) struct Voter {
     pub node: [u8; 16],
     pub boot: [u8; 32],
     pub epoch: u64,
@@ -48,7 +48,7 @@ pub(super) struct Voter {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Voting {
+pub(in crate::raft::fleet_catalog::maintenance) struct Voting {
     pub leadership: Leadership,
     pub fixed: Publication,
     pub voters: [Voter; 3],
@@ -81,7 +81,7 @@ pub(super) struct Candidate {
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum Leadership {
+pub(in crate::raft::fleet_catalog::maintenance) enum Leadership {
     Inspected,
     Matched { through: u64 },
 }

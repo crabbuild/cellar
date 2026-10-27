@@ -723,3 +723,177 @@ async fn fleet_lifecycle_return_requires_exact_stop_and_persists_closed_gate() -
     domain.shutdown().await;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_lifecycle_resume_requires_exact_gate_and_survives_reopen() -> anyhow::Result<()> {
+    use crate::raft::fleet_stop::LifecyclePurpose;
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut options = options(root.path());
+    let log = domain
+        .run(ReplicaLog::open(
+            options.clone(),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let binding = boot(&log, 1, 7)?;
+    log.update_lifecycle(LifecycleUpdate::Boot {
+        boot: binding.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    let mut gate = stop(&binding, 2);
+    gate.purpose = LifecyclePurpose::Maintenance;
+    let mut resume = gate.clone();
+    resume.request = [19; 16];
+    log.update_lifecycle(LifecycleUpdate::Quiesce {
+        selector: gate.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    for field in 0..4 {
+        let mut wrong = gate.clone();
+        match field {
+            0 => wrong.request = [20; 16],
+            1 => wrong.operation = [20; 16],
+            2 => wrong.finalization = [20; 16],
+            _ => wrong.boot.boot = [20; 16],
+        }
+        assert!(matches!(
+            log.update_lifecycle(LifecycleUpdate::Resume {
+                selector: resume.clone(),
+                quiescence: Box::new(wrong),
+                deadline: deadline(&log)?
+            })
+            .await,
+            Err(LogError::WrongIdentity)
+        ));
+    }
+    assert!(log
+        .update_lifecycle(LifecycleUpdate::Resume {
+            selector: resume.clone(),
+            quiescence: Box::new(gate.clone()),
+            deadline: 0
+        })
+        .await
+        .is_err());
+    assert_eq!(log.lifecycle_guard()?.unwrap().quiescing(), Some(&gate));
+    for _ in 0..2 {
+        log.update_lifecycle(LifecycleUpdate::Resume {
+            selector: resume.clone(),
+            quiescence: Box::new(gate.clone()),
+            deadline: deadline(&log)?,
+        })
+        .await?;
+    }
+    assert_eq!(
+        log.lifecycle_guard()?.unwrap().resumed(),
+        Some((&resume, &gate))
+    );
+    assert!(matches!(
+        log.update_lifecycle(LifecycleUpdate::Fence {
+            boot: binding.clone(),
+            epoch: gate.epoch,
+            operation: gate.operation,
+            request: [21; 16],
+            deadline: deadline(&log)?
+        })
+        .await,
+        Err(LogError::WrongIdentity)
+    ));
+    log.close().await?;
+    options.mode = LogOpenMode::Resume;
+    let log = domain
+        .run(ReplicaLog::open(
+            options,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    assert_eq!(
+        log.lifecycle_guard()?.unwrap().resumed(),
+        Some((&resume, &gate))
+    );
+    assert!(log.lifecycle_guard()?.unwrap().accepted().is_none());
+    let next = boot(&log, 3, 8)?;
+    log.update_lifecycle(LifecycleUpdate::Boot {
+        boot: next.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    assert!(log
+        .update_lifecycle(LifecycleUpdate::Resume {
+            selector: resume,
+            quiescence: Box::new(gate),
+            deadline: deadline(&log)?
+        })
+        .await
+        .is_err());
+    assert_eq!(log.lifecycle_guard()?.unwrap().boot, next);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_lifecycle_resume_refuses_cancelled_or_replaced_gate() -> anyhow::Result<()> {
+    use crate::raft::fleet_stop::LifecyclePurpose;
+    let root = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            options(root.path()),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let binding = boot(&log, 1, 7)?;
+    log.update_lifecycle(LifecycleUpdate::Boot {
+        boot: binding.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    let mut gate = stop(&binding, 2);
+    gate.purpose = LifecyclePurpose::Maintenance;
+    let mut resume = gate.clone();
+    resume.request = [19; 16];
+    log.update_lifecycle(LifecycleUpdate::Quiesce {
+        selector: gate.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    log.update_lifecycle(LifecycleUpdate::Fence {
+        boot: binding,
+        epoch: gate.epoch,
+        operation: gate.operation,
+        request: [20; 16],
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    assert!(log
+        .update_lifecycle(LifecycleUpdate::Resume {
+            selector: resume.clone(),
+            quiescence: Box::new(gate.clone()),
+            deadline: deadline(&log)?
+        })
+        .await
+        .is_err());
+    let mut next = gate.clone();
+    next.epoch += 1;
+    next.operation = [21; 16];
+    log.update_lifecycle(LifecycleUpdate::Quiesce {
+        selector: next.clone(),
+        deadline: deadline(&log)?,
+    })
+    .await?;
+    assert!(log
+        .update_lifecycle(LifecycleUpdate::Resume {
+            selector: resume,
+            quiescence: Box::new(gate),
+            deadline: deadline(&log)?
+        })
+        .await
+        .is_err());
+    assert_eq!(log.lifecycle_guard()?.unwrap().quiescing(), Some(&next));
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}

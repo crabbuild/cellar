@@ -242,6 +242,26 @@ impl NodeRecord {
         Ok(())
     }
 
+    pub(super) fn resume_restart(
+        &mut self,
+        operation: [u8; 16],
+        quiescence_epoch: u64,
+    ) -> Result<()> {
+        if self.state != FleetNodeState::RestartPending
+            || self.operation != Some(operation)
+            || self.isolation.is_some()
+            || self.epoch.checked_add(1) != Some(quiescence_epoch)
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.epoch = quiescence_epoch
+            .checked_add(1)
+            .ok_or(FleetCatalogError::Limit)?;
+        self.state = FleetNodeState::Active;
+        self.operation = None;
+        Ok(())
+    }
+
     pub(super) fn begin_evacuation(&mut self, operation: [u8; 16]) -> Result<()> {
         if self.state != FleetNodeState::Active || self.storage_instance.is_none() {
             return Err(FleetCatalogError::Conflict);

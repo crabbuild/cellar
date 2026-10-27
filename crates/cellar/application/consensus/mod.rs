@@ -159,10 +159,12 @@ pub mod verification {
         FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
         FleetRestartHistoryProgress, FleetRestartOfflineAdmission, FleetRestartOfflineRequest,
         FleetRestartPendingWork, FleetRestartReadyAdmission, FleetRestartReadyRequest,
-        FleetRestartRequest, FleetRestartReturnAdmission, FleetRestartReturnRequest,
-        FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartSettlementBlocker,
-        FleetRestartSettlementProgress, FleetRestartStopAdmission, FleetRestartStopRequest,
-        FleetRestartVerification, FleetSnapshot, FleetTable,
+        FleetRestartRequest, FleetRestartResumeAdmission, FleetRestartResumeCompleteRequest,
+        FleetRestartResumeCompletion, FleetRestartResumePhase, FleetRestartResumeProgress,
+        FleetRestartResumeRequest, FleetRestartResumeVerification, FleetRestartReturnAdmission,
+        FleetRestartReturnRequest, FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress,
+        FleetRestartSettlementBlocker, FleetRestartSettlementProgress, FleetRestartStopAdmission,
+        FleetRestartStopRequest, FleetRestartVerification, FleetSnapshot, FleetTable,
     };
     pub use crate::raft::inspection::{
         CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,

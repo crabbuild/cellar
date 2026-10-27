@@ -136,6 +136,8 @@ pub(crate) struct RestartLeadershipCheck {
     pub expected_revision: LogIndex,
     pub through: LogIndex,
     pub survivors: [MemberId; 2],
+    /// Resume checks the returning voter too, at the actual leader owner.
+    pub all_voters: bool,
     pub transfer: Option<(MemberId, super::fleet_stop::StopSelector)>,
 }
 

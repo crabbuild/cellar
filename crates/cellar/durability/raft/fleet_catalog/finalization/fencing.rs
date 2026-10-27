@@ -608,7 +608,15 @@ impl FleetCatalog {
                 self.confirm_boot(&current, &sender.record).await?;
             }
             if selector.purpose == crate::raft::fleet_stop::LifecyclePurpose::Maintenance {
-                if action == crate::raft::fleet_stop::FleetStopAction::Stop {
+                if matches!(
+                    action,
+                    crate::raft::fleet_stop::FleetStopAction::Resume
+                        | crate::raft::fleet_stop::FleetStopAction::ObserveResume
+                        | crate::raft::fleet_stop::FleetStopAction::ObserveQuiescence
+                ) {
+                    self.verify_restart_resume_selector(&current, selector, action)
+                        .await?;
+                } else if action == crate::raft::fleet_stop::FleetStopAction::Stop {
                     self.verify_restart_stop_request(&current, selector).await?;
                 } else {
                     self.verify_restart_gate_request(&current, selector, action)
@@ -619,7 +627,11 @@ impl FleetCatalog {
                 }
                 return Ok(());
             }
-            if action == crate::raft::fleet_stop::FleetStopAction::Quiesce {
+            if !matches!(
+                action,
+                crate::raft::fleet_stop::FleetStopAction::Stop
+                    | crate::raft::fleet_stop::FleetStopAction::Fence
+            ) {
                 return Err(FleetCatalogError::Invalid(
                     "evacuation has no reversible gate",
                 ));

@@ -45,7 +45,7 @@ impl FleetCapacityAttestation {
             && self.memory_swap_disabled == other.memory_swap_disabled
     }
 
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         self.boot
             .validate()
             .map_err(|_| FleetCatalogError::Invalid("capacity boot"))?;
@@ -456,7 +456,7 @@ impl FleetCatalog {
             || mutation.operation != request.identity.operation
             || mutation.principal != request.identity.principal
             || mutation.expected_revision != request.identity.expected_revision
-            || mutation.changes.len() != 2
+            || !matches!(mutation.changes.len(), 2 | 4)
             || mutation.changes[0].table != FleetTable::Nodes
             || mutation.changes[0].key != hex::encode(request.attestation.boot.node)
             || mutation.changes[1].table != FleetTable::Operations
@@ -489,6 +489,9 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Corrupt("capacity mutation node"));
         }
+        if mutation.changes.len() == 4 {
+            self.check_restart_resume_capacity_request(&mutation, request, &node)?;
+        }
         Ok(Some((mutation, record)))
     }
 }
@@ -498,7 +501,33 @@ pub(super) fn check_observation(
     attestation: &FleetCapacityAttestation,
     sample: &RaftPeerNodeObservation,
 ) -> Result<()> {
-    let view = &sample.view;
+    check_view(target, attestation, &sample.view, false)
+}
+
+// The paused bit is checked against the actual view. Only its planned open
+// profile digest is compared with the human resume attestation.
+pub(super) fn check_restart_capacity_view(
+    target: &FleetHostAuthorization,
+    attestation: &FleetCapacityAttestation,
+    view: &crate::raft::host::RaftHostObservation,
+    paused: bool,
+) -> Result<()> {
+    check_view(target, attestation, view, paused)
+}
+
+fn check_view(
+    target: &FleetHostAuthorization,
+    attestation: &FleetCapacityAttestation,
+    view: &crate::raft::host::RaftHostObservation,
+    paused: bool,
+) -> Result<()> {
+    let profile_digest = if paused {
+        let mut planned = view.node.profile.clone();
+        planned.draining = false;
+        fleet_capacity_profile_digest(&planned)?
+    } else {
+        fleet_capacity_profile_digest(&view.node.profile)?
+    };
     let current = view
         .current_enrollment
         .as_ref()
@@ -518,8 +547,8 @@ pub(super) fn check_observation(
             .fleet_trust_revision
             .is_none_or(|revision| revision < target.revision())
         || view.pending_history_registrations != 0
-        || view.node.profile.draining
-        || fleet_capacity_profile_digest(&view.node.profile)? != attestation.profile_digest
+        || view.node.profile.draining != paused
+        || profile_digest != attestation.profile_digest
         || view.node.profile.group_capacity
             > bounds
                 .host_groups
@@ -534,4 +563,68 @@ pub(super) fn check_observation(
         return Err(FleetCatalogError::Conflict);
     }
     Ok(())
+}
+
+impl FleetCatalog {
+    pub(super) async fn check_restart_capacity_input(
+        &self,
+        snapshot: &FleetSnapshot,
+        node: &super::nodes::NodeRecord,
+        attestation: &FleetCapacityAttestation,
+    ) -> Result<()> {
+        attestation.validate()?;
+        if node.state != FleetNodeState::RestartPending
+            || node.boot_binding(self.birth_owner()?.catalog)? != attestation.boot
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.confirm_boot(snapshot, node).await?;
+        if let Some(previous) = self
+            .rooted_capacity(
+                snapshot,
+                NodeId::new(node.node)
+                    .map_err(|_| FleetCatalogError::Corrupt("resume capacity node"))?,
+            )
+            .await?
+        {
+            let old = &previous.request.attestation;
+            if attestation.profile_revision < old.profile_revision
+                || attestation.profile_revision == old.profile_revision
+                    && !attestation.same_profile(old)
+            {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn restart_capacity_change(
+        &self,
+        node: &super::nodes::NodeRecord,
+        request: &FleetCapacityRequest,
+        input_root: [u8; 32],
+    ) -> Result<FleetChange> {
+        request.validate()?;
+        node.validate(&self.inner)?;
+        if request.action != FleetCapacityAction::Activate
+            || node.state != FleetNodeState::Active
+            || node.boot_binding(self.birth_owner()?.catalog)? != request.attestation.boot
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let record = Record {
+            format: 1,
+            catalog: self.birth_owner()?.catalog,
+            request: request.clone(),
+            input_root,
+            node_digest: hash(&encode(NODE_KIND, node, 4096)?),
+            epoch: node.epoch,
+        };
+        record.validate(self)?;
+        Ok(FleetChange {
+            table: FleetTable::Operations,
+            key: key(node.node),
+            value: Some(encode(KIND, &record, 4096)?),
+        })
+    }
 }

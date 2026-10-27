@@ -7,6 +7,7 @@ mod gate;
 mod gate_cancel;
 mod records;
 mod rejoin;
+mod resume;
 mod runtime;
 mod settle;
 mod settlement;
@@ -20,6 +21,12 @@ pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
 pub use rejoin::{FleetRestartReturnAdmission, FleetRestartReturnRequest};
+pub(crate) use resume::ResumeLeadershipCommand;
+pub use resume::{
+    FleetRestartResumeAdmission, FleetRestartResumeCompleteRequest, FleetRestartResumeCompletion,
+    FleetRestartResumePhase, FleetRestartResumeProgress, FleetRestartResumeRequest,
+    FleetRestartResumeVerification,
+};
 pub use runtime::{
     FleetRestartHistoryProgress, FleetRestartReadyAdmission, FleetRestartReadyRequest,
     FleetRestartRuntimeCandidate, FleetRestartRuntimeProgress, FleetRestartVerification,

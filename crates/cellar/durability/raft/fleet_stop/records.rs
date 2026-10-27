@@ -70,6 +70,9 @@ pub(crate) struct StopSelector {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FleetStopAction {
+    ObserveQuiescence,
+    ObserveResume,
+    Resume,
     Stop,
     Fence,
     Quiesce,
@@ -163,6 +166,10 @@ enum Phase {
     StopAccepted {
         selector: Box<StopSelector>,
     },
+    Resumed {
+        selector: Box<StopSelector>,
+        quiescence: Box<StopSelector>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,11 +194,23 @@ impl Guard {
         }
     }
 
+    pub fn resumed(&self) -> Option<(&StopSelector, &StopSelector)> {
+        match &self.phase {
+            Phase::Resumed {
+                selector,
+                quiescence,
+            } => Some((selector, quiescence)),
+            _ => None,
+        }
+    }
+
     fn epoch(&self) -> u64 {
         match &self.phase {
             Phase::Open => self.boot.epoch,
             Phase::Fenced { epoch, .. } => *epoch,
-            Phase::StopAccepted { selector } | Phase::Quiescing { selector } => selector.epoch,
+            Phase::StopAccepted { selector }
+            | Phase::Quiescing { selector }
+            | Phase::Resumed { selector, .. } => selector.epoch,
         }
     }
 
@@ -212,6 +231,15 @@ impl Guard {
                 ProposalId::new(*operation).map_err(|_| LogError::WrongIdentity)?;
                 ProposalId::new(*request).map_err(|_| LogError::WrongIdentity)?;
                 if *epoch <= self.boot.epoch || *epoch >= u64::MAX - 2 {
+                    return Err(LogError::WrongIdentity);
+                }
+            }
+            Phase::Resumed {
+                selector,
+                quiescence,
+            } => {
+                validate_resume(selector, quiescence)?;
+                if selector.boot != self.boot {
                     return Err(LogError::WrongIdentity);
                 }
             }
@@ -331,6 +359,27 @@ impl LifecycleRecord {
                     },
                 }
             }
+            LifecycleUpdate::Resume {
+                selector,
+                quiescence,
+                ..
+            } => {
+                validate_resume(&selector, &quiescence)?;
+                let old = self.guard.as_ref().ok_or(LogError::WrongIdentity)?;
+                if old.resumed() == Some((&selector, &quiescence)) {
+                    return Ok(self.clone());
+                }
+                if old.boot != selector.boot || old.quiescing() != Some(quiescence.as_ref()) {
+                    return Err(LogError::WrongIdentity);
+                }
+                Guard {
+                    boot: old.boot.clone(),
+                    phase: Phase::Resumed {
+                        selector: Box::new(selector),
+                        quiescence,
+                    },
+                }
+            }
             LifecycleUpdate::MaintenanceStop {
                 selector,
                 quiescence,
@@ -427,6 +476,11 @@ impl LifecycleRecord {
 }
 
 pub(crate) enum LifecycleUpdate {
+    Resume {
+        selector: StopSelector,
+        quiescence: Box<StopSelector>,
+        deadline: u64,
+    },
     MaintenanceBoot {
         stop: Box<StopSelector>,
         quiescence: Box<StopSelector>,
@@ -463,6 +517,7 @@ impl LifecycleUpdate {
         match self {
             Self::Boot { boot, .. } | Self::Fence { boot, .. } => boot,
             Self::Stop { selector, .. }
+            | Self::Resume { selector, .. }
             | Self::Quiesce { selector, .. }
             | Self::MaintenanceStop { selector, .. } => &selector.boot,
             Self::MaintenanceBoot { quiescence, .. } => &quiescence.boot,
@@ -472,6 +527,7 @@ impl LifecycleUpdate {
     pub fn deadline(&self) -> u64 {
         match self {
             Self::Boot { deadline, .. }
+            | Self::Resume { deadline, .. }
             | Self::MaintenanceBoot { deadline, .. }
             | Self::MaintenanceStop { deadline, .. }
             | Self::Stop { deadline, .. }
@@ -479,4 +535,20 @@ impl LifecycleUpdate {
             | Self::Fence { deadline, .. } => *deadline,
         }
     }
+}
+
+fn validate_resume(selector: &StopSelector, quiescence: &StopSelector) -> Result<(), LogError> {
+    selector.validate()?;
+    quiescence.validate()?;
+    if selector.purpose != LifecyclePurpose::Maintenance
+        || quiescence.purpose != LifecyclePurpose::Maintenance
+        || selector.boot != quiescence.boot
+        || selector.epoch != quiescence.epoch
+        || selector.operation != quiescence.operation
+        || selector.finalization != quiescence.finalization
+        || selector.request == quiescence.request
+    {
+        return Err(LogError::WrongIdentity);
+    }
+    Ok(())
 }

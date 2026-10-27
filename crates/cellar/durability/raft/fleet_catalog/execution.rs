@@ -18,6 +18,7 @@ pub(crate) enum FleetExecutionCommand {
     Movement(MovementCommand),
     RestartGenesis(RestartActionContext),
     RestartLeadership(Box<RestartLeadershipCommand>),
+    ResumeLeadership(Box<ResumeLeadershipCommand>),
 }
 
 impl FleetExecutionCommand {
@@ -26,6 +27,7 @@ impl FleetExecutionCommand {
             Self::Movement(command) => &command.target,
             Self::RestartGenesis(command) => &command.target,
             Self::RestartLeadership(command) => &command.context.target,
+            Self::ResumeLeadership(command) => command.target(),
         }
     }
 
@@ -34,6 +36,7 @@ impl FleetExecutionCommand {
             Self::Movement(command) => command.validate(),
             Self::RestartGenesis(command) => command.validate(),
             Self::RestartLeadership(command) => command.validate(),
+            Self::ResumeLeadership(command) => command.validate(),
         }
     }
 }
@@ -55,6 +58,16 @@ impl FleetHostAuthorization {
                 }
                 FleetExecutionCommand::RestartLeadership(command) => {
                     self.execute_restart_leadership(
+                        *command,
+                        origin,
+                        minimum_revision,
+                        gateway,
+                        timeout,
+                    )
+                    .await
+                }
+                FleetExecutionCommand::ResumeLeadership(command) => {
+                    self.execute_resume_leadership(
                         *command,
                         origin,
                         minimum_revision,

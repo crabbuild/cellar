@@ -2,6 +2,9 @@
 
 //! Leadership movement is admitted by the same serialized owner as proposals.
 use super::*;
+#[cfg(test)]
+#[path = "replica_leadership_tests.rs"]
+mod tests;
 
 impl Replica {
     pub(super) fn replication_status(&self) -> Result<ReplicationStatus, RuntimeError> {
@@ -67,6 +70,21 @@ impl Replica {
                         !p.voter
                             || p.matched < check.through
                             || (*member != self.identity().member && !p.recent_active)
+                    })
+            })
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        if check.all_voters
+            && voters.iter().any(|id| {
+                progress
+                    .members
+                    .iter()
+                    .find(|p| p.member.get() == *id)
+                    .is_none_or(|p| {
+                        !p.voter
+                            || p.matched < check.through
+                            || (*id != self.identity().member.get() && !p.recent_active)
                     })
             })
         {

@@ -40,6 +40,10 @@ pub struct FleetRestartReadyAdmission {
 }
 
 impl FleetRestartReadyAdmission {
+    pub(in crate::raft::fleet_catalog::maintenance) fn stopped_index(&self) -> Option<[u8; 32]> {
+        self.candidate().candidate.index
+    }
+
     pub(in crate::raft::fleet_catalog) async fn check_current(
         &self,
         catalog: &FleetCatalog,
