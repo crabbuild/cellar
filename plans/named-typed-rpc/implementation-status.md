@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | The receiving follow-up has 631 live cases on main through `80aa3b64` (#131), then 503 selected matrix cases and five proof-wait diagnostics after integrating `b3ff49a6` (#128/#133). These are repeated qualification at distinct baselines. PR #132's earlier `3aa1e571` passes typed-RPC lifecycle, Python examples and the SDK free-threaded job; its JavaScript wake and SDK GIL named-binding jobs fail. Current-head hosted checks are queued. |
-| P0 | Cross-adapter deadline and regression timing | Controlled Python queue/decoder fixes remain verified. Native V8 HTTP/SSE reaches the original 250 ms handler budget; a temporary wrapper observes one 1.345 s poll before any cell constructor. Three parallel V8 unit cases also fail their short turn budget. The full 166-test adapter run passes at the prior baseline. After final main integration, V8 SSE again fails its 100 ms engine turn budget and ends the response early; Node streaming passes. Passing reruns do not diagnose those failures or the older hosted wake/ambiguous-renewal failures. |
+| P0 — hosted verification | New-head hosted verification | At `1ee378df`, JavaScript and typed-RPC lifecycle fail at Node process startup; Python examples pass. Both SDK variants fail the same native stale-receipt settlement race with ambiguous transport closure. The compiled Node bootstrap occupies a 133,023-byte exec argument, exceeding Linux's per-string limit on 4 KiB-page hosts. A controlled argument-limit regression fails, then passes with source delivered through the owned startup pipe. Hosted verification of that fix remains pending. Earlier wake and lease-renewal failures remain unexplained. |
+| P0 | Cross-adapter deadline and regression timing | Controlled Python queue/decoder fixes remain verified. Earlier native V8 HTTP/SSE reaches the original 250 ms handler budget; a temporary wrapper observes one 1.345 s poll before any cell constructor. Three parallel V8 unit cases also fail their short turn budget; an integrated run reproduces V8 SSE's 100 ms budget/EOF failure. The final reply/startup source passes all 167 adapter tests, but an intermediate native container binding run reaches its original 250 ms limit. Passing reruns do not diagnose those failures or the older hosted wake/ambiguous-renewal failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 96-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Dense uploads, bounded header parsing, empty-frame timer progress and idle retirement have regressions. Native envelope and V8 pre-copy admission remain verified. Finish other effective method/runtime/host/peer minima, response/slow-reader limits, retained copies, decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
+| P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Published byte frames now retain admission through their final clone/slice, including Hyper's pending write queue; ready replies have a finite delivery deadline and refund safely after owner shutdown. Dense uploads, bounded headers, empty-frame timer progress and idle retirement have regressions. Finish other effective minima, response-byte pools, backing-copy/decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -63,9 +63,9 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Prior `80aa3b64` baseline passes the full 166-test adapter suite. Current integrated main reproduces V8 SSE turn-budget/EOF failure; 35 remaining integrations pass separately. Six external image/fleet tests remain ignored. Hosted wake/lease failures remain unresolved; full T19 stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Final reply/startup source passes all 167 adapter tests; six external image/fleet tests remain ignored. Earlier V8/HTTP/SSE/native-container timing and hosted wake/lease failures remain unexplained. Both SDK interpreter jobs now fail the same native stale-receipt transport race. Full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Main integration through `b3ff49a6` passes 103 core RPC tests, 18 selected native integrations, 35 qualifier guards, all-target Clippy, Node-only checking and standard checks. Full adapter verification remains red for V8 SSE. Older combined reports remain historical evidence; hosted and broader qualification stay open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Final reply/startup source passes 111 core RPC tests, 167 adapter tests, 35 qualifier guards, all-target Clippy, Node-only checking and standard checks. The preceding frozen reply source also passes 18 selected native integrations and Python streaming/typed RPC. Hosted and broader qualification stay open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,124 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Reply delivery retains admission until its last transport owner retires.**
+  The original `RetainedRpcBody` releases receiving request, byte, tunnel and
+  peer reservations when Hyper drops the body, even if a yielded frame slice
+  remains alive. A controlled test reproduces all counters falling to zero
+  while that alias still owns bytes. `Bytes::from_owner` now carries one shared
+  reply lease through every frame clone/slice without copying the payload.
+  A scalar-only stalled TCP writer reproduces another premature release:
+  Hyper's automatic flat write strategy copies the bytes and drops their owner.
+  The production RPC builder now selects its queued write strategy explicitly;
+  the same real Hyper/TCP test retains admission through a blocked partial write,
+  observes body retirement, expires delivery, joins and verifies zero counters.
+  The incomplete response remains a transport error, without rollback or replay
+  proof.
+
+  Reply writes expire at the earlier of the original caller deadline and the
+  existing tunnel interval measured after handler/proof completion. A separate
+  reply lease removes this deadline once bytes retire, even while a native
+  cleanup ticket remains. A notification wakes an already-running connection
+  timer when publication shortens its wait. Expired publication returns a fixed
+  deadline failure before yielding business bytes. The reservation's weak owner
+  domain supplies its clock and timers: two additional red regressions reproduce
+  foreign-clock contamination and a panic on refund after domain shutdown.
+  Both now pass, and cleanup completes without ambient domain installation.
+
+  All **111 core RPC tests** pass, including eight new lifetime/deadline/socket
+  regressions. The source-frozen follow-up passes **631 live cases**: saturation
+  96, peer faults 80, provenance 96, cycles 80, deadlines 55, proof waits 128 and
+  lifecycle 96. Both independent auditors reject ten damaged reports each.
+  All **3,650 source/fixture hashes** remain unchanged; manifest SHA-256
+  `1a4e25cc494221c0915e62471554f9f218497c25395781c6fe00f90082b8e596`.
+  Reports are `.cellar/rpc/reply-bounds-{suite}.json`; proof-wait SHA-256 is
+  `2d99aeb50615587ee532b86e681be302b5d228d8c48a74f2c9c610c6abcadbcd`
+  and lifecycle SHA-256 is
+  `ed35ece3487d8a91b43f039a0d66b0b316db950f1a891f92b28c936731b52a15`.
+  Native integrations, Python streaming/typed RPC, 35 qualifier guards,
+  all-target Clippy, Node-only checking and standard repository checks pass.
+  The full adapter command uses `--no-fail-fast` and records **165 passed,
+  one failed, six external ignored**: the failing response test samples 90
+  bridge bytes before the still-running Node transport has joined. SSE and
+  WebSocket regressions pass under their original budgets.
+
+- **Node startup no longer puts the compiled bootstrap in one exec argument.**
+  PR #132 at `1ee378df` fails JavaScript CI job `121896550256` and lifecycle job
+  `121896709894` immediately at Node process spawn. The current bootstrap
+  argument is **133,023 bytes** before its terminating NUL; Linux limits each
+  argument to 32 pages ([execve](https://man7.org/linux/man-pages/man2/execve.2.html)).
+  A launcher enforcing the 4 KiB-page boundary rejects an existing real Node
+  invocation. A permanent regression then fails with the original launch.
+  A small loader now reads the length-prefixed compiled source from the owned
+  stdin pipe, leaving the private configuration there for the worker. The
+  authentication secret stays out of argv, environment and module URLs; source
+  and configuration writes share the original startup deadline and do not make
+  another combined source buffer. The real Node invocation and original 100 ms
+  blocked-pipe regression pass. This is controlled local evidence of the
+  argument-boundary fix; hosted confirmation remains pending.
+
+  Related Workers fixtures retain an application observer across `NodeRuntime::run`
+  and share a final stopped/zero-invocations/zero-bytes census after process and
+  transport join. Native invocation and cell/work-drain assertions remain inside
+  the host closure. This corrects the response test's live-transport census;
+  it does not establish a cause for older timing failures. The intermediate
+  pipe-based source passes 272 repeated saturation/peer-fault/lifecycle cases,
+  both auditors and static/core checks with all 3,652 hashes unchanged (manifest
+  SHA-256 `6b2bef51d203ada39c3e152ed09312e37d7a4881267800f6859f5686be73776e`).
+  Its full adapter run records 165 passed, two failed and six external ignored:
+  native container binding reaches its original 250 ms handler limit, and an
+  input producer's original error message becomes `ValueLimit`.
+
+  The input failure exposes the initial loader's data-URL stack expansion.
+  A minimal real Node probe measures 187,034 stack bytes without a source label
+  and 271 with a fixed label. The permanent startup regression is extended to
+  capture a real invocation's stack size and fixed internal location; it fails
+  on the original data-URL import. The compiled module now ends with the fixed
+  `cellar:node-bootstrap` source label, keeping runtime frames short without
+  changing value limits or exposing configuration. Final regression and
+  generated-client verification then passes: **167 adapter tests, 111 core RPC
+  tests, 35 qualifier guards**, all-target Clippy, Node-only checking, Rust/JS
+  formatting, 1,199-file layout, docs and the 466-package engine-free native
+  dependency guard. All **272 repeated generated-client cases** pass (saturation
+  96, peer faults 80, lifecycle 96); both auditors reject ten corrupt reports.
+  These repeat selected cases from the preceding 631-case reply-delivery pass;
+  they are not additional matrix dimensions or a second full proof-wait run.
+  All **3,652 hashes** stay unchanged. Final manifest SHA-256:
+  `dc8f6d8c3009ccd0207f4fd0d986ff095e99abfa430cdefe1895aa091f768e86`.
+  Reports are `.cellar/rpc/node-delivery-final-{suite}.json`; peer-fault SHA-256:
+  `b4c497aba6a67a99ba037ded39664291056c347c1fef00d945bc57b641fdb27c`;
+  lifecycle SHA-256:
+  `7826b0b03be61a7752554ee7e877f13cda304c416f2f332c906c737a3c495321`.
+  The ledger update that records these results is subsequent prose only. The
+  intermediate native timeout remains separate and undiagnosed.
+
+- **Hosted native settlement compatibility remains a P0.** SDK run `40415460527`
+  fails the same test in both GIL and free-threaded jobs (`121896552841` and
+  `121896553122`):
+  `event_settlement_race::settlement_race_expiry_replacement_refuses_old_ack_and_extension`.
+  Each records 92 native-node tests passed and one failed. Held original ack and
+  extension calls return `Ambiguous` after the peer connection closes, rather
+  than the required `StaleReceipt`; named-binding tests pass in both jobs.
+  The fixture waits near its ordinary 30-second receipt expiry before holding
+  submissions across expiry; receiving tunnels now have a 30-second idle bound.
+  Inspect stale pooled connections and the proxy's upstream idle lifetime next.
+  This timing relationship is an investigation hypothesis, not an established
+  cause or permission to replay uncertain submissions. Preserve the original
+  30-second delivery lease, three-second operation budget and exact refusal
+  assertions. Main later advances to `5db6b475` (#134); a local merge-tree check
+  is clean, while the frozen execution evidence above remains based on main
+  through `b3ff49a6`.
+
+- **Intermittent V8 timing remains undiagnosed.** The original streaming command,
+  16 fresh-process embedded runs, and eight cold/warm executable-copy comparisons
+  pass with unchanged budgets. A temporary fixed-phase watchdog probe does not
+  observe a failure and is removed from tracked source. Workspace and system
+  copies both pass; executable paging is not established as the cause. The
+  earlier failed full-run log remains preserved. Permanent streaming contexts
+  identify the static route and response-head/first-chunk/post-release boundary
+  without changing the test's flow, assertions or deadlines. Passing reruns do
+  not close this P0 or full T19 qualification.
 
 - **Final main integration preserves admission and its qualification limits.**
   PR #132's code head **`71d1d979`** integrates main through **`b3ff49a6`**
@@ -2439,7 +2557,11 @@ The implementation remains incompletely qualified until the remaining
 correctness and delivery boundaries pass. Deliver these slices in order; each slice
 must preserve the existing recovery, crash, proof and receipt evidence.
 
-1. **P0: resolve remaining Python streaming/RPC timing failures.**
+1. **P0: resolve hosted native settlement and remaining streaming/RPC failures.**
+   Reproduce the stale-receipt transport closure observed in both SDK interpreter
+   jobs. Distinguish source idle-pool reuse from receiving idle retirement and
+   fault-proxy delay; retain original budgets and typed refusal assertions.
+   Do not retry a call after uncertain submission to make the test pass.
    Preserve Linux's passing direct-admission/slow-reporting adapter checks.
    The controlled failure proves the old waiter depends on reporting latency;
    it does not establish the original SDK run's exact cause. Reproduce the
