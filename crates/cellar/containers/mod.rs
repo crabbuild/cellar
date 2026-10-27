@@ -206,6 +206,7 @@ table inet __TABLE__ {
     iifname { "__OPEN__", "__INTERNAL__" } ip6 daddr { fe80::/10, fc00::/7 } reject
   }
 }
+list table inet __TABLE__
 "#;
 
 /// Docker's bridge option that forbids traffic between two containers on
@@ -213,9 +214,10 @@ table inet __TABLE__ {
 /// speaks from the host side of the bridge.
 const ICC_OPTION: &str = "com.docker.network.bridge.enable_icc";
 
-// nft caches daemon-wide rules while applying a host's fence. A 16 MiB helper
-// can be OOM-killed after repeated host namespaces, before installing any rules.
-// Keep the one-shot helper bounded, with room for that existing ruleset.
+// The terminal own-table observation keeps nft's transaction cache scoped to
+// this host. Without it, nft 1.0.9 caches other hosts' chains/sets too, exhausting
+// this bound after repeated namespaces. Replacement remains one atomic batch;
+// neither the isolation rules nor the memory limit depend on foreign tables.
 const FENCE_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// How a cell stop treats its container.
