@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "16d16fa1d3b38d11f7a1a9d3e8d1d062cf647eb8",
+  "baseline_revision": "703c5bcb65fa469303c29d79260e322b48dd5220",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3225,12 +3225,12 @@
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_reconciliation.rs",
-        "crates/cellar/application/consensus/client_movement.rs",
+        "crates/cellar/application/consensus/client_execution.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/work.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/receive.rs",
-        "crates/cellar/durability/raft/fleet_move_transport.rs",
-        "crates/cellar/durability/raft/fleet_move_transport_tests.rs",
+        "crates/cellar/durability/raft/fleet_action_transport.rs",
+        "crates/cellar/durability/raft/fleet_action_transport_tests.rs",
         "crates/cellar/durability/raft/host_fleet_execution.rs",
         "crates/cellar/tests/support/raft_movement_execution.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/mod.rs",
@@ -3743,7 +3743,7 @@
           "--lib",
           "--locked",
           "--",
-          "fleet_moves::tests::",
+          "fleet_actions::tests::",
           "--test-threads=1"
         ],
         [
@@ -3799,7 +3799,10 @@
         "crates/cellar/durability/raft/fleet_catalog/boots.rs",
         "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
         "crates/cellar/application/consensus/mod.rs",
-        "crates/cellar/tests/support/raft_evacuation_native.rs"
+        "crates/cellar/tests/support/raft_evacuation_native.rs",
+        "crates/cellar/application/consensus/client_execution.rs",
+        "crates/cellar/durability/raft/fleet_action_transport.rs",
+        "crates/cellar/durability/raft/fleet_action_transport_tests.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
@@ -3828,7 +3831,12 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/proof.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/records.rs",
         "crates/cellar/tests/support/raft_restart_retained_runtime.rs",
-        "crates/cellar/tests/support/raft_restart_runtime_native.rs"
+        "crates/cellar/tests/support/raft_restart_runtime_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/execution.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/receive.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/runtime/genesis/materialize.rs",
+        "crates/cellar/tests/support/raft_restart_genesis_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
@@ -3839,7 +3847,8 @@
         "Add a reversible managed admission barrier separate from permanent Node shutdown; serialize rolling maintenance, restart, resize and evacuation through one disruption slot.",
         "Separate monotonic absence closure from expiring health proofs; reconcile lost stop replies before releasing disruption ownership.",
         "Complete terminal isolated-node evacuation through a distinct admitted isolation selector and receipt. Preserve complete inventory, fresh RF3 survivor and physical archive replay checks; quarantine remains permanent, retained storage is not reclaimed, and the exact shared disruption slot is released only by the terminal CAS. Reconcile finalization/removal lost replies before live prerequisites and reject proof-kind rebinding.",
-        "Runtime inspection owns quiescence, complete target physical inventory and a bounded canonical-history walk. Settled managed membership locates current RF3 obligations, including dynamic voters and retired copies. Each voting turn requires actual fresh safe-ReadIndex and durable publication proof on target and both survivors. Root drift, missing genesis, unsettled roles, unknown slots and cancellation fences block historical candidate publication. This candidate grants no readiness, stop, boot, capacity or slot release; rightful genesis materialization, matched-progress handoff and readiness remain next."
+        "Runtime inspection owns quiescence, complete target physical inventory and a bounded canonical-history walk. Settled managed membership locates current RF3 obligations, including dynamic voters and retired copies. Each voting turn requires actual fresh safe-ReadIndex and durable publication proof on target and both survivors. Root drift, missing genesis, unsettled roles, unknown slots and cancellation fences block historical candidate publication. This candidate grants no readiness, stop, boot, capacity or slot release; owned rightful-genesis materialization is now delivered through bounded reconciliation; matched-progress handoff and readiness remain next.",
+        "reconcile_next owns at most one original-voter materialization per turn, or the existing fresh quorum/publication verification. The shared authenticated fleet-action lane has separate Movement and RestartGenesis receiving authorities. Genesis pins gate, input/history digests and exact boot, reuses immutable Live birth intent plus permanent claims, and refuses imported/dynamic/retired or claimed-blank genesis. Partial initialization remains owned after a waiter is cancelled. Actual occupancy and attachment reconciliation update only the pending physical history; no readiness or release credit is issued."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -4290,6 +4299,48 @@
             "F02",
             "F05",
             "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_genesis_materializes_all_voters_and_preserves_sql",
+          "oracle": "Three missing original voters are initialized through actual remote controls, then fresh quorum/publication verification completes the candidate. New-cell SQL and the original counter remain durable; no readiness/stop authority is issued.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F05",
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_genesis_reopens_after_interrupted_claim",
+          "oracle": "A real member-claim write is held after durable genesis. Cancelling the controller leaves its physical owner intact; a recreated catalog/controller reconciles that same history, finishes all voters, verifies the candidate and preserves SQL without resetting an engine.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_genesis_changed_basis_refuses_physical_work",
+          "oracle": "Changing the rooted namespace inventory invalidates the pending reconciliation before any new physical history is created.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_genesis_synced_fence_prevents_dispatch",
+          "oracle": "A synced cancellation fence defeats physical quiescence replay even when the held root CAS times out. Reconciliation creates no genesis, retains the Live history, and permits exact cancellation recovery.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F08",
             "F10"
           ]
         }

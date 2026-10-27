@@ -14,6 +14,74 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Owned original-voter materialization
+
+Implementation `703c5bcb65fa469303c29d79260e322b48dd5220` delivers the missing
+construction path in restart runtime reconciliation. `reconcile_next` materializes
+at most one original voter per turn or verifies the pending history. The existing
+immutable Live birth and permanent member claim remain the intent. Commands pin
+the canonical gate parent, operation, relevant inputs, history digest and exact
+destination boot. The receiver independently checks current authorization, then
+uses the existing guarded registration and initial-member pipeline. Imported or
+dynamic members, retired/occupied slots and claimed blank engines refuse fresh
+genesis. No new membership authority is introduced.
+
+A matching activation receipt is followed by complete physical inspection. The
+target cut may absorb only the pending genesis history; any other physical change
+invalidates the walk. Unknown replies retain the same pending history and physical
+owner. A reopened controller reinspects actual state and reconciles unattached
+original voters without resetting occupied engines. All three voters must exist
+before the separate fresh quorum/publication turn consumes the history. A synced
+maintenance fence prevents further controller dispatch even if the cancellation
+root CAS failed. Already-admitted immutable initialization may still finish;
+cancellation does not erase its history or charges.
+
+The shared authenticated fleet-action lane carries explicit Movement and
+RestartGenesis commands with separate receiving authorities. Existing deadlines,
+reply ownership, metadata/connection budgets and the 4 KiB body bound remain.
+Old flat movement bodies and the old channel purpose are refused as an internal
+wire hard cutover. The construction result remains historical: it grants no
+RestartReady, owned handoff, stop, fresh boot, capacity or disruption-slot release.
+
+**195 distinct cases pass in 264 passing-cohort executions on this source.**
+Four new native cases cover all original voters, real S3-level acknowledgements
+and SQL continuity, an interrupted permanent claim with controller reopen, changed
+root inputs and a synced fence with unchanged Root. Existing initial-genesis,
+runtime, settlement, movement, resource/topology, enrollment/operator, catalog,
+physical-inventory, standalone permit/import, CLI and library cohorts also pass.
+Overlapping cases are counted once. The fixture explicitly hands off through the
+existing API if needed; this does not claim owned M4 handoff.
+
+All-target host/admin Clippy passes with warnings denied. Formatting and layout
+for 1,413 Rust files, native dependency rules, documentation, ten plan tests and
+the 358-case manifest pass. The audit matches **1,507 frozen Rust/Cargo/configuration
+inputs** to the implementation commit and verifies executable and output hashes.
+Artifacts stay outside runtime data in checkout-private
+`qualification/fleet-operations/restart-genesis-v1/`,
+`restart-genesis-followups-v1/`, `restart-genesis-compat-v1/` and
+`restart-genesis-checks-v1/`. Publication-only document/preflight checks are
+separately retained. No timeout, retry, stack/startup bound, resource bound or
+production assertion was relaxed.
+
+One initial movement probe exhausted its existing bounded turns after Joint with
+Unconfirmed. Its exact retained binary then passed the isolated case and two
+complete serial cohorts with the same bounds. The failed log remains retained;
+its cause is unconfirmed and no production movement fix is claimed. Full-head CI
+is still required. Published head `2b1d92fd`
+[failed the existing Linux Node lifecycle case](https://github.com/crabbuild/cellar/actions/runs/40481653350/job/122113182000)
+with a five-second `/wake` timeout. The separate Linux reproduction image and
+locked inputs are prepared; that failure remains unresolved.
+
+Next deliver leader-local matched progress and guarded, observed handoff (M4),
+including election behavior while quiesced, then final proof renewal and
+RestartReady (M5). Follow with exact-process stop/join, fresh-process retained-engine
+return, catch-up and verified capacity resume (M6–M9), rolling/grace/second-failure
+handling and maintenance operator surfaces. Production failure classification
+and isolation, desired capacity/resize and resource-enforced RustFS/Colima
+performance, fault and soak qualification remain open. These native tests use an
+in-process fault-injecting object store on a shared host; they make no new TPS,
+p99 or deployed 1-vCPU/3-GiB claim. The full goal remains active.
+
 ## Bounded restart runtime inspection
 
 Implementation `16d16fa1` delivers `prepare_restart_verification`, an owned

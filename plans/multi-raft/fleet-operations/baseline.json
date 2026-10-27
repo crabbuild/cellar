@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "16d16fa1d3b38d11f7a1a9d3e8d1d062cf647eb8",
+  "revision": "703c5bcb65fa469303c29d79260e322b48dd5220",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -84,11 +84,11 @@
     },
     {
       "path": "crates/cellar/application/consensus/client.rs",
-      "sha256": "0876649bb5f460668ec468d3223fe92df6294cd16cdc6efdd3f9100a71910665"
+      "sha256": "ff9309c95c460b35b5496353936d0ddf8e4a9fef337984193e47e1bc4db05a1e"
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "56af998d0be03960a719123cba148151a01fc8c1cf85fed3c769d93099d7c23b"
+      "sha256": "11952e7ad008a4c30c6e322f9f3fb66b43a4e2c15a36be48a3daa0ba3cac5dc2"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -148,7 +148,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
-      "sha256": "c4f48e8e8e3f2a359eb0d54f9c87a865ac6b5072ef4ce74b3ab09f7d6037e7d8"
+      "sha256": "7754ded4d4058a3ca70fd3feaa304bc230b6e23e7e23bc585212076684c8d6d4"
     },
     {
       "path": "crates/cellar/durability/raft/host_controller.rs",
@@ -264,7 +264,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/transport.rs",
-      "sha256": "f03b42b18699431500cf3a2a706d36f7410f832ae1afc11e35c9f5bf5e1f4600"
+      "sha256": "80e29533e8a4493297589c8362dcfd13b6f6a10bcc3efb364d78f8b5b94448ce"
     },
     {
       "path": "crates/cellar/durability/raft/transport_directory.rs",
@@ -383,6 +383,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "eebf1d7642fcdc512c1cb1c8f38462a9a54b62d7",
-  "review_note": "Reviewed owned restart preparation, canonical process/grace intent, mode-aware shared disruption admission and original-epoch cancellation. New boots remain fenced before joined-owner proof; M1 grants no readiness/stop/rejoin authority. Frozen source, actual tests and failed attempts are separately attributed in progress."
+  "reviewed_from_revision": "16d16fa1d3b38d11f7a1a9d3e8d1d062cf647eb8",
+  "review_note": "Reviewed owned original-voter materialization through immutable Live births and permanent member claims, exact gate/input/history/boot pins, bounded physical reconciliation and separate receiving authorization on the shared authenticated action lane. The internal control wire uses a hard cutover. Historical candidates grant no readiness, handoff, stop, fresh boot or capacity. Source/executable/result qualification and failed probes are attributed in progress."
 }
