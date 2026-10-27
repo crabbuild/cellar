@@ -2095,3 +2095,35 @@ is passing evidence, not a verified cold-start fix; the earlier heartbeat
 failure also remains open. Broader PTY cancellation/termination faults, other
 engine/platform qualification, remaining 1.x APIs, live providers and the full
 SP-02–SP-10 requirements remain partial or outstanding.
+
+
+## Peer-proxy cancellation and cold fleet qualification
+
+The completed SDK matrix on `b537d8c2` fails three settlement-race cases with
+standard Python and two with free-threaded Python. Some old calls return the
+correct typed receipt refusal before an ordinary follow-up route loses its
+connection. A socket-level control reproduces a separate concrete defect: an
+idle caller's TCP reset escapes the proxy's request reader, terminates its
+listener and aborts another active relay.
+
+The proxy now treats caller-side socket cancellation as local to that relay.
+It never forwards or replays the cancelled request. Upstream failures still
+require the explicit shutdown cut, and malformed/truncated HTTP remains fatal.
+The first unexpected relay error is printed and retained with a 4 KiB bound.
+Production settlement, transport, retry rules and timeouts are unchanged.
+
+| Evidence | Result |
+| --- | --- |
+| Idle pooled-caller reset control | Fails before the fix with `read proxy caller request: Connection reset by peer`; the listener and another relay are lost |
+| Patched proxy campaign | All 12 checks pass, including the original reply-loss/upgrade cases, continued active/new connections after reset and fatal truncated-head/body framing |
+| Receipt races | All three pass using the SDK CI's serial/all-features mode; original packet, receipt, checkpoint, lease, operation budget and joined-shutdown assertions remain intact |
+| Broader native campaign | All 95 native-node tests and all five provider fleet scenarios pass serially, including owner loss, receipt/late-reply faults, outage recovery, native lifecycle and joined shutdown |
+| Linux terminal-head CI | JavaScript run `40504854655` fails one of five provider fleet cases: cold same-name recovery exceeds its original 15-second cleanup deadline; its other four fleet cases pass |
+| Cold-recovery local controls | The initial isolated case and five fresh-process repeats pass, against both protocol peers each time; this does not establish a cold-recovery fix |
+| Bounded fleet diagnostics | Preserve provider identity, node closure, business construction, attempted/failed inspections and deletions, the latest 16 protocol method/paths and shutdown outcome on failure; no provider exception text or credentials |
+
+The TCP regression establishes the proxy defect, not the cause of every Linux
+connection loss. Fresh SDK matrix evidence must qualify the fix independently.
+Cold provider recovery, the intermittent 250 ms module call, the earlier
+two-second Node heartbeat and full failure qualification remain open. No test
+deadline, lease, handler budget or assertion is widened or removed.

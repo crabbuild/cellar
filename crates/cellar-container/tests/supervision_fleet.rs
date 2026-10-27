@@ -31,6 +31,9 @@ const USER_ALARM: i64 = 9_000_000_000_000;
 struct Witness {
     retired: Mutex<Option<BindingCheckpoint>>,
     completed: Notify,
+    inspections: AtomicUsize,
+    failed_inspections: AtomicUsize,
+    deletions: AtomicUsize,
     failed_deletions: AtomicUsize,
     failed: Notify,
 }
@@ -56,14 +59,28 @@ impl MaintenanceBackend for Observed {
         action: MaintenanceAction,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
+            match action {
+                MaintenanceAction::Inspect => &self.witness.inspections,
+                MaintenanceAction::Delete => &self.witness.deletions,
+            }
+            .fetch_add(1, Ordering::SeqCst);
             let result = self
                 .backend
                 .clone()
                 .maintain(context.clone(), expected.clone(), action)
                 .await;
-            if result.is_err() && action == MaintenanceAction::Delete {
-                self.witness.failed_deletions.fetch_add(1, Ordering::SeqCst);
-                self.witness.failed.notify_one();
+            if result.is_err() {
+                match action {
+                    MaintenanceAction::Inspect => {
+                        self.witness
+                            .failed_inspections
+                            .fetch_add(1, Ordering::SeqCst);
+                    }
+                    MaintenanceAction::Delete => {
+                        self.witness.failed_deletions.fetch_add(1, Ordering::SeqCst);
+                        self.witness.failed.notify_one();
+                    }
+                }
             }
             result?;
             let checkpoint = BindingJournal::open(&context, &self.identity().binding)?
@@ -546,8 +563,17 @@ async fn recovery(
     let retired = match result {
         Ok(retired) => retired,
         Err(error) => {
-            let _ = stop(second, ShutdownMode::Preserve).await;
-            return Err(error);
+            let evidence = format!(
+                "provider={}, closed={}, application={}, factories={}, inspections={}, failed_inspections={}, deletions={}, failed_deletions={}, creates={}, deletes={}, recent={:?}",
+                provider.name(), second.is_closed(),
+                calls.application.load(Ordering::SeqCst), calls.factories.load(Ordering::SeqCst),
+                witness.inspections.load(Ordering::SeqCst), witness.failed_inspections.load(Ordering::SeqCst),
+                witness.deletions.load(Ordering::SeqCst), witness.failed_deletions.load(Ordering::SeqCst),
+                peer.creates(), peer.deletes(), peer.recent_requests()
+            );
+            let stopped = stop(second, ShutdownMode::Preserve).await;
+            return Err(error)
+                .with_context(|| format!("cold recovery: {evidence}; shutdown={stopped:?}"));
         }
     };
     let third = start_node(
