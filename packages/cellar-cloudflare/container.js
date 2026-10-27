@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { containerPort } from "./port.js";
+import { containerExec, execControls } from "./exec.js";
 
 function startOptions(options) {
   if (options === undefined) return {};
@@ -79,6 +80,34 @@ export function durableObjectContainer(nativeContext) {
   }
 
   const container = {
+    exec(cmd, options) {
+      const context = current();
+      const record = event(context);
+      const controls = (record.execControls ??= execControls());
+      const pending = record.tail;
+      const work = containerExec(context, cmd, options, (make, cleanup) =>
+        controls(async () => {
+          if (pending) await pending;
+          return make();
+        }, cleanup),
+      );
+      context._containerControl(work);
+      return work;
+    },
+    setInactivityTimeout(timeoutMs) {
+      const context = current();
+      const record = event(context);
+      const controls = (record.execControls ??= execControls());
+      const work = (async () => {
+        const pending = record.tail;
+        if (pending) await pending;
+        return controls(() =>
+          context.container.setInactivityTimeout(timeoutMs),
+        );
+      })();
+      context._containerControl(work);
+      return work;
+    },
     getTcpPort(port) {
       return containerPort(current, port, async (context) => {
         const pending = event(context).tail;

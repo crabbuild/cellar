@@ -21,6 +21,7 @@
     "id.js",
     "namespace.js",
     "container.js",
+    "exec.js",
     "port.js",
     "websocket.js",
     "websocket-upgrade.js",

@@ -81,6 +81,9 @@ jobs:
           npm run inventory --prefix tools/sandbox/compat
           npm test --prefix tools/sandbox/compat
           node tools/sandbox/compat/build.mjs
+          npm ci --ignore-scripts --prefix tools/sandbox/cloudflare-v1
+          npm test --prefix tools/sandbox/cloudflare-v1
+          npm run build --prefix tools/sandbox/cloudflare-v1
       - name: Chat UI desktop and mobile behavior
         run: |
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium

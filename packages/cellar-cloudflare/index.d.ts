@@ -89,7 +89,7 @@ export interface DurableObjectTransaction extends DurableObjectStorage {
 export interface DurableObjectState {
   readonly id: DurableObjectId;
   readonly storage: DurableObjectStorage;
-  readonly container: unknown;
+  readonly container: DurableObjectContainer | undefined;
   readonly exports: never;
   blockConcurrencyWhile<T>(callback: () => T | Promise<T>): Promise<T>;
   /** Requires Source.workers_lifetimes() in the native host. */
@@ -99,6 +99,21 @@ export interface DurableObjectState {
 /** Event-owned controls. Concurrency callbacks join controls; transactions refuse them. */
 export interface DurableObjectContainer {
   readonly running: boolean;
+  /** Node web-stream profile; image selection remains native host configuration. */
+  exec(
+    cmd: string[],
+    options?: {
+      stdin?: "pipe";
+      stdout?: "pipe" | "ignore";
+      stderr?: "pipe" | "ignore" | "combined";
+      cwd?: string;
+      env?: Record<string, string>;
+      /** Numeric UID:GID, for example "1000:1000". */
+      user?: string;
+      signal?: AbortSignal;
+    },
+  ): Promise<ContainerExecProcess>;
+  setInactivityTimeout(timeoutMs: number): Promise<void>;
   start(options?: {
     entrypoint?: string[];
     env?: Record<string, string>;
@@ -115,6 +130,19 @@ export interface DurableObjectContainer {
       init?: RequestInit,
     ): Promise<WorkerResponse>;
   };
+}
+/** Invocation-owned process subset; PID/PTY/resize are not implemented. */
+export interface ContainerExecProcess {
+  readonly stdin: WritableStream<Uint8Array> | null;
+  readonly stdout: ReadableStream<Uint8Array> | null;
+  readonly stderr: ReadableStream<Uint8Array> | null;
+  readonly exitCode: Promise<number>;
+  kill(signal?: number): Promise<void>;
+  output(): Promise<{
+    stdout: ArrayBuffer;
+    stderr: ArrayBuffer;
+    exitCode: number;
+  }>;
 }
 /** Event-style socket owned by its original native event. */
 export interface WorkerCloseEvent extends Event {

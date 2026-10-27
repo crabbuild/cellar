@@ -173,3 +173,20 @@ const equalPreviewTokens: boolean = crypto.subtle.timingSafeEqual(
   new Uint8Array([1]),
 );
 void equalPreviewTokens;
+
+async function processTypes(container: DurableObjectContainer) {
+  const process = await container.exec(["tool", "literal; argument"], {
+    stdin: "pipe",
+    stderr: "combined",
+    env: { HELLO: "world" },
+  });
+  await process.stdin?.getWriter().close();
+  const output = await process.output();
+  const bytes: ArrayBuffer = output.stdout;
+  const code: number = await process.exitCode;
+  await container.setInactivityTimeout(30_000);
+  // @ts-expect-error: PTY support is not implemented by this process profile
+  await container.exec(["tool"], { pty: true });
+  return { bytes, code };
+}
+void processTypes;

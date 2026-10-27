@@ -120,6 +120,9 @@ pub async fn execute_with_signal(
         "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.exec.read_stdout"
+            | "container.exec.read_stderr"
+            | "container.exec.wait"
             | "container.port.connect_websocket"
             | "container.websocket.receive"
             | "workers.container.fetch"
@@ -142,6 +145,9 @@ pub async fn execute_with_signal(
                         crate::containers::Operation::FetchStream
                     }
                     "container.response.read" => crate::containers::Operation::ReadResponse,
+                    "container.exec.read_stdout" => crate::containers::Operation::ReadStdout,
+                    "container.exec.read_stderr" => crate::containers::Operation::ReadStderr,
+                    "container.exec.wait" => crate::containers::Operation::WaitExec,
                     "container.port.connect_websocket" => {
                         crate::containers::Operation::ConnectWebSocket
                     }

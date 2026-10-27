@@ -257,6 +257,14 @@ uploads over container-port upgrades/local WebSocket pairs. Selected Worker/DO
 upgrades also forward to clients; complete lifecycle/fault acceptance remains pending. See the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
+The separately pinned [Sandbox 1.0.3 profile](../../tools/sandbox/cloudflare-v1/README.md)
+adds Node Workers `exec(argv)`, byte streams and bounded output collection over
+the same native process operations. Its published `Files` package runs the
+matching helper; full 1.x lifecycle, persistence and cloud qualification remain
+open. Native process signalling requires a POSIX `/bin/sh` in the image; direct
+exec remains available without it, while signalling refuses an unverified PID.
+See the [native exec contract](../../docs/09-integrations.md#apis-in-each-language).
+
 ## Understand lifetime and failure outcomes
 
 | Resource | Lifetime / cleanup |
