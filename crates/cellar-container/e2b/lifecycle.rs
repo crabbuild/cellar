@@ -254,13 +254,11 @@ impl Config {
         let Some(checkpoint) = journal.load(context)? else {
             return Ok(Reconciliation::value(State::Unbound, None));
         };
-        self.check_record(&checkpoint.record)?;
         let generation = Some(checkpoint.record.generation);
-        if checkpoint.record.intent == Intent::Deleted
-            && checkpoint.record.observation == Observation::Confirmed
-        {
+        if checkpoint.record.is_retired() {
             return Ok(Reconciliation::value(State::Deleted, generation));
         }
+        self.check_record(&checkpoint.record)?;
         let info = if checkpoint.record.resource_id.is_none() {
             let found = self.reconcile(context, &checkpoint.record).await?;
             let reply = self
@@ -316,12 +314,10 @@ impl Config {
         let Some(checkpoint) = self.journal(context)?.load(context)? else {
             return Ok(json!(false));
         };
-        self.check_record(&checkpoint.record)?;
-        if checkpoint.record.intent == Intent::Deleted
-            && checkpoint.record.observation == Observation::Confirmed
-        {
+        if checkpoint.record.is_retired() {
             return Ok(json!(false));
         }
+        self.check_record(&checkpoint.record)?;
         ensure!(
             checkpoint.record.observation == Observation::Confirmed,
             "E2B lifecycle outcome requires explicit reconciliation"
@@ -363,7 +359,8 @@ impl Config {
         let parameters = digest(&json!({"env":env,"labels":labels,"internet":internet}));
         let journal = self.journal(context)?;
         let mut previous = journal.load(context)?;
-        if let Some(checkpoint) = previous.as_ref() {
+        // Configuration changes require proven retirement of the old generation.
+        if let Some(checkpoint) = previous.as_ref().filter(|c| !c.record.is_retired()) {
             self.check_record(&checkpoint.record)?;
             if checkpoint.record.intent == Intent::Running
                 && checkpoint.record.observation == Observation::Pending
@@ -462,12 +459,10 @@ impl Config {
         let Some(mut checkpoint) = journal.load(context)? else {
             return Ok(Value::Null);
         };
-        self.check_record(&checkpoint.record)?;
-        if checkpoint.record.intent == Intent::Deleted
-            && checkpoint.record.observation == Observation::Confirmed
-        {
+        if checkpoint.record.is_retired() {
             return Ok(Value::Null);
         }
+        self.check_record(&checkpoint.record)?;
         if checkpoint.record.observation == Observation::Pending
             && checkpoint.record.resource_id.is_none()
         {

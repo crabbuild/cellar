@@ -39,6 +39,12 @@ pub struct BindingRecord {
 }
 
 impl BindingRecord {
+    /// Durable retirement evidence permits a fresh generation under a new host
+    /// configuration. A pending delete or elapsed local timer does not.
+    pub fn is_retired(&self) -> bool {
+        self.intent == BindingIntent::Deleted && self.observation == BindingObservation::Confirmed
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         let hex = |value: &str, length| {
             value.len() == length
@@ -92,8 +98,7 @@ impl BindingRecord {
             );
             return Ok(());
         };
-        let retired = previous.intent == BindingIntent::Deleted
-            && previous.observation == BindingObservation::Confirmed;
+        let retired = previous.is_retired();
         if self.generation != previous.generation {
             ensure!(
                 retired
