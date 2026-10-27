@@ -272,6 +272,21 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
+Remote provider bindings retain their journal across host configuration changes.
+Changing the provider or its durable configuration identity requires confirmed
+retirement of the previous resource:
+
+| Retained binding | New provider / configuration |
+| --- | --- |
+| Create response lost, resource live, or deletion pending | Refuse before provider I/O; reconcile or retire with the original configuration |
+| Deletion confirmed by the original configuration | `reconcile` reports `deleted`, `running` is false, and `destroy` is an I/O-free no-op |
+| Explicit `start` after confirmed retirement | Persist a fresh request identity and next generation under the newly configured provider |
+
+This supports host-controlled E2B/Vercel replacement without clearing cell state.
+Changing a provider does not resolve a lost outcome or revoke work already
+accepted remotely. Keep the original configuration available until cleanup is
+confirmed. Background orphan cleanup and remote fencing remain separate work.
+
 ![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](diagram/control-call.svg)
 
 *Control calls wait for earlier cell writes to reach their required durability
