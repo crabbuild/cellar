@@ -18,6 +18,10 @@ pub(in crate::raft::fleet_catalog::maintenance) struct Consent {
     pub gate_parent: [u8; 16],
     pub gate_digest: [u8; 32],
     pub stop: [u8; 16],
+    /// First admitted consent fixes the physical selector for its whole life.
+    pub anchor: [u8; 16],
+    #[serde(deserialize_with = "required_previous")]
+    pub previous: Option<[u8; 16]>,
 }
 
 impl Consent {
@@ -37,6 +41,13 @@ impl Consent {
             || self.ready.expected_revision <= gate.request.expected_revision
             || self.gate_parent != gate.request.id
             || self.gate_digest != gate.digest()?
+            || self.anchor == [0; 16]
+            || if self.anchor == self.request.id {
+                self.previous.is_some()
+            } else {
+                self.previous
+                    .is_none_or(|id| id == [0; 16] || id == self.request.id)
+            }
         {
             return Err(FleetCatalogError::Corrupt("restart stop consent"));
         }
@@ -54,7 +65,7 @@ impl Consent {
 
     pub fn selector(&self, gate: &Gate) -> Result<StopSelector> {
         let mut selector = gate.selector(self.stop)?;
-        selector.finalization = self.request.id;
+        selector.finalization = self.anchor;
         selector
             .validate()
             .map_err(|_| FleetCatalogError::Corrupt("restart stop selector"))?;
@@ -86,4 +97,10 @@ impl Consent {
             }],
         })
     }
+}
+
+fn required_previous<'de, D: serde::Deserializer<'de>>(
+    decoder: D,
+) -> std::result::Result<Option<[u8; 16]>, D::Error> {
+    Option::<[u8; 16]>::deserialize(decoder)
 }

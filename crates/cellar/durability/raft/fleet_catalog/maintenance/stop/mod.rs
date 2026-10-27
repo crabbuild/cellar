@@ -3,6 +3,7 @@
 //! Separate human consent, receiver-owned stop proof and joined reconciliation.
 mod offline;
 mod records;
+mod refresh;
 use super::super::deadline::Deadline;
 use super::super::resources::Authority;
 use super::gate::Gate;
@@ -12,6 +13,7 @@ use crate::raft::fleet_stop::{
 };
 pub use offline::{FleetRestartOfflineAdmission, FleetRestartOfflineRequest};
 pub(in crate::raft::fleet_catalog::maintenance) use records::Consent;
+pub use refresh::FleetRestartStopRefreshRequest;
 
 #[derive(Clone, Debug)]
 pub struct FleetRestartStopRequest {
@@ -112,6 +114,8 @@ impl FleetCatalog {
                 gate_parent: gate.request.id,
                 gate_digest: gate.digest()?,
                 stop: request.stop.bytes(),
+                anchor: request.identity.id,
+                previous: None,
             };
             record.validate(&gate)?;
             if !record.matches(request, &gate)
@@ -268,6 +272,28 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         record: &Consent,
     ) -> Result<Option<u64>> {
+        let applied = self.restart_stop_journal_applied(snapshot, record).await?;
+        if applied.is_some() && record.anchor != record.request.id {
+            let (anchor, _) = self
+                .restart_stop_candidate_raw(record.anchor, record.request.operation)
+                .await?
+                .ok_or(FleetCatalogError::Corrupt("missing stop anchor"))?;
+            if self
+                .restart_stop_journal_applied(snapshot, &anchor)
+                .await?
+                .is_none()
+            {
+                return Err(FleetCatalogError::Corrupt("unadmitted stop anchor"));
+            }
+        }
+        Ok(applied)
+    }
+
+    async fn restart_stop_journal_applied(
+        &self,
+        snapshot: &FleetSnapshot,
+        record: &Consent,
+    ) -> Result<Option<u64>> {
         let mutation = record.mutation()?;
         let applied = self
             .inner
@@ -285,7 +311,34 @@ impl FleetCatalog {
         Ok(applied)
     }
 
-    async fn restart_stop_candidate(
+    fn restart_stop_candidate(
+        &self,
+        id: [u8; 16],
+        operation: [u8; 16],
+    ) -> futures_util::future::BoxFuture<'_, Result<Option<(Consent, Gate)>>> {
+        Box::pin(async move {
+            let Some((record, gate)) = self.restart_stop_candidate_raw(id, operation).await? else {
+                return Ok(None);
+            };
+            if record.anchor != record.request.id {
+                let (anchor, anchor_gate) = self
+                    .restart_stop_candidate_raw(record.anchor, operation)
+                    .await?
+                    .ok_or(FleetCatalogError::Corrupt("missing original stop consent"))?;
+                if anchor.anchor != anchor.request.id
+                    || anchor.previous.is_some()
+                    || anchor_gate != gate
+                    || anchor.stop != record.stop
+                    || anchor.request.expected_revision >= record.request.expected_revision
+                {
+                    return Err(FleetCatalogError::Corrupt("stop consent anchor"));
+                }
+            }
+            Ok(Some((record, gate)))
+        })
+    }
+
+    async fn restart_stop_candidate_raw(
         &self,
         id: [u8; 16],
         operation: [u8; 16],

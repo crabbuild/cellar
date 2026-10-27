@@ -5,6 +5,7 @@ mod attempt;
 mod cancellation;
 mod driver;
 mod records;
+mod status;
 use super::super::resources::Authority;
 use super::*;
 use crate::raft::catalog::NamespaceCatalog;
@@ -17,6 +18,7 @@ pub use driver::{
 };
 use futures_util::future::BoxFuture;
 use records::{Pointer, Record};
+pub use status::FleetRestartOperatorStatus;
 
 /// The human fixes the complete preparation scope before a controller acts.
 #[derive(Clone, Debug)]

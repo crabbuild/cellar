@@ -1,6 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Actual stop/return/resume, with capacity held until a fresh terminal proof.
+#[path = "raft_restart_stop_refresh_native.rs"]
+mod stop_refresh;
 use super::*;
 use cellar::application::consensus::verification::{
     FleetRestartResumeAdmission, FleetRestartResumeCompleteRequest, FleetRestartResumePhase,

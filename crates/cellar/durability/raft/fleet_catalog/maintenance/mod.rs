@@ -24,6 +24,7 @@ pub use operator::{
     FleetRestartOperatorAdmission, FleetRestartOperatorCancelAdmission,
     FleetRestartOperatorCancelRequest, FleetRestartOperatorCancelled, FleetRestartOperatorDriver,
     FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
+    FleetRestartOperatorStatus,
 };
 pub(super) use records::{Record, KIND};
 pub use rejoin::{FleetRestartReturnAdmission, FleetRestartReturnRequest};
@@ -45,7 +46,7 @@ pub use settle::{
 pub use settlement::FleetRestartPendingWork;
 pub use stop::{
     FleetRestartOfflineAdmission, FleetRestartOfflineRequest, FleetRestartStopAdmission,
-    FleetRestartStopRequest,
+    FleetRestartStopRefreshRequest, FleetRestartStopRequest,
 };
 
 /// Exact human intent. Grace postpones replacement only after owned stop is

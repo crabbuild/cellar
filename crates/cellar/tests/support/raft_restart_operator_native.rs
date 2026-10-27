@@ -355,6 +355,18 @@ async fn preparation(recreate: bool, concurrent: bool, churn: bool) -> Result<()
             && ready.candidate().matched_histories() == 1
     );
     let root = s.f.catalog.read(TIMEOUT).await?;
+    let status =
+        s.f.catalog
+            .restart_operator_status(&root, ProposalId::new(request.identity.operation)?, TIMEOUT)
+            .await?
+            .context("durable Ready status")?;
+    ensure!(
+        status.phase == FleetRestartOperatorPhase::Ready
+            && status.readiness.as_ref() == Some(ready.identity())
+            && status.execution_operation == Some(ready.identity().operation)
+            && status.cancelled.is_none()
+    );
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == root.revision());
     ensure!(
         s.f.catalog
             .authorize_host(&root, request.node, TIMEOUT)
@@ -407,4 +419,115 @@ async fn fleet_restart_operator_two_controllers_preserve_step_predecessors() -> 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_restart_operator_fences_unadmitted_preparation_after_root_cas_loss() -> Result<()> {
     Box::pin(preparation(false, false, true)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_operator_status_is_durable_read_only_and_does_not_drive_work() -> Result<()>
+{
+    use cellar::application::consensus::verification::FleetRestartOperatorCancelRequest;
+    let s = Box::pin(Setup::new()).await?;
+    let request = intent(&s, 0, 188).await?;
+    let before = s.f.catalog.read(TIMEOUT).await?;
+    let op = ProposalId::new(request.identity.operation)?;
+    ensure!(s
+        .f
+        .catalog
+        .restart_operator_status(&before, op, TIMEOUT)
+        .await?
+        .is_none());
+    s.f.catalog
+        .begin_restart_operator(
+            &before,
+            &request,
+            std::slice::from_ref(&s.namespace),
+            TIMEOUT,
+        )
+        .await?;
+    let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+    let root = catalog.read(TIMEOUT).await?;
+    for _ in 0..2 {
+        let state = catalog
+            .restart_operator_status(&root, op, TIMEOUT)
+            .await?
+            .context("intent status")?;
+        ensure!(
+            state.phase == FleetRestartOperatorPhase::Requested
+                && state.execution_operation.is_none()
+                && state.cancellation.is_none()
+                && state.readiness.is_none()
+        );
+    }
+    ensure!(catalog.read(TIMEOUT).await?.revision() == root.revision());
+    ensure!(
+        !s.nodes[0]
+            .host
+            .observe_node(TIMEOUT)
+            .await?
+            .node
+            .profile
+            .draining
+    );
+    let controller = driver(&s)?;
+    controller.reconcile(TIMEOUT).await?;
+    let root = catalog.read(TIMEOUT).await?;
+    let state = catalog
+        .restart_operator_status(&root, op, TIMEOUT)
+        .await?
+        .context("prepared child status")?;
+    ensure!(
+        state.phase == FleetRestartOperatorPhase::Preparing
+            && state.execution_operation.is_some_and(|v| v != op.bytes())
+    );
+    let mut identity = request.identity.clone();
+    identity.id = [200; 16];
+    identity.expected_revision = root.revision();
+    let cancel = FleetRestartOperatorCancelRequest {
+        identity,
+        fence: ProposalId::new([202; 16])?,
+    };
+    catalog
+        .cancel_restart_operator(&root, &cancel, TIMEOUT)
+        .await?;
+    let pending = catalog.read(TIMEOUT).await?;
+    let state = catalog
+        .restart_operator_status(&pending, op, TIMEOUT)
+        .await?
+        .context("cancel intent status")?;
+    ensure!(
+        state.phase == FleetRestartOperatorPhase::CancelRequested
+            && state.cancellation.as_ref() == Some(&cancel.identity)
+            && state.cancelled.is_none()
+    );
+    ensure!(catalog.read(TIMEOUT).await?.revision() == pending.revision());
+    ensure!(
+        catalog
+            .authorize_host(&pending, request.node, TIMEOUT)
+            .await?
+            .state()
+            == FleetNodeState::Active
+    );
+    controller
+        .reconcile(TIMEOUT)
+        .await?
+        .context("terminal cancellation")?;
+    let terminal = catalog.read(TIMEOUT).await?;
+    let state = catalog
+        .restart_operator_status(&terminal, op, TIMEOUT)
+        .await?
+        .context("terminal status")?;
+    ensure!(
+        state.phase == FleetRestartOperatorPhase::Cancelled
+            && state.cancelled.is_some()
+            && state.readiness.is_none()
+    );
+    ensure!(
+        catalog
+            .restart_operator_status(&pending, op, TIMEOUT)
+            .await?
+            .context("old snapshot")?
+            .phase
+            == FleetRestartOperatorPhase::CancelRequested
+    );
+    ensure!(catalog.read(TIMEOUT).await?.revision() == terminal.revision());
+    s.close().await
 }

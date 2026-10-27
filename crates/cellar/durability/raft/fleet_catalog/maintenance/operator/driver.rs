@@ -70,7 +70,7 @@ impl Drop for Lease<'_> {
 }
 
 impl Stage {
-    fn phase(&self) -> FleetRestartOperatorPhase {
+    pub(super) fn phase(&self) -> FleetRestartOperatorPhase {
         match self {
             Self::Prepare => FleetRestartOperatorPhase::Preparing,
             Self::Gate | Self::Quiesce { .. } => FleetRestartOperatorPhase::Gating,
