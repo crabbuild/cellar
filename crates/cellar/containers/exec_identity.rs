@@ -70,6 +70,25 @@ pub(super) async fn receive(read: &mut (impl AsyncRead + Unpin)) -> Result<Ident
     }
 }
 
+pub(super) async fn receive_terminal(read: &mut (impl AsyncRead + Unpin)) -> Result<Identity> {
+    let mut decoder = Header::default();
+    let mut chunk = vec![0; 64 * 1024];
+    loop {
+        let length = read
+            .read(&mut chunk)
+            .await
+            .context("read exec terminal identity")?;
+        ensure!(length > 0, "exec namespace identity was not received");
+        if let Some((pid, stdout)) = decoder.push(Bytes::copy_from_slice(&chunk[..length]))? {
+            return Ok(Identity {
+                pid,
+                stdout,
+                stderr: Vec::new(),
+            });
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Header(Vec<u8>);
 
@@ -88,6 +107,8 @@ impl Header {
             .strip_prefix(PREFIX)
             .context("invalid exec identity prefix")?;
         let digits = &digits[..digits.len() - 1];
+        // A terminal's ONLCR processing transforms the shell's newline.
+        let digits = digits.strip_suffix(b"\r").unwrap_or(digits);
         ensure!(
             !digits.is_empty() && digits.iter().all(u8::is_ascii_digit),
             "invalid exec namespace PID"
@@ -124,6 +145,16 @@ mod tests {
             body.is_empty(),
             "identity-only frames must not publish a guest EOF"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn terminal_identity_consumes_only_the_crlf_prelude() -> Result<()> {
+        let mut input = b"cellar-exec-pid:123\r\n\0\xff\r\n".as_slice();
+        let identity = receive_terminal(&mut input).await?;
+        assert_eq!(identity.pid, 123);
+        assert_eq!(identity.stdout.as_ref(), &[0, 255, b'\r', b'\n']);
+        assert!(identity.stderr.is_empty());
         Ok(())
     }
 

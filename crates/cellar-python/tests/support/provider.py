@@ -22,6 +22,8 @@ class Counter:
         await refuses(lambda: ctx.containers.get("missing").running())
         await refuses(lambda: ctx.containers.get("../escape").running())
         capabilities = await container.capabilities()
+        assert not capabilities.exec_pty
+        await refuses(lambda: container.exec_output(["child-exit"], max_bytes=64, pty=(80, 24)))
         assert capabilities.provider == request.path.strip("/").split("/")[0]
         assert capabilities.fencing == "local_checks_and_expiry"
         assert capabilities.max_resources == 0

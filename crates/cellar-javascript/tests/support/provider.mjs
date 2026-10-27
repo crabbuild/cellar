@@ -57,6 +57,13 @@ export class Counter {
     await refuses(() => ctx.containers.get("missing").running());
     await refuses(() => ctx.containers.get("../escape").running());
     const capabilities = await container.capabilities();
+    check(capabilities.exec_pty === false, "provider terminal capability");
+    await refuses(() =>
+      container.execOutput(
+        { cmd: ["child-exit"], pty: { cols: 80, rows: 24 } },
+        64,
+      ),
+    );
     check(
       capabilities.provider === request.url.split("/").at(-2),
       "selected backend",

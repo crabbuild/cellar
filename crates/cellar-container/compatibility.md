@@ -16,6 +16,8 @@ a language facade does not grant provider support.
 | Custom start entrypoint | Yes | No; host template | No; host image |
 | Bounded binary command output | Yes | Yes | Yes; image-local helper |
 | Interactive process streams | Yes | No | No |
+| Process allocation metadata | Verified namespace PID or unavailable; terminal flag | No | No |
+| PTY allocation / resize | Yes; Docker API 1.42+ required | No; pre-effect refusal | No; pre-effect refusal |
 | Container signal / monitor | Yes | No | No |
 | Inactivity timeout | Yes | No; fixed lifetime | No; fixed session timeout |
 | Binary file read/write | Yes; engine archives | Yes | Yes |
@@ -24,7 +26,7 @@ a language facade does not grant provider support.
 | Incremental HTTP response reads / cancellation | Yes; [stream contract](streams.md) | No | No |
 | Raw TCP / WebSocket forwarding | Yes | No | No |
 | Synchronous running / queued lifecycle opt-ins | Yes | No | No |
-| PTY / resize, snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |
+| Snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |
 | Worker module / isolate invocation | Separate planned operation family | Not implemented | Not implemented |
 
 ## Configuration and guarantees

@@ -122,6 +122,42 @@ impl Cell for Root {
                         .is_err());
                     json!(true)
                 }
+                "/terminal-refused" => {
+                    let error = container
+                        .exec(
+                            &context,
+                            ExecOptions {
+                                cmd: vec!["echo-stdin".into()],
+                                pty: Some(TerminalSize::new(80, 24)?),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                        .err()
+                        .context("old engine accepted a terminal")?;
+                    anyhow::ensure!(format!("{error:#}").contains("1.42"));
+                    json!(true)
+                }
+                "/terminal" => {
+                    let process = container
+                        .exec(
+                            &context,
+                            ExecOptions {
+                                cmd: vec!["echo-stdin".into()],
+                                pty: Some(TerminalSize::new(80, 24)?),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                    let info = process.info(&context)?;
+                    anyhow::ensure!(info.is_pty && info.pid.is_none());
+                    anyhow::ensure!(process.resize(&context, 0, 24).await.is_err());
+                    process.resize(&context, 132, 40).await?;
+                    process.write(&context, [0, 255, 42]).await?;
+                    process.close_stdin(&context).await?;
+                    let output = process.output(&context, 1024).await?;
+                    json!({"is_pty":info.is_pty,"pid":info.pid,"code":output.exit_code,"stdout":output.stdout,"stderr":output.stderr})
+                }
                 "/exec" => {
                     let process = container
                         .exec(
@@ -484,6 +520,22 @@ async fn run() -> Result<()> {
     assert_eq!(
         call(&host, "Sandbox:test", "/exec").await?,
         json!({"code":7,"stdout":"hello exec","stderr":"stderr"})
+    );
+    peer.api_minor.store(41, Ordering::SeqCst);
+    let allocated = peer.execs.lock().unwrap().len();
+    assert_eq!(
+        call(&host, "Sandbox:test", "/terminal-refused").await?,
+        true
+    );
+    assert_eq!(
+        peer.execs.lock().unwrap().len(),
+        allocated,
+        "unsupported terminal API allocated compute"
+    );
+    peer.api_minor.store(43, Ordering::SeqCst);
+    assert_eq!(
+        call(&host, "Sandbox:test", "/terminal").await?,
+        json!({"is_pty":true,"pid":null,"code":7,"stdout":[0,255,42,115,116,100,101,114,114],"stderr":[]})
     );
     assert_eq!(call(&host, "Sandbox:test", "/limit").await?, true);
     assert_eq!(

@@ -34,9 +34,12 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, watch};
 mod exec_identity;
+mod exec_options;
+mod exec_stream;
+pub use exec_options::{ExecParams, TerminalSize};
 mod files;
 mod ports;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
@@ -1775,6 +1778,9 @@ impl ContainerEngine {
         if !cell.running() {
             return Err(anyhow!("exec() requires a running container."));
         }
+        if params.pty.is_some() {
+            self.docker.check_exec_terminal().await?;
+        }
         // A shell handshake supplies a PID in the same namespace as a later
         // signal. Images without /bin/sh retain direct argv execution, but no
         // verified PID: kill must refuse rather than use Docker's daemon PID.
@@ -1805,9 +1811,12 @@ impl ContainerEngine {
             "AttachStdin": true,
             "AttachStdout": true,
             "AttachStderr": true,
-            "Tty": false,
+            "Tty": params.pty.is_some(),
             "Cmd": command,
         });
+        if let Some(size) = params.pty {
+            body["ConsoleSize"] = json!([size.rows(), size.cols()]);
+        }
         if !params.env.is_empty() {
             body["Env"] = json!(params
                 .env
@@ -1836,16 +1845,21 @@ impl ContainerEngine {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("exec create answered without an id"))?
             .to_string();
+        let mut start = json!({ "Detach": false, "Tty": params.pty.is_some() });
+        if let Some(size) = params.pty {
+            start["ConsoleSize"] = json!([size.rows(), size.cols()]);
+        }
         let stream = self
             .docker
-            .hijack(
-                &format!("/exec/{exec_id}/start"),
-                json!({ "Detach": false, "Tty": false }),
-            )
+            .hijack(&format!("/exec/{exec_id}/start"), start)
             .await?;
         let (mut read, write) = tokio::io::split(stream);
         let identity = if tracked {
-            Some(exec_identity::receive(&mut read).await?)
+            Some(if params.pty.is_some() {
+                exec_identity::receive_terminal(&mut read).await?
+            } else {
+                exec_identity::receive(&mut read).await?
+            })
         } else {
             None
         };
@@ -1855,6 +1869,9 @@ impl ContainerEngine {
         let combined = params.combined;
         let ended = watch::channel(false).0;
         let completion = ExecCompletion(ended.clone());
+        let failure = Arc::new(Mutex::new(None));
+        let reader_failure = failure.clone();
+        let terminal = params.pty.is_some();
         if let Some(identity) = identity {
             // Admission retained at most 15 stderr chunks and one stdout
             // remainder, so these sends cannot wait for a future consumer.
@@ -1872,7 +1889,14 @@ impl ContainerEngine {
         }
         let reader = asyncrt::spawn(async move {
             let _completion = completion;
-            demux(read, stdout_tx, stderr_tx, combined).await;
+            // Publish read failure before closing either channel or signalling
+            // completion. Consumers must not observe a successful partial EOF.
+            let _channels = (stdout_tx.clone(), stderr_tx.clone());
+            if let Err(error) =
+                exec_stream::pump(read, stdout_tx, stderr_tx, combined, terminal).await
+            {
+                *reader_failure.lock().unwrap() = Some(format!("{error:#}"));
+            }
         });
         let process = Arc::new(ExecProcess {
             id: service.processes.next.fetch_add(1, Ordering::Relaxed),
@@ -1882,6 +1906,8 @@ impl ContainerEngine {
             exec_id,
             container: cell.name.clone(),
             pid,
+            terminal,
+            failure,
             docker: self.docker.clone(),
             stdin: tokio::sync::Mutex::new(Some(write)),
             stdout: tokio::sync::Mutex::new(stdout_rx),
@@ -1893,15 +1919,6 @@ impl ContainerEngine {
         cell.processes.lock().unwrap().push(process.id);
         Ok(process)
     }
-}
-
-pub struct ExecParams {
-    pub cmd: Vec<String>,
-    pub env: Vec<(String, String)>,
-    pub cwd: Option<String>,
-    pub user: Option<String>,
-    /// stderr folded into stdout.
-    pub combined: bool,
 }
 
 type WriteHalf = tokio::io::WriteHalf<Box<dyn Stream>>;
@@ -1916,6 +1933,8 @@ pub struct ExecProcess {
     /// Container namespace PID verified by the exec prelude, or zero when the
     /// image has no POSIX shell. Docker daemon PIDs are never used for signals.
     pub pid: i64,
+    pub terminal: bool,
+    failure: Arc<Mutex<Option<String>>>,
     docker: Docker,
     stdin: tokio::sync::Mutex<Option<WriteHalf>>,
     stdout: tokio::sync::Mutex<mpsc::Receiver<Bytes>>,
@@ -2043,15 +2062,45 @@ impl ExecProcess {
     }
 
     /// One chunk of stdout (`1`) or stderr (`2`); empty at end of stream.
-    pub async fn read(&self, which: u8) -> Bytes {
-        if self.check_open().is_err() {
-            return Bytes::new();
-        }
+    pub async fn read(&self, which: u8) -> anyhow::Result<Bytes> {
+        self.check_open()?;
         let mut receiver = match which {
             1 => self.stdout.lock().await,
             _ => self.stderr.lock().await,
         };
-        receiver.recv().await.unwrap_or_default()
+        if let Some(bytes) = receiver.recv().await {
+            return Ok(bytes);
+        }
+        self.check_open()?;
+        self.check_output()?;
+        Ok(Bytes::new())
+    }
+
+    fn check_output(&self) -> anyhow::Result<()> {
+        if let Some(failure) = self.failure.lock().unwrap().as_ref() {
+            return Err(anyhow!("exec output failed: {failure}"));
+        }
+        Ok(())
+    }
+
+    pub async fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
+        self.check_open()?;
+        anyhow::ensure!(self.terminal, "exec process has no pseudo-terminal");
+        anyhow::ensure!(!*self.ended.borrow(), "exec process has exited");
+        self.docker
+            .expect(
+                "POST",
+                &format!(
+                    "/exec/{}/resize?h={}&w={}",
+                    self.exec_id,
+                    size.rows(),
+                    size.cols()
+                ),
+                None,
+                "resize exec terminal",
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn write(&self, bytes: &[u8]) -> Result<(), String> {
@@ -2097,6 +2146,7 @@ impl ExecProcess {
         self.check_open()?;
         // The stream closes when the process exits, but the daemon records
         // the exit code a moment later.
+        self.check_output()?;
         let mut code = None;
         for _ in 0..40 {
             let info = self
@@ -2180,41 +2230,6 @@ impl ExecProcess {
             )
             .await?;
         Ok(())
-    }
-}
-
-/// Split Docker's multiplexed stream into stdout and stderr chunks until
-/// the daemon closes it.
-async fn demux(
-    mut read: tokio::io::ReadHalf<Box<dyn Stream>>,
-    stdout: mpsc::Sender<Bytes>,
-    stderr: mpsc::Sender<Bytes>,
-    combined: bool,
-) {
-    let mut header = [0u8; 8];
-    loop {
-        if read.read_exact(&mut header).await.is_err() {
-            return;
-        }
-        let (stream, length) = frame_header(&header);
-        let mut payload = vec![0u8; length];
-        if read.read_exact(&mut payload).await.is_err() {
-            return;
-        }
-        let payload = Bytes::from(payload);
-        if payload.is_empty() {
-            continue;
-        }
-        let target = if stream == 2 && !combined {
-            &stderr
-        } else {
-            &stdout
-        };
-        if target.send(payload).await.is_err() {
-            // The reader went away; keep draining so the process is not
-            // blocked on a full pipe.
-            continue;
-        }
     }
 }
 

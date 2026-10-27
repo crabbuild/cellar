@@ -325,6 +325,7 @@ pub(crate) fn requires_mutation_slot(name: &str) -> bool {
                 | "container.exec.write"
                 | "container.exec.close_stdin"
                 | "container.exec.kill"
+                | "container.exec.resize"
                 | "container.release"
                 | "container.websocket.send_text"
                 | "container.websocket.send_binary"

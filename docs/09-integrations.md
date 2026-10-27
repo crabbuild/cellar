@@ -107,6 +107,8 @@ Python uses embedded CPython. TypeScript compiles before deployment.
 | Select a named provider slot | `Bindings::sessions().get(name)` | `ctx.containers.get(name)` | `ctx.containers.get(name)` |
 | Reconcile provider recovery/expiry | `Session::execute(Operation::Reconcile, …)` | `reconcile` | `reconcile` |
 | Execute with streams | `exec` | `exec` | `exec` |
+| Native terminal allocation | `ExecOptions::pty` / `TerminalSize` | `exec(..., pty=(cols, rows))` | `exec({cmd, pty: {cols, rows}})` |
+| Process identity / resize | `info(context)` / `resize(context, cols, rows)` | `info()` / `resize(cols, rows)` | Same async names |
 | Collect bounded output | `exec(...).output(...)` | `exec_output` | `execOutput` |
 | Obtain port | `port(context, port)` | `port(port)` | `port(port)` |
 | Readiness | `wait_ready` | `wait_ready` | `waitReady` |

@@ -25,6 +25,10 @@ pub(super) struct HelperOutput {
 impl Config {
     pub(super) fn validate_command(&self, options: &Value) -> Result<()> {
         ensure!(
+            options.get("pty").is_none_or(Value::is_null),
+            "Vercel terminal execution is not qualified"
+        );
+        ensure!(
             options.get("user").is_none_or(Value::is_null),
             "Vercel executes as the image's configured user; arbitrary users are unsupported"
         );

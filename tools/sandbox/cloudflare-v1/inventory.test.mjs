@@ -11,6 +11,7 @@ test("SDK, helper, lock and source drift refuse before fixture build", async () 
     (value) => (value.helper_image += "-changed"),
     (value) => (value.lock_sha256 = "0".repeat(64)),
     (value) => (value.files["fixture.mjs"] = "0".repeat(64)),
+    (value) => (value.files["terminal-program.mjs"] = "0".repeat(64)),
   ]) {
     const value = structuredClone(manifest);
     change(value);

@@ -235,6 +235,14 @@ impl Peer {
             .unwrap();
         assert_eq!(exec.2["User"], "1000");
         assert_eq!(exec.2["Env"], serde_json::json!(["EXEC=yes"]));
+        let terminal = calls
+            .iter()
+            .find(|(_, path, body)| path.contains("/exec?") && body["Tty"] == true)
+            .unwrap();
+        assert_eq!(terminal.2["ConsoleSize"], serde_json::json!([24, 80]));
+        assert!(calls
+            .iter()
+            .any(|(method, path, _)| method == "POST" && path.ends_with("/resize?h=40&w=132")));
     }
 
     pub fn configure(
@@ -298,6 +306,10 @@ pub struct AuditedProvider {
 }
 
 impl cellar_guest::containers::Provider for AuditedProvider {
+    fn exec_pty(&self) -> bool {
+        cellar_guest::containers::Native.exec_pty()
+    }
+
     fn queued_lifecycle(&self) -> bool {
         true
     }

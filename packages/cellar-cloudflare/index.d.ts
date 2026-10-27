@@ -111,6 +111,7 @@ export interface DurableObjectContainer {
       /** Numeric UID:GID, for example "1000:1000". */
       user?: string;
       signal?: AbortSignal;
+      pty?: boolean | { cols?: number; rows?: number };
     },
   ): Promise<ContainerExecProcess>;
   setInactivityTimeout(timeoutMs: number): Promise<void>;
@@ -131,14 +132,19 @@ export interface DurableObjectContainer {
     ): Promise<WorkerResponse>;
   };
 }
-/** Invocation-owned process subset; PID/PTY/resize are not implemented. */
+/** Invocation-owned native process and optional terminal. */
 export interface ContainerExecProcess {
+  /** Verified container PID; unavailable for images without the shell handshake. */
+  readonly pid: number | undefined;
+  readonly isPty: boolean;
   readonly stdin: WritableStream<Uint8Array> | null;
   readonly stdout: ReadableStream<Uint8Array> | null;
   readonly stderr: ReadableStream<Uint8Array> | null;
   readonly exitCode: Promise<number>;
   /** Acknowledged signal; defaults to SIGTERM (15). Abort requests SIGKILL (9). */
   kill(signal?: number): Promise<void>;
+  /** Queue a terminal resize under the original callback's native admission. */
+  resize(cols: number, rows: number): void;
   output(): Promise<{
     stdout: ArrayBuffer;
     stderr: ArrayBuffer;

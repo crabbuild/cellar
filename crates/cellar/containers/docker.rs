@@ -22,8 +22,9 @@ use std::path::{Path, PathBuf};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 
-/// Unversioned paths: the daemon answers with its newest API, and every
-/// call here uses fields that have been stable since API 1.24. A pinned
+/// Unversioned paths: the daemon answers with its newest API. Most calls use
+/// fields stable since API 1.24. Terminal exec additionally
+/// requires API 1.42's initial console size and checks before allocation. A pinned
 /// version is refused by a daemon whose minimum moved past it, which Docker
 /// 29 did for 1.41.
 const API: &str = "";
@@ -58,6 +59,26 @@ impl Reply {
 }
 
 impl Docker {
+    pub(crate) async fn check_exec_terminal(&self) -> anyhow::Result<()> {
+        let info = self
+            .expect("GET", "/version", None, "inspect terminal API")
+            .await?
+            .json()?;
+        let version = info["ApiVersion"]
+            .as_str()
+            .context("Docker API version missing")?;
+        let (major, minor) = version
+            .split_once('.')
+            .context("invalid Docker API version")?;
+        let major: u16 = major.parse().context("invalid Docker API major version")?;
+        let minor: u16 = minor.parse().context("invalid Docker API minor version")?;
+        anyhow::ensure!(
+            major > 1 || (major == 1 && minor >= 42),
+            "terminal exec requires Docker Engine API 1.42 or newer"
+        );
+        Ok(())
+    }
+
     /// Bounded archive traffic. The request owns its connection, so dropping
     /// it cancels unfinished upload/download work. Archives never touch host FS.
     pub(crate) async fn archive(

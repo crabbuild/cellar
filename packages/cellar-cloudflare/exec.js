@@ -3,6 +3,26 @@
 import { httpLimit, webRuntime } from "./http.js";
 import { ownedStdin } from "./exec-stdin.js";
 
+function terminalSize(value) {
+  if (value === undefined || value === false) return;
+  if (
+    value !== true &&
+    (!value || typeof value !== "object" || Array.isArray(value))
+  )
+    throw new TypeError("Exec pty requires true or terminal dimensions");
+  if (
+    value !== true &&
+    Object.keys(value).some((key) => !["cols", "rows"].includes(key))
+  )
+    throw new TypeError("Unknown terminal size option");
+  const cols = value === true || value.cols === undefined ? 80 : value.cols;
+  const rows = value === true || value.rows === undefined ? 24 : value.rows;
+  for (const dimension of [cols, rows])
+    if (!Number.isInteger(dimension) || dimension < 1 || dimension > 65535)
+      throw new RangeError("Terminal dimensions must be 1..65535");
+  return { cols, rows };
+}
+
 // One event's process controls serialize before entering the native provider.
 // Cleanup has its own bounded admission, so a full ordinary queue cannot strand
 // completed native handles. Nothing holds a native lock while waiting here.
@@ -41,11 +61,25 @@ function optionsFor(cmd, options) {
     throw new TypeError("Exec options must be an object");
   for (const key of Object.keys(options)) {
     if (
-      !["stdin", "stdout", "stderr", "cwd", "env", "user", "signal"].includes(
-        key,
-      )
+      ![
+        "stdin",
+        "stdout",
+        "stderr",
+        "cwd",
+        "env",
+        "user",
+        "signal",
+        "pty",
+      ].includes(key)
     )
       throw new TypeError(`Unsupported exec option: ${key}`);
+  }
+  const pty = terminalSize(options.pty);
+  if (pty) {
+    if (options.stderr !== undefined && options.stderr !== "combined")
+      throw new TypeError("Terminal stderr must be combined");
+    options.stderr = "combined";
+    if (options.stdin === undefined) options.stdin = "pipe";
   }
   if (
     options.stdin !== undefined &&
@@ -92,6 +126,7 @@ function optionsFor(cmd, options) {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.user === undefined ? {} : { user: options.user }),
     combined: stderr === "combined",
+    ...(pty ? { pty } : {}),
   };
 }
 
@@ -114,7 +149,7 @@ export async function containerExec(
     options.stdin instanceof ReadableStream
       ? ownedStdin(options.stdin)
       : undefined;
-  let id, releaseInput;
+  let id, releaseInput, info;
   try {
     if (input) {
       const retained = new Promise((resolve) => {
@@ -127,7 +162,27 @@ export async function containerExec(
     id = await admit(() =>
       context._call("container.exec", { options: nativeOptions }),
     );
+    info = await context._call("container.exec.info", { id });
+    if (
+      !info ||
+      typeof info.is_pty !== "boolean" ||
+      info.is_pty !== Boolean(nativeOptions.pty) ||
+      (info.pid !== null &&
+        (!Number.isInteger(info.pid) || info.pid < 2 || info.pid > 2147483647))
+    )
+      throw new TypeError("Invalid native process metadata");
   } catch (error) {
+    // A metadata failure follows accepted allocation. Release the original
+    // handle and request termination when still authorized; never allocate again.
+    if (id !== undefined) {
+      await admit(
+        () => context._call("container.exec.kill", { id, signal: 9 }),
+        true,
+      ).catch(() => {});
+      await admit(() => context._call("container.release", { id }), true).catch(
+        () => {},
+      );
+    }
     // No source read begins until allocation is acknowledged.
     input?.release();
     releaseInput?.();
@@ -193,6 +248,7 @@ export async function containerExec(
   const exitCode = call("wait", {}, observations.signal).then(
     async (code) => {
       exited = true;
+      stdinDone = true;
       options.signal?.removeEventListener("abort", abort);
       input?.cancel(new Error("Exec process exited")).catch(() => {});
       await releaseIfFinished();
@@ -210,6 +266,29 @@ export async function containerExec(
     if (!Number.isInteger(signal) || signal < 1 || signal > 64)
       throw new RangeError("Exec signal must be 1..64");
     return control(() => call("kill", { signal }));
+  }
+  function resize(cols, rows) {
+    if (!info.is_pty)
+      throw new TypeError("Exec process has no pseudo-terminal");
+    for (const dimension of [cols, rows])
+      if (!Number.isInteger(dimension) || dimension < 1 || dimension > 65535)
+        throw new RangeError("Terminal dimensions must be 1..65535");
+    let finish, fail;
+    const retained = new Promise((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    // Void controls reserve event and callback ownership before queueing work.
+    // Unlike output(), callers cannot observe a returned resize rejection, so
+    // a failed acknowledgement is reported through the owning event's jobs.
+    context._waitUntil(retained);
+    try {
+      context._containerControl(retained);
+    } catch (error) {
+      finish();
+      throw error;
+    }
+    control(() => call("resize", { cols, rows })).then(finish, fail);
   }
   async function closeStdin() {
     if (stdinDone) return;
@@ -338,11 +417,14 @@ export async function containerExec(
     }
   }
   const process = {
+    pid: info.pid ?? undefined,
+    isPty: info.is_pty,
     stdin,
     stdout,
     stderr,
     exitCode,
     kill,
+    resize,
     async output() {
       if (
         outputUsed ||

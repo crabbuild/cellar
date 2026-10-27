@@ -14,7 +14,7 @@ pub use super::container_supervision::{
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
-pub use host::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
+pub use host::{FileKind, FileMetadata, FilePath, TerminalSize, MAX_FILE_ENTRIES};
 use std::{
     future::Future,
     sync::{Arc, Weak},
@@ -81,6 +81,8 @@ pub struct ExecOptions {
     pub cwd: Option<String>,
     pub user: Option<String>,
     pub combined: bool,
+    /// Allocate a terminal; stdout includes both output channels.
+    pub pty: Option<TerminalSize>,
 }
 
 /// Authority for the container attached to one root cell activation.
@@ -324,6 +326,7 @@ impl Container {
                         cwd: options.cwd,
                         user: options.user,
                         combined: options.combined,
+                        pty: options.pty,
                     },
                 )
                 .await?;
@@ -496,6 +499,15 @@ pub struct ExecOutput {
     pub stderr: Vec<u8>,
 }
 
+/// Allocation metadata. The PID belongs to the container namespace; images
+/// without the shell identity handshake report None, never a daemon-host PID.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExecInfo {
+    pub pid: Option<u32>,
+    pub is_pty: bool,
+}
+
 impl Exec {
     fn check(&self, context: &Context) -> Result<()> {
         self.owner.check(context)?;
@@ -504,6 +516,31 @@ impl Exec {
             "exec process belongs to a previous container run"
         );
         Ok(())
+    }
+
+    pub fn info(&self, context: &Context) -> Result<ExecInfo> {
+        self.check(context)?;
+        Ok(ExecInfo {
+            pid: (self.process.pid > 0).then_some(self.process.pid as u32),
+            is_pty: self.process.terminal,
+        })
+    }
+
+    pub async fn resize(&self, context: &Context, cols: u16, rows: u16) -> Result<()> {
+        self.check(context)?;
+        let size = TerminalSize::new(cols, rows)?;
+        anyhow::ensure!(self.process.terminal, "exec process has no pseudo-terminal");
+        let process = self.process.clone();
+        let run = self.run;
+        self.owner
+            .effect(context, move |_, cell| async move {
+                anyhow::ensure!(
+                    cell.current_run() == run,
+                    "exec process belongs to a previous container run"
+                );
+                process.resize(size).await
+            })
+            .await
     }
 
     pub async fn read_stdout(&self, context: &Context) -> Result<Vec<u8>> {
@@ -516,7 +553,7 @@ impl Exec {
 
     async fn read(&self, context: &Context, channel: u8) -> Result<Vec<u8>> {
         self.check(context)?;
-        let bytes = self.process.read(channel).await;
+        let bytes = self.process.read(channel).await?;
         self.check(context)?;
         Ok(bytes.to_vec())
     }

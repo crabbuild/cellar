@@ -17,9 +17,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
+| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence | Complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -43,7 +43,7 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
-| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; automatic byte-source stdin, callback-independent process observations, actual file operations, explicit native handle retirement and original-event authority |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, terminals and Files | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize evidence, actual file operations, explicit handle retirement and original-event authority |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
@@ -2028,3 +2028,70 @@ admission fix. No real Cloudflare image, JS/TS tooling campaign or live E2B/Verc
 account was rerun for this native lifecycle slice. The previous image and
 package evidence remains separately recorded above. Fresh Linux PR-head CI is
 required; the full SP-02–SP-10 profiles remain partial or outstanding.
+
+
+## Native terminal execution and process metadata
+
+The shared native provider now accepts `pty: { cols, rows }` and advertises an
+explicit `exec_pty` capability. The native Rust SDK uses `TerminalSize`; Python
+uses `pty=(cols, rows)` and JavaScript/TypeScript use the same named dimensions.
+Process `info()` reports `pid` and `is_pty`, and `resize` uses the original
+resource handle. E2B/Vercel keep `exec_pty: false` and refuse terminal arguments
+before provider execution, including through their direct command validators.
+
+| Boundary | Implemented contract |
+| --- | --- |
+| Allocation | Validate dimensions 1–65,535; require Docker API 1.42+ before allocating a terminal, with initial rows/columns on exec create/start |
+| Identity | Consume only the shell's private PID prelude; accept terminal CRLF, preserve the exact following bytes and never substitute Docker's daemon-host PID |
+| Missing handshake | Portable metadata reports absent PID; Cloudflare reports undefined. The pinned helper image provides the shell and verifies its actual process PID |
+| Terminal transport | Raw PTY bytes, combined stderr and native terminal discipline; ordinary pipes retain their framed binary transport |
+| Metadata / resize | Existing native cell/run and common invocation checks; readonly immutable metadata, bounded dimensions, output proof before acknowledged native resize and no replay |
+| Cloudflare shape | `pty: true` defaults to 80×24, pipe stdin and combined stderr; `resize` returns void and reserves event/callback ownership before queueing. Failed acknowledgement remains reported event work |
+| Retirement | Observed process exit closes its logical input lifetime, permitting explicit native retirement even when default PTY stdin was untouched |
+| Stream faults | Split oversized Docker frames into 64 KiB reads instead of frame-sized allocations; truncated headers/bodies and malformed framing fail reads and wait rather than publishing successful partial EOF |
+
+| Current campaign | Result |
+| --- | --- |
+| Native process transport | Nine exec identity/stream tests pass, including raw CRLF/binary output, fragmented PID admission, large framed output with backpressure and truncation refusal |
+| Native SDK | Both native-container integrations pass; API 1.41 refusal allocates no process, while supported terminal create/resize parameters, combined channels, metadata and existing ownership/run checks pass |
+| Shared providers / fleet | All 41 container tests pass: 25 library, five provider/journal integrations, six running-node supervision and five native fleet cases |
+| Runtime / language facades | All 83 Node/V8 library tests, two terminal-capability integrations, four E2B/Vercel acceptance cases and five Worker module cases pass; CPython's container program and both provider programs also pass |
+| Actual image | The unchanged 1.0.3 helper/base image passes the complete extended image test in 40.29 seconds: kernel 80×24 then 132×40, actual Node PID equality, true tty input/output, combined stderr/CRLF, two terminal allocations and exactly one provider resize |
+| Authority / cleanup | Invalid and foreign-event resizes produce no provider resize; fast default PTY input still retires. Every route requires zero active/fallback-released handles, final explicit allocation/release equality and joined native/Node shutdown |
+| Existing image assertions | Exact 2 MiB + 17-byte stdin/Files hashes, original 134 stdin allocations, source/callback/transaction/ignored-output/error cases and all file/fault/destroy routes remain intact |
+| Tooling | All 124 JS checks pass, including 26 process-facade checks, both TypeScript suites and packed imports; both 1.x identity/drift checks and the fixture build pass. The terminal child program is separately pinned readable source |
+| Strict lint | Core/container/guest/Node/V8/embedded-Python all-target Clippy passes; existing vendored Raft lifetime warnings remain |
+| Repository checks | Rust format/layout for 1,218 sources, JS formatting for 104 sources, docs/816 references, whitespace and the 466-package native engine exclusion guard pass |
+
+This totals 147 Rust tests (including the image case), three standalone Python
+acceptance programs, 124 JS tooling tests and two input identity checks. The
+selected campaign keeps the original 120-second native image handler,
+30-second JS budget, 2,048 operations and two-second Node heartbeat. The private
+Colima profile uses its original two CPUs/four GiB with no mounts; Rust runs on
+macOS arm64 using the checkout-specific workspace target. Node is 24.21.0 and
+CPython is 3.14.6. The immutable image remains
+`sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40`
+with helper
+`sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec`.
+After qualification the owned VM is stopped, its configuration bytes match the
+original, Docker's active context remains `default`, and unrelated stopped
+containers are preserved.
+
+The first real-image campaign failed because resize called a context method
+that the facade does not expose; its unit fixture incorrectly supplied that
+method. The actual event-retention hook already verifies authority. Removing
+the nonexistent call and the incorrect fixture method produces the passing image
+campaign; shutdown assertions and all budgets remain unchanged. Bounded route
+and shutdown diagnostics preserve the initiating failure instead of hiding it
+behind a later drain assertion.
+
+The preceding lifecycle commit's
+[Linux JavaScript/Node CI](https://github.com/crabbuild/cellar/actions/runs/40494986716)
+passes, as do its Python example and typed-RPC workflows; its full SDK workflow
+was still running when checked. A fresh Linux run must qualify terminal changes.
+The earlier 250 ms cold-call failure did not reproduce in the initial full
+module run, five fresh full-module controls or the latest module campaign. This
+is passing evidence, not a verified cold-start fix; the earlier heartbeat
+failure also remains open. Broader PTY cancellation/termination faults, other
+engine/platform qualification, remaining 1.x APIs, live providers and the full
+SP-02–SP-10 requirements remain partial or outstanding.

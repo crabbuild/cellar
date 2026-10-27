@@ -129,13 +129,41 @@ async fn exercise(
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(125))
             .build()?;
-        for route in ["stdin", "late-read", "write", "read", "faults", "destroy"] {
+        for route in [
+            "stdin",
+            "late-read",
+            "terminal",
+            "write",
+            "read",
+            "faults",
+            "destroy",
+        ] {
+            eprintln!("Sandbox 1.0.3 route: {route}");
             let before_exec = counts.exec_calls.load(Ordering::SeqCst);
             let before_read = counts.stdout_reads.load(Ordering::SeqCst);
+            let before_resize = counts.resize_calls.load(Ordering::SeqCst);
             let response = client.get(format!("{address}/{route}")).send().await?;
             let status = response.status();
             let body = response.text().await?;
             ensure!(status.is_success(), "{route}: {status}: {body}");
+            if route == "terminal" {
+                let value: Value = serde_json::from_str(&body)?;
+                ensure!(value["combined"] == true && value["initial"]["tty"] == true);
+                ensure!(value["initial"]["cols"] == 80 && value["initial"]["rows"] == 24);
+                ensure!(value["resized"]["cols"] == 132 && value["resized"]["rows"] == 40);
+                ensure!(value["initial"]["pid"] == value["resized"]["pid"]);
+                ensure!(value["defaults"]["cols"] == 80 && value["defaults"]["rows"] == 24);
+                ensure!(counts.exec_calls.load(Ordering::SeqCst) - before_exec == 2);
+                ensure!(
+                    counts.resize_calls.load(Ordering::SeqCst) - before_resize == 1,
+                    "invalid resize reached the provider"
+                );
+            } else {
+                ensure!(
+                    counts.resize_calls.load(Ordering::SeqCst) == before_resize,
+                    "foreign terminal resize reached the provider"
+                );
+            }
             if route == "read" || route == "stdin" {
                 let value: Value = serde_json::from_str(&body)?;
                 let bytes = (0..2 * 1024 * 1024 + 17)
@@ -182,11 +210,19 @@ async fn exercise(
         Ok::<_, anyhow::Error>(())
     }
     .await;
+    if let Err(error) = &result {
+        let evidence = format!("{error:#}");
+        eprintln!(
+            "Sandbox 1.0.3 route failure: {}",
+            evidence.chars().take(4096).collect::<String>()
+        );
+    }
     let stopped = node.shutdown(ShutdownMode::Preserve).await;
     let cleanup = cleanup(&docker, &host).await;
+    let outcome = stopped?;
     ensure!(
-        matches!(stopped?,NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
-        "native host did not join"
+        matches!(&outcome,NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
+        "native host did not join: {outcome:?}"
     );
     cleanup?;
     result

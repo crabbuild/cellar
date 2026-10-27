@@ -12,10 +12,11 @@
   "base_image": "node@sha256:85a395c77b811fa7f5b5e4aa69cd6eb4c3b80c7f1a8e34704dc0ce061e5b404e",
   "lock_sha256": "b22a9dd0b471db2cd2d09bfdf6eb904a14229e7b8dd0078a02aaaaf083eef20a",
   "files": {
-    "fixture.mjs": "101771bab172a54a8371abf09188be898886f31626ac507a2c471618294160e6",
+    "fixture.mjs": "5d33f5d5dcf4a3f4ca6a2c31e1a1fcb4fb8b7ba184da3220d787056995a45144",
     "Dockerfile": "6eb6fe23679f6aba1d394ad33e02785702ed7660a9306f8249eba2b201d24aa6",
     "node_modules/@cloudflare/sandbox/dist/index.mjs": "98862d6f071f19c2e5b1c57a1aea2578ebc3e40e0bcc2a5c5be13726ae669541",
-    "node_modules/@cloudflare/sandbox/LICENSE": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+    "node_modules/@cloudflare/sandbox/LICENSE": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+    "terminal-program.mjs": "b9ebbd20ad9e2f1030b7523dde178049f9c3b7ccffc26e7ca2b6c63783a95548"
   },
   "qualified_files": [
     "mkdir",

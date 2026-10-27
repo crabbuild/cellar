@@ -22,6 +22,7 @@ pub struct Counts {
     pub active: AtomicUsize,
     pub unreleased: AtomicUsize,
     pub stdout_reads: AtomicUsize,
+    pub resize_calls: AtomicUsize,
 }
 
 pub struct CountingProvider {
@@ -30,6 +31,10 @@ pub struct CountingProvider {
 }
 
 impl Provider for CountingProvider {
+    fn exec_pty(&self) -> bool {
+        self.inner.exec_pty()
+    }
+
     fn maintenance_backend(&self) -> Option<Arc<dyn MaintenanceBackend>> {
         self.inner.maintenance_backend()
     }
@@ -109,6 +114,9 @@ impl ProviderSession for Session {
             }
             if operation == Operation::ReadStdout {
                 self.counts.stdout_reads.fetch_add(1, Ordering::SeqCst);
+            }
+            if operation == Operation::ResizeExec {
+                self.counts.resize_calls.fetch_add(1, Ordering::SeqCst);
             }
             let result = self.inner.execute(context, operation, input, limits).await;
             if let Ok(value) = &result {

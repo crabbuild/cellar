@@ -10,9 +10,9 @@ use hyper::{
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -26,6 +26,7 @@ mod files;
 
 #[derive(Default)]
 pub struct Engine {
+    pub api_minor: AtomicUsize,
     pub(super) files: files::Files,
     pub startup_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub start_entered: AtomicBool,
@@ -39,6 +40,7 @@ pub struct Engine {
     pub labels: Mutex<HashMap<String, Value>>,
     pub networks: Mutex<HashMap<String, Value>>,
     pub execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub(super) terminal_execs: Mutex<HashSet<String>>,
     pub calls: Mutex<Vec<(String, String, Value)>>,
     pub network_ip: Option<String>,
     pub http_port: u16,
@@ -76,7 +78,10 @@ impl Engine {
             return self.files.answer(&method, &path, &query, &raw_body);
         }
         let mut status = 200;
-        let value = if path == "/containers/json" {
+        let value = if path == "/version" {
+            let minor = self.api_minor.load(Ordering::SeqCst);
+            json!({"ApiVersion":format!("1.{}", if minor == 0 { 43 } else { minor })})
+        } else if path == "/containers/json" {
             let filters = url::form_urlencoded::parse(query.as_bytes())
                 .find(|(key, _)| key == "filters")
                 .unwrap()
@@ -247,7 +252,20 @@ impl Engine {
             let mut execs = self.execs.lock().unwrap();
             let id = format!("exec{}", execs.len() + 1);
             execs.insert(id.clone(), Arc::new(AtomicBool::new(false)));
+            if body["Tty"] == true {
+                self.terminal_execs.lock().unwrap().insert(id.clone());
+            }
             json!({"Id":id})
+        } else if path.starts_with("/exec/") && path.ends_with("/resize") {
+            let id = path
+                .trim_start_matches("/exec/")
+                .trim_end_matches("/resize");
+            anyhow::ensure!(
+                self.terminal_execs.lock().unwrap().contains(id),
+                "resize requires a terminal exec"
+            );
+            status = 201;
+            json!({})
         } else if path.starts_with("/exec/") && path.ends_with("/json") {
             let id = path.trim_start_matches("/exec/").trim_end_matches("/json");
             let ended = self
@@ -263,10 +281,18 @@ impl Engine {
             let id = path.trim_start_matches("/exec/").trim_end_matches("/start");
             let ended = self.execs.lock().unwrap().get(id).unwrap().clone();
             let upgrade = hyper::upgrade::on(&mut request);
+            let terminal = body["Tty"] == true;
             tokio::spawn(async move {
                 let mut stream = TokioIo::new(upgrade.await.unwrap());
                 let mut stdin = Vec::new();
                 stream.read_to_end(&mut stdin).await.unwrap();
+                if terminal {
+                    let _ = stream.write_all(&stdin).await;
+                    let _ = stream.write_all(b"stderr").await;
+                    ended.store(true, Ordering::SeqCst);
+                    let _ = stream.shutdown().await;
+                    return;
+                }
                 for (channel, bytes) in [(1u8, stdin.as_slice()), (2, b"stderr".as_slice())] {
                     let mut header = [0u8; 8];
                     header[0] = channel;

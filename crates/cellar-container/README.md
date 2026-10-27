@@ -178,12 +178,56 @@ flowchart TD
 | Set idle timeout | `set_inactivity_timeout(ms)` | `setInactivityTimeout(ms)` |
 | Binary files / metadata | `read_file`, `write_file`, `stat_file`, `list_files` | `readFile`, `writeFile`, `statFile`, `listFiles` |
 | Interactive process I/O | `exec(cmd)` | `exec({ cmd })` |
+| Terminal allocation | `exec(cmd, pty=(80, 24))` | `exec({ cmd, pty: { cols: 80, rows: 24 } })` |
+| Process identity / terminal size | `process.info()` / `await process.resize(cols, rows)` | Same async names |
 | Bounded stdout + stderr | `exec_output(cmd, max_bytes=n)` | `execOutput({ cmd }, n)` |
 | Port readiness / buffered HTTP | `port(n).wait_ready` / `.fetch` | `port(n).waitReady` / `.fetch` |
 | Raw TCP / WebSocket | `port(n).connect` / `.connect_websocket` | `port(n).connect` / `.connectWebSocket` |
 
 Here `c = ctx.container`. Lifecycle, port and streaming examples are in the
 [integration guide](../../docs/09-integrations.md#apis-in-each-language).
+
+## Terminal execution
+
+Check `exec_pty` before requesting a terminal. Dimensions are character cells,
+from 1 to 65,535; the native engine requires Docker API 1.42 or newer. Terminal
+discipline combines stdout/stderr and can transform input and line endings.
+Use ordinary pipes for binary file transfers.
+
+```javascript
+const process = await ctx.container.exec({
+  cmd: ["sh"],
+  pty: { cols: 80, rows: 24 },
+});
+const { pid, is_pty } = await process.info();
+await process.resize(132, 40);
+await process.write(Uint8Array.of(101, 120, 105, 116, 10)); // "exit" then Enter
+await process.closeStdin();
+async function discard(read) {
+  while ((await read()).length) {}
+}
+try {
+  await Promise.all([
+    discard(() => process.readStdout()),
+    discard(() => process.readStderr()),
+    process.wait(),
+  ]);
+} finally {
+  await process.release();
+}
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Rust native SDK | `ExecOptions::pty` takes a validated `TerminalSize`; `Exec::info(context)` and `resize(context, cols, rows)` check cell/run authority |
+| Portable Rust | `Operation::ExecInfo` and `Operation::ResizeExec` use the original event's resource handle |
+| PID | Verified inside the container by the shell handshake; `None`/`null` when unavailable, never Docker's daemon-host PID |
+| Resize | Original handle and run checks, required durability/output proof, then an acknowledged engine request; no retry after an uncertain reply |
+| Capability refusal | E2B/Vercel declare `exec_pty: false`; terminal requests refuse before provider dispatch |
+| Output failure | Truncated or malformed framed output is an error; one large frame is read in bounded 64 KiB chunks |
+
+PID metadata grants no new authority. Guest handles remain invocation-owned;
+native Rust handles retain their existing cell/activation/run lifetime.
 
 ## Discover capabilities
 
@@ -214,6 +258,7 @@ authority, but does not start a container or call the provider's effect dispatch
 | `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |
 | `synchronous_running` | Opt-in, authoritative running observation with no backend I/O; required by the Workers property |
 | `queued_lifecycle` | Opt-in to bounded, synchronous lifecycle admission followed by asynchronous provider execution |
+| `exec_pty` | Explicit terminal-allocation support; independent of a provider's Linux environment declaration |
 
 `Native` declares Linux and enforces 64 live handles per invocation. JS and Python
 return immutable metadata. The `worker_isolate` enum value describes a possible

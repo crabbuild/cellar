@@ -190,8 +190,13 @@ async function processTypes(container: DurableObjectContainer) {
   await streamed.output();
   // @ts-expect-error: process stdin accepts byte streams, not text streams
   await container.exec(["tool"], { stdin: new ReadableStream<string>() });
-  // @ts-expect-error: PTY support is not implemented by this process profile
-  await container.exec(["tool"], { pty: true });
+  const terminal = await container.exec(["tool"], { pty: true });
+  const pid: number | undefined = terminal.pid;
+  const isPty: boolean = terminal.isPty;
+  const resize: void = terminal.resize(132, 40);
+  void [pid, isPty, resize];
+  // @ts-expect-error: terminal dimensions are numeric
+  await container.exec(["tool"], { pty: { cols: "wide" } });
   return { bytes, code };
 }
 void processTypes;

@@ -356,6 +356,7 @@ class ContainerCapabilities:
     synchronous_running: bool
     queued_lifecycle: bool
     fencing: str
+    exec_pty: bool
 
 
 @dataclass(frozen=True)
@@ -365,10 +366,24 @@ class ContainerExecOutput:
     stderr: bytes
 
 
+@dataclass(frozen=True)
+class ContainerExecInfo:
+    """Allocation metadata; pid is a verified container PID or None."""
+    pid: int | None
+    is_pty: bool
+
+
 class ContainerExec:
     """Invocation-owned streams; drain stdout and stderr concurrently."""
     def __init__(self, context: Context, resource_id: str) -> None:
         self._context, self._id = context, resource_id
+
+    async def info(self) -> ContainerExecInfo:
+        value = await self._context._call("container.exec.info", id=self._id)
+        return ContainerExecInfo(value["pid"], value["is_pty"])
+
+    async def resize(self, cols: int, rows: int) -> None:
+        await self._context._call("container.exec.resize", id=self._id, cols=cols, rows=rows)
 
     async def read_stdout(self) -> bytes:
         return base64.b64decode(await self._context._call("container.exec.read_stdout", id=self._id))
@@ -557,16 +572,20 @@ class Container:
         await self._context._call("container.set_inactivity_timeout", timeout_ms=timeout_ms)
 
     async def exec(self, cmd: list[str], *, env: Headers = (), cwd: str | None = None,
-                   user: str | None = None, combined: bool = False) -> ContainerExec:
+                   user: str | None = None, combined: bool = False,
+                   pty: tuple[int, int] | None = None) -> ContainerExec:
         resource_id = await self._context._call("container.exec", options=dict(
-            cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined))
+            cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined,
+            pty=None if pty is None else dict(cols=pty[0], rows=pty[1])))
         return ContainerExec(self._context, resource_id)
 
     async def exec_output(self, cmd: list[str], *, max_bytes: int = 1048576,
                           env: Headers = (), cwd: str | None = None,
-                          user: str | None = None, combined: bool = False) -> ContainerExecOutput:
+                          user: str | None = None, combined: bool = False,
+                          pty: tuple[int, int] | None = None) -> ContainerExecOutput:
         value = await self._context._call("container.exec_output", max_bytes=max_bytes,
-            options=dict(cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined))
+            options=dict(cmd=cmd, env=list(env), cwd=cwd, user=user, combined=combined,
+                         pty=None if pty is None else dict(cols=pty[0], rows=pty[1])))
         return ContainerExecOutput(value["exit_code"], base64.b64decode(value["stdout"]), base64.b64decode(value["stderr"]))
 
     def port(self, port: int) -> ContainerPort:
@@ -704,7 +723,7 @@ class ContainerBindingCapabilities:
 def _container_capabilities(value):
     return ContainerCapabilities(value["format"], value["provider"], value["environment"],
         tuple(value["operations"]), value["max_body_bytes"], value["max_resources"],
-        value["synchronous_running"], value["queued_lifecycle"], value["fencing"])
+        value["synchronous_running"], value["queued_lifecycle"], value["fencing"], value["exec_pty"])
 
 
 class ContainerBindings:

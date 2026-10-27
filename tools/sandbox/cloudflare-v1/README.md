@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Sandbox 1.0.3: native exec and Files profile
+# Sandbox 1.0.3: native processes, terminals and Files
 
 This separate, partial profile preserves the
 [celld/Sandbox 0.12.9 baseline](../compat/README.md).
@@ -36,6 +36,9 @@ await container.setInactivityTimeout(60_000);
 | --- | --- |
 | Admission | Wait for earlier queued startup; literal argv, nonempty executable without a leading hyphen |
 | Environment / user | Explicit cwd/env; user requires numeric UID:GID |
+| `pid` / `isPty` | Immutable allocation metadata; the PID is verified inside the container, never taken from Docker's daemon namespace. Shell-less images report unavailable PID |
+| `pty` | `true` defaults to 80 columns / 24 rows; explicit dimensions are 1–65,535. stdin defaults to pipe and stderr must be combined; requires Docker API 1.42+ |
+| `resize(cols, rows)` | Returns void; reserves event/callback lifetime before queueing an original-handle native control. Invalid sizes refuse synchronously; failed acknowledgements remain reported event work, with no replay |
 | stdout / stderr | Node byte streams with backpressure; pipe, ignore, or combined stderr |
 | stdin | Omitted sends EOF; `"pipe"` exposes a byte writer; `ReadableStream<Uint8Array>` pumps automatically in native body-sized chunks |
 | `output()` | Collect once, with a combined native body-size limit; overflow fails without successful truncation |
@@ -55,6 +58,27 @@ no background reader until identity is known.
 Every handle retains its original invocation. Dropping streams or receiving an
 unknown result does not prove termination or undo file writes. Kill or destroy
 explicitly when the application requires termination.
+
+## Use a terminal
+
+```ts
+const process = await container.exec(["sh"], {
+  pty: { cols: 80, rows: 24 },
+});
+console.log(process.pid, process.isPty);
+process.resize(132, 40);
+const writer = process.stdin!.getWriter();
+await writer.write(new TextEncoder().encode("exit\n"));
+await writer.close();
+writer.releaseLock();
+const output = await process.output();
+```
+
+PTY output carries the kernel's terminal discipline, including CRLF and combined
+stderr. Ordinary pipe mode preserves binary bytes. A process that exits retires
+its native handle even if its default terminal input writer was never opened.
+The portable SDK exposes the same controls through `exec_pty`, `info()` and an
+acknowledged `resize()`; Cloudflare's resize surface remains void.
 
 ## Stream a command's input
 
@@ -125,6 +149,9 @@ cargo test --locked -p cellar-javascript --features node \
 | Acceptance | Boundary |
 | --- | --- |
 | Binary stdout/stderr, nonzero exit and missing executable | Native Linux exec and bounded output; shell-backed missing command exits 127 |
+| Terminal identity / initial geometry | Compare the facade PID with the actual Node process PID, confirm tty input/output and read 80×24 from kernel `stty` |
+| Resize / terminal channels | Resize to 132×40 before ordered stdin, inspect the new kernel geometry, require combined stderr/CRLF, and refuse malformed/foreign controls before provider dispatch |
+| Default terminal retirement | A fast terminal command with untouched default stdin still explicitly releases its native handle; no event-drop fallback |
 | Source stdin, 2 MiB + 17 bytes | Exact length/SHA-256 through native chunked writes; callback returns before process exit |
 | 130 sequential source processes | Byte-for-byte echo, unlocked source readers and reusable retention/handle capacity; existing limits stay unchanged |
 | Early exit and invalid source chunks | Cancel pending input, release its reader and preserve the source `TypeError` over observation cancellation |
@@ -162,8 +189,8 @@ engine, omit it to check production admission and report both measurements.
 
 ## Remaining compatibility
 
-This does not qualify all Sandbox 1.x operations. PID/PTY/resize,
-image selection, snapshots, outbound handlers, S3 mounts,
+This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
+outbound handlers, S3 mounts,
 directory backups, full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
 requires Node; embedded V8 still lacks that web bootstrap. Shared-framework

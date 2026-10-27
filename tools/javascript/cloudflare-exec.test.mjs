@@ -36,6 +36,10 @@ function fixture({
     }
   }
   const context = {
+    _waitUntil(pending) {
+      work.push(pending);
+      pending.catch(() => {});
+    },
     _sync: () => ({ max_body_bytes: limit }),
     _decode: (value) => Uint8Array.from(Buffer.from(value, "base64")),
     _encode: (value) => Buffer.from(value).toString("base64"),
@@ -51,6 +55,8 @@ function fixture({
       if (name === "container.release") return null;
       assert.equal(input.id, 1);
       const method = name.split(".").at(-1);
+      if (method === "info")
+        return { pid: 42, is_pty: Boolean(calls[0][1].options.pty) };
       if (chunks[method]) {
         if (blockOutput) await waitForExit(signal);
         return Buffer.from(chunks[method].shift()).toString("base64");
@@ -71,6 +77,8 @@ function fixture({
 test("Workers exec closes omitted stdin and preserves binary output and nonzero exits", async () => {
   const { context, calls } = fixture();
   const process = await containerExec(context, ["tool", "literal; argument"]);
+  assert.equal(process.isPty, false);
+  assert.throws(() => process.resize(80, 24), TypeError);
   const output = await process.output();
   assert.deepEqual(new Uint8Array(output.stdout), Uint8Array.of(0, 255));
   assert.deepEqual(new Uint8Array(output.stderr), Uint8Array.of(42));
@@ -109,7 +117,7 @@ test("invalid modes and pre-aborted exec refuse before native allocation", async
     [[], {}],
     [[""], {}],
     [["-tool"], {}],
-    [["tool"], { pty: true }],
+    [["tool"], { pty: "terminal" }],
     [["tool"], { stdout: "ignore", stderr: "combined" }],
     [["tool"], { unknown: true }],
     [["tool"], { user: "1000" }],
@@ -124,6 +132,140 @@ test("invalid modes and pre-aborted exec refuse before native allocation", async
     { name: "AbortError" },
   );
   assert.deepEqual(calls, []);
+});
+
+test("terminal exec defaults, metadata and resize preserve process control ordering", async () => {
+  const { context, calls, finish } = fixture({
+    stdout: [[65, 13, 10]],
+    stderr: [],
+  });
+  const process = await containerExec(context, ["tool"], { pty: true });
+  assert.deepEqual(calls[0][1].options.pty, { cols: 80, rows: 24 });
+  assert.equal(calls[0][1].options.combined, true);
+  assert.equal(process.pid, 42);
+  assert.equal(process.isPty, true);
+  assert.equal(process.stderr, null);
+  assert.equal(process.resize(132, 40), undefined);
+  const writer = process.stdin.getWriter();
+  await writer.write(Uint8Array.of(42));
+  writer.releaseLock();
+  const resize = calls.findIndex(([name]) => name === "container.exec.resize");
+  const write = calls.findIndex(([name]) => name === "container.exec.write");
+  assert.ok(resize >= 0 && resize < write);
+  assert.deepEqual(calls[resize][1], { id: 1, cols: 132, rows: 40 });
+  finish();
+  const output = await process.output();
+  assert.deepEqual(new Uint8Array(output.stdout), Uint8Array.of(65, 13, 10));
+  assert.equal(output.stderr.byteLength, 0);
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("terminal shape and dimensions refuse before allocation; resize validates synchronously", async () => {
+  const { context, calls, finish } = fixture();
+  for (const options of [
+    { pty: { unknown: 1 } },
+    { pty: true, stderr: "pipe" },
+    { pty: null },
+  ])
+    await assert.rejects(containerExec(context, ["tool"], options), TypeError);
+  for (const pty of [
+    { cols: 0 },
+    { rows: 65536 },
+    { cols: 1.5 },
+    { rows: null },
+  ])
+    await assert.rejects(containerExec(context, ["tool"], { pty }), RangeError);
+  assert.deepEqual(calls, []);
+  const process = await containerExec(context, ["tool"], {
+    pty: { cols: 100 },
+  });
+  assert.deepEqual(calls[0][1].options.pty, { cols: 100, rows: 24 });
+  for (const dims of [
+    [0, 1],
+    [1, 65536],
+    [undefined, undefined],
+  ])
+    assert.throws(() => process.resize(...dims), RangeError);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.resize").length,
+    0,
+  );
+  finish();
+  await process.output();
+});
+
+test("metadata failure retires the accepted handle without replay or consuming source input", async () => {
+  const { context, calls } = fixture();
+  const call = context._call.bind(context);
+  context._call = (name, ...args) =>
+    name === "container.exec.info"
+      ? Promise.reject(new Error("metadata unavailable"))
+      : call(name, ...args);
+  let pulled = 0;
+  const input = new ReadableStream(
+    {
+      pull() {
+        pulled++;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  await assert.rejects(
+    containerExec(context, ["tool"], { stdin: input }),
+    /metadata unavailable/,
+  );
+  assert.equal(pulled, 0);
+  assert.equal(input.locked, false);
+  assert.equal(calls.filter(([name]) => name === "container.exec").length, 1);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.kill").length,
+    1,
+  );
+  assert.equal(
+    calls.filter(([name]) => name === "container.release").length,
+    1,
+  );
+});
+
+test("void resize reserves event and callback ownership before native dispatch", async () => {
+  for (const hook of ["_waitUntil", "_containerControl"]) {
+    const { context, calls, finish, work } = fixture();
+    const terminal = await containerExec(context, ["tool"], { pty: true });
+    context[hook] = () => {
+      throw new Error("retention refused");
+    };
+    assert.throws(() => terminal.resize(100, 30), /retention refused/);
+    await Promise.allSettled(work);
+    assert.equal(
+      calls.filter(([name]) => name === "container.exec.resize").length,
+      0,
+    );
+    finish();
+    await terminal.output();
+  }
+});
+
+test("void resize reports a lost acknowledgement through its event without replay", async () => {
+  const { context, calls, finish, work } = fixture();
+  const call = context._call.bind(context);
+  context._call = async (name, ...args) => {
+    const result = await call(name, ...args);
+    if (name === "container.exec.resize")
+      throw new Error("resize acknowledgement lost");
+    return result;
+  };
+  const terminal = await containerExec(context, ["tool"], { pty: true });
+  assert.equal(terminal.resize(100, 30), undefined);
+  await assert.rejects(work.at(-1), /resize acknowledgement lost/);
+  assert.equal(
+    calls.filter(([name]) => name === "container.exec.resize").length,
+    1,
+  );
+  finish();
+  await terminal.output();
 });
 
 test("output quota failure releases the process without replay or successful truncation", async () => {

@@ -90,6 +90,8 @@ pub enum Operation {
     CloseStdin,
     WaitExec,
     KillExec,
+    ExecInfo,
+    ResizeExec,
     WaitPort,
     Fetch,
     FetchStream,
@@ -130,6 +132,8 @@ impl Operation {
         Self::CloseStdin,
         Self::WaitExec,
         Self::KillExec,
+        Self::ExecInfo,
+        Self::ResizeExec,
         Self::WaitPort,
         Self::Fetch,
         Self::FetchStream,
@@ -170,6 +174,8 @@ impl Operation {
             "container.exec.close_stdin" => Ok(Self::CloseStdin),
             "container.exec.wait" => Ok(Self::WaitExec),
             "container.exec.kill" => Ok(Self::KillExec),
+            "container.exec.info" => Ok(Self::ExecInfo),
+            "container.exec.resize" => Ok(Self::ResizeExec),
             "container.port.wait_ready" => Ok(Self::WaitPort),
             "container.port.fetch" => Ok(Self::Fetch),
             "container.port.fetch_stream" => Ok(Self::FetchStream),
@@ -212,6 +218,8 @@ impl Operation {
             Self::CloseStdin => "container.exec.close_stdin",
             Self::WaitExec => "container.exec.wait",
             Self::KillExec => "container.exec.kill",
+            Self::ExecInfo => "container.exec.info",
+            Self::ResizeExec => "container.exec.resize",
             Self::WaitPort => "container.port.wait_ready",
             Self::Fetch => "container.port.fetch",
             Self::FetchStream => "container.port.fetch_stream",
@@ -242,6 +250,7 @@ impl Operation {
                 | Self::ReadStdout
                 | Self::ReadStderr
                 | Self::WaitExec
+                | Self::ExecInfo
                 | Self::ReadSocket
                 | Self::ReceiveWebSocket
                 | Self::ReadResponse
@@ -285,6 +294,12 @@ pub trait Provider: Send + Sync {
     /// Maximum live handles enforced by the provider, when declared.
     fn max_resources(&self) -> Option<usize> {
         None
+    }
+
+    /// Whether exec/exec_output accept terminal allocation. Unsupported
+    /// providers refuse this option before any provider call.
+    fn exec_pty(&self) -> bool {
+        false
     }
 
     /// Whether sessions implement an immediate, I/O-free running snapshot.
@@ -333,6 +348,10 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn exec_pty(&self) -> bool {
+        true
+    }
+
     fn fencing(&self) -> Fencing {
         Fencing::NativeCell
     }
@@ -567,7 +586,18 @@ impl Session {
                     || self.provider.operations().contains(&operation),
                 "unsupported provider operation"
             );
-            native::validate(operation.name(), &input, limits)
+            native::validate(operation.name(), &input, limits)?;
+            if matches!(operation, Operation::Exec | Operation::ExecOutput)
+                && input["options"]
+                    .get("pty")
+                    .is_some_and(|value| !value.is_null())
+            {
+                ensure!(
+                    self.provider.exec_pty(),
+                    "provider does not support terminal exec"
+                );
+            }
+            Ok(())
         })()
         .context(Validation)?;
         let candidate = context.container_provider_authority()?;

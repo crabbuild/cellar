@@ -4,9 +4,11 @@ import { createHash } from "node:crypto";
 import { Files, SandboxFileError } from "@cloudflare/sandbox";
 import { DurableObject } from "cloudflare:workers";
 import { workersApplication } from "../../../packages/cellar-cloudflare/index.js";
+import { terminalProgram } from "./terminal-program.mjs";
 
 const length = 2 * 1024 * 1024 + 17;
 let saved;
+let savedTerminal;
 let nativeContext;
 function check(condition, message) {
   if (!condition) throw new Error(message);
@@ -39,6 +41,101 @@ class Workspace extends DurableObject {
       });
     await container.setInactivityTimeout(60_000);
     const route = new URL(request.url).pathname;
+    if (route === "/terminal") {
+      const command = ["node", "-e", terminalProgram];
+      const terminal = await container.exec(command, {
+        pty: { cols: 80, rows: 24 },
+      });
+      check(
+        terminal.isPty && terminal.pid > 1 && terminal.stderr === null,
+        "terminal allocation",
+      );
+      const reader = terminal.stdout.getReader();
+      const writer = terminal.stdin.getWriter();
+      const decoder = new TextDecoder();
+      let buffered = "",
+        transcript = "";
+      async function marker() {
+        for (;;) {
+          const newline = buffered.indexOf("\n");
+          if (newline >= 0) {
+            const line = buffered.slice(0, newline).replace(/\r$/, "");
+            buffered = buffered.slice(newline + 1);
+            if (line.startsWith("cellar-pty:"))
+              return JSON.parse(line.slice(11));
+            continue;
+          }
+          const { value, done } = await reader.read();
+          check(!done, "terminal ended before its marker");
+          const text = decoder.decode(value, { stream: true });
+          check(
+            transcript.length + text.length <= 4096,
+            "terminal transcript quota",
+          );
+          transcript += text;
+          buffered += text;
+        }
+      }
+      const initial = await marker();
+      check(
+        initial.stage === "initial" &&
+          initial.tty &&
+          initial.pid === terminal.pid &&
+          initial.cols === 80 &&
+          initial.rows === 24,
+        "initial terminal identity/geometry",
+      );
+      let invalid = false;
+      try {
+        terminal.resize(0, 24);
+      } catch (error) {
+        invalid = error instanceof RangeError;
+      }
+      check(invalid, "invalid terminal resize did not refuse synchronously");
+      check(
+        terminal.resize(132, 40) === undefined,
+        "terminal resize must return void",
+      );
+      await writer.write(new TextEncoder().encode("resized\n"));
+      const resized = await marker();
+      check(
+        resized.stage === "resized" &&
+          resized.pid === terminal.pid &&
+          resized.cols === 132 &&
+          resized.rows === 40,
+        "resized terminal geometry",
+      );
+      await writer.write(new TextEncoder().encode("done\n"));
+      check((await marker()).stage === "done", "terminal completion marker");
+      while (!(await reader.read()).done) {}
+      reader.releaseLock();
+      check((await terminal.exitCode) === 0, "terminal process failed");
+      await writer.close();
+      writer.releaseLock();
+      check(
+        transcript.includes("pty-stderr\r\n"),
+        "terminal stderr/CRLF was not combined",
+      );
+      savedTerminal = terminal;
+      const fast = await container.exec(
+        [
+          "node",
+          "-e",
+          "console.log(JSON.stringify({pid:process.pid,cols:process.stdout.columns,rows:process.stdout.rows}))",
+        ],
+        { pty: true },
+      );
+      const output = await fast.output();
+      const defaults = JSON.parse(new TextDecoder().decode(output.stdout));
+      check(
+        output.exitCode === 0 &&
+          defaults.pid === fast.pid &&
+          defaults.cols === 80 &&
+          defaults.rows === 24,
+        "default terminal geometry/automatic retirement",
+      );
+      return Response.json({ initial, resized, defaults, combined: true });
+    }
     if (route === "/stdin") {
       const native = nativeContext;
       let offset = 0;
@@ -332,6 +429,13 @@ class Workspace extends DurableObject {
       return Response.json({ written: length });
     }
     if (route === "/read") {
+      let staleTerminal = false;
+      try {
+        savedTerminal.resize(80, 24);
+      } catch (error) {
+        staleTerminal = /ContextExpired|ContextMismatch/.test(error.message);
+      }
+      check(staleTerminal, "saved terminal borrowed a later invocation");
       let refused = false;
       try {
         await saved.kill(9);

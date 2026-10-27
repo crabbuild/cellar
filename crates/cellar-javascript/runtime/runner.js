@@ -436,6 +436,7 @@
           "container.capabilities",
           "container.running",
           "container.monitor",
+          "container.exec.info",
           "container.exec.read_stdout",
           "container.exec.read_stderr",
           "container.exec.wait",
@@ -587,6 +588,7 @@
                 "container.capabilities",
                 "container.running",
                 "container.monitor",
+                "container.exec.info",
                 "container.exec.read_stdout",
                 "container.exec.read_stderr",
                 "container.exec.wait",
@@ -637,6 +639,8 @@
           kind === "exec"
             ? {
                 ...common,
+                info: async () => freeze(await operation("info")),
+                resize: (cols, rows) => operation("resize", { cols, rows }),
                 readStdout: async () => decode(await operation("read_stdout")),
                 readStderr: async () => decode(await operation("read_stderr")),
                 write: (bytes) => operation("write", { data: encode(bytes) }),
