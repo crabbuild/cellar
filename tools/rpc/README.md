@@ -392,6 +392,20 @@ embedded defaults; consumer-only Rust apps can use `Registry::rpc_contract`.
 Framework refusal envelopes have a fixed control budget so small business limits
 cannot turn a valid refusal into an invalid response.
 
+Native framework reply conversion validates the borrowed envelope, digest and
+control wire before allocating a business buffer. A successful result copies
+only its business body; wrong digests, invalid controls and oversized bodies
+are refused without copying that body. Failure text has a fixed pre-decode
+allowance. The allocation regression measures new allocator layouts separately
+from the already-owned input:
+
+```sh
+cargo test --locked -p cellar --test native_rpc_reply_allocation
+```
+
+This guard covers framework reply conversion. Business-message decoders, queued
+responses, shared backing allocations and process RSS require separate evidence.
+
 The generated inventory now records structural codec shapes. Provider startup
 compares live JS/Python descriptors with the native artifact before readiness;
 clients verify their codecs before encoding. Tests alter real descriptor fields,

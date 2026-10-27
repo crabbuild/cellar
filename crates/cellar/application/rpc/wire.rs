@@ -103,8 +103,17 @@ pub(super) fn validate_reply(bytes: &[u8], limits: Limits) -> Result<()> {
 /// Borrow the sole failure arm without decoding a business-response buffer.
 /// Full control validation still precedes the caller's failure codec. Reuse the
 /// wire parser so non-minimal varints cannot bypass outcome normalization.
-pub(super) fn failure_payload(mut bytes: &[u8]) -> Option<&[u8]> {
-    if varint(&mut bytes).ok()? != 0x12 {
+pub(super) fn failure_payload(bytes: &[u8]) -> Option<&[u8]> {
+    payload(bytes, 0x12)
+}
+
+/// Borrow the sole response body after complete framework control validation.
+pub(super) fn response_payload(bytes: &[u8]) -> Option<&[u8]> {
+    payload(bytes, 0x0a)
+}
+
+fn payload(mut bytes: &[u8], tag: u64) -> Option<&[u8]> {
+    if varint(&mut bytes).ok()? != tag {
         return None;
     }
     let payload = delimited(&mut bytes).ok()?;

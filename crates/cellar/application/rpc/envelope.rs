@@ -135,20 +135,30 @@ pub(super) fn reply(
 /// Decode a typed result after the native call and its output gate completed.
 /// Any malformed response has unknown effects, regardless of its claimed code.
 pub fn response(digest: &str, data: &RpcData, limits: Limits) -> Result<Vec<u8>, Failure> {
-    let (received, bytes) = decode_envelope(data, limits.reply_limit())
-        .map_err(|_| Failure::new(Code::InvalidResponse))?;
+    // Borrow identity and control shape from the original frame. Going through
+    // decode_envelope and Prost's Vec decoder would retain two temporary
+    // body-sized buffers before returning the owned business body.
+    let (received, bytes) = view(data).map_err(|_| Failure::new(Code::InvalidResponse))?;
     if digest != received {
         return Err(Failure::new(Code::InvalidResponse));
     }
-    super::wire::validate_reply(&bytes, limits).map_err(|_| Failure::new(Code::InvalidResponse))?;
-    let reply = Reply::decode(bytes.as_slice()).map_err(|_| Failure::new(Code::InvalidResponse))?;
-    match reply.result {
-        Some(ReplyResult::Response(bytes)) if bytes.len() <= limits.max_message_bytes => Ok(bytes),
-        Some(ReplyResult::Failure(error)) if error.message.len() <= 256 => {
-            Err(Failure::received(error.code, error.outcome)?)
+    super::wire::validate_reply(bytes, limits).map_err(|_| Failure::new(Code::InvalidResponse))?;
+    if let Some(body) = super::wire::response_payload(bytes) {
+        if body.len() > limits.max_message_bytes {
+            return Err(Failure::new(Code::InvalidResponse));
         }
-        _ => Err(Failure::new(Code::InvalidResponse)),
+        return Ok(body.to_vec());
     }
+    // A valid failure has only two enums and at most 256 message bytes. Refuse
+    // a large control before the failure codec allocates its text buffer.
+    let payload = super::wire::failure_payload(bytes)
+        .filter(|payload| payload.len() <= OVERHEAD)
+        .ok_or_else(|| Failure::new(Code::InvalidResponse))?;
+    let error = WireFailure::decode(payload).map_err(|_| Failure::new(Code::InvalidResponse))?;
+    if error.message.len() > 256 {
+        return Err(Failure::new(Code::InvalidResponse));
+    }
+    Err(Failure::received(error.code, error.outcome)?)
 }
 
 /// Normalize a raw typed result from entered application code, including

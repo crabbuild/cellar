@@ -75,7 +75,7 @@ jobs:
         run: |
           cargo test --locked -p cellar-guest
           cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
-          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store --test native_rpc_failure_provenance
+          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store --test native_rpc_failure_provenance --test native_rpc_reply_allocation
           cargo test --locked -p cellar-rpc-codegen --test descriptor_admission
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
