@@ -71,6 +71,32 @@ async fn check_routes(address: &str) -> Result<()> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
+    for route in ["fixed-response", "fixed-request"] {
+        let response = client
+            .get(format!("{address}/{route}"))
+            .send()
+            .await?
+            .error_for_status()?;
+        if route == "fixed-response" {
+            // External ingress owns framing. The guest head's inferred length
+            // must not bypass the native streaming response policy.
+            ensure!(response.headers().get("content-length").is_none());
+            ensure!(response
+                .headers()
+                .get("transfer-encoding")
+                .is_some_and(|value| value == "chunked"));
+        } else {
+            ensure!(
+                response
+                    .headers()
+                    .get("x-input-length")
+                    .is_some_and(|value| value == "3"),
+                "{route}: {:?}",
+                response.headers()
+            );
+        }
+        ensure!(response.bytes().await?.as_ref() == [0, 255, 42], "{route}");
+    }
     let value = get_json(&client, address, "loopback").await?;
     ensure!(
         value["greeting"] == "captured:javascript-test:worker" && value["prefix"] == "captured"

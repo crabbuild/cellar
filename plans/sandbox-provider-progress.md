@@ -77,6 +77,41 @@ metadata initiation/qualification remain open. The pinned S3/GCS low-level API
 cannot initiate metadata-bearing resumable uploads; that profile refuses before
 allocation. No live account or container-image campaign is claimed here.
 
+## Counted Workers byte streams — 2026-10-27
+
+`FixedLengthStream` now provides the byte-count validation needed by the
+published 1.0.3 directory-backup part gateway. It accepts safe integer number or
+bigint lengths, preserves BYOB/backpressure and caller buffers, and propagates
+short-write, overflow, producer-abort and consumer-cancellation failures. The
+facade infers request/reply head lengths from privately branded streams, and
+retains a request source's length through native body conversion without
+reading option accessors twice or changing their receiver.
+
+The native fixture caught a bundler collision: an upstream use of the global
+name renamed the local constructor, making installation by `Function.name`
+incorrect. Global installation now uses explicit API names, and the actual
+pinned-package bundle passes its original native Worker test with binary
+stream output and length-bearing routed requests. External streaming replies
+retain the host's existing chunked framing policy; fixed-length external
+response framing and cloned/teed length inference remain gaps.
+
+| Check | Evidence |
+| --- | --- |
+| JavaScript/TypeScript suite | 137 pass, including count mismatches, cancellation, native request conversion, response-head inference, accessor behavior and package delivery |
+| Native pinned Worker entrypoints | Initial full pass and five fresh-process repeats pass at original budgets; one intervening rerun reaches both stream checks, then fails the existing object route at its unchanged 250 ms deadline |
+| Strict Node adapter Clippy | Library and Worker-entrypoint test targets pass with `-D warnings` |
+
+The intervening cold-dispatch failure remains open; successful repeats do not
+establish its cause or repair. On the preceding pushed head `274af242`, the full
+Linux JavaScript/Node workflow `40529046449` now passes, including cold recovery,
+archive/admission and fleet delivery. The SDK workflow `40529046736` is still
+running, so the two new feature commits remain local to avoid cancelling that
+qualification run.
+
+This stream delivery does not qualify Workers R2 storage or the positive
+backup/mount gateway paths. The native resumable storage foundation above and
+these streams enable the next R2 binding slice.
+
 ## Verified implementation details
 
 ### Provider capability discovery

@@ -243,3 +243,14 @@ async function processTypes(container: DurableObjectContainer) {
   return { bytes, code };
 }
 void processTypes;
+
+const fixed = new FixedLengthStream(3n);
+const fixedInput: WritableStream<BufferSource> = fixed.writable;
+const fixedOutput: ReadableStream<Uint8Array> = fixed.readable;
+const identityOutput: ReadableStream<Uint8Array> = new IdentityTransformStream()
+  .readable;
+// @ts-expect-error: fixed lengths do not accept string coercion
+new FixedLengthStream("3");
+// @ts-expect-error: byte stream writers reject text
+fixed.writable.getWriter().write("text");
+void [fixedInput, fixedOutput, identityOutput];

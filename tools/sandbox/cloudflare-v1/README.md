@@ -201,7 +201,9 @@ cargo test -p cellar-javascript --features node --locked --test workers_entrypoi
 
 The same test covers class/object entrypoints, configured bindings, public
 properties, stateless construction, original-event background work, malformed
-input refusal and unknown results after execution. These gateway checks do not
+input refusal and unknown results after execution. It also exercises binary
+`FixedLengthStream` output and inferred length on native routed requests. External
+streaming replies retain Cellar's chunked framing policy. These checks do not
 qualify R2 multipart storage, outbound interception, directory backup/restore or
 S3 mounts. Those remain required delivery steps with the actual helper/image.
 

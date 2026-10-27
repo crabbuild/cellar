@@ -70,7 +70,10 @@ class Greeter extends Parent {
   }
   fetch(request) {
     return new Response(request.body, {
-      headers: { "x-prefix": this.ctx.props?.prefix ?? "none" },
+      headers: {
+        "x-prefix": this.ctx.props?.prefix ?? "none",
+        "x-input-length": request.headers.get("content-length") ?? "unknown",
+      },
     });
   }
 }
@@ -104,6 +107,29 @@ const app = workersApplication(
           ctx = this.ctx,
           native = nativeContext;
         const route = new URL(request.url).pathname;
+        if (route === "/fixed-response" || route === "/fixed-request") {
+          const { readable, writable } = new FixedLengthStream(3n);
+          ctx.waitUntil(
+            (async () => {
+              const writer = writable.getWriter();
+              try {
+                await writer.write(Uint8Array.of(0));
+                await writer.write(Uint8Array.of(255, 42));
+                await writer.close();
+              } finally {
+                writer.releaseLock();
+              }
+            })(),
+          );
+          if (route === "/fixed-response") return new Response(readable);
+          return ctx.exports.Greeter.fetch(
+            new Request("http://gateway/", {
+              method: "POST",
+              body: readable,
+              duplex: "half",
+            }),
+          );
+        }
         if (route === "/loopback") {
           const props = { prefix: "captured" };
           const stub = ctx.exports.Greeter({ props });

@@ -17,7 +17,7 @@
     "node_modules/@cloudflare/sandbox/dist/index.mjs": "98862d6f071f19c2e5b1c57a1aea2578ebc3e40e0bcc2a5c5be13726ae669541",
     "node_modules/@cloudflare/sandbox/LICENSE": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
     "terminal-program.mjs": "b9ebbd20ad9e2f1030b7523dde178049f9c3b7ccffc26e7ca2b6c63783a95548",
-    "gateways.mjs": "81f598689d51943f7eb2698fed28581940c1927a7f4d6842c3e4bd4539cf70ac"
+    "gateways.mjs": "dae9cf0215c1e193b71e9c9f1bfdb6ea45ba18d9c30a67fc41a13d443d1248a4"
   },
   "qualified_files": [
     "mkdir",

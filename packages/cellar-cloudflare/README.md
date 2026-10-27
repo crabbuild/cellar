@@ -108,7 +108,7 @@ const app = workersApplication(worker, {
 | Module dispatch | Object/class default `fetch`, named Worker entrypoints, DO `fetch`/prototype RPC/alarms, namespaces, variables and configured service bindings | Complete loader, compatibility dates/flags and other binding kinds |
 | Worker services | Native service/loopback fetch and value RPC, public inherited properties/methods, nested receiver paths, copied `ctx.props` and stateless instances; `ctx.exports` also exposes declared DO namespaces | Callable/stream/HTTP-message RPC capabilities, transferable service bindings and service capabilities inside props |
 | HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Worker/DO WebSocket forwarding and container-port/local pair upgrades, Set-Cookie fields, manual redirects and aborts | Embedded web bootstrap and complete versioned HTTP/upgrade qualification |
-| Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
+| Streams | Byte-only `IdentityTransformStream` and counted `FixedLengthStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance and fixed-length external response framing |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
 | KV | Sync `storage.kv`, async KV, batches, lists, alarm access and `sync` | PITR and full profile limits |
 | Values | Native structured clone: cycles, binary, maps/sets, dates, bigint, undefined and errors; returned functions, byte streams and HTTP messages in results/arguments preserve graph identity through native leases | Callback arguments and returned `RpcTarget` |
@@ -201,9 +201,36 @@ arguments, `RpcTarget`, property access, pipelining and complete disconnect/faul
 semantics remain unqualified. Capability markers cannot be persisted as callable
 values: only a live native session grants authority.
 
-The stream extension follows the documented byte-forwarding and BYOB contract
-for [IdentityTransformStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
-This API slice does not establish full Workers stream conformance.
+The stream extensions follow the documented byte-forwarding and BYOB contract
+for [IdentityTransformStream and FixedLengthStream](https://developers.cloudflare.com/workers/runtime-apis/streams/transformstream/).
+`FixedLengthStream` accepts a nonnegative safe integer `number` or `bigint`.
+It preserves backpressure and caller buffers, and rejects both endpoints on a
+short close or an overflowing write. Cancellation retains the original reason.
+
+```js
+const { readable, writable } = new FixedLengthStream(3n);
+ctx.waitUntil((async () => {
+  const writer = writable.getWriter();
+  try {
+    await writer.write(Uint8Array.of(0, 255, 42));
+    await writer.close();
+  } finally {
+    writer.releaseLock();
+  }
+})());
+return new Response(readable);
+```
+
+| Boundary | Length behavior |
+| --- | --- |
+| Stream producer | Exact byte count; closing early or writing past the declared length fails |
+| Facade request/reply head | Infers `Content-Length` from a private stream brand; arbitrary stream properties do not supply a length |
+| Routed fetch request | Retains the source's length through native `Request` body conversion |
+| External streaming response | Cellar owns framing and emits chunked output; application length headers are removed |
+
+Cloned/teed stream length inference and fixed-length external response framing
+remain unqualified. This API slice does not establish full Workers stream
+conformance or R2/backup compatibility.
 
 ### Returned RPC byte streams
 
