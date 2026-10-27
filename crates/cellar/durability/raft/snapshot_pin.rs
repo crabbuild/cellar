@@ -29,6 +29,15 @@ impl SnapshotPin {
         group: &GroupLog,
         revision: u64,
     ) -> Result<(), SnapshotError> {
+        self.retain_pending_for(&group.identity().scope, group.birth_digest, revision)
+    }
+
+    pub(super) fn retain_pending_for(
+        &self,
+        scope: &GroupScope,
+        birth: [u8; 32],
+        revision: u64,
+    ) -> Result<(), SnapshotError> {
         match self {
             Self::Materialized(pin) => {
                 if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, revision)? {
@@ -37,7 +46,7 @@ impl SnapshotPin {
             }
             Self::Rooted { image, store } => {
                 store.retain_reference(
-                    super::super::rooted::marker::reference_key(group, 3),
+                    super::super::rooted::marker::reference_key_for(scope, birth, 3),
                     revision,
                     image.reference(),
                 )?;
@@ -47,6 +56,15 @@ impl SnapshotPin {
     }
 
     pub(super) fn retain(&self, group: &GroupLog, revision: u64) -> Result<(), SnapshotError> {
+        self.retain_for(&group.identity().scope, group.birth_digest, revision)
+    }
+
+    pub(super) fn retain_for(
+        &self,
+        scope: &GroupScope,
+        birth: [u8; 32],
+        revision: u64,
+    ) -> Result<(), SnapshotError> {
         match self {
             Self::Materialized(pin) => {
                 pin.retain_reference(SNAPSHOT_REFERENCE, revision)?;
@@ -54,12 +72,12 @@ impl SnapshotPin {
             }
             Self::Rooted { image, store } => {
                 store.retain_reference(
-                    super::super::rooted::marker::reference_key(group, 2),
+                    super::super::rooted::marker::reference_key_for(scope, birth, 2),
                     revision,
                     image.reference(),
                 )?;
                 store.release_reference(
-                    super::super::rooted::marker::reference_key(group, 3),
+                    super::super::rooted::marker::reference_key_for(scope, birth, 3),
                     revision,
                 )?;
             }

@@ -693,6 +693,7 @@ async fn initialize(
                                         &birth,
                                         class.schema_digest(),
                                         limits,
+                                        storage.rooted.as_ref().map(|root| root.store.clone()),
                                     )
                                     .await?;
                                 Action::SealSeed {
@@ -725,6 +726,7 @@ async fn initialize(
                 }
             };
             let group = service.log.group(&scope)?;
+            let extent_store = storage.rooted.as_ref().map(|root| root.store.clone());
             let output = pool
                 .call(
                     worker,
@@ -778,7 +780,8 @@ async fn initialize(
                     worker,
                     namespace.minimum_durability(),
                     class.schema_digest(),
-                )?,
+                )?
+                .with_extents(extent_store),
             );
             permit.attach(&service.runtime).await?;
         }
@@ -1038,6 +1041,7 @@ struct Pending {
 }
 
 struct Cell {
+    extents: Option<cellar_ltx::internal::NodeExtentStore>,
     birth: GroupBirth,
     route_revision: LogIndex,
     configuration: Option<membership::PendingConfiguration>,

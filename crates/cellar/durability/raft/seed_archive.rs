@@ -58,6 +58,7 @@ impl RaftTransport {
             SeedOptions {
                 limits,
                 deadline: self.seed_deadline()?,
+                extents: None,
             },
             archive,
         )

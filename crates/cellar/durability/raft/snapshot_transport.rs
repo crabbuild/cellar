@@ -19,8 +19,8 @@ mod codec_tests;
 
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLSP";
 const RESPONSE_MAGIC: &[u8; 4] = b"CLSA";
-const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1";
-const RESPONSE_PURPOSE: &[u8] = b"cellar-snapshot-chunk-1";
+const REQUEST_PURPOSE: &[u8] = b"cellar-snapshot-pull-1:extent-stream";
+const RESPONSE_PURPOSE: &[u8] = b"cellar-snapshot-chunk-1:extent-stream";
 
 pub(super) fn snapshot_error(
     error: impl Into<crate::raft::snapshot::SnapshotError>,
@@ -37,7 +37,10 @@ pub(in crate::raft) fn memory_bound(options: &TransportOptions) -> usize {
     // File-backed bodies and indexes do not reserve image-sized memory. Cover
     // wire framing/copies plus codec/hash/compression and independent sealing
     // buffers. One transfer retains this reservation through blocking work.
-    4 * options.snapshot_chunk_bytes + io_profile(options).max_working_bytes().max(4 * 1024 * 1024)
+    // Root streams additionally retain a bounded manifest/dependency index
+    // beside their single extent. The global 10 GB geometry bounds that index.
+    let root_working = cellar_ltx::internal::EXTENT_BYTES as usize + 1024 * 1024;
+    4 * options.snapshot_chunk_bytes + io_profile(options).max_working_bytes().max(root_working)
 }
 
 fn io_profile(options: &TransportOptions) -> cellar_ltx::stream_snapshot::IoProfile {
@@ -159,6 +162,13 @@ pub(crate) struct ReceivedSnapshot {
 }
 
 impl ReceivedSnapshot {
+    pub fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<(PreparedSnapshot, Permit), crate::raft::snapshot::SnapshotError> {
+        self.receiver.seal_root(store)
+    }
+
     pub fn finish(
         self,
         images: &cellar_ltx::generation::GenerationStore,
@@ -268,6 +278,7 @@ impl RaftTransport {
         source: u64,
         snapshot: ::raft::prelude::Snapshot,
         limits: SnapshotLimits,
+        extents: Option<cellar_ltx::internal::NodeExtentStore>,
     ) -> Result<ReceivedSnapshot, TransportError> {
         let state = &self.handle.0;
         let scope = &ticket.replica().scope;
@@ -276,9 +287,7 @@ impl RaftTransport {
             .log()
             .group(scope)
             .map_err(|_| TransportError::UnknownGroup)?;
-        if ticket.replica() != group.identity()
-            || snapshot_digest(&snapshot)? != ticket.entry_digest()
-        {
+        if !ticket.belongs_to(&group) || snapshot_digest(&snapshot)? != ticket.entry_digest() {
             return Err(TransportError::Identity);
         }
         let (route, peer, pool) = state.snapshot_peer(scope, source)?;
@@ -294,18 +303,27 @@ impl RaftTransport {
             .domain
             .blocking(move || {
                 prepared.trim_idle()?;
-                let download = SnapshotDownload::new(&download_group, schema, snapshot, limits)?
-                    .with_io_profile(profile);
+                let download = match extents {
+                    Some(store) => SnapshotDownload::in_extents(
+                        &download_group,
+                        schema,
+                        snapshot,
+                        limits,
+                        store,
+                    )?,
+                    None => SnapshotDownload::new(&download_group, schema, snapshot, limits)?,
+                }
+                .with_io_profile(profile);
                 Ok::<_, crate::raft::snapshot::SnapshotError>((download, reservation))
             })
             .map_err(|_| TransportError::Closed)?
             .await
             .map_err(|_| TransportError::Closed)?
             .map_err(snapshot_error)?;
-        if download.encoded_length() > state.options.max_snapshot_bytes {
+        if download.transfer_length() > state.options.max_snapshot_bytes {
             return Err(TransportError::Limit);
         }
-        let total = download.encoded_length();
+        let total = download.transfer_length();
         let receiver = receive::collect(state, download, reservation, |send| async move {
             // Configuration-only snapshots contain no bytes and need no socket.
             if total == 0 {
@@ -589,7 +607,9 @@ impl State {
                 .await
                 .map_err(|_| TransportError::Closed)?
                 .map_err(snapshot_error)?;
-            encoded_hash.update(&body);
+            if lease.package.encoded_file_bytes() != 0 {
+                encoded_hash.update(&body);
+            }
             if offset + body.len() == lease.package.encoded_length() {
                 lease
                     .package
@@ -746,6 +766,13 @@ pub(crate) struct ReceivedSeed {
 }
 
 impl ReceivedSeed {
+    pub(crate) fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<crate::raft::snapshot::PreparedSeed, crate::raft::snapshot::SnapshotError> {
+        self.receiver.seal_root(store)
+    }
+
     pub(crate) fn scope(&self) -> &GroupScope {
         &self.scope
     }
@@ -765,13 +792,14 @@ impl RaftTransport {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: SnapshotLimits,
+        extents: Option<cellar_ltx::internal::NodeExtentStore>,
     ) -> Result<ReceivedSeed, TransportError> {
         self.handle
             .0
             .performance
             .measure(
                 crate::raft::performance::Operation::RecoveryPeerFetch,
-                self.fetch_seed_inner(grant, birth, schema, limits),
+                self.fetch_seed_inner(grant, birth, schema, limits, extents),
             )
             .await
     }
@@ -782,6 +810,7 @@ impl RaftTransport {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: SnapshotLimits,
+        extents: Option<cellar_ltx::internal::NodeExtentStore>,
     ) -> Result<ReceivedSeed, TransportError> {
         let state = &self.handle.0;
         if !grant.authorized(&state.runtime.log().owner(), grant.local()) {
@@ -817,9 +846,12 @@ impl RaftTransport {
                     &birth,
                     schema,
                     limits,
-                    crate::asyncrt::fs().as_ref(),
-                    &scratch_directory,
-                    &snapshot_scratch,
+                    crate::raft::snapshot::DownloadStorage {
+                        filesystem: crate::asyncrt::fs().as_ref(),
+                        directory: &scratch_directory,
+                        scratch: &snapshot_scratch,
+                        extents,
+                    },
                 )?
                 .with_io_profile(profile);
                 Ok::<_, crate::raft::snapshot::SnapshotError>((download, reservation))
@@ -828,7 +860,7 @@ impl RaftTransport {
             .await
             .map_err(|_| TransportError::Closed)?
             .map_err(snapshot_error)?;
-        let total = download.encoded_length();
+        let total = download.transfer_length();
         let scope = download.scope().clone();
         if total > state.options.max_snapshot_bytes || (total == 0) != (lease == 0) {
             return Err(TransportError::Limit);

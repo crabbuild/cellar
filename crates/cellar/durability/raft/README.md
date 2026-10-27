@@ -410,9 +410,26 @@ snapshot root before releasing the pending reference. `publish_root` then
 observes the matching durable engine marker and independently adopts the image
 through the publishing applier's own inventory. Metadata, another inventory's
 root or a successful completion request cannot make an image queryable early.
-Peer and RustFS transfer adapters, joined physical ownership, fresh-learner seed
-installation, root inventory reconciliation and public backend selection remain
-to be wired. Partial residency still cannot produce a `SealedImageRoot`.
+The ordinary member-only TLS transport now carries canonical root streams:
+the manifest followed by each unique extent in sorted identity order. Its
+required `transfer_length` binds their exact aggregate byte count separately
+from the manifest length/digest; no flat SQLite digest or full-image spool is
+invented. A source caches at most one verified extent across wire windows, and
+a joined physical receiver imports one complete object at a time. It drops that
+object buffer before sealing allocates its separate workspace. Source capture,
+retained checkpoints, receiver preparation and post-sync publication select the
+same physical backend through the SQL owner. A newer applied root cannot replace
+a requested older checkpoint. Fresh-learner physical seeding reuses the existing
+opaque live grant, birth/learner/barrier checks and atomic engine/member fence.
+It is not a grant reconstructed from a manifest or cached membership.
+
+This is an internal marker-1 hard cutover: canonical descriptors require the
+transfer length, and peer/control and snapshot/seed authentication identities
+refuse the older protocol. Use fresh experimental native state and matching
+workers; there is no legacy descriptor reader or migration. RustFS root archival,
+node-wide inventory recovery/GC, public backend selection and full fresh-learner
+root qualification remain unfinished. Partial residency still cannot produce a
+`SealedImageRoot`.
 
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a
@@ -1077,7 +1094,7 @@ providers retain their bounded fallback and uncertain writes poison the download
 Transports configured for images of at least 256 MiB select Buffered codec I/O
 for admitted source encoding and destination verification. With 1 MiB wire chunks,
 the codec and wire allowance is 16.25 MiB per active transfer; smaller transports
-retain Compact and the default 8 MiB allowance. These are bounded reservations,
+retain Compact and a 9 MiB allowance, including the one-extent/metadata floor. These are bounded reservations,
 not eager allocations or image-sized buffers. Standalone snapshot helpers retain
 Compact defaults. Both profiles produce identical encoded identities and require
 the same complete physical verification before installation.

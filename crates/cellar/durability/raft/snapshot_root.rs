@@ -11,6 +11,10 @@ use cellar_ltx::internal::{
 };
 use std::{collections::BTreeSet, io, sync::Arc};
 
+#[path = "snapshot_root_stream.rs"]
+mod stream;
+pub(super) use stream::{RootDownload, RootPayload};
+
 /// A coherent committed source. The node's transport separately admits its
 /// lifetime and each at-most-4-MiB extent read on a registered blocking owner.
 /// Capture reads metadata only and retains the sealed root's actual byte owner.
@@ -19,9 +23,44 @@ pub struct RootSnapshotSource {
     image: Arc<SealedImageRoot>,
     snapshot: Snapshot,
     manifest: Vec<u8>,
+    limits: SnapshotLimits,
 }
 
 impl RootSnapshotSource {
+    pub(super) fn retained(
+        group: &GroupLog,
+        image: Arc<SealedImageRoot>,
+        schema: [u8; 32],
+        expected: &Snapshot,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let descriptor = Descriptor::decode(group, schema, expected, limits)?;
+        if group.read()?.snapshot != *expected
+            || descriptor.image.as_ref() != Some(&super::super::rooted::marker::encode(&image))
+        {
+            return Err(SnapshotError::Invalid("retained root checkpoint binding"));
+        }
+        let manifest = image
+            .manifest()
+            .encode()
+            .map_err(cellar_ltx::internal::StoreError::from)?;
+        // Source membership may have advanced beyond this exact retained cut.
+        // The receiver separately requires the incoming configuration to
+        // succeed its own state; a sender must not substitute a newer cut.
+        RootSnapshotSet::bound(expected, descriptor, &manifest)?;
+        Ok(Self {
+            group: group.clone(),
+            image,
+            snapshot: expected.clone(),
+            manifest,
+            limits,
+        })
+    }
+
+    pub(super) fn schema(&self) -> [u8; 32] {
+        self.image.manifest().binding().schema
+    }
+
     pub fn capture(
         group: &GroupLog,
         image: RootPublishedImage,
@@ -63,6 +102,7 @@ impl RootSnapshotSource {
             image: Some(marker),
             encoded_length: bytes.len(),
             encoded_digest: Sha256::digest(&bytes).into(),
+            transfer_length: stream::transfer_length(pin.manifest(), bytes.len())?,
         };
         let snapshot = descriptor.snapshot()?;
         // Use the same decoder as a receiver. A root pointer, source pin or
@@ -73,6 +113,7 @@ impl RootSnapshotSource {
             image: pin,
             snapshot,
             manifest: bytes,
+            limits,
         })
     }
 
@@ -103,6 +144,42 @@ impl RootSnapshotSource {
             .view()
             .read_extent(id)
             .map_err(SnapshotError::from)
+    }
+
+    /// Build the ordinary admitted transfer package without an image spool.
+    /// The supplied node inventory must independently hold the complete root.
+    pub fn into_package(
+        self,
+        store: &NodeExtentStore,
+        workspace: &mut [u8],
+    ) -> Result<SnapshotPackage, SnapshotError> {
+        self.validate_owner(&self.group)?;
+        let descriptor = Descriptor::decode(
+            &self.group,
+            self.image.manifest().binding().schema,
+            &self.snapshot,
+            self.limits,
+        )?;
+        let set = RootSnapshotSet::bound(&self.snapshot, descriptor, &self.manifest)?;
+        let image = set.seal(store, workspace)?;
+        let descriptor = Descriptor::decode(
+            &self.group,
+            image.manifest().binding().schema,
+            &self.snapshot,
+            self.limits,
+        )?;
+        Ok(SnapshotPackage {
+            group: self.group.clone(),
+            snapshot: self.snapshot.clone(),
+            bytes: None,
+            pin: Some(SnapshotPin::Rooted {
+                image: Arc::new(image),
+                store: store.clone(),
+            }),
+            limits: self.limits,
+            membership: descriptor.membership,
+            root: Some(RootPayload::new(self)?),
+        })
     }
 }
 
@@ -208,6 +285,9 @@ impl RootSnapshotSet {
                     .extent(index)
                     .ok_or(SnapshotError::Invalid("root manifest extent coverage"))?,
             );
+        }
+        if stream::transfer_length(&manifest, bytes.len())? != descriptor.transfer_length {
+            return Err(SnapshotError::Invalid("root transfer closure length"));
         }
         Ok(Self {
             snapshot: snapshot.clone(),

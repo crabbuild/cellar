@@ -18,9 +18,22 @@ pub(super) async fn source_members(
     history: [u8; 32],
     learners: Vec<MemberId>,
 ) -> Result<(Host, RootSnapshotSource)> {
+    source_padding(root, history, learners, 9437184, false).await
+}
+
+pub(super) async fn source_padding(
+    root: &Path,
+    history: [u8; 32],
+    learners: Vec<MemberId>,
+    padding: usize,
+    recycle: bool,
+) -> Result<(Host, RootSnapshotSource)> {
     let mut host = Host::open_members(root, false, 1, [9; 32], history, 1, learners).await?;
     host.elect().await?;
-    let bytes = images::image(None, "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(7); CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob(9437184))")?;
+    let mut bytes = images::image(None, &format!("CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES(7); CREATE TABLE padding(value BLOB); INSERT INTO padding VALUES(zeroblob({padding})); {}", if recycle { "DELETE FROM padding" } else { "" }))?;
+    if recycle {
+        canonical_free_pages(&mut bytes)?;
+    }
     let mut change = update(&[], &bytes, 0)?;
     let rooted = |data: &[u8], txid| -> Result<LtxImage> {
         image_position(&ExtentManifest::new(
@@ -44,6 +57,37 @@ pub(super) async fn source_members(
     let source =
         RootSnapshotSource::capture(&host.log.group(&scope())?, image, SnapshotLimits::default())?;
     Ok((host, source))
+}
+
+// Pack free-list trunks at the front of the unused region and zero free leaf
+// pages. SQLite never reads their payload. This keeps a valid database while
+// creating repeated whole extents; zeroblob overflow pages themselves contain
+// distinct next-page pointers and are not identical objects.
+fn canonical_free_pages(bytes: &mut [u8]) -> Result<()> {
+    let page_size = u16::from_be_bytes(bytes[16..18].try_into()?) as usize;
+    ensure!(page_size == 512 && bytes.len().is_multiple_of(page_size));
+    let pages = bytes.len() / page_size;
+    let free = u32::from_be_bytes(bytes[36..40].try_into()?) as usize;
+    ensure!(free == pages - 3, "fixture has unexpected active pages");
+    let trunks = free.div_ceil(101);
+    let mut leaf = 4 + trunks;
+    bytes[32..36].copy_from_slice(&4_u32.to_be_bytes());
+    bytes[3 * page_size..].fill(0);
+    for index in 0..trunks {
+        let number = 4 + index;
+        let start = (number - 1) * page_size;
+        let next = if index + 1 < trunks { number + 1 } else { 0 };
+        let count = (pages + 1 - leaf).min(100);
+        bytes[start..start + 4].copy_from_slice(&u32::try_from(next)?.to_be_bytes());
+        bytes[start + 4..start + 8].copy_from_slice(&u32::try_from(count)?.to_be_bytes());
+        for offset in 0..count {
+            let at = start + 8 + offset * 4;
+            bytes[at..at + 4].copy_from_slice(&u32::try_from(leaf + offset)?.to_be_bytes());
+        }
+        leaf += count;
+    }
+    ensure!(leaf == pages + 1);
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

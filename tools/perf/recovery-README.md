@@ -162,3 +162,22 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_re
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_raft_metrics.py' -v
 cargo test --locked -p cellar --test native_raft_large_images -- --test-threads=1
 ```
+
+
+## Extent transfer boundary
+
+Native root streams bind a canonical manifest and the exact total length of its
+unique extent bodies. Each object is sent once and independently verified/synced
+on receipt; no full SQLite encoded file or aggregate SQLite hash is synthesized.
+The registered two-window owner also owns root imports, final sealing and abort.
+One 4 MiB extent and a 1 MiB quota-bounded metadata allowance set the working
+floor; at 1 MiB wire windows Compact admits 9 MiB and Buffered remains 16.25 MiB.
+These are bounded reservations, not eager allocations.
+
+The required descriptor transfer length and snapshot/seed authentication domains
+make an internal marker-1 hard cutover. Experimental workers and native state
+must match; there is no legacy reader. Root streams currently have functional
+native TLS/SQL-worker evidence. Public node activation still selects materialized
+storage; RustFS root archival, public root seeding and partial hydration remain
+implementation work. Existing full-size materialized campaigns do not qualify
+root-stream latency or change either recovery-time target.

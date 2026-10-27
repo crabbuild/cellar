@@ -42,7 +42,8 @@ async fn codec_admission_covers_the_selected_profile_and_one_source_owner() -> R
 #[test]
 fn codec_memory_stays_independent_of_large_image_size() {
     let mut options = TransportOptions::default();
-    assert_eq!(memory_bound(&options), 8 * 1024 * 1024);
+    // One extent plus its quota-bounded metadata now sets the Compact floor.
+    assert_eq!(memory_bound(&options), 9 * 1024 * 1024);
     options.max_snapshot_image_bytes = 256 * 1024 * 1024;
     let large = memory_bound(&options);
     assert_eq!(
@@ -51,6 +52,40 @@ fn codec_memory_stays_independent_of_large_image_size() {
     );
     options.max_snapshot_image_bytes = 10_000_000_000;
     assert_eq!(memory_bound(&options), large);
+}
+
+#[test]
+fn legacy_snapshot_authentication_is_refused_before_metadata_decoding() -> Result<()> {
+    let auth = PeerAuth::new([8; 32], "node-1")?;
+    let options = TransportOptions::default();
+    let wire = Wire {
+        auth: &auth,
+        exporter: &[9; 32],
+        options: &options,
+        max_body: 1024,
+    };
+    let value = serde_json::json!({"probe": 1});
+    for (magic, old, current) in [
+        (
+            REQUEST_MAGIC,
+            b"cellar-snapshot-pull-1".as_slice(),
+            REQUEST_PURPOSE,
+        ),
+        (
+            RESPONSE_MAGIC,
+            b"cellar-snapshot-chunk-1".as_slice(),
+            RESPONSE_PURPOSE,
+        ),
+    ] {
+        let legacy = wire.encode(magic, old, &[], &value, &[])?;
+        ensure!(matches!(
+            wire.decode::<serde_json::Value>(magic, current, &legacy, None),
+            Err(TransportError::Authentication)
+        ));
+        let current_head = wire.encode(magic, current, &[], &value, &[])?;
+        ensure!(wire.decode::<serde_json::Value>(magic, current, &current_head, None)? == value);
+    }
+    Ok(())
 }
 
 #[tokio::test]

@@ -6,7 +6,7 @@ use super::*;
 use anyhow::{ensure, Context as _};
 use raft::Storage as _;
 
-async fn snapshot_ticket(
+pub(super) async fn snapshot_ticket(
     host: &mut Host,
     snapshot: raft::prelude::Snapshot,
 ) -> Result<ApplyTicket> {
@@ -181,7 +181,7 @@ fn prepare(host: &mut Host, source: &RootSnapshotSource) -> Result<PreparedSnaps
     )?)
 }
 
-async fn installed(host: &mut Host, expected: &ApplyTicket) -> Result<()> {
+pub(super) async fn installed(host: &mut Host, expected: &ApplyTicket) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             match host

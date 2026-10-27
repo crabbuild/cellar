@@ -83,7 +83,7 @@ impl Driver {
                 .map_err(super::super::execution::storage)
                 .map(|(package, reused)| {
                     if let Some((_, counter)) = observation.filter(|_| !reused) {
-                        performance.increment(counter, package.encoded_length() as u64);
+                        performance.increment(counter, package.encoded_file_bytes() as u64);
                     }
                     let value = if checkpoint {
                         let material = Box::new(package.checkpoint_material());
@@ -203,11 +203,12 @@ impl Driver {
         });
         self.refuse(&scope, CommandFailure::Unavailable);
         if !abort {
+            let extents = self.cells.get(&scope).and_then(|cell| cell.extents.clone());
             let transport = self.transport.clone();
             let limits = self.snapshot_limits;
             self.jobs.push(Box::pin(async move {
                 let result = transport
-                    .fetch_snapshot(&ticket, source, snapshot, limits)
+                    .fetch_snapshot(&ticket, source, snapshot, limits, extents)
                     .await;
                 Job::SnapshotFetched {
                     ticket,

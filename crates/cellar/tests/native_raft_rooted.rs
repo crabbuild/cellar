@@ -14,6 +14,8 @@ mod images;
 mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]
 mod snapshots;
+#[path = "support/raft_rooted_stream.rs"]
+mod streams;
 
 use anyhow::{bail, Result};
 use cellar::{

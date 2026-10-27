@@ -71,7 +71,7 @@ fn io(error: std::io::Error) -> SnapshotError {
 impl Body for FileBody {
     type Sealed = (Vec<u8>, Permit);
 
-    fn encoded_length(&self) -> usize {
+    fn transfer_length(&self) -> usize {
         self.total
     }
 
@@ -95,7 +95,7 @@ impl Body for FileBody {
 
     fn seal(
         mut self,
-        _images: &GenerationStore,
+        _destination: &Destination,
         reservation: Permit,
     ) -> Result<Self::Sealed, SnapshotError> {
         let file = self.file.as_mut().unwrap();

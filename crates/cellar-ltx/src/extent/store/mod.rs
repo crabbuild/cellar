@@ -204,6 +204,13 @@ pub struct NodeExtentStore {
     inner: Arc<Inner>,
 }
 
+impl NodeExtentStore {
+    /// Compare exact open inventory owners without granting access or doing I/O.
+    pub fn same_inventory(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
 struct Operation {
     inner: Arc<Inner>,
     complete: bool,

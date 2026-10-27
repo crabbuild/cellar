@@ -45,6 +45,116 @@ pub(super) enum ImageOwner {
 }
 
 impl ImageOwner {
+    pub fn capture_snapshot(
+        &self,
+        group: &GroupLog,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<SnapshotCapture, ExecutionError> {
+        let capture = match self {
+            Self::Materialized { applier, .. } => match applier
+                .queryable()
+                .map_err(super::super::execution::storage)?
+            {
+                Some(image) => SnapshotCapture::capture(group, image, limits),
+                None => SnapshotCapture::capture_empty(group, schema, limits),
+            },
+            Self::Rooted { options, applier } => match applier
+                .queryable()
+                .map_err(super::super::execution::storage)?
+            {
+                Some(image) => SnapshotCapture::capture_rooted(
+                    group,
+                    image,
+                    options.storage.store.clone(),
+                    limits,
+                ),
+                None => SnapshotCapture::capture_empty(group, schema, limits),
+            },
+        };
+        capture.map_err(super::super::execution::storage)
+    }
+
+    pub fn retained_snapshot(
+        &mut self,
+        group: &GroupLog,
+        schema: [u8; 32],
+        expected: &::raft::prelude::Snapshot,
+        limits: SnapshotLimits,
+    ) -> Result<SnapshotCapture, ExecutionError> {
+        match self {
+            Self::Materialized { options, .. } => {
+                SnapshotCapture::retained(group, &options.images, schema, expected, limits)
+            }
+            Self::Rooted { options, applier } => {
+                let image = applier
+                    .retained_snapshot(expected, &mut vec![0; EXTENT_BYTES as usize])
+                    .map_err(super::super::execution::storage)?;
+                SnapshotCapture::retained_rooted(
+                    group,
+                    schema,
+                    expected,
+                    image,
+                    options.storage.store.clone(),
+                    limits,
+                )
+            }
+        }
+        .map_err(super::super::execution::storage)
+    }
+
+    pub fn receive_snapshot(
+        &self,
+        received: ReceivedSnapshot,
+    ) -> Result<(PreparedSnapshot, Permit), super::super::snapshot::SnapshotError> {
+        match self {
+            Self::Materialized { options, .. } => received.finish(&options.images),
+            Self::Rooted { options, .. } => received.finish_root(&options.storage.store),
+        }
+    }
+
+    pub fn publish_snapshot(
+        &mut self,
+        group: &GroupLog,
+        prepared: PreparedSnapshot,
+    ) -> Result<Option<PublishedExecutionImage>, ExecutionError> {
+        let has_image = group
+            .applied()
+            .map_err(super::super::execution::storage)?
+            .image
+            .is_some();
+        match self {
+            Self::Materialized { applier, .. } => {
+                if has_image {
+                    Ok(Some(PublishedExecutionImage::Materialized(
+                        prepared
+                            .publish(applier)
+                            .map_err(super::super::execution::storage)?,
+                    )))
+                } else {
+                    prepared
+                        .publish_empty(applier)
+                        .map_err(super::super::execution::storage)?;
+                    Ok(None)
+                }
+            }
+            Self::Rooted { applier, .. } => {
+                if has_image {
+                    Ok(Some(PublishedExecutionImage::Rooted(
+                        prepared
+                            .publish_root(applier, &mut vec![0; EXTENT_BYTES as usize])
+                            .map_err(super::super::execution::storage)?,
+                    )))
+                } else {
+                    prepared
+                        .publish_empty_root(applier)
+                        .map_err(super::super::execution::storage)?;
+                    Ok(None)
+                }
+            }
+        }
+    }
+
     pub fn recover(
         group: GroupLog,
         class: &RaftClass,

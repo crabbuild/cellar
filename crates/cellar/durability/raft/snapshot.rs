@@ -60,6 +60,7 @@ impl SnapshotError {
         matches!(
             self,
             Self::Physical(stream_snapshot::Error::ScratchFull)
+                | Self::Extents(cellar_ltx::internal::StoreError::Limit)
                 | Self::Images(GenerationError::Snapshot(
                     stream_snapshot::Error::ScratchFull
                 ))
@@ -163,6 +164,9 @@ struct Descriptor {
     image: Option<CommittedImage>,
     encoded_length: usize,
     encoded_digest: [u8; 32],
+    // Flat images transfer their encoded file; extent images transfer the
+    // canonical manifest followed by each distinct object exactly once.
+    transfer_length: usize,
 }
 
 impl Descriptor {
@@ -228,6 +232,9 @@ impl Descriptor {
             image.validate()?;
             match image.commitment {
                 ImageCommitment::Sha256(_) => {
+                    if descriptor.transfer_length != descriptor.encoded_length {
+                        return Err(SnapshotError::Invalid("flat transfer length"));
+                    }
                     marker_id(image)?;
                     marker_state(image)?
                         .validate(&limits.apply())
@@ -236,6 +243,9 @@ impl Descriptor {
                 ImageCommitment::Extents(reference) => {
                     if image.length > limits.max_image_bytes
                         || descriptor.encoded_length != reference.encoded_length() as usize
+                        || descriptor.transfer_length < descriptor.encoded_length
+                        || !u64::try_from(descriptor.transfer_length - descriptor.encoded_length)
+                            .is_ok_and(|length| length <= image.length)
                     {
                         return Err(SnapshotError::Invalid("extent snapshot metadata"));
                     }
@@ -245,11 +255,14 @@ impl Descriptor {
                 return Err(SnapshotError::Invalid("empty image"));
             }
         } else if descriptor.encoded_length != 0
+            || descriptor.transfer_length != 0
             || descriptor.encoded_digest != <[u8; 32]>::from(Sha256::digest([]))
         {
             return Err(SnapshotError::Invalid("nonempty payload for empty state"));
         }
-        if descriptor.encoded_length > limits.max_encoded_bytes {
+        if descriptor.encoded_length > limits.max_encoded_bytes
+            || descriptor.transfer_length > limits.max_encoded_bytes
+        {
             return Err(SnapshotError::Limit);
         }
         Ok(descriptor)
@@ -283,7 +296,8 @@ pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
     bytes: Option<SourcePayload>,
-    pin: Option<GenerationPin>,
+    root: Option<rooted::RootPayload>,
+    pin: Option<SnapshotPin>,
     limits: SnapshotLimits,
     membership: super::member_state::GroupMembership,
 }
@@ -366,12 +380,26 @@ impl SnapshotPackage {
     }
 
     pub fn encoded_length(&self) -> usize {
+        if let Some(root) = &self.root {
+            return root.length();
+        }
+        self.bytes
+            .as_ref()
+            .map_or(0, |bytes| bytes.metadata().encoded_length as usize)
+    }
+
+    pub(crate) fn encoded_file_bytes(&self) -> usize {
         self.bytes
             .as_ref()
             .map_or(0, |bytes| bytes.metadata().encoded_length as usize)
     }
 
     pub(crate) fn validate_encoded_hash(&self, digest: [u8; 32]) -> Result<(), SnapshotError> {
+        if let Some(root) = &self.root {
+            // Root streams have manifest/extent commitments, never a fabricated
+            // whole-SQLite digest. The ordered source has verified every object.
+            return root.complete();
+        }
         match &self.bytes {
             Some(bytes) => bytes.validate_digest(digest),
             None if digest == <[u8; 32]>::from(Sha256::digest([])) => Ok(()),
@@ -389,6 +417,9 @@ impl SnapshotPackage {
                 .is_none_or(|n| n > self.encoded_length())
         {
             return Err(SnapshotError::Limit);
+        }
+        if let Some(root) = &self.root {
+            return root.chunk(offset, length);
         }
         let source = self.bytes.as_ref().ok_or(SnapshotError::Limit)?;
         // The source reservation already covers this complete wire window.
@@ -416,7 +447,10 @@ impl SnapshotPackage {
     }
 
     pub fn source_pin(&self) -> Option<GenerationPin> {
-        self.pin.clone()
+        match &self.pin {
+            Some(SnapshotPin::Materialized(pin)) => Some(pin.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -424,7 +458,7 @@ impl SnapshotPackage {
 pub struct SnapshotCheckpoint {
     group: GroupLog,
     snapshot: Snapshot,
-    pin: Option<GenerationPin>,
+    pin: Option<SnapshotPin>,
 }
 
 impl SnapshotCheckpoint {
@@ -479,8 +513,7 @@ impl SnapshotCheckpoint {
 
     pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            pin.retain_reference(SNAPSHOT_REFERENCE, self.position().index.get())?;
-            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.position().index.get())?;
+            pin.retain(&self.group, self.position().index.get())?;
         }
         Ok(())
     }
@@ -489,10 +522,7 @@ impl SnapshotCheckpoint {
         let Some(pin) = &self.pin else {
             return Ok(());
         };
-        if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.position().index.get())? {
-            return Err(SnapshotError::Invalid("stale prospective checkpoint"));
-        }
-        Ok(())
+        pin.retain_pending(&self.group, self.position().index.get())
     }
 }
 
@@ -505,16 +535,97 @@ pub struct SnapshotDownload {
     payload: SnapshotPayload,
 }
 
+pub(crate) struct DownloadStorage<'a> {
+    pub filesystem: &'a dyn cellar_ltx::FileSystem,
+    pub directory: &'a std::path::Path,
+    pub scratch: &'a stream_snapshot::ScratchPool,
+    pub extents: Option<cellar_ltx::internal::NodeExtentStore>,
+}
+
 /// A download owns anonymous scratch storage from its execution domain. Empty
 /// snapshots carry no body; their descriptor still binds the empty digest.
-struct SnapshotPayload {
+enum SnapshotPayload {
+    Flat(Box<FlatPayload>),
+    Rooted(Box<rooted::RootDownload>),
+}
+
+impl SnapshotPayload {
+    fn new(
+        descriptor: &Descriptor,
+        limits: SnapshotLimits,
+        filesystem: &dyn cellar_ltx::FileSystem,
+        directory: &std::path::Path,
+        scratch: &stream_snapshot::ScratchPool,
+    ) -> Result<Self, SnapshotError> {
+        Ok(Self::Flat(Box::new(FlatPayload::new(
+            descriptor, limits, filesystem, directory, scratch,
+        )?)))
+    }
+
+    fn in_extents(
+        descriptor: &Descriptor,
+        limits: SnapshotLimits,
+        store: cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<Self, SnapshotError> {
+        match descriptor.image.as_ref().map(|image| image.commitment) {
+            Some(ImageCommitment::Extents(_)) => Ok(Self::Rooted(Box::new(
+                rooted::RootDownload::new(descriptor.clone(), store, limits.max_chunk_bytes),
+            ))),
+            None => Err(SnapshotError::Invalid(
+                "empty root payload uses the empty flat receiver",
+            )),
+            _ => Err(SnapshotError::Invalid(
+                "extent destination requires an extent commitment",
+            )),
+        }
+    }
+
+    fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
+        match self {
+            Self::Flat(payload) => payload.append(offset, bytes),
+            Self::Rooted(payload) => payload.append(offset, bytes),
+        }
+    }
+
+    fn set_io_profile(&mut self, profile: stream_snapshot::IoProfile) {
+        if let Self::Flat(payload) = self {
+            payload.set_io_profile(profile);
+        }
+    }
+
+    fn finish(self) -> Result<Option<stream_snapshot::SnapshotFile>, SnapshotError> {
+        match self {
+            Self::Flat(payload) => payload.finish(),
+            Self::Rooted(_) => Err(SnapshotError::Invalid(
+                "root receiver requires its extent inventory",
+            )),
+        }
+    }
+
+    fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<Option<SnapshotPin>, SnapshotError> {
+        match self {
+            Self::Rooted(payload) => payload.finish(store).map(Some),
+            Self::Flat(payload) => match payload.finish()? {
+                None => Ok(None),
+                Some(_) => Err(SnapshotError::Invalid(
+                    "flat receiver cannot publish an extent image",
+                )),
+            },
+        }
+    }
+}
+
+struct FlatPayload {
     download: Option<stream_snapshot::Download>,
     received: usize,
     length: usize,
     chunk_bytes: usize,
 }
 
-impl SnapshotPayload {
+impl FlatPayload {
     fn new(
         descriptor: &Descriptor,
         limits: SnapshotLimits,
@@ -588,8 +699,8 @@ impl SnapshotDownload {
         self
     }
 
-    pub(crate) fn encoded_length(&self) -> usize {
-        self.descriptor.encoded_length
+    pub(crate) fn transfer_length(&self) -> usize {
+        self.descriptor.transfer_length
     }
 
     pub fn new(
@@ -617,6 +728,52 @@ impl SnapshotDownload {
 
     pub fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
         self.payload.append(offset, bytes)
+    }
+
+    /// Receive canonical extent metadata and unique objects directly into the
+    /// destination's admitted node inventory, without a flat SQLite spool.
+    pub fn in_extents(
+        group: &GroupLog,
+        schema: [u8; 32],
+        snapshot: Snapshot,
+        limits: SnapshotLimits,
+        store: cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<Self, SnapshotError> {
+        let descriptor = Descriptor::decode(group, schema, &snapshot, limits)?;
+        descriptor.membership.succeeds(&group.membership()?)?;
+        let payload = if descriptor.image.is_none() {
+            SnapshotPayload::new(
+                &descriptor,
+                limits,
+                group.filesystem.as_ref(),
+                &group.scratch_directory,
+                &group.snapshot_scratch,
+            )?
+        } else {
+            SnapshotPayload::in_extents(&descriptor, limits, store)?
+        };
+        Ok(Self {
+            group: group.clone(),
+            snapshot,
+            descriptor,
+            payload,
+        })
+    }
+
+    pub fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<PreparedSnapshot, SnapshotError> {
+        let pin = self.payload.finish_root(store)?;
+        if pin.as_ref().map(SnapshotPin::marker) != self.descriptor.image {
+            return Err(SnapshotError::Invalid("received root marker binding"));
+        }
+        Ok(PreparedSnapshot {
+            group: self.group,
+            snapshot: self.snapshot,
+            pin,
+            membership: self.descriptor.membership,
+        })
     }
 
     /// Seal on the destination's blocking owner. Exact existing bytes make a
@@ -758,6 +915,17 @@ impl PreparedSnapshot {
     }
 
     pub fn publish_empty(self, applier: &mut ImageApplier) -> Result<(), SnapshotError> {
+        if self.pin.is_some() {
+            return Err(SnapshotError::Invalid("snapshot has a data image"));
+        }
+        applier.publish_empty_snapshot(&self.group, &self.snapshot)?;
+        Ok(())
+    }
+
+    pub(crate) fn publish_empty_root(
+        self,
+        applier: &mut super::rooted::RootImageApplier,
+    ) -> Result<(), SnapshotError> {
         if self.pin.is_some() {
             return Err(SnapshotError::Invalid("snapshot has a data image"));
         }

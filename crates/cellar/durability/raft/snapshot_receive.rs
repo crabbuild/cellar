@@ -12,6 +12,7 @@ use crate::raft::{
     snapshot::{PreparedSeed, PreparedSnapshot, SeedDownload, SnapshotDownload, SnapshotError},
 };
 use cellar_ltx::generation::GenerationStore;
+use cellar_ltx::internal::NodeExtentStore;
 use std::{
     future::Future,
     sync::{mpsc, Arc},
@@ -21,22 +22,28 @@ use tokio::sync::{oneshot, OwnedSemaphorePermit, Semaphore};
 pub(super) trait Body: Send + 'static {
     type Sealed: Send + 'static;
 
-    fn encoded_length(&self) -> usize;
+    fn transfer_length(&self) -> usize;
 
     fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError>;
 
     fn seal(
         self,
-        images: &GenerationStore,
+        destination: &Destination,
         reservation: Permit,
     ) -> Result<Self::Sealed, SnapshotError>;
+}
+
+#[derive(Clone)]
+pub(super) enum Destination {
+    Materialized(GenerationStore),
+    Rooted(NodeExtentStore),
 }
 
 impl Body for SnapshotDownload {
     type Sealed = (PreparedSnapshot, Permit);
 
-    fn encoded_length(&self) -> usize {
-        self.encoded_length()
+    fn transfer_length(&self) -> usize {
+        self.transfer_length()
     }
 
     fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
@@ -45,18 +52,22 @@ impl Body for SnapshotDownload {
 
     fn seal(
         self,
-        images: &GenerationStore,
+        destination: &Destination,
         reservation: Permit,
     ) -> Result<Self::Sealed, SnapshotError> {
-        Ok((self.finish(images)?, reservation))
+        let prepared = match destination {
+            Destination::Materialized(images) => self.finish(images)?,
+            Destination::Rooted(store) => self.finish_root(store)?,
+        };
+        Ok((prepared, reservation))
     }
 }
 
 impl Body for SeedDownload {
     type Sealed = PreparedSeed;
 
-    fn encoded_length(&self) -> usize {
-        self.encoded_length()
+    fn transfer_length(&self) -> usize {
+        self.transfer_length()
     }
 
     fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
@@ -65,10 +76,13 @@ impl Body for SeedDownload {
 
     fn seal(
         self,
-        images: &GenerationStore,
+        destination: &Destination,
         reservation: Permit,
     ) -> Result<Self::Sealed, SnapshotError> {
-        self.finish(images, reservation)
+        match destination {
+            Destination::Materialized(images) => self.finish(images, reservation),
+            Destination::Rooted(store) => self.finish_root(store, reservation),
+        }
     }
 }
 
@@ -93,7 +107,7 @@ enum Request<T> {
     Append(Frame),
     End,
     Seal {
-        images: GenerationStore,
+        destination: Destination,
         reply: mpsc::SyncSender<Result<T, SnapshotError>>,
     },
     Abort,
@@ -162,13 +176,18 @@ pub(super) struct Received<T> {
 
 impl<T> Received<T> {
     pub fn seal(self, images: &GenerationStore) -> Result<T, SnapshotError> {
+        self.seal_at(Destination::Materialized(images.clone()))
+    }
+
+    pub fn seal_root(self, store: &NodeExtentStore) -> Result<T, SnapshotError> {
+        self.seal_at(Destination::Rooted(store.clone()))
+    }
+
+    fn seal_at(self, destination: Destination) -> Result<T, SnapshotError> {
         let (reply, result) = mpsc::sync_channel(1);
         self.control
             .requests
-            .send(Request::Seal {
-                images: images.clone(),
-                reply,
-            })
+            .send(Request::Seal { destination, reply })
             .map_err(|_| SnapshotError::Invalid("snapshot receive owner closed"))?;
         result
             .recv()
@@ -282,7 +301,7 @@ fn assemble<D: Body>(
     ready: oneshot::Sender<Result<(), SnapshotError>>,
     performance: &Arc<Registry>,
 ) {
-    let total = owner.body.encoded_length();
+    let total = owner.body.transfer_length();
     let mut offset = 0usize;
     let assembled = (|| {
         while let Ok(request) = commands.recv() {
@@ -327,9 +346,9 @@ fn assemble<D: Body>(
     if ready.send(Ok(())).is_err() {
         return;
     }
-    if let Ok(Request::Seal { images, reply }) = commands.recv() {
+    if let Ok(Request::Seal { destination, reply }) = commands.recv() {
         let result = match Arc::try_unwrap(owner.reservation) {
-            Ok(reservation) => owner.body.seal(&images, reservation),
+            Ok(reservation) => owner.body.seal(&destination, reservation),
             Err(reservation) => {
                 drop(owner.body);
                 drop(reservation);

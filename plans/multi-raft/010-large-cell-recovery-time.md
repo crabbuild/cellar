@@ -282,6 +282,15 @@ seed installation 209.863706 s, promotion 0.691219 s and first write/read-back
 source-input hash is
 `a764dbb3e0564a9203b264a9280764ed66b2812c209b6888b9b22a1beab1295e`.
 
+A later capacity cleanup retired only this completed configuration-tail trial's
+isolated synthetic bucket prefix: 2,419 objects and 10,058,695,872 logical bytes.
+The successful oracle, closed worker directories and retained executable hash
+were checked first; exact keys, sizes and ETags were revalidated before deletion.
+Inventory, batch responses and an empty-prefix audit remain with the campaign's
+source, executable and logs. The newer prepared-body RustFS trial's objects,
+failed samples and golden input remain available. This is fixture retirement,
+not production remote retention or garbage collection.
+
 The same-publisher/requested-cut trace shows cut 2 encoded before the fault but
 never confirmed as an archive base. Cut 3 then took 26.613036 s to encode,
 485.333165 s to upload/confirm and 33.813185 s to replay. Configuration-only
@@ -754,6 +763,62 @@ and restart tests pass. Corruption, missing dependencies, truncation/growth,
 reserved lock-page holes and offsets above 4 GiB must be tested. Repeat both
 near-quota drills with the public extent path and the same payload/receipt
 oracle. Backend flags without remote recovery are not completion.
+
+### Canonical root peer stream and physical seed integration
+
+The next RT-04 slice extends the existing admitted package and joined receiver
+rather than introducing a second network stack. Canonical root metadata binds
+a required total transfer length in addition to its own length/digest; the body
+contains that manifest and each unique extent once in sorted identity order.
+A source caches one verified extent across wire windows. The receiver validates
+the complete manifest/closure length before importing objects, holds at most one
+extent body and releases it before allocating the sealing workspace. Exact
+inventory identity prevents a caller from sealing through a different owner.
+Flat bodies keep their existing encoded-file digest and independent seal.
+
+Root capture/checkpoint/retained-source operations and receiving/publication
+now dispatch through the SQL image owner. A retained cut can precede newer data
+or configuration on its source; the target separately refuses regressing
+membership. The existing fresh-learner grant is carried through root physical
+seeding, its learner/barrier validation, pending references, atomic native fence
+and post-sync retention. No metadata value mints authority. RustFS root archives,
+public root selection, whole-node reconciliation/GC and complete fresh-learner
+root qualification remain open.
+
+The descriptor field and changed peer/snapshot/seed authentication domains form
+a marker-1 hard cutover. Old workers/native state are refused; no fallback reader
+or migration is added. Root working admission includes a 4 MiB extent plus a
+1 MiB bound for quota-limited manifest/index metadata: Compact with 1 MiB wire
+windows now reserves 9 MiB; Buffered remains 16.25 MiB.
+
+Three stream regressions pass, covering repeated extent identities, malformed
+lengths before import, corrupt/short streams and foreign destination inventories.
+The authenticated two-host TLS/SQL-worker case also passes: it checkpoints a
+committed root, makes another committed update, transfers the retained older
+cut, installs and publishes it, catches up through ordinary Raft append/apply,
+then reopens the target and reads the newer value. It creates no materialized
+image directory. This exercises established-member snapshot installation; it
+does not qualify a fresh learner's quorum grant or public backend selection.
+
+Initial stream fixtures incorrectly assumed zeroblob overflow pages were
+identical; their page pointers differ. The corrected fixture packs free-list
+trunks ahead of zeroed free leaf pages, retaining SQLite integrity and creating
+actual repeated extents. The false-total test uses that fixture so its metadata
+passes coarse geometry bounds and fails the exact closure check before any
+object import. Refusal and deduplication assertions remain intact.
+
+Input `f4cb1ed4e7ee26fc03a757a66583c996729163364abce6f922a17207e48287dc`
+passes 679 library, 188 native and 16 extent-store cases. Clippy then caught two
+private getters still named for encoded-file length while returning transfer
+length. Renaming those getters and their private callers changes five files;
+input `83f7a0299a39547e91f35f28949f96186b2c30d15e8d6ada2238fbc5a37e6b7c`
+passes all 679 library and 16 native rooted cases again, and both affected
+crates' all-feature/all-target Clippy with warnings denied. Formatting and layout
+cover 1,205 Rust files; native dependency and documentation guards pass, with
+unchanged checked source inputs. Tested executables, source inventories, log
+digests and both validation phases are retained outside the disposable build
+cache. No assertion or deadline changed. No full-size root latency or public
+backend result is claimed.
 
 ## RT-05: Serve safely before complete hydration
 
