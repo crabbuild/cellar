@@ -5,6 +5,7 @@ mod birth_action;
 mod cancellation;
 mod gate;
 mod gate_cancel;
+mod operator;
 mod records;
 mod rejoin;
 mod resume;
@@ -19,6 +20,11 @@ use crate::raft::catalog::NamespaceCatalog;
 use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
+pub use operator::{
+    FleetRestartOperatorAdmission, FleetRestartOperatorCancelAdmission,
+    FleetRestartOperatorCancelRequest, FleetRestartOperatorCancelled, FleetRestartOperatorDriver,
+    FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
+};
 pub(super) use records::{Record, KIND};
 pub use rejoin::{FleetRestartReturnAdmission, FleetRestartReturnRequest};
 pub(crate) use resume::ResumeLeadershipCommand;

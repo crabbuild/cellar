@@ -79,6 +79,29 @@ impl Cancellation {
 }
 
 impl FleetCatalog {
+    pub(super) async fn restart_preparation_cancellation_applied(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRestartRequest,
+    ) -> Result<Option<u64>> {
+        let Some(record) = self.restart_cancellation_candidate(request).await? else {
+            return Ok(None);
+        };
+        let mutation = record.mutation()?;
+        let applied = self
+            .inner
+            .committed(
+                &snapshot.head,
+                &hex::encode(request.identity.id),
+                hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?),
+            )
+            .await?;
+        if applied.is_some_and(|r| request.identity.expected_revision.checked_add(1) != Some(r)) {
+            return Err(FleetCatalogError::Corrupt("restart cancellation revision"));
+        }
+        Ok(applied)
+    }
+
     /// Cancel only the original preparation epoch, before readiness or stop
     /// authority exists. Later preparation steps must advance the node epoch;
     /// they cannot use this path to bypass a synced stop-cancellation fence.

@@ -106,6 +106,31 @@ impl Cancellation {
 }
 
 impl FleetCatalog {
+    pub(super) async fn restart_gate_cancellation_applied(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRestartGateCancelRequest,
+    ) -> Result<Option<u64>> {
+        let Some(record) = self.restart_gate_cancellation(request).await? else {
+            return Ok(None);
+        };
+        let mutation = record.mutation()?;
+        let applied = self
+            .inner
+            .committed(
+                &snapshot.head,
+                &hex::encode(request.identity.id),
+                hash(&encode(REQUEST_KIND, &mutation, REQUEST_LIMIT)?),
+            )
+            .await?;
+        if applied.is_some_and(|r| request.identity.expected_revision.checked_add(1) != Some(r)) {
+            return Err(FleetCatalogError::Corrupt(
+                "restart gate cancellation revision",
+            ));
+        }
+        Ok(applied)
+    }
+
     /// Own the synced exact-process fence before releasing the operation. An
     /// unknown response retries the identical parent and child. A definite CAS
     /// loss needs a fresh parent revision/ID and the same child fence.

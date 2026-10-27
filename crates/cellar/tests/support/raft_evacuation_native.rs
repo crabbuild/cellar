@@ -8,6 +8,8 @@ use object_store::{path::Path, ObjectStore};
 mod restart;
 #[path = "raft_restart_gate_native.rs"]
 mod restart_gate;
+#[path = "raft_restart_operator_native.rs"]
+mod restart_operator;
 
 struct Setup {
     f: Fixture,

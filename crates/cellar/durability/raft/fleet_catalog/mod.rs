@@ -42,6 +42,9 @@ pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
     FleetRestartHistoryProgress, FleetRestartOfflineAdmission, FleetRestartOfflineRequest,
+    FleetRestartOperatorAdmission, FleetRestartOperatorCancelAdmission,
+    FleetRestartOperatorCancelRequest, FleetRestartOperatorCancelled, FleetRestartOperatorDriver,
+    FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
     FleetRestartPendingWork, FleetRestartReadyAdmission, FleetRestartReadyRequest,
     FleetRestartRequest, FleetRestartResumeAdmission, FleetRestartResumeCompleteRequest,
     FleetRestartResumeCompletion, FleetRestartResumePhase, FleetRestartResumeProgress,
@@ -421,6 +424,7 @@ impl FleetCatalog {
         self.check_restart_stop_mutation(mutation, movement)?;
         self.check_restart_return_mutation(mutation, movement)?;
         self.check_restart_resume_mutation(mutation, movement)?;
+        self.check_restart_operator_mutation(mutation, movement)?;
         self.check_resource_mutation(snapshot, mutation, movement)
             .await?;
         self.check_topology_mutation(snapshot, mutation, movement)
