@@ -14,6 +14,77 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Incoming settlement and original-boot continuation
+
+Implementation `d552e43b` advances M2 beyond preparation. An already admitted
+repair can now finish through RestartPending, including placement before Raft
+Begin, dormant metadata registration, fresh learner seeding, joint completion
+and terminal settlement. The membership authorization pins the resource
+reservation's original destination boot. Current trust must match that pin;
+registration and fresh seeding also recheck the still-active canonical debit.
+Fresh placement remains excluded. Standalone low-level permits retain their
+existing API but cannot grant managed physical admission without this proof.
+
+`pending_restart_work` checks the exact active operation and full namespace
+inventory at one current root. It counts all reserved births involving the
+target, returns the next scope and lists unresolved debits and movements. A
+resource-only reservation involving a hosted history stays visible even if its
+destination differs from the maintenance target. Bounded pages retain only one
+pending birth and the active resource book; stale roots, missing namespaces and
+unknown enrollment successors refuse. Empty status is not live readiness.
+
+`recover_birth_reservation` reconstructs a lost capability from the original
+admitted mutation and permanent journal, exact index changes, namespace root,
+schema and birth digest. The reopened controller can contend on the existing
+namespace name key and confirm its actual Live or Cancelled winner. A live birth
+cannot be erased and a cancelled name cannot be recreated. Lost confirmations
+reconcile the same request and retain pending references meanwhile.
+
+**134 distinct cases pass on this source, in 137 executions:** four new
+settlement cases, 39 movement, two preparation, four gate, thirteen catalog,
+25 low-level permits/import coverage, five CLI/operator and 45 library fleet
+cases. Three settlement cases also occur in the movement cohort and are counted
+once. The new native cases verify a previously unstarted learner and an actual
+joint transition finishing after exclusion, SQL continuity, refusal of unrelated
+metadata/new resource admission, retained resource-only debt, both birth winners,
+controller reopen, lost confirmations and stale/incomplete-input refusal.
+All-target host/admin Clippy passes with warnings denied. The audit matches all
+**1,493 frozen Rust/Cargo/configuration inputs** to the implementation commit.
+Earlier 200-case qualification belongs to its separately recorded source below.
+
+Formatting/layout for 1,399 Rust files, native dependency checks, documentation,
+ten plan tests, the 339-case manifest and source preflight with 95 anchors pass.
+The plan baseline now references this implementation. Static-check outputs are
+retained in `restart-settlement-checks-v1/`; documentation-only publication
+checks remain separately attributed. Latest-head CI and deployed resource,
+performance and soak qualification are still pending.
+
+Primary executable/output evidence is retained outside runtime data in
+checkout-private `qualification/fleet-operations/restart-settlement-v5/` and
+`restart-settlement-followups-v1/`. Earlier failed probes are retained, including
+observer/setup issues and learner refusal before the original-boot proof reached
+every admission boundary. The v4 run was deliberately stopped before tests to
+preserve standalone permit compatibility. The final joint fixture enters real
+Joint through the existing managed repair APIs before exercising restart
+continuation. No deadline, startup/stack bound, resource bound or runtime
+assertion was relaxed. These are shared-host native tests with an in-process
+fault-injecting object store, not deployed RustFS resource/performance proof.
+
+Next feature delivery remains sequential:
+
+1. Compose owned settlement turns, then complete the bounded hosted/pending
+   history walk, fresh proof from both surviving voters, matched/published
+   progress, observed leader handoff and revalidated RestartReady.
+2. Deliver guarded maintenance stop/join, retained-engine return under a fresh
+   process, catch-up/capacity resume, grace/second-failure/rolling execution and
+   the SDK/admin/CLI maintenance workflow.
+3. Finish production failure classification and trusted isolation, then scaled
+   convergence/desired capacity, measured balancing/resize and enforced
+   RustFS/Colima traffic, fault, TPS/p99 and soak qualification.
+
+M2 controller composition, current runtime configuration inspection and M3–M9
+are not complete. The full goal and existing task statuses remain active.
+
 ## Current main and post-response background work
 
 Implementation `4d7ba0fd615874b60738ded7874c54a335f4e5ff` includes main

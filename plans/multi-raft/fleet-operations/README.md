@@ -14,7 +14,10 @@ SDK/API/CLI coverage too. Audited cancel-and-restart recovery after
 post-finalization inventory churn passes native end-to-end verification.
 The catalog now implements M1 intact-restart preparation, a reversible physical
 admission gate and synced cancellation. Accepted application work drains while
-consensus continues. Complete survivor verification, owned handoff/readiness,
+consensus continues. Pending incoming work can now be inventoried, lost birth
+capabilities recovered from the admitted journal, and existing exact-boot moves
+continued through restart preparation. Resource-only obligations stay charged.
+Complete survivor verification, owned handoff/readiness,
 stop/rejoin, rolling execution and maintenance operator surfaces, plus resize,
 remain delivery targets.
 `tasks.json` retains exact package status.

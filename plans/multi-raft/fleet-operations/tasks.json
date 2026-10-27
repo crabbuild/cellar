@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4d7ba0fd615874b60738ded7874c54a335f4e5ff",
+  "baseline_revision": "d552e43b3f76d64bd60b4d236224b51c8c96fdf5",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3815,11 +3815,15 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/gate_cancel.rs",
         "crates/cellar/durability/raft/fleet_stop/admission.rs",
         "crates/cellar/node/maintenance.rs",
-        "crates/cellar/tests/support/raft_restart_gate_native.rs"
+        "crates/cellar/tests/support/raft_restart_gate_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/settlement.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/maintenance.rs",
+        "crates/cellar/tests/support/raft_restart_settlement_native.rs",
+        "crates/cellar/tests/support/raft_restart_birth_settlement.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
-        "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming settlement, both-survivor proof, owned handoff/readiness, maintenance stop/rejoin, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
+        "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming-action inventory, original birth-capability recovery and exact-boot continuation through RestartPending are implemented. Pending-work reports preserve resource-only debt and grant no readiness. Settlement controller composition, both-survivor proof, owned handoff/readiness, maintenance stop/rejoin, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
@@ -4089,6 +4093,46 @@
             "F03",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_restart_settlement_finishes_an_admitted_learner",
+          "oracle": "An exact pre-admitted learner completes seeding, joint transition and verified settlement while RestartPending; new resource admission remains excluded and SQL continues.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_settlement_finishes_joint_with_pending_leader",
+          "oracle": "A restart-pending original leader completes its pre-admitted joint transition and terminal physical settlement, preserving the shared maintenance slot.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_settlement_retains_resource_only_obligations",
+          "oracle": "Complete restart work inventory retains an unresolved resource-only debit involving a hosted group even when its destination differs and there are no executable movements.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_settlement_recovers_birth_winners_after_controller_restart",
+          "oracle": "A reopened controller recovers exact journal-backed birth authority, roots Live and Cancelled namespace winners after lost confirmations, rejects scope/namespace/stale-root substitution and cannot recreate a cancelled name.",
+          "invariants": [
+            "F01",
+            "F04",
+            "F05",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -4135,6 +4179,18 @@
           "native_raft_fleet_enrollment",
           "--locked",
           "fleet_restart_gate_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_restart_settlement_",
           "--",
           "--test-threads=1"
         ]

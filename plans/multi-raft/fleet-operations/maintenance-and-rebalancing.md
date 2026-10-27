@@ -47,10 +47,47 @@ a quiescence response nor gate metadata grants RestartReady, stop or new-boot
 authority. Native qualification is separately recorded in [progress](progress.md).
 
 The reversible gate is a prerequisite within M2–M4, not completion of those
-phases. Incoming-action settlement, complete fresh both-survivor inspection,
+phases. Complete fresh both-survivor inspection,
 owned observed handoff/readiness, guarded maintenance stop, intact-engine rejoin,
 grace expiry, rolling execution and SDK/admin/CLI maintenance surfaces remain
 unfinished. The protocol below is still the full delivery contract.
+
+## Incoming-action settlement primitives
+
+`pending_restart_work` verifies the exact active restart and complete namespace
+inventory at one current root. It counts every reserved birth involving the
+target, returns the next such scope, and reports unresolved resource debits and
+executable movements. A resource-only debit is retained even when its destination
+differs from the maintenance target but the target hosts its group. Movement
+participation uses the admitted original owners and destination, rather than
+assuming genesis placement is current membership. Missing namespace adapters,
+changed roots, cancelled operations and unknown enrollment successors refuse.
+
+The scan uses bounded pages and retains only one pending birth plus the active
+resource book, currently at most two rows. Its work remains subject to the
+existing operation deadline and 10,000-history inventory bound. An empty result
+is descriptive rooted work status; it does not prove healthy survivors, settled
+runtime configuration, completed handoff, physical exit or permission to stop.
+
+A controller that lost a birth handle calls `recover_birth_reservation` with its
+exact scope and namespace. Recovery checks the original admitted mutation,
+permanent journal revision, all original index changes, namespace root, schema
+and birth digest before reconstructing the capability. Use the existing
+`cancel_managed_birth` to contend at the permanent cell-name key, then
+`confirm_birth` to root the observed Live or Cancelled winner. A live winner
+cannot be erased; a cancelled name cannot be recreated. Lost confirmation must
+reconcile the same confirmation request and retain the reservation meanwhile.
+
+Previously admitted movement permits can continue on their exact original
+RestartPending boot, including learner seeding, joint completion and terminal
+settlement. Fresh placement and resource admission remain excluded. Terminal
+resource release still requires current exact-boot membership and physical
+worker-exit proofs. The authorization carries the reservation's original target
+boot through placement; registration and fresh seeding recheck the still-active
+canonical reservation. Unrelated descriptors and unpinned low-level permits
+grant no managed physical admission. Controller composition of these primitives, current joint
+configuration inspection and the later readiness/stop boundaries remain work
+to deliver.
 
 ## Select the correct maintenance mode
 
