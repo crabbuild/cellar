@@ -187,10 +187,9 @@ fn run(
 
     // The factory is captured before importing application modules. Source and
     // private configuration travel over stdin, not a platform-limited argv item.
-    // Keep internal stack locations short: a data URL otherwise repeats the
-    // entire compiled source and can hide application errors behind value limits.
+    // The launcher assigns the fixed internal stack location after loading.
     let script = format!(
-        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}\n//# sourceURL=cellar:node-bootstrap\n",
+        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}",
         include_str!("rejections.js"),
         include_str!("budget.js"),
         include_str!("../runner.js"),

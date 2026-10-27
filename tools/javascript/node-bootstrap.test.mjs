@@ -77,6 +77,6 @@ test("runtime error frames stay bounded before native RPC stack stripping", () =
   const error = JSON.parse(result.stdout);
   assert.equal(error.message, "deliberate upload failure");
   assert.ok(error.bytes < 2048);
-  assert.match(error.stack, /cellar-runtime\.mjs/);
+  assert.match(error.stack, /cellar:node-bootstrap/);
   assert.doesNotMatch(error.stack, /data:text\/javascript/);
 });
