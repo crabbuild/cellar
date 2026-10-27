@@ -9,6 +9,26 @@ use cellar::sdk::{kv, queue, Context};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
+/// Reserve RPC decode ownership before parsing. Keep the returned lease until
+/// native work settles, including after a language task cancels its wait.
+/// Ordinary SDK operation values retain their own limits and need no RPC lease.
+pub fn decode_metadata_with<R>(
+    name: &str,
+    payload: &str,
+    reserve: impl FnOnce(usize) -> Result<R>,
+) -> Result<(Value, Option<R>)> {
+    if name != "cell.call" {
+        return Ok((
+            serde_json::from_str(payload).context(crate::failure::Validation)?,
+            None,
+        ));
+    }
+    let bytes = crate::rpc_control::allocation(payload).context(crate::failure::Validation)?;
+    let lease = reserve(bytes).map_err(|_| anyhow::Error::new(crate::rpc_control::Capacity))?;
+    let value = crate::rpc_control::decode(payload).context(crate::failure::Validation)?;
+    Ok((value, Some(lease)))
+}
+
 /// Invoke a registered Protobuf contract through the original native context.
 /// The runtime selects `contract` from its immutable startup inventory, never
 /// from a descriptor supplied by application call metadata.
@@ -398,6 +418,9 @@ pub async fn execute(
 /// Validate the bridge protocol before entering SDK code. This marker must not
 /// wrap a backend result: a backend error can follow a committed mutation.
 fn validate(name: &str, value: &Value) -> Result<()> {
+    if name == "cell.call" {
+        return crate::rpc_control::validate(value);
+    }
     values::check_depth(value)?;
     ensure!(value.is_object(), "operation payload must be an object");
     let fields: &[&str] = match name {
@@ -406,7 +429,6 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         "var" => &["name"],
         "storage.sql" => &["sql"],
         "cell.fetch" => &["binding", "name"],
-        "cell.call" => &["binding", "name", "method", "contract_digest"],
         "kv.get" | "kv.put" | "kv.delete" => &["binding", "key"],
         "kv.list" => &["binding", "prefix"],
         "sql.query" => &["binding", "sql"],
@@ -419,22 +441,6 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         field(value, name)?;
     }
     match name {
-        "cell.call" => {
-            ensure!(!field(value, "binding")?.is_empty(), "empty RPC binding");
-            ensure!(
-                field(value, "method")?.len() <= 256,
-                "RPC method exceeds limit"
-            );
-            ensure!(
-                field(value, "contract_digest")?.len() == 64,
-                "invalid RPC contract digest"
-            );
-            ensure!(
-                serde_json::to_vec(value)?.len() <= 16 * 1024,
-                "RPC control metadata exceeds limit"
-            );
-            optional::<u32>(value, "timeout_ms")?;
-        }
         "storage.sql" | "sql.query" => {
             ensure!(value["params"].is_array(), "SQL params must be an array");
         }

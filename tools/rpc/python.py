@@ -78,6 +78,20 @@ async def fetch(request, ctx):
     global retained
     url = urlsplit(request.url)
     query = dict(parse_qsl(url.query))
+    if url.path.endswith("/metadata-control"):
+        binding = {"rust": "RUST", "python": "PYTHON", "v8": "V8", "node": "NODE"}[query["target"]]
+        try:
+            if query["mode"] == "oversize":
+                await CounterClient.bind(ctx, binding, "x" * (32 * 1024)).get_count(GetCountRequest())
+            elif query["mode"] == "unknown":
+                rule = CounterRegistration.methods["example.counter.v1.Counter/GetCount"]
+                await ctx._call("cell.call", _body=b"", binding=binding, name="alice",
+                                method=rule.name, contract_digest=rule.digest, extra={"items": [1, 2]})
+            else:
+                raise AssertionError("Unknown metadata-control probe")
+            return Response.json({"admitted": True})
+        except SDKError as error:
+            return Response.json({"code": error.code, "outcome": error.outcome})
     if url.path.endswith("/python-lifecycle-control"):
         return Response.json(python_lifecycle.control(query))
     if url.path.endswith("/cycle-control"):

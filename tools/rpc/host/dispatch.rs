@@ -34,6 +34,7 @@ fn selected(
     python: Arc<PythonApplication>,
 ) -> LocalBoxFuture<'static, Result<Value>> {
     match suite {
+        Suite::GuestControl => Box::pin(crate::guest_control::run(app)),
         Suite::Profile => {
             Box::pin(async { anyhow::bail!("profile needs its dedicated generated runtimes") })
         }
@@ -86,6 +87,7 @@ async fn all(app: Arc<Composite>, python: Arc<PythonApplication>) -> Result<Valu
         ("deadline", Suite::Deadline),
         ("cancellation", Suite::Cancellation),
         ("cycles", Suite::Cycles),
+        ("guest_control", Suite::GuestControl),
         ("provenance", Suite::Provenance),
         ("proof_wait", Suite::ProofWait),
         ("recovery", Suite::Recovery),

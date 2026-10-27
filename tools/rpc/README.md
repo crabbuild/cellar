@@ -98,6 +98,47 @@ usage. Native allocator overhead, response copies, decoded graphs, guest heaps
 and broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
 [configuration](../../docs/11-configuration.md#library-defaults).
 
+## Guest call metadata refusals
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite guest-control --report .cellar/rpc/guest-control.json
+python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
+```
+
+The 48 cases cover Python, V8 TypeScript and Node JavaScript callers × all four
+providers × local/signed-peer routes × oversized or unknown metadata. Oversized
+targets use the generated client; the unknown-field probe uses the same native
+transport with an extra graph. Rust callers do not use this guest JSON boundary.
+
+```text
+guest call metadata + binary request
+             |
+      raw UTF-8 <= 16 KiB?
+             |
+      reserve decode allowance
+             |
+      flat, known, unique fields?
+             |
+      native routing -> provider -> proof
+
+invalid control -> InvalidArgument / not_committed
+                  zero provider visits or factories
+fresh generated read -> original owner, same zero count
+```
+
+Both adapters share a bounded decoder before native dispatch. It rejects
+oversized wire input before parsing or reserving, and unknown fields before
+reading their values. Decode storage is reserved before parsing and held with
+the native work; malformed input releases it. The original encoded payload is
+charged separately. Python uses UTF-8 JSON for this flat control, so Unicode
+target names spend the same wire allowance as JavaScript.
+
+The independent auditor checks exact coverage, fixed refusal categories,
+provider isolation, fresh-call authority and zero retained native reservations
+after node join. This suite does not measure allocator overhead, engine heaps
+or process RSS; both qualification flags remain false.
+
 ## Generate the shared contract
 
 Run from the repository root with the repository Rust environment, protoc 34.0
