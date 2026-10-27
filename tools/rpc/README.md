@@ -6,6 +6,69 @@ Implementation of [plan 009](../../plans/009-named-typed-rpc.md) is in progress.
 The [status ledger](../../plans/named-typed-rpc/implementation-status.md) records
 the delivered boundaries and remaining language/fleet tests.
 
+## SDK source and receiving peer saturation
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite saturation --report .cellar/rpc/saturation.json
+python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
+```
+
+This runs 96 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+source quotas over local/authenticated peer routing, and receiving quotas over
+authenticated peer routing. Each side has independent count and byte cases.
+V8 uses the generated TypeScript binding; Node uses plain JavaScript.
+The byte case retains the default 128-call quota and reduces only the byte
+allowance to 128 KiB. The count case retains the default byte allowance.
+
+```text
+generated Rust holder ----> reserve SDK quota ----> native driver barrier
+                                  |                         |
+generated client ---------> quota exhausted                 | release
+                            ResourceExhausted                v
+                            not_committed           original provider + proof
+                                  |                         |
+                            no business entry         reservation retires
+                                  |
+                     explicit receipt retry --> one mutation + saved result
+```
+
+Receiving overload uses `ResourceExhausted/unknown`. Its paired host transport
+status/header carries a fixed category without rollback evidence or automatic
+replay. Source refusal before submission remains `not_committed` for that child
+call. Event calls preserve ambiguous outcomes for receiving overload.
+
+The barrier observes the real owner, scope, epoch and closed transaction before
+calling the original provider. While it holds capacity, a second generated
+client must be refused without constructing a provider or entering business
+code. After release, the holder finishes, reservations drain, and explicit
+same-ID retries apply the refused command once; a changed command conflicts.
+Every node joins, including after a failed assertion. Receiving requests,
+reserved input bytes, tunnels and peer entries retire to zero. The separate auditor
+checks coverage, authority, counts, quotas and zero retained reservations and
+rejects ten corrupted reports. The suite also runs in the combined qualifier
+and Linux lifecycle CI.
+
+Receiving bodies use a dense buffer whose capacity and possible native/JSON
+copy are reserved before growth. Partial uploads count against admission;
+uploads have an independent host deadline. Per-host/per-peer tunnel limits and
+an idle timeout bound pooled connections. Fragments do not accumulate list
+nodes, and empty chunks yield to timers/replies. Socket and dense-buffer tests
+also exercise quota recovery, idle retirement and native ticket retention.
+
+Reply admission follows each yielded transport buffer and its slices/clones,
+without copying the payload. Once a handler result is ready, the original
+caller deadline and peer transport interval cap delivery. A stalled socket
+closes within that budget; it cannot turn a lost reply into rollback evidence.
+Refunds use the receiving domain's clock, including late buffer drops after
+shutdown. Reply payload bytes and allocator/RSS accounting still need their
+separate qualification below.
+
+These are input/control reservations, not an RSS or exact allocator measurement.
+Native allocator overhead, response copies, decoded graphs, guest heaps and
+broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
+[configuration](../../docs/11-configuration.md#library-defaults).
+
 ## Generate the shared contract
 
 Run from the repository root with the repository Rust environment, protoc 34.0

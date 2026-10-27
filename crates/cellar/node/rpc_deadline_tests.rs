@@ -81,6 +81,26 @@ fn peer_timeout_requires_a_paired_host_marker_and_never_proves_rollback() {
     assert!(remote_failure(StatusCode::GATEWAY_TIMEOUT, &headers).is_none());
 }
 
+#[test]
+fn receiving_overload_is_a_fixed_unknown_category_without_replay_permission() {
+    let reply = super::super::rpc_failure::exhausted();
+    let mut headers = reply.headers().clone();
+    assert!(remote_failure(StatusCode::OK, &headers).is_none());
+    assert!(remote_failure(StatusCode::GATEWAY_TIMEOUT, &headers).is_none());
+    let failure = remote_failure(reply.status(), &headers).unwrap();
+    assert_eq!(failure.code(), Code::ResourceExhausted);
+    assert_eq!(failure.outcome(), EffectOutcome::Unknown);
+    assert_eq!(
+        super::super::classify_remote_attempt(&anyhow::Error::new(failure)),
+        cellar_logic::routing::Attempt::Ambiguous
+    );
+    headers.append(
+        FAILURE_HEADER,
+        hyper::header::HeaderValue::from_static("ResourceExhausted"),
+    );
+    assert!(remote_failure(reply.status(), &headers).is_none());
+}
+
 struct Dropped(Arc<AtomicUsize>);
 
 impl Drop for Dropped {

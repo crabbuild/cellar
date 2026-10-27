@@ -24,7 +24,7 @@ fn rpc_writable_streams_retain_producer_authority_backpressure_and_cleanup() -> 
         String::from_utf8_lossy(&built.stderr)
     );
     let directory = tempfile::tempdir()?;
-    NodeRuntime::run(
+    let application = NodeRuntime::run(
         Options {
             max_body_bytes: 1024,
             ..Default::default()
@@ -40,13 +40,23 @@ fn rpc_writable_streams_retain_producer_authority_backpressure_and_cleanup() -> 
                 .build()?
                 .block_on(run(directory.path(), application))
         },
-    )
+    )?;
+    // Native node drain retires cell authority. The still-running engine may
+    // briefly own cancellation/retirement frames at that point. Its final byte
+    // reservation census belongs after NodeRuntime::run has closed and joined
+    // the transport, not to a concurrent sample of the live engine.
+    let usage = application.bridge_usage();
+    ensure!(
+        usage.stopped && usage.active_invocations == 0 && usage.retained_bytes == 0,
+        "joined writer runtime retained resources: {usage:?}"
+    );
+    Ok(())
 }
 
 async fn run(
     path: &std::path::Path,
     application: Arc<cellar_javascript::JavaScriptApplication>,
-) -> Result<()> {
+) -> Result<Arc<cellar_javascript::JavaScriptApplication>> {
     let (node, address) = native::start_configured(path, application.clone(), |config, _, _| {
         // The new test holds writer/close acknowledgements for independent requests.
         config.runtime.handler_budget = Duration::from_secs(10);
@@ -62,10 +72,10 @@ async fn run(
         "writer work did not drain"
     );
     ensure!(
-        usage.active_invocations == 0 && usage.retained_bytes == 0,
-        "writer resources leaked: {usage:?}"
+        usage.active_invocations == 0,
+        "writer invocations did not drain: {usage:?}"
     );
-    Ok(())
+    Ok(application)
 }
 
 async fn state(client: &reqwest::Client, address: &str, token: &str) -> Result<Value> {

@@ -4,12 +4,14 @@
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
-use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
+use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
     time::Duration,
 };
+#[path = "support/joined_node.rs"]
+mod joined_node;
 #[path = "support/native.rs"]
 mod native;
 #[path = "../../cellar/tests/support/container_peer.rs"]
@@ -45,7 +47,7 @@ fn run(name: &str, class: &str, binding: &str) -> Result<()> {
                 class,
                 [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
             );
-        NodeRuntime::run(
+        joined_node::run(
             Options {
                 max_body_bytes: 256,
                 ..Default::default()
@@ -176,7 +178,7 @@ fn unchanged_published_container_module_routes_named_and_singleton_objects() -> 
             "MyContainer",
             [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
         );
-    NodeRuntime::run(
+    joined_node::run(
         Options::default(),
         NodeOptions::new(fixture("container-module")?),
         source,
@@ -384,7 +386,7 @@ fn rearmed_alarm_waits_for_the_active_handler_and_drains() -> Result<()> {
             "Counter",
             [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
         );
-    NodeRuntime::run(
+    joined_node::run(
         Options::default(),
         NodeOptions::new(fixture("module")?),
         source,
@@ -429,13 +431,11 @@ fn published_container_sleeps_wakes_and_joins_lifecycle_hooks() -> Result<()> {
                 "Counter",
                 [EventKind::Fetch, EventKind::Alarm, EventKind::CellRpc],
             );
-        let mut retained = None;
-        NodeRuntime::run(
+        joined_node::run(
             Options::default(),
             NodeOptions::new(fixture("container-lifecycle")?),
             source,
             |application| {
-                retained = Some(application.clone());
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()?
@@ -446,16 +446,6 @@ fn published_container_sleeps_wakes_and_joins_lifecycle_hooks() -> Result<()> {
                     ))
             },
         )?;
-        // Native host drain finishes inside the callback. The live Node
-        // transport can still own control/heartbeat frames at that point;
-        // assert complete byte release after NodeRuntime joins it as well.
-        let usage = retained
-            .context("lifecycle runtime missing")?
-            .bridge_usage();
-        ensure!(
-            usage.stopped && usage.active_invocations == 0 && usage.retained_bytes == 0,
-            "joined lifecycle leaked: {usage:?}"
-        );
     }
     Ok(())
 }

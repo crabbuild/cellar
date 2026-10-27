@@ -99,6 +99,7 @@ impl Application for Fixture {
     }
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
+        self.trace.observe_domain(&context)?;
         let provider = identity.class == self.provider_class;
         let control =
             identity.class == "RustCounter" && identity.name.as_deref() == Some("worker-control");
@@ -120,6 +121,9 @@ impl Application for Fixture {
     }
 
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        if let Err(error) = self.trace.observe_domain(&context) {
+            return Box::pin(async { Err(error) });
+        }
         let event = match event {
             Invocation::Fetch(mut request)
                 if request
