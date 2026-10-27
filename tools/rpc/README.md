@@ -56,6 +56,18 @@ an idle timeout bound pooled connections. Fragments do not accumulate list
 nodes, and empty chunks yield to timers/replies. Socket and dense-buffer tests
 also exercise quota recovery, idle retirement and native ticket retention.
 
+The upgrade carries the receiving idle interval as canonical positive
+milliseconds. Sources limit cache reuse to its first half, starting at dial;
+clean reply EOF cannot renew an aging socket. This leaves time for the next
+submission to reach the receiver before its idle timer expires. Expiry never
+cancels an active exchange or grants permission to replay an uncertain one.
+The original source domain's clock controls reuse, including after shutdown;
+missing or malformed interval metadata refuses a mixed or invalid peer before
+producing a business-call sender. Socket regressions reproduce the held-request
+race, late reply retirement, metadata refusal and stopped-owner cleanup.
+Receivers also require one version-1 reuse capability before admission; neither
+side silently falls back to the previous pooling contract.
+
 Reply admission follows each yielded transport buffer and its slices/clones,
 without copying the payload. Once a handler result is ready, the original
 caller deadline and peer transport interval cap delivery. A stalled socket

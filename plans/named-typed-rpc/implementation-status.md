@@ -17,8 +17,8 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | At `1ee378df`, JavaScript and typed-RPC lifecycle fail at Node process startup; Python examples pass. Both SDK variants fail the same native stale-receipt settlement race with ambiguous transport closure. The compiled Node bootstrap occupies a 133,023-byte exec argument, exceeding Linux's per-string limit on 4 KiB-page hosts. A controlled argument-limit regression fails, then passes with source delivered through the owned startup pipe. Hosted verification of that fix remains pending. Earlier wake and lease-renewal failures remain unexplained. |
-| P0 | Cross-adapter deadline and regression timing | Controlled Python queue/decoder fixes remain verified. Earlier native V8 HTTP/SSE reaches the original 250 ms handler budget; a temporary wrapper observes one 1.345 s poll before any cell constructor. Three parallel V8 unit cases also fail their short turn budget; an integrated run reproduces V8 SSE's 100 ms budget/EOF failure. The final reply/startup source passes all 167 adapter tests, but an intermediate native container binding run reaches its original 250 ms limit. Passing reruns do not diagnose those failures or the older hosted wake/ambiguous-renewal failures. |
+| P0 — hosted verification | Merged-source hosted verification | PR #132 merged as main `927d3f34`, including the Node startup integration from `3fc685f7`; merged-source hosted verification remains pending. A held-request probe traces the native stale-receipt failure to receiving idle expiry, and the cache-window fix passes its focused SDK case. Mutual reuse-capability guards pass core tests; full native SDK verification is running on the frozen pre-merge source. Earlier wake and lease-renewal failures remain unexplained. |
+| P0 | Cross-adapter deadline and regression timing | The latest frozen cache-fix adapter run records 163 passed, eight failed and six external ignored: native/V8/Node handler budgets still expire, including the shared provider test at five seconds. A prior native first-poll probe observed 1.345 s before a cell constructor. A new external V8 sample reproduces the 250 ms HTTP failure but captures loader startup, not the failing turn. Passing standalone retries and earlier 167-test runs do not establish a timing cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 96-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Published byte frames now retain admission through their final clone/slice, including Hyper's pending write queue; ready replies have a finite delivery deadline and refund safely after owner shutdown. Dense uploads, bounded headers, empty-frame timer progress and idle retirement have regressions. Finish other effective minima, response-byte pools, backing-copy/decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
 | P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
@@ -63,7 +63,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Before the latest main merge, reply/startup source passes all 167 adapter tests. Integrated `239796d5` records 169 passed, two failed (module count's original 250 ms budget and alarm-start HTTP 500), six external ignored. The SDK stale-receipt transport race also reproduces locally. Earlier V8/HTTP/SSE/native-container timing and hosted wake/lease failures remain unexplained. Full T19 stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Latest frozen cache-fix source: 163 passed, eight failed, six external ignored. Failures include native container/provider, V8/Node HTTP, generated RPC, Vercel and module-count handler budgets. Previous 239796d5 integration also failed module count and alarm start; a prior source passed 167 adapters. The SDK idle race has a focused fix; full SDK and merged-source qualification remain open. Full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
 | Standard format/layout/dependency/docs checks and affected tests/Clippy | Integrated `239796d5` passes 111 core RPC tests, 35 qualifier guards, Python streaming/typed-RPC/E2B/Vercel integrations, all-target Clippy, Node-only checking and standard checks. Full adapter and focused native SDK verification retain failures. Earlier frozen source passes 18 selected native integrations and all 167 adapters; hosted and broader qualification stay open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
@@ -73,6 +73,40 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Bound cached RPC reuse before receiving idle expiry.** The native
+  stale-receipt failure is reproduced under its original lease, operation
+  budget and assertions. A tagged probe observes held ack/extension requests,
+  then receiver expiry at 30,001 ms with zero active requests/replies, followed
+  by upstream EOF when the ack is released. The timer expires while the proxy
+  holds submission; this is neither a prior dead-sender checkout nor loss of a
+  produced business reply. Probe log:
+  `/tmp/cellar-rpc-native-settlement-idle-probe.log`; instrumentation is removed.
+
+  A real authenticated socket regression gates the old connection's next read
+  while allowing a fresh connection. It fails with `old-socket read held=true,
+  connections=1` and connection reset, then passes with an advertised receiving
+  interval and a source cache window limited to its first half from dial.
+  Parking clean EOF never renews this window. Active exchanges can finish after
+  cache expiry; expired/stopped owners cannot contribute an idle sender. Both
+  peers require the reuse contract: callers reject invalid/missing interval
+  metadata and receivers reject incompatible capabilities before admission.
+  Internal protocol markers remain 1, with no legacy pooling fallback.
+
+  All **116 core RPC tests** pass, including original scope/target isolation,
+  exact unsent-request recovery and no replay after uncertain submission.
+  The original SDK stale-receipt case passes after the initial window fix,
+  with its unchanged 30-second delivery lease and three-second call budget;
+  the later mutual-capability checks have core coverage. The subsequent frozen
+  adapter attempt retains **163 passed, eight failed and six ignored**, including
+  native/V8/Node handler-budget failures. A backtrace-enabled generated-client
+  retry passes; an externally sampled V8 retry fails its original 250 ms budget,
+  but captures loader startup instead of the failing turn. Neither establishes
+  the timing cause. Full native SDK, matrix, proof-wait and static checks are
+  still running on that pre-merge source snapshot. Merged-source and hosted
+  qualification remain pending. This
+  addresses the demonstrated idle race; other timing failures and full
+  resource/profile/package/interpreter qualification remain open.
 
 - **PR #132 conflict resolution with main `fe260689` (#135).** The merged
   startup uses main's fixed launcher and private JSON source/configuration

@@ -48,6 +48,8 @@ pub(crate) const SCOPE_HEADER: &str = "x-cells-scope";
 pub(crate) const NAME_HEADER: &str = "x-cells-do-name";
 pub(crate) const REQUEST_ID_HEADER: &str = "x-cells-request-id";
 pub(crate) const HANDOFF_HEADER: &str = "x-cells-capacity-handoff";
+const RPC_IDLE_HEADER: &str = "x-cells-rpc-idle-ms";
+const RPC_REUSE_HEADER: &str = "x-cells-rpc-reuse-version";
 
 /// The inner headers node A owns. A overwrites them on the way in and B
 /// strips them on the way out, so an application header with a reserved name
@@ -135,6 +137,16 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
         }
     };
     let rpc_connection = if matches!(&kind, TunnelKind::Rpc) {
+        if headers.get_all(RPC_REUSE_HEADER).iter().count() != 1
+            || headers
+                .get(RPC_REUSE_HEADER)
+                .is_none_or(|value| value.as_bytes() != TUNNEL_VERSION.as_bytes())
+        {
+            return peer_response(response(
+                StatusCode::UPGRADE_REQUIRED,
+                "RPC tunnel reuse contract is incompatible",
+            ));
+        }
         let source = match peer_auth::verified_source(request.headers()) {
             Ok(source) => source,
             Err(_) => return peer_response(response(StatusCode::UNAUTHORIZED, "invalid RPC peer")),
@@ -146,6 +158,9 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
     } else {
         None
     };
+    let rpc_idle_ms = rpc_connection
+        .as_ref()
+        .map(|connection| connection.idle_timeout().as_millis() as u64);
     let upgrade = hyper::upgrade::on(&mut request);
     crate::asyncrt::spawn(async move {
         let upgraded = match rpc_connection.as_ref() {
@@ -180,6 +195,12 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
         hyper::header::HeaderName::from_static(VERSION_HEADER),
         hyper::header::HeaderValue::from_static(TUNNEL_VERSION),
     );
+    if let Some(idle_ms) = rpc_idle_ms {
+        reply.headers_mut().insert(
+            hyper::header::HeaderName::from_static(RPC_IDLE_HEADER),
+            hyper::header::HeaderValue::from(idle_ms),
+        );
+    }
     peer_response(reply)
 }
 
@@ -334,7 +355,49 @@ async fn serve_do(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
         .await;
 }
 
-type TunnelSender = hyper::client::conn::http1::SendRequest<TunnelBody>;
+struct TunnelSender {
+    inner: hyper::client::conn::http1::SendRequest<TunnelBody>,
+    reuse: Option<ReuseWindow>,
+}
+
+/// Cache eligibility is shorter than receiving idle admission. It starts at
+/// dial, not reply retirement: slow reads cannot renew an older peer socket.
+/// A weak clock token also prevents reuse after the original driver stops.
+struct ReuseWindow {
+    domain: crate::asyncrt::DomainToken,
+    expires_ms: u64,
+}
+
+impl TunnelSender {
+    fn reusable(&self) -> bool {
+        !self.inner.is_closed()
+            && self.reuse.as_ref().is_none_or(|window| {
+                window
+                    .domain
+                    .mono_ms()
+                    .is_ok_and(|now| now < window.expires_ms)
+            })
+    }
+}
+
+fn rpc_idle_interval(headers: &hyper::HeaderMap) -> anyhow::Result<u32> {
+    anyhow::ensure!(
+        headers.get_all(RPC_IDLE_HEADER).iter().count() == 1,
+        "RPC tunnel idle interval is missing or repeated"
+    );
+    let value = headers[RPC_IDLE_HEADER]
+        .to_str()
+        .context("RPC tunnel idle interval is not text")?;
+    anyhow::ensure!(
+        !value.is_empty()
+            && !value.starts_with('0')
+            && value.bytes().all(|byte| byte.is_ascii_digit()),
+        "RPC tunnel idle interval is not canonical positive decimal"
+    );
+    value
+        .parse()
+        .context("RPC tunnel idle interval is out of range")
+}
 
 /// The peer rejected the outer tunnel before an application request crossed
 /// it. This is a definite stale route, so the caller can refresh ownership
@@ -381,17 +444,17 @@ struct IdleTunnels(VecDeque<(TunnelKey, TunnelSender)>);
 
 impl IdleTunnels {
     fn checkout(&mut self, key: &TunnelKey) -> Option<TunnelSender> {
-        self.0.retain(|(_, sender)| !sender.is_closed());
+        self.0.retain(|(_, sender)| sender.reusable());
         let index = self
             .0
             .iter()
-            .position(|(peer, sender)| peer == key && sender.is_ready())?;
+            .position(|(peer, sender)| peer == key && sender.inner.is_ready())?;
         self.0.remove(index).map(|(_, sender)| sender)
     }
 
     fn park(&mut self, key: &TunnelKey, sender: TunnelSender) {
-        self.0.retain(|(_, sender)| !sender.is_closed());
-        if sender.is_closed() {
+        self.0.retain(|(_, sender)| sender.reusable());
+        if !sender.reusable() {
             return;
         }
         // Evict the least recently returned idle tunnel. Reusing a live peer
@@ -435,7 +498,16 @@ fn tunnel_key(peer: &Peer<'_>, kind: &'static str) -> TunnelKey {
 /// The establishment is a bodiless GET, so the fleet HMAC signs it whole —
 /// the one signature every call on this tunnel then rides.
 async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<TunnelSender> {
-    let request = peer
+    let reuse_clock = if kind == "rpc" {
+        let domain = crate::asyncrt::services()
+            .domain_token()
+            .context("RPC tunnel source domain is unavailable")?;
+        let started_ms = domain.mono_ms()?;
+        Some((domain, started_ms))
+    } else {
+        None
+    };
+    let mut request = peer
         .http
         .get(format!("http://{}/peer/tunnel", peer.addr))
         .header(reqwest::header::UPGRADE, TUNNEL_PROTOCOL)
@@ -446,6 +518,9 @@ async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<Tunnel
             peer_auth::RESPONSE_VERSION_HEADER,
             peer_auth::PROTOCOL_VERSION_TEXT,
         );
+    if kind == "rpc" {
+        request = request.header(RPC_REUSE_HEADER, TUNNEL_VERSION);
+    }
     let response = peer
         .auth
         .sign(request, "GET", "/peer/tunnel", b"", peer.node)?
@@ -467,6 +542,16 @@ async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<Tunnel
         "tunnel establishment answered {}",
         response.status()
     );
+    let reuse = match reuse_clock {
+        Some((domain, started_ms)) => Some(ReuseWindow {
+            domain,
+            // Leave half the receiving interval for a queued or delayed next
+            // submission. This is a cache hint, never authority to replay work.
+            expires_ms: started_ms
+                .saturating_add(u64::from(rpc_idle_interval(response.headers())?) / 2),
+        }),
+        None => None,
+    };
     let upgraded = response.upgrade().await?;
     let (sender, connection) = hyper::client::conn::http1::Builder::new()
         .handshake(TokioIo::new(upgraded))
@@ -475,7 +560,10 @@ async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<Tunnel
         let _ = connection.with_upgrades().await;
     })
     .detach();
-    Ok(sender)
+    Ok(TunnelSender {
+        inner: sender,
+        reuse,
+    })
 }
 
 fn inner_request(
@@ -588,7 +676,11 @@ async fn send_on_tunnel(
     request: Request<TunnelBody>,
 ) -> Result<Response<PooledResponseBody>, Box<hyper::client::conn::TrySendError<Request<TunnelBody>>>>
 {
-    let response = sender.try_send_request(request).await.map_err(Box::new)?;
+    let response = sender
+        .inner
+        .try_send_request(request)
+        .await
+        .map_err(Box::new)?;
     let reusable =
         (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.clone(), sender));
     Ok(response.map(|body| PooledResponseBody { body, reusable }))
@@ -1100,3 +1192,7 @@ mod tests;
 #[cfg(test)]
 #[path = "peer_tunnel_reply_tests.rs"]
 mod reply_tests;
+
+#[cfg(test)]
+#[path = "peer_tunnel_reuse_tests.rs"]
+mod reuse_tests;

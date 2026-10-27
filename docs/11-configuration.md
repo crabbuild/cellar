@@ -66,6 +66,17 @@ bounded by this transport interval and the original caller deadline, whichever
 is earlier. A stalled writer cannot keep its slots indefinitely. Ordinary
 HTTP/fetch tunnels use their existing policies.
 
+RPC upgrades advertise the receiving idle interval. A source caches the tunnel
+only during the first half of that interval, measured from its original dial
+with the source domain's clock. Clean reply retirement never renews this window;
+an expired window retires the idle sender before another call is submitted.
+Active exchanges can still finish normally. Missing, repeated or invalid idle
+metadata refuses the upgrade before it can produce a business-call sender.
+Receivers require exactly one compatible reuse-version capability before
+reserving admission; mixed peers use a hard cutover under protocol marker 1.
+This cache hint provides no retry or rollback authority: a lost submitted reply
+still has an unknown outcome.
+
 Each receiving RPC reserves request/control capacity before decoding authority
 or reading its body. Uploads accumulate into one dense buffer: capacity is
 reserved before growth, with an allowance for a second native/JSON copy. Tiny
