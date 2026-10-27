@@ -58,9 +58,10 @@ pub(crate) enum Operation {
     ArchiveAdmissionWait,
     ArchivePublicationBatch,
     SnapshotEncode,
+    EnginePurge,
 }
 
-const OPERATIONS: [Operation; 27] = [
+const OPERATIONS: [Operation; 28] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -88,6 +89,7 @@ const OPERATIONS: [Operation; 27] = [
     Operation::ArchiveAdmissionWait,
     Operation::ArchivePublicationBatch,
     Operation::SnapshotEncode,
+    Operation::EnginePurge,
 ];
 
 impl Operation {
@@ -120,6 +122,7 @@ impl Operation {
             Self::ArchiveAdmissionWait => "archive_admission_wait",
             Self::ArchivePublicationBatch => "archive_publication_batch",
             Self::SnapshotEncode => "snapshot_encode",
+            Self::EnginePurge => "engine_purge",
         }
     }
 }

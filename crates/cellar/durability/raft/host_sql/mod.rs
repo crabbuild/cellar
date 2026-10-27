@@ -21,7 +21,7 @@ use super::snapshot::{
 use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
 use crate::application::consensus::{OperationContract, RaftClass};
-use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
+use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope, LogIndex};
 use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::LtxHost;
 use futures_util::future::BoxFuture;
@@ -130,6 +130,9 @@ pub(crate) enum Action {
     CaptureCheckpoint {
         limits: SnapshotLimits,
         reservation: SourceReservation,
+        /// An archive-triggered capture must not advance beyond its confirmed
+        /// local cut if apply progresses while the SQL request is queued.
+        archived: Option<LogIndex>,
     },
     CaptureSnapshot {
         snapshot: Box<::raft::prelude::Snapshot>,
@@ -1013,6 +1016,7 @@ impl Cell {
             Action::CaptureCheckpoint {
                 limits,
                 reservation,
+                archived,
             } => {
                 let (_options, applier) = self.images.materialized()?;
                 let package = match applier.queryable().map_err(super::execution::storage)? {
@@ -1024,6 +1028,9 @@ impl Cell {
                     ),
                 }
                 .map_err(super::execution::storage)?;
+                if archived.is_some_and(|index| package.position() > index) {
+                    return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+                }
                 Ok(Value::SnapshotCapture {
                     capture: Box::new(package),
                     reservation,

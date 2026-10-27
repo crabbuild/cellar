@@ -4,6 +4,8 @@
 //! The scheduler fixture's application markers are stubs. The repair-load
 //! fixture and container runner exercise actual native SQLite/LTX publication.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_archive_reclaim.rs"]
+mod archive_reclaim;
 #[path = "support/raft_archive_wakeup.rs"]
 mod archive_wakeup;
 #[path = "support/raft_background_admission.rs"]
@@ -302,4 +304,9 @@ fn harness_rejects_stale_binary() -> Result<()> {
         String::from_utf8_lossy(&output.stderr)
     );
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn short_archived_groups_checkpoint_and_recover_without_reexecuting() -> Result<()> {
+    archive_reclaim::run().await
 }

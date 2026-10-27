@@ -72,6 +72,17 @@ Its bounded `GroupLog` caches become visible after sync. Storage lookups on the
 consensus worker perform no filesystem I/O. The filesystem is always supplied
 by the node; unsupported operations fail explicitly.
 
+The same storage worker purges obsolete shared engine files after dirty writes,
+including on an idle node and after reopening. `ReplicaLogOptions.purge_interval_ms`
+defaults to `Some(1000)`; `None` leaves purge to the explicit `ReplicaLog::purge`
+API. Passes coalesce across groups, run between requests even under sustained
+traffic, and never hold a cache lock during physical I/O. Live entries, votes,
+configuration and snapshot records survive engine rewrites. Engine compaction
+hints never authorize deleting a group's logical prefix; unresolved hints receive
+later bounded-rate passes even without new writes. An I/O failure closes and
+joins storage. `engine_purge` reports physical maintenance duration and outcomes.
+The file-size and purge thresholds are soft engine watermarks, not a disk quota.
+
 Every newly created engine persists a nonzero `EngineInstanceId` in both its
 node marker and engine root. Resume checks the exact pair; another empty engine
 cannot repeat this identity by reusing configured node/disk values. The required
@@ -936,7 +947,21 @@ first committed LTX update can subsequently establish the initial image.
 Native checkpoint scheduling defaults to one cut per 256 applied entries. When
 the aggregate durable log cache reaches half its byte capacity, eligible groups
 above an average share also checkpoint before reaching that entry count;
-`checkpoint_entries = 0` disables automatic compaction. The host pins and registers
+short histories also checkpoint once their complete applied cut has confirmed
+object-store coverage. `RaftHostOptions.archive_checkpoint_ms` defaults to 1000
+and coalesces successive archive-driven checkpoints per cell; zero disables this
+trigger. Checkpoint selection rotates across groups sharing source admission.
+A queued archive-driven capture rechecks its confirmed upper bound before
+encoding, so later apply cannot silently compact beyond that proof. S3 PUT
+completion alone cannot trigger this policy: the existing physical replay and
+conditional head confirmation must advance local archived progress first.
+The synced checkpoint retains its verified local image for lagging-follower
+snapshot transfer and restart; the object-store snapshot plus tail remains the
+independent recovery set. Neither raw object upload nor physical purge grants
+votes, acknowledges uncommitted entries or permits deleting a live engine.
+The entry-count and cache-pressure triggers retain their local-snapshot contract
+even when S3 is unavailable. `checkpoint_entries = 0` disables all automatic
+compaction. The host pins and registers
 the exact requested source cut before sending `MsgSnapshot`. The receiver validates
 the descriptor against its local ticket, fetches ordered chunks and seals on its
 SQL owner. It waits for `SnapshotInstalled` before publishing the image and
