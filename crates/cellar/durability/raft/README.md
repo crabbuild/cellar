@@ -384,6 +384,28 @@ Its private `images` module selects physical command/read adapters beneath the
 shared controller. The extent branch is exercised by the worker integration
 fixtures; public node configuration retains the materialized backend until the
 extent recovery and effect contracts are integrated.
+
+The verification facade now has `RootSnapshotSource` and `RootSnapshotSet` for
+complete local extent-closure transfer. Capture pins a coherent durable root
+and emits the existing native snapshot descriptor plus its canonical manifest;
+it does not encode or spool the full SQLite image. Group/birth/schema, exact
+Raft cut and configuration, LTX state, geometry, manifest length and digest all
+remain bound. A cached source checks the exact live engine owner before reuse.
+Each declared dependency is independently rehashed before source bytes escape,
+including after an earlier local seal. Foreign objects remain inaccessible
+through that root even if present elsewhere in the shared inventory.
+
+Receivers decode against either a local group or a catalog birth, import only
+declared exact-length extents through the node store's independent destination
+verification and sync barriers, and seal only after the entire local closure is
+verified. Exact existing objects are verified and reused without being
+overwritten. The caller admits the 4 MiB object buffer and sealing workspace
+and runs their I/O on a registered blocking owner. These are data/metadata
+capabilities; they do not create a seed grant, runtime completion or applied
+engine marker. Peer and RustFS transfer adapters, joined physical ownership,
+root inventory reconciliation and public backend selection remain to be wired.
+Partial residency still cannot produce a `SealedImageRoot`.
+
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher

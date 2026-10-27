@@ -37,6 +37,12 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`RootView::read_extent` supplies one complete dependency to an admitted blocking
+transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects
+outside the pinned root and returns bytes only after the full extent identity
+has matched, rechecking even previously sealed data through bounded 64 KiB file
+reads. This does not create a recovery or native admission capability.
+
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
 segments. A paged epoch continues the history from which it was opened.

@@ -1,0 +1,276 @@
+// Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+//! Root metadata and complete local closure transfer beneath native admission.
+//! The existing descriptor binds the exact Raft cut; its body is the canonical
+//! manifest, never a flat SQLite hash or a full-image encoded spool.
+
+use super::*;
+use crate::raft::{catalog::GroupBirth, member_state::GroupMembership, rooted::RootPublishedImage};
+use cellar_ltx::internal::{
+    ExtentId, ExtentManifest, ExtentRootReference, ImageBinding, NodeExtentStore, SealedImageRoot,
+};
+use std::{collections::BTreeSet, io, sync::Arc};
+
+/// A coherent committed source. The node's transport separately admits its
+/// lifetime and each at-most-4-MiB extent read on a registered blocking owner.
+/// Capture reads metadata only and retains the sealed root's actual byte owner.
+pub struct RootSnapshotSource {
+    group: GroupLog,
+    image: Arc<SealedImageRoot>,
+    snapshot: Snapshot,
+    manifest: Vec<u8>,
+}
+
+impl RootSnapshotSource {
+    pub fn capture(
+        group: &GroupLog,
+        image: RootPublishedImage,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        limits.validate()?;
+        let marker = image.marker();
+        let schema = image.application_digest();
+        let (position, conf, membership) = {
+            let cache = group.read()?;
+            if cache.applied.image.as_ref() != Some(&marker)
+                || image.scope() != &group.identity().scope
+                || image.position().index > cache.applied.position.index
+                || cache.term(image.position().index.get()) != Some(image.position().term.get())
+                || cache.applied.position.index.get() > cache.hard_state.commit
+            {
+                return Err(SnapshotError::Invalid("root source durable cut"));
+            }
+            (
+                cache.applied.position,
+                manifest::encode_conf(&cache.conf_state)?,
+                cache.membership.clone(),
+            )
+        };
+        let pin = image.image();
+        let bytes = pin
+            .manifest()
+            .encode()
+            .map_err(cellar_ltx::internal::StoreError::from)?;
+        let descriptor = Descriptor {
+            format: 1,
+            scope: WireScope::from(&group.identity().scope),
+            birth: group.birth_digest,
+            schema,
+            index: position.index.get(),
+            term: position.term.get(),
+            conf,
+            membership,
+            image: Some(marker),
+            encoded_length: bytes.len(),
+            encoded_digest: Sha256::digest(&bytes).into(),
+        };
+        let snapshot = descriptor.snapshot()?;
+        // Use the same decoder as a receiver. A root pointer, source pin or
+        // matching final digest cannot bypass the complete metadata binding.
+        RootSnapshotSet::for_group(group, schema, &snapshot, &bytes, limits)?;
+        Ok(Self {
+            group: group.clone(),
+            image: pin,
+            snapshot,
+            manifest: bytes,
+        })
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        self.snapshot.clone()
+    }
+
+    pub fn manifest(&self) -> &[u8] {
+        &self.manifest
+    }
+
+    /// A cached source may not be rebound to another open engine instance.
+    /// Passing this check does not create a live native source grant.
+    pub fn validate_owner(&self, group: &GroupLog) -> Result<(), SnapshotError> {
+        if self.group.identity() != group.identity()
+            || !Arc::ptr_eq(&self.group.owner, &group.owner)
+        {
+            return Err(SnapshotError::Invalid("root source engine owner"));
+        }
+        drop(group.read()?);
+        Ok(())
+    }
+
+    /// Recheck exact bytes before returning a complete object to an admitted
+    /// sender. Foreign extents are refused even if present in the node store.
+    pub fn read_extent(&self, id: ExtentId) -> Result<Vec<u8>, SnapshotError> {
+        self.image
+            .view()
+            .read_extent(id)
+            .map_err(SnapshotError::from)
+    }
+}
+
+/// Bound snapshot metadata and its canonical dependency set. This value is
+/// neither a durable local image nor permission to vote, install or serve it.
+pub struct RootSnapshotSet {
+    snapshot: Snapshot,
+    marker: CommittedImage,
+    reference: ExtentRootReference,
+    manifest: ExtentManifest,
+    dependencies: BTreeSet<ExtentId>,
+}
+
+impl RootSnapshotSet {
+    pub fn for_group(
+        group: &GroupLog,
+        schema: [u8; 32],
+        snapshot: &Snapshot,
+        bytes: &[u8],
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let descriptor = Descriptor::decode(group, schema, snapshot, limits)?;
+        descriptor.membership.succeeds(&group.membership()?)?;
+        Self::bound(snapshot, descriptor, bytes)
+    }
+
+    /// A fresh learner knows its catalog birth before it has a local group.
+    /// A later native install must still check its opaque live seed grant.
+    pub fn for_seed(
+        birth: &GroupBirth,
+        schema: [u8; 32],
+        snapshot: &Snapshot,
+        bytes: &[u8],
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let mut conf = ::raft::prelude::ConfState::default();
+        conf.set_voters(
+            birth
+                .voters()
+                .iter()
+                .map(|member| member.member.get())
+                .collect(),
+        );
+        conf.set_learners(
+            birth
+                .learners()
+                .iter()
+                .map(|member| member.member.get())
+                .collect(),
+        );
+        let descriptor = Descriptor::decode_bound(
+            birth.scope(),
+            birth.digest(),
+            &GroupMembership::initial(&conf),
+            schema,
+            snapshot,
+            limits,
+        )?;
+        Self::bound(snapshot, descriptor, bytes)
+    }
+
+    fn bound(
+        snapshot: &Snapshot,
+        descriptor: Descriptor,
+        bytes: &[u8],
+    ) -> Result<Self, SnapshotError> {
+        let marker = descriptor
+            .image
+            .ok_or(SnapshotError::Invalid("root snapshot has no image"))?;
+        let reference = match marker.commitment {
+            ImageCommitment::Extents(reference) => reference,
+            ImageCommitment::Sha256(_) => {
+                return Err(SnapshotError::Invalid("extent root commitment required"))
+            }
+        };
+        if bytes.len() != reference.encoded_length() as usize
+            || bytes.len() != descriptor.encoded_length
+            || <[u8; 32]>::from(Sha256::digest(bytes)) != descriptor.encoded_digest
+        {
+            return Err(SnapshotError::Invalid("root manifest payload binding"));
+        }
+        let manifest = ExtentManifest::decode(bytes, reference.root())
+            .map_err(cellar_ltx::internal::StoreError::from)?;
+        if manifest.binding()
+            != (ImageBinding {
+                history: descriptor.birth,
+                schema: descriptor.schema,
+                epoch: marker.ltx_epoch,
+                txid: marker.txid,
+                checksum: marker.checksum,
+            })
+            || manifest.geometry().length() != marker.length
+            || manifest.geometry().page_size() != marker.page_size
+        {
+            return Err(SnapshotError::Invalid(
+                "root manifest history/schema/image binding",
+            ));
+        }
+        let mut dependencies = BTreeSet::new();
+        for index in 0..manifest.geometry().extent_count() {
+            dependencies.insert(
+                manifest
+                    .extent(index)
+                    .ok_or(SnapshotError::Invalid("root manifest extent coverage"))?,
+            );
+        }
+        Ok(Self {
+            snapshot: snapshot.clone(),
+            marker,
+            reference,
+            manifest,
+            dependencies,
+        })
+    }
+
+    pub fn snapshot(&self) -> &Snapshot {
+        &self.snapshot
+    }
+
+    pub fn marker(&self) -> &CommittedImage {
+        &self.marker
+    }
+
+    pub fn reference(&self) -> ExtentRootReference {
+        self.reference
+    }
+
+    pub fn extents(&self) -> impl Iterator<Item = ExtentId> + '_ {
+        self.dependencies.iter().copied()
+    }
+
+    /// Run on the node's physical owner with the complete object already under
+    /// receive admission. NodeExtentStore independently verifies/syncs its own
+    /// destination and never overwrites an existing corrupt object.
+    pub fn install_extent(
+        &self,
+        store: &NodeExtentStore,
+        id: ExtentId,
+        bytes: &[u8],
+    ) -> Result<(), SnapshotError> {
+        if !self.dependencies.contains(&id) || bytes.len() != id.length() as usize {
+            return Err(SnapshotError::Invalid(
+                "extent outside received root or wrong length",
+            ));
+        }
+        store.put_extent(id, |offset, count| {
+            let start = usize::try_from(offset)
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+            let end = start
+                .checked_add(count)
+                .ok_or(io::ErrorKind::InvalidInput)?;
+            bytes
+                .get(start..end)
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| io::ErrorKind::UnexpectedEof.into())
+        })?;
+        Ok(())
+    }
+
+    /// Only a complete independently verified local closure can produce this
+    /// seal. Native engine publication and authorization remain separate gates.
+    pub fn seal(
+        &self,
+        store: &NodeExtentStore,
+        workspace: &mut [u8],
+    ) -> Result<SealedImageRoot, SnapshotError> {
+        store
+            .seal_image_root(self.manifest.clone(), workspace)
+            .map_err(SnapshotError::from)
+    }
+}

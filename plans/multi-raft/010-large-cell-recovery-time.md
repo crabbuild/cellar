@@ -5,7 +5,7 @@
 Status: proposed implementation strategy; no recovery-time target is qualified.
 Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
 Priority P1; effort L; correctness risk HIGH. RT-01 through RT-03 are in progress;
-RT-04 through RT-06 remain TODO. Implement them in dependency order and record evidence before
+RT-04 is in progress; RT-05 and RT-06 remain TODO. Implement them in dependency order and record evidence before
 updating their status. This plan does not close the existing MR or R1–R9 gates.
 
 The deliverable is faster, fault-safe native peer and RustFS recovery, through
@@ -169,7 +169,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | RT-01 | Stage evidence and a focused cold-recovery oracle | Existing materialized functional passes | M / medium | IN PROGRESS |
 | RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
 | RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | IN PROGRESS |
-| RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | TODO |
+| RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | IN PROGRESS |
 | RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
 | RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
 
@@ -335,6 +335,21 @@ pilot is established by this observation. Logs, executable, exact source and
 operation attribution are retained; after the complete oracle and closed-handle
 audit, only the two synthetic local worker trees are retired. Bucket data and
 all evidence remain available.
+
+The matching prepared-body RustFS pilot at the same frozen `bc3b95aa` source
+and executable passes all nine correctness checks and joined cleanup at
+9,999,998,976 bytes. Failure through first verified write is 903.362692 s
+(15m03s): repair admission 14.336060 s, archive coverage wait 684.489903 s,
+seed installation 165.541886 s, promotion 0.690167 s and first write/read-back
+37.422583 s. The complete native drill is 1,398.78 s; cleanup finishes
+965.631203 s after the fault. The analyzer correctly returns nonzero for the
+missed 120-second target and insufficient qualification population; the native
+process returns zero and source inputs remain unchanged. This pilot predates
+the archive replay memo. Shared load and uncontrolled source/store caches
+prevent causal comparisons with earlier observations. The native executable,
+source inventory, ledger, logs and bucket prefix are retained in the private
+`recovery-time-rustfs-10gb-prepared-1` campaign; only its closed synthetic local
+worker trees were retired after joined cleanup and an open-handle audit.
 
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
@@ -634,6 +649,36 @@ If the 10-second replay budget is infeasible, record the measured bound and
 redesign snapshot frequency/catch-up before accepting M1.
 
 ## RT-04: Connect complete extent recovery end to end
+
+The first implementation uses the existing extent-aware native descriptor,
+canonical manifest and local `SealedImageRoot` contract. `RootSnapshotSource`
+captures a coherent committed root without a full-image encoded spool, binds its
+manifest to that exact metadata, and pins the source. `RootSnapshotSet` decodes
+against the existing group or catalog birth and imports only its declared
+extent IDs. Each source object is rehashed before any bytes escape; each
+destination object retains independent verification and sync. Only a complete
+verified local closure produces the existing seal; native admission stays
+separate. The transfer uses one caller-admitted 4 MiB extent at a time and the
+existing manifest, not a per-page index. Duplicate imports reverify existing
+objects without overwriting them.
+
+All ten native rooted cases pass, including four new transfer/binding cases.
+They cover complete/partial closure, repeat import, catalog birth/schema,
+foreign history and objects, corrupt metadata/data, source corruption after
+capture and exact closed/foreign engine owners. The first refusal fixture
+correctly hit `WrongIdentity` while trying to reuse an existing group ID for a
+different cell; assigning the foreign history its own ID lets every refusal
+assertion run. That failed log is retained. Validation passes 16 extent-store
+cases (one existing ignored), all ten rooted cases, 45 ordinary materialized
+snapshot cases (two existing ignored), all 676 library cases and both affected
+crates' all-feature/all-target Clippy with warnings denied. Formatting and layout
+cover 1,201 Rust files; native dependency and docs guards pass. The tested source
+input SHA-256 is
+`2feba3554b2d094b663d3835fcddb642006f16e09d64f056c2674c28c808b259`.
+This is not yet public peer/archive seed integration: transport adapters,
+physical owners, native installs, node-wide inventory recovery/GC and backend
+selection remain open below. No new metadata/data value supplies voting or
+installation authority, and no partially hydrated seal is introduced.
 
 1. Reuse the existing domain-separated `ImageRoot`, 4 MiB `ExtentId` and
    canonical manifest; do not invent another page index. A 10 GB image has

@@ -10,6 +10,8 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/raft_rooted_snapshot.rs"]
+mod snapshots;
 
 use anyhow::{bail, Result};
 use cellar::{
@@ -114,6 +116,16 @@ impl Host {
     }
 
     async fn open_schema(root: &Path, resume: bool, process: u8, schema: [u8; 32]) -> Result<Self> {
+        Self::open_history(root, resume, process, schema, [7; 32]).await
+    }
+
+    async fn open_history(
+        root: &Path,
+        resume: bool,
+        process: u8,
+        schema: [u8; 32],
+        history: [u8; 32],
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let gate = fault::Gate::new(None);
         let log = domain
@@ -136,7 +148,7 @@ impl Host {
             log.create_group(GroupBootstrap {
                 scope: scope(),
                 member: MemberId::new(1)?,
-                birth_digest: [7; 32],
+                birth_digest: history,
                 voters: vec![MemberId::new(1)?],
                 learners: vec![],
             })

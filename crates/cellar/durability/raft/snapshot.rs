@@ -27,6 +27,10 @@ pub(crate) use capture::SnapshotCapture;
 #[path = "snapshot_prepared.rs"]
 pub(crate) mod prepared;
 
+#[path = "snapshot_root.rs"]
+mod rooted;
+pub use rooted::{RootSnapshotSet, RootSnapshotSource};
+
 #[derive(Debug)]
 pub enum SnapshotError {
     Invalid(&'static str),
@@ -35,6 +39,7 @@ pub enum SnapshotError {
     Log(LogError),
     Archive(crate::raft::archive::ArchiveError),
     Images(GenerationError),
+    Extents(cellar_ltx::internal::StoreError),
     Publication(super::apply::ImageApplyError),
 }
 
@@ -79,6 +84,12 @@ impl From<LogError> for SnapshotError {
 impl From<GenerationError> for SnapshotError {
     fn from(error: GenerationError) -> Self {
         Self::Images(error)
+    }
+}
+
+impl From<cellar_ltx::internal::StoreError> for SnapshotError {
+    fn from(error: cellar_ltx::internal::StoreError) -> Self {
+        Self::Extents(error)
     }
 }
 
