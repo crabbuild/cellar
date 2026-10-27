@@ -134,15 +134,36 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
             return peer_response(response(StatusCode::BAD_REQUEST, "unknown tunnel kind"));
         }
     };
+    let rpc_connection = if matches!(&kind, TunnelKind::Rpc) {
+        let source = match peer_auth::verified_source(request.headers()) {
+            Ok(source) => source,
+            Err(_) => return peer_response(response(StatusCode::UNAUTHORIZED, "invalid RPC peer")),
+        };
+        match crate::asyncrt::services().admit_rpc_tunnel(source) {
+            Some(connection) => Some(connection),
+            None => return rpc_failure::exhausted(),
+        }
+    } else {
+        None
+    };
     let upgrade = hyper::upgrade::on(&mut request);
     crate::asyncrt::spawn(async move {
-        let upgraded = match upgrade.await {
-            Ok(upgraded) => upgraded,
-            Err(_) => return,
+        let upgraded = match rpc_connection.as_ref() {
+            Some(connection) => {
+                match crate::asyncrt::timeout(connection.idle_timeout(), upgrade).await {
+                    Ok(Ok(upgraded)) => upgraded,
+                    _ => return,
+                }
+            }
+            None => match upgrade.await {
+                Ok(upgraded) => upgraded,
+                Err(_) => return,
+            },
         };
-        match kind {
-            TunnelKind::Do => serve_do(upgraded, app).await,
-            TunnelKind::Rpc => serve_rpc(upgraded, app).await,
+        match (kind, rpc_connection) {
+            (TunnelKind::Do, _) => serve_do(upgraded, app).await,
+            (TunnelKind::Rpc, Some(connection)) => serve_rpc(upgraded, app, connection).await,
+            (TunnelKind::Rpc, None) => (),
         }
     })
     .detach();
@@ -431,6 +452,9 @@ async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<Tunnel
         .send()
         .await?;
     peer_auth::validate_response(response.headers())?;
+    if let Some(failure) = rpc_failure::remote(response.status(), response.headers()) {
+        return Err(failure.into());
+    }
     if response
         .headers()
         .get(STALE_ROUTE_HEADER)
@@ -638,10 +662,42 @@ const AUTHORITY_HEADER: &str = "x-cellar-event-authority";
 /// One inner request, one RPC: the method name rides a header, the
 /// arguments ride the body, and the content type says which encoding the
 /// caller used.
-async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
+async fn serve_rpc(
+    upgraded: hyper::upgrade::Upgraded,
+    app: AppHandle,
+    connection: crate::inbound_rpc::Connection,
+) {
+    let idle = connection.clone();
     let service = service_fn(move |inner: Request<Incoming>| {
         let app = app.clone();
+        let connection = connection.clone();
         async move {
+            connection.touch();
+            if !crate::asyncrt::services().accepts_work() {
+                return Ok::<_, Infallible>(close_rpc_reply(peer_response(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "RPC host is stopping",
+                ))));
+            }
+            let deadline_ms = match rpc_deadline::from_headers(
+                inner.headers(),
+                crate::asyncrt::mono_ms(),
+                app.operation_deadline_ms,
+            ) {
+                Ok(deadline) => deadline,
+                Err(_) => {
+                    return Ok::<_, Infallible>(peer_response(response(
+                        StatusCode::BAD_REQUEST,
+                        "invalid RPC budget",
+                    )))
+                }
+            };
+            if deadline_ms.is_some_and(|deadline| deadline <= crate::asyncrt::mono_ms()) {
+                return Ok(rpc_deadline::response());
+            }
+            let Some(reservation) = connection.request() else {
+                return Ok(rpc_failure::exhausted());
+            };
             let authority = match inner.headers().get(AUTHORITY_HEADER) {
                 None => None,
                 Some(header) => {
@@ -669,19 +725,12 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     }
                 }
             };
-            let deadline_ms = match rpc_deadline::from_headers(
-                inner.headers(),
-                crate::asyncrt::mono_ms(),
-                app.operation_deadline_ms,
-            ) {
-                Ok(deadline) if authority.is_none() || deadline.is_none() => deadline,
-                _ => {
-                    return Ok::<_, Infallible>(peer_response(response(
-                        StatusCode::BAD_REQUEST,
-                        "invalid RPC budget",
-                    )))
-                }
-            };
+            if authority.is_some() && deadline_ms.is_some() {
+                return Ok::<_, Infallible>(peer_response(response(
+                    StatusCode::BAD_REQUEST,
+                    "invalid RPC budget",
+                )));
+            }
             let Some(scope) = inner
                 .headers()
                 .get(SCOPE_HEADER)
@@ -727,16 +776,30 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
             } else {
                 MAX_PEER_FORWARD_BODY_BYTES
             };
-            let body = match rpc_deadline::receive(deadline_ms, async {
-                Ok(collect_limited_body(inner.into_body(), body_limit).await)
+            let upload_deadline = deadline_ms.unwrap_or_else(|| {
+                crate::asyncrt::mono_ms().saturating_add(app.operation_deadline_ms)
+            });
+            let body = match rpc_deadline::receive(Some(upload_deadline), async {
+                Ok(rpc_upload::receive(inner.into_body(), body_limit, &reservation).await)
             })
             .await
             {
                 Ok(Ok(body)) => body,
                 Ok(Err(error)) => {
-                    return Ok(peer_response(body_read_error("tunnel RPC", error)));
+                    let reply = match error {
+                        rpc_upload::Error::Exhausted => rpc_failure::exhausted(),
+                        rpc_upload::Error::TooLarge => peer_response(response(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                            "RPC request body too large",
+                        )),
+                        rpc_upload::Error::Invalid => peer_response(response(
+                            StatusCode::BAD_REQUEST,
+                            "invalid RPC request body",
+                        )),
+                    };
+                    return Ok(close_rpc_reply(reply));
                 }
-                Err(_) => return Ok(rpc_deadline::response()),
+                Err(_) => return Ok(close_rpc_reply(rpc_deadline::response())),
             };
             let args = if structured {
                 crate::engine_api::RpcData::Structured(body)
@@ -754,6 +817,7 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
             let reply = dispatch_forwarded_rpc(
                 app,
                 crate::runtime::RpcInvocation {
+                    reservation: Some(reservation.ticket()),
                     parent_cancellation: None,
                     signal: None,
                     deadline_ms,
@@ -766,12 +830,111 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                 },
             )
             .await;
-            Ok(reply)
+            let (parts, body) = reply.into_parts();
+            let body = match RetainedRpcBody::new(body, reservation, deadline_ms) {
+                Ok(body) => body,
+                Err(crate::application::rpc::Code::DeadlineExceeded) => {
+                    return Ok(close_rpc_reply(rpc_deadline::response()));
+                }
+                Err(_) => {
+                    return Ok(close_rpc_reply(peer_response(response(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "RPC receiver is stopping",
+                    ))))
+                }
+            };
+            Ok(Response::from_parts(parts, body.boxed_unsync()))
         }
     });
-    let _ = hyper::server::conn::http1::Builder::new()
-        .serve_connection(upgraded, service)
-        .await;
+    let serving = rpc_server_builder().serve_connection(upgraded, service);
+    crate::asyncrt::select_biased! { "idle receiving RPC tunnels release owned slots";
+        _ = idle.idle() => {},
+        _ = serving => {},
+    }
+}
+
+fn rpc_server_builder() -> hyper::server::conn::http1::Builder {
+    let mut builder = hyper::server::conn::http1::Builder::new();
+    // Existing framework authority may itself occupy 16 KiB. Bound the whole
+    // parser while leaving room for its scope, budget and ordinary HTTP fields.
+    builder.max_buf_size(64 * 1024).max_headers(128);
+    // Keep body-frame owners in Hyper's write queue even if an I/O wrapper only
+    // implements scalar writes. Flattening copies bytes and drops their leases
+    // before the pending socket write has consumed that copy.
+    builder.writev(true);
+    builder
+}
+
+fn close_rpc_reply(mut reply: HttpReply) -> HttpReply {
+    reply.headers_mut().insert(
+        hyper::header::CONNECTION,
+        hyper::header::HeaderValue::from_static("close"),
+    );
+    reply
+}
+
+struct RetainedRpcBody {
+    body: UnsyncBoxBody<Bytes, std::io::Error>,
+    _reservation: crate::inbound_rpc::Reply,
+}
+
+impl RetainedRpcBody {
+    fn new(
+        body: UnsyncBoxBody<Bytes, std::io::Error>,
+        reservation: crate::inbound_rpc::Request,
+        deadline_ms: Option<u64>,
+    ) -> Result<Self, crate::application::rpc::Code> {
+        Ok(Self {
+            body,
+            _reservation: reservation.begin_reply(deadline_ms)?,
+        })
+    }
+}
+
+/// Hyper may retain a yielded frame after dropping its body. The shared ticket
+/// follows every slice/clone of the bytes until the last transport buffer drops.
+struct RetainedRpcData {
+    data: Bytes,
+    _reservation: crate::inbound_rpc::Reply,
+}
+
+impl AsRef<[u8]> for RetainedRpcData {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl Body for RetainedRpcBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
+        std::pin::Pin::new(&mut self.body)
+            .poll_frame(cx)
+            .map(|frame| {
+                frame.map(|result| {
+                    result.map(|frame| {
+                        frame.map_data(|data| {
+                            Bytes::from_owner(RetainedRpcData {
+                                data,
+                                _reservation: self._reservation.clone(),
+                            })
+                        })
+                    })
+                })
+            })
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.body.is_end_stream()
+    }
+
+    fn size_hint(&self) -> hyper::body::SizeHint {
+        self.body.size_hint()
+    }
 }
 
 /// Node A: one RPC through the pooled rpc tunnel.
@@ -933,3 +1096,7 @@ mod private_tests {
 #[cfg(test)]
 #[path = "peer_tunnel_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "peer_tunnel_reply_tests.rs"]
+mod reply_tests;

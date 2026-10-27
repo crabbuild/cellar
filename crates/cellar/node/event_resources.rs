@@ -100,6 +100,7 @@ async fn rpc(
     let result = activation_exchange(method, || {
         let (reply, receiver) = tokio::sync::oneshot::channel();
         let request = RpcCallReq {
+            reservation: None,
             parent_cancellation: None,
             signal: None,
             deadline_ms: None,

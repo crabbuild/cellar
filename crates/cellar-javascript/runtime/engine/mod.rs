@@ -556,11 +556,34 @@ fn dispatch_operation(
     }
 }
 
-fn script<'s>(scope: &v8::PinScope<'s, '_>, source: &str) -> Result<v8::Local<'s, v8::Value>> {
-    let code = v8::String::new(scope, source).context("JavaScript source allocation failed")?;
-    v8::Script::compile(scope, code, None)
-        .and_then(|script| script.run(scope))
-        .context("JavaScript compilation or execution failed")
+fn startup_failure(
+    scope: &v8::PinScope,
+    watch: &Mutex<WatchState>,
+    phase: &'static str,
+    action: &'static str,
+) -> anyhow::Error {
+    let failure = v8_failure(scope, watch, "JavaScript startup script failed");
+    if failure.is::<RequestedShutdown>() {
+        return failure;
+    }
+    // Fixed host labels and the private watchdog cause only. Never format a
+    // caught exception, source text, path or an application-controlled property.
+    anyhow::anyhow!("JavaScript startup {phase} {action} failed: {failure}")
+}
+
+fn script<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    source: &str,
+    watch: &Mutex<WatchState>,
+    phase: &'static str,
+) -> Result<v8::Local<'s, v8::Value>> {
+    let code = v8::String::new(scope, source)
+        .ok_or_else(|| startup_failure(scope, watch, phase, "allocation"))?;
+    let script = v8::Script::compile(scope, code, None)
+        .ok_or_else(|| startup_failure(scope, watch, phase, "compilation"))?;
+    script
+        .run(scope)
+        .ok_or_else(|| startup_failure(scope, watch, phase, "execution"))
 }
 
 fn function<'s>(
@@ -670,14 +693,39 @@ pub(super) fn run(
         .context("JavaScript callback scope initialization failed")?;
     let current_callback = v8::Function::new(scope, current_callback)
         .context("JavaScript callback metadata initialization failed")?;
-    let factory = script(scope, include_str!("../runner.js"))?;
+    let factory = script(scope, include_str!("../runner.js"), &watch, "runner")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
-    let delegates = script(scope, include_str!("../delegates.js"))?;
-    let rpc_streams = script(scope, include_str!("../rpc_streams.js"))?;
-    let rpc_writables = script(scope, include_str!("../rpc_writable.js"))?;
-    let rpc_inputs = script(scope, include_str!("../rpc_inputs.js"))?;
-    let rpc_messages = script(scope, include_str!("../rpc_messages.js"))?;
-    let rpc_requests = script(scope, include_str!("../rpc_requests.js"))?;
+    let delegates = script(scope, include_str!("../delegates.js"), &watch, "delegates")?;
+    let rpc_streams = script(
+        scope,
+        include_str!("../rpc_streams.js"),
+        &watch,
+        "stream readers",
+    )?;
+    let rpc_writables = script(
+        scope,
+        include_str!("../rpc_writable.js"),
+        &watch,
+        "stream writers",
+    )?;
+    let rpc_inputs = script(
+        scope,
+        include_str!("../rpc_inputs.js"),
+        &watch,
+        "request inputs",
+    )?;
+    let rpc_messages = script(
+        scope,
+        include_str!("../rpc_messages.js"),
+        &watch,
+        "message events",
+    )?;
+    let rpc_requests = script(
+        scope,
+        include_str!("../rpc_requests.js"),
+        &watch,
+        "request events",
+    )?;
     let undefined = v8::undefined(scope);
     // Capture pristine builtins before application initialization can change them.
     let factory = factory
@@ -703,8 +751,8 @@ pub(super) fn run(
         )
         .context("JavaScript facade initialization failed")?;
     let factory = v8::Local::<v8::Function>::try_from(factory)?;
-    script(scope, &source.code)?;
-    let app = script(scope, "CellarApp")?;
+    script(scope, &source.code, &watch, "application")?;
+    let app = script(scope, "CellarApp", &watch, "application export")?;
     let descriptor = v8::String::new(scope, &source.descriptor().to_string())
         .context("JavaScript descriptor failed")?;
     let maximum = v8::Number::new(scope, runtime.options.max_objects as f64);

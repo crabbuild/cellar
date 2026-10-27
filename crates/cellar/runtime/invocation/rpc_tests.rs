@@ -14,6 +14,233 @@ fn authority() -> Result<crate::runtime::RpcAuthority> {
 }
 
 #[tokio::test]
+async fn native_rpc_source_queue_refuses_while_a_previous_request_is_queued() -> Result<()> {
+    use std::future::Future as _;
+    let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
+        tokio::runtime::Handle::current(),
+    ));
+    domain
+        .services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy {
+            max_outbound_rpc_requests: 1,
+            ..Default::default()
+        })?;
+    let result = domain
+        .run(async {
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            crate::host_channels::set_rpc_call_tx(sender);
+            let digest = "a".repeat(64);
+            let args = crate::application::rpc::encode_envelope(&digest, vec![], 128)?;
+            let mut first = Box::pin(call(
+                EgressGate::NoCell,
+                "Counter:first".into(),
+                None,
+                "test.Counter/GetCount".into(),
+                args.clone(),
+                None,
+            ));
+            let mut second = Box::pin(call(
+                EgressGate::NoCell,
+                "Counter:second".into(),
+                None,
+                "test.Counter/GetCount".into(),
+                args,
+                None,
+            ));
+            let reply = std::future::poll_fn(|cx| {
+                assert!(first.as_mut().poll(cx).is_pending());
+                assert_eq!(receiver.len(), 1);
+                match second.as_mut().poll(cx) {
+                    std::task::Poll::Ready(reply) => std::task::Poll::Ready(reply),
+                    std::task::Poll::Pending => panic!(
+                        "source quota queued {} requests instead of refusing the second",
+                        receiver.len()
+                    ),
+                }
+            })
+            .await?;
+            let failure =
+                crate::application::rpc::decode_reply(&digest, &reply, Default::default())
+                    .unwrap_err();
+            assert_eq!(
+                failure.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                failure.outcome(),
+                crate::application::rpc::EffectOutcome::NotCommitted
+            );
+            assert_eq!(receiver.len(), 1);
+            drop((first, second, receiver));
+            Ok::<(), anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+async fn reservation_lifetime(policy: crate::runtime_policy::RuntimePolicy) -> Result<()> {
+    use std::{future::Future as _, task::Poll};
+    let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
+        tokio::runtime::Handle::current(),
+    ));
+    domain.services().configure_runtime(policy)?;
+    let result = domain
+        .run(async {
+            let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+            crate::host_channels::set_rpc_call_tx(sender);
+            let digest = "a".repeat(64);
+            let args = crate::application::rpc::encode_envelope(&digest, vec![], 128)?;
+            let request = || {
+                Box::pin(call(
+                    EgressGate::NoCell,
+                    "Counter:alice".into(),
+                    None,
+                    "test.Counter/GetCount".into(),
+                    args.clone(),
+                    None,
+                ))
+            };
+            let mut first = request();
+            std::future::poll_fn(|cx| {
+                assert!(first.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            let held = domain.services().outbound_rpc_usage();
+            assert_eq!(held.active_requests, 1);
+            assert!(held.reserved_request_bytes > 64 * 1024);
+            assert!(held.reserved_request_bytes <= policy.max_outbound_rpc_bytes);
+            // Caller cancellation cannot free a request still owned by the queue.
+            drop(first);
+            assert_eq!(domain.services().outbound_rpc_usage(), held);
+            let queued = receiver.try_recv()?;
+            assert!(receiver.is_empty());
+            // Draining the queue moves ownership into routing; it does not retire it.
+            assert_eq!(domain.services().outbound_rpc_usage(), held);
+            let refused = request().await?;
+            let failure =
+                crate::application::rpc::decode_reply(&digest, &refused, Default::default())
+                    .unwrap_err();
+            assert_eq!(
+                failure.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                failure.outcome(),
+                crate::application::rpc::EffectOutcome::NotCommitted
+            );
+            assert!(receiver.is_empty());
+            assert_eq!(domain.services().outbound_rpc_usage(), held);
+            drop(queued);
+            assert_eq!(domain.services().outbound_rpc_usage(), Default::default());
+
+            // An undelivered result still has an owner even after dispatch retires.
+            let mut completed = request();
+            std::future::poll_fn(|cx| {
+                assert!(completed.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            let queued = receiver.try_recv()?;
+            assert!(queued.reply.send(Ok(args.clone())).is_ok());
+            drop(queued.reservation);
+            assert_eq!(domain.services().outbound_rpc_usage(), held);
+            let refused = request().await?;
+            assert_eq!(
+                crate::application::rpc::decode_reply(&digest, &refused, Default::default())
+                    .unwrap_err()
+                    .code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            completed.await?;
+            assert_eq!(domain.services().outbound_rpc_usage(), Default::default());
+            Ok::<(), anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn native_rpc_count_bound_tracks_queue_routing_and_undelivered_reply() -> Result<()> {
+    reservation_lifetime(crate::runtime_policy::RuntimePolicy {
+        max_outbound_rpc_requests: 1,
+        ..Default::default()
+    })
+    .await
+}
+
+#[tokio::test]
+async fn native_rpc_byte_bound_tracks_queue_routing_and_undelivered_reply() -> Result<()> {
+    reservation_lifetime(crate::runtime_policy::RuntimePolicy {
+        max_outbound_rpc_bytes: 128 * 1024,
+        ..Default::default()
+    })
+    .await
+}
+
+#[tokio::test]
+async fn pending_source_gate_retains_admission_and_cancellation_releases_it() -> Result<()> {
+    use std::{future::Future as _, task::Poll};
+    let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
+        tokio::runtime::Handle::current(),
+    ));
+    domain
+        .services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy {
+            max_outbound_rpc_requests: 1,
+            ..Default::default()
+        })?;
+    let result = domain
+        .run(async {
+            let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+            crate::host_channels::set_rpc_call_tx(sender);
+            let (gate_sender, mut gates) = tokio::sync::mpsc::unbounded_channel();
+            crate::host_channels::set_gate_tx(gate_sender);
+            let mut first = Box::pin(call(
+                EgressGate::Wrote("source".into(), cellar_logic::Channel::Response, 1, None),
+                "scope".into(),
+                None,
+                "method".into(),
+                RpcData::Json("[]".into()),
+                Some(authority()?),
+            ));
+            std::future::poll_fn(|cx| {
+                assert!(first.as_mut().poll(cx).is_pending());
+                Poll::Ready(())
+            })
+            .await;
+            let mut gate = gates.try_recv()?;
+            assert!(receiver.is_empty());
+            assert_eq!(domain.services().outbound_rpc_usage().active_requests, 1);
+            let error = call(
+                EgressGate::NoCell,
+                "other".into(),
+                None,
+                "method".into(),
+                RpcData::Json("[]".into()),
+                Some(authority()?),
+            )
+            .await
+            .err()
+            .unwrap();
+            assert_eq!(
+                error.downcast_ref::<DeliveryError>().unwrap().code,
+                ErrorCode::Unavailable
+            );
+            assert!(receiver.is_empty());
+            drop(first);
+            gate.reply.closed().await;
+            assert_eq!(domain.services().outbound_rpc_usage(), Default::default());
+            Ok::<(), anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn refused_source_gate_never_submits_event_rpc() -> Result<()> {
     let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
         tokio::runtime::Handle::current(),

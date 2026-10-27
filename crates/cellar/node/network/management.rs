@@ -224,6 +224,7 @@ pub(super) async fn cron_history(app: AppHandle, scope: String, body: Vec<u8>) -
         dispatch_rpc_call(
             app,
             RpcCallReq {
+                reservation: None,
                 parent_cancellation: None,
                 signal: None,
                 deadline_ms: None,

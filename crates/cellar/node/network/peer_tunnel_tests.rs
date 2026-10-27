@@ -4,6 +4,214 @@
 use super::*;
 
 #[tokio::test]
+async fn receiving_rpc_tunnel_and_upload_quotas_refuse_without_blocking_cleanup(
+) -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    domain
+        .services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy {
+            max_inbound_rpc_requests: 1,
+            max_inbound_rpc_bytes: 128 * 1024,
+            max_inbound_rpc_tunnels: 2,
+            max_rpc_tunnels_per_peer: 1,
+            ..Default::default()
+        })?;
+    let result = domain
+        .run(async {
+            let (mut app, mut routes) = super::super::capacity_tests::app("peer")?;
+            app.operation_deadline_ms = 5_000;
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?.to_string();
+            let server = crate::asyncrt::spawn(async move {
+                while let Ok((stream, _)) = listener.accept().await {
+                    let app = app.clone();
+                    crate::asyncrt::spawn(async move {
+                        let service = service_fn(move |request| {
+                            let reply = accept(request, app.clone());
+                            async move { Ok::<_, Infallible>(reply) }
+                        });
+                        let _ = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), service)
+                            .with_upgrades()
+                            .await;
+                    })
+                    .detach();
+                }
+            });
+            let http = reqwest::Client::builder().no_proxy().build()?;
+            let first_auth = PeerAuth::new([0; 32], "first")?;
+            let second_auth = PeerAuth::new([0; 32], "second")?;
+            let third_auth = PeerAuth::new([0; 32], "third")?;
+            let first_peer = Peer {
+                http: &http,
+                auth: &first_auth,
+                addr: &address,
+                node: "peer",
+            };
+            let mut first = establish(&first_peer, "rpc").await?;
+            let error = match establish(&first_peer, "rpc").await {
+                Err(error) => error,
+                Ok(_) => panic!("per-peer tunnel quota was bypassed"),
+            };
+            assert_eq!(
+                error
+                    .downcast_ref::<crate::application::rpc::Failure>()
+                    .unwrap()
+                    .code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            let mut second = establish(
+                &Peer {
+                    http: &http,
+                    auth: &second_auth,
+                    addr: &address,
+                    node: "peer",
+                },
+                "rpc",
+            )
+            .await?;
+            assert!(establish(
+                &Peer {
+                    http: &http,
+                    auth: &third_auth,
+                    addr: &address,
+                    node: "peer"
+                },
+                "rpc"
+            )
+            .await
+            .is_err());
+            let services = crate::asyncrt::services();
+            assert_eq!(services.inbound_rpc_usage().open_tunnels, 2);
+            assert_eq!(services.inbound_rpc_usage().peers, 2);
+            let (release, waiting) = tokio::sync::oneshot::channel();
+            let chunks = futures_util::stream::once(async { Ok::<_, String>(vec![1]) }).chain(
+                futures_util::stream::once(async move {
+                    let _ = waiting.await;
+                    Ok(Vec::new())
+                }),
+            );
+            let first_request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(SCOPE_HEADER, "Counter:upload")
+                .header(METHOD_HEADER, "example.counter.v1.Counter/GetCount")
+                .body(stream_body(Box::pin(chunks)))?;
+            let sending = crate::asyncrt::spawn(async move {
+                let reply = first.send_request(first_request).await?;
+                let status = reply.status();
+                reply.into_body().collect().await?;
+                Ok::<_, anyhow::Error>(status)
+            });
+            crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+                while services.inbound_rpc_usage().active_requests != 1 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+            let request = Request::builder()
+                .method("POST")
+                .uri("/")
+                .header(SCOPE_HEADER, "Counter:other")
+                .header(METHOD_HEADER, "example.counter.v1.Counter/GetCount")
+                .body(full_body(Bytes::new()))?;
+            let reply = second.send_request(request).await?;
+            assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert_eq!(
+                rpc_failure::remote(reply.status(), reply.headers())
+                    .unwrap()
+                    .outcome(),
+                crate::application::rpc::EffectOutcome::Unknown
+            );
+            assert_eq!(reply.headers()[hyper::header::CONNECTION], "close");
+            reply.into_body().collect().await?;
+            assert_eq!(services.inbound_rpc_usage().active_requests, 1);
+            release.send(()).unwrap();
+            assert_eq!(sending.await??, StatusCode::SERVICE_UNAVAILABLE);
+            assert!(matches!(
+                routes.try_recv(),
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty)
+            ));
+            drop(second);
+            crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+                while services.inbound_rpc_usage() != Default::default() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+            server.abort();
+            let _ = server.await;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    assert_eq!(domain.services().inbound_rpc_usage(), Default::default());
+    result
+}
+
+#[tokio::test]
+async fn idle_receiving_rpc_tunnel_closes_and_releases_its_peer_slot() -> anyhow::Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    domain
+        .services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy {
+            rpc_tunnel_idle_timeout: std::time::Duration::from_millis(200),
+            ..Default::default()
+        })?;
+    let result = domain
+        .run(async {
+            let (app, _routes) = super::super::capacity_tests::app("peer")?;
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+            let address = listener.local_addr()?.to_string();
+            let server = crate::asyncrt::spawn(async move {
+                let (stream, _) = listener.accept().await?;
+                let service = service_fn(move |request| {
+                    let reply = accept(request, app.clone());
+                    async move { Ok::<_, Infallible>(reply) }
+                });
+                hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(stream), service)
+                    .with_upgrades()
+                    .await?;
+                Ok::<_, anyhow::Error>(())
+            });
+            let http = reqwest::Client::builder().no_proxy().build()?;
+            let auth = PeerAuth::new([0; 32], "origin")?;
+            let sender = establish(
+                &Peer {
+                    http: &http,
+                    auth: &auth,
+                    addr: &address,
+                    node: "peer",
+                },
+                "rpc",
+            )
+            .await?;
+            assert_eq!(
+                crate::asyncrt::services().inbound_rpc_usage().open_tunnels,
+                1
+            );
+            crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+                while !sender.is_closed()
+                    || crate::asyncrt::services().inbound_rpc_usage() != Default::default()
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await?;
+            assert_eq!(
+                crate::asyncrt::services().inbound_rpc_usage(),
+                Default::default()
+            );
+            server.await??;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
 async fn budgeted_rpc_upload_expires_without_body_completion_or_admission() -> anyhow::Result<()> {
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain

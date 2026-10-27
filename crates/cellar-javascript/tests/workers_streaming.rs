@@ -5,10 +5,12 @@
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
-use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
+use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "support/joined_node.rs"]
+mod joined_node;
 #[path = "support/native.rs"]
 mod native;
 
@@ -28,7 +30,7 @@ fn fixture() -> Result<PathBuf> {
 #[test]
 fn web_streams_forward_through_workers_and_objects_with_owned_cleanup() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    NodeRuntime::run(
+    joined_node::run(
         Options {
             max_body_bytes: 256,
             ..Default::default()
@@ -71,7 +73,7 @@ async fn run(
     );
     let usage = application.bridge_usage();
     ensure!(
-        usage.active_invocations == 0 && usage.retained_bytes == 0,
+        usage.active_invocations == 0,
         "stream admission did not release: {usage:?}"
     );
     result

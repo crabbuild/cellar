@@ -322,6 +322,13 @@ absolute directory when packages use relative OS paths. The default working
 directory is inherited. Explicit environment additions are supported;
 `NODE_OPTIONS` and `NODE_PATH` are always removed.
 
+The host sends its compiled bootstrap source and private configuration through
+the owned stdin pipe. Only a small loader appears in process arguments, so
+bootstrap growth does not depend on the operating system's argument-size limit.
+The same `startup_timeout` covers pipe writes, import and authentication; a
+stalled worker is terminated and joined. Authentication secrets remain off argv
+and the environment.
+
 For an inventory-bound fleet package, use `NodeOptions::packaged()` and pass its
 hash to `Host::runtime_inventory(FEATURE_NODE_V1, hash)`, as the reference Node
 entry point does. That verifies the build-bound runtime and dependencies before

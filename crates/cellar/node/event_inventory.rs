@@ -67,6 +67,7 @@ async fn checked(app: &AppHandle, request: Request<Incoming>) -> anyhow::Result<
     let authority = crate::runtime::rpc_authority::InventoryAuthority::mint(scope.clone())?;
     let (reply, receiver) = oneshot::channel();
     let call = RpcCallReq {
+        reservation: None,
         parent_cancellation: None,
         signal: None,
         deadline_ms: None,

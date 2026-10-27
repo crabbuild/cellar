@@ -376,6 +376,7 @@ async fn real_dispatch_route_timeout_cancels_the_pending_actor_request() -> Resu
         let authority = Authority::resolution(&binding)?;
         let (reply, result) = oneshot::channel();
         let call = crate::host_channels::RpcCallReq {
+            reservation: None,
             parent_cancellation: None,
             signal: None,
             deadline_ms: None,

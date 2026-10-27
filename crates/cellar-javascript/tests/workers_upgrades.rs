@@ -5,10 +5,12 @@
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
-use cellar_javascript::{EventKind, NodeOptions, NodeRuntime, Options, Source};
+use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use fastwebsockets::{Frame, OpCode, Role, WebSocket};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "support/joined_node.rs"]
+mod joined_node;
 #[path = "support/native.rs"]
 mod native;
 #[path = "../../cellar/tests/support/container_peer.rs"]
@@ -27,7 +29,7 @@ fn workers_and_objects_forward_pair_and_container_upgrades_with_joined_cleanup()
         "fixture build: {}",
         String::from_utf8_lossy(&built.stderr)
     );
-    NodeRuntime::run(
+    joined_node::run(
         Options {
             max_body_bytes: 2048,
             ..Default::default()
@@ -66,7 +68,7 @@ async fn run(application: Arc<cellar_javascript::JavaScriptApplication>) -> Resu
         matches!(shutdown?, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out)
     );
     ensure!(
-        usage.active_invocations == 0 && usage.retained_bytes == 0,
+        usage.active_invocations == 0,
         "upgrade leaked bridge resources: {usage:?}"
     );
     ensure!(

@@ -41,6 +41,7 @@ pub(super) struct Trace {
     caller_node: Mutex<Option<String>>,
     observation_error: Mutex<Option<String>>,
     late: Mutex<Option<Value>>,
+    services: Mutex<BTreeMap<String, std::sync::Weak<cellar::host_services::HostServices>>>,
 }
 
 pub(super) struct Frame {
@@ -49,6 +50,46 @@ pub(super) struct Frame {
 }
 
 impl Trace {
+    pub fn observe_domain(&self, context: &Context) -> Result<()> {
+        let node = context
+            .var("DOMAIN_MARKER")
+            .context("worker observation lacks a node")?;
+        let current = cellar::asyncrt::services();
+        let mut services = self.services.lock().unwrap();
+        if let Some(original) = services.get(node).and_then(std::sync::Weak::upgrade) {
+            ensure!(
+                Arc::ptr_eq(&original, &current),
+                "worker node changed execution domain"
+            );
+        } else {
+            ensure!(
+                services.len() < 4,
+                "worker service observations exceed their bounded fixture"
+            );
+            services.insert(node.into(), Arc::downgrade(&current));
+        }
+        Ok(())
+    }
+
+    pub fn observed_services(&self) -> Vec<Arc<cellar::host_services::HostServices>> {
+        self.services
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(std::sync::Weak::upgrade)
+            .collect()
+    }
+
+    pub fn quotas(&self) -> Value {
+        self.services.lock().unwrap().iter().map(|(node, weak)| {
+            let value = match weak.upgrade() {
+                Some(services) => json!({"source":services.outbound_rpc_usage(),"receiver":services.inbound_rpc_usage()}),
+                None => json!({"retired":true}),
+            };
+            (node.clone(), value)
+        }).collect::<serde_json::Map<_,_>>().into()
+    }
+
     pub fn observe_late(&self, context: &Context) -> Result<()> {
         // A fresh native read proves stale Python work did not change storage.
         // This runs only in that read's installed turn, never in a coordinator.
