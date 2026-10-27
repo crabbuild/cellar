@@ -65,6 +65,7 @@ this name is a configuration boundary, not remote account attestation.
 | Operation | Support / behavior |
 | --- | --- |
 | Capabilities / running | Discover the subset; inspect the verified remote resource |
+| Reconcile | Recover a matching pending create, checkpoint expiry or observe pending deletion; no allocation/resume/delete dispatch |
 | Start / destroy | Protected journal, generation token, metadata correlation and explicit reconciliation |
 | `execOutput` / `exec_output` | Direct argv, env, cwd, Unix username, binary stdout/stderr and nonzero exit codes |
 | Read / stat / list | Published envd file APIs; bounded bytes and direct-child metadata |

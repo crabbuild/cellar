@@ -54,6 +54,7 @@ impl EventKind {
 #[derive(Clone)]
 pub struct Source {
     containers: cellar_guest::containers::Adapter,
+    container_bindings: cellar_guest::containers::Bindings,
     pub(crate) rpc: Catalog,
     pub(crate) code: String,
     pub(crate) filename: String,
@@ -69,6 +70,7 @@ impl Source {
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
             containers: Default::default(),
+            container_bindings: Default::default(),
             rpc: Catalog::new(),
             code: code.into(),
             filename: filename.into(),
@@ -149,6 +151,19 @@ impl Source {
         self
     }
 
+    /// Declare an additional provider slot before runtime startup. The provider's
+    /// durable binding name must equal `name`; duplicate slots refuse.
+    pub fn container_binding(
+        mut self,
+        name: impl Into<String>,
+        provider: Arc<dyn cellar_guest::containers::Provider>,
+    ) -> Result<Self> {
+        self.container_bindings.insert(name, provider)?;
+        self.container_bindings
+            .validate(self.containers.provider())?;
+        Ok(self)
+    }
+
     pub(crate) fn descriptor(&self) -> Value {
         let mut descriptor = json!({"events":self.events, "cells":self.cell_events});
         let contracts = self.rpc.codec_inventory();
@@ -208,6 +223,8 @@ impl Source {
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
+        self.container_bindings
+            .validate(self.containers.provider())?;
         ensure!(
             !self.code.is_empty() && !self.filename.is_empty(),
             "Python source and filename must be supplied"
@@ -296,6 +313,7 @@ impl PythonApplication {
     ) -> Result<Output> {
         let mut state = state;
         state.containers = self.source.containers.session();
+        state.container_bindings = self.source.container_bindings.sessions();
         let _permit =
             self.runtime
                 .permits

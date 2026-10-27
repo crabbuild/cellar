@@ -13,6 +13,7 @@ operations it can execute; guests discover that subset through capabilities.
 | Method | Responsibility |
 | --- | --- |
 | `Provider::name` | Stable backend name for discovery |
+| `Provider::binding_name` | Durable journal/slot identity for named registration; must match the declared slot. Default `None` supports only the existing default-adapter path |
 | `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
 | `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
 | `Provider::fencing` | Declare actual ownership protection; default `unspecified` makes no guarantee |
@@ -24,6 +25,12 @@ operations it can execute; guests discover that subset through capabilities.
 The shared session enforces event liveness, current turn, activation epoch and
 host ownership before and after dispatch. `Native` additionally checks local
 class/image/engine requirements; another backend need not declare a Docker image.
+
+Hosts register additional slots with [`Bindings`](bindings.md#select-a-host-declared-provider-slot).
+Registration and capability metadata must not allocate external compute. A named
+provider must own its declared slot identity and isolate its invocation resources;
+forwarding a handle continues through that same provider session. Native retains
+one local engine slot per configured cell class.
 
 ## Durable resource identity
 

@@ -55,6 +55,7 @@ pub struct State {
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
     pub lost_delete: AtomicBool,
+    pub defer_delete: AtomicBool,
     pub hide_list: AtomicBool,
     pub mismatched_metadata: AtomicBool,
     pub redirect: AtomicBool,
@@ -113,6 +114,10 @@ impl Peer {
     }
 
     pub fn provider(&self) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.provider_binding("container")
+    }
+
+    pub fn provider_binding(&self, binding: &str) -> Result<Arc<dyn cellar_container::Provider>> {
         use cellar_container::e2b::{Config, E2b, Ownership};
         Ok(Arc::new(E2b::new(
             Config::new(
@@ -122,6 +127,7 @@ impl Peer {
                 "fixture-template",
                 Ownership::LocalChecksAndExpiry,
             )?
+            .binding(binding)?
             .api_endpoint(&self.address)?
             .envd_gateway(&format!("{}envd/", self.address))?
             .lifetime_seconds(60)?
@@ -185,6 +191,18 @@ fn info(path: &str, file: &File) -> Value {
 }
 
 impl State {
+    pub fn set_running(&self, running: bool) {
+        for info in self.sandboxes.lock().unwrap().values_mut() {
+            info["state"] = json!(if running { "running" } else { "paused" });
+        }
+    }
+
+    /// Provider lifetime elapses independently of any Cellar invocation.
+    pub fn expire(&self) {
+        self.sandboxes.lock().unwrap().clear();
+        self.files.lock().unwrap().clear();
+    }
+
     async fn answer(&self, request: Request<Incoming>) -> Result<Response<Body>> {
         let method = request.method().as_str().to_owned();
         let path = request.uri().path().to_owned();
@@ -261,6 +279,9 @@ impl State {
             if let Some(id) = path.strip_prefix("/sandboxes/") {
                 if method == "DELETE" {
                     self.deletes.fetch_add(1, Ordering::SeqCst);
+                    if self.defer_delete.load(Ordering::SeqCst) {
+                        return Ok(response(204, Vec::new()));
+                    }
                     let existed = self.sandboxes.lock().unwrap().remove(id).is_some();
                     self.files
                         .lock()

@@ -432,6 +432,7 @@
           "var",
           "kv.get",
           "kv.list",
+          "container.bindings",
           "container.capabilities",
           "container.running",
           "container.monitor",
@@ -579,6 +580,7 @@
                 "var",
                 "kv.get",
                 "kv.list",
+                "container.bindings",
                 "container.capabilities",
                 "container.running",
                 "container.monitor",
@@ -612,176 +614,227 @@
 
     const synchronous = (name, value = {}) => invoke(name, value, true);
 
-    const resource = (kind, resourceId) => {
-      const operation = (method, args = {}) =>
-        call(`container.${kind}.${method}`, { ...args, id: resourceId });
-      const common = {
-        release: () => call("container.release", { id: resourceId }),
-      };
-      return freeze(
-        kind === "exec"
-          ? {
-              ...common,
-              readStdout: async () => decode(await operation("read_stdout")),
-              readStderr: async () => decode(await operation("read_stderr")),
-              write: (bytes) => operation("write", { data: encode(bytes) }),
-              closeStdin: () => operation("close_stdin"),
-              wait: () => operation("wait"),
-              kill: (signal = 9) => operation("kill", { signal }),
-            }
-          : kind === "websocket"
+    const makeContainer = (binding = null) => {
+      const containerCall = (name, value = {}, ...options) =>
+        call(
+          name,
+          binding === null ? value : { ...value, binding },
+          ...options,
+        );
+      const resource = (kind, resourceId) => {
+        const operation = (method, args = {}) =>
+          containerCall(`container.${kind}.${method}`, {
+            ...args,
+            id: resourceId,
+          });
+        const common = {
+          release: () => containerCall("container.release", { id: resourceId }),
+        };
+        return freeze(
+          kind === "exec"
             ? {
                 ...common,
-                receive: async () => {
-                  const event = await operation("receive");
-                  return freeze(
-                    event.type === "binary"
-                      ? { ...event, data: decode(event.data) }
-                      : event,
-                  );
-                },
-                sendText: (text) => operation("send_text", { text }),
-                sendBinary: (bytes) =>
-                  operation("send_binary", { data: encode(bytes) }),
-                close: (code = 1000, reason = "") =>
-                  operation("close", { code, reason }),
-              }
-            : {
-                ...common,
-                read: async () => decode(await operation("read")),
+                readStdout: async () => decode(await operation("read_stdout")),
+                readStderr: async () => decode(await operation("read_stderr")),
                 write: (bytes) => operation("write", { data: encode(bytes) }),
-                closeWrite: () => operation("close_write"),
-                close: () => operation("close"),
-              },
-      );
-    };
+                closeStdin: () => operation("close_stdin"),
+                wait: () => operation("wait"),
+                kill: (signal = 9) => operation("kill", { signal }),
+              }
+            : kind === "websocket"
+              ? {
+                  ...common,
+                  receive: async () => {
+                    const event = await operation("receive");
+                    return freeze(
+                      event.type === "binary"
+                        ? { ...event, data: decode(event.data) }
+                        : event,
+                    );
+                  },
+                  sendText: (text) => operation("send_text", { text }),
+                  sendBinary: (bytes) =>
+                    operation("send_binary", { data: encode(bytes) }),
+                  close: (code = 1000, reason = "") =>
+                    operation("close", { code, reason }),
+                }
+              : {
+                  ...common,
+                  read: async () => decode(await operation("read")),
+                  write: (bytes) => operation("write", { data: encode(bytes) }),
+                  closeWrite: () => operation("close_write"),
+                  close: () => operation("close"),
+                },
+        );
+      };
 
-    const container = freeze({
-      capabilities: async () => {
-        const value = await call("container.capabilities");
-        return freeze({ ...value, operations: freeze(value.operations) });
-      },
-      running: () => call("container.running"),
-      start: (options = {}) => call("container.start", { options }),
-      monitor: () => call("container.monitor"),
-      destroy: () => call("container.destroy"),
-      signal: (signal) => call("container.signal", { signal }),
-      setInactivityTimeout: (timeout_ms) =>
-        call("container.set_inactivity_timeout", { timeout_ms }),
-      exec: async (options) =>
-        resource("exec", await call("container.exec", { options })),
-      execOutput: async (options, max_bytes = 1048576) => {
-        const output = await call("container.exec_output", {
-          options,
-          max_bytes,
-        });
-        return freeze({
-          ...output,
-          stdout: decode(output.stdout),
-          stderr: decode(output.stderr),
-        });
-      },
-      readFile: async (path, max_bytes = 1048576) =>
-        decode(await call("container.file.read", { path, max_bytes })),
-      writeFile: (path, data, { mode = 0o644 } = {}) => {
-        if (!(data instanceof Uint8Array)) {
-          throw new TypeError("Container file data must be Uint8Array");
-        }
-        return call("container.file.write", { path, data: encode(data), mode });
-      },
-      statFile: async (path) =>
-        freeze(await call("container.file.stat", { path })),
-      listFiles: async (
-        path,
-        { max_bytes = 1048576, max_entries = 128 } = {},
-      ) =>
-        freeze(
-          (
-            await call("container.file.list", { path, max_bytes, max_entries })
-          ).map((value) => freeze(value)),
-        ),
-      port: (port) =>
-        freeze({
-          waitReady: (timeout_ms = 10000) =>
-            call("container.port.wait_ready", { port, timeout_ms }),
-          fetch: async (value, options = {}) =>
-            request(
-              await call(
-                "container.port.fetch",
+      return freeze({
+        capabilities: async () => {
+          const value = await containerCall("container.capabilities");
+          return freeze({ ...value, operations: freeze(value.operations) });
+        },
+        reconcile: async () =>
+          freeze(await containerCall("container.reconcile")),
+        running: () => containerCall("container.running"),
+        start: (options = {}) => containerCall("container.start", { options }),
+        monitor: () => containerCall("container.monitor"),
+        destroy: () => containerCall("container.destroy"),
+        signal: (signal) => containerCall("container.signal", { signal }),
+        setInactivityTimeout: (timeout_ms) =>
+          containerCall("container.set_inactivity_timeout", { timeout_ms }),
+        exec: async (options) =>
+          resource("exec", await containerCall("container.exec", { options })),
+        execOutput: async (options, max_bytes = 1048576) => {
+          const output = await containerCall("container.exec_output", {
+            options,
+            max_bytes,
+          });
+          return freeze({
+            ...output,
+            stdout: decode(output.stdout),
+            stderr: decode(output.stderr),
+          });
+        },
+        readFile: async (path, max_bytes = 1048576) =>
+          decode(
+            await containerCall("container.file.read", { path, max_bytes }),
+          ),
+        writeFile: (path, data, { mode = 0o644 } = {}) => {
+          if (!(data instanceof Uint8Array)) {
+            throw new TypeError("Container file data must be Uint8Array");
+          }
+          return containerCall("container.file.write", {
+            path,
+            data: encode(data),
+            mode,
+          });
+        },
+        statFile: async (path) =>
+          freeze(await containerCall("container.file.stat", { path })),
+        listFiles: async (
+          path,
+          { max_bytes = 1048576, max_entries = 128 } = {},
+        ) =>
+          freeze(
+            (
+              await containerCall("container.file.list", {
+                path,
+                max_bytes,
+                max_entries,
+              })
+            ).map((value) => freeze(value)),
+          ),
+        port: (port) =>
+          freeze({
+            waitReady: (timeout_ms = 10000) =>
+              containerCall("container.port.wait_ready", { port, timeout_ms }),
+            fetch: async (value, options = {}) =>
+              request(
+                await containerCall(
+                  "container.port.fetch",
+                  { port, request: value },
+                  undefined,
+                  options.signal,
+                ),
+              ),
+            fetchStream: async (value, options = {}) => {
+              const result = await containerCall(
+                "container.port.fetch_stream",
                 { port, request: value },
                 undefined,
                 options.signal,
-              ),
-            ),
-          fetchStream: async (value, options = {}) => {
-            const result = await call(
-              "container.port.fetch_stream",
-              { port, request: value },
-              undefined,
-              options.signal,
-            );
-            const id = result.stream;
-            let ended = id === null;
-            const cancel = async () => {
-              if (ended) return;
-              ended = true;
-              await call("container.response.cancel", { id });
-            };
-            const read = async () => {
-              if (ended) return null;
-              try {
-                const chunk = await call(
-                  "container.response.read",
-                  { id },
-                  undefined,
-                  options.signal,
-                );
-                ended = chunk.done;
-                return chunk.done ? null : decode(chunk.body);
-              } catch (error) {
-                await cancel().catch(() => {});
-                throw error;
-              }
-            };
-            return freeze({
-              status: result.status,
-              headers: freeze(result.headers.map((pair) => freeze(pair))),
-              body: decode(result.body),
-              read,
-              async *chunks() {
+              );
+              const id = result.stream;
+              let ended = id === null;
+              const cancel = async () => {
+                if (ended) return;
+                ended = true;
+                await containerCall("container.response.cancel", { id });
+              };
+              const read = async () => {
+                if (ended) return null;
                 try {
-                  if (result.body) yield decode(result.body);
-                  while (!ended) {
-                    const chunk = await read();
-                    if (chunk !== null) yield chunk;
-                  }
-                } finally {
-                  await cancel();
+                  const chunk = await containerCall(
+                    "container.response.read",
+                    { id },
+                    undefined,
+                    options.signal,
+                  );
+                  ended = chunk.done;
+                  return chunk.done ? null : decode(chunk.body);
+                } catch (error) {
+                  await cancel().catch(() => {});
+                  throw error;
                 }
-              },
-              cancel,
-            });
-          },
-          connect: async () =>
-            resource("socket", await call("container.port.connect", { port })),
-          connectWebSocket: async (url, headers = []) => {
-            const result = await call("container.port.connect_websocket", {
-              port,
-              url,
-              headers,
-            });
-            return freeze(
-              result.upgraded
-                ? {
-                    upgraded: true,
-                    protocol: result.protocol,
-                    headers: freeze(result.headers.map((pair) => freeze(pair))),
-                    socket: resource("websocket", result.id),
+              };
+              return freeze({
+                status: result.status,
+                headers: freeze(result.headers.map((pair) => freeze(pair))),
+                body: decode(result.body),
+                read,
+                async *chunks() {
+                  try {
+                    if (result.body) yield decode(result.body);
+                    while (!ended) {
+                      const chunk = await read();
+                      if (chunk !== null) yield chunk;
+                    }
+                  } finally {
+                    await cancel();
                   }
-                : { upgraded: false, response: request(result.response) },
-            );
-          },
-        }),
+                },
+                cancel,
+              });
+            },
+            connect: async () =>
+              resource(
+                "socket",
+                await containerCall("container.port.connect", { port }),
+              ),
+            connectWebSocket: async (url, headers = []) => {
+              const result = await containerCall(
+                "container.port.connect_websocket",
+                {
+                  port,
+                  url,
+                  headers,
+                },
+              );
+              return freeze(
+                result.upgraded
+                  ? {
+                      upgraded: true,
+                      protocol: result.protocol,
+                      headers: freeze(
+                        result.headers.map((pair) => freeze(pair)),
+                      ),
+                      socket: resource("websocket", result.id),
+                    }
+                  : { upgraded: false, response: request(result.response) },
+              );
+            },
+          }),
+      });
+    };
+    const container = makeContainer();
+    const containers = freeze({
+      get: (name) => {
+        if (typeof name !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(name))
+          throw rpcFailure("ValidationError", "not_committed");
+        return name === "container" ? container : makeContainer(name);
+      },
+      list: async () =>
+        freeze(
+          (await call("container.bindings")).map(({ name, capabilities }) =>
+            freeze({
+              name,
+              capabilities: freeze({
+                ...capabilities,
+                operations: freeze(capabilities.operations),
+              }),
+            }),
+          ),
+        ),
     });
 
     // These objects contain bridge calls, never native storage handles. Binding
@@ -1153,6 +1206,7 @@
       now: () => call("clock.now"),
       variable: (name) => call("var", { name }),
       container,
+      containers,
 
       storage: freeze({
         read: (key) => call("storage.read", { key }),

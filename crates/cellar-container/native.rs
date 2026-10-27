@@ -189,6 +189,12 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         | "container.running"
         | "container.monitor"
         | "container.destroy" => {}
+        "container.reconcile" => {
+            ensure!(
+                value.as_object().is_some_and(serde_json::Map::is_empty),
+                "reconcile takes no arguments"
+            );
+        }
         "container.start" => {
             start(value)?;
         }
@@ -285,6 +291,15 @@ pub(crate) async fn execute(
     let container = context.container()?;
     match name {
         "container.running" => Ok(json!(container.running(context)?)),
+        "container.reconcile" => {
+            use crate::{Reconciliation, ReconciliationState};
+            let state = if container.running(context)? {
+                ReconciliationState::Running
+            } else {
+                ReconciliationState::Stopped
+            };
+            Ok(Reconciliation::value(state, None))
+        }
         "container.start" => Ok(json!(container
             .start(context, start(&value)?)
             .await?

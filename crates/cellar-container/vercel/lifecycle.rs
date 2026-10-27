@@ -218,6 +218,71 @@ impl Config {
         self.verify(context, &checkpoint.record, &info)
     }
 
+    /// Observe the retained generation. Provider mutations are never replayed.
+    pub(super) async fn reconcile_binding(&self, context: &Context) -> Result<Value> {
+        use crate::{Reconciliation, ReconciliationState as State};
+        let journal = self.journal(context)?;
+        let Some(checkpoint) = journal.load(context)? else {
+            return Ok(Reconciliation::value(State::Unbound, None));
+        };
+        self.check_record(&checkpoint.record)?;
+        let generation = Some(checkpoint.record.generation);
+        if checkpoint.record.intent == Intent::Deleted
+            && checkpoint.record.observation == Observation::Confirmed
+        {
+            return Ok(Reconciliation::value(State::Deleted, generation));
+        }
+        let info = self.info(context, &checkpoint.record).await?;
+        let Some(info) = info else {
+            // An absent observation cannot resolve an unacknowledged create.
+            ensure!(
+                checkpoint.record.observation == Observation::Confirmed
+                    || checkpoint.record.intent == Intent::Deleted,
+                "Vercel creation remains unresolved; absence does not authorize replacement"
+            );
+            let mut retired = checkpoint.record;
+            retired.intent = Intent::Deleted;
+            retired.observation = Observation::Confirmed;
+            journal
+                .compare_exchange(context, Some(checkpoint.revision), retired)
+                .await?;
+            return Ok(Reconciliation::value(State::Deleted, generation));
+        };
+        self.verify(context, &checkpoint.record, &info)?;
+        if checkpoint.record.intent == Intent::Deleted {
+            return Ok(Reconciliation::value(State::Deleting, generation));
+        }
+        if checkpoint.record.observation == Observation::Pending {
+            self.confirm(context, &journal, checkpoint, &info).await?;
+            return Ok(Reconciliation::value(State::Running, generation));
+        }
+        let states = [
+            info["sandbox"]["status"].as_str(),
+            info["session"]["status"].as_str(),
+        ];
+        ensure!(
+            states.iter().all(|state| matches!(
+                state,
+                Some(
+                    "pending"
+                        | "running"
+                        | "stopping"
+                        | "stopped"
+                        | "failed"
+                        | "aborted"
+                        | "snapshotting"
+                )
+            )),
+            "unknown Vercel resource state"
+        );
+        let state = if states == [Some("running"); 2] {
+            State::Running
+        } else {
+            State::Stopped
+        };
+        Ok(Reconciliation::value(state, generation))
+    }
+
     pub(super) async fn running(&self, context: &Context) -> Result<Value> {
         let Some(checkpoint) = self.journal(context)?.load(context)? else {
             return Ok(json!(false));

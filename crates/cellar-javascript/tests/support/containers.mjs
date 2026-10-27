@@ -100,6 +100,11 @@ export class Counter {
         labels: [["app", "adapter"]],
       });
     check(ctx._sync("workers.container.running"), "native provider snapshot");
+    const reconciled = await c.reconcile();
+    check(
+      reconciled.state === "running" && reconciled.generation === null,
+      "native observation without a remote journal",
+    );
     const http = c.port(Number(await ctx.variable("HTTP_PORT")));
     if (req.url.endsWith("/leak-stream")) {
       this.oldStream = await http.fetchStream(

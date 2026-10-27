@@ -12,13 +12,14 @@ mod peer;
 
 fn source(peer: &peer::Peer) -> Result<Source> {
     let code = include_str!("support/provider.mjs").replace("export ", "");
-    Ok(Source::new(
+    Source::new(
         format!("var CellarApp = (() => {{{code}; return {{cells, fetch}}; }})();"),
         "e2b.mjs",
     )
     .events([EventKind::Fetch])
     .cell("Counter")
-    .container_provider(peer.provider()?))
+    .container_provider(peer.provider()?)
+    .container_binding("backup", peer.provider_binding("backup")?)
 }
 
 #[cfg(feature = "node")]
@@ -39,7 +40,7 @@ fn node_e2b_provider() -> Result<()> {
         },
         cellar_javascript::NodeOptions::new(entry),
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 3)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 5)),
     )
 }
 
@@ -57,6 +58,6 @@ fn embedded_e2b_provider() -> Result<()> {
             ..Default::default()
         },
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 3)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "e2b", 5)),
     )
 }
