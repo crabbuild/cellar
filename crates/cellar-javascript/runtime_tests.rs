@@ -788,6 +788,25 @@ fn runaway_module_initialization_is_interrupted() {
         Source::new("while(true) {}", "startup.js"),
         |_| -> Result<()> { panic!("runaway initialization must not admit the host") },
     );
-    assert!(result.is_err());
+    let error = format!("{:#}", result.expect_err("runaway startup succeeded"));
+    assert!(
+        error.contains("startup application execution") && error.contains("execution budget"),
+        "startup lost its watchdog cause: {error}"
+    );
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn startup_syntax_failure_has_a_fixed_phase_without_source_contents() {
+    let result = JavaScriptRuntime::run(
+        Options::default(),
+        Source::new("const private_marker = ;", "private-input.js"),
+        |_| -> Result<()> { panic!("invalid startup must not admit the host") },
+    );
+    let error = format!("{:#}", result.expect_err("invalid startup succeeded"));
+    assert!(
+        error.contains("startup application compilation"),
+        "startup lost its compilation phase: {error}"
+    );
+    assert!(!error.contains("private_marker") && !error.contains("private-input.js"));
 }

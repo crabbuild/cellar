@@ -1612,6 +1612,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
 
 async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
+        reservation,
         parent_cancellation,
         signal,
         deadline_ms,
@@ -1687,6 +1688,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                     .as_ref()
                                     .context("no cell runtime")?
                                     .rpc_with_authority(crate::runtime::RpcInvocation {
+                                        reservation: reservation.clone(),
                                         parent_cancellation: parent_cancellation.clone(),
                                         signal: signal.clone(),
                                         deadline_ms,
@@ -1836,7 +1838,14 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 if let Some(failure) =
                     rpc_deadline::remote_failure(response.status(), response.headers())
                 {
-                    return Err(failure.into());
+                    return Err(if event_call {
+                        event_failure::annotate(
+                            failure.into(),
+                            event_failure::response_code(response.headers(), response.status()),
+                        )
+                    } else {
+                        failure.into()
+                    });
                 }
                 // An RPC response head confirms that execution and its output
                 // gate finished. Caller cancellation must not kill later
@@ -2813,8 +2822,11 @@ pub(crate) async fn dispatch_forwarded_rpc(
 mod management;
 #[path = "network/peer_tunnel.rs"]
 mod peer_tunnel;
+mod rpc_failure;
 #[path = "network/rpc_lease.rs"]
 mod rpc_lease;
+#[path = "network/rpc_upload.rs"]
+mod rpc_upload;
 #[path = "network/websocket.rs"]
 mod websocket;
 use websocket::{handle_websocket, outbound_websocket_task, reply_without_upgrade};

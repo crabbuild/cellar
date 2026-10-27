@@ -4,7 +4,7 @@
 //! The Python host keeps its normal stack; no suite gets another task or budget.
 use crate::{
     admission, application::Composite, crash, cycles, deadline, peer_faults, proof, provenance,
-    qualify, remote, worker, Suite,
+    qualify, remote, saturation, worker, Suite,
 };
 use anyhow::Result;
 use cellar_python::PythonApplication;
@@ -37,6 +37,7 @@ fn selected(
         Suite::Local => Box::pin(qualify::local(app)),
         Suite::Remote => Box::pin(remote::run(app)),
         Suite::PeerFaults => Box::pin(peer_faults::run(app)),
+        Suite::Saturation => Box::pin(saturation::run(app)),
         Suite::Crash => Box::pin(crash::run(app)),
         Suite::Proof => Box::pin(proof::run(app)),
         Suite::ProofWait => Box::pin(proof::waits(app)),
@@ -78,6 +79,7 @@ async fn all(app: Arc<Composite>, python: Arc<PythonApplication>) -> Result<Valu
         ("local", Suite::Local),
         ("remote", Suite::Remote),
         ("peer_faults", Suite::PeerFaults),
+        ("saturation", Suite::Saturation),
         ("deadline", Suite::Deadline),
         ("cancellation", Suite::Cancellation),
         ("cycles", Suite::Cycles),

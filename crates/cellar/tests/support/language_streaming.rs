@@ -31,7 +31,11 @@ pub async fn check(address: &str) -> Result<()> {
         .build()?;
     for path in ["/sse", "/cell/sse", "/consume/sse", "/outbound/sse"] {
         reset(&client, address, path).await?;
-        let mut response = client.get(format!("{address}{path}")).send().await?;
+        let mut response = client
+            .get(format!("{address}{path}"))
+            .send()
+            .await
+            .with_context(|| format!("stream {path}: response head"))?;
         ensure!(
             response.status().is_success(),
             "stream {path} failed: {}",
@@ -39,7 +43,9 @@ pub async fn check(address: &str) -> Result<()> {
         );
         ensure!(response.headers()["content-type"] == "text/event-stream");
         let first = tokio::time::timeout(Duration::from_secs(3), response.chunk())
-            .await??
+            .await
+            .with_context(|| format!("stream {path}: first chunk deadline"))?
+            .with_context(|| format!("stream {path}: first chunk body"))?
             .unwrap();
         ensure!(
             first.as_ref() == b"event: update\nid: 1\ndata: first\n\n",
@@ -68,7 +74,10 @@ pub async fn check(address: &str) -> Result<()> {
             .send()
             .await?
             .error_for_status()?;
-        let rest = response.text().await?;
+        let rest = response
+            .text()
+            .await
+            .with_context(|| format!("stream {path}: body after release"))?;
         ensure!(
             rest == "id: 2\ndata: second\n\n",
             "unexpected final chunk: {rest}"

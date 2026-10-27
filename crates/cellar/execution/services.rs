@@ -9,6 +9,8 @@
 //! and deterministic domains each install their own set, so routing authority
 //! and resource registries follow their owner.
 
+pub use crate::inbound_rpc::Usage as InboundRpcUsage;
+pub use crate::outbound_rpc::Usage as OutboundRpcUsage;
 use crate::ownership_store::LiveLoad;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -93,6 +95,8 @@ pub struct HostServices {
     actor_options: OnceLock<crate::actor::ActorOptions>,
     operation_deadline_ms: OnceLock<u64>,
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
+    outbound_rpc: OnceLock<crate::outbound_rpc::Budget>,
+    inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
     events: Arc<crate::application::event_stream::service::Service>,
@@ -123,6 +127,8 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            outbound_rpc: OnceLock::new(),
+            inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -154,6 +160,8 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            outbound_rpc: OnceLock::new(),
+            inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -364,6 +372,50 @@ impl HostServices {
     /// the application did not configure it. No environment is read here.
     pub fn runtime_policy(&self) -> crate::runtime_policy::RuntimePolicy {
         *self.runtime_policy.get_or_init(Default::default)
+    }
+
+    pub(crate) fn reserve_outbound_rpc(
+        &self,
+        scope: &str,
+        name: Option<&str>,
+        method: &str,
+        args: &crate::engine_api::RpcData,
+    ) -> Option<crate::host_channels::RpcReservation> {
+        if !self.accepts_work() {
+            return None;
+        }
+        self.outbound_rpc
+            .get_or_init(|| crate::outbound_rpc::Budget::new(self.runtime_policy()))
+            .reserve(scope, name, method, args)
+    }
+
+    /// SDK submission reservations, sampled independently. Counts include
+    /// gate/queue/routing waits, retained local native drivers and undelivered
+    /// replies. Bytes are a length-weighted request allowance, not measured
+    /// allocations, guest heaps, responses or receiving-peer transport buffers.
+    pub fn outbound_rpc_usage(&self) -> OutboundRpcUsage {
+        self.outbound_rpc
+            .get()
+            .map_or_else(Default::default, crate::outbound_rpc::Budget::usage)
+    }
+
+    pub(crate) fn admit_rpc_tunnel(&self, peer: &str) -> Option<crate::inbound_rpc::Connection> {
+        if !self.accepts_work() {
+            return None;
+        }
+        let domain = self.domain_token()?;
+        self.inbound_rpc
+            .get_or_init(|| crate::inbound_rpc::Budget::new(self.runtime_policy(), domain))
+            .connect(peer)
+    }
+
+    /// Receiving tunnel/request reservations, including input upload, native
+    /// drivers and transport-owned reply buffers. Byte counts cover input/control
+    /// allowances; responses, decoded graphs and guest heaps have other limits.
+    pub fn inbound_rpc_usage(&self) -> InboundRpcUsage {
+        self.inbound_rpc
+            .get()
+            .map_or_else(Default::default, crate::inbound_rpc::Budget::usage)
     }
 
     /// Fix outbound HTTP configuration before the first fetch. Factory identity

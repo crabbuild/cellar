@@ -17,6 +17,12 @@ when you select the unrestricted profile.
 | `max_stateless_requests` | `Some(64)` | Admitted events per script pool; background work retains slots |
 | `max_cells_per_worker` | 32 | Residents sharing one worker |
 | `max_cell_requests` | 64 | Concurrent fetch/RPC admission per cell |
+| `max_outbound_rpc_requests` | 128 | SDK namespace RPCs retained across all host generations |
+| `max_outbound_rpc_bytes` | 256 MiB | Length-weighted SDK request/copy/control allowance; minimum 128 KiB |
+| `max_inbound_rpc_requests` | 128 | Receiving peer RPCs, including upload, native work, output waits and retained replies |
+| `max_inbound_rpc_bytes` | 256 MiB | Dense receiving input capacity, one possible copy and control allowance; minimum 128 KiB |
+| `max_inbound_rpc_tunnels` / `max_rpc_tunnels_per_peer` | 256 / 64 | Receiving RPC connections across the host / per authenticated peer name |
+| `rpc_tunnel_idle_timeout` | 30 s | Receiving RPC upgrade/idle/ready-reply write interval; caller deadlines can shorten writes |
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
 | `handler_budget` | 300 s | Handler response budget; excludes subsequent background/proof settlement |
 | `HttpPolicy.request_timeout` | 120 s | SDK HTTP deadline, including response-body consumption |
@@ -34,6 +40,53 @@ when you select the unrestricted profile.
 These are source defaults, not recommended production sizing. The structured
 decoder caps encoded values at 64 MiB, and loader budgets must not exceed it.
 Choose lower business-specific bounds where appropriate.
+
+SDK RPC submission reserves both host quotas before waiting for its source
+durability gate or entering the routing queue. Saturation refuses immediately.
+A valid typed call receives `ResourceExhausted/not_committed` for that refused
+child call; a caller's earlier writes keep their own outcome. There is no
+automatic replay. A reservation follows queued/routed work, any local native
+driver and an unconsumed reply until the last owner retires, including after
+caller cancellation. Reply and shutdown control paths do not acquire this quota.
+
+The byte allowance is twice the encoded payload length, four times the combined
+scope/name/method UTF-8 length, plus 64 KiB for bounded control/frame copies.
+It is not an RSS or exact allocator measurement: shared backing allocations,
+spare capacity, response buffers, guest heaps and peer ingress retain separate
+limits. Trusted direct host control requests use their existing admission.
+`domain.services().outbound_rpc_usage()` exposes the two sampled counters for
+cleanup checks. Configure quotas with `NodeConfig.runtime` or
+`domain.services().configure_runtime(...)` before the first submission.
+
+Receiving RPC tunnels reserve a host and per-peer slot before upgrade. The peer
+name comes from the verified fleet signature. Entries retire with their last
+connection. Upgrade and idle waits are finite; active upload/native work keeps
+its existing deadline. Once a handler/proof result is ready, reply delivery is
+bounded by this transport interval and the original caller deadline, whichever
+is earlier. A stalled writer cannot keep its slots indefinitely. Ordinary
+HTTP/fetch tunnels use their existing policies.
+
+Each receiving RPC reserves request/control capacity before decoding authority
+or reading its body. Uploads accumulate into one dense buffer: capacity is
+reserved before growth, with an allowance for a second native/JSON copy. Tiny
+chunks do not retain a list of frames; empty chunks yield so timers and other
+replies can progress. Uploads without a declared RPC deadline still use the
+receiving host's operation deadline. Existing framework authority headers fit
+within the bounded 64-KiB HTTP parser. Cancellation, proof waits, native work
+and retained replies keep their admission ticket until the last owner drops.
+The ticket follows transport byte slices/clones after the HTTP body yields its
+frame, without copying the payload. Cleanup uses the receiving domain's clock
+even when a buffer retires in another domain or after its owner stops. Reply
+write expiry closes the transport; a lost response still proves no rollback.
+
+Receiver overload returns a fixed `ResourceExhausted/unknown` category over the
+authenticated transport, without automatic replay. Its status/header pair does
+not establish rollback; event calls preserve their ambiguous outcome. Refused
+uploads close the connection so unread bytes cannot become another request.
+`inbound_rpc_usage()` reports calls, reserved input bytes, tunnels and peers;
+all retire after node drain. These input allowances do not measure decoded
+graphs, response buffers, adapter copies, allocator overhead or RSS. Durability
+acknowledgements and cancellation endpoints retain their independent paths.
 
 Install `ActorOptions` with `domain.services().configure_actor(&options)` before
 building generations to select a different operation deadline. Queue leases and
@@ -110,6 +163,10 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_REQUESTS` | Stateless admission limit; **unset is unbounded in the CLI** |
 | `CELLAR_MAX_STATELESS_ISOLATES` | Stateless worker count; CLI defaults to available parallelism |
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
+| `CELLAR_MAX_OUTBOUND_RPC_REQUESTS` / `CELLAR_MAX_OUTBOUND_RPC_BYTES` | Host SDK submission count / length-weighted byte allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / input capacity allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_INBOUND_RPC_TUNNELS` / `CELLAR_MAX_RPC_TUNNELS_PER_PEER` | Receiving RPC tunnel count across the host / per verified peer; defaults 256 / 64 |
+| `CELLAR_RPC_TUNNEL_IDLE_MS` | Receiving RPC upgrade/idle/ready-reply write budget; default 30000; valid 1..=4294967295 |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |
 | `CELLAR_ASSET_CACHE_DIR` / `CELLAR_ASSET_CACHE_BYTES` | CLI captures cache directory and cleanup target once; default directory is `asset-cache` under the node data directory |
 | `CELLAR_MAX_ASSET_FILE_BYTES` | CLI captures the serving file ceiling; deployment builders use the same explicit environment adapter |

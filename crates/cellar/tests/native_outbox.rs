@@ -606,6 +606,7 @@ async fn source_operation(
     )?;
     let (reply, _receive) = tokio::sync::oneshot::channel();
     let mut call = cellar::host_channels::RpcCallReq {
+        reservation: None,
         parent_cancellation: None,
         signal: None,
         deadline_ms: None,

@@ -24,6 +24,27 @@ pub struct RuntimePolicy {
     pub max_cells_per_worker: usize,
     /// Maximum concurrent fetches and RPC calls admitted to one cell.
     pub max_cell_requests: usize,
+    /// Maximum SDK namespace RPCs awaiting a gate, queued, routed, executing or
+    /// awaiting reply consumption in this host, across application generations.
+    /// Trusted direct host control calls use separate admission.
+    pub max_outbound_rpc_requests: usize,
+    /// Reserved SDK RPC request/copy/control allowance across this host, computed
+    /// from encoded lengths. This does not measure allocator capacity/shared
+    /// backing allocations or replace receiving-peer, response, adapter or
+    /// process memory limits. Minimum 128 KiB.
+    pub max_outbound_rpc_bytes: usize,
+    /// Maximum receiving peer RPC requests, including upload and output waits.
+    pub max_inbound_rpc_requests: usize,
+    /// Reserved receiving request buffers/copies/control allowance. Minimum 128 KiB.
+    pub max_inbound_rpc_bytes: usize,
+    /// Maximum open authenticated receiving RPC tunnels across this host.
+    pub max_inbound_rpc_tunnels: usize,
+    /// Maximum receiving RPC tunnels owned by one authenticated peer name.
+    pub max_rpc_tunnels_per_peer: usize,
+    /// Maximum receiving RPC upgrade, idle and post-handler reply-write interval.
+    /// An original caller deadline can shorten delivery; handler execution keeps
+    /// its separate budget.
+    pub rpc_tunnel_idle_timeout: Duration,
     /// How long a saturated stateless pool waits before refusing an event.
     /// Zero means refuse immediately.
     pub admission_wait: Duration,
@@ -40,6 +61,13 @@ impl Default for RuntimePolicy {
             max_stateless_requests: Some(64),
             max_cells_per_worker: 32,
             max_cell_requests: crate::runtime::DEFAULT_MAX_CELL_REQUESTS,
+            max_outbound_rpc_requests: 128,
+            max_outbound_rpc_bytes: 256 * 1024 * 1024,
+            max_inbound_rpc_requests: 128,
+            max_inbound_rpc_bytes: 256 * 1024 * 1024,
+            max_inbound_rpc_tunnels: 256,
+            max_rpc_tunnels_per_peer: 64,
+            rpc_tunnel_idle_timeout: Duration::from_secs(30),
             admission_wait: Duration::from_secs(1),
             handler_budget: Duration::from_secs(300),
         }
@@ -63,6 +91,35 @@ impl RuntimePolicy {
         anyhow::ensure!(
             self.max_cell_requests > 0,
             "max_cell_requests must be positive"
+        );
+        anyhow::ensure!(
+            (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&self.max_outbound_rpc_requests),
+            "max_outbound_rpc_requests must fit a positive semaphore capacity"
+        );
+        anyhow::ensure!(
+            (128 * 1024..=(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS))
+                .contains(&self.max_outbound_rpc_bytes),
+            "max_outbound_rpc_bytes must fit at least 128 KiB of RPC request/control capacity"
+        );
+        anyhow::ensure!(
+            [
+                self.max_inbound_rpc_requests,
+                self.max_inbound_rpc_tunnels,
+                self.max_rpc_tunnels_per_peer
+            ]
+            .into_iter()
+            .all(|value| (1..=tokio::sync::Semaphore::MAX_PERMITS).contains(&value)),
+            "receiving RPC request and tunnel quotas must fit positive semaphore capacities"
+        );
+        anyhow::ensure!(
+            (128 * 1024..=(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS))
+                .contains(&self.max_inbound_rpc_bytes),
+            "max_inbound_rpc_bytes must fit at least 128 KiB of RPC request/control capacity"
+        );
+        anyhow::ensure!(
+            self.rpc_tunnel_idle_timeout >= Duration::from_millis(1)
+                && self.rpc_tunnel_idle_timeout <= Duration::from_millis(u32::MAX.into()),
+            "rpc_tunnel_idle_timeout must fit 1..=u32::MAX milliseconds"
         );
         anyhow::ensure!(
             !self.handler_budget.is_zero(),
@@ -89,6 +146,34 @@ impl RuntimePolicy {
                 "CELLAR_MAX_CELL_REQUESTS",
                 crate::runtime::DEFAULT_MAX_CELL_REQUESTS,
             )?,
+            max_outbound_rpc_requests: crate::env_vars::positive_or(
+                "CELLAR_MAX_OUTBOUND_RPC_REQUESTS",
+                Self::default().max_outbound_rpc_requests,
+            )?,
+            max_outbound_rpc_bytes: crate::env_vars::positive_or(
+                "CELLAR_MAX_OUTBOUND_RPC_BYTES",
+                Self::default().max_outbound_rpc_bytes,
+            )?,
+            max_inbound_rpc_requests: crate::env_vars::positive_or(
+                "CELLAR_MAX_INBOUND_RPC_REQUESTS",
+                Self::default().max_inbound_rpc_requests,
+            )?,
+            max_inbound_rpc_bytes: crate::env_vars::positive_or(
+                "CELLAR_MAX_INBOUND_RPC_BYTES",
+                Self::default().max_inbound_rpc_bytes,
+            )?,
+            max_inbound_rpc_tunnels: crate::env_vars::positive_or(
+                "CELLAR_MAX_INBOUND_RPC_TUNNELS",
+                Self::default().max_inbound_rpc_tunnels,
+            )?,
+            max_rpc_tunnels_per_peer: crate::env_vars::positive_or(
+                "CELLAR_MAX_RPC_TUNNELS_PER_PEER",
+                Self::default().max_rpc_tunnels_per_peer,
+            )?,
+            rpc_tunnel_idle_timeout: Duration::from_millis(crate::env_vars::positive_or(
+                "CELLAR_RPC_TUNNEL_IDLE_MS",
+                30_000,
+            )?),
             admission_wait: Duration::from_millis(crate::env_vars::with_default(
                 "CELLAR_ADMISSION_WAIT_MS",
                 1000u64,

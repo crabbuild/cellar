@@ -42,6 +42,8 @@ pub struct NodeOptions {
     pub(crate) observer_pause: Option<(Duration, Life)>,
     #[cfg(test)]
     pub(crate) observer_pause_after_start: bool,
+    #[cfg(test)]
+    pub(crate) bootstrap_padding: usize,
 }
 
 impl NodeOptions {
@@ -57,6 +59,8 @@ impl NodeOptions {
             observer_pause: None,
             #[cfg(test)]
             observer_pause_after_start: false,
+            #[cfg(test)]
+            bootstrap_padding: 0,
         }
     }
 }
@@ -181,10 +185,12 @@ fn run(
         .map(|v| format!("{v:02x}"))
         .collect::<String>();
 
-    // The factory is captured before importing application modules. The channel
-    // secret is delivered only over inherited stdin, never argv or the environment.
+    // The factory is captured before importing application modules. Source and
+    // private configuration travel over stdin, not a platform-limited argv item.
+    // Keep internal stack locations short: a data URL otherwise repeats the
+    // entire compiled source and can hide application errors behind value limits.
     let script = format!(
-        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}",
+        "const makeRejections = ({});\nconst makeBudgets = ({});\nconst makeRunner = ({});\nconst makeDelegates = ({});\nconst makeRpcStreams = ({});\nconst makeRpcWritables = ({});\nconst makeRpcInputs = ({});\nconst makeRpcMessages = ({});\nconst makeRpcRequests = ({});\nconst ioSource = {};\n{}\n//# sourceURL=cellar:node-bootstrap\n",
         include_str!("rejections.js"),
         include_str!("budget.js"),
         include_str!("../runner.js"),
@@ -197,6 +203,8 @@ fn run(
         serde_json::to_string(include_str!("io.mjs"))?,
         include_str!("worker.mjs")
     );
+    #[cfg(test)]
+    let script = format!("{script}\n/*{}*/", "x".repeat(node.bootstrap_padding));
     let mut command = Command::new(&node.executable);
     if let Some(directory) = &node.working_directory {
         command.current_dir(directory);
@@ -213,7 +221,11 @@ fn run(
                 "--max-old-space-size={}",
                 runtime.options.heap_bytes / (1024 * 1024)
             ))
-            .args(["--input-type=module", "--eval", &script])
+            .args([
+                "--input-type=module",
+                "--eval",
+                include_str!("bootstrap.mjs"),
+            ])
             .envs(&node.environment)
             .env_remove("NODE_OPTIONS")
             .env_remove("NODE_PATH")
@@ -240,11 +252,11 @@ fn run(
         "synchronousTimeout": node.heartbeat_timeout.as_millis()
     });
     let mut stdin = process.0.stdin.take().context("Node stdin missing")?;
-    let config = serde_json::to_vec(&config)?;
     ensure!(
-        config.len() <= runtime.options.max_value_bytes,
+        serde_json::to_vec(&config)?.len() <= runtime.options.max_value_bytes,
         "Node bootstrap configuration exceeds limit"
     );
+    let bootstrap = serde_json::to_vec(&json!({"source":script,"config":config}))?;
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;
@@ -258,7 +270,7 @@ fn run(
         );
     }
 
-    let mut remaining = config.as_slice();
+    let mut remaining = bootstrap.as_slice();
     while !remaining.is_empty() {
         ensure!(Instant::now() < deadline, "Node bootstrap timed out");
         match stdin.write(remaining) {
@@ -270,7 +282,7 @@ fn run(
             Err(error) => return Err(error.into()),
         }
     }
-    // EOF completes the bootstrap document; the worker then opens the IPC socket.
+    // EOF completes the private bootstrap document; the worker opens IPC next.
     drop(stdin);
     let socket = loop {
         ensure!(Instant::now() < deadline, "Node startup timed out");

@@ -244,6 +244,19 @@ Use `Host::run_until` with `application.stopped()` so an engine failure drains
 the native host and allows bootstrap cleanup to finish. `Host::run` may exit the
 process before adapter teardown.
 
+Node starts with a small, fixed launcher in argv. The compiled runtime and its
+private configuration arrive over inherited stdin, so runtime growth does not
+cross a platform's per-argument size limit.
+
+| Bootstrap input | Transport / boundary |
+| --- | --- |
+| Launcher | Fixed source in `--eval`; independent of the compiled runtime's size |
+| Runtime source | Private stdin envelope, then a credential-free module URL |
+| Configuration | Same private envelope, passed as a function argument; retains `max_value_bytes` validation |
+| Authentication | Never embedded in argv, environment, module URLs or bootstrap files |
+| Parse/initialization failure | Fixed child exit; no private input or error stack printed |
+| Startup / shutdown | Existing startup deadline covers pipe writes; owned process group is killed and joined on failure |
+
 These entry points use a fleet deployment named `counter-app`, version `v1`,
 with a `Counter` class and a `COUNTERS` namespace binding. Registration does not
 create that deployment or binding. Follow the reference examples for complete
@@ -308,6 +321,13 @@ This explicit-entry bootstrap resolves `node` through `PATH`. Set
 absolute directory when packages use relative OS paths. The default working
 directory is inherited. Explicit environment additions are supported;
 `NODE_OPTIONS` and `NODE_PATH` are always removed.
+
+The host sends its compiled bootstrap source and private configuration through
+the owned stdin pipe. Only a small loader appears in process arguments, so
+bootstrap growth does not depend on the operating system's argument-size limit.
+The same `startup_timeout` covers pipe writes, import and authentication; a
+stalled worker is terminated and joined. Authentication secrets remain off argv
+and the environment.
 
 For an inventory-bound fleet package, use `NodeOptions::packaged()` and pass its
 hash to `Host::runtime_inventory(FEATURE_NODE_V1, hash)`, as the reference Node
@@ -688,6 +708,7 @@ production multi-node fault or performance qualification.
 | [runtime/engine/mod.rs](runtime/engine/mod.rs) | V8 isolate, continuation/activation identity, promises, and watchdog. |
 | [runtime/engine/codec.rs](runtime/engine/codec.rs) | Bounded structured-clone conversion inside the optional V8 engine. |
 | [runtime/node/mod.rs](runtime/node/mod.rs) | Node startup, authentication, liveness checks, and process ownership. |
+| [runtime/node/bootstrap.mjs](runtime/node/bootstrap.mjs) | Small pipe launcher; keeps runtime bytes and private configuration out of argv. |
 | [runtime/node/worker.mjs](runtime/node/worker.mjs) | Node module loading, async context, and synchronous reply admission. |
 | [runtime/node/io.mjs](runtime/node/io.mjs) | Private socket worker, bounded frames/queues and synchronous reply wakeups. |
 | [runtime/node/transport.rs](runtime/node/transport.rs) | Bounded, length-prefixed JSON transport separate from stdout/stderr. |

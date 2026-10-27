@@ -261,7 +261,7 @@ async fn live_case(
         let call = request(&client, &source_url, caller, "increment", &query);
         tokio::pin!(call);
         tokio::select! {
-            reply = &mut call => anyhow::bail!("worker call completed before its nested native gate: {reply:?}"),
+            reply = &mut call => anyhow::bail!("worker call completed before its nested native gate: {reply:?}; authority={}; quotas={}; bridge={:?}",trace.snapshot(),trace.quotas(),worker.bridge_usage()),
             _ = trace.ready.notified() => {},
             _ = tokio::time::sleep(Duration::from_secs(5)) => anyhow::bail!("worker nested native gate was never entered"),
         }
@@ -402,6 +402,7 @@ async fn live_case(
     trace.disarm();
     trace.terminating.store(false, Ordering::Release);
     trace.release.notify_one();
+    let observed_services = trace.observed_services();
     let source_stop = if let Some(node) = source {
         fleet::stop(node, ShutdownMode::Preserve).await
     } else {
@@ -416,6 +417,15 @@ async fn live_case(
     let result = result?;
     source_stop?;
     owner_stop?;
+    for services in observed_services {
+        ensure!(
+            services.outbound_rpc_usage() == Default::default()
+                && services.inbound_rpc_usage() == Default::default(),
+            "joined worker node retained RPC quotas: source={:?}, receiver={:?}",
+            services.outbound_rpc_usage(),
+            services.inbound_rpc_usage()
+        );
+    }
     Ok(result)
 }
 
@@ -532,8 +542,9 @@ async fn case(base: Arc<Composite>, scenario: Scenario) -> Result<Value> {
                 Some(runtime.block_on(live_case(base.clone(), worker, directory.path(), scenario)));
             Ok(())
         });
-        let mut evidence =
-            evidence.context("disposable provider did not reach host readiness")??;
+        let mut evidence = evidence
+            .context("disposable provider did not reach host readiness")?
+            .with_context(|| format!("owned provider bootstrap result: {failed:?}"))?;
         ensure!(
             failed.is_err() == end.is_failure(),
             "worker runtime result differs from {end:?}: {failed:?}"

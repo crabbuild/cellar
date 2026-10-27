@@ -336,6 +336,105 @@ fn node_worker_loss_after_submission_never_replays_mutation() {
 
 #[cfg(unix)]
 #[test]
+fn node_bootstrap_keeps_compiled_source_out_of_exec_arguments() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    std::fs::write(
+        &entry,
+        r#"
+export function fetch() {
+    const stack = new Error("trace probe").stack;
+    return {booted: true, stackBytes: Buffer.byteLength(stack),
+        fixedSource: stack.includes("cellar:node-bootstrap")};
+}
+"#,
+    )?;
+    let executable = directory.path().join("bounded-node");
+    // Linux with 4 KiB pages permits at most 131,071 bytes before an argument's
+    // terminating NUL. Exercise that boundary on every supported Unix host,
+    // then delegate to the actual Node executable and run a real invocation.
+    std::fs::write(
+        &executable,
+        r#"#!/bin/sh
+LC_ALL=C
+export LC_ALL
+for argument do
+  if [ "${#argument}" -ge 131072 ]; then
+    echo "Node bootstrap exceeded the exec argument limit" >&2
+    exit 77
+  fi
+done
+exec node "$@"
+"#,
+    )?;
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755))?;
+    let mut node = NodeOptions::new(entry);
+    node.executable = executable;
+    NodeRuntime::run(
+        Options::default(),
+        node,
+        Source::module().events([EventKind::Fetch]),
+        |application| {
+            let (_, mut receiver) = start(&application.runtime, Arc::new(AtomicBool::new(true)));
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receiver)
+            else {
+                panic!("expected completed invocation")
+            };
+            assert!(!failed);
+            let value: Value = serde_json::from_str(&payload)?;
+            assert_eq!(value["booted"], true);
+            assert!(
+                value["stackBytes"].as_u64().unwrap() < 4096,
+                "the compiled source became an unbounded stack-frame URL"
+            );
+            assert_eq!(value["fixedSource"], true);
+            Ok(())
+        },
+    )
+}
+
+#[cfg(unix)]
+#[test]
+fn node_large_bootstrap_stays_out_of_process_arguments() -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let executable = Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()?;
+    ensure!(executable.status.success(), "Node executable lookup failed");
+    let executable = String::from_utf8(executable.stdout)?.trim().to_owned();
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("app.mjs");
+    std::fs::write(&entry, "export const fetch = () => null;")?;
+    let wrapper = directory.path().join("bounded-node");
+    // Model Linux's per-argument bound on every Unix test host. The padded
+    // real bootstrap must still initialize the worker through its private pipe.
+    std::fs::write(&wrapper, "#!/bin/sh\nexport LC_ALL=C\nfor cellar_boot_arg do\n  if [ \"${#cellar_boot_arg}\" -ge 131072 ]; then\n    echo 'bootstrap argument exceeds Linux bound' >&2\n    exit 86\n  fi\ndone\nexec \"$CELLAR_TEST_BOOTSTRAP_NODE\" \"$@\"\n")?;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))?;
+    let mut options = NodeOptions::new(entry);
+    options.executable = wrapper;
+    options.bootstrap_padding = 128 * 1024;
+    options
+        .environment
+        .insert("CELLAR_TEST_BOOTSTRAP_NODE".into(), executable);
+    let mut entered = false;
+    NodeRuntime::run(
+        Options::default(),
+        options,
+        Source::module().events([EventKind::Fetch]),
+        |_| {
+            entered = true;
+            Ok(())
+        },
+    )?;
+    ensure!(entered, "large bootstrap did not reach host admission");
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn node_bootstrap_pipe_is_covered_by_startup_deadline() -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let directory = tempfile::tempdir()?;

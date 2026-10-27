@@ -85,11 +85,7 @@ pub(super) fn response() -> super::HttpReply {
 /// Only a paired host status/header carries a fixed infrastructure code. It
 /// carries no admission/rollback evidence and never claims `not_committed`.
 pub(super) fn remote_failure(status: StatusCode, headers: &HeaderMap) -> Option<Failure> {
-    let mut values = headers.get_all(FAILURE_HEADER).iter();
-    (status == StatusCode::GATEWAY_TIMEOUT
-        && values.next().is_some_and(|value| value == DEADLINE)
-        && values.next().is_none())
-    .then(|| Failure::new(Code::DeadlineExceeded))
+    super::rpc_failure::remote(status, headers)
 }
 
 #[cfg(test)]
