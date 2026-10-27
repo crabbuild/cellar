@@ -349,6 +349,25 @@ run is retained; test-context fallout is plausible but not proven.
 Prepared payload reuse and the full-size buffered performance comparison remain
 open. These checks establish no 10 GB recovery-time improvement or qualification.
 
+A follow-up batches decoded destination pages into the selected profile's
+positional window: 2 MiB for Buffered and 64 KiB for Compact. Native files accept
+the admitted window directly; existing injected providers retain bounded 64 KiB
+random writes. It does not rely on sequential-cursor behavior or raise the
+existing codec working-memory allowance. Verification-only calls omit the unused
+destination buffer. Five host-window, ten streamed-snapshot and one I/O-activity
+tests pass, including cross-profile exact SQLite bytes, partial-write refusal,
+offsets beyond 4 GiB and independent destination re-read. The regression failed
+before the decoder change because the native window was never used. An initial
+fixture correctly hit the nonempty-destination refusal and was fixed to supply
+the required private empty file; both failure logs are retained. The full-size
+RustFS campaign frozen at `78d37a18` predates this follow-up, so it cannot measure
+this destination-write change. The follow-up also passes 27 native LTX cases,
+five native cold-recovery cases and a real RustFS 272 MiB owner-loss/local-erasure
+preflight through first write, receipts and joined cleanup. All-target/all-feature
+Clippy for both affected crates and repository format/layout/dependency/docs
+checks pass. These are functional checks on a shared host; the physical preflight
+overlapped the frozen full-size campaign's setup and supplies no RTO comparison.
+
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,
    transport and decoded buffers together. Preserve Compact for providers that

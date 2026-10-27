@@ -100,10 +100,15 @@ uses 64 KiB buffers. Explicit `IoProfile::Buffered` uses 2 MiB sequential codec
 buffers under the caller's memory admission; `max_working_bytes()` bounds the
 codec-owned buffers separately from caller-owned source and transport windows.
 Both profiles produce identical encoded bytes and run the same integrity checks.
-Source callbacks and decoded destination writes remain bounded at 64 KiB.
+Source callbacks remain bounded at 64 KiB. Decoded destination pages use the
+selected profile's 64 KiB or 2 MiB positional window, included in that profile's
+existing working-memory allowance. Native files write each window directly;
+injected providers retain 64 KiB random writes without a sequential-cursor
+assumption. Verification-only calls allocate no destination buffer.
 `HostFile` accepts caller-owned read/write windows through 4 MiB; native files
 operate directly on those buffers, while existing injected providers retain a
-64 KiB fallback. `SnapshotFile::read_into` and `Download::append_window` use this
+64 KiB fallback. Positional windows check the complete offset range before I/O
+and report activity only after the whole window succeeds. `SnapshotFile::read_into` and `Download::append_window` use this
 contract without allocating another complete transport window. Uncertain partial
 writes poison the download just as ordinary appends do. The native archive
 selects the buffered codec for actual logical images of at least 256 MiB within
