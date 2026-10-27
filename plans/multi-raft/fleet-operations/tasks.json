@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "dac800a693b3f25cc99761f2d0f51ceb0045bd50",
+  "baseline_revision": "f0ea0f7102e24206533f1e177bc674c62206fcd0",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3810,11 +3810,16 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/records.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/cancellation.rs",
-        "crates/cellar/tests/support/raft_restart_maintenance_native.rs"
+        "crates/cellar/tests/support/raft_restart_maintenance_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/gate.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/gate_cancel.rs",
+        "crates/cellar/durability/raft/fleet_stop/admission.rs",
+        "crates/cellar/node/maintenance.rs",
+        "crates/cellar/tests/support/raft_restart_gate_native.rs"
       ],
       "steps": [
         "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
-        "Owned restart preparation is implemented in the catalog: exact process/grace intent, complete inventory, atomic exclusion/shared disruption admission, no new boot before joined-owner proof, and preparation-only cancellation to Ready. It retains existing voters and resource charges. Readiness/handoff, reversible command admission, owned maintenance stop, rejoin/capacity resume, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
+        "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming settlement, both-survivor proof, owned handoff/readiness, maintenance stop/rejoin, grace expiry, rolling execution and operator surfaces remain unfinished. Qualification is separately attributed in progress.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
         "Persist a distinct node lifecycle epoch/stop guard in the engine owner; bind stop/cancel to process and exact request.",
@@ -4030,6 +4035,51 @@
             "F05",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_restart_gate_drains_accepted_http_and_preserves_consensus",
+          "oracle": "An accepted HTTP handler completes its SDK write before the reversible gate acknowledges; control traffic transfers leadership and surviving RF3 writes continue. Gate metadata grants no stop, and a synced cancellation fence reopens only reversible admission.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_gate_cancel_defeats_a_timed_out_quiesce",
+          "oracle": "A timed-out quiescence turn keeps public admission closed until the exact synced cancellation fence; accepted work completes after cancellation and a delayed quiesce cannot close the gate again.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_gate_cancel_reconciles_synced_fence_and_root_churn",
+          "oracle": "A cancellation whose root CAS loses retains operation and charges. A fresh parent with the same immutable child fence reconciles lost confirmation; historical retries cannot release a subsequent disruption slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_lifecycle_quiesce_and_same_epoch_fence_survive_reopen",
+          "oracle": "Real engine sync and retained reopen preserve quiescence and its same-epoch cancellation fence, refuse stale quiesce/stop and accept a later epoch.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "maintenance_reopens_application_without_resetting_permanent_shutdown",
+          "oracle": "Reversible admission preserves control and accepted SDK completion; cancellation never resets permanent shutdown or admits stale gate epochs.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -4064,6 +4114,18 @@
           "native_raft_fleet_enrollment",
           "--locked",
           "fleet_restart_preparation_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "--locked",
+          "fleet_restart_gate_",
           "--",
           "--test-threads=1"
         ]

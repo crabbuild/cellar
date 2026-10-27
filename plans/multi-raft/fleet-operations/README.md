@@ -12,9 +12,11 @@ qualification and activation commands pass local end-to-end verification;
 graceful evacuation, exact joined stop and terminal removal now have native
 SDK/API/CLI coverage too. Audited cancel-and-restart recovery after
 post-finalization inventory churn passes native end-to-end verification.
-The catalog now implements M1 intact-restart preparation and original-epoch
-cancellation. Maintenance readiness, stop/rejoin, rolling execution and its
-operator surfaces, plus resize, remain delivery targets.
+The catalog now implements M1 intact-restart preparation, a reversible physical
+admission gate and synced cancellation. Accepted application work drains while
+consensus continues. Complete survivor verification, owned handoff/readiness,
+stop/rejoin, rolling execution and maintenance operator surfaces, plus resize,
+remain delivery targets.
 `tasks.json` retains exact package status.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required

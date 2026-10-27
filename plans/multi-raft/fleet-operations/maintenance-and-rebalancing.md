@@ -8,7 +8,7 @@ The [lifecycle execution contract](lifecycle-execution.md) adds crash/retry
 ownership, shrink admission fencing, prediction-versus-observation rules and
 the exact evidence behind each operator-visible result.
 
-## Implemented restart preparation boundary
+## Implemented restart preparation and reversible gate boundaries
 
 The catalog now has owned M1 restart preparation and preparation-only
 cancellation. `begin_restart_maintenance` pins exact process, request identity,
@@ -25,16 +25,32 @@ capacity. Original confirmations reconcile through the permanent journal, and
 historical retries cannot release a later operation's slot. A different process,
 grace, principal or request cannot rebind the same intent.
 
-Before a later phase issues a physical admission gate or stop capability, it
-must advance the node epoch. Preparation-only cancellation then refuses. That
-later phase requires owned fence/outcome reconciliation; metadata cancellation
-cannot reopen an admitted shutdown. The new native cases and qualification
-results are recorded in [progress](progress.md).
+`admit_restart_gate` advances the same node epoch before issuing a reversible
+physical gate request. Preparation-only cancellation then refuses. A mandatory
+maintenance-purpose selector distinguishes it from evacuation. The catalog owns
+`quiesce_restart` through the authenticated control lane and a configured
+surviving observer. The engine syncs the exact boot/epoch selector before public
+and peer application admission close. The owning Node driver continues polling
+accepted handlers; their final SDK writes can finish before SDK business
+admission seals. A registration barrier and a later work sample precede the
+quiescence acknowledgement. Consensus and administrative traffic remain running.
+There is no additional idle tick when no gate turn is pending.
 
-M2–M9, reversible command admission, handoff/readiness, guarded maintenance stop,
-intact-engine rejoin, grace expiry, rolling execution and SDK/admin/CLI maintenance
-surfaces remain unfinished. The protocol below is still the full delivery
-contract; preparing metadata does not satisfy it.
+`cancel_restart_gate` owns a synced exact-process fence before its atomic Ready,
+cancellation receipt and shared-slot release. It does not reset permanent
+shutdown flags, restore capacity or release retained resource charges. Parent
+payloads and the child fence are immutable: after a definite changed-root loss,
+a new parent retains that child fence. A timeout leaves admission closed until
+explicit fence reconciliation. Lost confirmations reconcile from the journal;
+historical retries cannot reopen a later operation or release its slot. Neither
+a quiescence response nor gate metadata grants RestartReady, stop or new-boot
+authority. Native qualification is separately recorded in [progress](progress.md).
+
+The reversible gate is a prerequisite within M2–M4, not completion of those
+phases. Incoming-action settlement, complete fresh both-survivor inspection,
+owned observed handoff/readiness, guarded maintenance stop, intact-engine rejoin,
+grace expiry, rolling execution and SDK/admin/CLI maintenance surfaces remain
+unfinished. The protocol below is still the full delivery contract.
 
 ## Select the correct maintenance mode
 

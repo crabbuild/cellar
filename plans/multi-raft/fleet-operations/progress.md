@@ -14,6 +14,67 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. Historical
 sections below record earlier states.
 
+## Reversible maintenance admission
+
+Implementation `f0ea0f7102e24206533f1e177bc674c62206fcd0` adds a physical
+maintenance gate after M1 preparation.
+A higher rooted node epoch makes preparation-only cancellation refuse. The
+engine syncs a distinct maintenance selector before new public and peer
+application admission close. The Node driver lets accepted handlers finish
+before sealing SDK business admission, then waits for registered application
+work. Consensus and control remain running. Gate metadata cannot stop the Node
+or permit a fresh boot.
+
+Cancellation owns a synced exact-process fence before Ready and shared-slot
+release. It preserves permanent shutdown, retained charges and the need to
+requalify capacity. Lost replies and a changed-root retry retain the exact child
+fence; historical retries cannot release a later slot. The generic admin action
+retains Operate permission and an explicit `fleet_quiesce` audit label. The full
+maintenance SDK/admin/CLI workflow is still unfinished.
+
+**88 distinct focused cases pass on the committed source:** eleven
+evacuation/preparation/gate, thirteen admission/lifecycle/transport, 28 archive
+and recovery, seven capacity, five accepted-work shutdown, six external ingress,
+sixteen effects/alarms and two background-SQL cases. The three gate cases and two
+preparation cases are also run separately, for 93 candidate case executions;
+they are not added twice to the distinct count. The gate cases verify accepted
+HTTP → SDK write completion, continued consensus and actual leadership transfer,
+refusal of stop from gate metadata, timeout cancellation, changed-root fencing,
+lost confirmation recovery and protection of a later operation's disruption slot.
+
+All-target host/admin Clippy with warnings denied, Rust formatting/layout, native
+dependency checks, documentation links, ten plan tests, the 334-case manifest and
+source preflight with 95 input anchors pass. The audit matches all **1,476 frozen
+Rust/Cargo/configuration inputs** to `f0ea0f71` and verifies retained executable
+and output hashes. Primary artifacts remain outside runtime data in
+checkout-private `qualification/fleet-operations/restart-gate-v6/`,
+`restart-gate-followups-v3/`, `restart-gate-followups-v4/`,
+`restart-gate-checks-v2/` and `restart-gate-plan-checks-v2/`.
+
+Earlier probes are retained. They found an exhaustive admin match missing
+Quiesce, dispatch before the observer installed the new authenticated catalog
+revision, and an oversized nested cancellation row. The final row references
+its immutable canonical parent by ID and digest within the existing 4-KiB
+value bound. The race harness also needed the store's release notification
+when clearing its held CAS; its exact Conflict assertion remains. One isolated
+diagnostic returned Unconfirmed in fixture initialization, before gate code;
+the unchanged preparation control passes. Its cause is unresolved. The effects
+selection initially expected fifteen listed cases and stopped before running
+them; the corrected selection executes all sixteen. Plan input anchors exclude
+manifest-created outputs, as required by the unchanged validator. No deadline,
+startup bound, stack bound, catalog value bound or runtime assertion was relaxed.
+
+These are shared-host native tests with an in-process fault-injecting store.
+Full latest-head SDK CI and deployed RustFS/Colima resource limits, TPS/p99 and
+soak remain release gates. No new throughput or independent-node capacity claim
+is made. No raw evidence files are included in the PR.
+
+The gate is a prerequisite within M2–M4. Next implement incoming-action
+settlement, complete fresh both-survivor inspection and owned observed handoff,
+then readiness and exact joined maintenance stop. Retained-engine rejoin,
+capacity resume, grace expiry, second-failure/rolling execution and operator
+surfaces remain part of the same unfinished goal.
+
 ## Intact restart preparation
 
 Implementation `dac800a693b3f25cc99761f2d0f51ceb0045bd50` delivers the catalog's
@@ -67,9 +128,9 @@ remain outside runtime data beside retained executables in checkout-private
 `qualification/fleet-operations/restart-preparation-v1/` through
 `restart-preparation-v4/` and `restart-preparation-followups-v1/`.
 
-This is not complete maintenance delivery. M2–M9 still require incoming-action
-settlement, a reversible admission gate, observed handoff and both-survivor
-readiness, guarded maintenance stop, intact-engine rejoin/capacity resume,
+This M1 boundary did not complete maintenance delivery. The later reversible
+gate is described above. M2–M9 still require incoming-action settlement, observed
+handoff and both-survivor readiness, guarded maintenance stop, intact-engine rejoin/capacity resume,
 grace-expiry and second-failure handling, rolling execution and operator
 SDK/admin/CLI surfaces. No new throughput or independent-node resource claim is
 made. Full latest-head SDK CI and deployed qualification remain release gates.
@@ -216,7 +277,7 @@ and no safety guard was bypassed.
 
 | Priority | Feature boundary | Deliverable acceptance |
 | --- | --- | --- |
-| 1 | Maintenance/rejoin M2–M9 (FO-07/FO-08) | M1 catalog preparation and original-epoch cancellation are implemented. Next settle incoming actions, add the reversible admission gate and observed handoff/both-survivor readiness, then exact joined stop, retained-engine restart with a fresh process and verified Active rejoin through SDK/API/CLI. Hold the shared disruption slot through catch-up/capacity requalification; complete grace-expiry, second-failure and rolling execution. Departure cancel-and-restart cannot undo an accepted stop; in-place certificate refresh is not implemented. |
+| 1 | Maintenance/rejoin M2–M9 (FO-07/FO-08) | M1 catalog preparation and original-epoch cancellation are implemented. The reversible physical gate and its synced cancellation are implemented. Next settle incoming actions and complete observed handoff/both-survivor readiness, then exact joined stop, retained-engine restart with a fresh process and verified Active rejoin through SDK/API/CLI. Hold the shared disruption slot through catch-up/capacity requalification; complete grace-expiry, second-failure and rolling execution. Departure cancel-and-restart cannot undo an accepted stop; in-place certificate refresh is not implemented. |
 | 2 | Production failure policy (FO-06) | A configured trusted platform adapter supplies exact-boot isolation. Suspicion/timeouts cannot authorize it. Admit automatic repairs only with the existing quorum, inventory, retained-charge and two-action bounds; simultaneous failures with lost quorum refuse. |
 | 3 | Scalable convergence and desired capacity (FO-04/FO-09) | Bounded collection/planning at 500 and 1,500 histories, invalidation on changed rooted inputs and renewed live proof. Resolve the documented planner charge and retained-state-fit gaps through measured bounded work, before claiming those fleet sizes. Fewer cells alone cannot grant physical capacity credit. |
 | 4 | Workload balancing and resize (FO-05/FO-07/FO-09) | Fresh role/load costs, measured leader-transfer benefit, and safe profile grow/shrink through maintenance/rejoin. Optional performance changes require matched throughput or latency gains. |
