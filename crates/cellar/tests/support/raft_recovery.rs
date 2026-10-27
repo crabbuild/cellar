@@ -261,7 +261,7 @@ async fn drill(
     force_leader_change: bool,
 ) -> Result<serde_json::Value> {
     let _ = tracing_subscriber::fmt()
-        .with_env_filter("cellar::raft::archive=info")
+        .with_env_filter("cellar::raft::archive=info,cellar::raft::host=debug")
         .with_ansi(false)
         .with_writer(std::io::stderr)
         .try_init();
@@ -734,6 +734,47 @@ async fn small(backend: &str, force_leader_change: bool) -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn small_peer_recovers_with_complete_phase_ledger() -> Result<()> {
     small("peer", false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn incompressible_peer_recovers_across_multiple_receive_windows() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let quota = 12 * 1024 * 1024;
+    // Zero-filled templates can fit in one compressed wire window. Exercise
+    // the native TLS receiver, physical assembly and seed installation with a
+    // body large enough to cross the two-window ownership boundary repeatedly.
+    let source = fixture::make_template(root.path(), quota, true)?;
+    let evidence = drill(
+        source,
+        root.path(),
+        None,
+        quota,
+        Arc::new(object_store::memory::InMemory::new()),
+        "peer",
+        false,
+    )
+    .await?;
+    let observations = evidence["observations"]
+        .as_array()
+        .context("observations")?;
+    ensure!(
+        observations.iter().any(|owner| {
+            let counter = |name| {
+                owner["counters"].as_array().and_then(|counters| {
+                    counters.iter().find(|counter| counter["name"] == name)?["value"]
+                        .as_str()?
+                        .parse::<u64>()
+                        .ok()
+                })
+            };
+            counter("recovery_peer_received_bytes").is_some_and(|received| {
+                received > 2 * 1024 * 1024
+                    && counter("recovery_peer_appended_bytes") == Some(received)
+            })
+        }),
+        "native peer recovery did not append a complete multi-window body"
+    );
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]

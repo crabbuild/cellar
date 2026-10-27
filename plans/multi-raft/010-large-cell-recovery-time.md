@@ -236,10 +236,16 @@ never started. A new 4 MiB store write succeeded; 719 returned store-write error
 in that trial's log were expected conditional-create conflicts, and 33 part PUTs
 logged more than five seconds in flight. These observations do not yet prove
 the cause of the publication stall. The failed sample remains in its campaign.
-Archive phase tracing, failure-path observations and a 1,280 MiB diagnostic case
-are being added before reproducing the failure. Full-size RustFS immediate-fault
-recovery and repeated qualification remain open. The separately passing older
-full-capacity functional drills retain their narrower scope.
+Archive phase tracing and failure-path observations are installed. At `75949958`,
+the 1,280 MiB RustFS diagnostic passed: failure-to-first-verified-write
+85.568223 s, including 64.158376 s waiting for archive coverage, 13.081198 s
+installing the seed and 4.084760 s through the first write/read-back. This crosses
+SQLite's reserved-lock page boundary without reproducing the full-size stall;
+it does not establish the cause of that stall or a size-dependent latency curve.
+Full-size RustFS immediate-fault recovery and repeated qualification remain open.
+The separately passing older full-capacity functional drills retain their narrower
+scope. Publication tracing now identifies the publisher and requested cut, and
+host debug events retain typed failure causes without changing retry policy.
 
 The RustFS attribution trial included read-only store audits and a fresh 4 MiB
 write probe during/around the observed archive wait. It is diagnostic evidence,
@@ -282,15 +288,20 @@ source/transfer/destination measurements identify the dominant work.
 
 ## RT-02: Remove avoidable materialized-path work
 
-Implementation is isolated on `codex/recovery-transfer-pipeline` while archive
-diagnostics proceed. The peer receiver uses two admitted payload windows and one
+The initial pipeline is committed at `e9937227` while archive diagnostics proceed.
+The peer receiver uses two admitted payload windows and one
 registered physical owner through download, sealing and discard, with a joined
 stop observer and shared memory charge. Native adapters append complete admitted
 windows; injected providers retain the bounded fallback. Six ownership/window
-tests and all 44 native snapshot cases pass. The library passes all 654 cases
+tests, all 44 native snapshot cases and seven ordinary native large-image cases
+pass. The library passes all 654 cases
 serially; an earlier four-thread run failed one unchanged Python loader-inventory
 case with `No such file or directory`, which also passes in isolation. All-target,
-all-feature Clippy passes with warnings denied. Buffered peer encoding, prepared
+all-feature Clippy passes with warnings denied. An additional incompressible
+12 MiB native TLS seed passes and checks that one receiver appended more than
+two windows with matching received/appended byte counts. That test establishes
+multi-window integration; the held-I/O tests establish the two-window bound and
+overlap. Buffered peer encoding, prepared
 payload reuse and full-size performance comparison remain open; these checks
 establish no recovery-time improvement or target qualification.
 

@@ -81,7 +81,9 @@ directory and recreates the replacement. The default removes every allocated
 worker directory after the test process has joined.
 
 The raw log names the synthetic object prefix and includes archive encode,
-upload, material-read, replay and head-confirmation phases. Failed native drills
+upload, material-read, replay and head-confirmation phases. Publication spans
+identify their publisher and requested cut; host debug events preserve typed
+publication failures, including expected advisory contention. Failed native drills
 also save the latest observed archive index, failure message, node performance
 observations and cleanup outcome when the process can unwind. A hard process
 kill may leave only the last incomplete ledger; neither outcome counts as a

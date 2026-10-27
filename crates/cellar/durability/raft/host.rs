@@ -3092,6 +3092,19 @@ impl Driver {
                 } in completed
                 {
                     use super::performance::Counter;
+                    if let Err(error) = &result {
+                        // Expected publication contention is common. Keep the
+                        // typed cause available for diagnosis without warning
+                        // on each advisory deferral or changing retry policy.
+                        tracing::debug!(
+                            event = "raft_archive_publication_failure",
+                            node = ?self.log.limits().node,
+                            group = ?scope.group,
+                            index = position.index.get(),
+                            error = ?error,
+                            "Raft archive publication did not confirm the cut"
+                        );
+                    }
                     self.local.performance.increment(
                         if result.is_ok() {
                             Counter::ArchivePublicationCutSucceeded
