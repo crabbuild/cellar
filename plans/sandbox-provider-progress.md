@@ -284,6 +284,24 @@ three reproducible campaigns and source/image evidence. Build caches are scoped
 to this checkout; the crate is recompiled from the captured source snapshot.
 The full SP-02–SP-10 requirements and original goal remain active.
 
+## Free-threaded typed-RPC qualification failure — 2026-10-27
+
+The pushed `32e15e11` Linux typed-RPC run `40549293705` fails the portable
+profile for CPython 3.14.10 free-threaded at `python->python/timestamp-min`.
+The request reports a generic handler failure; later cleanup reports
+`NodeLeaseExpired`. Their causal relationship is not established. The standard
+Python profile, complete JavaScript/Node workflow and all four Python example
+jobs pass. The standard SDK job is still running; its free-threaded peer passes.
+
+Both local profile campaigns pass all 576 cases and their report/cleanup guards:
+CPython 3.14.6 with the GIL and CPython 3.14.5 free-threaded on macOS, both using
+protobuf 7.34.2. These different platform/patch controls do not repair or qualify
+the Linux failure. The synthetic Python fixture now reports only a fixed failure
+stage; the native matrix records bounded readiness observations before cleanup.
+Exception details remain private, and request, lease, handler and shutdown
+budgets and success assertions are unchanged. Diagnose the next failing Linux
+observation before claiming a correction; this qualification priority stays open.
+
 ## Verified implementation details
 
 ### Provider capability discovery
