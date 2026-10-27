@@ -455,7 +455,8 @@ async fn lifecycle_round(
     application: Arc<cellar_javascript::JavaScriptApplication>,
     previous_cycles: u64,
 ) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    // Match the published container's defaultPort on direct-IP Linux routing.
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     // Model a process which handles SIGTERM and exits successfully. Other peer
     // users retain the default signal behavior; no production hook is replaced.
     peer.engine
