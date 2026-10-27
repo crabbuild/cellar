@@ -25,7 +25,7 @@
 //! never talks to a registry.
 
 use crate::asyncrt;
-use crate::docker::{frame_header, Docker, Stream};
+use crate::docker::{frame_header, ContainerId, Docker, Stream};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use serde_json::{json, Value};
@@ -267,6 +267,20 @@ struct CellState {
     /// Bumped per start so a wait from a previous run cannot report for
     /// this one.
     run: u64,
+    /// Retain a stopped/previous run's exact resource for owned cleanup.
+    /// Ordinary operations require this resource's run to be current.
+    resource: Option<EngineResource>,
+}
+
+#[derive(Clone)]
+struct EngineResource {
+    run: u64,
+    id: ContainerId,
+}
+
+struct StartedContainer {
+    id: ContainerId,
+    address: Address,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -348,6 +362,19 @@ impl CellContainer {
 
     pub fn running(&self) -> bool {
         self.state.lock().unwrap().running
+    }
+
+    fn engine_id(&self, run: u64) -> anyhow::Result<ContainerId> {
+        let state = self.state.lock().unwrap();
+        let resource = state
+            .resource
+            .as_ref()
+            .ok_or_else(|| anyhow!("container has no Engine resource"))?;
+        anyhow::ensure!(
+            state.running && state.run == run && resource.run == run,
+            "container has no active Engine resource for this run"
+        );
+        Ok(resource.id.clone())
     }
 
     /// `host:port` for `getTcpPort(port)`.
@@ -840,19 +867,33 @@ impl ContainerEngine {
             )
             .await?;
         let list = reply.json()?;
-        for entry in list.as_array().into_iter().flatten() {
-            if let Some(id) = entry.get("Id").and_then(Value::as_str) {
-                let removed = self
-                    .docker
-                    .call("DELETE", &format!("/containers/{id}?force=true"), None)
-                    .await?;
-                anyhow::ensure!(
-                    removed.status.is_success() || removed.status.as_u16() == 404,
-                    "reap container failed with [{}] {}",
-                    removed.status.as_u16(),
-                    removed.message()
-                );
-            }
+        for entry in list
+            .as_array()
+            .context("engine container list is not an array")?
+        {
+            let id = ContainerId::new(
+                entry
+                    .get("Id")
+                    .and_then(Value::as_str)
+                    .context("engine container list omitted an immutable ID")?,
+            )?;
+            anyhow::ensure!(
+                entry.pointer("/Labels/cellar.node").and_then(Value::as_str)
+                    == Some(self.node.as_str())
+                    && entry.pointer("/Labels/cellar.host").and_then(Value::as_str)
+                        == Some(self.names.key.as_str()),
+                "container reaper received a foreign or unlabelled resource"
+            );
+            let removed = self
+                .docker
+                .call("DELETE", &format!("/containers/{id}?force=true"), None)
+                .await?;
+            anyhow::ensure!(
+                removed.status.is_success() || removed.status.as_u16() == 404,
+                "reap container failed with [{}] {}",
+                removed.status.as_u16(),
+                removed.message()
+            );
         }
         Ok(())
     }
@@ -870,11 +911,11 @@ impl ContainerEngine {
         Ok(service)
     }
 
-    fn check_cell(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
+    fn check_cell(&self, cell: &CellContainer) -> anyhow::Result<()> {
         self.check_owner()?;
         anyhow::ensure!(
             self.cell(&cell.scope)
-                .is_some_and(|current| Arc::ptr_eq(&current, cell)),
+                .is_some_and(|current| std::ptr::eq(current.as_ref(), cell)),
             "container belongs to another or retired host activation"
         );
         Ok(())
@@ -1257,15 +1298,42 @@ impl ContainerEngine {
         // earlier owner of the name: give it a run so `monitor()` has an
         // exit to wait for. The run opens before the address lands, because
         // opening one clears it.
-        let adopted = running.is_some() && !cell.running();
-        if adopted {
-            let run = cell.begin_run();
-            self.watch_exit(&cell, run)?;
+        match running {
+            Some(started) => {
+                let adopted = !cell.running();
+                let run = if adopted {
+                    cell.begin_run()
+                } else {
+                    cell.current_run()
+                };
+                {
+                    let mut state = cell.state.lock().unwrap();
+                    if !adopted {
+                        anyhow::ensure!(
+                            state
+                                .resource
+                                .as_ref()
+                                .is_some_and(|resource| resource.id == started.id),
+                            "container Engine identity changed during its run"
+                        );
+                    }
+                    state.running = true;
+                    state.address = started.address;
+                    state.resource = Some(EngineResource {
+                        run,
+                        id: started.id.clone(),
+                    });
+                }
+                if adopted {
+                    self.watch_exit(&cell, run, started.id)?;
+                }
+            }
+            None => {
+                let mut state = cell.state.lock().unwrap();
+                state.running = false;
+                state.address = Address::None;
+            }
         }
-        let mut state = cell.state.lock().unwrap();
-        state.running = running.is_some();
-        state.address = running.unwrap_or_default();
-        drop(state);
         drop(_new_control);
         Ok(cell)
     }
@@ -1342,7 +1410,7 @@ impl ContainerEngine {
         Ok(())
     }
 
-    async fn inspect_running(&self, cell: &CellContainer) -> anyhow::Result<Option<Address>> {
+    async fn inspect_owned(&self, cell: &CellContainer) -> anyhow::Result<Option<Value>> {
         let reply = self
             .docker
             .call("GET", &format!("/containers/{}/json", cell.name), None)
@@ -1358,11 +1426,88 @@ impl ContainerEngine {
             ));
         }
         let info = reply.json()?;
+        for (label, expected) in [
+            ("cellar.node", self.node.as_str()),
+            ("cellar.host", self.names.key.as_str()),
+            ("cellar.cell", cell.scope.as_str()),
+            ("cellar.class", cell.spec.class_name.as_str()),
+        ] {
+            anyhow::ensure!(
+                info.get("Config")
+                    .and_then(|config| config.get("Labels"))
+                    .and_then(|labels| labels.get(label))
+                    .and_then(Value::as_str)
+                    == Some(expected),
+                "named container has foreign or missing ownership labels"
+            );
+        }
+        ContainerId::new(
+            info["Id"]
+                .as_str()
+                .context("container inspection omitted its immutable ID")?,
+        )?;
+        Ok(Some(info))
+    }
+
+    async fn inspect_running(
+        &self,
+        cell: &CellContainer,
+    ) -> anyhow::Result<Option<StartedContainer>> {
+        let Some(info) = self.inspect_owned(cell).await? else {
+            return Ok(None);
+        };
         let running = info
             .pointer("/State/Running")
             .and_then(Value::as_bool)
-            .unwrap_or(false);
-        Ok(running.then(|| address_of(&info)))
+            .context("container inspection omitted its running state")?;
+        if !running {
+            return Ok(None);
+        }
+        Ok(Some(StartedContainer {
+            id: ContainerId::new(
+                info["Id"]
+                    .as_str()
+                    .context("container inspection omitted its immutable ID")?,
+            )?,
+            address: address_of(&info),
+        }))
+    }
+
+    async fn remove_id(&self, id: &ContainerId) -> anyhow::Result<()> {
+        let reply = self
+            .docker
+            .call("DELETE", &format!("/containers/{id}?force=true"), None)
+            .await?;
+        anyhow::ensure!(
+            reply.status.is_success() || reply.status.as_u16() == 404,
+            "destroy container failed with [{}] {}",
+            reply.status.as_u16(),
+            reply.message()
+        );
+        Ok(())
+    }
+
+    async fn owned_id(&self, cell: &CellContainer) -> anyhow::Result<Option<ContainerId>> {
+        if let Some(id) = cell
+            .state
+            .lock()
+            .unwrap()
+            .resource
+            .as_ref()
+            .map(|resource| resource.id.clone())
+        {
+            return Ok(Some(id));
+        }
+        self.inspect_owned(cell)
+            .await?
+            .map(|info| {
+                ContainerId::new(
+                    info["Id"]
+                        .as_str()
+                        .context("container inspection omitted its immutable ID")?,
+                )
+            })
+            .transpose()
     }
 
     /// Start the cell's container. The object's `start()` returns before
@@ -1378,9 +1523,9 @@ impl ContainerEngine {
         params: StartParams,
     ) -> anyhow::Result<()> {
         self.check_cell(cell)?;
-        let started = self.create_and_start(cell, params).await;
-        let address = match started {
-            Ok(address) => address,
+        let started = self.create_and_start(cell, run, params).await;
+        let started = match started {
+            Ok(started) => started,
             Err(error) => {
                 // `start()` is fire-and-forget for the object, and its
                 // `monitor()` sees this error only if it was already
@@ -1393,7 +1538,10 @@ impl ContainerEngine {
                     "the container did not start"
                 );
                 let mut state = cell.state.lock().unwrap();
-                state.running = false;
+                if state.run == run {
+                    state.running = false;
+                    state.address = Address::None;
+                }
                 drop(state);
                 cell.publish_exit(run, Err(format!("{error:#}")));
                 return Err(error);
@@ -1401,22 +1549,35 @@ impl ContainerEngine {
         };
         {
             let mut state = cell.state.lock().unwrap();
+            anyhow::ensure!(
+                state.run == run
+                    && state
+                        .resource
+                        .as_ref()
+                        .is_some_and(|resource| resource.id == started.id && resource.run == run),
+                "container startup belongs to a superseded run"
+            );
             state.running = true;
-            state.address = address;
+            state.address = started.address;
         }
-        self.watch_exit(cell, run)?;
+        self.watch_exit(cell, run, started.id)?;
         Ok(())
     }
 
     /// Wait for the container's root process to end and publish the exit
     /// for `run`; a later run's start has already replaced the state.
-    fn watch_exit(&self, cell: &Arc<CellContainer>, run: u64) -> anyhow::Result<()> {
+    fn watch_exit(
+        &self,
+        cell: &Arc<CellContainer>,
+        run: u64,
+        id: ContainerId,
+    ) -> anyhow::Result<()> {
         let docker = self.docker.clone();
         let cell_ = cell.clone();
         let exit = cell.exit_for(run).map_err(anyhow::Error::msg)?;
         asyncrt::spawn(async move {
             let result = docker
-                .call("POST", &format!("/containers/{}/wait", cell_.name), None)
+                .call("POST", &format!("/containers/{id}/wait"), None)
                 .await
                 .and_then(|reply| {
                     if !reply.status.is_success() {
@@ -1448,23 +1609,35 @@ impl ContainerEngine {
     async fn create_and_start(
         &self,
         cell: &CellContainer,
+        run: u64,
         params: StartParams,
-    ) -> anyhow::Result<Address> {
+    ) -> anyhow::Result<StartedContainer> {
         self.ensure_fence().await?;
         self.enforce_instance_ceiling(cell).await?;
         self.ensure_image(&cell.spec.image).await?;
         let (open, internal) = self.networks().await?;
-        // A previous run's container may still be named: the wait task
-        // observed its exit but nothing removed it, or a restart adopted a
-        // stopped one. The name is the cell's, so it is ours to remove.
-        let _ = self
-            .docker
-            .call(
-                "DELETE",
-                &format!("/containers/{}?force=true", cell.name),
-                None,
-            )
-            .await;
+        // Resolve unknown create outcomes by owned labels, then remove only
+        // the captured immutable resource. A reusable name is not authority.
+        anyhow::ensure!(
+            cell.current_run() == run,
+            "container start belongs to a superseded run"
+        );
+        if let Some(id) = self.owned_id(cell).await? {
+            self.check_cell(cell)?;
+            anyhow::ensure!(
+                cell.current_run() == run,
+                "container start belongs to a superseded run"
+            );
+            self.remove_id(&id).await?;
+            let mut state = cell.state.lock().unwrap();
+            if state
+                .resource
+                .as_ref()
+                .is_some_and(|resource| resource.id == id)
+            {
+                state.resource = None;
+            }
+        }
         let mut env: Vec<String> = DEFAULT_ENV.iter().map(|entry| entry.to_string()).collect();
         env.push(format!("CELLAR_CELL_ID={}", cell.scope));
         env.push(format!("CELLAR_CELL_CLASS={}", cell.spec.class_name));
@@ -1580,14 +1753,23 @@ impl ContainerEngine {
                 break;
             }
             asyncrt::sleep(Duration::from_millis(100)).await;
-            let _ = self
-                .docker
-                .call(
-                    "DELETE",
-                    &format!("/containers/{}?force=true", cell.name),
-                    None,
-                )
-                .await;
+            anyhow::ensure!(
+                cell.current_run() == run,
+                "container start belongs to a superseded run"
+            );
+            if let Some(info) = self.inspect_owned(cell).await? {
+                self.check_cell(cell)?;
+                anyhow::ensure!(
+                    cell.current_run() == run,
+                    "container start belongs to a superseded run"
+                );
+                let id = ContainerId::new(
+                    info["Id"]
+                        .as_str()
+                        .context("container inspection omitted its immutable ID")?,
+                )?;
+                self.remove_id(&id).await?;
+            }
             reply = self
                 .docker
                 .call(
@@ -1607,10 +1789,32 @@ impl ContainerEngine {
                 reply.message()
             ));
         }
+        let created = reply.json()?;
+        let id = ContainerId::new(
+            created["Id"]
+                .as_str()
+                .context("container creation omitted its immutable ID")?,
+        )?;
+        let current = {
+            let mut state = cell.state.lock().unwrap();
+            if state.run == run {
+                state.resource = Some(EngineResource {
+                    run,
+                    id: id.clone(),
+                });
+                true
+            } else {
+                false
+            }
+        };
+        if !current {
+            self.remove_id(&id).await?;
+            anyhow::bail!("container start belongs to a superseded run");
+        }
         self.docker
             .expect(
                 "POST",
-                &format!("/containers/{}/start", cell.name),
+                &format!("/containers/{id}/start"),
                 None,
                 "start container",
             )
@@ -1619,13 +1823,20 @@ impl ContainerEngine {
             .docker
             .expect(
                 "GET",
-                &format!("/containers/{}/json", cell.name),
+                &format!("/containers/{id}/json"),
                 None,
                 "inspect container",
             )
             .await?
             .json()?;
-        Ok(address_of(&info))
+        anyhow::ensure!(
+            info["Id"].as_str() == Some(id.as_str()),
+            "container inspection changed its immutable ID"
+        );
+        Ok(StartedContainer {
+            id,
+            address: address_of(&info),
+        })
     }
 
     /// Wait for the current run to end. `Ok(code)` is the root process's
@@ -1657,42 +1868,54 @@ impl ContainerEngine {
 
     pub async fn destroy(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let run = cell.current_run();
+        let id = self.owned_id(cell).await?;
+        self.check_cell(cell)?;
+        anyhow::ensure!(
+            cell.current_run() == run,
+            "container destroy belongs to a superseded run"
+        );
+        let Some(id) = id else {
+            let mut state = cell.state.lock().unwrap();
+            if state.run == run {
+                state.running = false;
+                state.address = Address::None;
+            }
+            return Ok(());
+        };
         // Kill first so the wait task reports 137 before the removal makes
         // the name disappear under it.
         let _ = self
             .docker
             .call(
                 "POST",
-                &format!("/containers/{}/kill?signal=SIGKILL", cell.name),
+                &format!("/containers/{id}/kill?signal=SIGKILL"),
                 None,
             )
             .await;
-        let removed = self
-            .docker
-            .call(
-                "DELETE",
-                &format!("/containers/{}?force=true", cell.name),
-                None,
-            )
-            .await?;
-        anyhow::ensure!(
-            removed.status.is_success() || removed.status.as_u16() == 404,
-            "destroy container failed with [{}] {}",
-            removed.status.as_u16(),
-            removed.message()
-        );
+        self.remove_id(&id).await?;
         let mut state = cell.state.lock().unwrap();
-        state.running = false;
-        state.address = Address::None;
+        if state.run == run {
+            state.running = false;
+            state.address = Address::None;
+            if state
+                .resource
+                .as_ref()
+                .is_some_and(|resource| resource.id == id)
+            {
+                state.resource = None;
+            }
+        }
         Ok(())
     }
 
     pub async fn signal(&self, cell: &Arc<CellContainer>, signal: u32) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let id = cell.engine_id(cell.current_run())?;
         self.docker
             .expect(
                 "POST",
-                &format!("/containers/{}/kill?signal={signal}", cell.name),
+                &format!("/containers/{id}/kill?signal={signal}"),
                 None,
                 "signal container",
             )
@@ -1778,6 +2001,7 @@ impl ContainerEngine {
         if !cell.running() {
             return Err(anyhow!("exec() requires a running container."));
         }
+        let container = cell.engine_id(cell.current_run())?;
         if params.pty.is_some() {
             self.docker.check_exec_terminal().await?;
         }
@@ -1788,7 +2012,7 @@ impl ContainerEngine {
             .docker
             .call(
                 "HEAD",
-                &format!("/containers/{}/archive?path=/bin/sh", cell.name),
+                &format!("/containers/{container}/archive?path=/bin/sh"),
                 None,
             )
             .await?;
@@ -1834,7 +2058,7 @@ impl ContainerEngine {
             .docker
             .expect(
                 "POST",
-                &format!("/containers/{}/exec", cell.name),
+                &format!("/containers/{container}/exec"),
                 Some(body),
                 "create exec",
             )
@@ -1904,7 +2128,7 @@ impl ContainerEngine {
             closed: AtomicBool::new(false),
             reader: Mutex::new(Some(reader)),
             exec_id,
-            container: cell.name.clone(),
+            container,
             pid,
             terminal,
             failure,
@@ -1929,7 +2153,7 @@ pub struct ExecProcess {
     closed: AtomicBool,
     reader: Mutex<Option<asyncrt::TaskHandle<()>>>,
     exec_id: String,
-    container: String,
+    container: ContainerId,
     /// Container namespace PID verified by the exec prelude, or zero when the
     /// image has no POSIX shell. Docker daemon PIDs are never used for signals.
     pub pid: i64,

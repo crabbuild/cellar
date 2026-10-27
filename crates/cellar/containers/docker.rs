@@ -37,6 +37,31 @@ pub struct Docker {
     socket: PathBuf,
 }
 
+/// A full immutable Engine container identifier. This value identifies a
+/// resource; its caller must separately establish that the resource is owned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContainerId(String);
+
+impl ContainerId {
+    pub fn new(id: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "a full Engine container ID is required"
+        );
+        Ok(Self(id.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ContainerId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
 /// A raw bidirectional stream the daemon hijacked for an exec or attach.
 pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
 
@@ -326,10 +351,7 @@ impl Docker {
     /// stdout/stderr while stdin remains raw. Names are deliberately refused:
     /// a delayed attachment must never target a replacement run with that name.
     pub async fn attach_io(&self, id: &str) -> anyhow::Result<Box<dyn Stream>> {
-        anyhow::ensure!(
-            id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()),
-            "private container attach requires a full Engine container ID"
-        );
+        let id = ContainerId::new(id)?;
         let request = self.request(
             "POST",
             &format!("/containers/{id}/attach?stream=1&stdin=1&stdout=1&stderr=1"),

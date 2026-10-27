@@ -625,6 +625,7 @@ async fn run() -> Result<()> {
     engine
         .release("Sandbox:test", cellar::container::Release::Destroy)
         .await?;
+    peer.assert_immutable_effects()?;
     gate_task.abort();
     http_task.abort();
     tcp_task.abort();
@@ -970,5 +971,216 @@ async fn owned_container_domains() -> Result<()> {
     second.shutdown().await;
     assert!(peer.containers.lock().unwrap().is_empty());
     server.abort();
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn renamed_resource_and_foreign_name_reuse_preserve_run_identity() -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(30), immutable_resource_identity()).await?
+}
+
+fn completed_identity_peer_connection(
+    outcome: std::result::Result<std::result::Result<(), hyper::Error>, tokio::task::JoinError>,
+    stopping: bool,
+) -> Result<()> {
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Err(error) if stopping && error.is_cancelled() => Ok(()),
+        Err(error) => Err(error).context("identity peer task failed"),
+        Ok(Err(error)) => {
+            // macOS reports ENOTCONN when HTTP shutdown follows the caller's
+            // completed response and socket close. Every request/result is
+            // still checked by the client; other protocol failures remain fatal.
+            let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+            while let Some(current) = cause {
+                if current
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.raw_os_error() == Some(libc::ENOTCONN))
+                {
+                    return Ok(());
+                }
+                cause = current.source();
+            }
+            Err(error).context("identity peer protocol failed")
+        }
+    }
+}
+
+async fn immutable_resource_identity() -> Result<()> {
+    let directory = tempfile::tempdir_in("/tmp")?;
+    let socket = directory.path().join("engine.sock");
+    let listener = tokio::net::UnixListener::bind(&socket)?;
+    let peer = Arc::new(Engine::default());
+    let serving = peer.clone();
+    let (stop, mut stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        loop {
+            cellar::asyncrt::select_biased! { "the identity peer stops admission before cancelling its connections";
+                _ = &mut stopped => break,
+                joined = connections.join_next(), if !connections.is_empty() => { completed_identity_peer_connection(joined.unwrap(), false)?; }
+                accepted = listener.accept() => {
+                    let (stream, _) = accepted?;
+                    let engine = serving.clone();
+                    connections.spawn(async move {
+                        let service = hyper::service::service_fn(move |request| engine.clone().answer(request));
+                        hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(stream), service).with_upgrades().await
+                    });
+                }
+            }
+        }
+        connections.abort_all();
+        while let Some(joined) = connections.join_next().await {
+            completed_identity_peer_connection(joined, true)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let docker = cellar::docker::Docker::new(&socket);
+    let mut foreign = None;
+    let result = async {
+        let scope = "Sandbox:same-business-id";
+        let host = embedded_container_host(
+            &domain,
+            &directory.path().join("cells"),
+            &socket,
+            &cellar::container::image_reference(&"c".repeat(64)),
+            "runc",
+            Arc::new(Probe::default()),
+        )
+        .await?;
+        let started = domain.run(call(&host, scope, "/start")).await??;
+        anyhow::ensure!(
+            started["run"] == 1,
+            "owned fixture failed to start: {started}"
+        );
+        let engine = domain
+            .run(async { cellar::container::engine_if_ready().unwrap() })
+            .await?;
+        let cell = engine.cell("Sandbox:same-business-id").unwrap();
+        let name = peer
+            .containers
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let original = peer.resource_id(&name);
+        // Capture authority in this host, then poll the waiter after rename.
+        let monitoring = domain
+            .run(std::future::poll_fn(|_| {
+                std::task::Poll::Ready(engine.monitor(&cell, 1))
+            }))
+            .await?;
+        docker
+            .expect(
+                "POST",
+                &format!("/containers/{original}/rename?name={name}-renamed"),
+                None,
+                "rename owned fixture resource",
+            )
+            .await?;
+        let created = docker
+            .expect(
+                "POST",
+                &format!("/containers/create?name={name}"),
+                Some(json!({
+                    "Image": "foreign",
+                    "Labels": {"cellar.host": "foreign", "cellar.node": "foreign"}
+                })),
+                "create foreign fixture resource",
+            )
+            .await?
+            .json()?;
+        let replacement = created["Id"].as_str().context("replacement ID")?.to_owned();
+        foreign = Some((name.clone(), replacement.clone()));
+        anyhow::ensure!(original != replacement, "fixture reused an immutable ID");
+        anyhow::ensure!(
+            domain.run(engine.attach(scope, "Sandbox")).await?.is_err(),
+            "name discovery must refuse foreign labels before adoption"
+        );
+        anyhow::ensure!(domain.run(call(&host, scope, "/files")).await?? == true);
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("path", "/tmp/cellar-?é.bin")
+            .finish();
+        let untouched = docker
+            .call(
+                "HEAD",
+                &format!("/containers/{replacement}/archive?{query}"),
+                None,
+            )
+            .await?;
+        anyhow::ensure!(
+            untouched.status.as_u16() == 404,
+            "owned file writes reached the replacement resource"
+        );
+        domain.run(call(&host, scope, "/exec")).await??;
+        anyhow::ensure!(domain.run(call(&host, scope, "/signal")).await?? == true);
+        anyhow::ensure!(domain.run(call(&host, scope, "/destroy")).await?? == true);
+        let observed = tokio::time::timeout(Duration::from_secs(2), monitoring)
+            .await?
+            .map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            observed == 137,
+            "the old run monitor observed the replacement resource"
+        );
+        anyhow::ensure!(
+            peer.containers
+                .lock()
+                .unwrap()
+                .get(&name)
+                .is_some_and(|exit| exit.borrow().is_none()),
+            "owned cleanup stopped the foreign replacement"
+        );
+        let refused = domain.run(call(&host, scope, "/start")).await??;
+        anyhow::ensure!(
+            refused["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("ownership labels")),
+            "restart must refuse an occupied foreign name"
+        );
+        anyhow::ensure!(peer
+            .containers
+            .lock()
+            .unwrap()
+            .get(&name)
+            .is_some_and(|exit| exit.borrow().is_none()));
+        peer.assert_immutable_effects()?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    domain.shutdown().await;
+    let processes = tokio::time::timeout(Duration::from_secs(2), peer.join_processes()).await;
+    let preserved = foreign.as_ref().is_none_or(|(name, id)| {
+        peer.containers
+            .lock()
+            .unwrap()
+            .get(name)
+            .is_some_and(|exit| exit.borrow().is_none())
+            && peer.resource_id(name) == *id
+    });
+    let cleanup = match foreign {
+        Some((_, id)) => docker
+            .expect(
+                "DELETE",
+                &format!("/containers/{id}?force=true"),
+                None,
+                "remove foreign test fixture",
+            )
+            .await
+            .map(|_| ()),
+        None => Ok(()),
+    };
+    let _ = stop.send(());
+    let joined = server.await;
+    result.with_context(|| format!("identity campaign server outcome={joined:?}, processes={processes:?}, cleanup={cleanup:?}"))?;
+    anyhow::ensure!(
+        preserved,
+        "domain shutdown removed a foreign name replacement"
+    );
+    cleanup?;
+    processes??;
+    joined??;
     Ok(())
 }

@@ -339,6 +339,21 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
+Native daemon operations retain the resource selected for that run:
+
+| Identity | Native behavior |
+| --- | --- |
+| Cell scope | Application identity across events and activations |
+| Container name | Creation/discovery key; discovery verifies node, host, cell and class labels |
+| Full Engine ID | Captured at creation or owned adoption; used by wait, exec, files, signals and removal |
+| Run counter | New process/file operations require the current run; older waiters retain their original ID |
+| Host restart cleanup | Validates full IDs and host/node labels before removing each owned resource |
+
+Renaming an owned container does not redirect its captured operations. A foreign
+container that later occupies the old name cannot be adopted or removed by those
+operations. A lost create response still needs owned discovery or reconciliation;
+it does not authorize replay.
+
 Remote provider bindings retain their journal across host configuration changes.
 Changing the provider or its durable configuration identity requires confirmed
 retirement of the previous resource:

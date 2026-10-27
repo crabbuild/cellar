@@ -341,6 +341,41 @@ mount operations. Physical provider deletion, hard remote fencing, other runtime
 profiles and the remaining SP-02–SP-10 acceptance work remain open; the original
 goal is active. E2B/Vercel live configuration remains deferred.
 
+## Immutable production container run resources — 2026-10-27
+
+Production `CellContainer` state now records a typed full Engine ID with its run.
+Waiters, exec handles, archive I/O, signals and removal use that captured ID.
+Creation/name discovery validates ownership labels; restart cleanup checks full
+IDs and host/node labels. Native invocation, activation, output/durability and
+run checks remain in place. A lost create response is not automatically replayed.
+
+| Boundary | Evidence |
+| --- | --- |
+| Name reuse | Rename the owned resource, occupy its old name with a foreign resource, then exercise files, exec, signals, monitoring and removal against the original ID |
+| Foreign resource protection | Discovery refuses foreign labels; old-run cleanup, a subsequent refused start and domain shutdown preserve the live replacement and its identity |
+| Process/file identity | The original monitor observes its original exit; the foreign replacement has none of the original file writes; native effect requests must contain immutable IDs |
+| Rust | All three native container cases pass, including existing durability/activation/handle checks, host isolation, spec replacement and restart cleanup |
+| Node/V8 | Both container capability cases and all five published module/restart/sleep-wake/hook cases pass at their existing budgets |
+| Python | The CPython 3.14.6 GIL native-container facade campaign passes, including original event ownership, terminal, cancellation and joined runtime assertions |
+| Actual Sandbox 1.0.3 | Matching unchanged image/helper campaign passes in 39.80 seconds: stdin, late reads, PTY/PID/resize, binary files, faults and destroy |
+| Client regressions | All five private attach, bounded refusal, completed-response, truncated-response and half-close cases pass |
+| Quality | Strict core/Node/V8/Python all-feature library/test Clippy with `-D warnings`; 1,287-file Rust format/layout, the 481-package native-only dependency guard, docs and whitespace checks pass |
+
+The shared Engine peer now supplies distinct full IDs, preserves archive data
+and waiters across rename, reports name conflicts and rejects deleted IDs. The
+new identity campaign joins HTTP and exec peer tasks on its result path. Its
+initial server shutdown failure was isolated to macOS `ENOTCONN`; only that
+specific completed-peer shutdown and explicit cleanup cancellation are accepted.
+Unexpected protocol failures and task panics remain failures. The new campaign
+uses its declared 30-second outer budget and unchanged two-second monitor bound.
+
+No public interception capability is enabled. The next feature step remains
+production helper/application lifetime integration, ownership-loss retirement
+and generation-bound Worker dispatch, followed by actual published helper
+backup/restore and mounts. Native immutable resource identity supports that
+integration; it does not complete provider hard fencing, physical deletion or
+the remaining SP-02–SP-10 profiles. Live E2B/Vercel configuration remains deferred.
+
 ## Verified implementation details
 
 ### Provider capability discovery
