@@ -72,6 +72,11 @@ export class Counter implements CounterHandler {
       if (!request.operationId.startsWith("proof-no-sync-")) await ctx.storage.sync();
       await cycleAfterCommit(ctx, request.operationId);
       await provenanceAfterCommit(ctx, request.operationId);
+      if (request.operationId.startsWith("held-reply-quota-")) {
+        // Valid output after the receipt commits; only the host reply quota
+        // should refuse it. A same-ID retry returns the saved count above.
+        return reject("x".repeat(64 * 1024));
+      }
       if (request.operationId === "invalid-reply") {
         // Deliberate post-commit bug. The caller must receive unknown effects;
         // retrying this ID after restart must return the durable saved result.

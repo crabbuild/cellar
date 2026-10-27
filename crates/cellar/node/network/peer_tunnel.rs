@@ -928,6 +928,9 @@ async fn serve_rpc(
                 Err(crate::application::rpc::Code::DeadlineExceeded) => {
                     return Ok(close_rpc_reply(rpc_deadline::response()));
                 }
+                Err(crate::application::rpc::Code::ResourceExhausted) => {
+                    return Ok(close_rpc_reply(rpc_failure::exhausted()));
+                }
                 Err(_) => {
                     return Ok(close_rpc_reply(peer_response(response(
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -968,6 +971,8 @@ fn close_rpc_reply(mut reply: HttpReply) -> HttpReply {
 struct RetainedRpcBody {
     body: UnsyncBoxBody<Bytes, std::io::Error>,
     _reservation: crate::inbound_rpc::Reply,
+    yielded: usize,
+    failed: bool,
 }
 
 impl RetainedRpcBody {
@@ -976,9 +981,19 @@ impl RetainedRpcBody {
         reservation: crate::inbound_rpc::Request,
         deadline_ms: Option<u64>,
     ) -> Result<Self, crate::application::rpc::Code> {
+        let reservation = reservation.begin_reply(deadline_ms)?;
+        if let Some(upper) = body.size_hint().upper() {
+            let capacity = usize::try_from(upper)
+                .map_err(|_| crate::application::rpc::Code::ResourceExhausted)?;
+            // Ordinary RPC results have an exact length. Refuse their payload
+            // before response headers escape, even when business work committed.
+            reservation.buffer(capacity)?;
+        }
         Ok(Self {
             body,
-            _reservation: reservation.begin_reply(deadline_ms)?,
+            _reservation: reservation,
+            yielded: 0,
+            failed: false,
         })
     }
 }
@@ -1004,28 +1019,58 @@ impl Body for RetainedRpcBody {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Self::Error>>> {
-        std::pin::Pin::new(&mut self.body)
-            .poll_frame(cx)
-            .map(|frame| {
-                frame.map(|result| {
-                    result.map(|frame| {
-                        frame.map_data(|data| {
-                            Bytes::from_owner(RetainedRpcData {
-                                data,
-                                _reservation: self._reservation.clone(),
-                            })
-                        })
-                    })
-                })
-            })
+        use std::task::Poll;
+        if self.failed {
+            return Poll::Ready(None);
+        }
+        let frame = match std::pin::Pin::new(&mut self.body).poll_frame(cx) {
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(None) => return Poll::Ready(None),
+            Poll::Ready(Some(Err(error))) => {
+                self.failed = true;
+                return Poll::Ready(Some(Err(error)));
+            }
+            Poll::Ready(Some(Ok(frame))) => frame,
+        };
+        let data = match frame.into_data() {
+            Ok(data) => data,
+            Err(frame) => return Poll::Ready(Some(Ok(frame))),
+        };
+        let charged = self
+            .yielded
+            .checked_add(data.len())
+            .ok_or(crate::application::rpc::Code::ResourceExhausted)
+            .and_then(|total| {
+                self._reservation.buffer(total)?;
+                self.yielded = total;
+                Ok(())
+            });
+        if let Err(code) = charged {
+            // A bad hint or an unknown-length body cannot bypass admission.
+            // After headers this is a broken reply, never successful empty EOF.
+            self.failed = true;
+            return Poll::Ready(Some(Err(std::io::Error::other(format!(
+                "RPC reply refused: {code:?}"
+            )))));
+        }
+        Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from_owner(
+            RetainedRpcData {
+                data,
+                _reservation: self._reservation.clone(),
+            },
+        )))))
     }
 
     fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
+        self.failed || self.body.is_end_stream()
     }
 
     fn size_hint(&self) -> hyper::body::SizeHint {
-        self.body.size_hint()
+        if self.failed {
+            hyper::body::SizeHint::with_exact(0)
+        } else {
+            self.body.size_hint()
+        }
     }
 }
 
@@ -1196,3 +1241,7 @@ mod reply_tests;
 #[cfg(test)]
 #[path = "peer_tunnel_reuse_tests.rs"]
 mod reuse_tests;
+
+#[cfg(test)]
+#[path = "peer_tunnel_reply_budget_tests.rs"]
+mod reply_budget_tests;

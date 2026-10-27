@@ -35,7 +35,8 @@ pub struct RuntimePolicy {
     pub max_outbound_rpc_bytes: usize,
     /// Maximum receiving peer RPC requests, including upload and output waits.
     pub max_inbound_rpc_requests: usize,
-    /// Reserved receiving request buffers/copies/control allowance. Minimum 128 KiB.
+    /// Shared receiving input/copy/control and published reply payload allowance.
+    /// Minimum 128 KiB. It does not measure shared backing allocations or RSS.
     pub max_inbound_rpc_bytes: usize,
     /// Maximum open authenticated receiving RPC tunnels across this host.
     pub max_inbound_rpc_tunnels: usize,

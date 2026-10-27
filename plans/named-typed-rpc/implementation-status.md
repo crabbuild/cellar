@@ -17,7 +17,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Merged-source hosted verification | PR #132 merged as main `927d3f34`, including the Node startup integration from `3fc685f7`; merged-source hosted verification remains pending. A held-request probe traces the native stale-receipt failure to receiving idle expiry, and the cache-window fix passes its focused SDK case. Mutual reuse-capability guards pass core tests; full native SDK verification is running on the frozen pre-merge source. Earlier wake and lease-renewal failures remain unexplained. |
+| P0 — hosted verification | Merged-source hosted verification | PR #132 merged as main `927d3f34`, including the Node startup integration from `3fc685f7`; merged-source hosted verification remains pending. A held-request probe traces the native stale-receipt failure to receiving idle expiry, and the cache-window fix passes its focused SDK case. Mutual reuse-capability guards pass 116 core tests and the original SDK regression inside the completed frozen suite. That suite retains 92 passed/one metrics failure; all 631 selected live cases pass. Earlier wake and lease-renewal failures remain unexplained. |
 | P0 | Cross-adapter deadline and regression timing | The latest frozen cache-fix adapter run records 163 passed, eight failed and six external ignored: native/V8/Node handler budgets still expire, including the shared provider test at five seconds. A prior native first-poll probe observed 1.345 s before a cell constructor. A new external V8 sample reproduces the 250 ms HTTP failure but captures loader startup, not the failing turn. Passing standalone retries and earlier 167-test runs do not establish a timing cause. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 96-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
 | P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Published byte frames now retain admission through their final clone/slice, including Hyper's pending write queue; ready replies have a finite delivery deadline and refund safely after owner shutdown. Dense uploads, bounded headers, empty-frame timer progress and idle retirement have regressions. Finish other effective minima, response-byte pools, backing-copy/decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
@@ -93,20 +93,27 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   metadata and receivers reject incompatible capabilities before admission.
   Internal protocol markers remain 1, with no legacy pooling fallback.
 
-  All **116 core RPC tests** pass, including original scope/target isolation,
-  exact unsent-request recovery and no replay after uncertain submission.
-  The original SDK stale-receipt case passes after the initial window fix,
-  with its unchanged 30-second delivery lease and three-second call budget;
-  the later mutual-capability checks have core coverage. The subsequent frozen
-  adapter attempt retains **163 passed, eight failed and six ignored**, including
-  native/V8/Node handler-budget failures. A backtrace-enabled generated-client
-  retry passes; an externally sampled V8 retry fails its original 250 ms budget,
-  but captures loader startup instead of the failing turn. Neither establishes
-  the timing cause. Full native SDK, matrix, proof-wait and static checks are
-  still running on that pre-merge source snapshot. Merged-source and hosted
-  qualification remain pending. This
-  addresses the demonstrated idle race; other timing failures and full
-  resource/profile/package/interpreter qualification remain open.
+  The completed frozen attempt passes **116 core RPC tests, 35 qualifier
+  guards and all 631 selected live cases**: saturation 96, peer faults 80,
+  provenance 96, cycles 80, deadline 55, proof-wait 128 and lifecycle 96.
+  Both auditors reject ten corrupt reports. Python streaming/typed-RPC/E2B/
+  Vercel, 18 selected native integrations, all-target Clippy, Node-only checking
+  and standard checks pass. All **3,656 hashes** remain unchanged; manifest
+  SHA-256 `68f41c360567be1a5cd97941ab71b6099d06e76590922bea1c5238ea39a6dbbf`.
+
+  The original SDK stale-receipt case also passes with final mutual-capability
+  guards inside the full native SDK attempt, with its unchanged 30-second lease,
+  three-second call budget and assertions. That suite retains **92 passed, one
+  failed**: metrics export observes both hosts self-fence after an approximately
+  60-second pause before its first write. Power logs show no sleep/wake event
+  in that interval; the cause remains unproven. Adapters retain **163 passed,
+  eight failed and six external ignored**, including native/V8/Node handler
+  budgets. A backtrace-enabled generated-client retry and a correctly delayed
+  V8 sample pass; an earlier sample reproduces the V8 HTTP timeout but captures
+  loader startup. Passing observations and unrelated profiles do not diagnose
+  those failures. These are pre-merge cache-fix results, not qualification of
+  the subsequent Node-bootstrap integration. Merged-source/hosted verification
+  and full resource/profile/package/interpreter qualification remain open.
 
 - **PR #132 conflict resolution with main `fe260689` (#135).** The merged
   startup uses main's fixed launcher and private JSON source/configuration
@@ -119,8 +126,8 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   tests pass, including both private-bootstrap tests. Rust formatting and layout
   (1,203 files), JavaScript formatting (96 sources), documentation links and the
   466-package native dependency guard also pass. Rust runtime tests and hosted
-  verification of the merged source remain pending; the independent RPC reuse
-  qualification run keeps its pre-merge source frozen.
+  verification of the merged source remain pending. The independent RPC reuse
+  attempt above completed against its unchanged pre-merge source.
 
 - **Integrate main's sandbox bindings without dropping joined cleanup.**
   Merge head **`239796d5`** includes main through **`5db6b475`** (#134).

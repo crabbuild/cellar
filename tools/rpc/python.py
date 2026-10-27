@@ -58,6 +58,9 @@ class PythonCounter:
             await cycles.after_commit(ctx, request.operation_id)
             await provenance.after_commit(ctx, request.operation_id)
             await python_lifecycle.after(ctx, request.operation_id)
+            if request.operation_id.startswith("held-reply-quota-"):
+                # Valid output after the receipt commits, before transport quota.
+                return IncrementResponse(out_of_range=OutOfRange(reason="x" * (64 * 1024)))
             if request.operation_id == "invalid-reply":
                 # Intentionally wrong after commit. Retry must use its receipt.
                 return GetCountResponse(count=Count(value=value))

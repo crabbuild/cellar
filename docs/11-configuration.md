@@ -20,7 +20,7 @@ when you select the unrestricted profile.
 | `max_outbound_rpc_requests` | 128 | SDK namespace RPCs retained across all host generations |
 | `max_outbound_rpc_bytes` | 256 MiB | Length-weighted SDK request/copy/control allowance; minimum 128 KiB |
 | `max_inbound_rpc_requests` | 128 | Receiving peer RPCs, including upload, native work, output waits and retained replies |
-| `max_inbound_rpc_bytes` | 256 MiB | Dense receiving input capacity, one possible copy and control allowance; minimum 128 KiB |
+| `max_inbound_rpc_bytes` | 256 MiB | Shared dense input, possible copy, control and published reply payload allowance; minimum 128 KiB |
 | `max_inbound_rpc_tunnels` / `max_rpc_tunnels_per_peer` | 256 / 64 | Receiving RPC connections across the host / per authenticated peer name |
 | `rpc_tunnel_idle_timeout` | 30 s | Receiving RPC upgrade/idle/ready-reply write interval; caller deadlines can shorten writes |
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
@@ -90,14 +90,28 @@ frame, without copying the payload. Cleanup uses the receiving domain's clock
 even when a buffer retires in another domain or after its owner stops. Reply
 write expiry closes the transport; a lost response still proves no rollback.
 
+Published reply payloads share the same receiving byte allowance. An exact or
+upper body length reserves capacity before response headers are sent. Actual
+frame totals are checked too, so an absent or inaccurate length cannot bypass
+admission. One merged reservation follows all frame clones and slices until
+the final owner drops, including after domain shutdown. New frames also check
+the original owner and delivery deadline. No extra payload copy is introduced.
+
+A reply-capacity refusal can occur after a handler commits. Before headers it
+returns `ResourceExhausted/unknown`; after headers the body fails instead of
+ending successfully. Neither result permits automatic replay or establishes
+rollback. Size the host allowance for concurrent input and reply ownership.
+
 Receiver overload returns a fixed `ResourceExhausted/unknown` category over the
 authenticated transport, without automatic replay. Its status/header pair does
 not establish rollback; event calls preserve their ambiguous outcome. Refused
 uploads close the connection so unread bytes cannot become another request.
-`inbound_rpc_usage()` reports calls, reserved input bytes, tunnels and peers;
-all retire after node drain. These input allowances do not measure decoded
-graphs, response buffers, adapter copies, allocator overhead or RSS. Durability
-acknowledgements and cancellation endpoints retain their independent paths.
+`inbound_rpc_usage()` reports calls, per-request reserved bytes, tunnels and
+peers. `reserved_request_bytes` includes input/copy/control and published reply
+payload reservations; all retire after their final owners drop. These length
+allowances do not measure shared backing allocations, decoded graphs, adapter
+copies, allocator overhead or RSS. Durability acknowledgements and cancellation
+endpoints retain their independent paths.
 
 Install `ActorOptions` with `domain.services().configure_actor(&options)` before
 building generations to select a different operation deadline. Queue leases and

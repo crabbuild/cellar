@@ -14,9 +14,10 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
 ```
 
-This runs 96 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
-source quotas over local/authenticated peer routing, and receiving quotas over
-authenticated peer routing. Each side has independent count and byte cases.
+This runs 112 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+source quotas over local/authenticated peer routing, receiving quotas over
+authenticated peer routing, and post-commit reply-byte refusal over peer routes.
+Source and receiving request admission have independent count and byte cases.
 V8 uses the generated TypeScript binding; Node uses plain JavaScript.
 The byte case retains the default 128-call quota and reduces only the byte
 allowance to 128 KiB. The count case retains the default byte allowance.
@@ -46,8 +47,18 @@ same-ID retries apply the refused command once; a changed command conflicts.
 Every node joins, including after a failed assertion. Receiving requests,
 reserved input bytes, tunnels and peer entries retire to zero. The separate auditor
 checks coverage, authority, counts, quotas and zero retained reservations and
-rejects ten corrupted reports. The suite also runs in the combined qualifier
+rejects seventeen corrupted reports. The suite also runs in the combined qualifier
 and Linux lifecycle CI.
+
+The sixteen reply cases hold a generated call from each actual caller runtime.
+After release the original provider durably commits a count and receipt, then
+returns a valid 64-KiB business-error message. The combined receiving quota
+refuses that payload with `ResourceExhausted/unknown`. Host observations verify
+codec-valid length, stored count, closed transaction and write position. No
+automatic retry enters the provider. An explicit same-ID retry returns the
+saved count, while the separately refused command and its receipt/conflict
+checks retain their original observations. Final request/reply/tunnel
+reservations must be zero.
 
 Receiving bodies use a dense buffer whose capacity and possible native/JSON
 copy are reserved before growth. Partial uploads count against admission;
@@ -73,12 +84,18 @@ without copying the payload. Once a handler result is ready, the original
 caller deadline and peer transport interval cap delivery. A stalled socket
 closes within that budget; it cannot turn a lost reply into rollback evidence.
 Refunds use the receiving domain's clock, including late buffer drops after
-shutdown. Reply payload bytes and allocator/RSS accounting still need their
-separate qualification below.
+shutdown. Published payload lengths now share receiving input/copy/control
+capacity. Known body bounds reserve before headers; actual cumulative frame
+lengths are checked as well. The single merged permit follows every frame alias
+until its final owner drops. New frames refuse a stopped owner or an expired
+delivery deadline without requiring an ambient execution domain.
 
-These are input/control reservations, not an RSS or exact allocator measurement.
-Native allocator overhead, response copies, decoded graphs, guest heaps and
-broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
+Before headers a reply-capacity refusal returns `ResourceExhausted/unknown`;
+a later frame refusal breaks the body. A handler may already have committed,
+so neither path authorizes automatic replay or establishes rollback. Length
+reservations do not measure shared backing allocations or exact allocator/RSS
+usage. Native allocator overhead, response copies, decoded graphs, guest heaps
+and broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
 [configuration](../../docs/11-configuration.md#library-defaults).
 
 ## Generate the shared contract
