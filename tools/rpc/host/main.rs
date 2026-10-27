@@ -30,6 +30,7 @@ mod peer_faults;
 mod profile;
 mod proof;
 mod provenance;
+mod python_mode;
 mod qualify;
 mod remote;
 mod saturation;
@@ -79,6 +80,7 @@ fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let mut report_path = None;
     let mut suite = Suite::Local;
+    let mut expected_python_mode = python_mode::Mode::compiled();
     let mut server_name = None;
     let mut server_data = None;
     let mut server_bucket = None;
@@ -86,6 +88,9 @@ fn main() -> Result<()> {
     let mut python_child = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
+            "--python-mode" => {
+                expected_python_mode = python_mode::Mode::parse(&arguments.next().context("--python-mode needs a mode")?)?;
+            }
             "--report" => {
                 report_path = Some(PathBuf::from(
                     arguments.next().context("--report needs a path")?,
@@ -138,7 +143,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite profile|guest-control|local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite profile|guest-control|local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--python-mode gil|free-threaded] [--report path.json]"
             ),
         }
     }
@@ -172,10 +177,11 @@ fn main() -> Result<()> {
             server.is_none() && python_child.is_none(),
             "profile suite cannot serve a crash worker"
         );
-        return publish(profile::execute()?, report_path);
+        return publish(profile::execute(expected_python_mode)?, report_path);
     }
     let (proof_sender, proof_receiver) = std::sync::mpsc::sync_channel(1);
     let child_mode = python_child.is_some();
+    let ordinary_mode = !child_mode && server.is_none();
     ensure!(
         !child_mode || (server.is_none() && report_path.is_some()),
         "Python child requires a report and cannot serve a crash owner"
@@ -228,12 +234,17 @@ fn main() -> Result<()> {
         max_pending_operations: 1,
         ..Default::default()
     };
+    let retained = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = retained.clone();
     // SAFETY: this executable owns the process main thread and CPython. All
     // Rust workers and JS runtimes start inside its supervised host callback.
     let python_result = unsafe {
         PythonRuntime::run(python_options, python_source, move |python, _stop| {
+            let mode = python_mode::Check::begin(expected_python_mode)?;
             JavaScriptRuntime::run(options.clone(), source, |v8| {
+                observed.lock().unwrap().push(("v8", v8.clone()));
                 NodeRuntime::run(options, node_options, node_source, |node| {
+                    observed.lock().unwrap().push(("node", node.clone()));
                     let crash = Arc::new(crash::Gate::default());
                     let transaction_checkpoint = crash.clone();
                     let live = Arc::new(proof::Live::default());
@@ -269,11 +280,12 @@ fn main() -> Result<()> {
                         live,
                         provenance,
                     )?);
-                    let proof = tokio::runtime::Builder::new_multi_thread()
+                    let mut proof = tokio::runtime::Builder::new_multi_thread()
                         .worker_threads(4)
                         .enable_all()
                         .build()?
                         .block_on(dispatch::run(suite, app, python, server, python_child))?;
+                    mode.record(&mut proof, ordinary_mode)?;
                     proof_sender
                         .send(proof)
                         .context("qualification result receiver closed")?;
@@ -290,11 +302,26 @@ fn main() -> Result<()> {
         report.complete(),
         "Python runtime did not fully drain after RPC qualification"
     );
+    let usage: Vec<_> = retained
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(name, app)| (*name, app.bridge_usage()))
+        .collect();
+    ensure!(
+        usage.len() == 2
+            && usage.iter().all(|(_, usage)| usage.stopped
+                && usage.active_invocations == 0
+                && usage.retained_bytes == 0),
+        "Counter retained JavaScript resources after join: {usage:?}"
+    );
     // Publish evidence only after every runtime has joined and drained. A failed
     // rerun cannot leave an older success report at the requested path.
-    let proof = proof_receiver
+    let mut proof = proof_receiver
         .try_recv()
         .context("qualification result is missing")?;
+    proof["language_runtimes_joined"] = serde_json::Value::Bool(true);
+    proof["bridge_reservations_after_join"] = serde_json::Value::from(0);
     publish(proof, report_path)
 }
 

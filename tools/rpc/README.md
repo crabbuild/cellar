@@ -139,6 +139,63 @@ provider isolation, fresh-call authority and zero retained native reservations
 after node join. This suite does not measure allocator overhead, engine heaps
 or process RSS; both qualification flags remain false.
 
+## Verify the loaded Python mode
+
+Build the qualifier with the intended CPython 3.14 interpreter and its pinned
+Protobuf environment. Use a checkout-specific Cargo target as described in
+[AGENTS.md](../../AGENTS.md); keep GIL and free-threaded artifacts separate.
+
+```sh
+export PYO3_PYTHON=/path/to/python3.14t
+export CELLAR_RPC_PYTHON_SITE=/path/to/venv/site-packages
+cargo build --locked -p cellar-rpc-qualification --features full
+
+"$CARGO_TARGET_DIR/debug/cellar-rpc-qualification" \
+  --suite all --python-mode free-threaded --report .cellar/rpc/all-ft.json
+python3 tools/rpc/check_python_mode.py --expected free-threaded .cellar/rpc/all-ft.json
+
+# The portable profile needs a separate process, as Python initializes once.
+"$CARGO_TARGET_DIR/debug/cellar-rpc-qualification" \
+  --suite profile --python-mode free-threaded --report .cellar/rpc/profile-ft.json
+python3 tools/rpc/check_profile.py .cellar/rpc/profile-ft.json
+python3 tools/rpc/check_python_mode.py --expected free-threaded .cellar/rpc/profile-ft.json
+```
+
+Use `--python-mode gil` with the GIL build. Without this option the qualifier
+expects its compiled interpreter mode. CI always passes the expected mode
+explicitly, and runs both `3.14` and `3.14t`, including the full Counter/failure
+suite and separate portable profile. The original handler/operation budgets
+remain in force.
+
+```text
+Python imports application + generated codecs
+                  |
+       observe actual loaded CPython
+       version / SOABI / GIL / Protobuf
+                  |
+       run generated RPC/failure matrix
+                  |
+       observe again: identity unchanged?
+                  |
+       join Python, V8 and Node; census bytes
+                  |
+       publish report -> independent auditor
+```
+
+The observations attach to the interpreter owned by `PythonRuntime`; they do
+not inspect another Python executable. The report's `python_runtime` contains
+`expected_mode`, `startup` and `after_matrix`. A free-threaded ABI with the GIL
+enabled is refused before business work. Completed reports also require joined
+language runtimes and zero retained bridge reservations. Private crash and
+supervision children only record startup; that cannot pass a completed-matrix
+mode audit.
+
+The mode auditor rejects missing, changed or mismatched identity and cleanup
+evidence, including integer values masquerading as booleans. It checks mode
+and cleanup separately from case coverage: each suite's assertions and case
+auditors must also pass. A successful mode check does not establish full
+resource, packaging or release qualification.
+
 ## Generate the shared contract
 
 Run from the repository root with the repository Rust environment, protoc 34.0
