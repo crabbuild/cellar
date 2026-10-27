@@ -90,7 +90,7 @@ export interface DurableObjectState {
   readonly id: DurableObjectId;
   readonly storage: DurableObjectStorage;
   readonly container: DurableObjectContainer | undefined;
-  readonly exports: never;
+  readonly exports: WorkerExports;
   blockConcurrencyWhile<T>(callback: () => T | Promise<T>): Promise<T>;
   /** Requires Source.workers_lifetimes() in the native host. */
   waitUntil(promise: Promise<unknown>): void;
@@ -279,6 +279,31 @@ export interface Activation<T> {
   invoke<R>(callback: (target: T) => R | Promise<R>): Promise<R>;
   rpc(method: string, args: unknown[]): Promise<unknown>;
 }
+
+/** Augment with the entrypoints/namespaces exposed by the selected module. */
+export interface WorkerExports {}
+export interface WorkerExecutionContext<P = unknown> {
+  readonly props: P;
+  readonly exports: WorkerExports;
+  waitUntil(promise: Promise<unknown>): void;
+}
+type ServiceProperty<T> = Promise<Awaited<T>> & {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : ServiceProperty<T[K]>;
+};
+/** Value RPC only; callable/stream capabilities in arguments/results are pending. */
+export type ServiceBinding<T extends object> = {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+} & {
+  [
+    K in keyof T as K extends Reserved | "ctx" | "env" ? never : K
+  ]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : ServiceProperty<T[K]>;
+};
+export type LoopbackService<T extends object, P = unknown> = ServiceBinding<T> &
+  ((options: { props: P }) => ServiceBinding<T>);
 export function activateDurableObject<T, E extends object>(
   Target: new (state: DurableObjectState, env: E) => T,
   nativeContext: object,
@@ -286,17 +311,17 @@ export function activateDurableObject<T, E extends object>(
 ): Activation<T>;
 
 /** Bounded uploads, incremental HTTP replies and value RPC module dispatch. */
-export function workersApplication<
-  M extends { default: { fetch: (...args: never[]) => unknown } },
->(
+export function workersApplication<M extends { default: unknown }>(
   module: M,
-  options: {
-    namespaces: Record<string, Exclude<keyof M, "default"> & string>;
+  options?: {
+    namespaces?: Record<string, Exclude<keyof M, "default"> & string>;
     containers?: readonly (Exclude<keyof M, "default"> & string)[];
     variables?: readonly string[];
+    services?: readonly string[];
   },
 ): {
   cells: Record<string, unknown>;
+  worker_rpc(request: unknown, nativeContext: object): Promise<unknown>;
   fetch(
     request: unknown,
     nativeContext: object,

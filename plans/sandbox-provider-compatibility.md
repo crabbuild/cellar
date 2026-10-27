@@ -63,7 +63,7 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Target | Application contract | Execution path | Status |
 | --- | --- | --- | --- |
 | Docker/compatible Podman | Existing Cellar container facades | Existing local native engine | Implemented |
-| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
+| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices, including Node native service/loopback entrypoints, props and value RPC; full profile pending |
 | Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
 | Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream, RPC binary SDK upload and selected HTTP/WebSocket preview paths pass; complete lifetime/fault qualification pending |
 | Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Selected Node exec/Files operations and automatic byte-source stdin pass with the pinned 1.0.3 helper/image; full profile partial |
@@ -198,9 +198,9 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Peer-proxy cancellation, cold provider recovery, cold-first-call and heartbeat | Idle caller resets have a deterministic proxy regression and connection-local fix; all three receipt races pass locally with unchanged budgets. Linux CI also exposed a cold fleet cleanup deadline failure that did not recur in six local controls; bounded maintenance diagnostics now preserve its evidence. Fresh Linux SDK/JavaScript CI remains required. Cold 250 ms dispatch and the earlier 2 s heartbeat remain open |
+| 1 — qualification | Peer-proxy connection lifetime, cold recovery, cold-first-call and heartbeat | Both Linux SDK jobs still fail receipt races with upstream `Broken pipe`. A new deterministic control proves hidden idle upstream EOF; forwarding it passes the proxy controls without hiding resets or framing failures. Fresh Linux qualification remains required. Cold recovery, 250 ms dispatch and the earlier 2 s heartbeat remain open |
 | 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Provider API outage through repeated cold replacement and owner-specific store isolation now have native peer coverage; broader outages, partitions, physical deletion and provider-enforced fencing remain open |
-| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node process/Files slice includes byte-source stdin, callback-independent observations, kernel PTY/PID/resize, native admission for void kill/resize and explicit handle retirement. Common terminal controls have four-language coverage; remaining APIs require explicit operation/version and failure evidence |
+| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | Node exec/Files has terminal and void-control evidence. Native Worker entrypoints, loopback props and value RPC now exercise published gateway deny paths. Next deliver R2, outbound interception and actual backup/mount campaigns; retain separate version manifests and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06

@@ -6,9 +6,48 @@ import {
   durableObjectContainer,
   workersApplication,
   type DurableObjectStorage,
+  type LoopbackService,
+  type ServiceBinding,
+  type WorkerExecutionContext,
 } from "../../packages/cellar-cloudflare/index.js";
-import { DurableObject } from "../../packages/cellar-cloudflare/workers.js";
+import {
+  DurableObject,
+  WorkerEntrypoint,
+} from "../../packages/cellar-cloudflare/workers.js";
 import type { Cell, Context } from "../../packages/cellar-sdk/index.js";
+class Greeting extends WorkerEntrypoint<
+  { MARKER: string },
+  { prefix: string }
+> {
+  greet(name: string): string {
+    return this.ctx.props.prefix + name + this.env.MARKER;
+  }
+  get setting() {
+    return { length: this.ctx.props.prefix.length };
+  }
+  fetch() {
+    return new Response("greeting");
+  }
+}
+declare module "../../packages/cellar-cloudflare/index.js" {
+  interface WorkerExports {
+    Greeter: LoopbackService<Greeting, { prefix: string }>;
+  }
+}
+declare const execution: WorkerExecutionContext<{ id: string }>;
+const service: ServiceBinding<Greeting> = execution.exports.Greeter({
+  props: { prefix: "hello" },
+});
+const greeting: Promise<string> = service.greet("user");
+const length: Promise<number> = service.setting.length;
+// @ts-expect-error: public service RPC preserves argument types
+service.greet(42);
+// @ts-expect-error: implementation state is not public RPC
+service.ctx;
+// @ts-expect-error: loopback props must match the declared entrypoint
+execution.exports.Greeter({ props: { prefix: 42 } });
+workersApplication({ default: Greeting }, { services: ["SELF"] });
+void [greeting, length];
 class Counter extends DurableObject {
   increment(by: bigint): bigint {
     return by + 1n;

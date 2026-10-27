@@ -32,6 +32,9 @@ use std::{
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Fetch,
+    /// Stateless Worker entrypoint RPC through native service/loopback routes.
+    #[serde(rename = "worker_rpc")]
+    WorkerRpc,
     /// Native cell RPC, with structured arguments and results.
     #[serde(rename = "cell_rpc")]
     CellRpc,
@@ -50,6 +53,7 @@ impl EventKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Fetch => "fetch",
+            Self::WorkerRpc => "worker_rpc",
             Self::CellRpc => "cell_rpc",
             Self::Alarm => "alarm",
             Self::Queue => "queue",
@@ -414,9 +418,28 @@ impl JavaScriptApplication {
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
                 }
-                Invocation::Fetch(request) => (
-                    "fetch",
-                    values::request(&context, request, self.runtime.options.max_body_bytes).await?,
+                Invocation::Fetch(mut request) => {
+                    let entrypoint = request.entrypoint.take();
+                    let mut frame =
+                        values::request(&context, request, self.runtime.options.max_body_bytes)
+                            .await?;
+                    if let Some(entrypoint) = entrypoint {
+                        frame["entrypoint"] = json!({"name":entrypoint.name, "props": cellar_guest::workers::service::props(&entrypoint.props, self.runtime.options.max_body_bytes)?});
+                    }
+                    ("fetch", frame)
+                }
+                Invocation::Rpc {
+                    entrypoint,
+                    operation,
+                    props,
+                } => (
+                    "worker_rpc",
+                    cellar_guest::workers::service::request(
+                        entrypoint,
+                        operation,
+                        props,
+                        self.runtime.options.max_body_bytes,
+                    )?,
                 ),
                 Invocation::Alarm { scheduled_ms } => {
                     ("alarm", json!({"scheduled_ms": scheduled_ms}))
@@ -698,7 +721,8 @@ impl JavaScriptApplication {
                                             );
                                             if rpc_enabled
                                                 && callback_scope.is_none()
-                                                && (operation_name == "workers.rpc"
+                                                && ((operation_name == "workers.rpc"
+                                                    && payload.get("service").is_none())
                                                     || operation_name.starts_with("workers.rpc."))
                                             {
                                                 rpc_session
@@ -833,6 +857,10 @@ impl JavaScriptApplication {
             values::output(context, &value, self.runtime.options.max_body_bytes)
                 .map(Output::Http)
                 .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
+        } else if kind == "worker_rpc" {
+            cellar_guest::workers::service::output(value, self.runtime.options.max_body_bytes)
+                .map(Output::Bytes)
+                .map_err(|_| anyhow::anyhow!("JavaScript Worker RPC response conversion failed"))
         } else if kind == "cell_rpc" {
             rpc_session
                 .output(value)

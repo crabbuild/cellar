@@ -4,22 +4,26 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 import { root, verify } from "./inventory.mjs";
 await verify();
-await build({
-  absWorkingDir: root,
-  entryPoints: ["fixture.mjs"],
-  outfile: "dist/fixture.mjs",
-  bundle: true,
-  format: "esm",
-  platform: "node",
-  target: "node24",
-  plugins: [
-    {
-      name: "cellar-workers",
-      setup(builder) {
-        builder.onResolve({ filter: /^cloudflare:workers$/ }, () => ({
-          path: resolve(root, "../../../packages/cellar-cloudflare/workers.js"),
-        }));
+for (const fixture of ["fixture", "gateways"])
+  await build({
+    absWorkingDir: root,
+    entryPoints: [`${fixture}.mjs`],
+    outfile: `dist/${fixture}.mjs`,
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node24",
+    plugins: [
+      {
+        name: "cellar-workers",
+        setup(builder) {
+          builder.onResolve({ filter: /^cloudflare:workers$/ }, () => ({
+            path: resolve(
+              root,
+              "../../../packages/cellar-cloudflare/workers.js",
+            ),
+          }));
+        },
       },
-    },
-  ],
-});
+    ],
+  });

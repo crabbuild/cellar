@@ -2170,3 +2170,79 @@ failure and still-running SDK matrix do not establish a passing release.
 Cold recovery, the intermittent first-call/heartbeat failures, broader terminal
 faults, provider hard fencing and the remaining SP-02–SP-10 requirements stay
 partial or outstanding. Live E2B/Vercel configuration remains deferred.
+
+
+## Native Worker entrypoints for Sandbox gateways
+
+Node Worker modules now dispatch class-based default exports, named
+`WorkerEntrypoint` classes and object fetch exports through Cellar's existing
+service routes. `ctx.exports` supplies callable loopback bindings with copied
+props and declared Durable Object namespaces. Configured service bindings use
+the host's selected script/entrypoint; guest route data cannot select a script
+or replace a configured binding's props.
+
+Incoming Worker RPC uses an explicitly registered `EventKind::WorkerRpc`.
+Public prototype methods/properties and nested receiver paths execute on a fresh
+instance with its native invocation. Clone values, binary data and remote thrown
+values use the existing bounded native codec and stack stripping. HTTP uses the
+existing native fetch/response ownership path. A callee's `waitUntil` retains its
+original native authority after the RPC response, independently of its caller.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Native route selection | Actual configured service, same-script loopback, class default, named object fetch and DO-to-Worker calls; no JavaScript-local method-call substitute |
+| Props / instances | Mutating the caller's props after binding creation cannot change the callee; two method invocations each start with fresh instance state |
+| Visibility / values | Inherited method, getter, nested receiver, binary property and remote error name/message/code survive; own instance state and base ctx/env refuse |
+| Pre-effect refusal | Seven malformed requests refuse with `ValidationError` / `not_committed` and zero method effects: forged script, configured props override, malformed/oversized props, non-array arguments and empty/oversized paths |
+| Lost result | An unrepresentable return after method execution reports unknown with exactly one observed effect; no replay |
+| Unsupported capabilities | Request/Response/stream/function arguments and props, including a web value nested in an Error cause, refuse before callee effects. Four unsupported result/throw kinds each execute once and report unknown; a normal TypeError with a cyclic cause round-trips |
+| Lifetime / cleanup | A returned RPC leaves a retained callee continuation, which later reads its own native variable binding; saved Worker stubs refuse a later event; complete node/Node-runtime join reports zero invocations and retained bytes |
+| Published 1.0.3 gateways | Unmodified `DirectoryBackupGateway` fetch denies a grant and its control RPC refuses deny props; unmodified `S3Gateway` denies a revoked mount route through native fetch |
+| Rust campaign | 17 shared guest tests, all 83 Node/V8 library checks and 28 integration cases pass, including existing DO RPC, module recovery, binary/HTTP-message transfers, stream arguments/results and upgrades |
+| Tooling | All 129 JS checks, explicit entrypoint/props/service TypeScript contracts, both SDK/helper input checks and the fixture builds pass; packed package includes the new service module |
+| Quality | Strict guest/Node/V8 all-target Clippy, Rust format/layout for 1,220 sources, JS formatting for 106, documentation/816 references, whitespace and the 466-package native engine-exclusion guard pass |
+
+This is 128 Rust tests and 129 JS tooling tests in the current campaign. Native
+integration keeps the original 250 ms handler deadline and existing runtime
+limits. The gateway fixture is separately checksummed against the unchanged
+1.0.3 SDK source and helper/base-image pins. It needs neither an engine nor an
+account, and makes no successful storage or mount claim.
+
+The first native control exposed service calls entering the DO result-session
+decoder; service-shaped calls now use their native value-RPC route. A strict
+error/visibility assertion then caught remote error envelopes being treated as
+values; the service facade now unwraps and throws them. The expanded controls
+pass with those assertions and all original budgets intact.
+
+The strict-copy control also caught V8 encoding a pre-sized array as sparse,
+which native error admission correctly refused. Copies now fill dense arrays
+before setting their final length, preserving genuine sparse tails; a wire-tag
+regression and native thrown-error assertions enforce both contracts.
+
+A raw Node 24.21.0 serializer control turns Request, Response and ReadableStream
+into empty ordinary objects. The Worker value profile now uses a strict graph
+copy before serialization, including Error causes, so unsupported capabilities
+cannot silently flatten. Node's lazy stack accessor is read once and copied;
+the original native error/stack rules and graph quotas remain in force.
+
+Full Worker RPC capability transfer remains required: callable/stream/HTTP-message
+arguments/results, returned RpcTargets, transferable service bindings and service
+capabilities inside props currently refuse rather than becoming plain data.
+R2 bindings, outbound interception, positive multipart backup/restore and S3 mount
+campaigns with the actual helper/image remain next deliveries. Embedded V8 still
+lacks this facade's web bootstrap. These additions advance SP-02/SP-07; they do
+not finish the full profiles, provider fencing, Dynamic Workers or release
+qualification. Live E2B/Vercel configuration remains deferred.
+
+The preceding control commit's Linux JavaScript run `40509651797` passed
+its adapter/real-node tests and quality/engine gates, then was cancelled at the
+45-minute workflow limit during the V8 binding example sequence. All completed
+example checks in that sequence passed; the run does not prove full completion.
+The JavaScript workflow now permits 90 minutes for its full source builds and
+serial example/fleet sequence; individual test/application deadlines are
+unchanged. This is a CI scheduling correction, not a first-call/heartbeat fix.
+Its SDK matrix has finished with three free-threaded and two standard failures
+in the settlement races. Both retain an upstream `Broken pipe` in the fault
+proxy; the earlier caller-reset correction did not qualify these races. Fresh
+CI must qualify this entrypoint revision; passing local controls do not close
+the earlier cold-first-call or heartbeat findings.

@@ -6,8 +6,14 @@ import { namespaceBinding } from "./namespace.js";
 import { decodeRequest, webRuntime } from "./http.js";
 import { encodeStreamResponse } from "./output.js";
 import { installSocketGlobals } from "./websocket-pair.js";
+import {
+  entrypointRpc,
+  isEntrypoint,
+  serviceBinding,
+  workerContext,
+} from "./service.js";
 
-function environment(current, namespaces, variables) {
+function environment(current, namespaces, variables, services) {
   const env = Object.create(null);
   for (const binding of Object.keys(namespaces)) {
     Object.defineProperty(env, binding, {
@@ -23,24 +29,80 @@ function environment(current, namespaces, variables) {
       enumerable: true,
     });
   }
+  for (const binding of services) {
+    if (Object.hasOwn(env, binding))
+      throw new TypeError(`Duplicate Worker binding: ${binding}`);
+    Object.defineProperty(env, binding, {
+      value: serviceBinding(current, { kind: "binding", binding }),
+      enumerable: true,
+    });
+  }
   return Object.freeze(env);
 }
 
 /** Adapt unchanged module exports to declared native Cellar event handlers. */
 export function workersApplication(
   module,
-  { namespaces = {}, containers = [], variables = [] } = {},
+  { namespaces = {}, containers = [], variables = [], services = [] } = {},
 ) {
   webRuntime();
+  if (
+    !Array.isArray(services) ||
+    services.some(
+      (name) =>
+        typeof name !== "string" ||
+        !name.length ||
+        name.length > 512 ||
+        name.includes("\0"),
+    )
+  )
+    throw new TypeError("Worker services require binding names");
   namespaces = Object.freeze({ ...namespaces });
   containers = Object.freeze([...containers]);
   variables = Object.freeze([...variables]);
+  services = Object.freeze([...services]);
+  const bindings = [...Object.keys(namespaces), ...variables, ...services];
+  if (new Set(bindings).size !== bindings.length)
+    throw new TypeError("Duplicate Worker binding");
   const worker = module.default;
-  if (!worker || typeof worker.fetch !== "function") {
+  if (
+    !worker ||
+    typeof (isEntrypoint(worker) ? worker.prototype.fetch : worker.fetch) !==
+      "function"
+  ) {
     throw new TypeError(
       "This Workers module profile requires a default fetch handler",
     );
   }
+  const entrypoints = new Map(
+    Object.entries(module).filter(([, target]) => isEntrypoint(target)),
+  );
+  const fetchers = new Map(
+    Object.entries(module).filter(
+      ([, target]) =>
+        !isEntrypoint(target) && typeof target?.fetch === "function",
+    ),
+  );
+  const exports = (current) => {
+    const result = Object.create(null);
+    for (const name of [...entrypoints.keys(), ...fetchers.keys()])
+      result[name] = serviceBinding(current, { kind: "export", name });
+    for (const [binding, name] of Object.entries(namespaces))
+      result[name] ??= namespaceBinding(current, binding);
+    return Object.freeze(result);
+  };
+  const instance = (name, context, props) => {
+    const Target = entrypoints.get(name);
+    if (!Target) throw new TypeError(`Missing Worker entrypoint: ${name}`);
+    return new Target(
+      workerContext(
+        context,
+        exports(() => context),
+        props,
+      ),
+      environment(() => context, namespaces, variables, services),
+    );
+  };
   const classes = new Set(Object.values(namespaces));
   for (const name of containers) {
     if (!classes.has(name))
@@ -56,7 +118,8 @@ export function workersApplication(
         if (!this.activation) {
           const current = context._activation();
           this.activation = activateDurableObject(Target, context, {
-            env: environment(current, namespaces, variables),
+            env: environment(current, namespaces, variables, services),
+            exports: () => exports(current),
             container: containers.includes(name)
               ? durableObjectContainer(context)
               : undefined,
@@ -109,13 +172,31 @@ export function workersApplication(
   }
   return {
     cells,
+    worker_rpc(frame, context) {
+      return entrypointRpc(
+        instance(frame.entrypoint, context, frame.props),
+        frame.operation,
+      );
+    },
     async fetch(frame, context) {
       installSocketGlobals(context._current);
-      const env = environment(() => context, namespaces, variables);
-      const execution = Object.freeze({
-        waitUntil: (promise) => context._waitUntil(promise),
-      });
-      const response = await worker.fetch(decodeRequest(frame), env, execution);
+      const name = frame.entrypoint?.name ?? "default";
+      const target = entrypoints.has(name)
+        ? instance(name, context, frame.entrypoint?.props)
+        : fetchers.get(name);
+      if (typeof target?.fetch !== "function")
+        throw new TypeError(`Missing Worker fetch entrypoint: ${name}`);
+      const response = entrypoints.has(name)
+        ? await target.fetch(decodeRequest(frame))
+        : await target.fetch(
+            decodeRequest(frame),
+            environment(() => context, namespaces, variables, services),
+            workerContext(
+              context,
+              exports(() => context),
+              frame.entrypoint?.props,
+            ),
+          );
       return encodeStreamResponse(response, context);
     },
   };

@@ -1180,6 +1180,11 @@
         );
       },
       _serialize: (value) => encode(encodeClone(value)),
+      _rpcValue: (value) =>
+        delegates.valueOnly(
+          value,
+          context(id, identity, activation, contracts),
+        ),
       _deserialize: (value) => decodeClone(decode(value)),
       _rpcResult: (value, closed) =>
         delegates.result(
@@ -1413,10 +1418,15 @@
         });
       }
 
-      if (invocation.kind === "cell_rpc") {
-        const args = ctx._deserialize(event.args);
-        if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
-        if (event.method === "__cellar_workers_rpc_inputs") {
+      if (invocation.kind === "cell_rpc" || invocation.kind === "worker_rpc") {
+        const workerRpc = invocation.kind === "worker_rpc";
+        const args =
+          workerRpc && event.operation.kind === "get"
+            ? undefined
+            : ctx._deserialize(workerRpc ? event.operation.args : event.args);
+        if ((!workerRpc || event.operation.kind !== "get") && !isArray(args))
+          throw new ErrorClass("Invalid RPC arguments");
+        if (!workerRpc && event.method === "__cellar_workers_rpc_inputs") {
           return stringify(
             await delegates.accept(args, ctx, (method, args) =>
               target.cell_rpc(freeze({ method, args }), ctx),
@@ -1425,10 +1435,18 @@
         }
         let value;
         try {
-          value = await target.cell_rpc(
-            freeze({ method: event.method, args }),
-            ctx,
-          );
+          value = workerRpc
+            ? await target.worker_rpc(
+                freeze({
+                  ...event,
+                  operation: freeze({ ...event.operation, args }),
+                }),
+                ctx,
+              )
+            : await target.cell_rpc(
+                freeze({ method: event.method, args }),
+                ctx,
+              );
         } catch (error) {
           // Remote throws are successful native RPC responses. Preserve the
           // thrown value and own data properties, without leaking its stack.
@@ -1440,13 +1458,19 @@
             }
           }
           return stringify({
-            value: ctx._serialize([error, properties]),
+            value: workerRpc
+              ? ctx._rpcValue([error, properties])
+              : ctx._serialize([error, properties]),
             error: true,
           });
         }
         // Encoding can fail after the handler committed writes. Such a
         // failure is a lost result, not a business exception from the method.
-        return stringify(await ctx._rpcResult(value));
+        return stringify(
+          workerRpc
+            ? { value: ctx._rpcValue(value), error: false }
+            : await ctx._rpcResult(value),
+        );
       }
 
       let result = await target[invocation.kind](event, ctx);

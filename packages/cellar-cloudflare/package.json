@@ -32,6 +32,7 @@
     "output.js",
     "http.js",
     "module.js",
+    "service.js",
     "activation.js",
     "streams.js",
     "index.d.ts",

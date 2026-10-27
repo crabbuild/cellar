@@ -188,6 +188,23 @@ python3 tools/sandbox/fence-cache-probe.py \
 `--require-oom-control` requires the previous OOM to reproduce. On a clean
 engine, omit it to check production admission and report both measurements.
 
+## Native gateway entrypoints
+
+The separately pinned [gateway fixture](gateways.mjs) imports the unmodified
+`DirectoryBackupGateway` and `S3Gateway`. It routes their fetch and control RPC
+through native Worker entrypoints, copies per-binding props, and verifies deny
+grants and control rejection. It requires no Docker engine or cloud account:
+
+```sh
+cargo test -p cellar-javascript --features node --locked --test workers_entrypoints
+```
+
+The same test covers class/object entrypoints, configured bindings, public
+properties, stateless construction, original-event background work, malformed
+input refusal and unknown results after execution. These gateway checks do not
+qualify R2 multipart storage, outbound interception, directory backup/restore or
+S3 mounts. Those remain required delivery steps with the actual helper/image.
+
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,

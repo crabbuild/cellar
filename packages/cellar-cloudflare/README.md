@@ -105,7 +105,8 @@ const app = workersApplication(worker, {
 
 | Surface | Implemented slice | Still required |
 | --- | --- | --- |
-| Module dispatch | Default `fetch`; exported DO `fetch`, prototype RPC and `alarm`; named namespace and variable bindings | Complete loader, compatibility dates/flags and other binding kinds |
+| Module dispatch | Object/class default `fetch`, named Worker entrypoints, DO `fetch`/prototype RPC/alarms, namespaces, variables and configured service bindings | Complete loader, compatibility dates/flags and other binding kinds |
+| Worker services | Native service/loopback fetch and value RPC, public inherited properties/methods, nested receiver paths, copied `ctx.props` and stateless instances; `ctx.exports` also exposes declared DO namespaces | Callable/stream/HTTP-message RPC capabilities, transferable service bindings and service capabilities inside props |
 | HTTP | Node Request/Response conversion, bounded uploads, incremental Worker/DO/namespace/port replies, Worker/DO WebSocket forwarding and container-port/local pair upgrades, Set-Cookie fields, manual redirects and aborts | Embedded web bootstrap and complete versioned HTTP/upgrade qualification |
 | Streams | Byte-only `IdentityTransformStream`, BYOB reads, backpressure and cancellation; ordinary responses expose `webSocket: null` | Full Workers stream/upgrade conformance |
 | SQL | Real lazy SQLite cursors, iteration/raw iteration, `toArray`, `one`, column names, counters and database size | Broader SQLite/runtime profile qualification |
@@ -120,9 +121,50 @@ Alarm callbacks serialize per object, including when a running handler rearms
 its alarm. Other events can still make progress while that handler awaits work.
 This follows the [single running alarm contract](https://developers.cloudflare.com/durable-objects/api/alarms/).
 
-`WorkerEntrypoint` and `RpcTarget` base classes are importable. Defining these
-classes does not implement remote target transport. The tracing export used by
-the pinned Sandbox fallback is explicitly disabled.
+`WorkerEntrypoint` dispatch uses native service routes. Returned `RpcTarget`
+capabilities remain incomplete. The tracing export used by the pinned Sandbox
+fallback is explicitly disabled.
+
+### Worker entrypoints and loopback services
+
+```js
+import { WorkerEntrypoint } from "cloudflare:workers";
+
+export class Greeter extends WorkerEntrypoint {
+  greet(name) { return `${this.ctx.props.prefix}, ${name}`; }
+}
+export default {
+  async fetch(request, env, ctx) {
+    const greeter = ctx.exports.Greeter({ props: { prefix: "Hello" } });
+    return new Response(await greeter.greet("Cellar"));
+  }
+};
+```
+
+Pass these exports to `workersApplication`. Export its `worker_rpc` handler
+beside `fetch`/`cells`, and register `EventKind::WorkerRpc` with the native
+`Source`. The standard web module profile requires Node.
+
+```mermaid
+flowchart LR
+    Caller[Worker or Durable Object] --> Binding[Service / ctx.exports binding]
+    Binding --> Native[Native route and output gate]
+    Native --> Target[Fresh WorkerEntrypoint instance]
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Configuration | `services: ["BACKEND"]` exposes only that native configured service binding; the guest cannot choose another script |
+| Loopback props | `ctx.exports.Name({ props })` copies bounded structured-clone data. Configured service bindings refuse props overrides |
+| RPC visibility | Public prototype members and nested receiver paths; own instance state and base `ctx`/`env` remain private. Remote errors retain their value/properties with native stack stripping |
+| Lifetimes | Worker bindings retain their original event; DO-provided bindings resolve the current event of the same activation. Each call creates a fresh target instance |
+| Background work | `waitUntil` retains the original native callee after its response; shutdown joins it and the existing handler deadline still applies |
+| Failure | Invalid routes/props/arguments refuse before effects. Unrepresentable results after execution remain unknown outcomes and are never replayed |
+
+This implements the selected [loopback/props contract](https://developers.cloudflare.com/workers/runtime-apis/context/#exports).
+Service RPC currently transfers clone values. Callable objects, streams,
+HTTP-message arguments/results and service bindings in props require additional
+capability transport; they refuse rather than flattening into ordinary data.
 
 ### Returned functions
 
@@ -570,6 +612,7 @@ requirements.
 | `activateDurableObject` owner, its storage and module-provided `env` | Same live native activation; each call resolves that continuation's current event |
 | `durableObjectNamespace(context, binding)` and its stubs | Supplied event only |
 | Namespace/stub saved from module-provided DO `env` | Same activation; cannot be borrowed by another object |
+| Worker service/loopback stub | Original Worker event; a DO-created stub follows only that DO's live activation |
 | SQL cursor | Opening event, with bounded handles and retained payload bytes |
 | Ordinary Cellar context | Original invocation only |
 
@@ -619,6 +662,7 @@ quotas and unknown-outcome reporting still apply.
 | --- | --- |
 | Node and V8 native Workers fixtures | Real SQLite/clone storage, native input gates, sync/async transactions, constructor refusal, value/function RPC, disposal, retained events and restart recovery |
 | Node module fixture | HTTP object routing by named/opaque ID, activation-owned env, binary/cookie preservation, cross-object refusal and effects surviving an oversized response |
+| Native Worker entrypoints | Default classes/named objects, service and loopback RPC/fetch, copied props, stateless instances, visibility, retained callee background work, pre-effect refusals and unknown result handling; published 1.0.3 gateway deny paths |
 | Unchanged celld Container module + Containers 0.3.7 | Named, singleton and random routing through native cells and an engine protocol peer; separate container ownership and explicit joined cleanup |
 | Published constructor fixtures | Containers 0.3.7 construction/scheduling in both engines; Sandbox 0.12.9 configuration/metadata recovery in Node |
 | Pinned Sandbox image through Cellar | Unchanged SDK/application exec, file and background-process routes; in-object, DO HTTP and direct RPC `execStream()` probes observe output before command completion, then explicit destroy and joined shutdown |

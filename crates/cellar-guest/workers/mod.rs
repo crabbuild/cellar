@@ -9,6 +9,7 @@ use std::sync::OnceLock;
 mod kv;
 mod namespace;
 pub mod rpc;
+pub mod service;
 mod sql;
 
 #[derive(Default)]
@@ -166,6 +167,9 @@ impl State {
             return namespace::identity(context, input);
         }
         if name == "workers.rpc" {
+            if input.get("service").is_some() {
+                return service::call(context, input, options).await;
+            }
             return namespace::call(context, input, options).await;
         }
         if name == "workers.crypto.random" {
