@@ -467,6 +467,33 @@ replacement followed by rooted finalization, Raft-control stop concurrent with
 survivor writes, retained-history owner join and signed closure. This still
 supplies no terminal node transition or disruption-slot release.
 
+## Reversible restart gate
+
+After `begin_restart_maintenance`, `admit_restart_gate` atomically advances the
+exact node epoch and journals an immutable parent request and child gate ID.
+`quiesce_restart` owns its authenticated control RPC through a surviving
+observer. Authenticated discovery must install the requested minimum catalog
+revision on that observer before dispatch; a stale route refuses. The target
+syncs a distinct maintenance-purpose lifecycle selector,
+closes new public/peer application admission, lets accepted handlers finish,
+and seals SDK business admission under its registration barrier before waiting
+for accepted application work. Raft replication, inspection and leadership
+transfer remain available. An expired turn is unconfirmed and does not reopen
+admission. A successful gate response grants neither RestartReady nor stop.
+
+`cancel_restart_gate` syncs an exact-process fence before rooting Ready and
+releasing the original shared disruption slot. It never resets permanent Node
+shutdown flags, restores capacity or reclaims retained state. Preparation-only
+cancellation refuses the higher gate epoch. Parent identity is immutable; after
+a definite changed-root loss a fresh parent must retain the same child fence.
+Committed retries reconcile before requiring live services and cannot alter a
+later operation. Cancellation resolves its immutable gate parent by ID and digest
+so each catalog value stays within 4 KiB. Gate records cannot authorize a boot
+or physical shutdown.
+Incoming-action settlement, complete fresh both-survivor proof, owned observed
+handoff, guarded stop/rejoin and maintenance operator surfaces remain separate
+unfinished phases. See the [maintenance contract](../../../../../plans/multi-raft/fleet-operations/maintenance-and-rebalancing.md).
+
 ## Terminal removal and recovery
 
 `prepare_evacuation_verification` also resumes a rooted Finalizing operation.

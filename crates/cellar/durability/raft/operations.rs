@@ -130,6 +130,8 @@ struct State {
 pub(crate) struct NodeLifecycle {
     state: Mutex<State>,
     shutdown: OnceLock<tokio::sync::mpsc::UnboundedSender<crate::actor::ShutdownMode>>,
+    maintenance: Arc<crate::raft::fleet_stop::MaintenanceAdmission>,
+    maintenance_dispatch: Arc<OnceLock<crate::raft::fleet_stop::MaintenanceSender>>,
 }
 
 impl NodeLifecycle {
@@ -140,6 +142,48 @@ impl NodeLifecycle {
         sender: tokio::sync::mpsc::UnboundedSender<crate::actor::ShutdownMode>,
     ) {
         let _ = self.shutdown.set(sender);
+    }
+
+    pub(crate) fn maintenance_receiver(
+        &self,
+    ) -> Option<crate::raft::fleet_stop::MaintenanceReceiver> {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        self.maintenance_dispatch.set(sender).ok()?;
+        Some(receiver)
+    }
+
+    pub(crate) fn public_maintenance_closed(&self) -> bool {
+        self.maintenance.public_closed()
+    }
+
+    pub(crate) fn maintenance_matches(
+        &self,
+        selector: &crate::raft::fleet_stop::StopSelector,
+    ) -> bool {
+        self.maintenance.matches(selector)
+    }
+
+    pub(crate) fn maintenance_now(&self) -> Result<u64, CommandFailure> {
+        self.sample_service()?
+            .ok_or(CommandFailure::Unavailable)?
+            .handle
+            .domain
+            .mono_ms()
+            .map_err(|_| CommandFailure::Unavailable)
+    }
+
+    pub(crate) fn seal_maintenance_raft(
+        &self,
+        selector: &crate::raft::fleet_stop::StopSelector,
+    ) -> Result<(), crate::raft::fleet_catalog::FleetCatalogError> {
+        self.maintenance.seal_raft(selector)?;
+        self.sample_service()
+            .map_err(|_| crate::raft::fleet_catalog::FleetCatalogError::Closed)?
+            .ok_or(crate::raft::fleet_catalog::FleetCatalogError::Closed)?
+            .handle
+            .admission
+            .barrier()
+            .map_err(|_| crate::raft::fleet_catalog::FleetCatalogError::Closed)
     }
 
     pub(crate) fn managed(&self) -> Result<bool, CommandFailure> {
@@ -300,10 +344,19 @@ impl Starting {
                 .cloned()
                 .ok_or(CommandFailure::Unavailable)?;
             state.stop = Some(
-                crate::raft::fleet_stop::Reporter::start(stop, shutdown)
-                    .map_err(|_| CommandFailure::Unavailable)?,
+                crate::raft::fleet_stop::Reporter::start(
+                    stop,
+                    shutdown,
+                    self.owner.maintenance.clone(),
+                    self.owner.maintenance_dispatch.clone(),
+                )
+                .map_err(|_| CommandFailure::Unavailable)?,
             );
         }
+        service
+            .handle
+            .admission
+            .bind_maintenance(self.owner.maintenance.clone())?;
         state.service = Some(service);
         self.armed = false;
         Ok(())

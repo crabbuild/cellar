@@ -75,6 +75,7 @@ pub(crate) async fn action(
                 NodeAction::FleetStop { request } => match request.action() {
                     cellar::sdk::consensus::FleetStopAction::Stop => "fleet_stop",
                     cellar::sdk::consensus::FleetStopAction::Fence => "fleet_stop_fence",
+                    cellar::sdk::consensus::FleetStopAction::Quiesce => "fleet_quiesce",
                 },
                 _ => label.as_str().unwrap_or("evict"),
             },

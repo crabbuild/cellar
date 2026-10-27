@@ -967,10 +967,15 @@ impl RaftCellHandle {
                 .domain
                 .sleep_until(deadline)
                 .map_err(|_| CommandFailure::Unavailable)?;
-            let _registration = self
-                .handle
-                .admission
-                .registration(matches!(kind, Kind::SystemCommand { .. }))?;
+            let _registration = self.handle.admission.registration(
+                if matches!(kind, Kind::SystemCommand { .. }) {
+                    super::admission::Access::Cleanup
+                } else if kind.is_control() {
+                    super::admission::Access::Control
+                } else {
+                    super::admission::Access::Application
+                },
+            )?;
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
             {

@@ -49,9 +49,17 @@ impl BootBinding {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LifecyclePurpose {
+    Evacuation,
+    Maintenance,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct StopSelector {
+    pub purpose: LifecyclePurpose,
     pub boot: BootBinding,
     pub epoch: u64,
     pub operation: [u8; 16],
@@ -64,6 +72,7 @@ pub(crate) struct StopSelector {
 pub enum FleetStopAction {
     Stop,
     Fence,
+    Quiesce,
 }
 
 /// Untrusted request data. The receiver verifies its current rooted operation
@@ -143,6 +152,9 @@ impl StopSelector {
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 enum Phase {
     Open,
+    Quiescing {
+        selector: Box<StopSelector>,
+    },
     Fenced {
         epoch: u64,
         operation: [u8; 16],
@@ -168,16 +180,28 @@ impl Guard {
         }
     }
 
+    pub fn quiescing(&self) -> Option<&StopSelector> {
+        match &self.phase {
+            Phase::Quiescing { selector } => Some(selector),
+            _ => None,
+        }
+    }
+
     fn epoch(&self) -> u64 {
         match &self.phase {
             Phase::Open => self.boot.epoch,
             Phase::Fenced { epoch, .. } => *epoch,
-            Phase::StopAccepted { selector } => selector.epoch,
+            Phase::StopAccepted { selector } | Phase::Quiescing { selector } => selector.epoch,
         }
     }
 
     fn validate(&self) -> Result<(), LogError> {
         self.boot.validate()?;
+        if matches!(&self.phase, Phase::Quiescing { selector }
+            if selector.purpose != LifecyclePurpose::Maintenance)
+        {
+            return Err(LogError::WrongIdentity);
+        }
         match &self.phase {
             Phase::Open => (),
             Phase::Fenced {
@@ -191,7 +215,7 @@ impl Guard {
                     return Err(LogError::WrongIdentity);
                 }
             }
-            Phase::StopAccepted { selector } => {
+            Phase::StopAccepted { selector } | Phase::Quiescing { selector } => {
                 selector.validate()?;
                 if selector.boot != self.boot {
                     return Err(LogError::WrongIdentity);
@@ -255,6 +279,25 @@ impl LifecycleRecord {
                     phase: Phase::Open,
                 }
             }
+            LifecycleUpdate::Quiesce { selector, .. } => {
+                selector.validate()?;
+                let old = self.guard.as_ref().ok_or(LogError::WrongIdentity)?;
+                if selector.purpose != LifecyclePurpose::Maintenance || old.boot != selector.boot {
+                    return Err(LogError::WrongIdentity);
+                }
+                if old.quiescing() == Some(&selector) {
+                    return Ok(self.clone());
+                }
+                if old.accepted().is_some() || selector.epoch <= old.epoch() {
+                    return Err(LogError::WrongIdentity);
+                }
+                Guard {
+                    boot: old.boot.clone(),
+                    phase: Phase::Quiescing {
+                        selector: Box::new(selector),
+                    },
+                }
+            }
             LifecycleUpdate::Stop { selector, .. } => {
                 selector.validate()?;
                 let old = self.guard.as_ref().ok_or(LogError::WrongIdentity)?;
@@ -301,7 +344,7 @@ impl LifecycleRecord {
                 if old.accepted().is_some() {
                     return Err(LogError::AlreadyExists);
                 }
-                if epoch == old.epoch() && *old != next {
+                if epoch == old.epoch() && *old != next && old.quiescing().is_none() {
                     return Err(LogError::WrongIdentity);
                 }
                 next
@@ -317,6 +360,10 @@ impl LifecycleRecord {
 }
 
 pub(crate) enum LifecycleUpdate {
+    Quiesce {
+        selector: StopSelector,
+        deadline: u64,
+    },
     Boot {
         boot: BootBinding,
         deadline: u64,
@@ -338,7 +385,7 @@ impl LifecycleUpdate {
     pub fn boot(&self) -> &BootBinding {
         match self {
             Self::Boot { boot, .. } | Self::Fence { boot, .. } => boot,
-            Self::Stop { selector, .. } => &selector.boot,
+            Self::Stop { selector, .. } | Self::Quiesce { selector, .. } => &selector.boot,
         }
     }
 
@@ -346,6 +393,7 @@ impl LifecycleUpdate {
         match self {
             Self::Boot { deadline, .. }
             | Self::Stop { deadline, .. }
+            | Self::Quiesce { deadline, .. }
             | Self::Fence { deadline, .. } => *deadline,
         }
     }

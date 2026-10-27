@@ -225,7 +225,7 @@ impl Driver {
             .as_ref()
             .ok_or(CommandFailure::UnsupportedCapability)?
             .clone();
-        profile.draining |= self.local.admission.is_draining();
+        profile.draining |= self.local.admission.application_paused();
         let groups = self
             .log
             .group_count_with_pending(self.activating.as_ref())

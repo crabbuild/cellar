@@ -416,7 +416,11 @@ impl RaftCells {
                 .domain
                 .sleep_until(deadline)
                 .map_err(|_| CommandFailure::Unavailable)?;
-            let _registration = self.handle.admission.registration(draining)?;
+            let _registration = self.handle.admission.registration(if draining {
+                super::super::admission::Access::Cleanup
+            } else {
+                super::super::admission::Access::Control
+            })?;
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
             {

@@ -35,7 +35,10 @@ pub use histories::{
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
-pub use maintenance::{FleetRestartAdmission, FleetRestartRequest};
+pub use maintenance::{
+    FleetRestartAdmission, FleetRestartGateAdmission, FleetRestartGateCancelRequest,
+    FleetRestartGateRequest, FleetRestartRequest,
+};
 pub use namespaces::FleetInventory;
 pub use nodes::{
     FleetHostAuthorization, FleetNodeEligibility, FleetNodeSpec, FleetNodeState,

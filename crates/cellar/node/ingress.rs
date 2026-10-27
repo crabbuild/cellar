@@ -57,7 +57,7 @@ impl IngressHandle {
                 .domain
                 .upgrade()
                 .is_none_or(|domain| domain.is_closed())
-            || self.app.is_draining()
+            || self.app.public_admission_closed()
     }
 
     /// Admit synchronously, then await the owning driver's response. Dropping

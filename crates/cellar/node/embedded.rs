@@ -792,7 +792,7 @@ impl Node {
                     .as_ref()
                     .is_some_and(|runtime| runtime.generation().event_readiness.check().is_ok())
                     && self.app.fleet_ready()
-                    && !self.app.is_draining()
+                    && !self.app.public_admission_closed()
                     && self.app.healthy().await
             })
             .await?)

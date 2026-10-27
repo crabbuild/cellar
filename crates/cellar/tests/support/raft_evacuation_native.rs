@@ -6,6 +6,8 @@ use object_store::{path::Path, ObjectStore};
 
 #[path = "raft_restart_maintenance_native.rs"]
 mod restart;
+#[path = "raft_restart_gate_native.rs"]
+mod restart_gate;
 
 struct Setup {
     f: Fixture,
@@ -30,7 +32,14 @@ fn request(id: u8, revision: u64) -> FleetRequestIdentity {
 
 impl Setup {
     async fn new() -> Result<Self> {
-        let f = Fixture::with_managed_births(true).await?;
+        Self::wrapped(|application| application).await
+    }
+
+    async fn wrapped(
+        wrap: impl FnOnce(Arc<dyn cellar::sdk::Application>) -> Arc<dyn cellar::sdk::Application>,
+    ) -> Result<Self> {
+        let mut f = Fixture::with_managed_births(true).await?;
+        f.definition.application = wrap(f.definition.application.clone());
         let nodes = fleet(&f).await?;
         let (namespace, _) = initial_birth(&f).await?;
         let (proposal, authorization) = birth(&f).await?;

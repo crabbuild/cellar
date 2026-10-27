@@ -35,6 +35,7 @@ impl Record {
             return Err(FleetCatalogError::Conflict);
         }
         let selector = crate::raft::fleet_stop::StopSelector {
+            purpose: crate::raft::fleet_stop::LifecyclePurpose::Evacuation,
             boot: self.node.boot_binding(self.catalog)?,
             epoch: self.node.epoch,
             operation: self.request.operation,
@@ -605,6 +606,19 @@ impl FleetCatalog {
                     return Err(FleetCatalogError::Conflict);
                 }
                 self.confirm_boot(&current, &sender.record).await?;
+            }
+            if selector.purpose == crate::raft::fleet_stop::LifecyclePurpose::Maintenance {
+                self.verify_restart_gate_request(&current, selector, action)
+                    .await?;
+                if self.inner.current().await?.token != current.token {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                return Ok(());
+            }
+            if action == crate::raft::fleet_stop::FleetStopAction::Quiesce {
+                return Err(FleetCatalogError::Invalid(
+                    "evacuation has no reversible gate",
+                ));
             }
             let record = self.stop_record(&current, selector.operation).await?;
             let request = ProposalId::new(selector.request)

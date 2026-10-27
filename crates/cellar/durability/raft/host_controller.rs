@@ -312,7 +312,7 @@ impl Driver {
     }
 
     pub(super) fn pump_controller(&mut self) {
-        if self.local.admission.is_draining() {
+        if self.local.admission.application_paused() {
             if let Some(controller) = &self.controller {
                 controller.stop();
             }
@@ -467,7 +467,7 @@ impl Driver {
         if !controller.status.enabled
             || controller.epoch != epoch
             || self.closing.load(Ordering::Acquire)
-            || self.local.admission.is_draining()
+            || self.local.admission.application_paused()
         {
             return;
         }

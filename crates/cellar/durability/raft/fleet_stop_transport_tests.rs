@@ -19,6 +19,7 @@ fn request() -> (RequestHead, Vec<u8>) {
     };
     let stop = FleetStopRequest::new(
         StopSelector {
+            purpose: crate::raft::fleet_stop::LifecyclePurpose::Evacuation,
             boot: boot(5),
             epoch: 2,
             operation: [90; 16],

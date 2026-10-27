@@ -36,12 +36,16 @@ pub(crate) struct Reporter {
     sender: mpsc::Sender<Job>,
     shutdown: mpsc::UnboundedSender<ShutdownMode>,
     signaled: OnceLock<bool>,
+    maintenance: Arc<MaintenanceAdmission>,
+    maintenance_dispatch: Arc<OnceLock<MaintenanceSender>>,
 }
 
 impl Reporter {
     pub fn start(
         services: Services,
         shutdown: mpsc::UnboundedSender<ShutdownMode>,
+        maintenance: Arc<MaintenanceAdmission>,
+        maintenance_dispatch: Arc<OnceLock<MaintenanceSender>>,
     ) -> Result<Arc<Self>> {
         let boot = services
             .log
@@ -65,6 +69,8 @@ impl Reporter {
             sender,
             shutdown,
             signaled: OnceLock::new(),
+            maintenance,
+            maintenance_dispatch,
         });
         let worker = reporter.clone();
         crate::asyncrt::try_spawn(async move {
@@ -195,7 +201,16 @@ impl Reporter {
             )
             .await?;
         self.remaining(deadline)?;
+        if request.action == FleetStopAction::Quiesce && self.maintenance_dispatch.get().is_none() {
+            return Err(FleetCatalogError::Invalid(
+                "maintenance application gate unavailable",
+            ));
+        }
         let update = match request.action {
+            FleetStopAction::Quiesce => LifecycleUpdate::Quiesce {
+                selector: request.selector.clone(),
+                deadline,
+            },
             FleetStopAction::Stop => LifecycleUpdate::Stop {
                 selector: request.selector.clone(),
                 deadline,
@@ -209,6 +224,30 @@ impl Reporter {
             },
         };
         self.log.update_lifecycle(update).await.map_err(log_error)?;
+        if request.action == FleetStopAction::Quiesce {
+            self.maintenance.begin(&request.selector)?;
+            let (reply, response) = oneshot::channel();
+            self.maintenance_dispatch
+                .get()
+                .ok_or(FleetCatalogError::Closed)?
+                .try_send(MaintenanceCommand {
+                    selector: request.selector.clone(),
+                    deadline,
+                    reply,
+                })
+                .map_err(|_| FleetCatalogError::Unconfirmed)?;
+            crate::asyncrt::timeout(self.remaining(deadline)?, response)
+                .await
+                .map_err(|_| FleetCatalogError::Unconfirmed)?
+                .map_err(|_| FleetCatalogError::Unconfirmed)??;
+            self.remaining(deadline)?;
+            if !self.maintenance.matches(&request.selector) {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
+        if request.action == FleetStopAction::Fence {
+            self.maintenance.fence(&request.selector)?;
+        }
         if request.action == FleetStopAction::Stop {
             signal_stop(&self.signaled, &self.shutdown)?;
         }

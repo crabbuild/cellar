@@ -211,7 +211,19 @@ impl NodeRecord {
         Ok(())
     }
 
-    pub(super) fn cancel_restart_preparation(&mut self, operation: [u8; 16]) -> Result<()> {
+    pub(super) fn advance_restart_gate(&mut self, operation: [u8; 16]) -> Result<()> {
+        if self.state != FleetNodeState::RestartPending
+            || self.operation != Some(operation)
+            || self.boot.is_none()
+            || self.isolation.is_some()
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        self.epoch = self.epoch.checked_add(1).ok_or(FleetCatalogError::Limit)?;
+        Ok(())
+    }
+
+    pub(super) fn cancel_restart(&mut self, operation: [u8; 16]) -> Result<()> {
         if self.state != FleetNodeState::RestartPending
             || self.operation != Some(operation)
             || self.isolation.is_some()

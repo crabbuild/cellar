@@ -65,6 +65,7 @@ mod event_resources;
 mod event_state;
 mod event_wait;
 mod ingress;
+mod maintenance;
 pub(crate) mod operations;
 mod raft_metrics;
 mod raft_startup;
@@ -3344,7 +3345,7 @@ where
     }
     let mut result = match path.as_str() {
         "/.well-known/cellar/health"
-            if !app.is_draining() && app.fleet_ready() && app.healthy().await =>
+            if !app.public_admission_closed() && app.fleet_ready() && app.healthy().await =>
         {
             response(StatusCode::OK, "{\"ok\":true}")
         }
@@ -3368,6 +3369,21 @@ async fn handle_internal(
 ) -> Result<HttpReply, Infallible> {
     let path = request.uri().path().to_string();
     let draining = app.is_draining();
+    let _maintenance_admission = if path.starts_with("/do/")
+        || path.starts_with("/cell/")
+        || path.starts_with("/runtime/")
+        || path == "/peer/tunnel"
+    {
+        let Some(guard) = app.admit_peer_application() else {
+            return Ok(peer_response(response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "{\"ok\":false,\"maintenance\":true}",
+            )));
+        };
+        Some(guard)
+    } else {
+        None
+    };
     let do_scope = path.strip_prefix("/do/");
     let cell_scope = path.strip_prefix("/cell/");
     let evict_scope = path.strip_prefix("/evict/");

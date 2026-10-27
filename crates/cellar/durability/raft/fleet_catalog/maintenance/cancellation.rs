@@ -28,7 +28,7 @@ impl Cancellation {
         self.origin.validate(catalog)?;
         self.node.validate(&catalog.inner)?;
         let mut expected = self.origin.node.clone();
-        expected.cancel_restart_preparation(self.request.operation)?;
+        expected.cancel_restart(self.request.operation)?;
         if self.format != 1
             || self.input_root == [0; 32]
             || self.disruption != hash(&encode(super::records::KIND, &self.origin, 4096)?)
@@ -137,7 +137,7 @@ impl FleetCatalog {
             if node != origin.node {
                 return Err(FleetCatalogError::Conflict);
             }
-            node.cancel_restart_preparation(request.identity.operation)?;
+            node.cancel_restart(request.identity.operation)?;
             let record = Cancellation {
                 format: 1,
                 request: request.identity.clone(),

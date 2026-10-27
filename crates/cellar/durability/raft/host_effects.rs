@@ -53,7 +53,7 @@ impl Driver {
             || owner.busy.is_some()
             || now < owner.next_at
             || self.closing.load(Ordering::Acquire)
-            || self.local.admission.is_draining()
+            || self.local.admission.application_paused()
         {
             return;
         }
@@ -150,7 +150,7 @@ impl Driver {
         {
             return;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.application_paused() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -223,7 +223,7 @@ impl Driver {
         if let Some(cell) = self.cells.get_mut(&scope) {
             cell.sql_busy = false;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.application_paused() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -304,7 +304,9 @@ impl Driver {
         // current-term readiness. It cannot rebind an unresolved old producer.
         let admission = self.local.admission.clone();
         let work = {
-            let Ok(registration) = admission.registration(false) else {
+            let Ok(registration) = admission
+                .registration(crate::application::consensus::admission::Access::Application)
+            else {
                 self.finish_effect_turn(sequence);
                 return;
             };
@@ -456,7 +458,7 @@ async fn deliver_owned(
             return Err(CommandFailure::Unavailable);
         }
         if send.is_none() {
-            if admission.is_draining() {
+            if admission.application_paused() {
                 return Err(CommandFailure::Unavailable);
             }
             send = Some(sink.deliver(request.clone()));

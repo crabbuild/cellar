@@ -2,12 +2,16 @@
 
 //! Durable preparation for an intact-engine restart. Admission is not readiness.
 mod cancellation;
+mod gate;
+mod gate_cancel;
 mod records;
 use super::evacuation::CanonicalRequest;
 use super::histories::validate_request;
 use super::*;
 use crate::raft::catalog::NamespaceCatalog;
 use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
+pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
+pub use gate_cancel::FleetRestartGateCancelRequest;
 pub(super) use records::{Record, KIND};
 
 /// Exact human intent. Grace postpones replacement only after owned stop is

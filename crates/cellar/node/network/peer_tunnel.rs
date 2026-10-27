@@ -170,6 +170,12 @@ async fn serve_do(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
     let service = service_fn(move |mut inner: Request<Incoming>| {
         let app = app.clone();
         async move {
+            let Some(_maintenance_admission) = app.admit_peer_application() else {
+                return Ok::<_, Infallible>(peer_response(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{\"ok\":false,\"maintenance\":true}",
+                )));
+            };
             let Some(scope) = inner
                 .headers()
                 .get(SCOPE_HEADER)
@@ -642,6 +648,12 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
     let service = service_fn(move |inner: Request<Incoming>| {
         let app = app.clone();
         async move {
+            let Some(_maintenance_admission) = app.admit_peer_application() else {
+                return Ok::<_, Infallible>(peer_response(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{\"ok\":false,\"maintenance\":true}",
+                )));
+            };
             let authority = match inner.headers().get(AUTHORITY_HEADER) {
                 None => None,
                 Some(header) => {
