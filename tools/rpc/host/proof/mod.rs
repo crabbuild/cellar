@@ -36,6 +36,7 @@ mod fault_tests;
 use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::*};
 use faults::{Gate, Peer, Release, Store};
+use futures_util::FutureExt as _;
 use serde_json::{json, Value};
 use std::{
     collections::BTreeSet,
@@ -200,6 +201,15 @@ async fn warm(
     .context("proof warmup did not finish within discovery budget")?
 }
 
+fn warm_error(owner: &mut Node, error: anyhow::Error) -> anyhow::Error {
+    let closed = owner.is_closed();
+    let outcome = owner.finished().now_or_never();
+    error.context(format!(
+        "proof owner before failure cleanup: closed={closed} outcome={outcome:?}; outbound={:?} inbound={:?}",
+        owner.services().outbound_rpc_usage(), owner.services().inbound_rpc_usage(),
+    ))
+}
+
 async fn case(
     app: Arc<Composite>,
     client: &reqwest::Client,
@@ -239,7 +249,9 @@ async fn case(
     // Certify the existing one-follower ensemble before starting a third node.
     // This reproduces late recruitment through the real background driver.
     let mut baseline = 0_i64;
-    warm(client, &owner_url, provider, &controls, &mut baseline, 1).await?;
+    warm(client, &owner_url, provider, &controls, &mut baseline, 1)
+        .await
+        .map_err(|error| warm_error(&mut owner, error))?;
     let initial_members = controls.peers.members.lock().unwrap().clone();
     ensure!(
         initial_members == BTreeSet::from(["proof-ingress".into()]),
@@ -255,7 +267,9 @@ async fn case(
     .await?;
     // Each warmup is a distinct acknowledged command, not a retry of a failed
     // mutation. Establish both actual peer members before withholding proof.
-    warm(client, &owner_url, provider, &controls, &mut baseline, 2).await?;
+    warm(client, &owner_url, provider, &controls, &mut baseline, 2)
+        .await
+        .map_err(|error| warm_error(&mut owner, error))?;
     let members = controls.peers.members.lock().unwrap().clone();
     ensure!(
         members == BTreeSet::from(["proof-ingress".into(), "proof-replica".into()]),

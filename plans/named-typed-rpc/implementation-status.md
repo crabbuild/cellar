@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Head `dcb66fd2` passes both typed-RPC jobs, including the full failure driver, and SDK GIL. SDK free-threaded fails the S3 seed crash matrix with `NotLeader` before its after-attachment cut; JavaScript CI is cancelled. The current checkpoint source passes that exact seed matrix locally. Preserve the failure and earlier lease-write traces; require fresh hosted results for the checkpoint fix and diagnose remaining failures. |
+| P0 — hosted verification | Final hosted gates | Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow, including adapters, streaming/restart, package delivery, agent recovery and fleet recovery. Fresh typed-RPC, SDK and Python-example gates remain queued/pending. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 112 cases and peer faults 80. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest RPC controls now have a 16 KiB raw wire cap, flat unique fields and pre-parse decode reservations retained with native work. A measured allocation regression covers escaped-string scratch growth; 48 live cases prove refusal before provider entry and fresh generated-call progress. Finish other effective minima, backing copies, decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
-| P1 | Language/profile coverage | Both local CPython modes pass all 19 existing Counter/failure suites and the separate 576-call profile; both hosted modes now pass those gates too. The actual loaded interpreter, GIL state and pinned Protobuf backend are checked before/after each completed matrix, with joined runtimes and zero bridge reservations. Complete remaining descriptor semantics and broader regression qualification; fresh checkpoint-source profiles pass in both modes. |
+| P1 | Language/profile coverage | Earlier source passes all 19 Counter/failure suites locally and in both hosted CPython modes. Current `8f8c93d3` passes both 576-call profiles and expanded provenance suites, but both complete local drivers fail during owner warmup. Diagnostic-only reruns pass 32 recovery and 64 proof cases per mode without reproducing those failures. Loaded interpreter/GIL/backend checks and joined-runtime/resource invariants remain required; full current-source qualification stays open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -73,6 +73,67 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Current complete failure drivers fail before their intended faults.**
+  At `8f8c93d3`, the GIL run closes its HTTP connection during
+  `recovery/replaced_root/python->rust` warmup; the free-threaded run receives
+  connection refusal during `proof/fence_sync/rust->rust` warmup. Neither has
+  yet applied the selected recovery fault or proof fence. Both terminate with
+  host failure and zero reported Python tasks, objects, threads, native
+  invocations, pending operations, bridge bytes and bridge reservations. Those
+  cleanup counters do not identify the underlying owner failure.
+
+  The modes run concurrently; a separate diagnostic Cargo build overlaps part
+  of the run. Original deadlines remain unchanged. GIL exits after 672.385 s;
+  free-threaded exits after 1,008.161 s. No complete success report is published.
+  All 3,730 watched source/fixture hashes and both preserved executable hashes
+  remain unchanged. The manifest SHA-256 is
+  `8d931857b24bf9517461bb6e437826c03e3ae47d6cbc72a401c345400d22b066`.
+  Logs and run metadata are preserved under
+  `.cellar/rpc/diagnostics/raw-provenance-full-v1/`.
+
+  Qualification diagnostics now observe the isolated owner's exit status and
+  at most 16 KiB of its log before process/temp-directory cleanup. Embedded
+  proof owners instead report domain closure, a nonblocking node-outcome
+  observation and admission counters. This changes neither deadlines nor
+  replay behavior. Both diagnostic executables pass 40 qualifier guards,
+  all-target Clippy, 32 recovery cases and 64 proof cases, with mode audits,
+  joined runtimes and zero bridge reservations. The complete source/executable
+  hash audit passes. These focused repetitions do not establish a cause or fix
+  for the full-driver failures.
+
+  | Preserved artifact SHA-256 | GIL | Free-threaded |
+  | --- | --- | --- |
+  | Original failing full-run log | `ed6d64a5ba9ab393026ae8e3f99f26b2a34e7f6d5ad48f7df31437032de99036` | `def17d74b4ffc74ca095841c46f6da3e07052115b5cda1f30cbfec09899e9ff0` |
+  | Diagnostic executable | `1dc8bd1588a37fd1599735b59c3deb274b1007c3521d414632c2bf40e4ca942a` | `2849bc0eb93e4861bbace45ceb3df931709f9f95aa24edefe123abf6f749f271` |
+  | Diagnostic recovery report | `ab8907a986011a82a55995ef0642760dbfbcfd258cd838366822f9d0255f337e` | `935cf87afe86ff93be1daf8a247deeffcbef5001a6d2847119f4658b6987f631` |
+  | Diagnostic proof report | `df4a6546a877f3297ecd536241ab058eb72072490835a64407c38ae832d8774d` | `ba98aee9bcbc3cbb5976c9ccf3e0063c17fa2b2684ec8f3b3c3905c6e36aff6f` |
+
+  The diagnostic manifest SHA-256 is
+  `3605ece9b831e4089ffefb262eb5d0a3f3dc6de20b76113e56f27a2ef2eb6a41`;
+  commands, timings and reports are under `.cellar/rpc/owner-observer-v1-*`.
+  Separately, the complete [JavaScript/Node SDK workflow at this production
+  head](https://github.com/crabbuild/cellar/actions/runs/40561669107) passes.
+  This is hosted regression evidence, not an explanation of earlier timing
+  failures or a full typed-RPC qualification.
+
+- **Held local replies need separate response/codec accounting.**
+  An isolated native-host probe submits four generated typed calls with tiny
+  requests, releases their providers, and holds result consumers before reply
+  conversion. It observes 2,097,612 bytes of encoded response payload retained
+  inside the queued results, four source requests and 264,920 reserved request
+  bytes, while receiving-peer counters remain zero. Both consuming those
+  results and cancelling the unconsumed futures release all observed payload
+  ownership and source reservations; fresh calls progress and nodes drain.
+
+  RuntimePolicy documents a request allowance, so this is not a violation of
+  that allowance. It identifies a separate response/codec qualification seam.
+  The ignored standalone probe has its own lockfile and is diagnostic evidence,
+  not the main locked build, allocator-capacity, decoded-graph or RSS proof.
+  Its source, executable, command and report are retained in
+  `.cellar/rpc/local-response-probe/`; report SHA-256 is
+  `24154d6f47a7f3f058e264a23d7df648eb9eaa7648479231440f243643c643be`.
+  Broader local/peer response budgets and effective minima remain P0 work.
 
 - **Raw native replies cannot forge rollback proof after application entry.**
   A real native cell commits and syncs its count/receipt, then bypasses
