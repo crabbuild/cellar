@@ -252,6 +252,7 @@ class WorkerDirectoryOwnership(unittest.TestCase):
             owned = []
             with self.assertRaisesRegex(RuntimeError, 'interrupted'):
                 with worker_environment(parent, evidence, physical=True) as (env, owned):
+                    self.assertEqual(env['CELLAR_RECOVERY_KEEP_NODE_STATE'], '0')
                     self.assertEqual(env['CELLAR_LARGE_IMAGE_FIXTURE'], str(fixture))
                     self.assertEqual(len(owned), 2)
                     for path in owned:
@@ -264,6 +265,7 @@ class WorkerDirectoryOwnership(unittest.TestCase):
     def test_explicit_retention_preserves_just_its_own_worker_data(self):
         with tempfile.TemporaryDirectory() as directory:
             with worker_environment({}, Path(directory), physical=False, keep=True) as (env, owned):
+                self.assertEqual(env['CELLAR_RECOVERY_KEEP_NODE_STATE'], '1')
                 self.assertEqual(env['CELLAR_RECOVERY_WORKDIR'], str(owned[0]))
                 (owned[0] / 'local.sqlite').write_bytes(b'diagnostic state')
             self.assertEqual((owned[0] / 'local.sqlite').read_bytes(), b'diagnostic state')

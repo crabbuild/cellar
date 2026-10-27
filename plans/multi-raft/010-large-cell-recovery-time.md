@@ -4,8 +4,8 @@
 
 Status: proposed implementation strategy; no recovery-time target is qualified.
 Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
-Priority P1; effort L; correctness risk HIGH. RT-01 is in progress; RT-02 through RT-06
-remain TODO. Implement them in dependency order and record evidence before
+Priority P1; effort L; correctness risk HIGH. RT-01 and RT-02 are in progress;
+RT-03 through RT-06 remain TODO. Implement them in dependency order and record evidence before
 updating their status. This plan does not close the existing MR or R1–R9 gates.
 
 The deliverable is faster, fault-safe native peer and RustFS recovery, through
@@ -167,7 +167,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | Package | Deliverable | Depends on | Effort / risk | Status |
 | --- | --- | --- | --- | --- |
 | RT-01 | Stage evidence and a focused cold-recovery oracle | Existing materialized functional passes | M / medium | IN PROGRESS |
-| RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | TODO |
+| RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
 | RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | TODO |
 | RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | TODO |
 | RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
@@ -218,6 +218,37 @@ source, in 29.76 seconds; the three physical cases remain ignored. The focused
 native target also passes Clippy with warnings denied. Repeated source-bound
 pilots and new physical stage measurements remain open.
 
+At `605cd8e5`, three separate 12 MiB peer trials passed (failure-to-first-write
+median 3.929074 s, maximum 5.884990 s), and three 272 MiB RustFS trials passed
+(median 17.926337 s, maximum 18.311141 s). The first full-size peer attribution
+trial passed at 9,999,998,976 bytes: failure-to-first-verified-write 224.186171 s,
+with source encoding 42.329 s, authenticated fetch/append 70.011 s and destination
+verification 61.047 s. Fetch contains 55.342 s of receive time and 14.495 s of
+serial append time. The first write/read-back interval is 26.776 s. The complete
+drill is 694.31 s, including untimed fixture preparation and 52.461 s of cleanup;
+it is not the recovery-time sample. One trial does not establish a percentile
+or qualify the 120-second target.
+
+The matching full-size RustFS trial failed its existing 1,800-second archive
+coverage wait (2,297.15 s complete drill). The stored head remained at index 3,
+before the acknowledged command and repair admission. Replacement restoration
+never started. A new 4 MiB store write succeeded; 719 returned store-write errors
+in that trial's log were expected conditional-create conflicts, and 33 part PUTs
+logged more than five seconds in flight. These observations do not yet prove
+the cause of the publication stall. The failed sample remains in its campaign.
+Archive phase tracing, failure-path observations and a 1,280 MiB diagnostic case
+are being added before reproducing the failure. Full-size RustFS immediate-fault
+recovery and repeated qualification remain open. The separately passing older
+full-capacity functional drills retain their narrower scope.
+
+The RustFS attribution trial included read-only store audits and a fresh 4 MiB
+write probe during/around the observed archive wait. It is diagnostic evidence,
+not a controlled latency comparison; the stall needs an unobserved reproduction
+with the new archive tracing. The source-bound retention probe also found that
+`--keep-node-state` kept an empty parent while Rust TempDir cleanup removed every
+database. The flag now reaches the native fixture. A repeated real small trial
+keeps nine SQLite files while its original-owner erasure check still passes.
+
 1. Extend the existing finite metric families with source admission/encoding,
    fetch queue, actual received bytes, append, destination verification/sync,
    install, tail replay, promotion, first read/write and cleanup observations.
@@ -250,6 +281,18 @@ baseline evidence, not a qualified p95. Do not choose pipeline parameters until
 source/transfer/destination measurements identify the dominant work.
 
 ## RT-02: Remove avoidable materialized-path work
+
+Implementation is isolated on `codex/recovery-transfer-pipeline` while archive
+diagnostics proceed. The peer receiver uses two admitted payload windows and one
+registered physical owner through download, sealing and discard, with a joined
+stop observer and shared memory charge. Native adapters append complete admitted
+windows; injected providers retain the bounded fallback. Six ownership/window
+tests and all 44 native snapshot cases pass. The library passes all 654 cases
+serially; an earlier four-thread run failed one unchanged Python loader-inventory
+case with `No such file or directory`, which also passes in isolation. All-target,
+all-feature Clippy passes with warnings denied. Buffered peer encoding, prepared
+payload reuse and full-size performance comparison remain open; these checks
+establish no recovery-time improvement or target qualification.
 
 1. Where RT-01 proves benefit, select the existing Buffered snapshot codec for
    large peer snapshots under explicit memory admission. Account for codec,
