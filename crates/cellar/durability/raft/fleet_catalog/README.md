@@ -122,6 +122,15 @@ active canonical reservation. A different boot or unrelated history refuses.
 Standalone low-level permits retain their existing API but carry no such pin
 and cannot authorize managed physical placement.
 
+`reconcile_restart_work` composes one explicit bounded settlement turn. Finish
+versus Cancel for undecided births is caller intent, journaled before namespace
+I/O and immutable while active. Its root claim holds gate cancellation until
+the actual namespace winner and root confirmation settle atomically. Unknown
+replies and changed-root conflicts retain that ownership. The exact historical
+`restart_birth_settlement` receipt cannot release later work. Movement services
+and resource-only debits yield typed blockers; charges remain retained. The
+turn's `CatalogClear` result supplies no runtime, survivor or readiness proof.
+
 `enroll_history` registers one already observed immutable birth for import. It
 does not assert that an import is complete, quiesce legacy creators, convert an
 unmanaged namespace or authorize maintenance/removal. The

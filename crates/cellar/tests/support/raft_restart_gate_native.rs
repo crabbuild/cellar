@@ -2,6 +2,9 @@
 
 //! Real reversible public/SDK admission; no readiness or shutdown from a gate.
 use super::*;
+
+#[path = "raft_restart_settler_native.rs"]
+mod settler;
 use cellar::application::consensus::verification::{
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
     FleetRestartRequest,

@@ -154,6 +154,8 @@ impl FleetCatalog {
                 {
                     return Err(FleetCatalogError::PayloadConflict);
                 }
+                self.require_restart_settlement_idle(snapshot, request.identity.operation)
+                    .await?;
                 let mut node = gate.node.clone();
                 node.cancel_restart(request.identity.operation)?;
                 let record = Cancellation {

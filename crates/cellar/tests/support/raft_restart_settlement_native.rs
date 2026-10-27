@@ -4,6 +4,68 @@
 use super::*;
 use cellar::application::consensus::verification::FleetRestartRequest;
 
+use cellar::application::consensus::verification::{
+    FleetRestartBirthResolution, FleetRestartGateRequest, FleetRestartSettlementBlocker,
+    FleetRestartSettlementProgress,
+};
+
+async fn gate(s: &Setup, intent: &FleetRestartRequest) -> Result<ProposalId> {
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let mut identity = Fixture::request(246, root.revision());
+    identity.operation = intent.identity.operation;
+    s.f.catalog
+        .admit_restart_gate(
+            &root,
+            &FleetRestartGateRequest {
+                identity,
+                node: intent.node,
+                expected_process: intent.expected_process,
+                gate: ProposalId::new([248; 16])?,
+            },
+            TIMEOUT,
+        )
+        .await?;
+    Ok(ProposalId::new(intent.identity.operation)?)
+}
+
+struct Evidence {
+    request: FleetMovementExecutionRequest,
+    target: RaftCells,
+    wrong: bool,
+}
+
+impl FleetMovementEvidence for Evidence {
+    fn refresh<'a>(
+        &'a self,
+        movement: &'a FleetPendingMovement,
+        timeout: Duration,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = std::result::Result<FleetMovementExecutionRequest, FleetCatalogError>,
+                > + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move {
+            let view = self
+                .target
+                .observe_node(timeout)
+                .await
+                .map_err(|_| FleetCatalogError::Unconfirmed)?;
+            let mut request = self.request.clone();
+            request.reservation = if self.wrong {
+                [250; 16]
+            } else {
+                movement.reservation
+            };
+            request.attestation.boot = view.fleet_boot.ok_or(FleetCatalogError::Unconfirmed)?;
+            request.attestation.used.engine_slots = view.node.groups;
+            Ok(request)
+        })
+    }
+}
+
 async fn prepare(s: &Setup, node: NodeId) -> Result<FleetRestartRequest> {
     let cut = s.f.catalog.read(TIMEOUT).await?;
     let host = if node == NodeId::new([7; 16])? {
@@ -241,6 +303,160 @@ async fn fleet_restart_settlement_retains_resource_only_obligations() -> Result<
     );
     ensure!(pending.reservations[0].target == NodeId::new([7; 16])?);
     ensure!(reopened.pending_reservations(&cut, TIMEOUT).await?.len() == 1);
+    joined(s.target_node).await?;
+    for running in s.nodes {
+        joined(running.node).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_settler_executes_admitted_movement_and_reports_missing_services(
+) -> Result<()> {
+    let s = Box::pin(Setup::with_capacity(true, 2)).await?;
+    let (cells, _) = running(&s).await?;
+    let (p, movement, _) = reserved(&s, &cells).await?;
+    let request = execution(&s, &movement).await?;
+    let (_observer_root, observer_node, observer) = s.f.peer_host(8).await?;
+    s.f.state(NodeId::new([8; 16])?, FleetNodeState::Active, 244)
+        .await?;
+    let intent = prepare(&s, movement.plan.replacement.node).await?;
+    let operation = gate(&s, &intent).await?;
+    discover(
+        &s.f,
+        &[
+            &s.nodes[0].host,
+            &s.nodes[1].host,
+            &s.nodes[2].host,
+            &s.target,
+            &observer,
+        ],
+    )
+    .await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        matches!(s.f.catalog.reconcile_restart_work(operation, FleetRestartBirthResolution::Cancel,std::slice::from_ref(&s.namespace),None,None,TIMEOUT).await?,FleetRestartSettlementProgress::Blocked(FleetRestartSettlementBlocker::MovementServicesUnavailable {reservation,..}) if reservation==request.reservation)
+    );
+    let wrong = Evidence {
+        request: request.clone(),
+        target: s.target.clone(),
+        wrong: true,
+    };
+    ensure!(matches!(
+        s.f.catalog
+            .reconcile_restart_work(
+                operation,
+                FleetRestartBirthResolution::Cancel,
+                std::slice::from_ref(&s.namespace),
+                Some(&observer),
+                Some(&wrong),
+                TIMEOUT
+            )
+            .await,
+        Err(FleetCatalogError::PayloadConflict)
+    ));
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == root.revision());
+    let evidence = Evidence {
+        request: request.clone(),
+        target: s.target.clone(),
+        wrong: false,
+    };
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT * 4, async {
+            let mut phases = Vec::new();
+            for _ in 0..64 {
+                let catalog = Fixture::open_catalog(&s.f.domain, s.f.store.clone())?;
+                match catalog
+                    .reconcile_restart_work(
+                        operation,
+                        FleetRestartBirthResolution::Cancel,
+                        std::slice::from_ref(&s.namespace),
+                        Some(&observer),
+                        Some(&evidence),
+                        TIMEOUT,
+                    )
+                    .await
+                {
+                    Ok(FleetRestartSettlementProgress::Movement(progress)) => {
+                        phases.push(progress.phase);
+                        if progress.settled {
+                            ensure!(
+                                phases.contains(&FleetMovementPhase::Reserved)
+                                    && phases.contains(&FleetMovementPhase::Seeding)
+                                    && phases.contains(&FleetMovementPhase::Joint)
+                                    && progress.phase == FleetMovementPhase::Complete
+                            );
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                    }
+                    Err(
+                        FleetCatalogError::Conflict
+                        | FleetCatalogError::Unconfirmed
+                        | FleetCatalogError::Overloaded,
+                    ) => (),
+                    other => anyhow::bail!("unexpected settlement result: {other:?}"),
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(20)).await;
+            }
+            anyhow::bail!("settlement turns exhausted: {phases:?}")
+        }))
+        .await???;
+    ensure!(matches!(
+        s.f.catalog
+            .reconcile_restart_work(
+                operation,
+                FleetRestartBirthResolution::Cancel,
+                std::slice::from_ref(&s.namespace),
+                Some(&observer),
+                Some(&evidence),
+                TIMEOUT
+            )
+            .await?,
+        FleetRestartSettlementProgress::CatalogClear { .. }
+    ));
+    let replacement = s.target.cell(
+        movement.resources.group.namespace,
+        &movement.resources.group.cell,
+    )?;
+    write_read(
+        &s.f,
+        &[cells[p].clone(), cells[(p + 2) % 3].clone(), replacement],
+        2,
+        5,
+        12,
+    )
+    .await?;
+    joined(s.target_node).await?;
+    joined(observer_node).await?;
+    for running in s.nodes {
+        joined(running.node).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_restart_settler_reports_resource_only_blocker() -> Result<()> {
+    let s = Box::pin(Setup::with_capacity(true, 2)).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    let resource = s.request(0, 210, root.revision()).await?;
+    s.f.catalog
+        .reserve_resources(
+            &root,
+            &resource,
+            &s.nodes[0].host,
+            std::slice::from_ref(&s.namespace),
+            TIMEOUT,
+        )
+        .await?;
+    let intent = prepare(&s, s.nodes[0].spec.node).await?;
+    let operation = gate(&s, &intent).await?;
+    let root = s.f.catalog.read(TIMEOUT).await?;
+    ensure!(
+        matches!(s.f.catalog.reconcile_restart_work(operation, FleetRestartBirthResolution::Cancel,std::slice::from_ref(&s.namespace),None,None,TIMEOUT).await?,FleetRestartSettlementProgress::Blocked(FleetRestartSettlementBlocker::ResourceOnly {reservation,..}) if reservation==resource.identity.id)
+    );
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == root.revision());
+    let pending = s.f.catalog.pending_reservations(&root, TIMEOUT).await?;
+    ensure!(pending.len() == 1 && pending[0].peak == resource.peak);
     joined(s.target_node).await?;
     for running in s.nodes {
         joined(running.node).await?;

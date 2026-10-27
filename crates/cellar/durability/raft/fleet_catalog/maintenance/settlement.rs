@@ -4,14 +4,15 @@
 use super::*;
 use cellar_logic::consensus::GroupScope;
 
-/// Descriptive work at one current root. Memory is bounded to the next birth
-/// and the active resource book (at most two rows). An empty result proves no
+/// Descriptive work at one current root. Memory is bounded to the next birth,
+/// one owned birth action and the active resource book (at most two rows). An empty result proves no
 /// current health, leadership, worker exit or permission to stop/release debt.
 #[derive(Clone, Debug)]
 pub struct FleetRestartPendingWork {
     pub observed_revision: u64,
     pub pending_births: u64,
     pub next_birth: Option<GroupScope>,
+    pub active_birth: Option<FleetRestartBirthAction>,
     pub movements: Vec<FleetPendingMovement>,
     pub reservations: Vec<FleetPendingReservation>,
 }
@@ -57,7 +58,22 @@ impl FleetCatalog {
                 .run(Box::pin(self.check_inventory_inner(snapshot, namespaces)))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)??;
-            let result = self.restart_pending_work_inner(snapshot, node).await?;
+            let mut result = self.restart_pending_work_inner(snapshot, node).await?;
+            if let Some(action) = self
+                .active_restart_birth(snapshot, operation.bytes())
+                .await?
+            {
+                let history = self.history_inner(snapshot, &action.group).await?;
+                action.check_history(&history)?;
+                result.active_birth = Some(FleetRestartBirthAction {
+                    admission: action.request.id,
+                    resolution: action.resolution,
+                    group: history
+                        .binding()
+                        .scope()
+                        .map_err(|_| FleetCatalogError::Corrupt("restart birth scope"))?,
+                });
+            }
             if self.inner.current().await?.token != snapshot.token {
                 return Err(FleetCatalogError::Conflict);
             }

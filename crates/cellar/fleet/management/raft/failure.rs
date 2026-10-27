@@ -88,6 +88,10 @@ impl From<FleetCatalogError> for RaftFleetFailure {
                 C::Blocked,
                 "Another fleet operation owns the disruption slot.",
             ),
+            FleetCatalogError::SettlementInProgress { .. } => (
+                C::Blocked,
+                "A restart birth decision is unresolved; reconcile settlement before cancellation.",
+            ),
             FleetCatalogError::Resource(_) | FleetCatalogError::Topology(_) => (
                 C::Blocked,
                 "Fleet resource or topology prerequisites are not satisfied.",

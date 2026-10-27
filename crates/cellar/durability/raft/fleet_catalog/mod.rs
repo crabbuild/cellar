@@ -36,8 +36,10 @@ pub use histories::{
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
 pub use maintenance::{
-    FleetRestartAdmission, FleetRestartGateAdmission, FleetRestartGateCancelRequest,
-    FleetRestartGateRequest, FleetRestartPendingWork, FleetRestartRequest,
+    FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
+    FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
+    FleetRestartPendingWork, FleetRestartRequest, FleetRestartSettlementBlocker,
+    FleetRestartSettlementProgress,
 };
 pub use namespaces::FleetInventory;
 pub use nodes::{
@@ -102,6 +104,7 @@ pub enum FleetCatalogError {
     MissingRoot,
     InventoryIncomplete,
     DisruptionInProgress { operation: [u8; 16] },
+    SettlementInProgress { admission: [u8; 16] },
     Limit,
     Overloaded,
     Unconfirmed,
@@ -401,6 +404,7 @@ impl FleetCatalog {
         }
         self.check_isolation_mutation(snapshot, mutation, movement)
             .await?;
+        self.check_restart_settlement_mutation(mutation, movement)?;
         self.check_resource_mutation(snapshot, mutation, movement)
             .await?;
         self.check_topology_mutation(snapshot, mutation, movement)

@@ -14,6 +14,7 @@ impl FleetCatalog {
             observed_revision: snapshot.revision(),
             pending_births: 0,
             next_birth: None,
+            active_birth: None,
             movements: vec![],
             reservations: vec![],
         };
