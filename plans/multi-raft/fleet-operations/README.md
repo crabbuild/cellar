@@ -4,8 +4,8 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. Current-main integration passes 984 selected core/SDK
-cases plus 21 admin tests; deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
+with local verification. The current RestartReady source passes 844 selected
+core/SDK cases; deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
 rebalance, status, progress, wait and cancellation. Explicit add, status,
@@ -33,9 +33,14 @@ publication checks still precede historical candidate completion. Owned
 reconciliation now checks both survivors' matched progress at the actual leader,
 requests an eligible transfer when needed, and retains the history until a
 survivor is observed as leader. Queued work rechecks the synced gate and an
-expiry measured by the Raft owner's clock. Final proof renewal and RestartReady,
-stop/rejoin, rolling execution, maintenance operator surfaces and resize remain
-delivery targets. Graceful departure now reports typed proof waiting without
+expiry measured by the Raft owner's clock, tightened by actual peer sample age.
+The live matched walk can now publish M5 RestartReady after repeating physical
+quiescence/inventory and checking every voting sample at the Root CAS. Clock
+values stay ephemeral. Exact historical receipts survive lost confirmation and
+controller restart; generic catalog writes cannot mint or delete readiness.
+The target remains quiesced in RestartPending with placement excluded and its
+disruption slot held. Guarded stop/rejoin, rolling execution, maintenance operator
+surfaces and resize remain delivery targets. Graceful departure now reports typed proof waiting without
 consuming a history or releasing the disruption slot. Status retains local progress
 only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
 native qualification passes, while the underlying intermittent observation cause

@@ -14,7 +14,64 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
-## Current-main integration and delivery qualification
+## RestartReady M5 delivery
+
+Source `8665f7e3` delivers owned point-in-time RestartReady through the public
+verification SDK. `FleetRestartVerification::publish_ready` accepts only the live
+walk after complete canonical inventory and matched surviving leadership. It
+retains actual peer sample ages in the catalog owner's clock without persisting
+clock values, repeats exact physical quiescence and inventory, checks settlement
+and rooted inputs, and enforces the existing five-second evidence envelope at
+the Root CAS. A historical candidate cannot restore that live authority.
+
+The bounded `restart-ready/` record binds the exact request, process through its
+gate parent, rooted input and candidate digest. Generic catalog mutations cannot
+create, replace or delete this projection. `FleetCatalog::restart_readiness`
+recovers an exact journal-confirmed historical receipt after a lost confirmation
+or controller restart, including after later cancellation. Altered process or
+principal refuses. The target remains RestartPending and quiesced, capacity stays
+excluded and the disruption slot stays held. Readiness supplies no stop, new
+boot, resume or slot-release authority.
+
+Handoff also preserves actual peer sample age when translating the remaining
+freshness budget to the Raft owner's clock. Queued execution cannot renew that
+age. Business write acknowledgement has no new catalog dependency.
+
+**844 distinct current-source cases pass in 844 executions:** eight readiness,
+36 existing restart regressions, 779 library cases including two freshness-budget
+cases, five peer-observation cases, nine native operator cases and seven CLI
+cases. Host/admin all-target Clippy passes with warnings denied. Formatting and
+layout for 1,454 Rust files, native dependency rules, docs, ten plan tests and the
+387-case manifest pass. The audit verifies all **1,548 frozen Rust/Cargo/config
+inputs**, retained executables and result hashes against this source commit.
+The final documentation-only publication also refreshes the 100 reviewed
+preflight anchors.
+
+Artifacts are outside runtime data in `qualification/fleet-operations/` under
+`restart-readiness-v4/` and `restart-readiness-checks-v1/`. Earlier failed probes
+remain retained: fixtures constructed a sleep outside its domain, shared a
+bounded adapter turn, then paired a foreign snapshot with an independent
+adapter; cancellation also needed the authenticated route revision barrier
+following Ready publication. A diagnostic formatting branch failed compilation
+and was corrected. The complete current cohort passes with snapshot/adapter
+pairing and the existing authenticated revision barrier. No timeout, retry,
+stack/startup bound, resource limit or assertion was relaxed.
+
+These are shared-host native tests using the fault-injecting in-process store.
+They do not qualify full CI, deployed RustFS, 1-vCPU/3-GiB enforcement, readiness
+at hundreds of affected cells inside the unchanged freshness bound, TPS/p99 or
+soak. Earlier general quorum Unavailable behavior remains unproven. Broader
+archive/snapshot/Node qualification below belongs to its stated earlier source.
+
+**Next feature priority:** complete M6 exact-process guarded stop and joined
+shutdown, then M7–M9 retained-engine return under a fresh process, catch-up and
+verified capacity resume before slot release, with SDK/admin/CLI exposure.
+Follow with rolling/grace/second-failure behavior, production failure
+classification/isolation, load-aware leadership balancing and desired
+capacity/resize. FO-07 remains in progress until the complete maintenance
+workflow is delivered; the full fleet goal remains active.
+
+## Prior main integration and delivery qualification
 
 Source `7f873686` integrates removal proof waiting from `cbf19149` with main
 `784edc1b`, including the upstream RPC and recovery pipeline changes. The merge
@@ -59,8 +116,8 @@ results. The original intermittent quorum Unavailable cause also remains unprove
 current typed waiting and the full selected operator cohort pass. No new deployed
 RustFS, 1-vCPU/3-GiB, TPS/p99 or soak result is claimed.
 
-The next delivery target remains the complete maintenance workflow: M5 fresh
-RestartReady, M6–M9 separate exact-process stop/join, original-engine return under
+M5 RestartReady is delivered above. The next target is M6–M9 separate
+exact-process stop/join, original-engine return under
 a fresh process, catch-up and verified resume before slot release, exposed through
 SDK/admin/CLI. Then complete rolling/grace/second-failure behavior, production
 failure classification/isolation, load-aware leader balancing and desired
