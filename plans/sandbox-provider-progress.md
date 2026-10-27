@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry and handoff | Richer operations, provider/store outages, partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec streams and actual published Files operations execute against the matching helper, including cross-event binary files, handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors | Complete extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -43,7 +43,7 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure reproduces locally. Linux CI also times out on Container wake after five seconds. Native routing/activation and lifecycle callback stages remain investigation boundaries; no fix is established |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks pass running-node cases plus cold native fleet restart, removed classes, accepted-create owner expiry and handoff. Outages, partitions, physical deletion and remote fencing remain open |
-| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; Node process streams, actual file operations, bounded native handles and original-event authority |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native exec and Files | Independently pinned SDK/helper; automatic byte-source stdin, callback-independent process observations, actual file operations, explicit native handle retirement and original-event authority |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
@@ -1853,3 +1853,78 @@ package, handler/client deadlines, sleep policy or original lifecycle/shutdown
 assertions. No engine request bodies are included. Native activation before DO
 entry, callback/monitor ordering and Node-version differences remain candidate
 boundaries until a reproducing trace distinguishes them.
+
+## Sandbox 1.0.3 streamed stdin and process ownership
+
+The selected Node process profile now accepts
+`stdin: ReadableStream<Uint8Array>`, following the
+[upstream container API](https://developers.cloudflare.com/containers/api/durable-object-container/).
+The [pinned fixture](../tools/sandbox/cloudflare-v1/README.md) uses actual native
+exec with the unchanged published Files implementation and matching helper.
+Stream mode exposes no second stdin writer.
+
+| Boundary | Implemented behavior and evidence |
+| --- | --- |
+| Before allocation | Reserve the source reader, dynamic event retention and active callback ownership. Locked/non-stream/pre-aborted input and retention admission failure refuse before provider effects |
+| Failed allocation | Release the unconsumed source without cancelling it; never replay the command |
+| Pump | Pull one byte chunk, split at the native body limit and await each write acknowledgement; no command or chunk replay after an uncertain response |
+| Cancellation | Early exit, abort and lost authority cancel pending input; queued writes recheck cancellation before dispatch. Source failure starts native retirement while an application cancellation hook remains pending, then joins both |
+| Error provenance | Preserve the original source/write failure over secondary observation or cancellation failures; output quota and ignored-output failures remain failures even after process exit resolves |
+| Callback completion | Retain the accepted callback through input settlement. Admitted process reads/waits and automatic discard drains use the original event and handle authority without borrowing a closed callback's SQL view |
+| Refusal boundary | A new ordinary read from a closed callback refuses before provider dispatch. A forged observation flag on storage cannot grant authority or write a key. Streamed and buffered process allocation inside a transaction return `ValidationError` / `not_committed` with zero source pulls and zero provider calls |
+| Independent storage | Existing process writes, stdin closure, signals and resource release use the native provider control queue without holding the bridge SQLite mutation slot; mutation failure classification, event checks and output proofs remain intact |
+| Signal default | Cloudflare `kill()` defaults to SIGTERM (15); automatic abort/source-failure cleanup explicitly requests SIGKILL (9) |
+
+| Current evidence | Result |
+| --- | --- |
+| Pinned image | Sandbox 1.0.3 helper `sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec`, local amd64 image `sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40` |
+| Source stdin | Exact 2 MiB + 17-byte length/SHA-256 through 64 KiB native chunks; delayed process output after callback completion; nonempty ignored stdout/stderr after callback closure |
+| Capacity reuse | 130 sequential byte echoes exceed both existing handle/retention capacities without widening them; exactly 134 provider allocations on the stdin route exclude the refused transaction |
+| Explicit retirement | A provider decorator counts allocated/released handles independently of session-drop fallback. Every route requires zero active and zero fallback-released handles; final allocation and explicit-release totals match |
+| Safety | Early exit and invalid chunks unlock source readers; late reads and forged storage authority refuse; existing Files/fault/cross-event checks and drained native/Node shutdown remain required |
+| Facade and packaging | 119 JS tooling tests pass, including 21 exec checks, two TypeScript checks and packed-facade imports; both SDK/helper input identity/drift checks pass |
+| Native runtime | 83 Node/V8 library checks, including a new held-I/O/storage-admission regression, pass. The affected adapter/Worker/RPC/HTTP/WebSocket campaign passes 116 checks and reproduces one existing cold-module failure |
+| Quality | Strict Node/V8 all-target Clippy, 1,215-source Rust format/layout, 103-source JS formatting, docs/816 references and the 466-package native dependency guard pass |
+
+Failed controls preserved during development include the callback-owned process
+wait being cancelled, a secondary `Cancelled` masking the source `TypeError`,
+nonempty automatic discard reads failing after callback closure, native cleanup
+waiting for an application cancel hook, a missing packed helper file, and
+ignored stderr failure becoming successful output after exit. Each now has a
+specific implementation change and regression evidence. An initial fixture
+expected `Validation` rather than the authoritative `ValidationError`; correcting
+that literal preserved the zero-dispatch/source-pull assertions.
+
+The image campaign retains its 120-second native handler budget, 30-second JS
+budget, 2,048 guest operations and original two-second heartbeat. The 250 ms
+module budget still fails in the wider local sequence; this delivery does not
+resolve it or the earlier heartbeat failure. Stream cancellation is not rollback
+or a hard remote stop. Embedded V8 web streams, the rest of Sandbox 1.x,
+live E2B/Vercel and the full SP-07–SP-10 qualification remain open.
+
+## Linux published-Container wake correction
+
+The [Linux CI trace on `ebe31c33`](https://github.com/crabbuild/cellar/actions/runs/40464869264/job/122057748996)
+reproduced the five-second wake failure after native startup, before `onStart`.
+The lifecycle fixture declares port 8080 but used a peer listening on a random
+port. macOS's published port mapping reached that listener; Linux correctly
+connected to the inspected IP and requested container port, which had no listener.
+The fixture now uses `Peer::start_with_http_port(8080)`, as the unchanged
+published-container routing fixture already does. No production routing or
+upstream package behavior changes.
+
+| Comparison | Result |
+| --- | --- |
+| Linux arm64, original peer | Same first `/wake` timeout at 5.0026 seconds, no `onStart`, two retained invocations before cleanup; shutdown still joins |
+| Same Linux environment, corrected peer | Four sleep/wake cycles across native/Node restart pass; original hook counts, stop parameters, cleared alarms and drain assertions remain intact |
+| Corrected peer, full Linux module sequence | All five tests pass, including lifecycle, module recovery, port isolation, overlapping alarms and unchanged published container routes |
+| Tools and limits | Rust 1.98.1, Node 24.21.0, two Tokio workers; unchanged five-second handler/client deadlines and published one-second sleep policy |
+| Build environment | The initial 4 GiB VM exhausted compiler memory before tests. The controlled comparison uses an isolated 8 GiB VM and one build job, with a checkout-specific target directory; this changes no application/provider resource limit |
+
+The separate 250 ms first module call still fails in the wider macOS campaign.
+On `ebe31c33`, both SDK CI Python variants also fail
+`settlement_race_expiry_replacement_refuses_old_ack_and_extension`: old ack and
+extend calls return `Ambiguous` after a closed peer transport rather than the
+expected `StaleReceipt`. That native event-delivery qualification and the earlier
+two-second Node heartbeat failure remain open; the port correction does not
+claim to fix them.

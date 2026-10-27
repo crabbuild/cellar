@@ -66,7 +66,7 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
 | Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
 | Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream, RPC binary SDK upload and selected HTTP/WebSocket preview paths pass; complete lifetime/fault qualification pending |
-| Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Selected Node exec/Files operations pass with the pinned 1.0.3 helper/image; full profile partial |
+| Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Selected Node exec/Files operations and automatic byte-source stdin pass with the pinned 1.0.3 helper/image; full profile partial |
 | Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Experimental bounded exec/files; live-account qualification pending |
 | Daytona / Modal | Same portable operations plus declared extensions | Provider adapters and durable remote bindings | Planned |
 | Dynamic Workers | Isolated module execution with explicit bindings and limits | Separate optional runtime capability; hosted Worker gateway if selected | Planned extension |
@@ -198,9 +198,9 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Cold-first-call investigation and remaining failure/cancellation/timeouts | The original 250 ms module failure reproduces locally, and Linux CI has a five-second Container wake timeout. Neither has an established fix; the earlier 2 s heartbeat failure also remains open. RPC error-size, container PID and firewall-cache OOM failures have specific fixes and differential evidence |
+| 1 — qualification | Cold-first-call, event-settlement transport and remaining failure/cancellation/timeouts | Cold 250 ms dispatch failures and the earlier 2 s heartbeat remain open; both SDK CI variants return `Ambiguous` in the stale-receipt race. Linux wake now has a verified port-8080 fixture fix; differential evidence for resolved failures is in the ledger |
 | 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Store/provider outages, partitions, deletion and provider-enforced fencing remain open |
-| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice has independent SDK/helper inputs and native-image evidence; remaining APIs require explicit operation/version and failure evidence |
+| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | The selected Node exec/Files slice now includes byte-source stdin, callback-independent observations and explicit handle retirement with independent SDK/helper/image evidence; remaining APIs require explicit operation/version and failure evidence |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06
