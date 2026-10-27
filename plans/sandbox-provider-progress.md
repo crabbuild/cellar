@@ -399,11 +399,38 @@ use the same alias path rather than assuming every reported digest is fetchable.
 | Environment | Original Rust image, VM configuration checksum and Docker default context are preserved |
 | Linux follow-up | Fresh head CI remains required for the corrected runner |
 
-At preceding head `7ba5ffa1`, Linux JavaScript/Node and all four Python-example
-jobs pass. The free-threaded typed-RPC job also passes its complete campaign;
-the standard typed-RPC job and both SDK jobs are still running. This new pass
+At preceding head `7ba5ffa1`, Linux JavaScript/Node, all four Python-example jobs
+and both standard/free-threaded typed-RPC campaigns pass. Both SDK jobs are
+still running. These new passes
 does not establish the cause or repair of the earlier Linux free-threaded
 failure. The full provider profiles and original goal remain active.
+
+## Joined native inactivity cleanup — 2026-10-27
+
+A native regression reproduced an idle-lifetime defect: reconnect cleared the
+stored task handle, but dropping that handle detached the timer. Its old deadline
+later deleted the successfully reactivated container. The new cooperative
+sweeper signals cancellation and joins before successful reconnect returns.
+Cancellation is admitted while sleeping or waiting for SDK control; an entered
+Engine deletion finishes before a reconnect or timer replacement can proceed.
+
+| Native boundary | Evidence |
+| --- | --- |
+| Successful reconnect | Resource remains live beyond its previous idle deadline; a later idle eviction still removes it |
+| Replacement inactivity window | Old timer retires; removal follows the new window |
+| Entered deletion | Hold the actual Engine peer's delete acknowledgement; reconnect waits, then returns a new nonrunning handle after removal completes |
+| Failed adoption | Foreign name discovery refuses while the original immutable resource's deadline still removes it; the foreign replacement survives |
+| Explicit release | A separate pre-fix regression retains the removed cell through a pending 60-second timer; after cancellation/join, the weak resource handle retires before shutdown |
+| Original contracts | Ownership/durability, exec/files/ports, host isolation, restart cleanup and renamed-resource identity cases all pass |
+| Current native campaign | Eight tests pass; original assertions and budgets remain unchanged |
+| Language adapters | Both Node/V8 container capability cases and all five published module/routing/sleep-wake/hook/restart cases pass after the final release correction |
+| Quality | Strict native all-feature library/test Clippy; 1,288-file Rust format/layout, 481-package native-only dependency guard, docs and whitespace checks pass |
+
+This fixes native inactivity ownership; it does not complete production network
+helper integration, remote hard fencing, physical provider deletion or any
+remaining versioned provider profile. The next feature priority remains owned
+helper/application lifetime and generation-bound routing, then actual published
+Sandbox helper backup/restore and mounts.
 
 ## Verified implementation details
 

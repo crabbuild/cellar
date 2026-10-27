@@ -41,6 +41,7 @@ mod exec_options;
 mod exec_stream;
 pub use exec_options::{ExecParams, TerminalSize};
 mod files;
+mod idle;
 mod ports;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 pub use ports::validate_exposed_ports;
@@ -262,8 +263,8 @@ struct CellState {
     /// the published loopback ports elsewhere.
     address: Address,
     inactivity: Option<Duration>,
-    /// The pending destroy after an idle eviction. Dropping it cancels.
-    sweeper: Option<asyncrt::TaskHandle<()>>,
+    /// Cooperative removal after idle eviction; dropped owners signal cancel.
+    sweeper: Option<idle::Sweeper>,
     /// Bumped per start so a wait from a previous run cannot report for
     /// this one.
     run: u64,
@@ -1260,10 +1261,11 @@ impl ContainerEngine {
             None => None,
         };
         if let Some(cell) = &previous {
-            // Cancel idle cleanup only after any cleanup already executing has
-            // finished. Cancelling it halfway through removal loses that fence.
-            cell.state.lock().unwrap().sweeper = None;
             if cell.spec.as_ref() != spec.as_ref() {
+                let sweeper = cell.state.lock().unwrap().sweeper.take();
+                if let Some(sweeper) = sweeper {
+                    sweeper.cancel_and_join().await?;
+                }
                 self.forget_locked(cell).await?;
             }
         }
@@ -1281,8 +1283,6 @@ impl ContainerEngine {
                     exits: Default::default(),
                 })
             });
-            // A returning cell cancels the destroy its eviction armed.
-            cell.state.lock().unwrap().sweeper = None;
             cell.clone()
         };
         let _new_control = if previous
@@ -1333,6 +1333,13 @@ impl ContainerEngine {
                 state.running = false;
                 state.address = Address::None;
             }
+        }
+        // Adoption must succeed before cancelling the backstop. The SDK lock
+        // guarantees any removal already executing has finished; a queued or
+        // sleeping sweeper observes cancellation and joins without effects.
+        let sweeper = cell.state.lock().unwrap().sweeper.take();
+        if let Some(sweeper) = sweeper {
+            sweeper.cancel_and_join().await?;
         }
         drop(_new_control);
         Ok(cell)
@@ -1935,27 +1942,24 @@ impl ContainerEngine {
         };
         match release {
             Release::Keep => {
+                let _control = cell.sdk_control.lock().await;
+                if !self
+                    .cell(scope)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &cell))
+                {
+                    return Ok(());
+                }
                 let window = cell
                     .state
                     .lock()
                     .unwrap()
                     .inactivity
                     .unwrap_or(DEFAULT_INACTIVITY);
-                let engine = self.clone();
-                let cell_ = cell.clone();
-                let sweeper = asyncrt::spawn(async move {
-                    asyncrt::sleep(window).await;
-                    loop {
-                        match engine.forget(&cell_).await {
-                            Ok(()) => break,
-                            Err(error) => {
-                                tracing::warn!(cell = %cell_.scope, %error, "idle container removal failed; retrying")
-                            }
-                        }
-                        asyncrt::sleep(Duration::from_secs(30)).await;
-                    }
-                });
-                cell.state.lock().unwrap().sweeper = Some(sweeper);
+                let sweeper = idle::Sweeper::start(self.clone(), cell.clone(), window);
+                let previous = cell.state.lock().unwrap().sweeper.replace(sweeper);
+                if let Some(previous) = previous {
+                    previous.cancel_and_join().await?;
+                }
             }
             Release::Destroy => self.forget(&cell).await?,
         }
@@ -1964,6 +1968,10 @@ impl ContainerEngine {
 
     async fn forget(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         let _control = cell.sdk_control.lock().await;
+        let sweeper = cell.state.lock().unwrap().sweeper.take();
+        if let Some(sweeper) = sweeper {
+            sweeper.cancel_and_join().await?;
+        }
         self.forget_locked(cell).await
     }
 

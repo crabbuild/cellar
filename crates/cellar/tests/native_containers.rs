@@ -976,7 +976,66 @@ async fn owned_container_domains() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn renamed_resource_and_foreign_name_reuse_preserve_run_identity() -> Result<()> {
-    tokio::time::timeout(Duration::from_secs(30), immutable_resource_identity()).await?
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::NameReuse),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_name_adoption_preserves_owned_idle_cleanup() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::FailedAdoptionExpiry),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn successful_reactivation_cancels_only_its_previous_idle_cleanup() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::Reactivation),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replacing_inactivity_window_retires_the_old_timer() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::ReplacementWindow),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reactivation_joins_idle_removal_already_admitted_by_the_engine() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::AdmittedRemoval),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_release_joins_a_pending_idle_timer() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::ExplicitRelease),
+    )
+    .await?
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IdentityScenario {
+    NameReuse,
+    FailedAdoptionExpiry,
+    Reactivation,
+    ReplacementWindow,
+    AdmittedRemoval,
+    ExplicitRelease,
 }
 
 fn completed_identity_peer_connection(
@@ -1006,7 +1065,7 @@ fn completed_identity_peer_connection(
     }
 }
 
-async fn immutable_resource_identity() -> Result<()> {
+async fn immutable_resource_identity(scenario: IdentityScenario) -> Result<()> {
     let directory = tempfile::tempdir_in("/tmp")?;
     let socket = directory.path().join("engine.sock");
     let listener = tokio::net::UnixListener::bind(&socket)?;
@@ -1040,13 +1099,14 @@ async fn immutable_resource_identity() -> Result<()> {
     let mut foreign = None;
     let result = async {
         let scope = "Sandbox:same-business-id";
+        let probe = Arc::new(Probe::default());
         let host = embedded_container_host(
             &domain,
             &directory.path().join("cells"),
             &socket,
             &cellar::container::image_reference(&"c".repeat(64)),
             "runc",
-            Arc::new(Probe::default()),
+            probe.clone(),
         )
         .await?;
         let started = domain.run(call(&host, scope, "/start")).await??;
@@ -1067,6 +1127,112 @@ async fn immutable_resource_identity() -> Result<()> {
             .unwrap()
             .clone();
         let original = peer.resource_id(&name);
+        if scenario == IdentityScenario::ExplicitRelease {
+            cell.set_inactivity(Duration::from_secs(60));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            let retired = Arc::downgrade(&cell);
+            domain
+                .run(engine.release(scope, cellar::container::Release::Destroy))
+                .await??;
+            domain.run(host.swap_out_cell(scope, 1)).await??;
+            probe.container.lock().unwrap().take();
+            probe.context.lock().unwrap().take();
+            drop(cell);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while retired.upgrade().is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("explicit release retained the removed cell until its idle deadline")?;
+            anyhow::ensure!(!peer.containers.lock().unwrap().contains_key(&name));
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        if scenario == IdentityScenario::AdmittedRemoval {
+            let (release, waiting) = watch::channel(false);
+            *peer.destroy_gate.lock().unwrap() = Some(waiting);
+            cell.set_inactivity(Duration::ZERO);
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !peer.destroy_entered.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("idle removal did not enter the Engine")?;
+            let mut adoption = Box::pin(domain.run(engine.attach(scope, "Sandbox")));
+            anyhow::ensure!(
+                tokio::time::timeout(Duration::from_millis(100), adoption.as_mut())
+                    .await
+                    .is_err(),
+                "reactivation interrupted an entered idle removal"
+            );
+            release.send_replace(true);
+            let adopted = tokio::time::timeout(Duration::from_secs(2), adoption).await???;
+            anyhow::ensure!(
+                !Arc::ptr_eq(&adopted, &cell)
+                    && !adopted.running()
+                    && engine
+                        .cell(scope)
+                        .is_some_and(|current| Arc::ptr_eq(&current, &adopted))
+                    && !peer.containers.lock().unwrap().contains_key(&name),
+                "reactivation reused the resource after its joined removal"
+            );
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        if matches!(
+            scenario,
+            IdentityScenario::Reactivation | IdentityScenario::ReplacementWindow
+        ) {
+            cell.set_inactivity(Duration::from_millis(500));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            if scenario == IdentityScenario::Reactivation {
+                let reactivated = domain.run(engine.attach(scope, "Sandbox")).await??;
+                anyhow::ensure!(
+                    Arc::ptr_eq(&cell, &reactivated),
+                    "reactivation changed the cell handle"
+                );
+            } else {
+                cell.set_inactivity(Duration::from_secs(2));
+                domain
+                    .run(engine.release(scope, cellar::container::Release::Keep))
+                    .await??;
+            }
+            // Observe beyond the old deadline; the successful reactivation
+            // must leave no timer that can delete its live resource.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            anyhow::ensure!(
+                engine
+                    .cell(scope)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &cell))
+                    && cell.running()
+                    && peer.containers.lock().unwrap().contains_key(&name),
+                "the previous idle timer removed a successfully reactivated container"
+            );
+            if scenario == IdentityScenario::Reactivation {
+                domain
+                    .run(engine.release(scope, cellar::container::Release::Keep))
+                    .await??;
+            }
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while engine.cell(scope).is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("the current inactivity window did not remove the resource")?;
+            anyhow::ensure!(!peer.containers.lock().unwrap().contains_key(&name));
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
         // Capture authority in this host, then poll the waiter after rename.
         let monitoring = domain
             .run(std::future::poll_fn(|_| {
@@ -1096,10 +1262,39 @@ async fn immutable_resource_identity() -> Result<()> {
         let replacement = created["Id"].as_str().context("replacement ID")?.to_owned();
         foreign = Some((name.clone(), replacement.clone()));
         anyhow::ensure!(original != replacement, "fixture reused an immutable ID");
+        if scenario == IdentityScenario::FailedAdoptionExpiry {
+            cell.set_inactivity(Duration::from_secs(1));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+        }
         anyhow::ensure!(
             domain.run(engine.attach(scope, "Sandbox")).await?.is_err(),
             "name discovery must refuse foreign labels before adoption"
         );
+        if scenario == IdentityScenario::FailedAdoptionExpiry {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while engine.cell(scope).is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("failed adoption disarmed the original idle cleanup")?;
+            anyhow::ensure!(
+                !peer
+                    .containers
+                    .lock()
+                    .unwrap()
+                    .contains_key(&format!("{name}-renamed")),
+                "idle cleanup leaked its original immutable resource"
+            );
+            anyhow::ensure!(
+                monitoring.await.map_err(anyhow::Error::msg)? == 137,
+                "idle cleanup did not finish the original run"
+            );
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
         anyhow::ensure!(domain.run(call(&host, scope, "/files")).await?? == true);
         let query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("path", "/tmp/cellar-?é.bin")

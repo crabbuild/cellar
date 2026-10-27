@@ -339,6 +339,15 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
+| Native idle transition | Cleanup behavior |
+| --- | --- |
+| Idle eviction | Arm removal for the configured inactivity window |
+| Successful reconnect | Cancel and join the previous timer before returning |
+| Failed discovery/adoption | Retain the original cleanup deadline |
+| Another idle eviction | Replace and join the prior timer; use the new window |
+| Explicit ownership release | Cancel and join the timer before owned removal |
+| Removal already admitted | Finish exact-resource removal before reconnect or replacement |
+
 Native daemon operations retain the resource selected for that run:
 
 | Identity | Native behavior |
