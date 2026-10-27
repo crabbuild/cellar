@@ -98,6 +98,12 @@ def verify_populations(rows, planned):
 def verify_traffic(events, profile):
     """Bind the advertised durability/read path to raw responses and requests."""
     for event in events:
+        if profile.get('payload_pattern') == 'random_ascii' and event['event'] == 'invoke' and event['operation'] == 'command':
+            from raft_workload import payload_for
+            phase, ordinal = event['id'].rsplit(':', 1)
+            payload = event['input']['payload']
+            require(len(payload) in profile['write_bytes'] and payload == payload_for(profile, phase, int(ordinal), len(payload)),
+                    'advertised payload pattern differs from ledger')
         if event['event'] == 'invoke' and event['operation'] == 'query':
             require(event['input']['consistency'] == profile['read_consistency'], 'query contract differs from profile')
         if event['event'] not in ('seed_complete', 'complete') or event['status'] != 200:

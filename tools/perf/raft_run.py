@@ -59,7 +59,8 @@ def read_json(path):
 def validate_profile(profile):
     required = {'topology', 'cells', 'database_bytes', 'write_bytes', 'read_fraction', 'read_consistency',
                 'skew', 'arrival', 'timing', 'durability', 'resources', 'tick_ms', 'seed', 'slo', 'qualification'}
-    require(set(profile) == required, 'missing or unknown workload fields')
+    require(required <= set(profile) <= required | {'payload_pattern'}, 'missing or unknown workload fields')
+    require(profile.get('payload_pattern', 'repeated') in ('repeated', 'random_ascii'), 'invalid payload pattern')
     def integer(value, minimum, maximum, name):
         require(type(value) is int and minimum <= value <= maximum, f'invalid {name}')
     def number(value, minimum, maximum, name):

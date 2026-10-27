@@ -16,8 +16,8 @@
         65536
       ],
       "write_bytes": [
-        16384,
-        32768
+        32768,
+        65536
       ],
       "read_fraction": 0.2,
       "read_consistency": "at-least",
@@ -56,7 +56,8 @@
         "max_recovery_seconds": 30,
         "memory_headroom_fraction": 0.1
       },
-      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification.",
+      "payload_pattern": "random_ascii"
     },
     "smoke-s3": {
       "topology": {
@@ -73,8 +74,8 @@
         65536
       ],
       "write_bytes": [
-        16384,
-        32768
+        32768,
+        65536
       ],
       "read_fraction": 0.2,
       "read_consistency": "at-least",
@@ -113,7 +114,8 @@
         "max_recovery_seconds": 30,
         "memory_headroom_fraction": 0.1
       },
-      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification.",
+      "payload_pattern": "random_ascii"
     },
     "load-quorum": {
       "topology": {
@@ -130,8 +132,8 @@
         65536
       ],
       "write_bytes": [
-        16384,
-        32768
+        32768,
+        65536
       ],
       "read_fraction": 0.2,
       "read_consistency": "at-least",
@@ -170,7 +172,8 @@
         "max_recovery_seconds": 30,
         "memory_headroom_fraction": 0.1
       },
-      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification.",
+      "payload_pattern": "random_ascii"
     },
     "load-s3": {
       "topology": {
@@ -187,8 +190,8 @@
         65536
       ],
       "write_bytes": [
-        16384,
-        32768
+        32768,
+        65536
       ],
       "read_fraction": 0.2,
       "read_consistency": "at-least",
@@ -227,7 +230,8 @@
         "max_recovery_seconds": 30,
         "memory_headroom_fraction": 0.1
       },
-      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification."
+      "qualification": "Local same-VM archived-log reclamation experiment; not production capacity or independent failure-domain qualification.",
+      "payload_pattern": "random_ascii"
     }
   }
 }

@@ -151,9 +151,6 @@ class Measurements(unittest.TestCase):
                 phases(raw, False)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
 class ReclamationVocabulary(unittest.TestCase):
     def extended(self, purge):
         from raft_metrics import ARCHIVE_COUNTERS, ARCHIVE_OPERATIONS
@@ -178,3 +175,7 @@ class ReclamationVocabulary(unittest.TestCase):
         with self.assertRaises(ValueError): delta(before, after)
         after['operations'][-1]['name'] = 'unknown_purge'
         with self.assertRaises(ValueError): snapshot(after)
+
+
+if __name__ == '__main__':
+    unittest.main()
