@@ -538,6 +538,9 @@ async fn lifecycle_round(
         matches!(shutdown?, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
         "lifecycle did not drain"
     );
-    ensure!(usage.active_invocations == 0, "lifecycle leaked: {usage:?}");
+    ensure!(
+        usage.active_invocations == 0,
+        "lifecycle retained native invocations: {usage:?}"
+    );
     Ok(())
 }

@@ -55,6 +55,93 @@ fn source(body: &str) -> Source {
 }
 
 #[test]
+fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
+    let code = r#"
+      const c = ctx.containers.get('backup');
+      const p = await c.exec({cmd:['tool']});
+      await p.readStdout(); await p.readStderr(); await p.write(new Uint8Array([1]));
+      await p.closeStdin(); await p.wait(); await p.kill(); await p.release();
+      const port = c.port(80);
+      const portRequest = {url:'http://container/',method:'GET',headers:[],body:''};
+      await port.waitReady(); await port.fetch(portRequest);
+      const response = await port.fetchStream(portRequest);
+      await response.read(); await response.cancel();
+      const socket = await port.connect();
+      await socket.read(); await socket.write(new Uint8Array([1]));
+      await socket.closeWrite(); await socket.close(); await socket.release();
+      const upgrade = await port.connectWebSocket('ws://container/');
+      await upgrade.socket.receive(); await upgrade.socket.sendText('hello');
+      await upgrade.socket.sendBinary(new Uint8Array([1]));
+      await upgrade.socket.close(); await upgrade.socket.release();
+      return null;
+    "#;
+    JavaScriptRuntime::run(Options::default(), source(code), |app| {
+        let runtime = &app.runtime;
+        let invocation = runtime.id()?;
+        let mut receive = start(runtime, invocation, Arc::new(AtomicBool::new(true)));
+        let head = json!({"status":200,"headers":[],"body":""});
+        for (name, value) in [
+            ("container.exec", json!("1")),
+            ("container.exec.read_stdout", json!("")),
+            ("container.exec.read_stderr", json!("")),
+            ("container.exec.write", json!(null)),
+            ("container.exec.close_stdin", json!(null)),
+            ("container.exec.wait", json!(0)),
+            ("container.exec.kill", json!(null)),
+            ("container.release", json!(null)),
+            ("container.port.wait_ready", json!(null)),
+            ("container.port.fetch", head.clone()),
+            (
+                "container.port.fetch_stream",
+                json!({"status":200,"headers":[],"body":"","stream":"1"}),
+            ),
+            (
+                "container.response.read",
+                json!({"done":false,"body":"AQ=="}),
+            ),
+            ("container.response.cancel", json!(null)),
+            ("container.port.connect", json!("1")),
+            ("container.socket.read", json!("")),
+            ("container.socket.write", json!(null)),
+            ("container.socket.close_write", json!(null)),
+            ("container.socket.close", json!(null)),
+            ("container.release", json!(null)),
+            (
+                "container.port.connect_websocket",
+                json!({"upgraded":true,"id":"1","protocol":"","headers":[]}),
+            ),
+            (
+                "container.websocket.receive",
+                json!({"type":"binary","data":"AQ=="}),
+            ),
+            ("container.websocket.send_text", json!(null)),
+            ("container.websocket.send_binary", json!(null)),
+            ("container.websocket.close", json!(null)),
+            ("container.release", json!(null)),
+        ] {
+            let Event::Operation {
+                id,
+                name: actual,
+                payload,
+                ..
+            } = event(&mut receive)
+            else {
+                anyhow::bail!("named facade failed before {name}");
+            };
+            assert_eq!(actual, name);
+            let input: serde_json::Value = serde_json::from_str(&payload)?;
+            assert_eq!(input["binding"], "backup", "{name} lost its slot");
+            runtime.reply(invocation, id, json!({"ok":true,"value":value}).to_string())?;
+        }
+        assert!(matches!(
+            event(&mut receive),
+            Event::Complete { failed: false, .. }
+        ));
+        Ok(())
+    })
+}
+
+#[test]
 fn v8_completion_reservation_requires_startup_headroom() {
     let mut entered = false;
     let error = JavaScriptRuntime::run(

@@ -40,8 +40,8 @@ pub async fn exercise(
             );
         }
         ensure!(
-            peer.state.creates.load(Ordering::SeqCst) == 1
-                && peer.state.deletes.load(Ordering::SeqCst) == 1
+            peer.state.creates.load(Ordering::SeqCst) == 2
+                && peer.state.deletes.load(Ordering::SeqCst) == 2
         );
         ensure!(peer.state.commands.load(Ordering::SeqCst) == commands);
         Ok::<_, anyhow::Error>(())

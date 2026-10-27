@@ -238,6 +238,7 @@ function operation(
       "response.read",
       "response.cancel",
       "response.closed",
+      "container.bindings",
       "container.capabilities",
       "container.running",
       "container.monitor",

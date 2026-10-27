@@ -17,12 +17,13 @@ fn main() -> Result<()> {
     let source = Source::new(include_str!("support/provider.py"), "e2b.py")
         .events([EventKind::Fetch])
         .cell("Counter")
-        .container_provider(peer.provider()?);
+        .container_provider(peer.provider()?)
+        .container_binding("backup", peer.provider_binding("backup")?)?;
     // SAFETY: this standalone main owns interpreter initialization and calls
     // no foreign Python APIs. Runtime shutdown joins all native guest work.
     let report = unsafe {
         PythonRuntime::run(Options::default(), source, move |application, _monitor| {
-            runtime.block_on(acceptance::exercise(application, peer, "e2b", 3))
+            runtime.block_on(acceptance::exercise(application, peer, "e2b", 5))
         })
     }?;
     ensure!(report.complete());

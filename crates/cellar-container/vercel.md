@@ -75,6 +75,7 @@ so credentials can rotate. Retire existing bindings before changing that identit
 | Application operation | Backend |
 | --- | --- |
 | Capabilities / running | Native discovery / verified inspection with `resume=false` |
+| Reconcile | Recover the pinned session, checkpoint expiry or observe pending deletion; no allocation/resume/delete dispatch |
 | Start | Durable reservation, `POST /v3/sandboxes`, verify and pin the returned session |
 | Destroy | Durable deletion intent, verified named-resource DELETE and absence observation |
 | `execOutput` / `exec_output` | Direct argv, cwd/env, bounded binary output and signed child exit code |

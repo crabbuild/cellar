@@ -29,6 +29,10 @@ impl Provider for E2b {
         "e2b"
     }
 
+    fn binding_name(&self) -> Option<&str> {
+        Some(&self.0.binding)
+    }
+
     fn environment(&self) -> Environment {
         Environment::Linux
     }
@@ -44,6 +48,7 @@ impl Provider for E2b {
     fn operations(&self) -> &[Operation] {
         &[
             Operation::Running,
+            Operation::Reconcile,
             Operation::Start,
             Operation::Destroy,
             Operation::ExecOutput,
@@ -74,6 +79,7 @@ impl ProviderSession for Session {
                 match operation {
                     Operation::Start => self.0.start(context, input).await,
                     Operation::Running => self.0.running(context).await,
+                    Operation::Reconcile => self.0.reconcile_binding(context).await,
                     Operation::Destroy => self.0.destroy(context).await,
                     Operation::ExecOutput => {
                         self.0

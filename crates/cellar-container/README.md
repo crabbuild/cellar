@@ -39,6 +39,17 @@ SDK compatibility is qualified against its matching image.
 | Provider | Backend effects, process/socket handles, isolation and cleanup |
 | Native Cellar host | Cell ownership, activation epoch and required durability/output gates |
 
+Hosts can also declare [named provider slots](bindings.md#select-a-host-declared-provider-slot).
+All four language paths share their operations and discovery. Use
+`ctx.containers.get("builds")` in Python/JS/TS; `ctx.container` retains the default.
+Selection never falls back to a different provider when a slot is missing.
+
+For durable remote resources, all four language facades expose
+[`reconcile()`](bindings.md#reconcile-from-a-later-invocation): recover a matching
+pending create, observe expiry or check pending deletion without creating,
+resuming or deleting compute. Results carry lifecycle state and generation;
+resource IDs and credentials stay in the host.
+
 **The provider future runs inside the original native SDK invocation.** The
 adapter does not move SDK effects onto the Python, Node or V8 runtime thread.
 
@@ -156,6 +167,7 @@ flowchart TD
 | Task | Python | JavaScript / TypeScript |
 | --- | --- | --- |
 | Discover operations and limits | `await c.capabilities()` | `await c.capabilities()` |
+| Reconcile recovery / expiry / pending deletion | `await c.reconcile()` | `await c.reconcile()` |
 | Check / start / wait for exit | `running`, `start`, `monitor` | Same async names |
 | Stop or signal | `destroy`, `signal` | Same async names |
 | Set idle timeout | `set_inactivity_timeout(ms)` | `setInactivityTimeout(ms)` |
@@ -340,7 +352,7 @@ applications use the language facade instead of constructing these messages.
 
 | Operation family | Examples | Reply |
 | --- | --- | --- |
-| Discovery / lifecycle | `container.capabilities`, `.start`, `.monitor` | Capabilities, run token or exit code |
+| Discovery / lifecycle | `container.capabilities`, `.reconcile`, `.start`, `.monitor` | Capabilities, lifecycle observation, run token or exit code |
 | Commands | `container.exec`, `.exec_output` | Process handle or bounded output |
 | Process streams | `container.exec.read_stdout`, `.write` | Base64 bytes or `null` |
 | Ports | `container.port.fetch`, `.fetch_stream`, `.connect` | Buffered response, streamed head or socket handle |

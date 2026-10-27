@@ -12,13 +12,14 @@ mod peer;
 
 fn source(peer: &peer::Peer) -> Result<Source> {
     let code = include_str!("support/provider.mjs").replace("export ", "");
-    Ok(Source::new(
+    Source::new(
         format!("var CellarApp = (() => {{{code}; return {{cells, fetch}}; }})();"),
         "vercel.mjs",
     )
     .events([EventKind::Fetch])
     .cell("Counter")
-    .container_provider(peer.provider()?))
+    .container_provider(peer.provider()?)
+    .container_binding("backup", peer.provider_binding("backup")?)
 }
 
 #[cfg(feature = "node")]
@@ -39,7 +40,7 @@ fn node_vercel_provider() -> Result<()> {
         },
         cellar_javascript::NodeOptions::new(entry),
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer, "vercel", 4)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "vercel", 5)),
     )
 }
 
@@ -57,6 +58,6 @@ fn embedded_vercel_provider() -> Result<()> {
             ..Default::default()
         },
         source,
-        move |application| runtime.block_on(acceptance::exercise(application, peer, "vercel", 4)),
+        move |application| runtime.block_on(acceptance::exercise(application, peer, "vercel", 5)),
     )
 }

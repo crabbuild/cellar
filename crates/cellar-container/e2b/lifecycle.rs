@@ -247,6 +247,71 @@ impl Config {
         })
     }
 
+    /// Observe the retained generation. Provider mutations are never replayed.
+    pub(super) async fn reconcile_binding(&self, context: &Context) -> Result<Value> {
+        use crate::{Reconciliation, ReconciliationState as State};
+        let journal = self.journal(context)?;
+        let Some(checkpoint) = journal.load(context)? else {
+            return Ok(Reconciliation::value(State::Unbound, None));
+        };
+        self.check_record(&checkpoint.record)?;
+        let generation = Some(checkpoint.record.generation);
+        if checkpoint.record.intent == Intent::Deleted
+            && checkpoint.record.observation == Observation::Confirmed
+        {
+            return Ok(Reconciliation::value(State::Deleted, generation));
+        }
+        let info = if checkpoint.record.resource_id.is_none() {
+            let found = self.reconcile(context, &checkpoint.record).await?;
+            let reply = self
+                .control(
+                    context,
+                    "GET",
+                    &format!("sandboxes/{}", found["sandboxID"].as_str().unwrap()),
+                    None,
+                    None,
+                )
+                .await?;
+            ensure!(
+                reply.status == 200,
+                "E2B reconciled resource could not be inspected"
+            );
+            Some(serde_json::from_slice::<Value>(&reply.body)?)
+        } else {
+            self.info(context, &checkpoint.record).await?
+        };
+        let Some(info) = info else {
+            // An absent observation cannot resolve an unacknowledged create.
+            ensure!(
+                checkpoint.record.observation == Observation::Confirmed
+                    || checkpoint.record.intent == Intent::Deleted,
+                "E2B creation remains unresolved; absence does not authorize replacement"
+            );
+            let mut retired = checkpoint.record;
+            retired.intent = Intent::Deleted;
+            retired.observation = Observation::Confirmed;
+            journal
+                .compare_exchange(context, Some(checkpoint.revision), retired)
+                .await?;
+            return Ok(Reconciliation::value(State::Deleted, generation));
+        };
+        self.verify(context, &checkpoint.record, &info)?;
+        if checkpoint.record.intent == Intent::Deleted {
+            return Ok(Reconciliation::value(State::Deleting, generation));
+        }
+        if checkpoint.record.observation == Observation::Pending {
+            self.confirm(context, &journal, checkpoint, &info).await?;
+            return Ok(Reconciliation::value(State::Running, generation));
+        }
+        let state = if info["state"] == "running" {
+            State::Running
+        } else {
+            ensure!(info["state"] == "paused", "unknown E2B resource state");
+            State::Stopped
+        };
+        Ok(Reconciliation::value(state, generation))
+    }
+
     pub(super) async fn running(&self, context: &Context) -> Result<Value> {
         let Some(checkpoint) = self.journal(context)?.load(context)? else {
             return Ok(json!(false));
@@ -439,6 +504,10 @@ impl Config {
                 reply.status
             );
         }
+        ensure!(
+            self.info(context, &checkpoint.record).await?.is_none(),
+            "E2B deletion has not been observed; retry reconciliation"
+        );
         let mut retired = checkpoint.record;
         retired.observation = Observation::Confirmed;
         journal

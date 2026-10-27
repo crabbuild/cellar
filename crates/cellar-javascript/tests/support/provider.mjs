@@ -36,6 +36,26 @@ export class Counter {
   }
   async inspect(request, ctx) {
     const container = ctx.container;
+    const backup = ctx.containers.get("backup");
+    const bindings = await ctx.containers.list();
+    check(
+      bindings.map(({ name }) => name).join(",") === "container,backup",
+      "declared slots only",
+    );
+    check(
+      bindings.every(
+        ({ capabilities }) =>
+          capabilities.provider === request.url.split("/").at(-2),
+      ),
+      "per-slot capabilities",
+    );
+    check(
+      Object.isFrozen(bindings) &&
+        Object.isFrozen(bindings[1].capabilities.operations),
+      "frozen discovery",
+    );
+    await refuses(() => ctx.containers.get("missing").running());
+    await refuses(() => ctx.containers.get("../escape").running());
     const capabilities = await container.capabilities();
     check(
       capabilities.provider === request.url.split("/").at(-2),
@@ -55,10 +75,29 @@ export class Counter {
     if (request.url.endsWith("/destroy")) {
       await container.destroy();
       check(!(await container.running()), "destroyed");
+      check(await backup.running(), "default destruction preserves backup");
+      await backup.destroy();
+      const retired = await container.reconcile();
+      check(
+        retired.state === "deleted" && retired.generation === "1",
+        "retired binding",
+      );
       return ok();
     }
     if (request.url.endsWith("/second")) {
       await refuses(() => this.old.running());
+      await refuses(() => this.old.reconcile());
+      await refuses(() => this.oldBackup.running());
+      check(
+        (await backup.readFile(path, 3)).join(",") === "1,2,3",
+        "backup bytes in later event",
+      );
+      const current = await container.reconcile();
+      check(
+        current.state === "running" && current.generation === "1",
+        "reconnected binding",
+      );
+      check(Object.isFrozen(current), "immutable reconciliation");
       check(await container.running(), "same sandbox in next event");
       check(
         (await container.readFile(path, 3)).join(",") === "0,255,42",
@@ -67,12 +106,31 @@ export class Counter {
       return ok();
     }
 
+    check(
+      capabilities.operations.includes("container.reconcile"),
+      "reconciliation capability",
+    );
+    const empty = await container.reconcile();
+    check(
+      empty.state === "unbound" && empty.generation === null,
+      "unbound before create",
+    );
     await refuses(() => container.signal(9));
     check(
       (await container.start({ env: [["HELLO", "world"]] })) === "1",
       "generation",
     );
+    check(
+      (await backup.reconcile()).state === "unbound",
+      "independent binding journal",
+    );
+    check(
+      (await backup.start({ env: [["HELLO", "world"]] })) === "1",
+      "backup generation",
+    );
+    await backup.writeFile(path, new Uint8Array([1, 2, 3]), { mode: 0o640 });
     this.old = container;
+    this.oldBackup = backup;
     await container.writeFile(path, new Uint8Array([0, 255, 42]), {
       mode: 0o640,
     });
