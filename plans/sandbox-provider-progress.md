@@ -402,7 +402,7 @@ use the same alias path rather than assuming every reported digest is fetchable.
 At preceding head `7ba5ffa1`, Linux JavaScript/Node, all four Python-example jobs
 and both standard/free-threaded typed-RPC campaigns pass. Both SDK jobs are
 still running. These new passes
-does not establish the cause or repair of the earlier Linux free-threaded
+do not establish the cause or repair of the earlier Linux free-threaded
 failure. The full provider profiles and original goal remain active.
 
 ## Joined native inactivity cleanup — 2026-10-27
@@ -431,6 +431,29 @@ helper integration, remote hard fencing, physical provider deletion or any
 remaining versioned provider profile. The next feature priority remains owned
 helper/application lifetime and generation-bound routing, then actual published
 Sandbox helper backup/restore and mounts.
+
+## Exact service deployment routing — 2026-10-27
+
+A native regression confirmed that an absent generation silently selected the
+current service Worker. HTTP, RPC and Queue service dispatch now use checked
+lookup under the same current/draining snapshot. An absent nonzero generation
+refuses before Worker admission. The public general-purpose lookup retains its
+existing behavior, and the explicit unversioned host route (`0`) remains current.
+
+| Boundary | Evidence |
+| --- | --- |
+| HTTP/RPC refusal | Unknown generation returns failure with no target-handler entry |
+| Valid routes | Explicit current generation and unversioned host calls still reach the expected service |
+| Queue refusal | Unknown generation leaves the consumer event uncreated; the original grouping, lease, settlement and transfer campaign passes |
+| Shared native contracts | All five HTTP/service tests and the Queue integration case pass, including stream, cancellation, host policy and proof-gate controls |
+| Published Worker/gateway paths | WorkerEntrypoint routing/props and the unchanged published DirectoryBackupGateway native resumable-storage fixture pass |
+| Contract documentation | The routing guide distinguishes exact, absent and explicit unversioned routes |
+| Quality | Strict native all-feature library/test Clippy, Rust formatting and documentation/whitespace checks pass; module layout and the native-only dependency graph are unchanged |
+
+This closes the fallback that would invalidate a persistent container handler's
+generation binding. It does not implement persistent Fetchers, production
+helper/application lifetime, per-request ownership gates or HTTP interception;
+those remain the next feature delivery. The full provider goal remains active.
 
 ## Verified implementation details
 
