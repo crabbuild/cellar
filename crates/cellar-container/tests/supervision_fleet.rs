@@ -20,6 +20,8 @@ mod e2b;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod graph;
+#[path = "../../cellar/tests/support/store_outage.rs"]
+mod store_outage;
 #[path = "support/vercel.rs"]
 mod vercel;
 
@@ -29,6 +31,8 @@ const USER_ALARM: i64 = 9_000_000_000_000;
 struct Witness {
     retired: Mutex<Option<BindingCheckpoint>>,
     completed: Notify,
+    failed_deletions: AtomicUsize,
+    failed: Notify,
 }
 
 struct Observed {
@@ -52,10 +56,16 @@ impl MaintenanceBackend for Observed {
         action: MaintenanceAction,
     ) -> HandlerFuture<()> {
         Box::pin(async move {
-            self.backend
+            let result = self
+                .backend
                 .clone()
                 .maintain(context.clone(), expected.clone(), action)
-                .await?;
+                .await;
+            if result.is_err() && action == MaintenanceAction::Delete {
+                self.witness.failed_deletions.fetch_add(1, Ordering::SeqCst);
+                self.witness.failed.notify_one();
+            }
+            result?;
             let checkpoint = BindingJournal::open(&context, &self.identity().binding)?
                 .load(&context)?
                 .context("maintenance lost its binding")?;
@@ -117,7 +127,8 @@ impl Cell for Root {
             });
             let alarm = context.storage()?.get_alarm()?;
             let business = context.storage()?.get_json("business")?;
-            let value = json!({"checkpoint":checkpoint,"alarm":alarm,"business":business});
+            let value = json!({"checkpoint":checkpoint,"alarm":alarm,"business":business,
+                "scope":context.identity().context("root identity missing")?.scope});
             Ok(Output::Http(
                 http::Response::from_json(&value)?.into_http(&context)?,
             ))
@@ -193,6 +204,35 @@ impl Peer {
             Self::E2b(p) => p.state.deletes.load(Ordering::SeqCst),
             Self::Vercel(p) => p.state.deletes.load(Ordering::SeqCst),
         }
+    }
+
+    fn unavailable(&self, unavailable: bool) {
+        match self {
+            Self::E2b(p) => p.state.unavailable.store(unavailable, Ordering::SeqCst),
+            Self::Vercel(p) => p.state.unavailable.store(unavailable, Ordering::SeqCst),
+        }
+    }
+
+    fn refused(&self) -> usize {
+        match self {
+            Self::E2b(p) => p.state.refused.load(Ordering::SeqCst),
+            Self::Vercel(p) => p.state.refused.load(Ordering::SeqCst),
+        }
+    }
+
+    fn recent_requests(&self) -> Vec<(String, String)> {
+        let requests = match self {
+            Self::E2b(p) => &p.state.requests,
+            Self::Vercel(p) => &p.state.requests,
+        };
+        requests
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .take(16)
+            .cloned()
+            .collect()
     }
 
     fn lose_create(&self) {
@@ -588,17 +628,13 @@ async fn accepted_create_owner_loss(
     let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
     let provider = peer.provider()?;
     let original = Arc::new(Witness::default());
+    let calls = Arc::new(Calls::default());
     let first = start_node(
         &directory.join("before"),
         "provider-owner",
         bucket.clone(),
         core.clone(),
-        application(
-            provider.clone(),
-            true,
-            original.clone(),
-            Arc::new(Calls::default()),
-        )?,
+        application(provider.clone(), true, original.clone(), calls.clone())?,
         true,
     )
     .await?;
@@ -612,11 +648,19 @@ async fn accepted_create_owner_loss(
     let request = tokio::spawn(async move { client.get(url).send().await });
     let accepted = tokio::time::timeout(Duration::from_secs(3), entered.notified()).await;
     if let Err(error) = accepted {
+        let evidence = format!(
+            "provider={}, closed={}, request_finished={}, application={}, factories={}, creates={}, deletes={}, recent={:?}",
+            provider.name(), first.is_closed(), request.is_finished(),
+            calls.application.load(Ordering::SeqCst), calls.factories.load(Ordering::SeqCst),
+            peer.creates(), peer.deletes(), peer.recent_requests()
+        );
         release.notify_one();
-        let _ = stop(first, ShutdownMode::Preserve).await;
+        let stopped = stop(first, ShutdownMode::Preserve).await;
         request.abort();
         let _ = request.await;
-        return Err(error).context("provider never accepted the held create");
+        return Err(error).with_context(|| {
+            format!("provider never accepted the held create: {evidence}; shutdown={stopped:?}")
+        });
     }
     ensure!(peer.creates() == 1 && peer.deletes() == 0);
     let (paused, entered_pause) = tokio::sync::oneshot::channel();
@@ -720,4 +764,395 @@ fn expired_owner_cannot_acknowledge_an_accepted_create_and_successor_cleans_it()
         }
         Ok(())
     })
+}
+
+async fn provider_outage_recovery(
+    peer: &Peer,
+    directory: &Path,
+    core: tokio::runtime::Handle,
+) -> Result<()> {
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
+    let provider = peer.provider()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .build()?;
+    let first = start_node(
+        &directory.join("before"),
+        "provider-owner",
+        bucket.clone(),
+        core.clone(),
+        application(
+            provider.clone(),
+            true,
+            Arc::new(Witness::default()),
+            Arc::new(Calls::default()),
+        )?,
+        true,
+    )
+    .await?;
+    let before = call(&client, &first, "start").await;
+    peer.unavailable(true);
+    let stopped = stop(first, ShutdownMode::Preserve).await;
+    let before = before?;
+    stopped?;
+    ensure!(peer.creates() == 1 && peer.deletes() == 0);
+
+    // Both replacements recover from remote durability with no local cell files.
+    // No business class exists while the provider API is unavailable.
+    let mut final_witness = None;
+    let mut final_calls = None;
+    let mut final_node = None;
+    for directory_name in ["outage", "outage-restarted"] {
+        let witness = Arc::new(Witness::default());
+        let calls = Arc::new(Calls::default());
+        let node = start_node(
+            &directory.join(directory_name),
+            "provider-owner",
+            bucket.clone(),
+            core.clone(),
+            application(provider.clone(), false, witness.clone(), calls.clone())?,
+            false,
+        )
+        .await?;
+        let failed = tokio::time::timeout(Duration::from_secs(15), witness.failed.notified()).await;
+        let result = (|| -> Result<()> {
+            failed.context("expired resource never attempted cleanup during provider outage")?;
+            ensure!(witness.failed_deletions.load(Ordering::SeqCst) > 0 && peer.refused() > 0);
+            ensure!(witness.retired.lock().unwrap().is_none());
+            ensure!(
+                peer.creates() == 1 && peer.deletes() == 0,
+                "outage changed remote resources"
+            );
+            ensure!(
+                calls.application.load(Ordering::SeqCst) == 0
+                    && calls.factories.load(Ordering::SeqCst) == 0
+            );
+            Ok(())
+        })();
+        if let Err(error) = result {
+            let _ = stop(node, ShutdownMode::Preserve).await;
+            return Err(error);
+        }
+        if directory_name == "outage" {
+            stop(node, ShutdownMode::Preserve).await?;
+        } else {
+            final_witness = Some(witness);
+            final_calls = Some(calls);
+            final_node = Some(node);
+        }
+    }
+    let witness = final_witness.context("missing final outage witness")?;
+    let calls = final_calls.context("missing final outage counters")?;
+    let node = final_node.context("missing final outage node")?;
+    // Inspect the independently published, durable retry deadline. Sustained
+    // API failures back off up to 60s; a fixed 15s post-repair assertion would
+    // incorrectly classify a retained, scheduled obligation as lost.
+    let retry = published_retry(&bucket, before["scope"].as_str().context("scope missing")?).await;
+    let retry = match retry {
+        Ok(retry) => retry,
+        Err(error) => {
+            let _ = stop(node, ShutdownMode::Preserve).await;
+            return Err(error);
+        }
+    };
+    peer.unavailable(false);
+    let result = async {
+        let now = unix_ms()?;
+        let wait = u64::try_from(retry.saturating_sub(now).max(0))? + 5000;
+        ensure!(
+            wait <= 65_000,
+            "published retry exceeds the declared recovery bound"
+        );
+        tokio::time::timeout(Duration::from_millis(wait), witness.completed.notified())
+            .await
+            .context("provider recovery did not retire the original obligation")?;
+        let retired = witness
+            .retired
+            .lock()
+            .unwrap()
+            .clone()
+            .context("retirement missing")?;
+        ensure!(retired.record.is_retired() && retired.record.generation == 1);
+        ensure!(
+            serde_json::to_value(&retired.record)?["request_id"]
+                == before["checkpoint"]["record"]["request_id"]
+        );
+        ensure!(
+            serde_json::to_value(&retired.record)?["resource_id"]
+                == before["checkpoint"]["record"]["resource_id"]
+        );
+        ensure!(
+            peer.creates() == 1 && peer.deletes() == 1,
+            "provider recovery replayed creation or deletion"
+        );
+        ensure!(
+            calls.application.load(Ordering::SeqCst) == 0
+                && calls.factories.load(Ordering::SeqCst) == 0
+        );
+        Ok::<_, anyhow::Error>(retired)
+    }
+    .await;
+    let stopped = stop(node, ShutdownMode::Preserve).await;
+    let retired = result?;
+    stopped?;
+    let verifier = start_node(
+        &directory.join("verified"),
+        "provider-owner",
+        bucket,
+        core,
+        application(
+            provider,
+            true,
+            Arc::new(Witness::default()),
+            Arc::new(Calls::default()),
+        )?,
+        true,
+    )
+    .await?;
+    let state = call(&client, &verifier, "state").await;
+    let stopped = stop(verifier, ShutdownMode::Preserve).await;
+    let state = state?;
+    stopped?;
+    ensure!(state["checkpoint"]["record"] == serde_json::to_value(retired.record)?);
+    ensure!(state["alarm"] == USER_ALARM && state["business"] == "preserved");
+    ensure!(peer.creates() == 1 && peer.deletes() == 1);
+    Ok(())
+}
+
+fn unix_ms() -> Result<i64> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis()
+        .try_into()?)
+}
+
+async fn published_retry(bucket: &cellar::bucket::Bucket, scope: &str) -> Result<i64> {
+    let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let observed = observer
+        .run(async {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let mut latest = None;
+                    for object in bucket.list("wake/entries/").await? {
+                        let Some((bytes, _)) = bucket.get(object.location.as_ref()).await? else {
+                            continue;
+                        };
+                        let value: Value = serde_json::from_slice(&bytes)?;
+                        if value["cell"] != scope {
+                            continue;
+                        }
+                        ensure!(value["format"] == 1, "wake format changed");
+                        let identity = value["identity"]
+                            .as_str()
+                            .context("wake identity missing")?;
+                        let (epoch, sequence) =
+                            identity.split_once('-').context("invalid wake identity")?;
+                        ensure!(epoch.len() == 16 && sequence.len() == 16);
+                        let id = (
+                            u64::from_str_radix(epoch, 16)?,
+                            u64::from_str_radix(sequence, 16)?,
+                        );
+                        ensure!(id.0 > 0);
+                        let due = value["due_ms"].as_i64().context("wake deadline missing")?;
+                        if latest.as_ref().is_none_or(|(prior, _)| id > *prior) {
+                            latest = Some((id, due));
+                        }
+                    }
+                    if let Some((_, due)) = latest {
+                        let delay = due.saturating_sub(unix_ms()?);
+                        if delay > 1000 {
+                            ensure!(
+                                delay <= 60_000,
+                                "durable provider retry exceeds 60s: {delay}ms"
+                            );
+                            eprintln!("observed durable provider retry in {delay}ms");
+                            return Ok::<_, anyhow::Error>(due);
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .context("provider backoff was not durably published")?
+        })
+        .await;
+    observer.shutdown().await;
+    observed?
+}
+
+async fn owner_store_outage_recovery(
+    peer: &Peer,
+    directory: &Path,
+    core: tokio::runtime::Handle,
+) -> Result<()> {
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
+    let (isolated, outage) = store_outage::Outage::wrap(&bucket)?;
+    let provider = peer.provider()?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .build()?;
+    let original = Arc::new(Witness::default());
+    let node = start_node(
+        &directory.join("before"),
+        "provider-owner",
+        isolated,
+        core.clone(),
+        application(
+            provider.clone(),
+            true,
+            original.clone(),
+            Arc::new(Calls::default()),
+        )?,
+        true,
+    )
+    .await?;
+    let before = call(&client, &node, "start").await;
+    let before = match before {
+        Ok(before) => before,
+        Err(error) => {
+            let _ = stop(node, ShutdownMode::Preserve).await;
+            return Err(error);
+        }
+    };
+    let owner = node.services();
+    outage.isolate();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        node.run_until(std::future::pending()),
+    )
+    .await??;
+    ensure!(
+        outcome
+            == NodeOutcome::Fenced {
+                code: 3,
+                reason: FenceReason::NodeLeaseExpired
+            }
+    );
+    ensure!(
+        outage.is_isolated() && outage.refused() > 0,
+        "store fault never refused real I/O"
+    );
+    ensure!(
+        owner
+            .configure_metrics(Arc::new(HostMetricsSample::default))
+            .is_err(),
+        "owner domain remained open after fencing"
+    );
+    ensure!(
+        peer.creates() == 1 && peer.deletes() == 0 && original.retired.lock().unwrap().is_none()
+    );
+    ensure!(
+        core.spawn(async { 7 }).await? == 7,
+        "fence stopped caller-owned executor"
+    );
+
+    let witness = Arc::new(Witness::default());
+    let calls = Arc::new(Calls::default());
+    let successor = start_node(
+        &directory.join("after"),
+        "provider-successor",
+        bucket.clone(),
+        core.clone(),
+        application(provider.clone(), false, witness.clone(), calls.clone())?,
+        false,
+    )
+    .await?;
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(15), witness.completed.notified())
+            .await
+            .context("healthy successor lost the isolated owner's cleanup obligation")?;
+        let retired = witness
+            .retired
+            .lock()
+            .unwrap()
+            .clone()
+            .context("retirement missing")?;
+        ensure!(retired.record.is_retired() && retired.record.generation == 1);
+        ensure!(
+            serde_json::to_value(&retired.record)?["request_id"]
+                == before["checkpoint"]["record"]["request_id"]
+        );
+        ensure!(
+            serde_json::to_value(&retired.record)?["resource_id"]
+                == before["checkpoint"]["record"]["resource_id"]
+        );
+        ensure!(
+            peer.creates() == 1 && peer.deletes() == 1,
+            "store recovery replayed provider effects"
+        );
+        ensure!(
+            calls.application.load(Ordering::SeqCst) == 0
+                && calls.factories.load(Ordering::SeqCst) == 0
+        );
+        ensure!(
+            outage.is_isolated(),
+            "old client's store was restored to assist recovery"
+        );
+        Ok::<_, anyhow::Error>(retired)
+    }
+    .await;
+    let stopped = stop(successor, ShutdownMode::Preserve).await;
+    let retired = result?;
+    stopped?;
+    let verifier = start_node(
+        &directory.join("verified"),
+        "provider-successor",
+        bucket,
+        core,
+        application(
+            provider,
+            true,
+            Arc::new(Witness::default()),
+            Arc::new(Calls::default()),
+        )?,
+        true,
+    )
+    .await?;
+    let state = call(&client, &verifier, "state").await;
+    let stopped = stop(verifier, ShutdownMode::Preserve).await;
+    let state = state?;
+    stopped?;
+    ensure!(state["checkpoint"]["record"] == serde_json::to_value(retired.record)?);
+    ensure!(state["alarm"] == USER_ALARM && state["business"] == "preserved");
+    ensure!(peer.creates() == 1 && peer.deletes() == 1 && outage.is_isolated());
+    Ok(())
+}
+
+fn exercise_outage(provider_outage: bool) -> Result<()> {
+    let host = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .enable_all()
+        .build()?;
+    let core = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("provider-outage-core")
+        .enable_all()
+        .build()?;
+    host.block_on(async {
+        for vercel in [false, true] {
+            let peer = Peer::start(vercel).await?;
+            let directory = tempfile::tempdir()?;
+            let result = if provider_outage {
+                provider_outage_recovery(&peer, directory.path(), core.handle().clone()).await
+            } else {
+                owner_store_outage_recovery(&peer, directory.path(), core.handle().clone()).await
+            };
+            peer.unavailable(false);
+            let closed = peer.stop().await;
+            result?;
+            closed?;
+        }
+        Ok(())
+    })
+}
+
+#[test]
+fn provider_outage_preserves_expired_cleanup_through_restarts_without_business_code() -> Result<()>
+{
+    exercise_outage(true)
+}
+
+#[test]
+fn isolated_owner_store_fences_and_successor_retires_the_original_resource() -> Result<()> {
+    exercise_outage(false)
 }

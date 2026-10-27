@@ -76,6 +76,20 @@ pub(crate) async fn maintain(context: Context, installation: Installation) -> Re
         return Ok(Output::Done);
     };
     let journal = BindingJournal::open(&context, &task.binding)?;
+    // Application lifecycle calls can still be awaiting a provider reply after
+    // publishing deletion intent. Serialize before reading or claiming work;
+    // the wait belongs to this finite native event, not a detached task.
+    let _lifecycle = journal.lock_lifecycle(&context).await?;
+    if db.work_installation(Reason::ResourceReconciliation)? != Some(installation) {
+        return Ok(Output::Done);
+    }
+    let now = crate::asyncrt::wall_ms().max(0);
+    if !tasks::list(&scope)?
+        .iter()
+        .any(|current| current == &task && current.due_ms <= now)
+    {
+        return Ok(Output::Done);
+    }
     let expected = journal
         .load(&context)?
         .ok_or_else(|| anyhow::anyhow!("maintenance binding missing"))?;

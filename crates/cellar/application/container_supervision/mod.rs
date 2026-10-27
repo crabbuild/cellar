@@ -69,6 +69,8 @@ pub struct BackendIdentity {
 /// expected checkpoint before any effect and use its exact resource/request.
 /// It may checkpoint observations with BindingJournal, but never create compute.
 /// A lost result is uncertainty, not permission to repeat a create or command.
+/// The controller holds the binding's lifecycle guard through this call; a
+/// backend must not reacquire it or dispatch through a guarded event session.
 pub trait MaintenanceBackend: Send + Sync + 'static {
     fn identity(&self) -> BackendIdentity;
 

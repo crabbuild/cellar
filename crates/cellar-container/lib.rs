@@ -585,6 +585,25 @@ impl Session {
         } else {
             Some(self.control.lock().await)
         };
+        // Event-local sessions and native maintenance share the activation's
+        // lifecycle admission. Data operations remain concurrent so a retiring
+        // generation can fence their late results without waiting for them.
+        let _lifecycle = if matches!(
+            operation,
+            Operation::Start | Operation::Destroy | Operation::Reconcile
+        ) {
+            if let Some(binding) = self.provider.binding_name() {
+                Some(
+                    cellar::sdk::containers::BindingJournal::open(context, binding)?
+                        .lock_lifecycle(context)
+                        .await?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         authority.check(context)?;
         if !operation.is_read() {
             authority.before_effect(context).await?;

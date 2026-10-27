@@ -4,8 +4,8 @@
 //! requires its current executing context. Mutations wait for durability.
 
 pub use super::container_bindings::{
-    BindingCheckpoint, BindingIntent, BindingJournal, BindingObservation, BindingRecord,
-    MAX_BINDINGS, MAX_BINDING_BYTES,
+    BindingCheckpoint, BindingIntent, BindingJournal, BindingLifecycleGuard, BindingObservation,
+    BindingRecord, MAX_BINDINGS, MAX_BINDING_BYTES,
 };
 pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,

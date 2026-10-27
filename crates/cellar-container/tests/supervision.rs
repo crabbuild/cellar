@@ -25,6 +25,7 @@ const USER_ALARM: i64 = 9_000_000_000_000;
 struct Root {
     adapter: Adapter,
     alarms: AtomicUsize,
+    reconcile_entered: tokio::sync::Notify,
 }
 
 impl Cell for Root {
@@ -86,6 +87,23 @@ impl Cell for Root {
                     session
                         .execute(&context, Operation::Destroy, json!({}), &limits)
                         .await?
+                }
+                "reconcile" => {
+                    self.reconcile_entered.notify_one();
+                    session
+                        .execute(&context, Operation::Reconcile, json!({}), &limits)
+                        .await?
+                }
+                "cancel-reconcile" => {
+                    let waiting =
+                        session.execute(&context, Operation::Reconcile, json!({}), &limits);
+                    ensure!(
+                        tokio::time::timeout(Duration::from_millis(100), waiting)
+                            .await
+                            .is_err(),
+                        "cancelled waiter contacted the provider before lifecycle admission"
+                    );
+                    json!(true)
                 }
                 "expired-exec" => {
                     let error = session
@@ -221,6 +239,21 @@ impl Peer {
         }
     }
 
+    fn delete_gate(&self) -> (&AtomicBool, &tokio::sync::Notify, &tokio::sync::Notify) {
+        match self {
+            Self::E2b(p) => (
+                &p.state.hold_delete,
+                &p.state.delete_entered,
+                &p.state.delete_release,
+            ),
+            Self::Vercel(p) => (
+                &p.state.hold_delete,
+                &p.state.delete_entered,
+                &p.state.delete_release,
+            ),
+        }
+    }
+
     fn lost_create(&self) {
         match self {
             Self::E2b(p) => p.state.lost_create.store(true, Ordering::SeqCst),
@@ -276,6 +309,7 @@ enum Scenario {
     MissingBackend,
     InspectUncertainDelete,
     StaleCommand,
+    ConcurrentDestroy,
 }
 
 struct InspectionOnly {
@@ -308,6 +342,7 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
     let unavailable = matches!(scenario, Scenario::MissingBackend);
     let inspection_only = matches!(scenario, Scenario::InspectUncertainDelete);
     let stale_command = matches!(scenario, Scenario::StaleCommand);
+    let concurrent_destroy = matches!(scenario, Scenario::ConcurrentDestroy);
     let peer = Peer::start(vercel).await?;
     let directory = tempfile::tempdir()?;
     let provider = peer.provider()?;
@@ -328,7 +363,11 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
         backend,
         containers::MaintenancePolicy {
             inspect_interval_ms: if stale_command { 10_000 } else { 50 },
-            maximum_lifetime_ms: if stale_command { 20_000 } else { 1000 },
+            maximum_lifetime_ms: if stale_command || concurrent_destroy {
+                20_000
+            } else {
+                1000
+            },
             attempt_timeout_ms: 1000,
             idle_timeout_ms: None,
         },
@@ -336,6 +375,7 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
     let root = Arc::new(Root {
         adapter: Adapter::new(provider),
         alarms: AtomicUsize::new(0),
+        reconcile_entered: tokio::sync::Notify::new(),
     });
     let application = containers::supervise(Arc::new(App(root.clone())), registry);
     let registered = Arc::new(AtomicBool::new(true));
@@ -352,6 +392,7 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
         .timeout(Duration::from_secs(6))
         .build()?;
     let mut pending = None;
+    let mut reconciliation = None;
     let result = async {
         if lost {
             peer.lost_create();
@@ -361,6 +402,46 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
             peer.defer_delete(true);
         }
         call(&client, &address, if lost { "lost-start" } else { "start" }).await?;
+        if concurrent_destroy {
+            let (hold, entered, release) = peer.delete_gate();
+            hold.store(true, Ordering::SeqCst);
+            let destroy_client = client.clone();
+            let destroy_address = address.clone();
+            pending = Some(tokio::spawn(async move {
+                destroy_client.get(format!("{destroy_address}/destroy")).send().await
+            }));
+            tokio::time::timeout(Duration::from_secs(3), entered.notified())
+                .await.context("provider never accepted deletion")?;
+            // The provider has removed the resource but withheld its reply.
+            // Another event and the due maintenance must not race its journal.
+            let reconcile_client = client.clone();
+            let reconcile_address = address.clone();
+            reconciliation = Some(tokio::spawn(async move {
+                call(&reconcile_client, &reconcile_address, "reconcile").await
+            }));
+            tokio::time::timeout(Duration::from_secs(3), root.reconcile_entered.notified())
+                .await.context("reconciliation did not enter the cell")?;
+            if let Ok(result) = tokio::time::timeout(Duration::from_millis(200), reconciliation.as_mut().unwrap()).await {
+                reconciliation.take();
+                anyhow::bail!("another lifecycle operation completed before the admitted deletion settled: {result:?}");
+            }
+            ensure!(call(&client, &address, "cancel-reconcile").await? == true);
+            let state = call(&client, &address, "state").await?;
+            ensure!(state["retired"] == false && peer.deletes() == 1,
+                "background maintenance raced the admitted deletion: {state}");
+            release.notify_one();
+            let response = pending.take().unwrap().await??;
+            let status = response.status();
+            let body = response.text().await?;
+            ensure!(status.is_success(), "destroy failed: {status}: {body}");
+            reconciliation.take().unwrap().await??;
+            let state = call(&client, &address, "state").await?;
+            ensure!(state["retired"] == true && state["generation"] == "1");
+            call(&client, &address, "start").await?;
+            call(&client, &address, "destroy").await?;
+            ensure!(peer.creates() == 2 && peer.deletes() == 2 && peer.commands() == 0);
+            return Ok(());
+        }
         if stale_command {
             let (hold, entered, release) = peer.command_gate();
             hold.store(true, Ordering::SeqCst);
@@ -455,6 +536,11 @@ async fn exercise(vercel: bool, scenario: Scenario) -> Result<()> {
     }
     .await;
     peer.command_gate().2.notify_one();
+    peer.delete_gate().2.notify_one();
+    if let Some(task) = reconciliation {
+        task.abort();
+        let _ = task.await;
+    }
     if let Some(task) = pending {
         task.abort();
         let _ = task.await;
@@ -529,6 +615,19 @@ fn late_command_cannot_publish_success_for_a_replacement_generation() -> Result<
         .block_on(async {
             for vercel in [false, true] {
                 exercise(vercel, Scenario::StaleCommand).await?;
+            }
+            Ok(())
+        })
+}
+
+#[test]
+fn application_and_background_lifecycle_wait_for_an_admitted_delete() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            for vercel in [false, true] {
+                exercise(vercel, Scenario::ConcurrentDestroy).await?;
             }
             Ok(())
         })

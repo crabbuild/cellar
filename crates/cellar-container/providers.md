@@ -40,6 +40,14 @@ provider resource IDs. It survives events, business-state clear and recovery;
 updates use revision checks and await native durability. Guest-visible metadata
 or ordinary application KV must not authorize a remote account resource.
 
+The shared `Session` holds `BindingJournal::lock_lifecycle` for start, destroy
+and reconciliation when the provider declares a binding name. The native
+maintenance controller shares this admission and calls the backend under its
+guard. Load lifecycle checkpoints after admission and keep their strict revision
+checks. Direct host journal users need the same guard; maintenance backends
+must not reacquire it. Command/file operations stay concurrent and retain their
+generation checks around result publication.
+
 For [supervised bindings](supervision.md), application operations check
 `BindingJournal::check_retention` before submission. Successful commands/files
 may call `activity(ctx, original_generation)`; polling must not renew retention.

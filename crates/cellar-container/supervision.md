@@ -63,24 +63,33 @@ qualified provider-enforced lease.
 ```mermaid
 sequenceDiagram
     participant App as Application event
+    participant Slot as Binding admission
     participant DB as Protected cell SQLite
     participant Host as Native internal work
     participant Provider
+    App->>Slot: Acquire activation lifecycle guard
     App->>DB: Atomically reserve binding + policy + internal deadline
     DB-->>App: Required durability proof
     App->>Provider: Submit create once
+    Provider-->>App: Observed or uncertain outcome
+    App->>DB: Checkpoint evidence; retain unknown intent
+    App->>Slot: Release after checkpoint durability
     Note over App: Application event ends
+    Host->>Slot: Acquire the same binding guard
+    Host->>DB: Recheck installation and exact task
     Host->>DB: Claim due task; persist the next attempt
     DB-->>Host: Required durability proof
     Host->>Provider: Inspect original identity; delete when due
     Provider-->>Host: Correlated observation or uncertain outcome
     Host->>DB: Checkpoint exact generation/revision; rearm or retire
+    Host->>Slot: Release after checkpoint durability
 ```
 
 | Boundary | Behavior |
 | --- | --- |
 | Scheduler | Existing native `resource-reconciliation` work; application alarms keep their own deadlines and retry state |
 | Authority | A fresh finite native event for each attempt; original activation/invocation checks and output proof |
+| Lifecycle overlap | Application start/destroy/reconcile and maintenance share a per-binding activation guard; reread the installation and task after waiting, before claiming or contacting the provider |
 | Completion | Task generation/version and binding revision reject superseded results |
 | Command/file result | Require the original confirmed running generation before and after activity durability; a late result after replacement is uncertain |
 | Expiry | Earlier of fixed maximum lifetime and optional idle deadline; inspection does not count as activity |
@@ -111,6 +120,8 @@ evidence. An earlier uncertain create cannot use that shortcut.
 the supplied checkpoint and must never allocate compute. E2B/Vercel re-inspect
 the exact allocation/session and verify metadata before repeated deletion. A
 generic backend defaults to inspection after an uncertain deletion.
+The controller holds lifecycle admission while calling `maintain`; backend
+implementations must use their journal directly and must not reacquire the guard.
 
 ## Qualification boundary
 
@@ -129,6 +140,8 @@ over a private local object store, with fresh node directories.
 | Removed application class and lost create response | Reconcile the original request and retire it without a business invocation or cell factory |
 | Accepted create during owner suspension | A 2.5-second suspension exceeds the 1-second lease; the old domain fences without success and the successor cleans the pending resource |
 | Handoff and cold verification | A live receiver reads the same retirement record, business data and user alarm after native ownership transfer |
+| Provider API outage through two cold replacements | Preserve the original obligation and its published retry deadline; restore the provider and retire without business construction or a cleanup-driving request |
+| Owner-specific object-store outage | Refuse actual owner I/O, expire its lease and close its domain; an independent successor retires the same resource while the old owner's clients remain isolated |
 
 Each scenario runs against both E2B and Vercel protocol peers and asserts one
 create, one delete and joined node shutdown. Provider effects execute through
@@ -137,6 +150,6 @@ A standalone node without replication still cannot automatically discover all
 untouched cells on cold startup.
 
 Native Docker/Podman keeps its existing engine lifecycle and cleanup path.
-Live E2B/Vercel accounts, provider/object-store outages, network partitions,
-physical cell deletion and stronger remote fencing remain outstanding. See the
+Live E2B/Vercel accounts, broader outages and network partitions, physical cell
+deletion and stronger remote fencing remain outstanding. See the
 [delivery ledger](../../plans/sandbox-provider-progress.md) for current evidence.

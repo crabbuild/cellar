@@ -4,7 +4,10 @@
 use super::{containers::ProviderAuthority, Context, HandlerFuture};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, Weak},
+};
 
 pub const MAX_BINDINGS: usize = 64;
 pub const MAX_BINDING_BYTES: usize = 16 * 1024;
@@ -159,6 +162,35 @@ pub struct BindingJournal {
     authority: Arc<ProviderAuthority>,
 }
 
+/// Serializes lifecycle transitions for one binding in the current activation.
+/// Dropping releases the slot. This supplies no remote fencing or rollback.
+#[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
+pub struct BindingLifecycleGuard {
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+#[derive(Default)]
+pub(crate) struct LifecycleLocks {
+    locks: Mutex<HashMap<Arc<str>, Weak<tokio::sync::Mutex<()>>>>,
+}
+
+impl LifecycleLocks {
+    fn get(&self, name: &Arc<str>) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        let mut locks = self.locks.lock().unwrap();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
+            return Ok(lock);
+        }
+        ensure!(
+            locks.len() < MAX_BINDINGS,
+            "provider lifecycle limit exceeded"
+        );
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(name.clone(), Arc::downgrade(&lock));
+        Ok(lock)
+    }
+}
+
 impl BindingJournal {
     pub fn open(context: &Context, name: &str) -> Result<Self> {
         crate::storage::container_bindings::validate_name(name)?;
@@ -183,6 +215,32 @@ impl BindingJournal {
     pub fn load(&self, context: &Context) -> Result<Option<BindingCheckpoint>> {
         let scope = self.check(context)?;
         crate::storage::container_bindings::load(scope, &self.name)
+    }
+
+    /// Wait for exclusive lifecycle admission across event sessions and native
+    /// maintenance for this binding. Check authority again after waiting, then
+    /// load the checkpoint under the guard before deciding or issuing effects.
+    /// Command/file work stays concurrent and must check its original generation.
+    /// Acquisition is cancellable; do not reacquire while holding this guard.
+    pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
+        let prepared = (|| {
+            self.check(context)?;
+            context
+                .storage()?
+                .0
+                .resources
+                .provider_lifecycle
+                .get(&self.name)
+        })();
+        let journal = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let lock = prepared?;
+            journal.check(&context)?;
+            let guard = lock.lock_owned().await;
+            journal.check(&context)?;
+            Ok(BindingLifecycleGuard { _guard: guard })
+        })
     }
 
     fn check_running_generation(&self, context: &Context, generation: u64) -> Result<()> {

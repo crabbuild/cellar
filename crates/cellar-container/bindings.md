@@ -122,18 +122,36 @@ Its fixed record format has no arbitrary credential/configuration payload.
 ## Reserve before creating
 
 ```rust,no_run
-use cellar::sdk::{containers::{BindingCheckpoint, BindingJournal, BindingRecord}, Context};
+use cellar::sdk::{
+    containers::{BindingCheckpoint, BindingJournal, BindingLifecycleGuard, BindingRecord}, Context,
+};
 
 async fn reserve(
     ctx: &Context,
     record: BindingRecord,
-) -> anyhow::Result<BindingCheckpoint> {
+) -> anyhow::Result<(BindingLifecycleGuard, BindingCheckpoint)> {
     let journal = BindingJournal::open(ctx, "builds")?;
+    let lifecycle = journal.lock_lifecycle(ctx).await?;
     // `None` means this binding must not exist. An existing pending create
     // requires reconciliation; a second call cannot silently replace it.
-    journal.compare_exchange(ctx, None, record).await
+    let checkpoint = journal.compare_exchange(ctx, None, record).await?;
+    // The caller retains admission through provider I/O and confirmation.
+    Ok((lifecycle, checkpoint))
 }
 ```
+
+`cellar_container::Session` automatically holds this activation-bound guard through
+`start`, `destroy` and `reconcile`. Native maintenance uses the same guard.
+Direct host journal users must acquire it before loading the checkpoint and
+keep it through lifecycle I/O and checkpoint durability. Acquisition rechecks
+the original event authority after waiting; dropping the future cancels the
+wait. A maintenance backend already runs under the guard and must not reacquire
+it. Guards are independent across cells and binding names and bounded to 64
+live slots per activation.
+
+Commands and file operations retain concurrent admission. Their original
+generation must still be running when publishing results. The guard neither
+revokes an accepted remote command nor permits replay after a lost response.
 
 The initial record has generation `1`, running intent, pending observation and
 no resource ID. The future commits the reservation and waits for the required

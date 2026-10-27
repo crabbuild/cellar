@@ -436,6 +436,7 @@ name = "cellar-container"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "cellar",
  "chrono",
@@ -443,6 +444,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "object_store",
  "rand 0.8.7",
  "reqwest",
  "serde",

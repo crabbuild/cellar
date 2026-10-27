@@ -50,6 +50,8 @@ impl Drop for Streaming {
 
 #[derive(Default)]
 pub struct State {
+    pub unavailable: AtomicBool,
+    pub refused: AtomicUsize,
     pub creates: AtomicUsize,
     pub deletes: AtomicUsize,
     pub commands: AtomicUsize,
@@ -58,6 +60,9 @@ pub struct State {
     pub create_entered: Notify,
     pub create_release: Notify,
     pub lost_delete: AtomicBool,
+    pub hold_delete: AtomicBool,
+    pub delete_entered: Notify,
+    pub delete_release: Notify,
     pub defer_delete: AtomicBool,
     pub hide_list: AtomicBool,
     pub mismatched_metadata: AtomicBool,
@@ -228,6 +233,10 @@ impl State {
                 !headers.contains_key("x-access-token"),
                 "envd token leaked to control plane"
             );
+            if self.unavailable.load(Ordering::SeqCst) {
+                self.refused.fetch_add(1, Ordering::SeqCst);
+                return Ok(response(503, b"provider API unavailable".to_vec()));
+            }
             if self.redirect.swap(false, Ordering::SeqCst) {
                 return Ok(Response::builder()
                     .status(302)
@@ -297,6 +306,10 @@ impl State {
                         .lock()
                         .unwrap()
                         .retain(|(owner, _), _| owner != id);
+                    if self.hold_delete.swap(false, Ordering::SeqCst) {
+                        self.delete_entered.notify_one();
+                        self.delete_release.notified().await;
+                    }
                     if self.lost_delete.swap(false, Ordering::SeqCst) {
                         return Ok(response(503, b"lost delete reply".to_vec()));
                     }
