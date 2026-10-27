@@ -9,6 +9,11 @@ The [TiKV performance comparison](tikv-performance.md) records the current
 batching and storage investigation, its regression evidence and remaining
 end-to-end qualification.
 
+The [archived-log reclamation experiment](log-reclamation-benchmark.md) records
+thirteen real RustFS runs across 24 three-voter groups, physical log-file
+reclamation, retained-disk restarts and a bounded backend outage. Correctness
+checks passed; overlapping host compilations leave its timing results contended.
+
 Leaders execute private commands; serving replicas apply committed SQLite/LTX
 history and expose explicit follower queries. S3 stores verified committed images,
 tails and dependencies. A node can lead some groups and follow others. S3 restores
