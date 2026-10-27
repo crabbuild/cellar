@@ -54,6 +54,9 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm run --prefix tools/rpc build
+          node tools/rpc/profile/vectors.mjs --check
+          node --test tools/rpc/profile-vectors.test.mjs
+          .cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
       - name: Qualifier checks
         run: |
           cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store
@@ -62,6 +65,15 @@ jobs:
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Live portable Protobuf profile
+        run: |
+          mkdir -p .cellar/rpc
+          if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+            --suite profile --report .cellar/rpc/profile.json > .cellar/rpc/profile.log 2>&1; then
+            tail -n 100 .cellar/rpc/profile.log
+            exit 1
+          fi
+          python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
       - name: Owned Node, V8 and Python lifecycle matrices
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
@@ -87,6 +99,8 @@ jobs:
           name: typed-rpc-lifecycle
           path: |
             .cellar/rpc/lifecycle.json
+            .cellar/rpc/profile.json
+            .cellar/rpc/profile.log
             .cellar/rpc/lifecycle.log
             .cellar/rpc/python-cancellation.json
             .cellar/rpc/python-cancellation.log

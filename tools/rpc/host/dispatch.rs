@@ -34,6 +34,9 @@ fn selected(
     python: Arc<PythonApplication>,
 ) -> LocalBoxFuture<'static, Result<Value>> {
     match suite {
+        Suite::Profile => {
+            Box::pin(async { anyhow::bail!("profile needs its dedicated generated runtimes") })
+        }
         Suite::Local => Box::pin(qualify::local(app)),
         Suite::Remote => Box::pin(remote::run(app)),
         Suite::PeerFaults => Box::pin(peer_faults::run(app)),

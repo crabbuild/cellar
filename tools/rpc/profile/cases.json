@@ -1,0 +1,253 @@
+[
+  {
+    "id": "defaults",
+    "method": "Echo",
+    "json": {}
+  },
+  {
+    "id": "scalar-boundaries",
+    "method": "Echo",
+    "json": {
+      "signed32": -2147483648,
+      "unsigned32": 4294967295,
+      "zigzag32": -2147483648,
+      "fixedUnsigned32": 4294967295,
+      "fixedSigned32": -2147483648,
+      "signed64": "-9223372036854775808",
+      "unsigned64": "18446744073709551615",
+      "zigzag64": "-9223372036854775808",
+      "fixedUnsigned64": "18446744073709551615",
+      "fixedSigned64": "-9223372036854775808",
+      "float32": "Infinity",
+      "float64": "-Infinity",
+      "enabled": true,
+      "text": "﻿😀\u0000",
+      "data": "AP+A",
+      "state": 777,
+      "present": "0",
+      "selectedText": "",
+      "packed": [
+        -2147483648,
+        -1,
+        0,
+        2147483647
+      ],
+      "unpacked": [
+        -2147483648,
+        -1,
+        0,
+        2147483647
+      ],
+      "children": [
+        {},
+        {
+          "name": "﻿😀"
+        }
+      ],
+      "byName": {
+        "﻿😀": {},
+        "child": {
+          "name": "nested"
+        }
+      },
+      "byID": {
+        "-9223372036854775808": true,
+        "9223372036854775807": false
+      },
+      "timestamp": "1969-12-31T23:59:59.000000001Z",
+      "duration": "-1.000000001s"
+    }
+  },
+  {
+    "id": "opposite-boundaries",
+    "method": "Echo",
+    "json": {
+      "signed32": 2147483647,
+      "zigzag32": 2147483647,
+      "fixedSigned32": 2147483647,
+      "signed64": "9223372036854775807",
+      "zigzag64": "9223372036854775807",
+      "fixedSigned64": "9223372036854775807",
+      "state": "STATE_FAILED"
+    }
+  },
+  {
+    "id": "present-zero",
+    "method": "Echo",
+    "json": {
+      "present": "0",
+      "selectedText": ""
+    }
+  },
+  {
+    "id": "recursive-oneof",
+    "method": "Echo",
+    "json": {
+      "selectedChild": {
+        "name": "choice",
+        "recursive": {
+          "children": [
+            {
+              "recursive": {
+                "text": "leaf"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "id": "nan-floats",
+    "method": "Echo",
+    "json": {
+      "float32": "NaN",
+      "float64": "NaN"
+    }
+  },
+  {
+    "id": "unknown-negative-enum",
+    "method": "Echo",
+    "json": {
+      "state": -1234
+    }
+  },
+  {
+    "id": "empty-bytes-and-values",
+    "method": "Echo",
+    "json": {
+      "data": "",
+      "byName": {
+        "": {}
+      },
+      "byID": {
+        "0": false
+      },
+      "children": [
+        {},
+        {}
+      ]
+    }
+  },
+  {
+    "id": "empty-message",
+    "method": "Ping",
+    "json": {}
+  },
+  {
+    "id": "nested-service-type",
+    "method": "EchoChild",
+    "json": {
+      "name": "child",
+      "recursive": {
+        "present": "0",
+        "selectedChild": {}
+      }
+    }
+  },
+  {
+    "id": "timestamp-before-epoch",
+    "method": "EchoTimestamp",
+    "json": "1969-12-31T23:59:59.000000001Z"
+  },
+  {
+    "id": "timestamp-min",
+    "method": "EchoTimestamp",
+    "json": "0001-01-01T00:00:00Z"
+  },
+  {
+    "id": "timestamp-max",
+    "method": "EchoTimestamp",
+    "json": "9999-12-31T23:59:59.999999999Z"
+  },
+  {
+    "id": "duration-negative",
+    "method": "EchoDuration",
+    "json": "-1.000000001s"
+  },
+  {
+    "id": "duration-zero",
+    "method": "EchoDuration",
+    "json": "0s"
+  },
+  {
+    "id": "duration-max",
+    "method": "EchoDuration",
+    "json": "315576000000s"
+  },
+  {
+    "id": "runtime-mappings",
+    "method": "EchoMappings",
+    "json": {
+      "wrapped64": "-9223372036854775808",
+      "wrappedBytes": "AP+A",
+      "wrappedDouble": "Infinity",
+      "wrapperList": [
+        "0",
+        "-9223372036854775808",
+        "9223372036854775807"
+      ],
+      "wrapperMap": {
+        "false": "-9223372036854775808",
+        "true": "9223372036854775807"
+      },
+      "object": {
+        "﻿😀": [
+          null,
+          true,
+          7.5,
+          {
+            "nested": "value"
+          }
+        ]
+      },
+      "objects": [
+        {},
+        {
+          "key": false
+        }
+      ],
+      "objectsByName": {
+        "empty": {},
+        "full": {
+          "x": 1
+        }
+      },
+      "wrappedChoice": "0",
+      "explicitValue": null,
+      "explicitList": [
+        null,
+        7,
+        "😀",
+        false,
+        {
+          "x": []
+        }
+      ],
+      "wrappedFloat": "-Infinity",
+      "wrappedUnsigned64": "18446744073709551615",
+      "wrapped32": -2147483648,
+      "wrappedUnsigned32": 4294967295,
+      "wrappedBool": false,
+      "wrappedString": ""
+    }
+  },
+  {
+    "id": "wrapper-presence",
+    "method": "EchoMappings",
+    "json": {
+      "wrapped64": "0",
+      "wrappedBytes": "",
+      "wrappedDouble": 0,
+      "wrappedFloat": 0,
+      "wrappedUnsigned64": "0",
+      "wrapped32": 0,
+      "wrappedUnsigned32": 0,
+      "wrappedBool": false,
+      "wrappedString": "",
+      "objectChoice": {},
+      "explicitValue": null,
+      "explicitList": []
+    }
+  }
+]

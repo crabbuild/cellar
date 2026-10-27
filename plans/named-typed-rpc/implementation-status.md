@@ -96,11 +96,24 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   bypasses are removed. **35 qualifier guards** and **three Node bootstrap
   tests** pass. The deliberately interrupted coordinator was resumed after its
   original processes ended, without repeating completed live cases. All
-  **3,659 source/fixture hashes remain unchanged at the checkpoint**, manifest
+  **3,659 source/fixture hashes remain unchanged through the final audit**, manifest
   SHA-256 `cc75bd7ed8b26b42d171a024f195985ca019595ad0548b1485416a4fa42c3ab7`.
-  The original-worktree adapter, native regression, Clippy, static checks and
-  final source audit are still running. This subsequent test/prose change
-  lives in an isolated worktree and does not qualify itself through that run.
+  The resumed coordinator is complete. All-target Clippy, Node-only checking,
+  Rust/JS formatting, layout, dependency/docs checks, strict RPC types, all 18
+  selected native integrations and the original SDK stale-receipt regression
+  pass. The latter retains its 30-second lease, three-second call budget and
+  assertions. The selected JS command retains **six passed, one failed**: V8
+  HTTP/restart reaches the existing 250 ms handler budget. Generated RPC, Node
+  compatibility, SSE/WebSockets and Workers port WebSockets pass. The complete
+  serial Workers module suite passes all five tests on macOS. Python E2B,
+  streaming and Vercel integrations pass; typed RPC fails at the same 250 ms
+  budget, with zero native/bridge counts after its failed host result and a
+  secondary SQLite I/O error during teardown. These failures remain in the
+  raw logs. A ready-triggered external sample reproduces V8 failure plus lease
+  fencing but captures only two samples, so it does not establish a cause.
+  Reports and resumed exits are under `.cellar/rpc/reply-byte-bound-*` and
+  `.cellar/rpc/reply-byte-bound-resume1-*`. Subsequent isolated changes are
+  outside this frozen source and cannot inherit its qualification.
 
   Known bounds reserve before headers; cumulative frames check actual length,
   owner and deadline. One merged permit follows every byte alias without
@@ -126,7 +139,14 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   fixture regression verifies isolated listeners and Linux port 8080. Wake
   errors identify their cycle; handler/client budgets and lifecycle assertions
   stay unchanged. Local macOS observations cannot exercise Linux address
-  selection, so fresh hosted confirmation of this correction remains pending.
+  selection. Fresh head `f3d5f55b` passes the complete Linux adapter/real-node
+  step in JavaScript run `40454527251`, job `122024645088`, including the fixed
+  lifecycle test under unchanged budgets. Node-only mode, runtime archive and
+  admission boundaries, Pi crash recovery and Vercel SDK task/concurrency
+  recovery also pass there; later workflow steps remain in progress. Typed-RPC
+  lifecycle run `40454527345` and Python examples run `40454527327` pass. Full
+  hosted SDK verification of this head is still running. The local V8/Python
+  250 ms failures above remain unexplained; Linux passes do not diagnose them.
 
 - **Bound cached RPC reuse before receiving idle expiry.** The native
   stale-receipt failure is reproduced under its original lease, operation

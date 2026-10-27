@@ -26,6 +26,7 @@ mod generated;
 #[path = "../../../crates/cellar-javascript/tests/support/native.rs"]
 mod native;
 mod peer_faults;
+mod profile;
 mod proof;
 mod provenance;
 mod qualify;
@@ -35,6 +36,7 @@ mod worker;
 
 #[derive(Clone, Copy)]
 enum Suite {
+    Profile,
     Local,
     Remote,
     PeerFaults,
@@ -89,6 +91,7 @@ fn main() -> Result<()> {
             }
             "--suite" => {
                 suite = match arguments.next().as_deref() {
+                    Some("profile") => Suite::Profile,
                     Some("local") => Suite::Local,
                     Some("remote") => Suite::Remote,
                     Some("peer-faults") => Suite::PeerFaults,
@@ -160,6 +163,13 @@ fn main() -> Result<()> {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
+    }
+    if matches!(suite, Suite::Profile) {
+        ensure!(
+            server.is_none() && python_child.is_none(),
+            "profile suite cannot serve a crash worker"
+        );
+        return publish(profile::execute()?, report_path);
     }
     let (proof_sender, proof_receiver) = std::sync::mpsc::sync_channel(1);
     let child_mode = python_child.is_some();
@@ -282,6 +292,10 @@ fn main() -> Result<()> {
     let proof = proof_receiver
         .try_recv()
         .context("qualification result is missing")?;
+    publish(proof, report_path)
+}
+
+fn publish(proof: serde_json::Value, report_path: Option<PathBuf>) -> Result<()> {
     let text = serde_json::to_string_pretty(&proof)?;
     if let Some(path) = report_path {
         if let Some(parent) = path

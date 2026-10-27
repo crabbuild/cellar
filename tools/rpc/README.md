@@ -343,6 +343,34 @@ cargo run --locked -p cellar-rpc-codegen -- \
 cargo test --locked -p cellar --test typed_rpc_profile
 ```
 
+The separate live profile suite submits 18 shared vectors through all sixteen
+Rust/Python/V8/Node generated caller/provider pairs, over both local and signed
+peer routes (576 cases). V8 uses TypeScript bindings and Node uses independently
+generated JavaScript bindings. Native observations check the actual request and
+returned message semantics, owner, scope, epoch and method. Each caller also
+checks its decoded result; replies are never accepted from JSON summaries alone.
+
+```sh
+node tools/rpc/profile/vectors.mjs --check
+node --test tools/rpc/profile-vectors.test.mjs
+.cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite profile --report .cellar/rpc/profile.json
+python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
+```
+
+Run this suite in a fresh process: the embedded Python runtime permits one
+initialization per process. `--suite all` retains the existing Counter suites;
+profile qualification is an additional command and CI gate. The reference
+[corpus](profile/cases.json) uses Protobuf JSON; regeneration produces canonical
+JSON plus reference wire bytes for native authoring. An independent protoc
+Python check validates both representations. Update intentional vectors with
+`node tools/rpc/profile/vectors.mjs --write` and review both generated outputs.
+The auditor checks exact coverage and identity, then rejects 22 corrupt reports.
+Only a successfully completed live report establishes these 576 cases; corpus
+checks alone do not. Parser abuse, interpreter-mode, durability/recovery,
+resource/RSS and package qualification keep their separate gates.
+
 The native test compiles the generated service using only SDK re-exports,
 including the unit representation of `Empty` and the `prost_types` well-known
 types. Native, JS and Python codec checks preserve integer boundaries, non-finite
