@@ -596,6 +596,55 @@ impl Cluster {
         .await
     }
 
+    /// Recreate the dormant SDK runtime from an empty directory before seeding.
+    /// The focused recovery caller invokes this inside its measured interval.
+    #[allow(dead_code)] // Shared targets also exercise retained-runtime joins.
+    pub async fn join_cold_standby(
+        &mut self,
+        application: Arc<dyn cellar::sdk::Application>,
+        placement: RaftCellPlacement,
+    ) -> Result<RaftCells> {
+        ensure!(
+            self.standby.is_some() && self.retired_owner.is_some(),
+            "cold join requires an unused standby after owner loss"
+        );
+        let previous = self
+            .nodes
+            .pop()
+            .ok_or_else(|| anyhow::anyhow!("missing dormant node"))?;
+        let data = previous.info().data_dir.clone();
+        ensure!(
+            !data.join("raft").exists(),
+            "dormant node already owns Raft state"
+        );
+        ensure!(
+            previous.cancel().await? == NodeOutcome::Cancelled,
+            "dormant node did not join"
+        );
+        let erasure = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+        let erased = erasure
+            .blocking(move || {
+                std::fs::remove_dir_all(&data)?;
+                ensure!(!data.exists(), "dormant local state survived erasure");
+                Ok::<_, anyhow::Error>(())
+            })?
+            .await?;
+        erasure.shutdown().await;
+        erased?;
+        let root = self
+            ._roots
+            .get(3)
+            .ok_or_else(|| anyhow::anyhow!("missing standby directory"))?;
+        let fresh =
+            public_node::node_named(root.path(), application.clone(), "raft-cluster-4").await?;
+        ensure!(
+            !fresh.info().data_dir.join("raft").exists(),
+            "fresh node has local Raft state"
+        );
+        self.nodes.push(fresh);
+        self.join_standby(application, placement).await
+    }
+
     #[allow(dead_code)]
     pub async fn join_standby(
         &mut self,

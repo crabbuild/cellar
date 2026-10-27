@@ -123,6 +123,14 @@
       "sha256": "82c2b03bafdcd4c9557c682e11593d2d95238fd23d5ba5a273ffa8c54e7a7de5"
     },
     {
+      "path": "crates/cellar/durability/raft/archive/verifier.rs",
+      "sha256": "33dab4eb94e95b22e5c8add9e24b0a10662d54c41e21b3c1ee77485794f09485"
+    },
+    {
+      "path": "crates/cellar/durability/raft/archive/verifier_tests.rs",
+      "sha256": "a75e92b619fc09bd592dae6b9a89500b765cf056215e65f2bc535085df2c7e4e"
+    },
+    {
       "path": "crates/cellar/durability/raft/cache.rs",
       "sha256": "c10a9c6eb84c3b7ba3866de68ca331456a926ad219bc276b6d767a4d7b27f770"
     },
@@ -209,6 +217,10 @@
     {
       "path": "crates/cellar/durability/raft/manifest.rs",
       "sha256": "9d9d769b16c076e0a2a123340a7f5f79198f1c47116e55cbdda8d43b4886bf01"
+    },
+    {
+      "path": "crates/cellar/durability/raft/manifest_tests.rs",
+      "sha256": "e72875487569d3506be129fa9bedbe49150b16cdca55999e758a76786f810e05"
     },
     {
       "path": "crates/cellar/durability/raft/member_state.rs",

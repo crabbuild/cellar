@@ -14,9 +14,10 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
 ```
 
-This runs 96 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
-source quotas over local/authenticated peer routing, and receiving quotas over
-authenticated peer routing. Each side has independent count and byte cases.
+This runs 112 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+source quotas over local/authenticated peer routing, receiving quotas over
+authenticated peer routing, and post-commit reply-byte refusal over peer routes.
+Source and receiving request admission have independent count and byte cases.
 V8 uses the generated TypeScript binding; Node uses plain JavaScript.
 The byte case retains the default 128-call quota and reduces only the byte
 allowance to 128 KiB. The count case retains the default byte allowance.
@@ -46,8 +47,18 @@ same-ID retries apply the refused command once; a changed command conflicts.
 Every node joins, including after a failed assertion. Receiving requests,
 reserved input bytes, tunnels and peer entries retire to zero. The separate auditor
 checks coverage, authority, counts, quotas and zero retained reservations and
-rejects ten corrupted reports. The suite also runs in the combined qualifier
+rejects seventeen corrupted reports. The suite also runs in the combined qualifier
 and Linux lifecycle CI.
+
+The sixteen reply cases hold a generated call from each actual caller runtime.
+After release the original provider durably commits a count and receipt, then
+returns a valid 64-KiB business-error message. The combined receiving quota
+refuses that payload with `ResourceExhausted/unknown`. Host observations verify
+codec-valid length, stored count, closed transaction and write position. No
+automatic retry enters the provider. An explicit same-ID retry returns the
+saved count, while the separately refused command and its receipt/conflict
+checks retain their original observations. Final request/reply/tunnel
+reservations must be zero.
 
 Receiving bodies use a dense buffer whose capacity and possible native/JSON
 copy are reserved before growth. Partial uploads count against admission;
@@ -56,18 +67,77 @@ an idle timeout bound pooled connections. Fragments do not accumulate list
 nodes, and empty chunks yield to timers/replies. Socket and dense-buffer tests
 also exercise quota recovery, idle retirement and native ticket retention.
 
+The upgrade carries the receiving idle interval as canonical positive
+milliseconds. Sources limit cache reuse to its first half, starting at dial;
+clean reply EOF cannot renew an aging socket. This leaves time for the next
+submission to reach the receiver before its idle timer expires. Expiry never
+cancels an active exchange or grants permission to replay an uncertain one.
+The original source domain's clock controls reuse, including after shutdown;
+missing or malformed interval metadata refuses a mixed or invalid peer before
+producing a business-call sender. Socket regressions reproduce the held-request
+race, late reply retirement, metadata refusal and stopped-owner cleanup.
+Receivers also require one version-1 reuse capability before admission; neither
+side silently falls back to the previous pooling contract.
+
 Reply admission follows each yielded transport buffer and its slices/clones,
 without copying the payload. Once a handler result is ready, the original
 caller deadline and peer transport interval cap delivery. A stalled socket
 closes within that budget; it cannot turn a lost reply into rollback evidence.
 Refunds use the receiving domain's clock, including late buffer drops after
-shutdown. Reply payload bytes and allocator/RSS accounting still need their
-separate qualification below.
+shutdown. Published payload lengths now share receiving input/copy/control
+capacity. Known body bounds reserve before headers; actual cumulative frame
+lengths are checked as well. The single merged permit follows every frame alias
+until its final owner drops. New frames refuse a stopped owner or an expired
+delivery deadline without requiring an ambient execution domain.
 
-These are input/control reservations, not an RSS or exact allocator measurement.
-Native allocator overhead, response copies, decoded graphs, guest heaps and
-broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
+Before headers a reply-capacity refusal returns `ResourceExhausted/unknown`;
+a later frame refusal breaks the body. A handler may already have committed,
+so neither path authorizes automatic replay or establishes rollback. Length
+reservations do not measure shared backing allocations or exact allocator/RSS
+usage. Native allocator overhead, response copies, decoded graphs, guest heaps
+and broader flood/disconnect/cancellation matrices need further qualification. See the host settings in
 [configuration](../../docs/11-configuration.md#library-defaults).
+
+## Guest call metadata refusals
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite guest-control --report .cellar/rpc/guest-control.json
+python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
+```
+
+The 48 cases cover Python, V8 TypeScript and Node JavaScript callers × all four
+providers × local/signed-peer routes × oversized or unknown metadata. Oversized
+targets use the generated client; the unknown-field probe uses the same native
+transport with an extra graph. Rust callers do not use this guest JSON boundary.
+
+```text
+guest call metadata + binary request
+             |
+      raw UTF-8 <= 16 KiB?
+             |
+      reserve decode allowance
+             |
+      flat, known, unique fields?
+             |
+      native routing -> provider -> proof
+
+invalid control -> InvalidArgument / not_committed
+                  zero provider visits or factories
+fresh generated read -> original owner, same zero count
+```
+
+Both adapters share a bounded decoder before native dispatch. It rejects
+oversized wire input before parsing or reserving, and unknown fields before
+reading their values. Decode storage is reserved before parsing and held with
+the native work; malformed input releases it. The original encoded payload is
+charged separately. Python uses UTF-8 JSON for this flat control, so Unicode
+target names spend the same wire allowance as JavaScript.
+
+The independent auditor checks exact coverage, fixed refusal categories,
+provider isolation, fresh-call authority and zero retained native reservations
+after node join. This suite does not measure allocator overhead, engine heaps
+or process RSS; both qualification flags remain false.
 
 ## Generate the shared contract
 
@@ -313,6 +383,45 @@ cargo run --locked -p cellar-rpc-codegen -- \
   --languages rust,python,typescript,javascript
 cargo test --locked -p cellar --test typed_rpc_profile
 ```
+
+The separate live profile suite submits 18 shared vectors through all sixteen
+Rust/Python/V8/Node generated caller/provider pairs, over both local and signed
+peer routes (576 cases).
+
+```text
+18 vectors × 4 generated callers × 4 typed providers × 2 routes = 576
+
+caller encode -> native preflight -> registered handler -> validated reply
+      ^                                                       |
+      +------------- caller decode and comparison ------------+
+```
+
+V8 uses TypeScript bindings and Node uses independently
+generated JavaScript bindings. Native observations check the actual request and
+returned message semantics, owner, scope, epoch and method. Each caller also
+checks its decoded result; replies are never accepted from JSON summaries alone.
+
+```sh
+node tools/rpc/profile/vectors.mjs --check
+node --test tools/rpc/profile-vectors.test.mjs
+.cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+.cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite profile --report .cellar/rpc/profile.json
+python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
+```
+
+Run this suite in a fresh process: the embedded Python runtime permits one
+initialization per process. `--suite all` retains the existing Counter suites;
+profile qualification is an additional command and CI gate. The reference
+[corpus](profile/cases.json) uses Protobuf JSON; regeneration produces canonical
+JSON plus reference wire bytes for native authoring. An independent protoc
+Python check validates both representations. Update intentional vectors with
+`node tools/rpc/profile/vectors.mjs --write` and review both generated outputs.
+The auditor checks exact coverage and identity, then rejects 22 corrupt reports.
+Only a successfully completed live report establishes these 576 cases; corpus
+checks alone do not. Parser abuse, interpreter-mode, durability/recovery,
+resource/RSS and package qualification keep their separate gates.
 
 The native test compiles the generated service using only SDK re-exports,
 including the unit representation of `Empty` and the `prost_types` well-known

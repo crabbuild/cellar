@@ -14,6 +14,10 @@ use protobuf::Message;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+#[path = "manifest_tests.rs"]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ObjectRef {
@@ -194,6 +198,8 @@ pub(crate) struct Manifest {
     /// Original published-image position, distinct from protocol-only apply.
     #[serde(deserialize_with = "required_option")]
     pub image_position: Option<Position>,
+    pub conf_state: Vec<u8>,
+    pub membership: super::member_state::GroupMembership,
     pub dependencies: Vec<ObjectRef>,
 }
 
@@ -217,6 +223,7 @@ impl Manifest {
             || self.birth_digest != birth
             || self.schema_digest != schema
             || !self.snapshot.membership.same_birth(initial)
+            || !self.membership.same_birth(initial)
         {
             return Err(ArchiveError::Corrupt("archive history/schema binding"));
         }
@@ -248,6 +255,16 @@ impl Manifest {
             .membership
             .validate(&conf, self.snapshot.position.index)
             .map_err(|_| ArchiveError::Corrupt("archive member bindings"))?;
+        let tip_conf = decode_conf(&self.conf_state)?;
+        self.membership
+            .validate(&tip_conf, self.position.index)
+            .map_err(|_| ArchiveError::Corrupt("archive tip member bindings"))?;
+        self.membership
+            .validate_scope(scope)
+            .map_err(|_| ArchiveError::Corrupt("archive tip fleet binding"))?;
+        self.membership
+            .succeeds(&self.snapshot.membership)
+            .map_err(|_| ArchiveError::Corrupt("archive tip member history"))?;
         self.snapshot
             .membership
             .validate_scope(scope)
@@ -264,7 +281,9 @@ impl Manifest {
             (None, None, None, None)
                 if self.tails.is_empty()
                     && self.dependencies.is_empty()
-                    && self.snapshot.position == self.position =>
+                    && self.snapshot.position == self.position
+                    && self.conf_state == self.snapshot.conf_state
+                    && self.membership == self.snapshot.membership =>
             {
                 return Ok(())
             }
@@ -318,6 +337,9 @@ impl Manifest {
         if position != self.position
             || entries > limits.max_entries
             || self.tails.is_empty() && self.image != self.snapshot.image
+            || self.tails.is_empty()
+                && (self.conf_state != self.snapshot.conf_state
+                    || self.membership != self.snapshot.membership)
         {
             return Err(ArchiveError::Corrupt("archive tip coverage"));
         }
@@ -437,7 +459,7 @@ pub(crate) fn digest(bytes: &[u8]) -> [u8; 32] {
 }
 
 #[cfg(test)]
-mod tests {
+mod fleet_tests {
     use super::*;
 
     #[test]
@@ -510,6 +532,8 @@ mod tests {
             position,
             image: None,
             image_position: None,
+            conf_state: encode_conf(&conf).unwrap(),
+            membership: super::super::member_state::GroupMembership::initial(&conf),
             dependencies: vec![],
         };
         (scope, manifest)

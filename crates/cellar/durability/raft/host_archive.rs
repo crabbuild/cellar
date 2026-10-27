@@ -134,13 +134,14 @@ pub(super) fn next_scope<'a, T>(
 pub(crate) async fn publish(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
+    prepared: super::snapshot::prepared::Cache,
     report: impl FnMut(usize, Completed) + Send + 'static,
 ) -> bool {
     // Keep every attempt-local snapshot close on the execution-domain worker,
     // including retry/error cleanup. Completed cuts still release independently;
     // the host retains the batch job until this physical owner has joined.
     let producer = crate::asyncrt::try_blocking(move || {
-        crate::asyncrt::block_on(publish_owned(captured, verifier, report))
+        crate::asyncrt::block_on(publish_owned(captured, verifier, prepared, report))
     });
     // A rejected or panicked worker drops its completion senders. The host's
     // per-cut receivers then report Unconfirmed; neither path acknowledges S3.
@@ -153,6 +154,7 @@ pub(crate) async fn publish(
 async fn publish_owned(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
+    prepared: super::snapshot::prepared::Cache,
     mut report: impl FnMut(usize, Completed),
 ) -> bool {
     let mut pending = Vec::with_capacity(captured.len());
@@ -174,6 +176,9 @@ async fn publish_owned(
             all_succeeded = false;
             return;
         };
+        if let Err(error) = &result {
+            release_idle_source_on_scratch_pressure(&prepared, error);
+        }
         let result = result.and_then(|set| {
             if set.scope() != &scope
                 || set.position().index < position.index
@@ -198,6 +203,9 @@ async fn publish_owned(
     })
     .await;
     let mut error = result.err();
+    if let Some(error) = &error {
+        release_idle_source_on_scratch_pressure(&prepared, error);
+    }
     for (number, slot) in pending.into_iter().enumerate() {
         if let Some((scope, position, reservation)) = slot {
             all_succeeded = false;
@@ -213,6 +221,18 @@ async fn publish_owned(
         }
     }
     all_succeeded && error.is_none()
+}
+
+/// Called by the admitted physical publisher after failed payload cleanup.
+/// A reusable idle source must not permanently occupy a small scratch bank.
+/// Live consumers keep their files; the original typed failure/retry remains.
+pub(super) fn release_idle_source_on_scratch_pressure(
+    prepared: &super::snapshot::prepared::Cache,
+    error: &ArchiveError,
+) {
+    if error.scratch_full() {
+        let _ = prepared.trim_idle();
+    }
 }
 
 impl Owner {

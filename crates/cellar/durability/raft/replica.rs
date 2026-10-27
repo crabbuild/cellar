@@ -43,13 +43,14 @@ impl Operations {
 
     fn ticket(
         &mut self,
-        replica: &ReplicaIdentity,
+        group: &GroupLog,
         position: LogPosition,
         digest: [u8; 32],
     ) -> Result<ApplyTicket, RuntimeError> {
         Ok(ApplyTicket {
             owner: self.owner.clone(),
-            replica: replica.clone(),
+            engine_owner: group.owner.clone(),
+            replica: group.identity().clone(),
             operation: self.next()?,
             position,
             digest,
@@ -743,11 +744,7 @@ impl Replica {
                     None
                 };
                 let key = WriteTicket {
-                    key: operations.ticket(
-                        self.log.identity(),
-                        ticket.position(),
-                        ticket.entry_digest(),
-                    )?,
+                    key: operations.ticket(&self.log, ticket.position(), ticket.entry_digest())?,
                     ready: 0,
                 };
                 self.write = Some((key.clone(), write));
@@ -795,7 +792,7 @@ impl Replica {
                             .map_err(|e| RuntimeError::Protocol(e.to_string()))?,
                     )
                     .into();
-                    let ticket = operations.ticket(self.log.identity(), position, digest)?;
+                    let ticket = operations.ticket(&self.log, position, digest)?;
                     if outbox
                         .push(RuntimeEventKind::Snapshot {
                             ticket: ticket.clone(),
@@ -933,7 +930,7 @@ impl Replica {
             Phase::Idle => {
                 if let Some(checkpoint) = self.checkpoint.take() {
                     let ticket = operations.ticket(
-                        self.log.identity(),
+                        &self.log,
                         checkpoint.position(),
                         checkpoint
                             .digest()
@@ -965,11 +962,7 @@ impl Replica {
                         return Err(RuntimeError::Overloaded);
                     }
                     let key = WriteTicket {
-                        key: operations.ticket(
-                            self.log.identity(),
-                            LogPosition::default(),
-                            [0; 32],
-                        )?,
+                        key: operations.ticket(&self.log, LogPosition::default(), [0; 32])?,
                         ready: ready.number(),
                     };
                     // Heartbeat/read/soft-state-only Ready has no durable
@@ -1017,11 +1010,8 @@ impl Replica {
                         return Ok(true);
                     }
                     if self.apply_ticket.is_none() {
-                        let ticket = operations.ticket(
-                            self.log.identity(),
-                            position,
-                            entry_digest(entry)?,
-                        )?;
+                        let ticket =
+                            operations.ticket(&self.log, position, entry_digest(entry)?)?;
                         if outbox
                             .push(RuntimeEventKind::Apply {
                                 ticket: ticket.clone(),
@@ -1090,7 +1080,7 @@ impl Replica {
                 };
                 write.applied = Some(applied.clone());
                 let key = WriteTicket {
-                    key: operations.ticket(self.log.identity(), position, entry_digest(entry)?)?,
+                    key: operations.ticket(&self.log, position, entry_digest(entry)?)?,
                     ready: 0,
                 };
                 self.write = Some((key.clone(), write));
@@ -1127,7 +1117,7 @@ impl Replica {
             hard.commit = commit;
             write.hard_state = Some(hard);
             let key = WriteTicket {
-                key: operations.ticket(self.log.identity(), LogPosition::default(), [0; 32])?,
+                key: operations.ticket(&self.log, LogPosition::default(), [0; 32])?,
                 ready: 0,
             };
             self.write = Some((key.clone(), write));

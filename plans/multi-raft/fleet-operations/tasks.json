@@ -5166,7 +5166,10 @@
         "tools/perf/raft_docker.py",
         "tools/perf/raft_analyze.py",
         "crates/cellar/tests/support/raft_isolated_removal.rs",
-        "crates/cellar/tests/support/raft_peer_fleet_observation.rs"
+        "crates/cellar/tests/support/raft_peer_fleet_observation.rs",
+        "crates/cellar/durability/raft/archive/verifier.rs",
+        "crates/cellar/durability/raft/archive/verifier_tests.rs",
+        "crates/cellar/durability/raft/manifest_tests.rs"
       ],
       "creates": [
         "tools/perf/raft_fleet_operations.py",
@@ -5293,6 +5296,26 @@
             "F05",
             "F06",
             "F12"
+          ]
+        },
+        {
+          "name": "archive_empty_replay_memo_preserves_canonical_shape",
+          "oracle": "An actual canonical-empty recovery set performs verification and reuses only its exact SQL projection. A changed configuration tip defeats the memo, revalidation and standalone empty restore without creating a scratch generation.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "archive_replay_memo_rechecks_lifecycle_expiry_on_hit",
+          "oracle": "Both image-bearing and canonical-empty memo hits execute the lifecycle check after acquiring the exclusive replay workspace. Expiry returns Timeout; physical memo reuse by a separate unexpired caller grants no lifecycle lease.",
+          "invariants": [
+            "F03",
+            "F05",
+            "F07",
+            "F10"
           ]
         }
       ],

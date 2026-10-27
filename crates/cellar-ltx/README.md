@@ -37,6 +37,12 @@ identities, files, cached images and persistent storage live together in
 [`src/extent/`](src/extent/mod.rs), with the node inventory in `store/`.
 Public `Db`/`db` paths and the `internal` verification facade remain unchanged.
 
+`RootView::read_extent` supplies one complete dependency to an admitted blocking
+transfer owner. The caller reserves its at-most-4-MiB output. It refuses objects
+outside the pinned root and returns bytes only after the full extent identity
+has matched, rechecking even previously sealed data through bounded 64 KiB file
+reads. This does not create a recovery or native admission capability.
+
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
 segments. A paged epoch continues the history from which it was opened.
@@ -100,10 +106,15 @@ uses 64 KiB buffers. Explicit `IoProfile::Buffered` uses 2 MiB sequential codec
 buffers under the caller's memory admission; `max_working_bytes()` bounds the
 codec-owned buffers separately from caller-owned source and transport windows.
 Both profiles produce identical encoded bytes and run the same integrity checks.
-Source callbacks and decoded destination writes remain bounded at 64 KiB.
+Source callbacks remain bounded at 64 KiB. Decoded destination pages use the
+selected profile's 64 KiB or 2 MiB positional window, included in that profile's
+existing working-memory allowance. Native files write each window directly;
+injected providers retain 64 KiB random writes without a sequential-cursor
+assumption. Verification-only calls allocate no destination buffer.
 `HostFile` accepts caller-owned read/write windows through 4 MiB; native files
 operate directly on those buffers, while existing injected providers retain a
-64 KiB fallback. `SnapshotFile::read_into` and `Download::append_window` use this
+64 KiB fallback. Positional windows check the complete offset range before I/O
+and report activity only after the whole window succeeds. `SnapshotFile::read_into` and `Download::append_window` use this
 contract without allocating another complete transport window. Uncertain partial
 writes poison the download just as ordinary appends do. The native archive
 selects the buffered codec for actual logical images of at least 256 MiB within

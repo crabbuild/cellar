@@ -51,6 +51,7 @@ impl From<::raft::Error> for RuntimeError {
 #[derive(Clone, Debug)]
 pub struct ApplyTicket {
     pub(crate) owner: Arc<()>,
+    pub(crate) engine_owner: Arc<()>,
     pub(crate) replica: ReplicaIdentity,
     pub(crate) operation: OperationId,
     pub(crate) position: LogPosition,
@@ -60,6 +61,7 @@ pub struct ApplyTicket {
 impl PartialEq for ApplyTicket {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.owner, &other.owner)
+            && Arc::ptr_eq(&self.engine_owner, &other.engine_owner)
             && self.replica == other.replica
             && self.operation == other.operation
             && self.position == other.position
@@ -70,6 +72,10 @@ impl PartialEq for ApplyTicket {
 impl Eq for ApplyTicket {}
 
 impl ApplyTicket {
+    pub(crate) fn belongs_to(&self, group: &super::cache::GroupLog) -> bool {
+        self.replica == *group.identity() && Arc::ptr_eq(&self.engine_owner, &group.owner)
+    }
+
     pub fn replica(&self) -> &ReplicaIdentity {
         &self.replica
     }

@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | New-head hosted verification | At `1ee378df`, JavaScript and typed-RPC lifecycle fail at Node process startup; Python examples pass. Both SDK variants fail the same native stale-receipt settlement race with ambiguous transport closure. The compiled Node bootstrap occupies a 133,023-byte exec argument, exceeding Linux's per-string limit on 4 KiB-page hosts. A controlled argument-limit regression fails, then passes with source delivered through the owned startup pipe. Hosted verification of that fix remains pending. Earlier wake and lease-renewal failures remain unexplained. |
-| P0 | Cross-adapter deadline and regression timing | Controlled Python queue/decoder fixes remain verified. Earlier native V8 HTTP/SSE reaches the original 250 ms handler budget; a temporary wrapper observes one 1.345 s poll before any cell constructor. Three parallel V8 unit cases also fail their short turn budget; an integrated run reproduces V8 SSE's 100 ms budget/EOF failure. The final reply/startup source passes all 167 adapter tests, but an intermediate native container binding run reaches its original 250 ms limit. Passing reruns do not diagnose those failures or the older hosted wake/ambiguous-renewal failures. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 96-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
-| P0 | Resource bounds and parser correctness | SDK source admission and receiving request/input/tunnel quotas precede queueing, authority decoding and body growth. Published byte frames now retain admission through their final clone/slice, including Hyper's pending write queue; ready replies have a finite delivery deadline and refund safely after owner shutdown. Dense uploads, bounded headers, empty-frame timer progress and idle retirement have regressions. Finish other effective minima, response-byte pools, backing-copy/decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
-| P1 | Language/profile coverage | Exercise the portable Protobuf profile as real business calls across all local/remote pairs; qualify supported Python interpreter modes and remaining lifecycle/regression boundaries. |
+| P0 — hosted verification | Final hosted gates | Published head `a3ca0854` passes Linux typed-RPC lifecycle (including the 576-case profile) and Python examples. JavaScript passes adapter/real-node, Node-only, archive/admission, agent recovery, quality, package and streaming steps, then is cancelled during binding examples; later gates do not run. SDK GIL/free-threaded jobs both pass. These results precede the bounded-control change; its fresh hosted gates remain pending. |
+| P0 | Native and cross-adapter regression timing | The frozen control snapshot reproduces V8 HTTP/restart, Node compatibility/restart, generated Rust-to-Rust ingress and standalone native typed-RPC failures at the original 250 ms handler budget. Streaming/WebSockets and all four selected Python integrations pass. The native paths extend the diagnostic boundary beyond the JS bridge; they do not establish a cause. Preserve the failures and original budgets; passing reruns and sparse V8 samples do not diagnose them. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle, 96 provenance and 96 Node/V8 lifecycle cases. The 112-case saturation matrix covers all 16 pairs with independent source local/peer and receiver peer count/byte policies, plus generated-client post-commit reply-byte refusal. The 80 generated-client peer-fault cases cover reconnect, committed reply loss, trusted method refusal and receiving message limits. Receiving overload stays `ResourceExhausted/unknown`; call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. Retain failed shutdowns, expired authority, zero reservations and receipt-safe recovery. |
+| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest RPC controls now have a 16 KiB raw wire cap, flat unique fields and pre-parse decode reservations retained with native work. A measured allocation regression covers escaped-string scratch growth; 48 live cases prove refusal before provider entry and fresh generated-call progress. Finish other effective minima, backing copies, decoder/allocator/RSS accounting and semantic conformance; qualify broader floods, disconnects and cancellation. |
+| P1 | Language/profile coverage | All 576 live portable-profile cases pass: 18 vectors through every Rust/Python/V8/Node generated pair over local and signed-peer routes. Native request/reply semantics, real owner authority, caller decoding and joined resources are audited. Complete remaining descriptor semantics, supported Python modes and lifecycle/regression qualification. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -51,7 +51,7 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Complete malformed-descriptor semantic checks before invoking message generators | Partial; global symbols, import graph/visibility/indexes, expanded-name budgets, map ownership/shape/key types, synthetic oneofs, enum aliases/reservations, field reservations/packing and both JSON-name namespaces have adversarial tests; remaining option/schema semantics stay open |
 | Explicit registration, full method validation and RPC-only cells | Implementation under test |
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
-| Bounded request/response codec and binary bridge accounting | Native wire/raw attachments, SDK source admission and receiving request/input/tunnel quotas implemented; 96 generated-client saturation cases pass. Response/slow-reader bounds, exact retained-copy accounting and broader saturation qualification remain |
+| Bounded request/response codec and binary bridge accounting | Native wire/raw attachments, SDK source and receiving request/reply/tunnel quotas implemented; 112 saturation and 48 guest-control refusal cases pass. Flat-control decode reservations include measured scratch growth. Exact retained-copy/allocator/RSS accounting and broader saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
 | Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
 | Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; 96 parent-write/forged-category cases pass with unknown outcomes; broader peer/admission/lifecycle qualification remains |
@@ -63,9 +63,9 @@ Counter fixture alone is not the highest-priority deliverable now.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal; GIL CPython |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration; GIL CPython |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Before the latest main merge, reply/startup source passes all 167 adapter tests. Integrated `239796d5` records 169 passed, two failed (module count's original 250 ms budget and alarm-start HTTP 500), six external ignored. The SDK stale-receipt transport race also reproduces locally. Earlier V8/HTTP/SSE/native-container timing and hosted wake/lease failures remain unexplained. Full T19 stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Latest selected control snapshot retains four 250 ms failures: V8 restart, Node restart, generated Rust-to-Rust ingress and standalone native typed RPC. Streaming/WebSockets and all four selected Python integrations pass. Historical full adapter and settlement results remain below; full T19 stays open |
 | T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Integrated `239796d5` passes 111 core RPC tests, 35 qualifier guards, Python streaming/typed-RPC/E2B/Vercel integrations, all-target Clippy, Node-only checking and standard checks. Full adapter and focused native SDK verification retain failures. Earlier frozen source passes 18 selected native integrations and all 167 adapters; hosted and broader qualification stay open |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Scratch-aware control source passes guest tests, guest/qualifier all-target Clippy and standard checks. Its preceding snapshot passes 135 library tests, 38 qualifier guards, all-target adapter Clippy and Node-only checking, with four timing failures retained. Source identities and prior broader results remain below; full qualification stays open |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 
@@ -73,6 +73,224 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Bounded native guest RPC controls and measured scratch allowance.** Python,
+  embedded V8 and Node share a decoder before native `cell.call` dispatch. It
+  rejects raw controls above 16 KiB before parsing or reserving, duplicate and
+  unknown fields before consuming their values, and non-flat or invalid fields.
+  Direct owned-value calls share shape and serialized-size validation without
+  allocating a serialized copy. Decode capacity is acquired before parsing and
+  remains owned by the native future until settlement. Local validation returns
+  `InvalidArgument/not_committed`; local decode-capacity refusal returns
+  `ResourceExhausted/not_committed`. An enclosing routed/proof failure cannot
+  inherit that local rollback claim. Ordinary SDK validation retains its codes.
+
+  Four controlled parser regressions fail with the previous generic JSON
+  decoder: oversized malformed input reaches parsing, oversized whitespace is
+  accepted, duplicate authority replaces the original, and unknown graphs reach
+  recursive decoding. A live Python-to-Rust probe also enters business code with
+  an unknown control graph before the fix. Python's scoped UTF-8 producer fixes
+  a separate red case where ASCII escaping expands a valid Unicode name to
+  27,164 bytes; ordinary SDK value encoding stays unchanged.
+
+  A real allocation-layout probe exposes an insufficient two-wire allowance:
+  an escaped 1,000-character name peaks at 3,758 bytes against 3,328 reserved;
+  a 16,000-character name peaks at 48,758 against 33,328. The public-boundary
+  integration regression fails before increasing the allowance to three wire
+  lengths plus 1,024 bytes, then passes fourteen escaped/plain cases through
+  the exact 16 KiB wire boundary. This measures requested allocation layouts,
+  excluding allocator overhead, runtime heaps and RSS. The regression and the
+  live suite are wired into CI.
+
+  The final scratch-aware source passes **1,008 selected live cases**: control
+  48, profile 576, peer faults 80, saturation 112, provenance 96 and lifecycle 96.
+  The control auditor rejects **19** corrupted reports; profile/peer/saturation
+  auditors reject 22/10/17. Refusals have no provider visits or factories; fresh
+  generated reads verify the real owner/class/scope/epoch and unchanged count.
+  Native reservations reach zero after joins. Guest unit/allocation tests,
+  all-target guest/qualifier Clippy, format/layout (1,213 Rust files), dependency
+  and docs checks pass. All **3,694 watched hashes** and the executable remain
+  unchanged during `.cellar/rpc/guest-control-final-v2-*` validation. Control
+  report SHA-256 `8795e521ed54817fa58f386046a03bc4409fbd5e876fae8e7176a19a488d098d`;
+  manifest `fe188cf1f4e13800dd33e47362086a247623c3d5ad0fcdb01f13c0fe8d36dbe3`;
+  executable `d3655df473b99d2631ec248c278411f10193783ba40778edc8fb56588b9d726b`.
+
+  The preceding two-wire source also passes all 1,008 live cases, **135 affected
+  library tests**, **38 qualifier guards**, four Python integrations, 23 Python
+  codec tests, 66 JS tooling tests, strict TS, all-target adapter Clippy and
+  Node-only checking with 3,693 unchanged hashes. Its complete selected regression
+  run retains **four 250 ms failures**: V8 restart, Node restart, the JS fixture's
+  Rust-to-Rust first read, and standalone native typed RPC. Streaming/WebSockets
+  and stale-codec refusal pass. The native command stops after its first failing
+  test target, so its separate generated-profile target is not counted as run.
+  These failures remain open; the scratch adjustment is not a timing fix.
+
+  Live runs use GIL CPython 3.14.6. An isolated free-threaded CPython 3.14.5
+  installation reports the GIL disabled after importing Protobuf 7.34.2 and
+  passes 23 codec tests with its pure-Python Protobuf backend. This is setup and
+  codec evidence, not native RPC/failure-mode qualification. Wider effective
+  limits, copies/allocator/RSS, receiving refusal provenance, descriptor semantics,
+  Python modes, packaging, diagnostics, performance and T01–T19 remain open.
+  `all_memory_qualified` and `release_qualified` stay false.
+
+- **Live portable Protobuf profile through generated language APIs.** The
+  dedicated `--suite profile` process passes **576 real calls**: 18 vectors ×
+  all sixteen Rust/Python/V8/Node generated caller/provider pairs × local and
+  signed-peer routes. V8 uses generated TypeScript; Node uses independently
+  generated JavaScript. All six registered profile methods are exercised.
+  The corpus covers scalar bounds, empty/binary/Unicode values, unknown enums,
+  packed/unpacked fields, optional and wrapper presence, maps, selected defaults,
+  recursive/nested messages, Empty, timestamp/duration bounds and Struct/Value/
+  ListValue mappings. Native observations decode and compare actual requests
+  and replies against reference wire messages, and verify owner, class, scope,
+  epoch and method. Each actual caller independently compares its decoded
+  result. This is live evidence, beyond the earlier codec-only vectors.
+
+  All nodes and language runtimes join, and native/bridge reservations reach
+  zero. The independent auditor checks exact coverage and rejects **22 corrupt
+  reports**. The run finishes in 12.46 seconds; all **3,689 watched source and
+  fixture hashes** remain unchanged. Report `.cellar/rpc/live-profile-v2.json`
+  SHA-256 `f46b0e58691e983a1be45351a19c2040eb0bc70a4531b60b5f2b95e1a29fdf43`;
+  source manifest SHA-256
+  `095708bbca830544713e94733e5a6fe95d277913f001c92a7f4fdb248bafa380`.
+  The final executable SHA-256 is recorded alongside the manifest. Independent
+  JavaScript and protoc Python corpus checks, strict TS fixture build/types,
+  **38 qualifier guards** and all-target qualifier Clippy pass. Added native
+  observer regressions refuse lost presence/default selection, a lost NaN and
+  a lost zero-valued wrapper. All **66 RPC JavaScript tooling tests** pass.
+  The updated executable also passes the existing **80 peer-fault and 112
+  saturation cases** with their independent auditors and a second unchanged
+  3,689-file source/fixture audit. These are 192 Counter regressions, separate
+  from the 576 profile calls and the earlier 647-case checkpoint.
+  The new CI gate runs the profile in its own process
+  because embedded Python permits one initialization per process; the existing
+  Counter `--suite all` contract is unchanged.
+
+  The first live attempt refuses the Python module before host admission.
+  A temporary tagged import probe identifies an ASCII-locale `UnicodeDecodeError`
+  while reading the UTF-8 corpus. A subprocess regression against the actual
+  loader reproduces that exact failure with UTF-8 mode and locale coercion
+  disabled. Explicit UTF-8 decoding fixes it; the regression and complete live
+  matrix pass with the probe removed. Logs retain both red attempts and the
+  green run. This fixes artifact reading rather than changing interpreter or
+  handler budgets. Current local evidence uses GIL CPython; supported Python
+  mode/failure matrices, remaining descriptor semantics, resource/RSS,
+  packaging, performance and T01–T19 remain open. Qualification flags stay false.
+
+- **Published reply payloads share receiving byte admission.** Reply-quota
+  commit **`3df78956`** passes **647 selected live cases**: saturation 112,
+  signed-peer faults 80, provenance 96, dependency cycles 80, deadline 55,
+  proof-wait 128 and Node/V8 lifecycle 96. The sixteen added saturation cases
+  exercise every Rust/Python/V8/Node generated caller/provider pair. Each
+  original provider commits count/receipt state and returns a codec-valid
+  65,544-byte message. Publication is refused as `ResourceExhausted/unknown`,
+  no automatic replay enters business code, and an explicit same-ID retry
+  returns the saved result. All receiving reservations reach zero after join.
+  The independent saturation and peer-fault auditors reject **17 and ten**
+  corrupt reports respectively. Saturation report SHA-256:
+  `4aae1bca8761fc6ea530c794bd7b81eeeb47bb5ed1daa5812a20ffc439a66793`.
+
+  Four initial regressions fail behaviorally without reply charging; six
+  focused regressions and all **122 core RPC tests** pass with enforcement.
+  Tests cover pre-header refusal, final transport slices, unknown/inaccurate
+  body lengths, stopped ownership and the real authenticated tunnel's fixed
+  unknown refusal. Disabling only payload charging also fails the live
+  generated-client saturation scenario; restoring it passes. Temporary debug
+  bypasses are removed. **35 qualifier guards** and **three Node bootstrap
+  tests** pass. The deliberately interrupted coordinator was resumed after its
+  original processes ended, without repeating completed live cases. All
+  **3,659 source/fixture hashes remain unchanged through the final audit**, manifest
+  SHA-256 `cc75bd7ed8b26b42d171a024f195985ca019595ad0548b1485416a4fa42c3ab7`.
+  The resumed coordinator is complete. All-target Clippy, Node-only checking,
+  Rust/JS formatting, layout, dependency/docs checks, strict RPC types, all 18
+  selected native integrations and the original SDK stale-receipt regression
+  pass. The latter retains its 30-second lease, three-second call budget and
+  assertions. The selected JS command retains **six passed, one failed**: V8
+  HTTP/restart reaches the existing 250 ms handler budget. Generated RPC, Node
+  compatibility, SSE/WebSockets and Workers port WebSockets pass. The complete
+  serial Workers module suite passes all five tests on macOS. Python E2B,
+  streaming and Vercel integrations pass; typed RPC fails at the same 250 ms
+  budget, with zero native/bridge counts after its failed host result and an
+  additional SQLite I/O error whose cause remains unproven. These failures remain in the
+  raw logs. A ready-triggered external sample reproduces V8 failure plus lease
+  fencing but captures only two samples, so it does not establish a cause.
+  Reports and resumed exits are under `.cellar/rpc/reply-byte-bound-*` and
+  `.cellar/rpc/reply-byte-bound-resume1-*`. Subsequent isolated changes are
+  outside this frozen source and cannot inherit its qualification.
+
+  Known bounds reserve before headers; cumulative frames check actual length,
+  owner and deadline. One merged permit follows every byte alias without
+  copying the payload. A refusal after headers breaks the body; after a commit
+  it proves no rollback. Backing allocations, other copies, decoded graphs,
+  allocator/RSS and the wider resource/profile/package/mode requirements stay
+  open. `all_memory_qualified` and `release_qualified` remain false.
+
+- **Hosted verification of cache-only head `f88f7f60`.** Typed-RPC lifecycle
+  run `40441002537`, SDK run `40441002545` (GIL and free-threaded Python ABI
+  jobs), and Python examples run `40441002523` pass. These do not establish
+  the complete typed-RPC failure matrix in free-threaded mode. JavaScript run
+  `40441002517`, job `121981064617`, retains one failure: the published
+  container's `/wake` request times out at five seconds. The workflow explicitly
+  sets `RUST_TEST_THREADS=1`; this is a serial failure, not evidence that test
+  parallelism caused it. Other listed streaming and generated-RPC tests pass.
+
+  Its lifecycle fixture used a random listener while the unchanged published
+  class declares `defaultPort = 8080`. Linux selects the inspected container
+  IP and the declared port directly; macOS selects the fixture's mapped host
+  port. The test now uses the existing isolated fixed-port fixture helper,
+  as the other published-container integration already does. The existing
+  fixture regression verifies isolated listeners and Linux port 8080. Wake
+  errors identify their cycle; handler/client budgets and lifecycle assertions
+  stay unchanged. Local macOS observations cannot exercise Linux address
+  selection. Fresh head `f3d5f55b` passes the complete Linux adapter/real-node
+  step in JavaScript run `40454527251`, job `122024645088`, including the fixed
+  lifecycle test under unchanged budgets. Node-only mode, runtime archive and
+  admission boundaries, Pi crash recovery and Vercel SDK task/concurrency
+  recovery also pass there; later workflow steps remain in progress. Typed-RPC
+  lifecycle run `40454527345` and Python examples run `40454527327` pass. Full
+  hosted SDK verification of this head is still running. The local V8/Python
+  250 ms failures above remain unexplained; Linux passes do not diagnose them.
+
+- **Bound cached RPC reuse before receiving idle expiry.** The native
+  stale-receipt failure is reproduced under its original lease, operation
+  budget and assertions. A tagged probe observes held ack/extension requests,
+  then receiver expiry at 30,001 ms with zero active requests/replies, followed
+  by upstream EOF when the ack is released. The timer expires while the proxy
+  holds submission; this is neither a prior dead-sender checkout nor loss of a
+  produced business reply. Probe log:
+  `/tmp/cellar-rpc-native-settlement-idle-probe.log`; instrumentation is removed.
+
+  A real authenticated socket regression gates the old connection's next read
+  while allowing a fresh connection. It fails with `old-socket read held=true,
+  connections=1` and connection reset, then passes with an advertised receiving
+  interval and a source cache window limited to its first half from dial.
+  Parking clean EOF never renews this window. Active exchanges can finish after
+  cache expiry; expired/stopped owners cannot contribute an idle sender. Both
+  peers require the reuse contract: callers reject invalid/missing interval
+  metadata and receivers reject incompatible capabilities before admission.
+  Internal protocol markers remain 1, with no legacy pooling fallback.
+
+  The completed frozen attempt passes **116 core RPC tests, 35 qualifier
+  guards and all 631 selected live cases**: saturation 96, peer faults 80,
+  provenance 96, cycles 80, deadline 55, proof-wait 128 and lifecycle 96.
+  Both auditors reject ten corrupt reports. Python streaming/typed-RPC/E2B/
+  Vercel, 18 selected native integrations, all-target Clippy, Node-only checking
+  and standard checks pass. All **3,656 hashes** remain unchanged; manifest
+  SHA-256 `68f41c360567be1a5cd97941ab71b6099d06e76590922bea1c5238ea39a6dbbf`.
+
+  The original SDK stale-receipt case also passes with final mutual-capability
+  guards inside the full native SDK attempt, with its unchanged 30-second lease,
+  three-second call budget and assertions. That suite retains **92 passed, one
+  failed**: metrics export observes both hosts self-fence after an approximately
+  60-second pause before its first write. Power logs show no sleep/wake event
+  in that interval; the cause remains unproven. Adapters retain **163 passed,
+  eight failed and six external ignored**, including native/V8/Node handler
+  budgets. A backtrace-enabled generated-client retry and a correctly delayed
+  V8 sample pass; an earlier sample reproduces the V8 HTTP timeout but captures
+  loader startup. Passing observations and unrelated profiles do not diagnose
+  those failures. These are pre-merge cache-fix results, not qualification of
+  the subsequent Node-bootstrap integration. Merged-source/hosted verification
+  and full resource/profile/package/interpreter qualification remain open.
 
 - **PR #132 conflict resolution with main `fe260689` (#135).** The merged
   startup uses main's fixed launcher and private JSON source/configuration
@@ -85,8 +303,8 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
   tests pass, including both private-bootstrap tests. Rust formatting and layout
   (1,203 files), JavaScript formatting (96 sources), documentation links and the
   466-package native dependency guard also pass. Rust runtime tests and hosted
-  verification of the merged source remain pending; the independent RPC reuse
-  qualification run keeps its pre-merge source frozen.
+  verification of the merged source remain pending. The independent RPC reuse
+  attempt above completed against its unchanged pre-merge source.
 
 - **Integrate main's sandbox bindings without dropping joined cleanup.**
   Merge head **`239796d5`** includes main through **`5db6b475`** (#134).

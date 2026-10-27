@@ -26,6 +26,8 @@ mod public_node;
 mod publication;
 #[path = "support/raft_archive_publication_origin.rs"]
 mod publication_origin;
+#[path = "support/raft_archive_replay_memo.rs"]
+mod replay_memo;
 #[path = "support/raft_archive_snapshot_upload.rs"]
 mod snapshot_upload;
 
@@ -1395,8 +1397,48 @@ async fn archive_refuses_member_binding_birth_mismatch() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn archive_noop_tail_and_exact_configuration_checkpoint() -> Result<()> {
+async fn archive_data_and_learner_change_share_the_existing_snapshot() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let result = async {
+        let first = fixture.commit(7, vec![]).await?;
+        fixture.publish(first).await?;
+        // Repair admission may follow an ordinary durable command before the
+        // archive publisher captures either entry. Both transitions must remain
+        // replayable from the existing base rather than force a new full image.
+        fixture.commit(8, vec![]).await?;
+        let changed = fixture.protocol(true).await?;
+        let set = fixture.publish(changed).await?;
+        ensure!(
+            set.tail_entries() == 2,
+            "configuration change rotated the full snapshot"
+        );
+        ensure!(set.position().index == LogIndex::new(4));
+        ensure!(set.configuration()?.learners == vec![2]);
+        ensure!(set.membership() == fixture.group.membership()?);
+        let joined = set
+            .membership()
+            .joined(MemberId::new(2)?)?
+            .context("missing learner")?;
+        ensure!(joined.0.node == NodeId::new([2; 16])?);
+        ensure!(joined.0.disk == DiskLineage::new([12; 16])?);
+        ensure!(joined.1 == LogIndex::new(4));
+        restored(&set, 8)?;
+        Ok(())
+    }
+    .await;
+    let closed = fixture.close().await;
+    result.and(closed)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_noop_tail_and_exact_configuration_checkpoint() -> Result<()> {
+    // An explicit tail-count limit still requires an exact checkpoint after
+    // the no-op tail, including its committed learner's physical binding.
+    let mut fixture = Fixture::new(ArchiveLimits {
+        max_tails: 1,
+        ..Default::default()
+    })
+    .await?;
     let first = fixture.commit(7, vec![]).await?;
     fixture.publish(first).await?;
     let noop = fixture.protocol(false).await?;

@@ -328,6 +328,7 @@ struct State {
     failed: AtomicU64,
     claim: Mutex<Option<super::runtime::TransportClaim>>,
     snapshot_source: Mutex<Option<std::sync::Weak<snapshots::Source>>>,
+    prepared_snapshot: super::snapshot::prepared::Cache,
     snapshot_source_budget: Arc<Budget>,
     snapshot_receive_budget: Arc<Budget>,
     snapshot_connections: Arc<Semaphore>,
@@ -419,8 +420,11 @@ impl RaftTransport {
         let (stop, _) = watch::channel(false);
         let snapshot_memory = snapshots::memory_bound(&options);
         let seed_recovery_memory = options.max_seed_recovery_bytes;
+        let performance = runtime.log().performance();
+        let (prepared_snapshot, prepared_owner) =
+            super::snapshot::prepared::channel(performance.clone());
         let state = Arc::new(State {
-            performance: runtime.log().performance(),
+            performance,
             domain,
             runtime,
             auth,
@@ -473,6 +477,7 @@ impl RaftTransport {
             options,
             claim: Mutex::new(Some(claim)),
             snapshot_source: Mutex::new(None),
+            prepared_snapshot,
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
             snapshot_receive_budget: Budget::new(snapshot_memory + seed_recovery_memory, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
@@ -481,6 +486,7 @@ impl RaftTransport {
         let service = Self {
             handle: Arc::new(Handle(state.clone())),
         };
+        snapshots::start_prepared(&state, prepared_owner)?;
         for (listener, lane) in [(control, Lane::Control), (data, Lane::Data)] {
             let worker = state.clone();
             state.spawn(async move {
@@ -933,7 +939,9 @@ impl State {
     }
 
     fn task_limit(&self) -> usize {
-        3 + 6 * self.options.max_peers
+        // Prepared-file and receive owners each have a stop observer. Both
+        // pairs are bounded node-wide, independently of peer/group count.
+        7 + 6 * self.options.max_peers
             + 3 * self.options.max_connections_per_lane
             + usize::from(self.inspection_enabled.load(Ordering::Acquire)) * inspections::SLOTS
     }
@@ -959,6 +967,11 @@ impl State {
         self: &Arc<Self>,
         future: impl Future<Output = ()> + Send + 'static,
     ) -> Result<(), TransportError> {
+        let guard = self.reserve_task()?;
+        self.spawn_reserved(guard, future)
+    }
+
+    fn reserve_task(self: &Arc<Self>) -> Result<TaskGuard, TransportError> {
         let mut registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
         self.admit(&registry)?;
         if registry.tasks >= self.task_limit() {
@@ -966,7 +979,7 @@ impl State {
         }
         registry.tasks += 1;
         drop(registry);
-        self.spawn_reserved(TaskGuard(self.clone()), future)
+        Ok(TaskGuard(self.clone()))
     }
 
     fn spawn_reserved(

@@ -14,6 +14,12 @@ pub(crate) struct SeedDownload {
 }
 
 impl SeedDownload {
+    /// Transport admission covers codec buffers until sealing or discard.
+    pub(crate) fn with_io_profile(mut self, profile: stream_snapshot::IoProfile) -> Self {
+        self.payload.set_io_profile(profile);
+        self
+    }
+
     pub(crate) fn scope(&self) -> &GroupScope {
         &self.grant.local().scope
     }
@@ -23,9 +29,7 @@ impl SeedDownload {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: SnapshotLimits,
-        filesystem: &dyn cellar_ltx::FileSystem,
-        directory: &std::path::Path,
-        scratch: &stream_snapshot::ScratchPool,
+        storage: DownloadStorage<'_>,
     ) -> Result<Self, SnapshotError> {
         let mut initial = ::raft::prelude::ConfState::default();
         initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
@@ -55,16 +59,27 @@ impl SeedDownload {
         {
             return Err(SnapshotError::Invalid("seed learner/barrier binding"));
         }
+        let payload = if let Some(store) = storage.extents.filter(|_| descriptor.image.is_some()) {
+            SnapshotPayload::in_extents(&descriptor, limits, store)?
+        } else {
+            SnapshotPayload::new(
+                &descriptor,
+                limits,
+                storage.filesystem,
+                storage.directory,
+                storage.scratch,
+            )?
+        };
         Ok(Self {
             grant,
-            payload: SnapshotPayload::new(&descriptor, limits, filesystem, directory, scratch)?,
+            payload,
             descriptor,
             initial,
         })
     }
 
-    pub(crate) fn encoded_length(&self) -> usize {
-        self.descriptor.encoded_length
+    pub(crate) fn transfer_length(&self) -> usize {
+        self.descriptor.transfer_length
     }
 
     pub(crate) fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
@@ -77,6 +92,24 @@ impl SeedDownload {
         reservation: crate::raft::budget::Permit,
     ) -> Result<PreparedSeed, SnapshotError> {
         let pin = seal_image(&self.descriptor, self.payload.finish()?, images)?;
+        Ok(PreparedSeed {
+            grant: SeedPermit::Peer(self.grant),
+            descriptor: self.descriptor,
+            initial: self.initial,
+            pin: pin.map(SnapshotPin::Materialized),
+            _reservation: std::sync::Arc::new(reservation),
+        })
+    }
+
+    pub(crate) fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+        reservation: crate::raft::budget::Permit,
+    ) -> Result<PreparedSeed, SnapshotError> {
+        let pin = self.payload.finish_root(store)?;
+        if pin.as_ref().map(SnapshotPin::marker) != self.descriptor.image {
+            return Err(SnapshotError::Invalid("seed root marker binding"));
+        }
         Ok(PreparedSeed {
             grant: SeedPermit::Peer(self.grant),
             descriptor: self.descriptor,
@@ -119,7 +152,7 @@ pub(crate) struct PreparedSeed {
     grant: SeedPermit,
     descriptor: Descriptor,
     initial: ::raft::prelude::ConfState,
-    pin: Option<GenerationPin>,
+    pin: Option<SnapshotPin>,
     _reservation: std::sync::Arc<crate::raft::budget::Permit>,
 }
 
@@ -186,24 +219,29 @@ impl PreparedSeed {
                     index: LogIndex::new(self.descriptor.index),
                     term: Term::new(self.descriptor.term),
                 },
-                image: self.pin.as_ref().map(marker),
+                image: self.pin.as_ref().map(SnapshotPin::marker),
             },
         })
     }
 
     pub(crate) fn retain_pending(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.descriptor.index)? {
-                return Err(SnapshotError::Invalid("stale seed image"));
-            }
+            pin.retain_pending_for(
+                &self.local().scope,
+                self.descriptor.birth,
+                self.descriptor.index,
+            )?;
         }
         Ok(())
     }
 
     pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            pin.retain_reference(SNAPSHOT_REFERENCE, self.descriptor.index)?;
-            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.descriptor.index)?;
+            pin.retain_for(
+                &self.local().scope,
+                self.descriptor.birth,
+                self.descriptor.index,
+            )?;
         }
         Ok(())
     }
@@ -278,7 +316,7 @@ impl PreparedSeed {
             .map_err(SnapshotError::Archive)?;
         let bytes = pin
             .as_ref()
-            .map(|pin| encode_image(pin, limits))
+            .map(|pin| encode_image(pin, limits, stream_snapshot::IoProfile::Compact))
             .transpose()?;
         let descriptor = Descriptor {
             format: 1,
@@ -298,6 +336,9 @@ impl PreparedSeed {
                 || Sha256::digest([]).into(),
                 |file| file.metadata().encoded_digest,
             ),
+            transfer_length: bytes
+                .as_ref()
+                .map_or(0, |file| file.metadata().encoded_length as usize),
         };
         Descriptor::decode_bound(
             birth.scope(),
@@ -311,7 +352,7 @@ impl PreparedSeed {
             grant: SeedPermit::S3(grant),
             descriptor,
             initial,
-            pin,
+            pin: pin.map(SnapshotPin::Materialized),
             _reservation: reservation,
         })
     }

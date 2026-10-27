@@ -5,7 +5,10 @@
 //! Unchanged conditional versions age on each observer's monotonic clock.
 
 use super::*;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 const MAX_BYTES: usize = 4096;
 const MAX_VERSION_BYTES: usize = 8192;
@@ -276,6 +279,15 @@ impl CellArchive {
     /// Publish only after every object has been read back and checked. CAS
     /// failures (including lost success responses) are reconciled with exact
     /// head reads; bounded contention never falls back to unconditional writes.
+    #[tracing::instrument(
+        name = "raft_archive_publication",
+        skip_all,
+        fields(
+            publisher = ?self.coordination.as_ref().map(|coordination| coordination.owner),
+            cell = %self.scope.cell,
+            index = cut.position.index.get(),
+        )
+    )]
     pub async fn publish(
         &self,
         cut: CommittedArchiveCut,

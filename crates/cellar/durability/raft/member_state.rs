@@ -25,6 +25,10 @@ use fleet::{FleetIntent, FleetState};
 const MAX_BYTES: usize = 16 * 1024;
 const MAX_MEMBERS: usize = 32;
 
+// A configuration entry carries one bounded intent plus at most 32 small
+// protobuf changes. Bound decoding before allocating their repeated fields.
+pub(crate) const MAX_CHANGE_BYTES: usize = MAX_BYTES + MAX_MEMBERS * 32 + 64;
+
 #[cfg(test)]
 #[path = "member_state_tests.rs"]
 mod tests;

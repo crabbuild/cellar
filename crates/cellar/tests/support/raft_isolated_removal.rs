@@ -364,11 +364,13 @@ impl Repaired {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_isolated_removal_repairs_replays_and_releases_slot() -> Result<()> {
-    Box::pin(removes_repaired_node()).await
+    // Startup must finish before polling the larger removal phase, so their
+    // debug-build stack frames do not accumulate on the default test stack.
+    let repaired = Box::pin(Repaired::new()).await?;
+    Box::pin(removes_repaired_node(repaired)).await
 }
 
-async fn removes_repaired_node() -> Result<()> {
-    let r = Box::pin(Repaired::new()).await?;
+async fn removes_repaired_node(r: Repaired) -> Result<()> {
     r.finalizing().await?;
     write_read(&r.s.f, &r.active, 3, 6, 18).await?;
     let controller = Fixture::open_catalog(&r.s.f.domain, r.s.f.store.clone())?;

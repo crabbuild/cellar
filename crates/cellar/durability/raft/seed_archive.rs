@@ -58,6 +58,7 @@ impl RaftTransport {
             SeedOptions {
                 limits,
                 deadline: self.seed_deadline()?,
+                extents: None,
             },
             archive,
         )
@@ -121,11 +122,27 @@ impl RaftTransport {
                 .ok_or(TransportError::Overloaded)?,
         );
         let archive = archive.with_read_retention(reservation.clone());
-        let set = state
+        let timer = state
+            .performance
+            .timer(crate::raft::performance::Operation::RecoveryArchiveFetch);
+        let prepared = state.prepared_snapshot.clone();
+        let retention = reservation.clone();
+        let trim = state.domain.blocking(move || {
+            // Retain receive admission if the grant/waiter expires while the
+            // physical owner closes an idle prepared file from another cell.
+            let _retention = retention;
+            prepared.trim_idle()
+        })?;
+        let result = state
             .seed_process_until(grant.process_epoch(), grant.deadline(), async {
+                trim.await
+                    .map_err(|_| TransportError::Closed)?
+                    .map_err(super::super::snapshots::snapshot_error)?;
                 Ok(archive.recovery_set_at(grant.reference()).await)
             })
-            .await??;
+            .await;
+        timer.finish(result.as_ref().is_ok_and(|set| set.is_ok()));
+        let set = result??;
         if set.reference() != *grant.reference() {
             return Err(TransportError::Authentication.into());
         }

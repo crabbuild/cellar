@@ -98,7 +98,7 @@ async fn receiving_rpc_tunnel_and_upload_quotas_refuse_without_blocking_cleanup(
                 .header(METHOD_HEADER, "example.counter.v1.Counter/GetCount")
                 .body(stream_body(Box::pin(chunks)))?;
             let sending = crate::asyncrt::spawn(async move {
-                let reply = first.send_request(first_request).await?;
+                let reply = first.inner.send_request(first_request).await?;
                 let status = reply.status();
                 reply.into_body().collect().await?;
                 Ok::<_, anyhow::Error>(status)
@@ -115,7 +115,7 @@ async fn receiving_rpc_tunnel_and_upload_quotas_refuse_without_blocking_cleanup(
                 .header(SCOPE_HEADER, "Counter:other")
                 .header(METHOD_HEADER, "example.counter.v1.Counter/GetCount")
                 .body(full_body(Bytes::new()))?;
-            let reply = second.send_request(request).await?;
+            let reply = second.inner.send_request(request).await?;
             assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
             assert_eq!(
                 rpc_failure::remote(reply.status(), reply.headers())
@@ -192,7 +192,7 @@ async fn idle_receiving_rpc_tunnel_closes_and_releases_its_peer_slot() -> anyhow
                 1
             );
             crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
-                while !sender.is_closed()
+                while !sender.inner.is_closed()
                     || crate::asyncrt::services().inbound_rpc_usage() != Default::default()
                 {
                     tokio::task::yield_now().await;
@@ -261,7 +261,7 @@ async fn budgeted_rpc_upload_expires_without_body_completion_or_admission() -> a
                 let request = request.body(full_body(Bytes::new()))?;
                 let reply = crate::asyncrt::timeout(
                     std::time::Duration::from_secs(2),
-                    sender.send_request(request),
+                    sender.inner.send_request(request),
                 )
                 .await??;
                 assert_eq!(reply.status(), expected);
@@ -281,7 +281,7 @@ async fn budgeted_rpc_upload_expires_without_body_completion_or_admission() -> a
             // uploading. Only the receiver's independent budget can finish this.
             let reply = crate::asyncrt::timeout(
                 std::time::Duration::from_secs(2),
-                sender.send_request(request),
+                sender.inner.send_request(request),
             )
             .await??;
             assert_eq!(reply.status(), StatusCode::GATEWAY_TIMEOUT);
@@ -335,7 +335,16 @@ async fn dead_tunnel_returns_exact_unsent_request_for_safe_retry() -> anyhow::Re
                 target: "owner".into(),
                 scope: auth.tunnel_scope(),
             };
-            let mut failure = match send_on_tunnel(&key, sender, request).await {
+            let mut failure = match send_on_tunnel(
+                &key,
+                TunnelSender {
+                    inner: sender,
+                    reuse: None,
+                },
+                request,
+            )
+            .await
+            {
                 Ok(_) => anyhow::bail!("dead tunnel returned a response"),
                 Err(failure) => failure,
             };
@@ -393,7 +402,13 @@ async fn idle_tunnel_churn_evicts_old_peers_at_the_global_bound() -> anyhow::Res
                 }));
                 sender.ready().await?;
                 owners.push(owner);
-                pool.park(&key(index), sender);
+                pool.park(
+                    &key(index),
+                    TunnelSender {
+                        inner: sender,
+                        reuse: None,
+                    },
+                );
             }
             // Use the production checkout path, not container-size assertions.
             // Old peers must yield their idle slot to the newly observed peer.
@@ -480,7 +495,13 @@ async fn submitted_rpc_reply_loss_cannot_enter_the_unsent_retry_path() -> anyhow
                 node: "owner",
             };
             let key = tunnel_key(&peer, "rpc");
-            park(&key, sender);
+            park(
+                &key,
+                TunnelSender {
+                    inner: sender,
+                    reuse: None,
+                },
+            );
             let identity = crate::engine_api::next_request_id();
             let method = "example.counter.v1.Counter/Increment";
             let payload = Bytes::from_static(b"one submitted request");

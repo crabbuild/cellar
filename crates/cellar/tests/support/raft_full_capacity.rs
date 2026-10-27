@@ -22,7 +22,7 @@ use std::{
 
 const QUOTA: u64 = 10_000_000_000;
 
-fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
+fn definition_class(calls: Arc<AtomicUsize>) -> Result<RaftClass> {
     let class = RaftClass::new("Counter", 1, [91; 32])?
         .command("Change", [92; 32], move |context, input| {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -69,10 +69,39 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
             }
             Ok(output)
         })?;
+    Ok(class)
+}
+
+fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
+    counter(definition_class(calls)?, "Read")
+}
+
+pub(super) fn recovery_definition(
+    calls: Arc<AtomicUsize>,
+) -> Result<(public_node::Counter, OperationContract)> {
+    let class = definition_class(calls)?.query("Hot", [94; 32], |context, input| {
+        ensure!(input.len() == 8, "hot read requires one exact row ID");
+        let id = u64::from_be_bytes(input.try_into()?);
+        let value: u64 = context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+        let payload: Vec<u8> =
+            context.query_row("SELECT value FROM items WHERE id=?1", [id], |row| {
+                row.get(0)
+            })?;
+        let mut result = value.to_be_bytes().to_vec();
+        result.extend_from_slice(&Sha256::digest(payload));
+        Ok(result)
+    })?;
+    let verify = class
+        .contract("Read")
+        .context("payload verification contract")?;
+    Ok((counter(class, "Hot")?, verify))
+}
+
+fn counter(class: RaftClass, query: &str) -> Result<public_node::Counter> {
     Ok(public_node::Counter {
         schema: class.schema_digest(),
         increment: class.contract("Change").unwrap(),
-        get: class.contract("Read").unwrap(),
+        get: class.contract(query).unwrap(),
         application: Arc::new(
             Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?,
         ),
@@ -102,9 +131,9 @@ fn image_state(path: &Path) -> Result<ImageState> {
 }
 
 #[derive(Clone)]
-struct PayloadSamples {
-    ids: [u64; 3],
-    hashes: [[u8; 32]; 3],
+pub(super) struct PayloadSamples {
+    pub(super) ids: [u64; 3],
+    pub(super) hashes: [[u8; 32]; 3],
 }
 
 impl PayloadSamples {
@@ -114,7 +143,7 @@ impl PayloadSamples {
     }
 }
 
-fn prepared_template(
+pub(super) fn prepared_template(
     source: &Path,
     directory: &Path,
     quota: u64,
@@ -183,7 +212,7 @@ fn prepared_template(
     Ok((path, state, bytes, samples))
 }
 
-fn preload(
+pub(super) fn preload(
     template: PathBuf,
     state: ImageState,
     registration: RaftCellRegistration,
@@ -273,7 +302,7 @@ fn preload(
     })
 }
 
-fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
+pub(super) fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
     let mut options = public_node::options(sequence)?;
     options.id = CommandId::new(ClientId::new([client; 16])?, sequence)?;
     options.retry_until_ms = std::time::SystemTime::now()
@@ -284,7 +313,7 @@ fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
     Ok(options)
 }
 
-async fn ready(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
+pub(super) async fn ready(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
     Ok(tokio::time::timeout(Duration::from_secs(1800), async {
         loop {
             for (index, handle) in handles.iter().enumerate() {
@@ -326,7 +355,7 @@ async fn read(
     Ok(result)
 }
 
-async fn repair_step(
+pub(super) async fn repair_step(
     handle: &RaftCellHandle,
     id: cellar_logic::consensus::ProposalId,
     step: RepairStep,
@@ -349,7 +378,7 @@ async fn repair_step(
     .await?
 }
 
-async fn verify_payloads(
+pub(super) async fn verify_payloads(
     handle: &RaftCellHandle,
     contract: OperationContract,
     value: u64,
@@ -836,6 +865,36 @@ async fn drill(
         "full-native stage=cold-local-read duration_s={:.3}",
         cold_started.elapsed().as_secs_f64()
     );
+    // These must observe the actual replacement path, including physical
+    // verification and durable installation, rather than synthetic timers.
+    let performance = joined.performance();
+    let phases: &[&str] = if from_s3 {
+        &[
+            "recovery_authorize",
+            "recovery_archive_fetch",
+            "recovery_archive_replay",
+            "recovery_install",
+        ]
+    } else {
+        &[
+            "recovery_authorize",
+            "recovery_peer_fetch",
+            "recovery_peer_receive",
+            "recovery_append_queue",
+            "recovery_append",
+            "recovery_peer_verify",
+            "recovery_install",
+        ]
+    };
+    for phase in phases {
+        ensure!(
+            performance
+                .operations
+                .iter()
+                .any(|sample| sample.name == *phase && sample.succeeded > 0),
+            "replacement did not observe successful phase {phase}"
+        );
+    }
     ensure!(calls[3].load(Ordering::SeqCst) == 0);
     verify_payloads(
         &learner,
@@ -1126,7 +1185,7 @@ async fn drill(
     cluster.close().await
 }
 
-fn make_template(directory: &Path, quota: u64, incompressible: bool) -> Result<PathBuf> {
+pub(super) fn make_template(directory: &Path, quota: u64, incompressible: bool) -> Result<PathBuf> {
     let path = directory.join("source.sqlite");
     let db = rusqlite::Connection::open(&path)?;
     db.execute_batch("PRAGMA page_size=4096;PRAGMA synchronous=OFF;CREATE TABLE items(id INTEGER PRIMARY KEY,value BLOB);CREATE TABLE quota_tail(value BLOB);")?;

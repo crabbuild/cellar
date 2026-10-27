@@ -25,7 +25,7 @@ pub struct VerifiedArchiveCoverage {
 
 impl VerifiedArchiveCoverage {
     fn capture(set: &ArchiveRecoverySet) -> Result<Self, ArchiveError> {
-        let membership = &set.manifest.snapshot.membership;
+        let membership = &set.manifest.membership;
         let status = membership
             .fleet_status()
             .ok_or(ArchiveError::Invalid("archive has no fleet enrollment"))?;
