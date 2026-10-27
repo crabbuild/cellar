@@ -254,6 +254,10 @@ async fn process_refresh_is_atomic_across_routes_grants_and_capacity() -> anyhow
     publisher.restart().await?;
     let latest = publisher.view().await?;
     assert!(latest.revision() > first.revision());
+    // Three listeners, six peer workers, and the prepared-file owner/observer
+    // remain resident. Temporary overload owners must all leave before refresh.
+    let resident_tasks = state.usage().tasks;
+    assert_eq!(resident_tasks, 11);
     // Retain actual resource owners so replacement cannot hide old workers.
     let (release, wait) = watch::channel(false);
     while state.usage().tasks < state.task_limit() - 2 {
@@ -280,7 +284,7 @@ async fn process_refresh_is_atomic_across_routes_grants_and_capacity() -> anyhow
     fixture
         .domain
         .run(crate::asyncrt::timeout(Duration::from_secs(5), async {
-            while state.usage().tasks > 9 {
+            while state.usage().tasks > resident_tasks {
                 tokio::task::yield_now().await;
             }
         }))

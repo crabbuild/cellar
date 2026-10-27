@@ -394,7 +394,10 @@ pub(crate) fn classify(message: &Message) -> Result<Lane, TransportError> {
 }
 
 fn protocol_digest() -> [u8; 32] {
-    Sha256::digest(b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict").into()
+    Sha256::digest(
+        b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict:extent-stream",
+    )
+    .into()
 }
 
 pub(super) fn decimal(value: &str) -> Result<u64, TransportError> {

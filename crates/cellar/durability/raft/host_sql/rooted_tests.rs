@@ -40,6 +40,16 @@ fn scope() -> GroupScope {
 
 impl Host {
     async fn open(root: &Path, class: Arc<RaftClass>, resume: bool) -> anyhow::Result<Self> {
+        Self::open_replica(root, class, resume, 1, vec![]).await
+    }
+
+    async fn open_replica(
+        root: &Path,
+        class: Arc<RaftClass>,
+        resume: bool,
+        member: u8,
+        learners: Vec<MemberId>,
+    ) -> anyhow::Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let token = domain
             .run(async { crate::asyncrt::services().domain_token().unwrap() })
@@ -48,8 +58,8 @@ impl Host {
             .run(ReplicaLog::open(
                 ReplicaLogOptions::new(
                     root.join("raft"),
-                    NodeId::new([1; 16])?,
-                    DiskLineage::new([101; 16])?,
+                    NodeId::new([member; 16])?,
+                    DiskLineage::new([100 + member; 16])?,
                     ProcessGeneration::new([if resume { 2 } else { 1 }; 16])?,
                     if resume {
                         LogOpenMode::Resume
@@ -63,10 +73,10 @@ impl Host {
         if !resume {
             log.create_group(GroupBootstrap {
                 scope: scope(),
-                member: MemberId::new(1)?,
+                member: MemberId::new(u64::from(member))?,
                 birth_digest: [7; 32],
                 voters: vec![MemberId::new(1)?],
-                learners: vec![],
+                learners,
             })
             .await?;
         }
@@ -173,8 +183,10 @@ impl Host {
             class,
             pins,
         };
-        host.runtime.campaign(&scope()).await?;
-        host.ready().await?;
+        if member == 1 {
+            host.runtime.campaign(&scope()).await?;
+            host.ready().await?;
+        }
         Ok(host)
     }
 
@@ -382,6 +394,209 @@ fn class(calls: Arc<AtomicUsize>) -> anyhow::Result<Arc<RaftClass>> {
             Ok(value.to_be_bytes().to_vec())
         })?;
     Ok(Arc::new(class))
+}
+
+async fn transport(
+    host: &Host,
+    label: &str,
+) -> anyhow::Result<super::super::transport::RaftTransport> {
+    use super::super::{
+        transport::RaftTransport,
+        transport_options::{RaftTls, TransportOptions},
+    };
+    use tokio::net::TcpListener;
+    let tls = RaftTls::new(
+        vec![include_bytes!("../../../transport/tcp/fixtures/ca.der")
+            .to_vec()
+            .into()],
+        vec![include_bytes!("../../../transport/tcp/fixtures/server.der")
+            .to_vec()
+            .into()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(
+            include_bytes!("../../../transport/tcp/fixtures/key.der").to_vec(),
+        )
+        .into(),
+    )?;
+    Ok(RaftTransport::start(
+        host.runtime.clone(),
+        Arc::new(crate::peer_auth::PeerAuth::new([8; 32], label)?),
+        tls,
+        TcpListener::bind("127.0.0.1:0").await?,
+        TcpListener::bind("127.0.0.1:0").await?,
+        TcpListener::bind("127.0.0.1:0").await?,
+        TransportOptions {
+            snapshot_chunk_bytes: 1024,
+            ..Default::default()
+        },
+    )
+    .await?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extent_snapshot_crosses_authenticated_tls_and_the_sql_worker_then_reopens(
+) -> anyhow::Result<()> {
+    use super::super::transport::{GroupRoute, RaftPeer};
+    use raft::Storage as _;
+    let root = tempfile::tempdir()?;
+    let definition = class(Arc::new(AtomicUsize::new(0)))?;
+    let learners = vec![MemberId::new(2)?];
+    let mut source = Host::open_replica(
+        &root.path().join("source"),
+        definition.clone(),
+        false,
+        1,
+        learners.clone(),
+    )
+    .await?;
+    let mut target = Host::open_replica(
+        &root.path().join("target"),
+        definition.clone(),
+        false,
+        2,
+        learners,
+    )
+    .await?;
+    let sending = transport(&source, "node-1").await?;
+    let receiving = transport(&target, "node-2").await?;
+    let result = async {
+        let (identity, outcome) = source.stage(1, 1).await?;
+        let StageOutcome::Prepared(prepared) = outcome else { anyhow::bail!("new source command duplicated"); };
+        let (written, _) = source.commit(identity, prepared).await?;
+        let mut peers = vec![];
+        for (host, wire, label) in [(&source, &sending, "node-1"), (&target, &receiving, "node-2")] {
+            peers.push(RaftPeer {
+                replica: host.log.group(&scope())?.identity().clone(), label: label.into(),
+                server_name: "localhost".into(), control_address: wire.control_address(),
+                data_address: wire.data_address(), query_address: wire.query_address(),
+            });
+        }
+        for wire in [&sending, &receiving] {
+            wire.install_group(GroupRoute {
+                scope: scope(), schema_digest: definition.schema_digest(), revision: 1, peers: peers.clone(),
+            })?;
+        }
+        let reservation = sending.reserve_snapshot_source()?;
+        let Value::SnapshotCapture { capture, reservation } = source.call(Action::CaptureSeed {
+            limits: SnapshotLimits::default(), reservation,
+        }).await? else { anyhow::bail!("root source capture failed"); };
+        let prepared = sending.prepared_snapshot_cache();
+        let (package, reservation) = source.token.blocking(move || {
+            let (package, reused) = capture.encode_prepared(&prepared, reservation.io_profile())?;
+            assert!(!reused && package.encoded_file_bytes() == 0);
+            Ok::<_, super::super::snapshot::SnapshotError>((package, reservation))
+        })?.await??;
+        let snapshot = package.snapshot();
+        source.runtime.checkpoint(package.checkpoint_material()).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match source.events.recv().await.ok_or_else(|| anyhow::anyhow!("source events closed"))?.kind {
+                    RuntimeEventKind::Checkpointed { .. } => return Ok::<_, anyhow::Error>(()),
+                    RuntimeEventKind::Failed { error, .. } => return Err(error.into()),
+                    _ => (),
+                }
+            }
+        }).await??;
+        drop(package);
+        let (identity, outcome) = source.stage(2, 2).await?;
+        let StageOutcome::Prepared(prepared) = outcome else { anyhow::bail!("new source command duplicated"); };
+        let (latest, _) = source.commit(identity, prepared).await?;
+        let Value::SnapshotCapture { capture, reservation } = source.call(Action::CaptureSnapshot {
+            snapshot: Box::new(snapshot.clone()), limits: SnapshotLimits::default(), reservation,
+        }).await? else { anyhow::bail!("retained root source capture failed"); };
+        let prepared = sending.prepared_snapshot_cache();
+        let (package, reservation) = source.token.blocking(move || {
+            let (package, reused) = capture.encode_prepared(&prepared, reservation.io_profile())?;
+            assert!(!reused && package.encoded_file_bytes() == 0);
+            Ok::<_, super::super::snapshot::SnapshotError>((package, reservation))
+        })?.await??;
+        assert_eq!(package.snapshot(), snapshot, "retained capture substituted a newer image");
+        let lease = sending.serve_snapshot(&scope(), 2, package, reservation)?;
+        sending.submit(&scope(), raft::prelude::Message {
+            from: 1, to: 2, term: snapshot.get_metadata().term,
+            msg_type: raft::prelude::MessageType::MsgSnapshot,
+            snapshot: Some(snapshot.clone()).into(), ..Default::default()
+        })?.accepted().await?;
+        let ticket = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match target.events.recv().await.ok_or_else(|| anyhow::anyhow!("target events closed"))?.kind {
+                    RuntimeEventKind::Snapshot { ticket, source, snapshot: actual } => {
+                        assert_eq!(source, 1); assert_eq!(actual, snapshot); return Ok::<_, anyhow::Error>(ticket);
+                    }
+                    RuntimeEventKind::Failed { error, .. } => return Err(error.into()),
+                    _ => (),
+                }
+            }
+        }).await??;
+        let received = receiving.fetch_snapshot(&ticket, 1, snapshot, SnapshotLimits::default(), Some(target.store.clone())).await?;
+        let Value::SnapshotPrepared(completion) = target.call(Action::PrepareSnapshot {
+            ticket: ticket.clone(), received: Box::new(received),
+        }).await? else { anyhow::bail!("root SQL preparation failed"); };
+        assert_eq!(completion.applied.image.as_ref(), Some(&written.image));
+        target.runtime.complete_snapshot(*completion).await?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match target.events.recv().await.ok_or_else(|| anyhow::anyhow!("target events closed"))?.kind {
+                    RuntimeEventKind::SnapshotInstalled { ticket: actual, .. } => {
+                        assert_eq!(actual, ticket); return Ok::<_, anyhow::Error>(());
+                    }
+                    RuntimeEventKind::Failed { error, .. } => return Err(error.into()),
+                    _ => (),
+                }
+            }
+        }).await??;
+        let Value::SnapshotPublished(Some(view)) = target.call(Action::PublishSnapshot { ticket }).await?
+            else { anyhow::bail!("root SQL publication failed"); };
+        assert_eq!(view.image, written.image);
+        let read = target.query("Read", super::super::query::Minimum::Any,
+            Arc::new(AttemptControl::new(target.token.clone()))).await?;
+        assert_eq!(read.result, 1_i64.to_be_bytes());
+        let entries = source.log.group(&scope())?.entries(
+            written.position.index.get() + 1, latest.position.index.get() + 1,
+            None, raft::GetEntriesContext::empty(false),
+        )?;
+        sending.submit(&scope(), raft::prelude::Message {
+            from: 1, to: 2, term: latest.position.term.get(),
+            index: written.position.index.get(), log_term: written.position.term.get(),
+            commit: latest.position.index.get(), entries: entries.into(),
+            msg_type: raft::prelude::MessageType::MsgAppend, ..Default::default()
+        })?.accepted().await?;
+        let event = target.event().await?;
+        let RuntimeEventKind::Apply { ticket, .. } = &event.kind else { anyhow::bail!("missing catch-up apply"); };
+        let ticket = ticket.clone();
+        let Value::Prepared(completion) = target.call(Action::Prepare {
+            event, image: ImageId::new([99; 16])?,
+        }).await? else { anyhow::bail!("missing catch-up completion"); };
+        target.runtime.complete_apply(completion).await?;
+        let event = target.event().await?;
+        assert!(matches!(event.kind, RuntimeEventKind::Applied { ticket: actual, .. } if actual == ticket));
+        let Value::Published { view, .. } = target.call(Action::Publish { ticket }).await?
+            else { anyhow::bail!("missing catch-up publication"); };
+        assert_eq!(view.image, latest.image);
+        let read = target.query("Read", super::super::query::Minimum::Any,
+            Arc::new(AttemptControl::new(target.token.clone()))).await?;
+        assert_eq!(read.result, 2_i64.to_be_bytes());
+        assert!(!root.path().join("target/cell/images").exists());
+        assert!(lease.finished(source.token.mono_ms()?));
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    sending.close().await;
+    receiving.close().await;
+    let source_closed = source.close().await;
+    let target_closed = target.close().await;
+    result?;
+    source_closed?;
+    target_closed?;
+    let resumed =
+        Host::open_replica(&root.path().join("target"), definition, true, 2, vec![]).await?;
+    let read = resumed
+        .query(
+            "Read",
+            super::super::query::Minimum::Any,
+            Arc::new(AttemptControl::new(resumed.token.clone())),
+        )
+        .await?;
+    assert_eq!(read.result, 2_i64.to_be_bytes());
+    resumed.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

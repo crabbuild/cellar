@@ -14,6 +14,10 @@ use protobuf::Message;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+#[path = "manifest_tests.rs"]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ObjectRef {
@@ -188,6 +192,8 @@ pub(crate) struct Manifest {
     pub tails: Vec<Tail>,
     pub position: Position,
     pub image: Image,
+    pub conf_state: Vec<u8>,
+    pub membership: super::member_state::GroupMembership,
     pub dependencies: Vec<ObjectRef>,
 }
 
@@ -211,6 +217,7 @@ impl Manifest {
             || self.birth_digest != birth
             || self.schema_digest != schema
             || !self.snapshot.membership.same_birth(initial)
+            || !self.membership.same_birth(initial)
         {
             return Err(ArchiveError::Corrupt("archive history/schema binding"));
         }
@@ -229,6 +236,13 @@ impl Manifest {
             .membership
             .validate(&conf, self.snapshot.position.index)
             .map_err(|_| ArchiveError::Corrupt("archive member bindings"))?;
+        let tip_conf = decode_conf(&self.conf_state)?;
+        self.membership
+            .validate(&tip_conf, self.position.index)
+            .map_err(|_| ArchiveError::Corrupt("archive tip member bindings"))?;
+        self.membership
+            .succeeds(&self.snapshot.membership)
+            .map_err(|_| ArchiveError::Corrupt("archive tip member history"))?;
         if self.tails.len() > limits.max_tails
             || self.dependencies.len() > limits.max_dependencies
             || self.snapshot.object.kind != ObjectKind::Snapshot
@@ -275,6 +289,9 @@ impl Manifest {
         if position != self.position
             || entries > limits.max_entries
             || self.tails.is_empty() && self.image != self.snapshot.image
+            || self.tails.is_empty()
+                && (self.conf_state != self.snapshot.conf_state
+                    || self.membership != self.snapshot.membership)
         {
             return Err(ArchiveError::Corrupt("archive tip coverage"));
         }
@@ -383,49 +400,4 @@ pub(crate) fn decode<T: DeserializeOwned + Serialize>(
 
 pub(crate) fn digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn archive_configuration_set_order_is_canonical() -> Result<(), ArchiveError> {
-        let mut first = ConfState {
-            voters: vec![9, 1, 5],
-            voters_outgoing: vec![3, 9, 1],
-            learners: vec![11, 7],
-            learners_next: vec![3],
-            auto_leave: true,
-            ..Default::default()
-        };
-        let encoded = encode_conf(&first)?;
-        let raw = first
-            .write_to_bytes()
-            .map_err(|_| ArchiveError::Corrupt("test configuration"))?;
-        assert!(decode_conf(&raw).is_err());
-        first.voters.reverse();
-        first.voters_outgoing.reverse();
-        first.learners.reverse();
-        first.learners_next.reverse();
-        assert_eq!(encoded, encode_conf(&first)?);
-        let canonical = decode_conf(&encoded)?;
-        assert_eq!(canonical.voters, vec![1, 5, 9]);
-        assert_eq!(canonical.voters_outgoing, vec![1, 3, 9]);
-        assert_eq!(canonical.learners, vec![7, 11]);
-        assert_eq!(canonical.learners_next, vec![3]);
-        Ok(())
-    }
-
-    #[test]
-    fn archive_configuration_unknown_and_duplicate_members_refused() {
-        let mut conf = ConfState {
-            voters: vec![1, 1],
-            ..Default::default()
-        };
-        assert!(encode_conf(&conf).is_err());
-        conf.voters.pop();
-        conf.mut_unknown_fields().add_varint(99, 1);
-        assert!(encode_conf(&conf).is_err());
-    }
 }

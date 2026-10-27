@@ -7,8 +7,15 @@
 use cellar_ltx::apply::ImageState;
 use cellar_ltx::ltx::{self, Header};
 use cellar_ltx::stream_snapshot::{self, Download, Limits, Metadata, SnapshotFile};
-use cellar_ltx::{DirectFileSystem, FileSystem, TXID};
+use cellar_ltx::{DirectFileSystem, FileSystem, HostFile, HostFileIo, TXID};
 use sha2::{Digest, Sha256};
+use std::{
+    io,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
 
@@ -460,6 +467,76 @@ fn buffered_codec_and_bulk_transport_preserve_exact_bytes_and_sqlite_contents() 
         assert!(files.metrics.max_read.load(Ordering::Relaxed) <= 65536);
         assert!(files.metrics.max_write.load(Ordering::Relaxed) <= 65536);
         assert_eq!(files.metrics.active_handles.load(Ordering::Acquire), 0);
+    }
+}
+
+struct DestinationWindows {
+    file: HostFile,
+    peak: Arc<AtomicUsize>,
+}
+
+impl HostFileIo for DestinationWindows {
+    fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all(bytes)
+    }
+
+    fn read_exact_at(&mut self, offset: u64, length: usize) -> io::Result<Vec<u8>> {
+        self.file.read_exact_at(offset, length)
+    }
+
+    fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all_at(offset, bytes)
+    }
+
+    fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.peak.fetch_max(bytes.len(), Ordering::Relaxed);
+        self.file.write_all_at_window(offset, bytes)
+    }
+
+    fn set_len(&mut self, length: u64) -> io::Result<()> {
+        self.file.set_len(length)
+    }
+
+    fn sync_all(&mut self) -> io::Result<()> {
+        self.file.sync_all()
+    }
+
+    fn file_len(&mut self) -> io::Result<u64> {
+        self.file.file_len()
+    }
+}
+
+#[test]
+fn decoded_destination_uses_admitted_native_windows_with_exact_sqlite_bytes() {
+    use stream_snapshot::IoProfile;
+    for page_size in [512, 4096, 65536] {
+        let bytes = database_with_payload(page_size, "randomblob(5242880)");
+        let image = state(&bytes, page_size, true);
+        let source = encode(&bytes, image);
+        let encoded = contents(&source);
+        for (profile, window) in [
+            (IoProfile::Buffered, 2 * 1024 * 1024),
+            (IoProfile::Compact, 64 * 1024),
+        ] {
+            let received = receive_with_profile(&encoded, source.metadata(), profile);
+            let root = tempfile::tempdir().unwrap();
+            let path = root.path().join("destination.sqlite");
+            let file = DirectFileSystem.create_read_write(&path).unwrap();
+            let peak = Arc::<AtomicUsize>::default();
+            let mut destination = HostFile::from_io(DestinationWindows {
+                file,
+                peak: peak.clone(),
+            });
+            assert_eq!(received.write_image(&mut destination).unwrap(), image);
+            destination.sync_all().unwrap();
+            drop(destination);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes);
+            assert_eq!(
+                peak.load(Ordering::Relaxed),
+                window,
+                "decoder did not use its admitted native destination window"
+            );
+        }
     }
 }
 

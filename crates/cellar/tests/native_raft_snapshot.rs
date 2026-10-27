@@ -77,8 +77,9 @@ fn native_snapshot_birth(cell: &str, group: u8) -> BirthProposal {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum JoinClaimFault {
-    None,
+enum SeedScenario {
+    Ordinary,
+    PreparedReuse,
     Before,
     Response,
     Confirmation,
@@ -86,27 +87,32 @@ enum JoinClaimFault {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_requires_committed_binding_and_resumes_reads() -> Result<()> {
-    native_seed_drill(false, false, false, JoinClaimFault::None).await
+    native_seed_drill(false, false, false, SeedScenario::Ordinary).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_peer_seed_reuses_checkpoint_bytes_with_fresh_membership() -> Result<()> {
+    native_seed_drill(false, false, false, SeedScenario::PreparedReuse).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_refuses_missing_quorum() -> Result<()> {
-    native_seed_drill(true, false, false, JoinClaimFault::None).await
+    native_seed_drill(true, false, false, SeedScenario::Ordinary).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_retries_partial_body_with_fresh_grant() -> Result<()> {
-    native_seed_drill(false, true, false, JoinClaimFault::None).await
+    native_seed_drill(false, true, false, SeedScenario::Ordinary).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_s3_seed_replays_tail_and_resumes_reads() -> Result<()> {
-    native_seed_drill(false, false, true, JoinClaimFault::None).await
+    native_seed_drill(false, false, true, SeedScenario::Ordinary).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_s3_seed_refuses_missing_quorum() -> Result<()> {
-    native_seed_drill(true, false, true, JoinClaimFault::None).await
+    native_seed_drill(true, false, true, SeedScenario::Ordinary).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -420,10 +426,31 @@ async fn native_s3_seed_missing_selected_payload_refuses_newer_head_fallback() -
                     .await?;
                 assert_eq!(receipt.result, (sequence as i64 + 4).to_be_bytes());
             }
-            let newer = archive
+            let mut newer = archive
                 .recovery_set()
                 .await?
                 .context("newer S3 head missing")?;
+            // Learner admission can now occupy the one allowed tail. Keep
+            // the original two writes, then explicitly fill/rotate whichever
+            // tail phase the selected reference left behind. The final head
+            // must still be a distinct complete snapshot before deleting a
+            // payload needed by the replacement's exact selected reference.
+            if newer.tail_entries() != 0 {
+                let mut options = public_node::options(4)?;
+                options.durability = Durability::S3;
+                let receipt = handles[primary]
+                    .command(
+                        definitions[primary].increment.clone(),
+                        1_i64.to_be_bytes().to_vec(),
+                        options,
+                    )
+                    .await?;
+                assert_eq!(receipt.result, 8_i64.to_be_bytes());
+                newer = archive
+                    .recovery_set()
+                    .await?
+                    .context("rotated S3 head missing")?;
+            }
             ensure!(
                 newer.reference() != selected_ref && newer.tail_entries() == 0,
                 "fixture did not rotate a distinct complete snapshot"
@@ -498,24 +525,24 @@ async fn native_s3_seed_missing_selected_payload_refuses_newer_head_fallback() -
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_reconciles_lost_member_claim_response() -> Result<()> {
-    native_seed_drill(false, false, true, JoinClaimFault::Response).await
+    native_seed_drill(false, false, true, SeedScenario::Response).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_resumes_synced_state_before_member_claim() -> Result<()> {
-    native_seed_drill(false, false, true, JoinClaimFault::Before).await
+    native_seed_drill(false, false, true, SeedScenario::Before).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_resumes_after_lost_claim_confirmation() -> Result<()> {
-    native_seed_drill(false, false, true, JoinClaimFault::Confirmation).await
+    native_seed_drill(false, false, true, SeedScenario::Confirmation).await
 }
 
 async fn native_seed_drill(
     lose_quorum: bool,
     interrupt: bool,
     from_s3: bool,
-    claim_fault: JoinClaimFault,
+    scenario: SeedScenario,
 ) -> Result<()> {
     use cellar::sdk::consensus::*;
     use object_store::ObjectStore as _;
@@ -539,10 +566,18 @@ async fn native_seed_drill(
         birth: native_snapshot_birth("Counter:seed", 29),
     };
     let store = Arc::new(archive_fault::Store::default());
+    let host = if scenario == SeedScenario::PreparedReuse {
+        RaftHostOptions {
+            checkpoint_entries: 1,
+            ..Default::default()
+        }
+    } else {
+        RaftHostOptions::default()
+    };
     let mut cluster = cluster::Cluster::start_with_standby_store(
         &definitions,
         vec![registration.clone()],
-        RaftHostOptions::default(),
+        host,
         store.clone(),
     )
     .await
@@ -574,6 +609,24 @@ async fn native_seed_drill(
         .await
         .context("initial S3 command")?;
     assert_eq!(receipt.result, 5_i64.to_be_bytes());
+    if scenario == SeedScenario::PreparedReuse {
+        // Prepare on every possible source before the new membership cut.
+        // Adding a learner changes authority but leaves these bytes unchanged.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                if cluster.services.iter().all(|service| {
+                    service.performance().counters.iter().any(|counter| {
+                        counter.name == "snapshot_checkpoint_encoded_bytes" && counter.value > 0
+                    })
+                }) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("checkpoint bodies were not prepared")?;
+    }
     let expected = handles[primary]
         .status()
         .await
@@ -738,16 +791,16 @@ async fn native_seed_drill(
             source_node: NodeId::new([source as u8 + 1; 16])?,
         }
     };
-    match claim_fault {
-        JoinClaimFault::Before => store.fail_join_claim_before.store(true, Ordering::Release),
-        JoinClaimFault::Response => store.fail_join_claim_after.store(true, Ordering::Release),
-        JoinClaimFault::Confirmation => {
+    match scenario {
+        SeedScenario::Before => store.fail_join_claim_before.store(true, Ordering::Release),
+        SeedScenario::Response => store.fail_join_claim_after.store(true, Ordering::Release),
+        SeedScenario::Confirmation => {
             store.fail_join_claim_after.store(true, Ordering::Release);
             store
                 .fail_join_claim_confirmation
                 .store(true, Ordering::Release);
         }
-        JoinClaimFault::None => (),
+        SeedScenario::Ordinary | SeedScenario::PreparedReuse => (),
     }
     let joined = cluster
         .join_standby(definitions[3].application.clone(), placement)
@@ -800,10 +853,8 @@ async fn native_seed_drill(
             );
         }
     } else {
-        let recovering_claim = matches!(
-            claim_fault,
-            JoinClaimFault::Before | JoinClaimFault::Confirmation
-        );
+        let recovering_claim =
+            matches!(scenario, SeedScenario::Before | SeedScenario::Confirmation);
         let joined = if recovering_claim {
             let error = match joined {
                 Ok(service) => {
@@ -852,7 +903,7 @@ async fn native_seed_drill(
                     .as_ref()
                     .ends_with("/claims/0000000000000004");
             }
-            assert_eq!(claimed, claim_fault == JoinClaimFault::Confirmation);
+            assert_eq!(claimed, scenario == SeedScenario::Confirmation);
             let ns = namespace.namespace;
             let name = registration.birth.scope.cell.clone();
             let get = definitions[3].get.clone();
@@ -941,6 +992,28 @@ async fn native_seed_drill(
             );
         }
 
+        if scenario == SeedScenario::PreparedReuse {
+            let performance = cluster.services[source].performance();
+            let counter = |name| {
+                performance
+                    .counters
+                    .iter()
+                    .find(|counter| counter.name == name)
+                    .map(|counter| counter.value)
+            };
+            ensure!(counter("snapshot_prepared_hits").is_some_and(|hits| hits > 0));
+            ensure!(counter("snapshot_prepared_reused_bytes").is_some_and(|bytes| bytes > 0));
+            ensure!(
+                counter("snapshot_seed_encoded_bytes") == Some(0),
+                "seed encoded a second body despite the unchanged generation"
+            );
+            ensure!(
+                performance.operations.iter().any(|operation| {
+                    operation.name == "snapshot_seed_encode" && operation.succeeded > 0
+                }),
+                "seed did not execute the prepared source path"
+            );
+        }
         let learner = joined.cell(namespace.namespace, &registration.birth.scope.cell)?;
         ensure!(
             !learner
