@@ -40,6 +40,35 @@ remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
 
+## Native Rust example and release-profile checkpoint
+
+The [Rust notebook recipe](../examples/filesystem/README.md) supplies a focused
+`context.fs()` application alongside the guest examples. Its exact `tx.fs()`
+append commits with the entry count and deduplication receipt; the handler
+requests the configured proof after commit and before success. Entries, input
+bytes and receipts have explicit application bounds. No filesystem mount or
+process runner is involved.
+
+The focused smoke covers concurrent appends/replays, conflicting IDs, UTF-8
+byte limits, the notebook limit, cell isolation, retained state and receipts
+after restart, and a new post-restart append. The combined cookbook also
+exercises the binding through its asset-routing configuration. Existing SDK CI
+discovers the new catalog entry. A separate release-application matrix builds
+the CLI and notebook for all three native release targets, selects the release
+profile for the staged application, checks unchanged executable hashes through
+restart, and uploads its evidence. Registration is not remote execution.
+
+The [native-example report](../tools/perf/results/2026-10-28-filesystem-native-example.md)
+records passing macOS development/release focused smokes, the combined
+development cookbook and catalog/static checks. The release run retains both
+executable hashes through restart, using the unchanged optimization profile and
+local development storage. A Linux arm64 release
+library build at `ec521d61` was OOM-killed in the local 2 GiB VM before producing
+an application executable. No Linux run or capacity result follows from that
+attempt; the release profile and VM configuration were not changed to obtain a
+pass. This recipe closes the missing Rust application deliverable, while the
+remaining FS-04/05 release requirements below stay open.
+
 ## S3 transport-cut checkpoint
 
 The [TCP fault report](../tools/perf/results/2026-10-28-filesystem-socket-faults.md)
@@ -1071,7 +1100,7 @@ below remain the acceptance checklist.
 | --- | --- | --- |
 | P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
-| P1 | Qualify optimized artifacts and supported runtime/ABI targets | Integrated macOS development captures now pass; exact deployment profiles and Linux/ABI CI still require evidence |
+| P1 | Qualify optimized artifacts and supported runtime/ABI targets | The selected native macOS release example and integrated guest development captures pass; full deployment profiles and Linux/ABI CI still require evidence |
 | P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
 | P2 | Consider additional capability profiles after the core baseline | Separate workload justification and contracts for links/locks/wider metadata or object-backed content; independent conformance before advertising support |
 
@@ -1115,9 +1144,13 @@ independent of these primitive release priorities.
    tools separately exercised through source-entry fixtures. The final installed
    Vercel profile verifies exact saved receipts, edited file identity/bytes,
    deletion and duplicate suppression through the production provider adapter.
-   These are development builds on a local development bucket. Optimized
-   deployment artifacts, Linux/ABI CI and installed external-store fault profiles
-   remain open; source-entry S3 evidence does not substitute for those scopes.
+   These guest packages are development builds on a local development bucket.
+   The [native Rust checkpoint](#native-rust-example-and-release-profile-checkpoint)
+   adds a passing optimized application smoke on macOS with the local store;
+   its Linux arm64 build fails on the 2 GiB VM before runtime qualification.
+   Complete deployment artifact profiles, Linux/ABI CI and installed
+   external-store fault profiles remain open; source-entry S3 evidence does not
+   substitute for those scopes.
 
 3. Complete the maintenance stress/fault matrix. Pending-work cold recovery,
    pinned-orphan fairness and reclamation above a lowered quota now have the

@@ -31,6 +31,8 @@ saved decisions and atomic file-tool receipts; follow-up turns share one cell's
 files through the explicit SDK primitive.
 Its React/shadcn chat UI renders live Markdown with Streamdown and includes
 GPT-6 Luna qualification for local and external tool recovery.
+The [Rust filesystem recipe](filesystem/README.md) composes POSIX-style appends,
+business state and retry receipts through `context.fs()` and exact `tx.fs()`.
 [FleetCare](fleetcare/README.md) is a field-service application with embedded and
 daemon hosts, a local console and a repeatable fleet performance suite.
 
@@ -39,7 +41,7 @@ The catalog borrows application patterns from the
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
-commands, expected output, interpretation and cleanup. The catalog contains 34
+commands, expected output, interpretation and cleanup. The catalog contains 35
 entries, including the original standalone embedding and stream hosts.
 Each entry demonstrates its named feature with runnable code. The catalog does
 not claim Workers SDK compatibility or production fleet certification.
@@ -97,6 +99,7 @@ isolation is not a deployment tenancy policy.
 | webapi | [webapi](webapi/README.md) | Owned URLs, headers and SHA-256 |
 | static-assets | [static-assets](static-assets/README.md) | Packaged website and explicit asset binding |
 | counter | [counter](counter/README.md) | Durable named counter and atomic increments |
+| filesystem | [filesystem](filesystem/README.md) | Per-cell file appends composed atomically with business state and replayable receipts |
 | vectordb | [vectordb](vectordb/README.md) | Per-cell sqlite-vec index and nearest-color query |
 | SQL | [sql](sql/README.md) | Native SQL binding, parameterized inserts and guestbook |
 | Blob | [blob](blob/README.md) | Native Blob binding, writes, streamed reads and deletion |

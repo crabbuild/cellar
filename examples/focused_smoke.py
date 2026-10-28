@@ -3,6 +3,7 @@
 
 """Run each focused project's documented Rust behavior with private fresh state."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import tempfile
@@ -41,6 +42,54 @@ def exercise(name, origin, with_cron):
         result = eventually(lambda: call("/alarms/demo"), lambda v: v["status"] == "fired")
         assert result["alarm"] is None
         persisted.append(("/alarms/demo", {}, result))
+    elif name == "filesystem":
+        empty = {"entries": 0, "text": "", "file": None}
+        assert call("/notebooks/alpha") == empty
+        body = {"id": "first", "text": "café ☕"}
+        receipt = call("/notebooks/alpha", method="POST", data=body)
+        assert receipt["entries"] == 1 and receipt["size"] == len((body["text"] + "\n").encode())
+        assert call("/notebooks/alpha", method="POST", data=body) == receipt
+        before = call("/notebooks/alpha")
+        call("/notebooks/alpha", method="POST", data={"id": "first", "text": "changed"}, status=409)
+        call("/notebooks/alpha", method="POST", data={"id": "", "text": "bad"}, status=400)
+        call("/notebooks/alpha", method="POST", data={**body, "extra": True}, status=400)
+        call("/notebooks/alpha", method="POST", data=b"not JSON", status=400)
+        call("/notebooks/alpha", method="POST", data={"id": "empty", "text": ""}, status=413)
+        call("/notebooks/alpha", method="POST", data={"id": "large", "text": "x" * 4097}, status=413)
+        call("/notebooks/alpha", method="POST", data={"id": "large-utf8", "text": "é" * 2049}, status=413)
+        call("/notebooks/alpha", method="DELETE", status=405)
+        assert call("/notebooks/alpha") == before
+        commands = [{"id": f"parallel-{i}", "text": f"line {i}"} for i in range(8)]
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            receipts = list(pool.map(lambda command: call("/notebooks/alpha", method="POST", data=command), commands))
+            repeated = list(pool.map(lambda command: call("/notebooks/alpha", method="POST", data=command), commands))
+        assert repeated == receipts and sorted(r["entries"] for r in receipts) == list(range(2, 10))
+        alpha = call("/notebooks/alpha")
+        assert alpha["entries"] == 9 and alpha["file"]["inode"] == receipt["inode"]
+        assert sorted(alpha["text"].splitlines()) == sorted([body["text"], *(c["text"] for c in commands)])
+        assert call("/notebooks/beta") == empty
+        beta_receipt = call("/notebooks/beta", method="POST", data={"id": "first", "text": "separate"})
+        assert beta_receipt["entries"] == 1
+        boundary = {"id": "maximum", "text": "é" * 2048}
+        boundary_receipt = call("/notebooks/boundary", method="POST", data=boundary)
+        assert boundary_receipt["entries"] == 1 and boundary_receipt["size"] == 4097
+        assert call("/notebooks/boundary")["text"] == boundary["text"] + "\n"
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            full_receipts = list(pool.map(lambda i: call("/notebooks/full", method="POST", data={"id": f"entry-{i}", "text": "x"}), range(128)))
+        assert sorted(r["entries"] for r in full_receipts) == list(range(1, 129))
+        full = call("/notebooks/full")
+        assert full["entries"] == 128 and full["text"] == "x\n" * 128
+        call("/notebooks/full", method="POST", data={"id": "overflow", "text": "bad"}, status=413)
+        assert call("/notebooks/full") == full
+        persisted.extend([
+            ("/notebooks/alpha", {"method": "POST", "data": body}, receipt),
+            ("/notebooks/alpha", {}, alpha),
+            ("/notebooks/beta", {}, call("/notebooks/beta")),
+            ("/notebooks/boundary", {"method": "POST", "data": boundary}, boundary_receipt),
+            ("/notebooks/boundary", {}, call("/notebooks/boundary")),
+            ("/notebooks/full", {"method": "POST", "data": {"id": "entry-0", "text": "x"}}, full_receipts[0]),
+            ("/notebooks/full", {}, full),
+        ])
     elif name == "async":
         call("/async/demo", method="POST")
         eventually(lambda: call("/async/demo"), lambda v: v == {"completed": 1})
@@ -141,12 +190,17 @@ def exercise(name, origin, with_cron):
     return persisted
 
 
-def run_one(cellar, entry, with_cron):
+def run_one(cellar, entry, with_cron, profile=None):
     examples = Path(__file__).resolve().parent
     extra = {"CELLAR_WEBSOCKET_PEER": "ws://127.0.0.1:9876"} if entry["name"] == "native-websocket" else None
     with tempfile.TemporaryDirectory(prefix="cellar-focused-example-") as temporary:
         root = Path(temporary)
         project = private_project(examples / entry["project"], root)
+        config = json.loads(project.read_text())
+        if profile is not None:
+            config["profile"] = profile
+            project.write_text(json.dumps(config))
+        selected_profile = config.get("profile", "release")
         host = Host(cellar, project, root, extra)
         try:
             persisted = exercise(entry["name"], host.ready(), with_cron)
@@ -166,9 +220,17 @@ def run_one(cellar, entry, with_cron):
                     elif entry["name"] == "native-websocket":
                         result = json.loads(result)
                     assert result == expected, (entry["name"], path, result, expected)
+                if entry["name"] == "filesystem":
+                    before = request(origin, "/notebooks/alpha")
+                    receipt = request(origin, "/notebooks/alpha", method="POST", data={"id": "after-restart", "text": "new owner"})
+                    after = request(origin, "/notebooks/alpha")
+                    assert receipt["entries"] == after["entries"] == before["entries"] + 1
+                    assert after["text"] == before["text"] + "new owner\n"
+                    assert after["file"]["inode"] == before["file"]["inode"]
+                    assert after["file"]["version"] != before["file"]["version"]
             finally:
                 host.stop()
-        print(f"PASS {entry['name']}: focused configuration, behavior and graceful stop" + ("; restart state retained" if persisted else ""), flush=True)
+        print(f"PASS {entry['name']} ({selected_profile}): focused configuration, behavior and graceful stop" + ("; restart state retained" if persisted else ""), flush=True)
 
 
 def main():
@@ -176,6 +238,7 @@ def main():
     parser.add_argument("--cellar", type=Path, required=True)
     parser.add_argument("--example", action="append", help="catalog name; repeat to select several (default: every local HTTP project)")
     parser.add_argument("--with-cron", action="store_true")
+    parser.add_argument("--profile", choices=["dev", "release"], help="build profile for the staged application (default: its project profile)")
     args = parser.parse_args()
     catalog = json.loads(Path(__file__).with_name("catalog.json").read_text())["examples"]
     entries = [e for e in catalog if "project" in e and e["status"] not in ("requires-container-engine", "requires-python-runtime", "requires-node-runtime")]
@@ -186,7 +249,7 @@ def main():
             parser.error(f"not a local HTTP project: {sorted(missing)}")
         entries = [e for e in entries if e["name"] in args.example]
     for entry in entries:
-        run_one(args.cellar.resolve(), entry, args.with_cron)
+        run_one(args.cellar.resolve(), entry, args.with_cron, args.profile)
     print(f"PASS {len(entries)} focused Rust projects", flush=True)
 
 

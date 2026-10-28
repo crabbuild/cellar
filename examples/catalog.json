@@ -38,6 +38,14 @@
       "guide": "counter/README.md"
     },
     {
+      "name": "filesystem",
+      "project": "filesystem/project.json",
+      "source": "filesystem/main.rs",
+      "route": "/notebooks/alpha",
+      "status": "runnable",
+      "guide": "filesystem/README.md"
+    },
+    {
       "name": "router",
       "project": "router/project.json",
       "source": "counter/main.rs",
