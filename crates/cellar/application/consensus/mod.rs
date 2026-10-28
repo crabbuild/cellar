@@ -54,15 +54,15 @@ pub use crate::raft::fleet_catalog::{
     FleetResourceBounds, FleetResourceRequest,
 };
 pub use crate::raft::fleet_catalog::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
-    FleetFailureRecoveryStatus, FleetIsolatedRepairContext, FleetIsolatedRepairEvidence,
-    FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
-    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
-    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
-    FleetNodeHealth, FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetDockerIsolation, FleetFailureDetectionOptions, FleetFailureDetectionStatus,
+    FleetFailureRecoveryContext, FleetFailureRecoveryOptions, FleetFailureRecoveryPhase,
+    FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus, FleetIsolatedRepairContext,
+    FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetRestartService, FleetRestartServiceOptions,
+    FleetRestartServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use crate::raft::fleet_catalog::{
     FleetTopologyHistoryResources, FleetTopologyNodeResources, FleetTopologyPlan,

@@ -54,6 +54,9 @@ mod namespace_registry_tests;
 #[path = "raft_capacity_native.rs"]
 mod capacity_tests;
 
+#[path = "raft_docker_binding.rs"]
+mod docker_binding;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
     let f = Fixture::new().await?;

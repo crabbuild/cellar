@@ -5,6 +5,7 @@ mod boots;
 mod capacity;
 mod deadline;
 mod disruption;
+mod docker_isolation;
 mod evacuation;
 mod execution;
 mod failure_recovery;
@@ -25,6 +26,7 @@ pub use capacity::{
     fleet_capacity_profile_digest, FleetCapacityAction, FleetCapacityAdmission,
     FleetCapacityAttestation, FleetCapacityAuthorization, FleetCapacityRequest,
 };
+pub use docker_isolation::FleetDockerIsolation;
 pub use evacuation::FleetEvacuationAdmission;
 pub(crate) use execution::FleetExecutionCommand;
 pub(crate) use finalization::FleetRemovalAttempt;

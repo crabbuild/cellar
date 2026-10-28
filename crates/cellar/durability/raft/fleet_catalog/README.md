@@ -1466,6 +1466,17 @@ platform, options, recovery)` uses the same exclusive Node-owned worker and
 existing probe bounds. It is explicitly enabled and default-off. Installing
 `FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
 operators must select and authenticate that deployment integration.
+`FleetDockerIsolation` supplies a Linux Docker/Colima adapter for exclusively
+owned, single-use native node containers. Every worker must be contained in the
+container; external supervisors and manual restarts are outside this contract.
+Bind Ready/Active enrolled nodes to full immutable container IDs before enabling
+recovery. Immutable Engine/start identities and physical-container claims prevent
+rebinding a container to a successor boot. The adapter stores its exact operation
+before any Engine mutation, reasserts disabled restart, kills the failed process
+and independently inspects terminal state before storing evidence. Missing or
+changed containers do not prove isolation. Neither containers nor volumes are
+deleted. See the [operator workflow](../../../../../plans/multi-raft/fleet-operations/operator-workflows.md#docker-isolation-adapter)
+for required labels, provisioning constraints and qualification limits.
 `FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
 archive verifier and archive limits. The embedding runtime owns the verifier's
 private scratch store and disk/memory admission, including extent storage when

@@ -3874,6 +3874,85 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "docker_isolation_recreates_adapter_after_lost_update_and_kill_replies",
+          "oracle": "An immutable exact-boot intent precedes Docker effects; recreated adapters reconcile lost update and kill replies, retain the container and return identical stored terminal evidence without another kill.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_refuses_changed_identity_policy_and_missing_container",
+          "oracle": "Changed Engine, container, owner, process start, restart count, restart policy or containment, and a missing container all refuse isolation before any Docker mutation.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_requires_immutable_boot_claim_and_operation",
+          "oracle": "An absent provisioning map grants no effect. A physical container cannot be rebound to a second boot, and another operation cannot replace the admitted isolation intent.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04"
+          ]
+        },
+        {
+          "name": "docker_isolation_timeout_drops_connection_and_preserves_intent",
+          "oracle": "Deadline expiry drops the owned Engine connection while retaining uncertain operation intent; the same exact operation can subsequently reconcile and complete.",
+          "invariants": [
+            "F03",
+            "F06",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_bounds_inspection_and_never_exposes_environment",
+          "oracle": "Oversized Engine inspection is refused without mutation or response-body/credential disclosure.",
+          "invariants": [
+            "F06",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_binding_refuses_restart_or_uncontained_workers",
+          "oracle": "Provisioning refuses automatic restart, privileged or reusable containers, paused targets and stopped targets before recording an eligible map.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F07"
+          ]
+        },
+        {
+          "name": "docker_isolation_real_engine_stops_paused_container_and_retains_data",
+          "oracle": "An explicit external Docker harness runs a digest-pinned container at 1 CPU and 3 GiB, verifies a durable marker, pauses it, obtains actual isolation evidence, confirms retained data and reconciles after adapter recreation before test-only cleanup. This qualifies the Engine boundary, not the deployed fleet.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F06",
+            "F08",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "fleet_docker_binding_records_ready_boot_and_refuses_evacuation",
+          "oracle": "Real native enrollment supplies the canonical Ready boot for a durable provisioning map without advancing Root; an independently recreated adapter reconciles it, while Registered or Draining nodes cannot admit a new binding.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3988,6 +4067,43 @@
           "--test",
           "native_raft_fleet_enrollment",
           "fleet_failure_recovery_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "docker_isolation_",
+          "--",
+          "--skip",
+          "docker_isolation_real_engine_",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--lib",
+          "docker_isolation_real_engine_",
+          "--",
+          "--ignored",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "fleet_docker_binding_",
           "--",
           "--test-threads=1"
         ]

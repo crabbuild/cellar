@@ -1,5 +1,47 @@
 # Fleet operations implementation progress
 
+## Docker isolation adapter
+
+The `FleetDockerIsolation` provider binds an enrolled boot to a
+single-use Linux container, retaining its immutable Docker Engine/container IDs
+and start identity in create-only records. An independent container claim
+prevents rebinding that resource to another boot. The recovery operation is
+durable before restart-policy or kill requests; only current terminal inspection
+and stored evidence can yield the isolation attestation. No container or volume
+is deleted. The provider is for explicitly contained native workers under
+exclusive deployment lifecycle control, with automatic restart disabled.
+
+Six new adapter tests cover lost update/kill replies and controller recreation,
+identity/start/policy changes, missing containers, immutable claims and operation
+conflicts, cancellation and bounded responses. Those cases pass, together with
+the native public binding case and a real Colima Engine case. The latter creates
+a digest-pinned, network-disabled test container with limits of 1 CPU and 3 GiB,
+writes a volume marker, pauses the container, verifies isolation and reads the retained
+marker before test-only cleanup. A recreated adapter returns the same evidence.
+It qualifies the Engine boundary, not a deployed Cellar/RustFS recovery fleet.
+The test's default Colima VM has 2 CPUs and 2 GiB; the configured container limit
+does not establish 3 GiB available capacity or five-node density.
+The public binding case verifies real Ready enrollment, immutable retry and
+refusal after evacuation; activation still precedes the evacuation transition.
+
+**979 distinct selected tests pass**: the eight new boundary cases, seven
+recovery, two detection, three movement-service, nine isolated-repair, four
+topology-service, twelve evacuation, two maintenance settlement, two isolation,
+three removal, thirteen catalog and 914 other host library tests. Host/admin/logic
+all-target Clippy, formatting, layout and native dependency checks pass. The
+audit binds 1,789 Rust/Cargo/config inputs and retained executable/result hashes;
+the exact source commit is recorded with the delivery baseline. Documentation,
+ten plan tests and the expanded acceptance inventory validate. Evidence remains
+outside runtime data in `docker-isolation-v4`.
+
+Earlier failed probes retain the malformed fixture-ID, Ready-to-evacuation setup
+and test-selector lint failures. Production identity, capacity, deadline and
+resource guards were preserved. Combined deployment, extent-backed automatic
+recovery, foreground writes, density, performance and full CI remain open. Next:
+wire binding into deployment enrollment and install the adapter in the surviving
+nodes' recovery services, then qualify the actual five-node RustFS workflow.
+These services remain opt-in; this milestone does not complete FO-06 or the goal.
+
 ## Automatic terminal removal
 
 The recovery worker now follows settled repair with a bounded complete-inventory
@@ -46,7 +88,7 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. An explicit SDK service now connects failure detection to durable exclusion,
-trusted isolation, replica repair and terminal removal. Production isolation,
+trusted isolation, replica repair and terminal removal. Deployment recovery wiring,
 grace/rolling/second-failure maintenance and resize remain unfinished.
 The intact operator sequence now includes separate stop/return/resume grants,
 read-only status and explicit Node-owned execution; successor qualification is
@@ -55,8 +97,8 @@ resume closes the SDK capacity/slot boundary. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
-The task manifest is the package-status source of truth. The latest verified
-milestone follows; later sections retain earlier states.
+The task manifest is the package-status source of truth. Current milestones are
+recorded above; later sections retain predecessor evidence.
 
 ## Automatic failure admission and isolation handoff
 

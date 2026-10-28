@@ -235,9 +235,61 @@ slot. Read `failure_recovery` and `isolated_repair` status for progress;
 storage deletion. Manual evacuation and maintenance
 operations remain owned by their existing workflows.
 
-The native integration uses joined hosts and fixture isolation evidence. A
-production Docker/Colima driver, extent-backed automatic-flow coverage and
-deployed fault qualification remain open. This SDK path remains default-off.
+The native recovery integration uses joined hosts and fixture isolation evidence.
+The Docker adapter below separately verifies the Engine boundary. Deployment
+startup/recovery wiring, extent-backed automatic-flow coverage and deployed fault
+qualification remain open. This SDK path remains default-off.
+
+### Docker isolation adapter
+
+`FleetDockerIsolation` implements `FleetFailureRecoveryPlatform` for Linux
+Docker/Colima deployments with one exclusively owned container per native node
+boot. All node workers must live inside that container. The deployment declares
+this contract with `io.cellar.fleet.boot-mode=single-use` and
+`io.cellar.fleet.workers=contained`; labels do not independently prove worker
+containment. External supervisors and manual restarts must not control the same
+container. Use a new container with the retained volume for an intact restart.
+
+Provision with automatic restart disabled, auto-removal disabled, a private PID
+namespace and no privileged mode. Set `io.cellar.fleet.owner` to the configured
+owner, `io.cellar.fleet.catalog` to the hex catalog ID and `io.cellar.fleet.node`
+to the hex node ID. After boot enrollment, while the node is Ready or Active,
+call `bind_node` with its full immutable container ID. The adapter persists the
+current rooted boot, Docker Engine ID and container start identity using
+create-only records. A physical container cannot be rebound to a second boot.
+Keep the same catalog and owner when recreating the adapter.
+
+Install the adapter in `start_failure_recovery_service` only after the bindings
+are confirmed. Recovery supplies the permanent rooted failure intent. The
+adapter persists its exact operation before touching Docker, reasserts disabled
+restart, sends SIGKILL when needed and independently inspects terminal state.
+It retains the stopped container and volume. Missing containers, changed starts,
+different owners, external restart policy and uncertain replies grant no
+isolation proof. Retry the same operation to reconcile it; do not rebind by name.
+
+The adapter has no background task; its bounded call owns and drops its
+connection on cancellation. Docker may still finish a mutation after that drop.
+Its namespace handles must cover the registry; recreate the service with complete
+handles when adding a namespace. Engine requests are described by the
+[Docker API reference](https://docs.docker.com/reference/api/engine/version/v1.51/).
+The Engine contract and public rooted binding tests pass. Combined deployed
+fleet qualification remains pending for this adapter.
+
+The real Engine test is explicit because it creates a disposable container and
+anonymous volume. Choose a local test Engine, pre-pull a BusyBox digest and pass
+that Engine's socket. The test checks retained data before removing only the
+container and volume it created. For the default Colima profile:
+
+```sh
+docker --context colima pull busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+CELLAR_FLEET_DOCKER_TEST_SOCKET="$HOME/.colima/default/docker.sock" \
+CELLAR_FLEET_DOCKER_TEST_IMAGE=busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e \
+cargo test --locked -p cellar --lib docker_isolation_real_engine_ -- --ignored --test-threads=1
+```
+
+Use this checkout's dedicated Cargo target directory as described in AGENTS.md.
+This case verifies Engine behavior and configured container limits; it does not
+establish available VM capacity, fleet density or write performance.
 
 ## Delivered isolated-node repair SDK workflow
 
