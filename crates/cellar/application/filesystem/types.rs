@@ -2,6 +2,13 @@
 
 use super::{Errno, Error, FilesystemLimits, Result};
 
+pub(crate) fn validate_mode(mode: u32) -> Result<()> {
+    if mode & !0o777 != 0 {
+        return Err(Error::new(Errno::EOPNOTSUPP, "unsupported mode bits"));
+    }
+    Ok(())
+}
+
 /// Immutable logical identity policy. All calls in this capability use the
 /// inode owner identity; there is no ambient host-UID or superuser bypass.
 #[derive(Clone, Copy, Debug)]

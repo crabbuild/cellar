@@ -87,6 +87,19 @@ async fn check(context: &Context) -> Result<()> {
         "filesystem.open",
         Errno::EINVAL,
     )?;
+    let cookie = dir.telldir()?;
+    // Unsupported mode bits are an option refusal even under read-only policy.
+    // They must not masquerade as a writable-operation permission refusal.
+    for mode in [0o1600, 0o2600, 0o4600, 0o100600, u32::MAX] {
+        refuses(
+            fs.chmod("/kept", mode),
+            "filesystem.chmod",
+            Errno::EOPNOTSUPP,
+        )?;
+        refuses(file.fchmod(mode), "filesystem.fchmod", Errno::EOPNOTSUPP)?;
+        ensure!(snapshot(&fs)? == expected && fs.read_file("/kept")? == b"original");
+        ensure!(file.lseek(Seek::Current(0))? == 2 && dir.telldir()? == cookie);
+    }
     let version = FileVersion::from(&file.fstat()?);
     let edit = Edit {
         offset: 0,
@@ -170,6 +183,35 @@ async fn check(context: &Context) -> Result<()> {
         .context("lost filesystem error")?;
     ensure!(error.errno == Errno::EROFS && error.outcome == Outcome::NotApplied);
     ensure!(storage.get_json("readonly_must_rollback")?.is_none());
+    for descriptor in [false, true] {
+        let rollback: Result<()> = storage.tx(|tx| {
+            tx.put_json("readonly_mode_must_rollback", &json!(true))?;
+            let fs = tx.fs()?;
+            if descriptor {
+                fs.open("/kept", OpenOptions::read_only())?.fchmod(0o4600)?;
+            } else {
+                fs.chmod("/kept", 0o4600)?;
+            }
+            Ok(())
+        });
+        let error = rollback.expect_err("unsupported mode transaction unexpectedly committed");
+        let error = error
+            .downcast_ref::<cellar::sdk::filesystem::Error>()
+            .context("lost unsupported mode error")?;
+        ensure!(
+            error.errno == Errno::EOPNOTSUPP
+                && error.outcome == Outcome::NotApplied
+                && error.completed_bytes == 0
+                && error.operation
+                    == if descriptor {
+                        "filesystem.fchmod"
+                    } else {
+                        "filesystem.chmod"
+                    }
+        );
+        ensure!(storage.get_json("readonly_mode_must_rollback")?.is_none());
+        ensure!(snapshot(&fs)? == expected);
+    }
     storage.tx(|tx| {
         let fs = tx.fs()?;
         ensure!(fs.capabilities()?.read_only);

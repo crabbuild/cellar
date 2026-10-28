@@ -57,6 +57,24 @@ async function readonlyProfile(fs, ctx) {
     "Filesystem",
     "EINVAL",
   );
+  const cookie = await dir.telldir();
+  for (const mode of [0o4600, 0xffffffff]) {
+    for (const [call, operation] of [
+      [() => fs.chmod("/kept", mode), "chmod"],
+      [() => file.fchmod(mode), "fchmod"],
+    ]) {
+      const error = await refuses(call, "Filesystem", "EOPNOTSUPP");
+      check(
+        error.operation === `filesystem.${operation}` &&
+          error.outcome === "not_committed" &&
+          error.completed_bytes === 0,
+      );
+      await unchanged();
+      equal(await file.pread(8, 0n), utf8("original"));
+      check((await file.lseek(0n, "current")) === 2n);
+      check((await dir.telldir()) === cookie);
+    }
+  }
   const version = await file.fstat();
   for (const [call, operation] of [
     [() => fs.mkdir("/forbidden", 0o700), "mkdir"],

@@ -86,6 +86,14 @@ async def readonly_profile(fs, ctx):
         await refuses(lambda: fs.open("/kept", create_new=True), "Filesystem", "EEXIST")
         await refuses(lambda: fs.open("/missing"), "Filesystem", "ENOENT")
         await refuses(lambda: fs.open("/kept", truncate=True), "Filesystem", "EINVAL")
+        cookie = await directory.telldir()
+        for mode in (0o4600, 0xffffffff):
+            for call, operation in ((lambda: fs.chmod("/kept", mode), "chmod"), (lambda: file.fchmod(mode), "fchmod")):
+                error = await refuses(call, "Filesystem", "EOPNOTSUPP")
+                assert (error.operation, error.outcome, error.completed_bytes) == (f"filesystem.{operation}", "not_committed", 0)
+                await unchanged()
+                assert await file.pread(8, 0) == b"original"
+                assert await file.lseek(0, "current") == 2 and await directory.telldir() == cookie
         version = await file.fstat()
         for call, operation in (
             (lambda: fs.mkdir("/forbidden", 0o700), "mkdir"), (lambda: fs.mkdirat(directory, "forbidden", 0o700), "mkdirat"),

@@ -40,6 +40,7 @@ pub(crate) async fn preflight_authority(
     let current = context.fs()?;
     let before = (current.statvfs()?, current.stat("/")?);
     refused(previous.stat("/").unwrap_err(), "filesystem.stat");
+    refused(previous.chmod("/", 0o4600).unwrap_err(), "filesystem.chmod");
     refused(
         previous.write_file("/scope-refused", b"bad").unwrap_err(),
         "filesystem.write_file",
@@ -69,11 +70,14 @@ pub(crate) async fn transactions(context: &Context) -> Result<()> {
         let file = parent.open("/tx-base", OpenOptions::read_write())?;
         file.lseek(Seek::Start(2))?;
         affinity(ordinary.write(b"bad").unwrap_err());
+        affinity(ordinary.fchmod(0o4600).unwrap_err());
         let mut escaped = None;
         let child: Result<()> = outer.tx(|inner| {
             let child = inner.fs()?;
             affinity(parent.stat("/tx-base").unwrap_err());
+            affinity(parent.chmod("/tx-base", 0o4600).unwrap_err());
             affinity(file.pwrite(b"bad", 0).unwrap_err());
+            affinity(file.fchmod(0o4600).unwrap_err());
             let speculative = child.open("/tx-base", OpenOptions::read_write())?;
             speculative.write_all(b"changed!")?;
             escaped = Some(speculative.dup()?);
@@ -84,6 +88,7 @@ pub(crate) async fn transactions(context: &Context) -> Result<()> {
         assert_eq!(child.unwrap_err().to_string(), "roll back child only");
         let escaped = escaped.take().unwrap();
         assert_eq!(escaped.fstat().unwrap_err().errno, Errno::EBADF);
+        assert_eq!(escaped.fchmod(0o4600).unwrap_err().errno, Errno::EBADF);
         escaped.close()?;
         assert_eq!(parent.read_file("/tx-base")?, b"original");
         assert_eq!(file.lseek(Seek::Current(0))?, 2);
@@ -240,6 +245,34 @@ pub(crate) fn metadata(fs: &Filesystem, clock: &AtomicI64) -> Result<()> {
     assert_eq!(initial.mtime_ns, started * 1_000_000);
     assert_eq!(initial.ctime_ns, initial.mtime_ns);
     let file = fs.open("/metadata", OpenOptions::read_only())?;
+    let usage = fs.statvfs()?;
+    for mode in [0o1600, 0o2600, 0o4600, 0o100600, u32::MAX] {
+        for (result, operation) in [
+            (fs.chmod("/metadata", mode), "filesystem.chmod"),
+            (file.fchmod(mode), "filesystem.fchmod"),
+        ] {
+            let error = result.expect_err("unsupported mode unexpectedly succeeded");
+            assert_eq!(
+                (
+                    error.code,
+                    error.errno,
+                    error.operation,
+                    error.outcome,
+                    error.completed_bytes
+                ),
+                (
+                    "Filesystem",
+                    Errno::EOPNOTSUPP,
+                    operation,
+                    Outcome::NotApplied,
+                    0
+                )
+            );
+            assert_eq!(file.fstat()?, initial);
+            assert_eq!(fs.statvfs()?, usage);
+            assert_eq!(file.lseek(Seek::Current(0))?, 0);
+        }
+    }
     clock.store(started + 1, Ordering::SeqCst);
     file.fchmod(0o400)?;
     let chmod = fs.stat("/metadata")?;

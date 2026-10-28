@@ -222,8 +222,8 @@ impl Database<'_> {
     }
 
     pub fn metadata(&self, inode: u64, mode: Option<u32>, mtime_ns: Option<i64>) -> Result<()> {
-        if mode.is_some_and(|mode| mode & !0o777 != 0) {
-            return Err(Error::new(Errno::EOPNOTSUPP, "unsupported mode bits").into());
+        if let Some(mode) = mode {
+            crate::application::filesystem::types::validate_mode(mode)?;
         }
         self.stat(inode)?;
         self.revision()?;

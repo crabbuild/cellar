@@ -366,6 +366,9 @@ before entering their backend effect. This includes file helpers, `fchmod`,
 directory-relative mutations, transactional file effects and explicit
 `collect_garbage`. Invalid descriptors/options and failed authority retain their
 own errors; a read-only descriptor's write/ftruncate access errors remain EBADF.
+For an otherwise valid `chmod`/`fchmod` call, unsupported mode bits return
+EOPNOTSUPP before the read-only policy check. Descriptor and transaction authority
+must still be valid; an unsupported mode cannot mask their refusal.
 Read, seek, duplicate, list, metadata inspection and durability barriers work
 under the usual lifetime and authority checks. An all-Omit `utimens` only
 resolves the path and is allowed.

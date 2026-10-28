@@ -40,6 +40,26 @@ remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
 
+## Mode-option precedence checkpoint
+
+The O13/O25 audit reproduced a contract defect: unsupported `chmod` modes on a
+read-only filesystem returned EROFS because validation ran inside the mutation
+callback, after policy admission. Both metadata APIs now validate supported bits
+after authority checks and before the read-only gate; the SQLite backend retains
+its defensive validation. Public signatures and the supported mode range remain
+unchanged.
+
+The [mode-preflight report](../tools/perf/results/2026-10-28-filesystem-mode-preflight.md)
+records the failed reproduction and fresh native, Node/V8 and CPython 3.14.5
+GIL/free-threaded regressions. Refusals preserve metadata, bytes, usage, offsets
+and cookies; preceding business writes roll back inside exact native
+transactions. Valid read-only mutations still return EROFS, while stale or
+mismatched native authority retains its own error. See the
+[case profile](per-cell-filesystem-conformance.md#mode-option-precedence-profile)
+for the selected assertions. This closes the identified mode-precedence defect,
+not the remaining operation/error matrix. Installed packages and external-store
+reports below retain their earlier source/artifact scope.
+
 ## Python cancellation checkpoint
 
 The [2026-10-28 report](../tools/perf/results/2026-10-28-filesystem-python-cancellation.md)

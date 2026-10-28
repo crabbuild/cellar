@@ -229,9 +229,7 @@ impl Filesystem {
     }
 
     fn mkdir_from(&self, start: u64, path: impl AsRef<[u8]>, mode: u32) -> Result<()> {
-        if mode & !0o777 != 0 {
-            return Err(Error::new(Errno::EOPNOTSUPP, "unsupported mode bits"));
-        }
+        types::validate_mode(mode)?;
         let path = self.path(path)?;
         self.mutate(|db| db.mkdir(start, &path, mode, self.policy.creation_mask))
     }
@@ -314,6 +312,8 @@ impl Filesystem {
     pub fn chmod(&self, path: impl AsRef<[u8]>, mode: u32) -> Result<()> {
         operation("filesystem.chmod", || {
             let path = self.path(path)?;
+            self.scope()?;
+            types::validate_mode(mode)?;
             self.mutate(|db| db.metadata(db.resolve(1, &path)?, Some(mode), None))
         })
     }

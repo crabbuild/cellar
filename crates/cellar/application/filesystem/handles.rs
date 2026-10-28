@@ -442,6 +442,7 @@ impl File {
     pub fn fchmod(&self, mode: u32) -> Result<()> {
         operation("filesystem.fchmod", || {
             self.record.check(&self.fs)?;
+            types::validate_mode(mode)?;
             let inode = self.record.description.lock().unwrap().inode;
             self.fs.mutate(|db| db.metadata(inode, Some(mode), None))
         })

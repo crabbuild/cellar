@@ -44,7 +44,7 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O10 | `file.lseek()` | Native checks independent/shared offsets and failed-seek offset preservation; Guests check exact offsets beyond 2^53 and signed overflow |
 | O11 | `file.fstat()` | Native/Guests check inode identity through rename, replacement and unlink; expired/closed handles refuse |
 | O12 | `file.ftruncate()` | Native/Guests check shrinking and zero extension without moving the offset; Backend checks truncate/rewrite before GC; Read-only checks EBADF |
-| O13 | `file.fchmod()` | Contracts checks injected-clock ctime without changing mtime/content version; Native/Guests check retained open rights; Read-only checks EROFS |
+| O13 | `file.fchmod()` | Contracts checks injected-clock ctime without changing mtime/content version; Native/Guests check retained open rights; Read-only checks EROFS and unsupported-mode EOPNOTSUPP precedence |
 | O14 | `file.dup()` | Native/Guests check shared offsets and closing one duplicate; Admission checks duplicate slots and lifetime release |
 | O15 | `file.close()` | Native/Guests close duplicates and pinned unlinked inodes; stale guest wrappers refuse subsequent operations; Admission checks immediate slot reuse |
 | O16 | `file.fsync()` | Read-only and Guests await successful barriers; Native `/contracts` refuses proof inside an uncommitted transaction |
@@ -61,7 +61,7 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O22 | `fs.rmdir()` | Contracts/Guests check nonempty/type/root/dot errors and removed open-directory behavior |
 | O23 | `fs.unlink()` | Native/Guests retain open inode contents through unlink/GC; reserved paths check EPERM for directories and root protection |
 | O24 | `fs.rename()` | Contracts/Guests check replacement, cycles, type/slash errors, unchanged self-renames and pinned victims; Backend also compares persistent accounting |
-| O25 | `fs.chmod()` | Native checks parent search/create permissions; Guests check path mode changes and retained descriptor access; Read-only checks EROFS |
+| O25 | `fs.chmod()` | Native checks parent search/create permissions; Guests check path mode changes and retained descriptor access; Read-only checks EROFS and unsupported-mode EOPNOTSUPP precedence |
 | O26 | `fs.utimens()` | Contracts checks signed extremes, injected Now, Omit and unsupported atime; Guests check signed codecs and noatime; Read-only checks Omit versus mutation |
 | O27 | `fs.opendir()` | Native/Guests check dot entries and pinned identity; Admission checks capacity before publication; Native checks missing-path operation naming |
 | O28 | `dir.readdir()` | Contracts/Guests check bytes, continuation during mutation and EOF after removal/replacement; Budget checks result admission before cursor advancement |
@@ -106,6 +106,23 @@ twelve duplicate submissions preserve results and provider-call counts. Direct
 SQLite inspection verifies final deletion before joined shutdown. The recovery
 source is the development bucket. Installed external-store, physical
 fault, streaming-provider and deployment-capacity profiles remain separate.
+
+## Mode-option precedence profile
+
+O13/O25 cover mode bits outside `0o777` under both writable and read-only
+policies. Native cases include sticky, setgid, setuid, file-type bits and
+`u32::MAX`; Node/V8 and Python use setuid and the maximum unsigned mode. The
+read-only fixtures require EOPNOTSUPP, the public operation, NotApplied and zero
+completed bytes while preserving bytes, full metadata, quota usage, file offset
+and directory cookie. Supported mode mutations still return EROFS. The writer's
+persisted state is reopened with a read-only class before these assertions.
+
+Native transaction cases require rollback of preceding business writes for both
+metadata APIs. Separate retained-view, nested-transaction and expired-descriptor
+cases prove that unsupported modes do not bypass authority checks. Native
+writable-policy checks retain metadata/accounting/offsets after refusal and then
+exercise supported metadata changes. These cases cover the selected mode-option
+boundary; they do not close the complete O13/O25 error and lifetime matrix.
 
 ## Directory-relative authority profiles
 
