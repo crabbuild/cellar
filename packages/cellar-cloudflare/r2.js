@@ -2,6 +2,7 @@
 
 import { bodyBytes, httpLimit, webRuntime } from "./http.js";
 import { streamedResponse } from "./response.js";
+import { partSource, uploadPart } from "./r2-part.js";
 
 function keyString(key) {
   if (
@@ -152,7 +153,15 @@ export function r2Binding(current, binding) {
           !(typeof Blob === "function" && value instanceof Blob)
         )
           throw new TypeError("R2 uploadPart requires bytes or a byte stream");
-        const bytes = await bodyBytes(new Response(value), httpLimit(context));
+        const { body, length } = partSource(value);
+        if (length !== undefined)
+          return uploadPart(
+            context,
+            { binding, key, upload_id: uploadId, number: partNumber },
+            body,
+            length,
+          );
+        const bytes = await bodyBytes(new Response(body), httpLimit(context));
         return call(
           "part",
           key,

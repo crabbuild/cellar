@@ -152,15 +152,18 @@ wrapper verifies timeout admission and retirement during an entered installation
 The Engine campaign uses Cellar's real private attach client before startup,
 then starts a separate application in the helper's exact network namespace.
 It checks startup refusal, live-request retirement and successful helper join.
-The route handler is a protocol peer; this does not run the published Sandbox
-SDK or qualify native Worker dispatch and cell ownership teardown.
+The Engine campaign's route handler is a protocol peer. The separate
+[native HTTP profile](../cellar-container/README.md#route-outbound-http-to-a-native-service)
+adds generation-bound Worker dispatch and fresh scope/epoch gates. The
+[Sandbox 1.0.3 image campaign](../../tools/sandbox/cloudflare-v1/README.md#directory-backups-through-native-http-interception)
+runs published directory backup/restore/delete through that profile.
 
 | Next integration | Required evidence |
 | --- | --- |
 | Network helper qualification | Per-class saturation, broader cancellation/errors, DNS options and additional kernel/runtime profiles |
-| Production cell lifecycle | Integrate the qualified helper-first topology with cell start, ownership loss, expiry and joined removal |
-| Native/Workers facade | Host-minted generation-bound Fetcher routes, current-run admission and no retained JavaScript event callback |
-| Published Sandbox | Unmodified helper image backup/restore and mount operations with grant replacement and cleanup |
+| Production cell lifecycle | Broader ownership-transfer, expiry and fault qualification beyond the implemented helper-first startup, warm reconnect and paired removal |
+| Native/Workers facade | HTTPS, trailers/upgrades and broader failure qualification beyond the implemented plain-HTTP service routes |
+| Published Sandbox | S3 mounts and full backup failure/restart/grant lifetime qualification beyond selected matching-image backup/restore/delete |
 
 See the [delivery plan](../../plans/sandbox-provider-compatibility.md),
 [progress ledger](../../plans/sandbox-provider-progress.md),

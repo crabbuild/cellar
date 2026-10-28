@@ -11,7 +11,7 @@ consistency with each external system.
 
 | Surface | Builder guidance | Source / example |
 | --- | --- | --- |
-| HTTP and bodies | Use owned request/response APIs, explicit deadlines and bounded parsing | [HTTP](../crates/cellar/application/http.rs), [services](../crates/cellar/application/service.rs) |
+| HTTP and bodies | Use owned request/response APIs, explicit deadlines and bounded parsing | [HTTP](../crates/cellar/application/http.rs), [services](../crates/cellar/application/service/mod.rs) |
 | Byte streams | Prefer streaming for large payloads; cancel abandoned streams; bound buffered bytes | [streams](../crates/cellar/application/streams.rs) |
 | Blob | Use streaming/ranges, conditional options, bounded listings and backend-owned multipart identities | [Blob](../crates/cellar/application/blob/README.md) |
 | Assets and cache | Stage assets with the package; define cache freshness and rebuild behavior | [assets/cache](../crates/cellar/application/assets.rs), [counter](../examples/native-counter/project.json) |

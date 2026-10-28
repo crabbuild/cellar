@@ -72,6 +72,7 @@ impl EventKind {
 #[derive(Clone)]
 pub struct Source {
     pub(crate) workers_lifetimes: bool,
+    workers_http_streams: bool,
     containers: cellar_guest::containers::Adapter,
     container_bindings: cellar_guest::containers::Bindings,
     pub(crate) code: String,
@@ -94,6 +95,7 @@ impl Source {
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
             workers_lifetimes: false,
+            workers_http_streams: false,
             containers: Default::default(),
             container_bindings: Default::default(),
             code: code.into(),
@@ -183,9 +185,20 @@ impl Source {
         self
     }
 
+    /// Opt in to pull-based incoming Workers HTTP bodies. Requires the Node
+    /// web runtime; ordinary SDK request buffering retains its existing limit.
+    /// Each read retains native invocation authority and the body-size bound.
+    #[cfg(feature = "node")]
+    pub fn workers_http_streams(mut self) -> Self {
+        self.workers_lifetimes = true;
+        self.workers_http_streams = true;
+        self
+    }
+
     pub(crate) fn descriptor(&self) -> Value {
         let mut descriptor = json!({
             "workers_lifetimes": self.workers_lifetimes,
+            "workers_http_streams": self.workers_http_streams,
             "events": self.events,
             "cells": self.cell_events
         });
@@ -420,9 +433,14 @@ impl JavaScriptApplication {
                 }
                 Invocation::Fetch(mut request) => {
                     let entrypoint = request.entrypoint.take();
-                    let mut frame =
+                    let mut frame = if self.source.workers_http_streams
+                        && !matches!(request.method.as_str(), "GET" | "HEAD")
+                    {
+                        state.transport.request(&context, request)?
+                    } else {
                         values::request(&context, request, self.runtime.options.max_body_bytes)
-                            .await?;
+                            .await?
+                    };
                     if let Some(entrypoint) = entrypoint {
                         frame["entrypoint"] = json!({"name":entrypoint.name, "props": cellar_guest::workers::service::props(&entrypoint.props, self.runtime.options.max_body_bytes)?});
                     }
@@ -665,7 +683,9 @@ impl JavaScriptApplication {
                                     let scope = if event_owned
                                         || matches!(
                                             name.as_str(),
-                                            "workers.callback.finish" | "container.release"
+                                            "workers.callback.finish"
+                                                | "container.release"
+                                                | "workers.r2.part_cancel"
                                         ) {
                                         // Releasing an event-owned resource is cleanup,
                                         // and never borrows a callback's storage view.
@@ -690,6 +710,9 @@ impl JavaScriptApplication {
                                                         | "workers.r2.part"
                                                         | "workers.r2.complete"
                                                         | "workers.r2.abort"
+                                                        | "workers.r2.part_begin"
+                                                        | "workers.r2.part_write"
+                                                        | "workers.r2.part_finish"
                                                         | "workers.container.admit"
                                                         | "workers.container.perform"
                                                         | "container.exec"

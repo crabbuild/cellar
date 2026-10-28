@@ -32,6 +32,7 @@ pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Res
             );
         }
         ResizeExec => ensure!(value.is_null(), "terminal resize result must be null"),
+        InterceptOutboundHttp => ensure!(value.is_null(), "HTTP intercept result must be null"),
         Reconcile => {
             ensure!(
                 value.get("generation").is_some(),

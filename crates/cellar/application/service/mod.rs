@@ -8,6 +8,8 @@ use crate::http_streams::RequestBodyGuard;
 use crate::worker_config::{EgressPolicy, LoaderEnvRoute, OutboundBroker};
 use cellar_native::clone::{Object, StructuredValue, Value};
 use tokio::sync::oneshot;
+mod persistent;
+pub(crate) use persistent::{HttpHandler, Persistent};
 
 pub(crate) const ENV_SERVICE_MARKER: &str = "__cellar$loaderSvc";
 const DENIED: &str = "This worker is not permitted to access the internet via global functions like fetch(). It must use capabilities (such as bindings in 'env') to talk to the outside world.";
@@ -27,6 +29,12 @@ pub struct Fetcher {
 }
 
 impl Fetcher {
+    /// Capture only deployment route values. No event, activation or guest
+    /// callback may become the authority of a later container request.
+    pub(crate) fn persistent(&self, context: &Context) -> Result<Persistent> {
+        Persistent::capture(self, context)
+    }
+
     pub(crate) fn from_route(
         generation: crate::generation::GenerationId,
         route: &LoaderEnvRoute,

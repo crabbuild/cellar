@@ -5,6 +5,24 @@ import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { workersApplication } from "../../../packages/cellar-cloudflare/index.js";
 
 let savedBody, savedBinding;
+let lostCreate;
+const lostCreateMessage = "qualification lost create acknowledgement";
+
+// The published gateway commits a real native allocation, then loses its
+// control response. No upload ID is returned to the caller for manual cleanup.
+class LostCreateGateway extends DirectoryBackupGateway {
+  async createUpload(name) {
+    lostCreate.creates++;
+    await super.createUpload(name);
+    throw new Error(lostCreateMessage);
+  }
+
+  async abortUpload(id) {
+    lostCreate.aborts++;
+    return super.abortUpload(id);
+  }
+}
+
 const grant = {
   protocolVersion: 1,
   binding: "BACKUPS",
@@ -26,6 +44,7 @@ class Counter extends DurableObject {
 const app = workersApplication(
   {
     DirectoryBackupGateway,
+    LostCreateGateway,
     Counter,
     default: class extends WorkerEntrypoint {
       async fetch(request) {
@@ -34,6 +53,77 @@ const app = workersApplication(
           props: { ...grant, mode: "control" },
         });
         const uploadId = url.searchParams.get("upload");
+        if (url.pathname === "/lost-create") {
+          lostCreate = { creates: 0, aborts: 0 };
+          try {
+            await this.ctx.exports
+              .LostCreateGateway({ props: { ...grant, mode: "control" } })
+              .createUpload("lost creation");
+            throw new Error("lost create was reported as success");
+          } catch (error) {
+            if (!error.message.includes(lostCreateMessage)) throw error;
+            return Response.json({ ...lostCreate, failed: true });
+          } finally {
+            lostCreate = undefined;
+          }
+        }
+        if (url.pathname === "/part-admission") {
+          const upload =
+            await this.env.BACKUPS.createMultipartUpload("backups/refused");
+          const { readable } = new FixedLengthStream(256 * 1024 * 1024 + 1);
+          try {
+            await upload.uploadPart(1, readable);
+            throw new Error("oversized stage admitted");
+          } catch (error) {
+            return Response.json({
+              code: error.code,
+              outcome: error.outcome,
+              locked: readable.locked,
+            });
+          } finally {
+            await upload.abort();
+          }
+        }
+        if (url.pathname === "/large-stream") {
+          const key = "backups/large-stream";
+          const upload = await this.env.BACKUPS.createMultipartUpload(key);
+          const length = 256 * 1024 + 17;
+          const { readable, writable } = new FixedLengthStream(length);
+          const writer = writable.getWriter();
+          const producer = (async () => {
+            try {
+              for (let offset = 0; offset < length; offset += 16384)
+                await writer.write(
+                  Uint8Array.from(
+                    { length: Math.min(16384, length - offset) },
+                    (_, index) => (offset + index) % 251,
+                  ),
+                );
+              await writer.close();
+            } finally {
+              writer.releaseLock();
+            }
+          })();
+          try {
+            const [part] = await Promise.all([
+              upload.uploadPart(1, readable),
+              producer,
+            ]);
+            await upload.complete([part]);
+            const object = await this.env.BACKUPS.get(key);
+            const body = new Uint8Array(await object.arrayBuffer());
+            if (
+              body.length !== length ||
+              !body.every((byte, index) => byte === index % 251)
+            )
+              throw new Error("streamed part corrupted bytes");
+            await this.env.BACKUPS.delete(key);
+            return Response.json({ bytes: body.length, verified: true });
+          } catch (error) {
+            await upload.abort();
+            throw error;
+          }
+        }
         if (url.pathname === "/short-part") {
           const gateway = this.ctx.exports.DirectoryBackupGateway({
             props: { ...grant, mode: "write", uploadId },

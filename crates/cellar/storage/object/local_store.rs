@@ -47,6 +47,7 @@ const READ_CHUNK_BYTES: usize = 128 << 10;
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
+    multipart_policy: crate::object_multipart::MultipartMaintenancePolicy,
     // No statements or transactions remain on this connection after open.
     // Clones share its lifetime so operation connections can recycle the WAL
     // after automatic checkpoints. Mutex provides Sync for the idle handle;
@@ -85,8 +86,30 @@ struct StoredAttribute {
 
 impl LocalStore {
     pub(crate) fn open(database: impl AsRef<FsPath>) -> object_store::Result<Self> {
+        Self::open_with_multipart_policy(database, Default::default())
+    }
+
+    pub(crate) fn open_with_multipart_policy(
+        database: impl AsRef<FsPath>,
+        multipart_policy: crate::object_multipart::MultipartMaintenancePolicy,
+    ) -> object_store::Result<Self> {
+        multipart_policy.validate()?;
         let database = database.as_ref().to_path_buf();
         let connection = Connection::open(&database).map_err(db_error)?;
+        // Internal format hard cutover: refuse old upload records rather than
+        // guessing deadlines, migrating state or discarding application data.
+        let has_uploads: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = '__sys_local_uploads')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if has_uploads {
+            connection.prepare(
+                "SELECT id, key, attributes, scope, expires_ms, retired FROM __sys_local_uploads LIMIT 0",
+            ).map_err(|_| message_error("incompatible local multipart schema; use a fresh development store"))?;
+        }
         configure_connection(&connection)?;
         connection
             .pragma_update(None, "journal_mode", "WAL")
@@ -109,8 +132,13 @@ impl LocalStore {
                  CREATE TABLE IF NOT EXISTS __sys_local_uploads (
                    id TEXT PRIMARY KEY,
                    key TEXT NOT NULL,
-                   attributes TEXT NOT NULL
+                   attributes TEXT NOT NULL,
+                   scope TEXT NOT NULL,
+                   expires_ms INTEGER,
+                   retired INTEGER NOT NULL CHECK (retired IN (0, 1))
                  );
+                 CREATE INDEX IF NOT EXISTS __sys_local_upload_expiry
+                   ON __sys_local_uploads(scope, retired, expires_ms, id);
                  CREATE TABLE IF NOT EXISTS __sys_local_parts (
                    upload_id TEXT NOT NULL,
                    part_index INTEGER NOT NULL,
@@ -123,6 +151,7 @@ impl LocalStore {
             .map_err(db_error)?;
         Ok(Self {
             database,
+            multipart_policy,
             _wal_index: Arc::new(Mutex::new(connection)),
             writer: Arc::new(parking_lot::FairMutex::new(())),
             #[cfg(test)]
@@ -457,6 +486,20 @@ macro_rules! store_blocking {
 
 #[path = "local_store_multipart.rs"]
 mod multipart;
+
+#[path = "local_store_expiry.rs"]
+mod expiry;
+
+#[cfg(test)]
+#[path = "local_store_expiry_tests.rs"]
+mod expiry_tests;
+
+#[path = "local_store_streamed_part.rs"]
+mod streamed_part;
+
+#[cfg(test)]
+#[path = "local_store_streamed_part_tests.rs"]
+mod streamed_part_tests;
 
 #[cfg(test)]
 #[path = "local_store_multipart_tests.rs"]

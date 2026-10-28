@@ -108,6 +108,12 @@ export interface DurableObjectState {
 /** Event-owned controls. Concurrency callbacks join controls; transactions refuse them. */
 export interface DurableObjectContainer {
   readonly running: boolean;
+  /** Run-owned deployment routes; requires the native HTTP-helper profile. */
+  interceptOutboundHttp(
+    target: string,
+    handler: ServiceBinding<object>,
+  ): Promise<void>;
+  interceptAllOutboundHttp(handler: ServiceBinding<object>): Promise<void>;
   /** Node web-stream profile; image selection remains native host configuration. */
   exec(
     cmd: string[],

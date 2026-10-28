@@ -5,7 +5,9 @@
 These campaigns check real Linux nftables, sockets, the network-helper binary
 and the native Engine attach client and production cell lifecycle for
 [`cellar-egress`](../../../crates/cellar-egress/README.md). They do not run the
-published Sandbox SDK or enable the application-facing interception API.
+published Sandbox SDK. The separate
+[native HTTP profile](../../../crates/cellar-container/README.md#route-outbound-http-to-a-native-service)
+provides the application-facing interception API.
 
 ```mermaid
 flowchart LR
@@ -94,16 +96,17 @@ binaries out of the cache mount into the uniquely tagged qualification image.
 
 The kernel TCP DNS case checks forwarding and bytes; the helper campaign also
 exercises the persistent DNS TCP server. Helper direct fallback currently accepts
-IP addresses only. The route handler is a native protocol peer; actual
-generation-bound Worker dispatch and HTTP body/header bounds remain to be
-connected and qualified. The production profile covers native startup, warm
+IP addresses only. The route handler here is a native protocol peer; the separate
+native HTTP profile supplies generation-bound Worker dispatch and bounded HTTP
+headers/streamed bodies. The production profile covers native startup, warm
 reconnect, installer/helper failure and removal; a native unit test also checks
 immediate authority retirement while ownership release waits for SDK control.
-Published SDK routing, fleet ownership-transfer failure campaigns and per-class
-saturation remain open.
+The [matching Sandbox image campaign](../cloudflare-v1/README.md#directory-backups-through-native-http-interception)
+checks selected published directory-backup routing. Broader SDK coverage, fleet
+ownership-transfer failure campaigns and per-class saturation remain open.
 
 The campaigns use owned namespaces and private Docker networks.
 The production profile installs and removes its own host bridge fence and
-networks. It does not establish full request routing, published helper
-backup/restore, TLS or cloud-provider compatibility. Connect those paths and
-qualify them separately.
+networks. This kernel/protocol campaign does not establish complete published
+helper behavior, TLS or cloud-provider compatibility; keep those profiles and
+their qualification evidence separate.

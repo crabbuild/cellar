@@ -35,6 +35,7 @@ struct Signals {
     held: AtomicBool,
     refuse: AtomicBool,
     upload: Mutex<Option<Multipart>>,
+    staged_part: Mutex<Option<cellar::sdk::blob::ResumablePart>>,
     stream_started: Notify,
     stream_dropped: AtomicBool,
 }
@@ -524,6 +525,51 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
             retained.upload_part(&context, 2, b"beta".to_vec()).await?;
             *signals.upload.lock().unwrap() = Some(retained);
         }
+        "/stage-owned" => {
+            let upload = bucket
+                .create_resumable_multipart(&context, "staged", WriteOptions::default())
+                .await?;
+            assert!(upload.supports_streamed_parts()?);
+            let refused = upload.begin_part(&context, 1, 256 * 1024 * 1024 + 1).await;
+            assert!(refused
+                .err()
+                .unwrap()
+                .is::<cellar::sdk::blob::PartRefused>());
+            let mut part = upload.begin_part(&context, 1, 2).await?;
+            part.write(&context, bytes::Bytes::from_static(&[1]))
+                .await?;
+            context
+                .storage()?
+                .put_json("staged", &json!(upload.upload_id()))?;
+            *signals.staged_part.lock().unwrap() = Some(part);
+        }
+        "/stage-foreign" => {
+            let mut part = signals.staged_part.lock().unwrap().take().unwrap();
+            let before = signals.gates.lock().unwrap().len();
+            assert!(part
+                .write(&context, bytes::Bytes::from_static(&[2]))
+                .await
+                .is_err());
+            assert!(part.complete(&context).await.is_err());
+            assert_eq!(
+                signals.gates.lock().unwrap().len(),
+                before,
+                "foreign stage entered a new effect gate"
+            );
+            let saved = context.storage()?.get_json("staged")?.unwrap();
+            let upload = bucket.resume_resumable_multipart("staged", saved.as_str().unwrap())?;
+            let mut fresh = upload.begin_part(&context, 1, 2).await?;
+            fresh
+                .write(&context, bytes::Bytes::from_static(&[7, 8]))
+                .await?;
+            let receipt = fresh.complete(&context).await?;
+            assert_eq!(upload.complete(&context, &[receipt]).await?.size, 2);
+            assert_eq!(
+                body(&context, "staged").await?.bytes(&context).await?,
+                vec![7, 8]
+            );
+            upload.abort(&context).await?;
+        }
         "/resumable-create" => {
             assert!(bucket.supports_resumable_multipart()?);
             bucket
@@ -871,6 +917,8 @@ async fn run() -> Result<()> {
     signals.refuse.store(false, Ordering::SeqCst);
     call(&runtime, "list").await?;
     call(&runtime, "multipart").await?;
+    call(&runtime, "stage-owned").await?;
+    call(&runtime, "stage-foreign").await?;
     call(&runtime, "resumable-create").await?;
     runtime.swap_out_cell(SCOPE, 1).await?;
     runtime.start_cell(SCOPE.into(), 1, false).await?;

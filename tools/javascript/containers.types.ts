@@ -57,6 +57,10 @@ async function control(ctx: Context) {
     void run;
   }
   await container.setInactivityTimeout(60000);
+  await container.interceptOutboundHttp("*.example.test", "API");
+  await container.interceptOutboundHttp(null, "API");
+  // @ts-expect-error: portable interception selects a declared service binding
+  await container.interceptOutboundHttp(null, () => new Response());
   const output: ContainerExecOutput = await container.execOutput(
     { cmd: ["/app/tool"] },
     4096,

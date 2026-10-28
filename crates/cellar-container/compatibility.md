@@ -24,6 +24,7 @@ a language facade does not grant provider support.
 | File stat / direct-child list | Yes; bounded archive scan | Yes | Yes; helper |
 | Port readiness / HTTP forwarding | Yes | No | No |
 | Incremental HTTP response reads / cancellation | Yes; [stream contract](streams.md) | No | No |
+| Outbound HTTP to declared services | Optional native `runc` helper + `with_http_interception()`; port 80 | No | No |
 | Raw TCP / WebSocket forwarding | Yes | No | No |
 | Synchronous running / queued lifecycle opt-ins | Yes | No | No |
 | Snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |
