@@ -59,7 +59,7 @@ pub(super) fn run_cases(iterations: usize) -> Result<()> {
                     if let Some(observation) = observation {
                         std::fs::write(case.join("interpreter.json"), serde_json::to_vec_pretty(&observation)?)?;
                     }
-                    mutation?;
+                    mutation.with_context(|| format!("joined native shutdown={shutdown:?}"))?;
                     shutdown.with_context(|| format!("first-write case {index}: shutdown"))?;
                 }
                 Ok(())
@@ -80,9 +80,9 @@ pub(super) fn run_cases(iterations: usize) -> Result<()> {
         }
         Err(error) => {
             let retained = directory.keep();
-            trace.save(&retained.join("diagnostic-tail.log"))?;
+            let saved = trace.save(&retained.join("diagnostic-tail.log"));
             Err(error.context(format!(
-                "first-write diagnostic retained state at {}",
+                "first-write diagnostic retained state at {}; trace_saved={saved:?}",
                 retained.display()
             )))
         }

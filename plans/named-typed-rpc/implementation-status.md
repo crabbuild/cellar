@@ -21,7 +21,7 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | PR #154's `17ecfb42` GIL job passes the portable profile but fails lifecycle after lease expiry. The local first-write probe reproduces the free-threaded 500, and a later contract run fails context isolation. The logging follow-up passes both local 96-case lifecycle matrices; final SDK, JavaScript, typed-RPC and example gates still need to pass on the release source. |
+| P0 — hosted verification | Final hosted gates | PR #154 merged; its final `d9d64c3c` GIL job fails the portable profile after owner lease expiry. The local first-write probe reproduces the free-threaded 500, and a later contract run fails context isolation. The logging follow-up passes both local 96-case lifecycle matrices; final SDK, JavaScript, typed-RPC and example gates still need to pass on the release source. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
@@ -33,6 +33,63 @@ does not close schema, resource, packaging or performance requirements.
 Preserve existing durability evidence while addressing these gaps. Further
 recovery-fault variations follow demonstrated correctness risks; expanding the
 Counter fixture alone is not the highest-priority deliverable now.
+
+## Context failure provenance and current CI (2026-10-28; release open)
+
+PR #154 merged as `f3f2845c`; this follow-up starts from that updated `main`,
+including PR #155. Its final `d9d64c3c` GIL job fails the portable profile:
+[job 123123716932](https://github.com/crabbuild/cellar/actions/runs/40775494756/job/123123716932).
+The owner expires during `node->v8/runtime-mappings`. The source later reports
+lease mismatch during cleanup. Captured write phases show sub-millisecond
+native entry/connection setup, hundreds of milliseconds waiting for writer or
+SQLite transaction admission, and an approximately 80 ms commit. Late attempts
+with 39 ms and 14 ms bounds are delivered after 41 ms and 15 ms respectively.
+The same source's
+[free-threaded job 123123716340](https://github.com/crabbuild/cellar/actions/runs/40775494756/job/123123716340)
+passes the portable profile, lifecycle matrices and full generated RPC/failure
+matrix. These observations distinguish storage admission from a large timer-delivery
+stall in those attempts; they do not establish the cause of every earlier
+failure. Abandoned native writes continue to completion as required by owned
+I/O accounting. No retry, ownership or durability rule changes in this follow-up.
+
+The context test previously discarded HTTP error bodies and returned the held
+request's error before checking its concurrent control branch. It now captures
+both branches, bounded bodies, stage times and interpreter snapshots. Hosts
+join before propagating a context failure, preserving their actual outcomes.
+A fresh-host probe uses the same three isolation checks and the same 250 ms
+handler budget. The full contract also uses bounded memory tracing, so enabling
+diagnostics cannot block executor threads on stderr. Failed synthetic state is
+retained; failure to save a trace cannot overwrite the primary error.
+
+Local free-threaded observations on this follow-up:
+
+- 1,000 fresh-host context handshakes pass in one interpreter; 100 additional
+  cold-interpreter processes pass with four concurrent processes.
+- 41 full contract processes pass (one serial, then 40 with concurrency two).
+- 400 fresh-fleet first writes pass across four concurrent processes. The mode
+  audit reports free-threaded CPython with the GIL disabled.
+- One separate context run fails before Python admission: neither handler starts,
+  both connections close after approximately 5.2 seconds, and the interpreter's
+  sampled age remains approximately 8 ms. Two native outcomes are incomplete.
+  That unlogged run is retained at `.tmpm6HWEi` in the machine's temporary root.
+  It is a distinct host-lifecycle failure, not a reproduction of the original
+  250 ms HTTP 500. Its exact native fencing reason was not captured by the old
+  shutdown helper; the helper now includes the actual native outcome.
+
+The controlled diagnostic regression passes on the free-threaded build: a
+synthetic `/scope-direct` 500 and the held request's real 250 ms timeout both
+remain in the error, and the report confirms complete cleanup. The final local
+free-threaded executable passes the contract, 100 fresh-host context cases and
+100 fresh-fleet first writes. These runs add to, rather than replace, the failed
+observations above.
+
+The previous turn's ignored `.cellar/` artifacts were absent at the start of
+this investigation. Earlier ledger references describe evidence captured then,
+not files verified to remain available now. Current probe executables/logs are
+under `.cellar/rpc/diagnostics/`; preserve them outside routine build cleanup
+when diagnosing a failed run. The original first-write and context-isolation
+500s, the new pre-admission lifecycle failure and hosted lease-expiry cause
+remain unresolved. These passing repetitions do not qualify production usage.
 
 ## Diagnostic backpressure and first-write reproduction (2026-10-28; release open)
 
