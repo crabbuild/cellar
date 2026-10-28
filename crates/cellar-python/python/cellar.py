@@ -763,6 +763,7 @@ class Context:
         self._pending = {}
         self._sequence = 0
         self._rpc_codecs = None
+        self._rpc_limits = {}
         self.identity: CellIdentity | None = CellIdentity(identity["name"], identity["class"], identity["scope"], identity["epoch"]) if identity else None
         self.initial_storage: Mapping[str, Snapshot] = (MappingProxyType({
             key: Snapshot(row["present"], row["value"]) for key, row in initial_storage.items()
@@ -794,7 +795,8 @@ class Context:
         try:
             if self._rpc_codecs is None:
                 raise TypeError("No native RPC contract catalog")
-            return self._rpc_codecs.verify(method)
+            self._rpc_codecs.verify(method)
+            return self._rpc_limits[method.digest]
         except Exception:
             raise ValidationError("ContractMismatch", "ContractMismatch", "not_committed") from None
 

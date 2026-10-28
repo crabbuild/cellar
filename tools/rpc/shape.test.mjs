@@ -108,7 +108,7 @@ test("the real runner supplies codec identity and limits to a consumer-only app"
     const response = await CounterClient.bind(ctx,"COUNTERS","alice").getCount({});
     return {value:response.count.value.toString()};
   }},JSON.stringify({events:["fetch"],cells:{},rpc_contracts:{[contract.digest]:contract}}),16);
-  const response = await runner.dispatch(1,JSON.stringify({kind:"fetch",identity:null,object:null,class:null,
+  const response = await runner.dispatch(1,JSON.stringify({kind:"fetch",identity:null,object:null,class:null,rpc_limits:{[contract.digest]:contract.limits},
     event:{url:"http://test/",method:"GET",headers:[],body:""}}));
   assert.deepEqual(JSON.parse(response),{value:"42"});
   assert.equal(submitted,1);
@@ -116,7 +116,7 @@ test("the real runner supplies codec identity and limits to a consumer-only app"
 
 test("the real runner enforces native layout limits before a guest submits", async () => {
   const {contract} = fixture("counter");
-  contract.limits.max_decoded_slots = 4; // IncrementRequest with two fields needs five.
+  const nativeLimits = {...contract.limits,max_decoded_slots:4}; // A request with two fields needs five.
   let submitted = 0;
   const runner = testRunner((_id,name) => {
     if (name === "$check") return;
@@ -131,7 +131,7 @@ test("the real runner enforces native layout limits before a guest submits", asy
       return {code:error.code,outcome:error.outcome};
     }
   }},JSON.stringify({events:["fetch"],cells:{},rpc_contracts:{[contract.digest]:contract}}),16);
-  const response = await runner.dispatch(1,JSON.stringify({kind:"fetch",identity:null,object:null,class:null,
+  const response = await runner.dispatch(1,JSON.stringify({kind:"fetch",identity:null,object:null,class:null,rpc_limits:{[contract.digest]:nativeLimits},
     event:{url:"http://test/",method:"GET",headers:[],body:""}}));
   assert.deepEqual(JSON.parse(response),{code:"ResourceExhausted",outcome:"not_committed"});
   assert.equal(submitted,0);

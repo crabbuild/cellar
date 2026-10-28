@@ -156,7 +156,15 @@ async def _invoke(module, objects, payload, body, bridge, context, stats, maximu
         kind, value = payload["kind"], payload["event"]
         rpc_entry = None
         if kind == "rpc":
-            rpc_entry = module.__cellar_rpc_dispatch__[payload["class"]][value["method"]]
+            from dataclasses import replace
+            function, rule = module.__cellar_rpc_dispatch__[payload["class"]][value["method"]]
+            # Keep policy local: a runtime can serve differently configured
+            # native hosts concurrently without changing its shared method table.
+            limits = payload["rpc_limits"][rule.digest]
+            rule = replace(rule, max_message_bytes=limits["max_message_bytes"],
+                           max_depth=limits["max_depth"], max_elements=limits["max_elements"],
+                           max_decoded_slots=limits["max_decoded_slots"])
+            rpc_entry = function, rule
         target = module
         if payload["object"] is not None:
             key = payload["object"]
@@ -364,6 +372,7 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, telemetry, s
                 payload = json.loads(payload)
                 context = Context(bridge, payload["identity"], payload.get("initial_storage"))
                 context._rpc_codecs = getattr(module, "__cellar_rpc_codecs__", None)
+                context._rpc_limits = payload.get("rpc_limits", {})
                 try:
                     # The managed factory checks all live tasks, including
                     # application-created ones, immediately before construction.

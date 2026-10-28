@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Published follow-up `3f956a37` passes both complete hosted typed-RPC jobs, including profile, lifecycle and full failure matrices (run `40634369106`, jobs `122637805858` and `122637805589`). Its preceding `1a2be141` source passes both local full matrices and live profiles, with the hosted lease failures preserved below. The pending guest-response handoff and updated-main integration have separate qualification below. Require final SDK, JavaScript, typed-RPC and example gates. |
+| P0 — hosted verification | Final hosted gates | Preceding merged source `adebf588` passes the free-threaded job but fails the GIL live profile after lease-renewal timeouts (run `40642081995`). The current provider-policy change passes 40 focused local checks; its combined qualification and limits are recorded below. Require final SDK, JavaScript, typed-RPC and example gates on the published source. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
-| P1 | Language/profile coverage | The latest frozen guest-response source passes all 19 Counter/failure suites in both actual local CPython modes: 1,032 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published follow-up `3f956a37` also passes both complete hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
+| P1 | Language/profile coverage | Current provider-policy source passes both 576-call portable profiles and 32 local/peer provider-limit cases in both actual CPython modes. The expanded 20-suite / 1,064-case combined driver is not fully qualified; see the current run below. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -372,6 +372,119 @@ fixtures from the SDK workflow resolves that prerequisite, and the complete
 command passes. This cause is separate from the
 unresolved V8/lease timeouts; no budgets or durability-proof assertions change.
 
+## Invocation-owned codec limits (2026-10-28; focused checks pass, release open)
+
+A central native application can wrap a guest application and declare stricter
+limits for the same descriptor. Rust's router uses the current host catalog;
+the guest adapters previously retained their own startup declarations. A local
+strict caller can hide this violation by refusing the reply itself. A looser
+caller on another node can accept the invalid success.
+
+A live regression declares seven decoded slots at the owner while the generated
+Counter artifact retains its 1,000,000-slot default. `IncrementRequest`, reads
+and receipt conflicts fit; a returned count requires eight slots. The original
+executable returns count `5` for Rust-to-Python over a signed peer. Native
+observations show stored count `5`, a closed transaction and write position 27.
+Cleanup joins both nodes and retires bridge/native work. Preserve the executable
+(`352dc019934cb5dd0ba437803cea2970d50e58e94dc1af7c1d99ded98c080ec6`),
+source patch, new matrix and failing log under
+`.cellar/rpc/diagnostics/provider-limits-red-v1/`.
+
+Native adapter preparation and finishing now select the invocation's provider
+contract. The host supplies a per-invocation limit map independently of the
+verified static schema inventory. JS/Node callback and delegate contexts retain
+that policy; Python uses a replaced immutable method rule for each invocation.
+Caller preflight uses the same current policy. Registered tables remain shared
+without changing another host's limits.
+
+The native finishing check alone makes the 32-call matrix refuse invalid wire
+results. Separate regressions expose the earlier allocation boundary: the JS
+runner still passes 1,000,000 slots instead of seven, and Python calls its real
+Protobuf serializer once. With invocation-local codec policy, both tests pass;
+Python refuses before serialization. Suspended-handler tests and native-context
+caller tests check isolation and refusal before source serialization. These
+source-bound red/green probes are preserved under
+`.cellar/rpc/diagnostics/invocation-codec-limits-red-v1/`.
+
+The new `provider-limits` suite covers all 16 pairs locally and remotely, durable
+count/receipt preservation, safe explicit retries, native authority and joined
+reservations. Its independent auditor rejects 29 corrupted reports. CI runs the
+suite separately and inside the combined driver in both Python modes.
+
+The frozen `provider-policy-v3` cohort passes all 40 checks on updated main
+`5998b82c` plus this change:
+
+| Boundary | Completed evidence |
+| --- | --- |
+| Native RPC | 86 core RPC units and 12 native integration tests |
+| JavaScript | 134 tests pass under unchanged budgets; eight external tests ignored |
+| Python | Tooling, 31 units and streaming/typed integrations in both actual interpreter modes |
+| Generated live calls | Each mode passes 32 provider-policy cases and 576 portable-profile calls, with independent audits |
+| Guard/build checks | 42 qualifier guards per mode; affected all-target Clippy; Node-only and embed-only builds |
+| Repository checks | Rust/JS format, layout, dependency guard, docs and whitespace |
+| Source identity | All 3,892 watched inputs and both copied executable hashes unchanged |
+
+Local GIL is CPython 3.14.6 with Protobuf 7.34.2/upb; free-threaded is CPython
+3.14.5 with Protobuf 7.34.2/pure Python. Runtime checks inspect the loaded GIL and
+Protobuf modes. These versions do not substitute for other deployment versions.
+
+| Preserved artifact | SHA-256 |
+| --- | --- |
+| Focused source manifest | `172fa3805d695dbde00c882b722b317e1a23ff10470fe744af110c0f70c25c3e` |
+| GIL executable | `0dc880399e7cc478c6d555c18e1af55dce21a725f63537967bcda2fe6706b207` |
+| Free-threaded executable | `9f5a071a969fa0210f67960cdcc65ca7ad5caee61d05e92f21d642190a6bf9c6` |
+
+The separate frozen `provider-policy-full-v1` run uses these same executables
+for the expanded 20-suite / 1,064-case driver. It has no automatic retries:
+
+| Mode | Result |
+| --- | --- |
+| GIL combined matrix | Failed; exit 1, 961.5 s; see failure scope below |
+| Free-threaded combined matrix | Failed; exit 1, 593.2 s; see failure scope below |
+
+The GIL command fails during `output proof release python->v8`, after all 48
+crash cases. Owner, ingress and replica report `NodeLeaseExpired` after delayed
+renewal attempts; the warmup connection closes before the response completes.
+The final report and its audits do not run on this failure. Python reports zero
+remaining tasks, objects, threads, invocations and bridge reservations, with
+`host_failed=true`; this is not evidence of a Python resource leak. Keep the
+complete log and source/executable identities in
+`.cellar/rpc/diagnostics/provider-policy-full-v1-failure/`. Concurrent machine
+load was observed after the failure; causation is not established.
+
+The free-threaded command fails in proof-wait case 86 (Python-to-Python,
+local route, explicit sync, deadline cancellation), also after owner/ingress/
+replica lease loss. It does not reach recovery/crash or later lifecycle suites.
+Both full commands therefore fail; neither produces a complete 1,064-case
+report. All 3,892 watched inputs and both executable hashes remain unchanged.
+The local logs include renewal timeout delivery hundreds of milliseconds late;
+the hosted profile timeouts are close to their intended bounds. Treat the two
+failure signatures separately until phase timings establish causation.
+
+Hosted evidence also remains mixed on the preceding merged source `adebf588`:
+[free-threaded CI passes](https://github.com/crabbuild/cellar/actions/runs/40642081995/job/122662288779),
+but [GIL profile CI fails](https://github.com/crabbuild/cellar/actions/runs/40642081995/job/122662289147)
+after repeated lease-renewal timeouts and owner fencing. That failure reaches
+Rust-to-V8 `nested-service-type`; bridge cleanup is complete. Preserve its
+artifact under `.cellar/rpc/diagnostics/hosted-adebf588-profile-v1/`. Neither a
+passing local profile nor the free-threaded job closes that reliability issue.
+
+Earlier local evidence remains preserved. `provider-policy-v1` exposed missing
+private invocation-policy fields in direct attachment fixtures and an unbuilt
+Node example; both prerequisites are corrected. Four integrations also hit the
+unchanged 250-ms handler budget. Twenty original typed-RPC executable replays
+produce 17 passes and three separate Node codec-budget handler failures; none
+reproduce the earlier 250-ms error. `provider-policy-v2` was aborted after a
+private-field compile error and missing old-checkout Python environments. It is
+not evidence for skipped checks. These failures are retained under
+`.cellar/rpc/diagnostics/provider-policy-regressions-v1/`; green v3 checks do not
+establish their cause.
+
+This change closes the demonstrated provider-policy bypass, not all effective
+method/runtime/host/peer minima or allocator/RSS accounting. Reliability,
+remaining descriptor semantics, packaging, diagnostics, performance and final
+hosted release gates stay open.
+
 ## Work packages
 
 | Package | State | Authoritative evidence / next action |
@@ -395,7 +508,7 @@ unresolved V8/lease timeouts; no budgets or durability-proof assertions change.
 | Live language codec identity against the native artifact | JS/Python provider readiness and client pre-encode checks implemented and tested, including recursive/map/well-known types; static binding/package verification remains |
 | Bounded request/response codec and binary bridge accounting | Native wire/raw attachments, SDK source and receiving request/reply/tunnel quotas implemented; 112 saturation and 48 guest-control refusal cases pass. Flat-control decode reservations include measured scratch growth. Exact retained-copy/allocator/RSS accounting and broader saturation qualification remain |
 | Input graph depth/element preflight before allocating language encoders | Rust generated visitors and iterative owned cleanup, Python graph/map checks and JS descriptor-driven type/graph/exact-size preflight tested; broader codec and decoder-allocation qualification remains |
-| Decoder layout/default-field allocation and effective limit plumbing | Shared decoded-slot estimate implemented in native wire and Rust/JS/Python encoders; default map layouts, fixed control budgets and native/guest catalog plumbing tested; exact allocation/RSS, saturation and method/runtime/host/peer minimum audit remain |
+| Decoder layout/default-field allocation and effective limit plumbing | Native/Rust/JS/Python decoded-slot preflight implemented. Invocation-owned policy now replaces static guest defaults before caller/provider serialization; 32 local/peer cases per mode verify refusal, retained commits, receipt retries and cleanup. Exact allocation/RSS, broader saturation and method/runtime/host/peer minimum audit remain. |
 | Invocation authority, cancellation, deadlines and nested-call provenance | Owner fencing and retained-client refusal cover all 16 pairs; 55 deadline cases cover guest nesting/codec costs; 128 proof-wait cases cover signal/deadline × local/peer × output/sync × all 16 pairs with fresh admission and original-authority checks; 80 self/A-to-B-to-A cases cover bounded cycle cleanup; 96 parent-write/forged-category cases pass with unknown outcomes; broader peer/admission/lifecycle qualification remains |
 | Pre-factory contract validation and trusted refusal provenance | Native/Python cold-constructor tests pass through the host catalog; custom wrappers without a forwarded catalog remain conservative; peer/admission provenance remains |
 | `cellar rpc check`, pinned Buf workflow and static binding inventory validation | Offline descriptor/inventory and optional native catalog check implemented; pinned Buf integration, verified executable/package identity and consumer binding validation remain |
@@ -405,9 +518,9 @@ unresolved V8/lease timeouts; no budgets or durability-proof assertions change.
 | Fencing after handler return and during its original sync await | All 16 pairs pass both phases with observed `NodeLeaseMismatch`, joined owner domain, advanced survivor epoch, acknowledged receipt recovery and late SDK refusal under both observed CPython modes |
 | Failed recovery before provider construction | All 16 pairs refuse missing and replaced original proof roots: 64 `Unavailable/unknown` calls, zero provider factories/handlers, unchanged retained proof and live recovery after metadata restoration under both observed CPython modes |
 | Atomic Counter receipts, exact 64-bit state and retry window | All 16 pairs pass local/remote/handoff, receipt races, owner fences and separate-process kills before handlers, inside count/receipt transactions and after synced handlers; broader recovery and interpreter modes remain |
-| Existing HTTP/lifecycle/untyped RPC regressions | Reply-copy source passes 716 core, 17 selected native and 10 selected JavaScript tests, Python's 31 unit tests and streaming/typed-RPC integrations under unchanged budgets. Its preceding diagnostic source passes both complete 952-case failure drivers. Retain the earlier named-container V8, four 250 ms and hosted S3 seed failures; passing repetitions do not establish their cause, and full T19 stays open |
-| T01-T19 from plan 009 | All remain open until their actual boundary is verified |
-| Standard format/layout/dependency/docs checks and affected tests/Clippy | Reply-copy source passes core/JavaScript all-target Clippy, qualifier all-target Clippy and 40 guards per Python mode, Node-only checking and standard checks across 1,242 Rust files. All 3,738 watched source/fixture/probe inputs and both executable hashes remain unchanged across its 31 recorded checks; full qualification stays open |
+| Existing HTTP/lifecycle/untyped RPC regressions | Current provider-policy source passes all 134 JavaScript tests (eight external tests ignored), 31 Python units plus streaming/typed integrations per mode, 86 core RPC units and 12 selected native integrations. Both combined runs fail after lease loss. Earlier V8, 250-ms, Node codec-budget, Axum and hosted failures remain preserved; T19 stays open. |
+| T01-T19 from plan 009 | Covered subsets are recorded by boundary above; no blanket completion claim. Full-profile, resource, packaging and T19 reliability gates remain open. |
+| Standard format/layout/dependency/docs checks and affected tests/Clippy | Current provider-policy source passes all 40 focused checks, including affected all-target Clippy, 42 qualifier guards per Python mode, Node-only/embed-only builds and standard guards. All 3,892 watched inputs and both executable hashes stay unchanged; full qualification remains open. |
 | Generated output reproducibility and frozen dependency inventories | Counter/profile reproduce 24 artifacts; tool versions locked; clean-machine/CI inventory verification remains |
 | Throughput, latency, durable TPS, memory and recovery report | Pending |
 

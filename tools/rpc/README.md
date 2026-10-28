@@ -6,6 +6,50 @@ Implementation of [plan 009](../../plans/009-named-typed-rpc.md) is in progress.
 The [status ledger](../../plans/named-typed-rpc/implementation-status.md) records
 the delivered boundaries and remaining language/fleet tests.
 
+## Invocation-owned provider policy
+
+```sh
+cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite provider-limits --report .cellar/rpc/provider-limits.json
+python3 tools/rpc/check_provider_limits.py .cellar/rpc/provider-limits.json
+```
+
+All 32 generated caller/provider combinations run locally and over a signed peer.
+The runtime's generated Counter artifact allows 1,000,000 decoded slots; the
+actual owner declares seven. Requests, reads and receipt conflicts fit. A count
+result from `Increment` needs eight slots and must fail after the mutation:
+
+```text
+native application catalog: seven slots
+                |
+        current invocation snapshot
+          /            |           \
+     Rust router    V8 / Node     Python
+          \            |           /
+            response graph preflight
+                       |
+      count + receipt committed, reply exceeds policy
+                       |
+             InvalidResponse / unknown
+                       |
+        generated read confirms count; explicit retries
+        preserve one mutation and the original receipt
+```
+
+The immutable runtime catalog still verifies schemas and method identity.
+Invocation-local limits govern caller encoding and provider response encoding;
+sharing a runtime between differently configured hosts does not mutate a global
+method table. Native finishing validation independently checks the same provider
+policy. Codec probes verify refusal before serialization and policy isolation
+while another host's handler is suspended.
+
+The matrix checks original authority, committed state, explicit receipt retries,
+conflicts, no automatic replay and zero native reservations after node join.
+Its auditor checks the complete matrix and rejects corrupted reports. The suite
+also runs in the combined driver and both Python modes in lifecycle CI. This
+qualifies the catalog-policy boundary; aggregate memory/RSS qualification remains
+separate.
+
 ## SDK source and receiving peer saturation
 
 ```sh

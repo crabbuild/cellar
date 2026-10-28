@@ -30,6 +30,7 @@ mod peer_faults;
 mod profile;
 mod proof;
 mod provenance;
+mod provider_limits;
 mod python_mode;
 mod qualify;
 mod remote;
@@ -39,6 +40,7 @@ mod worker;
 #[derive(Clone, Copy)]
 enum Suite {
     Profile,
+    ProviderLimits,
     GuestControl,
     Local,
     Remote,
@@ -106,6 +108,7 @@ fn main() -> Result<()> {
             "--suite" => {
                 suite = match arguments.next().as_deref() {
                     Some("profile") => Suite::Profile,
+                    Some("provider-limits") => Suite::ProviderLimits,
                     Some("guest-control") => Suite::GuestControl,
                     Some("local") => Suite::Local,
                     Some("remote") => Suite::Remote,
@@ -141,7 +144,7 @@ fn main() -> Result<()> {
                     Some("python-supervision") => Suite::PythonSupervision,
                     Some("python-supervision-smoke") => Suite::PythonSupervisionSmoke,
                     Some("all") => Suite::All,
-                    _ => anyhow::bail!("--suite must be profile, guest-control, local, remote, peer-faults, saturation, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, v8-forced-peer-repro, v8-forced-peer-deadline-repro, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
+                    _ => anyhow::bail!("--suite must be profile, provider-limits, guest-control, local, remote, peer-faults, saturation, deadline, cancellation, cycles, provenance, worker-failure, worker-failure-smoke, worker-shutdown, worker-shutdown-smoke, v8-termination, v8-termination-smoke, v8-shutdown, v8-shutdown-smoke, v8-forced-peer-repro, v8-forced-peer-deadline-repro, lifecycle, python-cancellation, python-cancellation-smoke, python-supervision, python-supervision-smoke, crash, proof, proof-wait, proof-wait-smoke, proof-wait-v8-repro, proof-wait-node-repro, fence, proof-recruitment, recovery, recovery-probe or all"),
                 }
             }
             "--python-lifecycle-child" => python_child = Some(PathBuf::from(arguments.next().context("missing Python child case file")?)),
@@ -150,7 +153,7 @@ fn main() -> Result<()> {
             "--serve-bucket" => server_bucket = Some(PathBuf::from(arguments.next().context("missing server bucket path")?)),
             "--serve-ready" => server_ready = Some(PathBuf::from(arguments.next().context("missing server readiness path")?)),
             _ => anyhow::bail!(
-                "usage: cellar-rpc-qualification [--suite profile|guest-control|local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--python-mode gil|free-threaded] [--report path.json]"
+                "usage: cellar-rpc-qualification [--suite profile|provider-limits|guest-control|local|remote|peer-faults|saturation|deadline|cancellation|cycles|provenance|worker-failure|worker-failure-smoke|worker-shutdown|worker-shutdown-smoke|v8-termination|v8-termination-smoke|v8-shutdown|v8-shutdown-smoke|v8-forced-peer-repro|v8-forced-peer-deadline-repro|lifecycle|python-cancellation|python-cancellation-smoke|python-supervision|python-supervision-smoke|crash|proof|proof-wait|proof-wait-smoke|proof-wait-v8-repro|proof-wait-node-repro|fence|proof-recruitment|recovery|recovery-probe|all] [--python-mode gil|free-threaded] [--report path.json]"
             ),
         }
     }

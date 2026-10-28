@@ -30,7 +30,7 @@ function start(signal, subscribe) {
       return {code:error.code, outcome:error.outcome};
     }
   }}, JSON.stringify({events:["fetch"], cells:{}, rpc_contracts:{[contract.digest]:contract}}), 16);
-  const call = runner.dispatch(1, JSON.stringify({kind:"fetch", identity:null, object:null, class:null,
+  const call = runner.dispatch(1, JSON.stringify({kind:"fetch", identity:null, object:null, class:null, rpc_limits:{[contract.digest]:contract.limits},
     event:{url:"http://test/", method:"GET", headers:[], body:""}})).then(JSON.parse);
   return {
     call, context:() => context,
