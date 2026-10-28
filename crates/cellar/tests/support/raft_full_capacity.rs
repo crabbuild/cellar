@@ -320,6 +320,44 @@ pub(super) async fn ready(handles: &[RaftCellHandle], excluded: Option<usize>) -
     .await?)
 }
 
+/// A transfer competes for bounded control capacity with archive/repair work.
+/// Only a typed overload is retried; observe the destination and refresh the
+/// exact term/configuration first. Success still needs the separate ready check.
+async fn transfer_to(
+    source: &RaftCellHandle,
+    destination: &RaftCellHandle,
+    target: MemberId,
+) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let observed = destination.status().await?;
+            if observed.command_ready && observed.leader == Some(target) {
+                return Ok(());
+            }
+            let status = source.status().await?;
+            match source
+                .transfer_leadership(
+                    LeadershipTransfer {
+                        target,
+                        expected_term: status.term,
+                        expected_revision: status.membership_revision,
+                    },
+                    Duration::from_secs(60),
+                )
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(CommandFailure::Overloaded) => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await
+    .context("leadership transfer remained overloaded")?
+}
+
 async fn read(
     handle: &RaftCellHandle,
     contract: OperationContract,
@@ -934,16 +972,7 @@ async fn drill(
     )
     .await
     .context("linearizable read on promoted replacement")?;
-    let status = handles[replacement].status().await?;
-    handles[replacement]
-        .transfer_leadership(
-            LeadershipTransfer {
-                target: target.member,
-                expected_term: status.term,
-                expected_revision: status.membership_revision,
-            },
-            Duration::from_secs(60),
-        )
+    transfer_to(&handles[replacement], &learner, target.member)
         .await
         .context("transfer leadership to recovered replacement")?;
     ready(std::slice::from_ref(&learner), None)
@@ -1075,17 +1104,7 @@ async fn drill(
     let restored = restarted_handles.last().context("restarted replacement")?;
     let elected = ready(&restarted_handles, None).await?;
     if elected + 1 != restarted_handles.len() {
-        let status = restarted_handles[elected].status().await?;
-        restarted_handles[elected]
-            .transfer_leadership(
-                LeadershipTransfer {
-                    target: target.member,
-                    expected_term: status.term,
-                    expected_revision: status.membership_revision,
-                },
-                Duration::from_secs(60),
-            )
-            .await?;
+        transfer_to(&restarted_handles[elected], restored, target.member).await?;
     }
     ready(std::slice::from_ref(restored), None).await?;
     // A successful historical read alone does not prove that restarted receipt
