@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "source": "3ef18a0d34703f976464d6c70841e63db3a62f82",
+  "disposition": "superseded by main integration; local target/evidence removed by an external cleanup during qualification",
+  "observed_before_cleanup": {
+    "javascript_filesystem_tests": 6,
+    "javascript_proof_tests": 40,
+    "javascript_reply_loss_tests": 24,
+    "python_gil_filesystem_modes": [
+      "normal",
+      "readonly",
+      "budget",
+      "cancellation"
+    ],
+    "python_gil_cancellation_observations": 24,
+    "python_gil_proof_completed_before_driver_interruption": 16,
+    "python_free_threaded": "not yet run"
+  },
+  "retained_artifact": {
+    "path": "2026-10-28-filesystem-gil-handoff-fdatasync-fence.json",
+    "sha256": "afc6c679c47ed1853d9715205542a84beaf3f36f98136ba66cdf25519c5fdfde"
+  },
+  "native_previous_commit": "bc72eb36617612f44b6478ecd45f609f3839454d",
+  "native_observations_recorded_in_committed_status": {
+    "local_store_tests": 45,
+    "native_filesystem_tests": 3,
+    "native_fleet_passed": 7,
+    "dense_mib": [
+      10,
+      100,
+      1024
+    ]
+  },
+  "qualification_note": "These historical observations do not establish qualification of the integrated revision.",
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "complete_raw_evidence_available": false
+}
