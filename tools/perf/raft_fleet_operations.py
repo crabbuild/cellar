@@ -29,6 +29,18 @@ def kernel_limits(lines):
             'memory_swap_disabled': True, 'used_memory_bytes': used}
 
 
+def mount_bindings(mounts):
+    # Engine inspection enumerates mounts from a map; list order is not an
+    # identity. Keep every field and reject duplicate destinations before
+    # comparing the two observations.
+    bindings = {}
+    for mount in mounts:
+        destination = mount['Destination']
+        require(destination not in bindings, 'duplicate mount destination')
+        bindings[destination] = mount
+    return bindings
+
+
 class Run:
     def __init__(self, root):
         self.root = root.resolve()
@@ -101,7 +113,7 @@ class Run:
             '/sys/fs/cgroup/cpu.max', '/sys/fs/cgroup/memory.max',
             '/sys/fs/cgroup/memory.swap.max', '/sys/fs/cgroup/memory.current').splitlines())
         storage = read_json(self.root / 'storage-verification.json')['volumes']
-        mounted = {mount['Destination']: mount for mount in inspected['Mounts']}
+        mounted = mount_bindings(inspected['Mounts'])
         measured = {}
         for role, destination in MOUNTS.items():
             record = storage[f'node{node}-{role}']
@@ -132,7 +144,7 @@ class Run:
         final = json.loads(self.docker('inspect', cid))[0]
         require(before == after and final['State']['Running']
                 and final['State']['StartedAt'] == inspected['State']['StartedAt']
-                and final['HostConfig'] == config and final['Mounts'] == inspected['Mounts'],
+                and final['HostConfig'] == config and mount_bindings(final['Mounts']) == mounted,
                 'node changed during capacity measurement')
         record = {'node': node, 'container': cid, 'started_at': final['State']['StartedAt'],
                   'native': after, 'kernel': kernel, 'storage': measured, 'policy': self.policy}

@@ -10,6 +10,18 @@ from raft_run import read_json
 
 
 class OperationsTests(unittest.TestCase):
+    def test_mount_identity_ignores_order_but_preserves_every_binding_field(self):
+        mounts = [{'Destination': '/data', 'Name': 'metadata', 'RW': True},
+                  {'Destination': '/data/node/raft', 'Name': 'raft', 'RW': True}]
+        expected = operations.mount_bindings(mounts)
+        self.assertEqual(operations.mount_bindings(list(reversed(mounts))), expected)
+        for field, value in [('Name', 'other'), ('RW', False), ('Destination', '/other')]:
+            changed = [{**mounts[0], field: value}, mounts[1]]
+            with self.subTest(field=field):
+                self.assertNotEqual(operations.mount_bindings(changed), expected)
+        with self.assertRaisesRegex(ValueError, 'duplicate mount destination'):
+            operations.mount_bindings(mounts + [mounts[0]])
+
     def test_kernel_observations_must_match_enforced_profile(self):
         valid = ['100000 100000', '3221225472', '0', '1048576']
         self.assertEqual(operations.kernel_limits(valid)['cpu_millis'], 1000)
