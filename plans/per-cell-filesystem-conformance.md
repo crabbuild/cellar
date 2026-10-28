@@ -109,8 +109,28 @@ a live regular-file token supplied as a directory. Each real Node, V8 and
 CPython bridge checks EBADF, operation, not_committed and zero completed bytes,
 plus metadata/usage/cursor preservation and unchanged source/victim bytes.
 Absolute paths still require valid directory capabilities. These guest cases
-establish token expiry/type checks; they do not claim simultaneous live
-cross-cell guest invocation qualification.
+establish token expiry/type checks.
+
+The live guest profile adds a nested call from `authority-owner` to
+`authority-caller` while the owner's invocation remains pending. Both cells
+use the same path names with different contents. The owner retains a directory,
+a filesystem view and an open, unlinked file throughout the call. The caller
+checks 45 refusals:
+
+| Authority boundary | Cases | Expected refusal |
+| --- | --- | --- |
+| Owner's file wrapper | 14: read/write, positional I/O, seek, stat, truncate, chmod, dup, close, both barriers and empty looping helpers | ContextMismatch, public operation, not_committed and zero confirmed bytes |
+| Owner's directory wrapper | 8: readdir/read_page, tell/seek/rewind, close, stat and barrier | Same caller-scope refusal |
+| Owner's filesystem view | 5: capabilities, stat, read_file, sync and collect_garbage | Same caller-scope refusal |
+| Foreign directory token passed through the caller's filesystem | 18 relative/absolute *at cases, including both rename parents | EBADF, public operation, not_committed and zero confirmed bytes |
+
+Every refusal preserves the caller's sampled metadata, usage and directory
+cookie. After the nested call the owner verifies its metadata/usage, descriptor
+position, directory cookie and original bytes, including the unlinked inode,
+then closes its descriptors. CPython checks actual GIL state before and after
+the nested call. Executed runtime/ABI combinations are recorded in the ledger.
+These cases cover live invocation isolation; cancellation and closed-domain
+qualification remain separate.
 
 ## Guest looping-helper error profiles
 
@@ -148,11 +168,14 @@ remains before this inventory can support a complete conformance claim:
    Shared backend coverage alone does not prove every public wrapper's operation
    name, effect outcome or guest serialization. The looping-helper preflight
    and progress profiles above cover their specified SDK error paths; remaining
-   operation/option combinations still need their own assertions.
+   operation/option combinations still need their own assertions. Path/integer
+   argument construction before dispatch remains part of that audit; dispatch
+   error normalization alone does not qualify those validation paths.
 2. Complete transaction, cancellation and closed-domain cases for each
-   handle-bearing family, and simultaneous live cross-cell guest invocation
-   cases. The native foreign-directory and guest expired/closed/wrong-kind
-   profiles above cover both `renameat` parents, with their distinct scopes.
+   handle-bearing family. Extend the selected live cross-cell cases where
+   additional operation families require distinct authority assertions. The
+   native foreign-directory and guest live/expired/closed/wrong-kind profiles
+   above cover both `renameat` parents, with their distinct scopes.
 3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
    to actual source and executable evidence. Invocation-bound descriptors and
    activation-bound filesystem views have distinct lifetime contracts.

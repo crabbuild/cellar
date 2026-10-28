@@ -1,7 +1,9 @@
 # Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 import base64
 import asyncio
-from cellar import File, Overloaded, Request, Response, SDKError
+import sys
+import sysconfig
+from cellar import ContextMismatch, File, Filesystem, Overloaded, Request, Response, SDKError
 from cellar_filesystem_tools import FilesystemTools
 
 async def refuses(call, code, errno=None):
@@ -16,6 +18,21 @@ async def refuses(call, code, errno=None):
 async def helper_preflight_outcomes():
     # SDK/protocol boundary: inject a metadata failure before any byte call.
     for outcome in ("not_committed", "unknown"):
+        cause = RuntimeError("injected dispatch failure")
+        original = Overloaded("injected dispatch refusal", outcome=outcome)
+        original.errno = "EIO"
+        original.completed_bytes = 7 if outcome == "unknown" else 0
+
+        class RefusingContext:
+            async def _call(self, operation, **value):
+                assert operation == "filesystem.stat" and value == {"path": "/"}
+                raise original from cause
+
+        dispatch = Filesystem(RefusingContext())
+        error = await refuses(lambda: dispatch.stat("/"), "Overloaded", "EIO")
+        assert error is original and error.__cause__ is cause
+        assert (error.operation, error.outcome, error.completed_bytes) == ("filesystem.stat", outcome, 7 if outcome == "unknown" else 0)
+
         class RefusingCapabilities:
             calls = 0
 
@@ -283,15 +300,61 @@ async def namespace_profile(fs, ctx):
     replay = await directory_tools.execute("empty-directory-edit", directory_request)
     assert replay["replayed"] and replay["result"] == directory_refusal["result"]
 
-async def authority_profile(fs, kind, expired):
+live_authority = None
+
+async def live_authority_owner(fs, ctx):
+    global live_authority
+    assert live_authority is None
+    free_threaded = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+    assert sys._is_gil_enabled() == (not free_threaded)
+    await fs.mkdir("/at-authority", 0o700)
+    await fs.mkdir("/at-authority/empty", 0o700)
+    await fs.write_file("/at-authority/source", b"owner-source")
+    await fs.write_file("/at-authority/target", b"owner-target")
+    directory = await fs.opendir("/at-authority")
+    file = await fs.open("/owner-orphan", access="read_write", create_new=True)
+    await file.write_all(b"pinned-owner")
+    await file.lseek(0)
+    await fs.unlink("/owner-orphan")
+
+    async def snapshot():
+        paths = ("/", "/at-authority", "/at-authority/empty", "/at-authority/source", "/at-authority/target")
+        return [await fs.stat(path) for path in paths], await fs.statvfs(), await directory.telldir(), await file.fstat(), await file.lseek(0, "current")
+
+    try:
+        before = await snapshot()
+        assert isinstance(ctx.identity.scope, str)
+        live_authority = dict(directory=directory, file=file, fs=fs, cookie=await directory.telldir(), scope=ctx.identity.scope)
+        # Keep the owner's invocation live across the nested caller request.
+        result = await ctx.namespace("COUNTERS").get_by_name("authority-caller").fetch(
+            Request("http://fixture/authority-caller/authority-live-caller"))
+        assert result.status == 200, result.body
+        assert result.body == b"ok"
+        assert await snapshot() == before
+        assert await fs.read_file("/at-authority/source") == b"owner-source"
+        assert await fs.read_file("/at-authority/target") == b"owner-target"
+        assert await file.pread(32, 0) == b"pinned-owner"
+        assert sys._is_gil_enabled() == (not free_threaded)
+    finally:
+        live_authority = None
+        await file.close()
+        await directory.closedir()
+    await fs.unlink("/at-authority/source")
+    await fs.unlink("/at-authority/target")
+    await fs.rmdir("/at-authority/empty")
+    await fs.rmdir("/at-authority")
+    while await fs.collect_garbage() > 0:
+        pass
+
+async def authority_profile(fs, kind, supplied):
     await fs.mkdir("/at-authority", 0o700)
     await fs.mkdir("/at-authority/empty", 0o700)
     await fs.write_file("/at-authority/source", b"source")
     await fs.write_file("/at-authority/target", b"target")
     local = await fs.opendir("/at-authority")
-    if kind == "expired":
-        assert expired is not None
-        bad = expired
+    if kind in ("expired", "live"):
+        assert supplied is not None
+        bad = supplied
     elif kind == "closed":
         bad = await fs.opendir("/")
         await bad.closedir()
@@ -304,11 +367,37 @@ async def authority_profile(fs, kind, expired):
         return [await fs.stat(path) for path in paths], await fs.statvfs(), await local.telldir()
 
     before = await snapshot()
+    refused = 0
 
-    async def refusal(call, operation):
-        error = await refuses(call, "Filesystem", "EBADF")
-        assert (error.operation, error.outcome, error.completed_bytes) == (f"filesystem.{operation}", "not_committed", 0)
+    async def refusal(call, operation, code="Filesystem", errno="EBADF"):
+        nonlocal refused
+        error = await refuses(call, code, errno)
+        if code == "ContextMismatch":
+            assert isinstance(error, ContextMismatch)
+        actual = getattr(error, "operation", None), error.outcome, getattr(error, "completed_bytes", None)
+        assert actual == (f"filesystem.{operation}", "not_committed", 0), (operation, actual)
         assert await snapshot() == before
+        refused += 1
+
+    if kind == "live":
+        owner = live_authority
+        for call, operation in (
+            (lambda: owner["file"].read(1), "read"), (lambda: owner["file"].write(b"bad"), "write"),
+            (lambda: owner["file"].pread(1, 0), "pread"), (lambda: owner["file"].pwrite(b"bad", 0), "pwrite"),
+            (lambda: owner["file"].lseek(1), "lseek"), (owner["file"].fstat, "fstat"),
+            (lambda: owner["file"].ftruncate(0), "ftruncate"), (lambda: owner["file"].fchmod(0o400), "fchmod"),
+            (owner["file"].dup, "dup"), (owner["file"].close, "close"),
+            (owner["file"].fsync, "fsync"), (owner["file"].fdatasync, "fdatasync"),
+            (lambda: owner["file"].read_exact(0), "read_exact"), (lambda: owner["file"].write_all(b""), "write_all"),
+            (owner["directory"].readdir, "readdir"), (lambda: owner["directory"].read_page(1), "read_page"),
+            (owner["directory"].telldir, "telldir"), (lambda: owner["directory"].seekdir(owner["cookie"]), "seekdir"),
+            (owner["directory"].rewinddir, "rewinddir"), (owner["directory"].closedir, "closedir"),
+            (owner["directory"].fstat, "fstat"), (owner["directory"].fsync, "fsync"),
+            (owner["fs"].capabilities, "capabilities"), (lambda: owner["fs"].stat("/at-authority/source"), "stat"),
+            (lambda: owner["fs"].read_file("/at-authority/source"), "read_file"),
+            (owner["fs"].sync, "sync"), (owner["fs"].collect_garbage, "collect_garbage"),
+        ):
+            await refusal(call, operation, "ContextMismatch", None)
 
     for prefix in ("at-authority/", "/at-authority/"):
         source, target, empty, created = (prefix + name for name in ("source", "target", "empty", "created"))
@@ -333,6 +422,7 @@ async def authority_profile(fs, kind, expired):
     await fs.rmdir("/at-authority")
     while await fs.collect_garbage() > 0:
         pass
+    return refused
 
 class Counter:
     async def fetch(self, req, ctx):
@@ -398,8 +488,14 @@ class Counter:
             await host_admission_profile(fs)
         elif action == "authority-capture":
             self.old_directory = await fs.opendir("/")
+        elif action == "authority-live":
+            await live_authority_owner(fs, ctx)
+        elif action == "authority-live-caller":
+            assert live_authority is not None
+            assert isinstance(ctx.identity.scope, str) and ctx.identity.scope != live_authority["scope"]
+            assert await authority_profile(fs, "live", live_authority["directory"]) == 45
         elif action.startswith("authority-"):
-            await authority_profile(fs, action[len("authority-"):], getattr(self, "old_directory", None))
+            assert await authority_profile(fs, action[len("authority-"):], getattr(self, "old_directory", None)) == 18
             if action == "authority-expired":
                 self.old_directory = None
         elif action.startswith("reserved-"):

@@ -847,14 +847,20 @@
 
     // These objects contain bridge calls, never native storage handles. Binding
     // lookup and effect execution remain in the original Rust invocation.
-    const fsCall = (operation, value = {}) =>
-      call(`filesystem.${operation}`, value);
     const fsProgress = (error, completed, operation, committed) => {
       error.completed_bytes = completed + (error.completed_bytes ?? 0);
       error.operation = `filesystem.${operation}`;
       if (completed > 0 && error.outcome === "not_committed")
         error.outcome = committed ? "locally_committed" : "unknown";
       return error;
+    };
+    const fsCall = async (operation, value = {}) => {
+      try {
+        return await call(`filesystem.${operation}`, value);
+      } catch (error) {
+        // Caller-scope admission can fail before a native filesystem reply.
+        throw fsProgress(error, 0, operation, false);
+      }
     };
     const fsPath = (path) =>
       typeof path === "string" ? path : { bytes_base64: encode(bytes(path)) };

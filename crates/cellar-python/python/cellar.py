@@ -503,7 +503,12 @@ class Filesystem:
         self._context = context
 
     async def _call(self, operation, **value):
-        return await self._context._call("filesystem." + operation, **value)
+        try:
+            return await self._context._call("filesystem." + operation, **value)
+        except SDKError as error:
+            # Caller-scope admission can fail before a native filesystem reply.
+            _filesystem_progress(error, 0, operation, False)
+            raise
 
     async def capabilities(self):
         value = await self._call("capabilities")

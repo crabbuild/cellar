@@ -22,6 +22,7 @@ pub async fn initial(address: &str) -> Result<()> {
         "/one/authority-closed",
         "/one/authority-expired",
         "/one/authority-file",
+        "/authority-owner/authority-live",
         "/two/isolated",
     ] {
         let reply = client.get(format!("{address}{path}")).send().await?;

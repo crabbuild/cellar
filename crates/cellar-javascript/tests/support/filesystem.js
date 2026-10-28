@@ -478,16 +478,89 @@ async function namespaceProfile(fs, ctx) {
       encode(replay.result) === encode(directoryRefusal.result),
   );
 }
-async function authorityProfile(fs, kind, expired) {
+let liveAuthority;
+
+async function liveAuthorityOwner(fs, ctx) {
+  check(liveAuthority === undefined);
+  await fs.mkdir("/at-authority", 0o700);
+  await fs.mkdir("/at-authority/empty", 0o700);
+  await fs.writeFile("/at-authority/source", utf8("owner-source"));
+  await fs.writeFile("/at-authority/target", utf8("owner-target"));
+  const directory = await fs.opendir("/at-authority");
+  const file = await fs.open("/owner-orphan", {
+    access: "read_write",
+    create_new: true,
+  });
+  await file.writeAll(utf8("pinned-owner"));
+  await file.lseek(0n);
+  await fs.unlink("/owner-orphan");
+  const snapshot = async () => {
+    const stats = [];
+    for (const path of [
+      "/",
+      "/at-authority",
+      "/at-authority/empty",
+      "/at-authority/source",
+      "/at-authority/target",
+    ])
+      stats.push(await fs.stat(path));
+    return JSON.stringify(
+      [
+        stats,
+        await fs.statvfs(),
+        await directory.telldir(),
+        await file.fstat(),
+        await file.lseek(0n, "current"),
+      ],
+      (_, value) => (typeof value === "bigint" ? String(value) : value),
+    );
+  };
+  try {
+    const before = await snapshot();
+    check(typeof ctx.identity.scope === "string");
+    liveAuthority = {
+      directory,
+      file,
+      fs,
+      cookie: await directory.telldir(),
+      scope: ctx.identity.scope,
+    };
+    // The owner invocation remains pending while another live cell uses the
+    // same path names and attempts to borrow its directory token.
+    const result = await ctx
+      .cell("COUNTERS", "authority-caller")
+      .fetch(request("http://fixture/authority-caller/authority-live-caller"));
+    if (result.status !== 200)
+      throw new Error(
+        `live caller ${result.status}: ${Array.from(result.body.slice(0, 512), (byte) => String.fromCharCode(byte)).join("")}`,
+      );
+    equal(result.body, utf8("ok"));
+    check((await snapshot()) === before);
+    equal(await fs.readFile("/at-authority/source"), utf8("owner-source"));
+    equal(await fs.readFile("/at-authority/target"), utf8("owner-target"));
+    equal(await file.pread(32, 0n), utf8("pinned-owner"));
+  } finally {
+    liveAuthority = undefined;
+    await file.close();
+    await directory.closedir();
+  }
+  await fs.unlink("/at-authority/source");
+  await fs.unlink("/at-authority/target");
+  await fs.rmdir("/at-authority/empty");
+  await fs.rmdir("/at-authority");
+  while ((await fs.collectGarbage()) > 0) {}
+}
+
+async function authorityProfile(fs, kind, supplied) {
   await fs.mkdir("/at-authority", 0o700);
   await fs.mkdir("/at-authority/empty", 0o700);
   await fs.writeFile("/at-authority/source", utf8("source"));
   await fs.writeFile("/at-authority/target", utf8("target"));
   const local = await fs.opendir("/at-authority");
   let bad;
-  if (kind === "expired") {
-    check(expired !== undefined);
-    bad = expired;
+  if (kind === "expired" || kind === "live") {
+    check(supplied !== undefined);
+    bad = supplied;
   } else if (kind === "closed") {
     bad = await fs.opendir("/");
     await bad.closedir();
@@ -512,15 +585,58 @@ async function authorityProfile(fs, kind, expired) {
     return encode([stats, await fs.statvfs(), await local.telldir()]);
   };
   const before = await snapshot();
-  const refusal = async (call, operation) => {
-    const error = await refuses(call, "Filesystem", "EBADF");
-    check(
-      error.operation === `filesystem.${operation}` &&
-        error.outcome === "not_committed" &&
-        error.completed_bytes === 0,
-    );
+  let refused = 0;
+  const refusal = async (
+    call,
+    operation,
+    code = "Filesystem",
+    errno = "EBADF",
+  ) => {
+    const error = await refuses(call, code, errno === null ? undefined : errno);
+    if (
+      error.operation !== `filesystem.${operation}` ||
+      error.outcome !== "not_committed" ||
+      error.completed_bytes !== 0
+    )
+      throw new Error(
+        `authority ${operation}: operation=${error.operation}, outcome=${error.outcome}, completed_bytes=${error.completed_bytes}`,
+      );
     check((await snapshot()) === before);
+    refused++;
   };
+  if (kind === "live") {
+    const owner = liveAuthority;
+    for (const [call, operation] of [
+      [() => owner.file.read(1), "read"],
+      [() => owner.file.write(utf8("bad")), "write"],
+      [() => owner.file.pread(1, 0n), "pread"],
+      [() => owner.file.pwrite(utf8("bad"), 0n), "pwrite"],
+      [() => owner.file.lseek(1n), "lseek"],
+      [() => owner.file.fstat(), "fstat"],
+      [() => owner.file.ftruncate(0n), "ftruncate"],
+      [() => owner.file.fchmod(0o400), "fchmod"],
+      [() => owner.file.dup(), "dup"],
+      [() => owner.file.close(), "close"],
+      [() => owner.file.fsync(), "fsync"],
+      [() => owner.file.fdatasync(), "fdatasync"],
+      [() => owner.file.readExact(0), "read_exact"],
+      [() => owner.file.writeAll(new Uint8Array()), "write_all"],
+      [() => owner.directory.readdir(), "readdir"],
+      [() => owner.directory.readPage(1), "read_page"],
+      [() => owner.directory.telldir(), "telldir"],
+      [() => owner.directory.seekdir(owner.cookie), "seekdir"],
+      [() => owner.directory.rewinddir(), "rewinddir"],
+      [() => owner.directory.closedir(), "closedir"],
+      [() => owner.directory.fstat(), "fstat"],
+      [() => owner.directory.fsync(), "fsync"],
+      [() => owner.fs.capabilities(), "capabilities"],
+      [() => owner.fs.stat("/at-authority/source"), "stat"],
+      [() => owner.fs.readFile("/at-authority/source"), "read_file"],
+      [() => owner.fs.sync(), "sync"],
+      [() => owner.fs.collectGarbage(), "collect_garbage"],
+    ])
+      await refusal(call, operation, "ContextMismatch", null);
+  }
   for (const prefix of ["at-authority/", "/at-authority/"]) {
     const source = prefix + "source",
       target = prefix + "target",
@@ -552,6 +668,7 @@ async function authorityProfile(fs, kind, expired) {
   await fs.rmdir("/at-authority/empty");
   await fs.rmdir("/at-authority");
   while ((await fs.collectGarbage()) > 0) {}
+  return refused;
 }
 class Counter {
   async fetch(req, ctx) {
@@ -699,12 +816,27 @@ class Counter {
         await hostAdmissionProfile(fs);
       } else if (action === "authority-capture") {
         this.oldDirectory = await fs.opendir("/");
+      } else if (action === "authority-live") {
+        phase = action;
+        await liveAuthorityOwner(fs, ctx);
+      } else if (action === "authority-live-caller") {
+        phase = action;
+        check(liveAuthority !== undefined);
+        check(
+          typeof ctx.identity.scope === "string" &&
+            ctx.identity.scope !== liveAuthority.scope,
+        );
+        check(
+          (await authorityProfile(fs, "live", liveAuthority.directory)) === 45,
+        );
       } else if (action.startsWith("authority-")) {
         phase = action;
-        await authorityProfile(
-          fs,
-          action.slice("authority-".length),
-          this.oldDirectory,
+        check(
+          (await authorityProfile(
+            fs,
+            action.slice("authority-".length),
+            this.oldDirectory,
+          )) === 18,
         );
         if (action === "authority-expired") this.oldDirectory = undefined;
       } else if (action.startsWith("reserved-")) {
