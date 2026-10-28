@@ -3,6 +3,8 @@
 //! Durable operator intent and recreated preparation controllers on real hosts.
 #[path = "raft_restart_operator_cancel_native.rs"]
 mod cancellation_cases;
+#[path = "raft_restart_operator_lifecycle_native.rs"]
+mod lifecycle_cases;
 #[path = "raft_restart_service_native.rs"]
 mod service_cases;
 use super::*;
@@ -168,6 +170,18 @@ async fn fleet_restart_operator_generic_intent_and_cursor_projection_refuse() ->
             hex::encode(request.identity.operation)
         ),
         "restart-controller-active".into(),
+        format!(
+            "restart-controller-action/{}/stop",
+            hex::encode(request.identity.operation)
+        ),
+        format!(
+            "restart-controller-finished/{}",
+            hex::encode(request.identity.operation)
+        ),
+        format!(
+            "restart-controller-cancel-refused/{}",
+            hex::encode(request.identity.operation)
+        ),
         format!(
             "restart-controller-attempt/{}",
             hex::encode(request.identity.operation)

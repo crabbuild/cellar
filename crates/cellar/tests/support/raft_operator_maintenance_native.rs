@@ -2,6 +2,8 @@
 
 //! Shipped CLI -> authenticated audit -> Root intent -> Node-owned execution.
 use super::*;
+#[path = "raft_operator_restart_native.rs"]
+mod restart_cases;
 
 fn operation(server: &Server, request: u8, revision: u64) -> RaftFleetNodeOperation {
     RaftFleetNodeOperation {
@@ -52,33 +54,55 @@ async fn prepare(
     Ok((node, args, operation))
 }
 
+async fn refresh_routes_once(f: &Scenario, catalog: &FleetCatalog) -> Result<u64> {
+    let hosts =
+        f.s.nodes
+            .iter()
+            .map(|n| &n.host)
+            .chain([&f.s.target, &f.spare])
+            .collect::<Vec<_>>();
+    let revision = catalog.read(TIMEOUT).await?.revision();
+    for origin in &hosts {
+        let own = origin.observe_node(TIMEOUT).await?.node.identity.node;
+        for target in &hosts {
+            let node = target.observe_node(TIMEOUT).await?.node.identity.node;
+            if node != own {
+                f.s.f.remote(origin, node, revision).await?;
+            }
+        }
+    }
+    Ok(revision)
+}
+
+async fn refresh_routes(f: &Scenario, catalog: &FleetCatalog) -> Result<()> {
+    let mut refreshed = None;
+    let mut next_refresh = std::time::Instant::now();
+    loop {
+        let revision = catalog.read(TIMEOUT).await?.revision();
+        // Runtime admission/profile can change without a Root mutation.
+        // Match normal directory pacing instead of flooding unchanged peers.
+        if refreshed != Some(revision) || std::time::Instant::now() >= next_refresh {
+            refreshed = Some(refresh_routes_once(f, catalog).await?);
+            next_refresh = std::time::Instant::now() + Duration::from_millis(250);
+        }
+        cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+    }
+}
+
 async fn routed<F: Future>(f: &Scenario, future: F) -> Result<F::Output> {
     tokio::pin!(future);
     let catalog = Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?;
     f.s.f
         .domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
-            loop {
-                let hosts =
-                    f.s.nodes
-                        .iter()
-                        .map(|n| &n.host)
-                        .chain([&f.s.target, &f.spare])
-                        .collect::<Vec<_>>();
-                let revision = catalog.read(TIMEOUT).await?.revision();
-                for origin in &hosts {
-                    let own = origin.observe_node(TIMEOUT).await?.node.identity.node;
-                    for target in &hosts {
-                        let node = target.observe_node(TIMEOUT).await?.node.identity.node;
-                        if node != own {
-                            f.s.f.remote(origin, node, revision).await?;
-                        }
-                    }
-                }
-                cellar::asyncrt::select! {
-                    value = &mut future => return Ok::<_, anyhow::Error>(value),
-                    _ = cellar::asyncrt::sleep(Duration::from_millis(5)) => (),
-                }
+            // A peer-probe retry must not prevent polling a completed CLI result.
+            // Both branches share this original deadline; no task is detached.
+            cellar::asyncrt::select! {
+                value = &mut future => Ok(value),
+                result = refresh_routes(f, &catalog) => {
+                    result?;
+                    Err(anyhow::anyhow!("route refresher stopped"))
+                },
             }
         }))
         .await??

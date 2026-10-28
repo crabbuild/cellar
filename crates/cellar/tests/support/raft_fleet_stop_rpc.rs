@@ -22,12 +22,15 @@ async fn fleet_stop_rpc_empty_nodes_and_fence() -> Result<()> {
     discover(&s, &origin, minimum).await?;
     let id = ProposalId::new([239; 16])?;
     let fence = admission.stop_fence_request(id)?;
+    let before = s.f.catalog.read(TIMEOUT).await?.revision();
     ensure!(matches!(
         origin
             .request_peer_fleet_stop(fence.clone(), u64::MAX - 3, TIMEOUT)
             .await,
-        Err(FleetCatalogError::Conflict)
+        Err(FleetCatalogError::Observation(InspectionError::StalePeer))
     ));
+    ensure!(s.f.catalog.read(TIMEOUT).await?.revision() == before);
+    ensure!(!s.observer_node.is_closed());
     let mut wrong = serde_json::to_value(&fence)?;
     wrong["selector"]["boot"]["boot"] = serde_json::json!(vec![138; 16]);
     ensure!(matches!(

@@ -122,6 +122,66 @@ impl RaftFleetControl {
         ))
     }
 
+    /// Admit a separate human action; the Node-owned service executes it.
+    pub async fn admit_node_maintenance_action(
+        &self,
+        principal: &str,
+        node: &str,
+        request: RaftFleetMaintenanceAction,
+        timeout: Duration,
+    ) -> Result<RaftFleetMaintenanceAcceptance> {
+        use crate::raft::fleet_catalog::{
+            FleetRestartOperatorAction as A, FleetRestartOperatorActionRequest,
+        };
+        request.validate()?;
+        let operation = request.operation().clone();
+        self.check_catalog(&operation.catalog_id)?;
+        let identity = operation.identity(principal)?;
+        let action = match request {
+            RaftFleetMaintenanceAction::Stop {
+                expected_process,
+                stop_id,
+                ..
+            } => A::Stop {
+                process: super::records::id(&expected_process)?,
+                stop: super::records::id(&stop_id)?,
+            },
+            RaftFleetMaintenanceAction::Return { next_process, .. } => A::Return {
+                process: super::records::id(&next_process)?,
+            },
+            RaftFleetMaintenanceAction::Resume {
+                attestation,
+                resume_id,
+                ..
+            } => A::Resume {
+                attestation,
+                resume: super::records::id(&resume_id)?,
+            },
+        };
+        let turn = Turn::new(&self.domain, timeout)?;
+        let root = self.catalog.read(turn.remaining()?).await?;
+        let admission = self
+            .catalog
+            .admit_restart_operator_action(
+                &root,
+                &FleetRestartOperatorActionRequest {
+                    identity,
+                    node: NodeId::new(super::records::id(node)?)
+                        .map_err(|_| RaftFleetFailure::invalid("node ID"))?,
+                    action,
+                },
+                turn.remaining()?,
+            )
+            .await?;
+        Ok(acceptance(
+            self,
+            node,
+            &operation,
+            admission.applied_revision(),
+            admission.observed_revision(),
+        ))
+    }
+
     /// Reports one explicit Root snapshot. Never creates a driver, performs a
     /// proof walk, sends a physical command or writes coordination metadata.
     pub async fn maintenance_status(
@@ -158,6 +218,19 @@ impl RaftFleetControl {
             readiness_request: status.readiness.map(|r| hex::encode(r.id)),
             cancellation_request: status.cancellation.map(|r| hex::encode(r.id)),
             cancelled_revision: status.cancelled.map(|r| r.applied_revision()),
+            cancellation_refused: status.cancellation_refused,
+            completed_revision: status.completed.map(|r| r.applied_revision()),
+            stop_request: status.stop_grant.map(|r| hex::encode(r.id)),
+            return_request: status.return_grant.map(|r| hex::encode(r.id)),
+            resume_request: status.resume_grant.map(|r| hex::encode(r.id)),
+            stop_consent: status.stop,
+            offline: status.offline,
+            returning: status.returning.map(|r| RaftFleetMaintenanceReturnContext {
+                identity: r.identity,
+                offline: r.offline,
+                next_process: hex::encode(r.next_process.bytes()),
+            }),
+            resume_consent: status.resume,
         };
         value.validate()?;
         Ok(value)

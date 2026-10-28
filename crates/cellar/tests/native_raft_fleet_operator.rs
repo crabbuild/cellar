@@ -17,6 +17,15 @@ fn command(arguments: &[&str]) -> Result<std::process::Output> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() -> Result<()> {
+    maintenance_wait(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_operator_maintenance_prepare_wait_observes_ready_before_deadline() -> Result<()> {
+    maintenance_wait(false).await
+}
+
+async fn maintenance_wait(cancelled: bool) -> Result<()> {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -37,9 +46,19 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
         "operation_id":operation,"request_id":request,"expected_revision":1,
         "applied_revision":2,"observed_revision":4,"principal":"fixture",
         "process":process,"boot":hex::encode([6;16]),"enrollment_epoch":1,
-        "grace_seconds":120,"birth_resolution":"cancel","phase":"cancelled",
+        "grace_seconds":120,"birth_resolution":"cancel","phase":"cancelled","cancellation_refused":false,
         "execution_operation":null,"readiness_request":null,
         "cancellation_request":hex::encode([9;16]),"cancelled_revision":4});
+    let mut status = status;
+    if !cancelled {
+        status["phase"] = serde_json::json!("verifying");
+        status["cancellation_request"] = Value::Null;
+        status["cancelled_revision"] = Value::Null;
+        status["execution_operation"] = serde_json::json!(hex::encode([8; 16]));
+    }
+    let started = Arc::new(std::sync::OnceLock::new());
+    let post_started = started.clone();
+    let get_started = started.clone();
     let posts = Arc::new(AtomicUsize::new(0));
     let gets = Arc::new(AtomicUsize::new(0));
     let post_count = posts.clone();
@@ -49,6 +68,7 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
             &format!("/api/v1/fleets/test/raft/nodes/{node}/prepare-maintenance"),
             axum::routing::post(move || {
                 post_count.fetch_add(1, Ordering::SeqCst);
+                let _ = post_started.set(std::time::Instant::now());
                 let value = admission.clone();
                 async move { (axum::http::StatusCode::ACCEPTED, axum::Json(value)) }
             }),
@@ -57,7 +77,16 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
             &format!("/api/v1/fleets/test/raft/maintenance/{operation}"),
             axum::routing::get(move || {
                 get_count.fetch_add(1, Ordering::SeqCst);
-                let value = status.clone();
+                let mut value = status.clone();
+                // Backend readiness advances with time independently of GET.
+                if !cancelled
+                    && get_started
+                        .get()
+                        .is_some_and(|at| at.elapsed() >= std::time::Duration::from_millis(850))
+                {
+                    value["phase"] = serde_json::json!("ready");
+                    value["readiness_request"] = serde_json::json!(hex::encode([7; 16]));
+                }
                 async move { axum::Json(value) }
             }),
         );
@@ -71,6 +100,7 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
             })
             .await
     });
+    let seconds = if cancelled { "2" } else { "1" };
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"))
@@ -104,7 +134,7 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
                     .ok_or_else(|| anyhow::anyhow!("fixture token path"))?,
                 "--wait",
                 "--timeout-seconds",
-                "2",
+                seconds,
                 "--json",
             ])
             .kill_on_drop(true)
@@ -115,11 +145,20 @@ async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() ->
     server.await??;
     let output = output??;
     let value: Value = serde_json::from_slice(&output.stdout)?;
-    ensure!(
-        output.status.code() == Some(4) && value["error"]["code"] == "blocked",
-        "cancelled preparation: {value}"
-    );
-    ensure!(posts.load(Ordering::SeqCst) == 1 && gets.load(Ordering::SeqCst) == 1);
+    if cancelled {
+        ensure!(
+            output.status.code() == Some(4) && value["error"]["code"] == "blocked",
+            "cancelled preparation: {value}"
+        );
+        ensure!(gets.load(Ordering::SeqCst) == 1);
+    } else {
+        ensure!(
+            output.status.success() && value["phase"] == "ready",
+            "late readiness: {value}"
+        );
+        ensure!(gets.load(Ordering::SeqCst) > 1 && gets.load(Ordering::SeqCst) <= 16);
+    }
+    ensure!(posts.load(Ordering::SeqCst) == 1);
     ensure!(
         !String::from_utf8(output.stdout)?.contains(token)
             && !String::from_utf8(output.stderr)?.contains(token)

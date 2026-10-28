@@ -135,6 +135,34 @@ impl FleetCatalog {
         .await
     }
 
+    /// Read an exact historical return consent without admitting any work.
+    pub async fn restart_return_consent(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRestartReturnRequest,
+        timeout: Duration,
+    ) -> Result<Option<FleetRestartReturnAdmission>> {
+        self.check_snapshot(snapshot)?;
+        validate_request(&request.identity)?;
+        self.run(timeout, async {
+            let Some(record) = self.restart_return_candidate(&request.identity).await? else {
+                return Ok(None);
+            };
+            if !record.matches(request) {
+                return Err(FleetCatalogError::PayloadConflict);
+            }
+            let Some(applied) = self.restart_return_applied(snapshot, &record).await? else {
+                return Ok(None);
+            };
+            Ok(Some(FleetRestartReturnAdmission {
+                record,
+                applied,
+                observed: snapshot.revision(),
+            }))
+        })
+        .await
+    }
+
     async fn require_return_origin(&self, snapshot: &FleetSnapshot, gate: &Gate) -> Result<()> {
         if self
             .checked_restart_gate(snapshot, gate.request.operation)

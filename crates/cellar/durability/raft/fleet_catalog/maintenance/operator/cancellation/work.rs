@@ -25,6 +25,8 @@ pub(in super::super) async fn reconcile(
         blocked: None,
         ready: None,
         cancelled: None,
+        completed: None,
+        waiting: false,
     };
     if let Some(attempt) = attempt
         .as_ref()

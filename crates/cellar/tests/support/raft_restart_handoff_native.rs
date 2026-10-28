@@ -57,14 +57,18 @@ async fn survivor_leader(s: &Setup, excluded: usize) -> Result<usize> {
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             loop {
                 for (i, cell) in s.cells.iter().enumerate() {
-                    if i != excluded
-                        && cell
-                            .inspect()
-                            .await?
-                            .member
-                            .as_ref()
-                            .is_some_and(|m| m.is_leader)
-                    {
+                    if i == excluded {
+                        continue;
+                    }
+                    // A requested transfer can leave the serialized snapshot
+                    // temporarily unready. Keep the original polling deadline
+                    // and require an actual survivor leader, never backpressure.
+                    let observed = match cell.inspect().await {
+                        Ok(observed) => observed,
+                        Err(CommandFailure::Overloaded) => continue,
+                        Err(error) => return Err(error.into()),
+                    };
+                    if observed.member.as_ref().is_some_and(|m| m.is_leader) {
                         return Ok::<_, anyhow::Error>(i);
                     }
                 }

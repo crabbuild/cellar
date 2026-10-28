@@ -182,9 +182,12 @@ fn preflight_error(error: TransportError) -> FleetCatalogError {
         TransportError::Overloaded => FleetCatalogError::Overloaded,
         TransportError::Closed => FleetCatalogError::Closed,
         TransportError::Limit => FleetCatalogError::Limit,
-        TransportError::Refused | TransportError::Identity | TransportError::StalePeer => {
-            FleetCatalogError::Conflict
+        // Discovery lag has not invalidated the admitted lifecycle scope.
+        // Keep its exact child instead of forcing a new Ready/consent cycle.
+        TransportError::StalePeer => {
+            FleetCatalogError::Observation(crate::raft::inspection::InspectionError::StalePeer)
         }
+        TransportError::Refused | TransportError::Identity => FleetCatalogError::Conflict,
         _ => FleetCatalogError::Unconfirmed,
     }
 }

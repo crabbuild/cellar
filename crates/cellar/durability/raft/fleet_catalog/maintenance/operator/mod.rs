@@ -4,6 +4,11 @@
 mod attempt;
 mod cancellation;
 mod driver;
+mod lifecycle;
+pub use lifecycle::{
+    FleetRestartOperatorAction, FleetRestartOperatorActionAdmission,
+    FleetRestartOperatorActionRequest, FleetRestartOperatorCompleted,
+};
 mod records;
 mod service;
 mod status;
@@ -315,7 +320,8 @@ impl FleetCatalog {
                     && (c.key == records::ACTIVE
                         || c.key.starts_with(records::PREFIX)
                         || c.key.starts_with(attempt::PREFIX)
-                        || cancellation::protected(&c.key))
+                        || cancellation::protected(&c.key)
+                        || lifecycle::protected(&c.key))
             })
         {
             return Err(FleetCatalogError::Invalid("restart operator authority"));

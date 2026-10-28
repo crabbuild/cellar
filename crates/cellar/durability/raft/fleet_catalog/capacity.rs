@@ -45,7 +45,7 @@ impl FleetCapacityAttestation {
             && self.memory_swap_disabled == other.memory_swap_disabled
     }
 
-    pub(super) fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         self.boot
             .validate()
             .map_err(|_| FleetCatalogError::Invalid("capacity boot"))?;

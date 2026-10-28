@@ -52,6 +52,12 @@ member publications during upload; the physical batch stays owned through
 shutdown. Shared payloads still require verified coverage for each head, and
 producer, byte and replay-workspace bounds remain enforced.
 
+Managed fleet lifecycle operations currently require materialized images. Fleet
+binding and namespace declaration refuse extent-backed histories until their
+publication, inventory and physical archive proofs support extent commitments.
+Ordinary extent-backed Raft operation and recovery remain separate supported
+paths below; a materialized fleet proof never substitutes for an extent proof.
+
 The verification archive interface can store an exact committed extent snapshot
 through `CellArchive::store_root_snapshot` and load its immutable
 `RootArchiveReference` through `load_root_snapshot_at`. A bounded metadata object

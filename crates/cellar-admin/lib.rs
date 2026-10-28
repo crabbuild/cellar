@@ -70,6 +70,10 @@ pub fn router(console: Console) -> Result<Router> {
             get(raft_maintenance::status),
         )
         .route(
+            "/fleets/{fleet}/raft/nodes/{node}/maintenance-actions",
+            post(raft_maintenance::action).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
             "/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance",
             post(raft_maintenance::prepare).layer(DefaultBodyLimit::max(16 * 1024)),
         )

@@ -177,6 +177,8 @@ impl RestartServiceWork {
             if progress.blocked.is_some()
                 || progress.ready.is_some()
                 || progress.cancelled.is_some()
+                || progress.completed.is_some()
+                || progress.waiting
             {
                 return Ok(false);
             }

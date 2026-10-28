@@ -28,14 +28,14 @@ pub use raft::{
     RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
     RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
     RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode,
-    RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceCancel, RaftFleetMaintenancePhase,
-    RaftFleetMaintenancePrepare, RaftFleetMaintenanceStatus, RaftFleetMovement, RaftFleetMovements,
-    RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance, RaftFleetNodeAction,
-    RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity, RaftFleetNodeDescriptor,
-    RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus,
-    RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode,
-    RaftFleetStatus, RaftFleetVerificationBlocker, RaftFleetVerificationReason,
-    RaftFleetVerificationStage,
+    RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction, RaftFleetMaintenanceCancel,
+    RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare, RaftFleetMaintenanceReturnContext,
+    RaftFleetMaintenanceStatus, RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace,
+    RaftFleetNamespaceScope, RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission,
+    RaftFleetNodeCancel, RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
+    RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
+    RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
+    RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
 };
 pub use raft_stop::{RaftStopHandoff, RaftStopOwners, RaftStopProof};
 mod routing;

@@ -186,25 +186,33 @@ impl FleetCatalog {
         validate_request(&request.identity)?;
         self.run(timeout, async {
             let current = self.inner.current().await?;
-            let (record, gate) = self
-                .restart_stop_candidate(request.identity.id, request.identity.operation)
-                .await?
-                .ok_or(FleetCatalogError::Unconfirmed)?;
-            if !record.matches(request, &gate) {
-                return Err(FleetCatalogError::PayloadConflict);
-            }
-            if self
-                .restart_stop_applied(&current, &record)
-                .await?
-                .is_none()
-            {
-                return Err(FleetCatalogError::Unconfirmed);
-            }
-            self.restart_stop_ready(&record, &gate).await?;
-            let selector = record.selector(&gate)?;
-            self.closure_sink(&selector)?.verify(&selector).await
+            self.restart_stop_closure_inner(&current, request).await
         })
         .await
+    }
+
+    pub(in crate::raft::fleet_catalog::maintenance) async fn restart_stop_closure_inner(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRestartStopRequest,
+    ) -> Result<VerifiedFleetClosure> {
+        let (record, gate) = self
+            .restart_stop_candidate(request.identity.id, request.identity.operation)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if !record.matches(request, &gate) {
+            return Err(FleetCatalogError::PayloadConflict);
+        }
+        if self
+            .restart_stop_applied(snapshot, &record)
+            .await?
+            .is_none()
+        {
+            return Err(FleetCatalogError::Unconfirmed);
+        }
+        self.restart_stop_ready(&record, &gate).await?;
+        let selector = record.selector(&gate)?;
+        self.closure_sink(&selector)?.verify(&selector).await
     }
 
     pub(in crate::raft::fleet_catalog::maintenance) async fn checked_restart_stop(

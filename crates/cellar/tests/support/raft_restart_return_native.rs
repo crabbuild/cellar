@@ -22,7 +22,9 @@ async fn offline(s: &mut Setup, p: usize) -> Result<(Running, FleetRestartReturn
             || matches!(
                 result,
                 Err(FleetCatalogError::Closed | FleetCatalogError::Unconfirmed)
-            )
+            ),
+        "maintenance stop refused: {:?}",
+        result.as_ref().err()
     );
     let mut target = s.nodes.remove(p);
     joined(&mut target.node, &s.f).await?;

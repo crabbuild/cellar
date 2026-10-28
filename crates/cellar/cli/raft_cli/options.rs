@@ -4,7 +4,10 @@
 use super::*;
 use std::io::Read;
 
-pub(super) const HELP: &str = "cellar raft fleet nodes prepare-maintenance NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R --expected-process PROCESS --grace-seconds N --birth-resolution finish|cancel [--wait]
+pub(super) const HELP: &str = "cellar raft fleet nodes stop-maintenance NODE --operation-id OP --request-id REQUEST --expected-revision R --expected-process PROCESS --stop-id STOP [--wait]
+cellar raft fleet nodes return-maintenance NODE --operation-id OP --request-id REQUEST --expected-revision R --next-process PROCESS [--wait]
+cellar raft fleet nodes resume-maintenance NODE --operation-id OP --request-id REQUEST --expected-revision R --attestation CAPACITY.json --resume-id RESUME [--wait]
+cellar raft fleet nodes prepare-maintenance NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R --expected-process PROCESS --grace-seconds N --birth-resolution finish|cancel [--wait]
 cellar raft fleet nodes cancel-maintenance NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R --fence-id FENCE [--wait]
 cellar raft fleet nodes maintenance-status OP [--wait]
 cellar raft fleet nodes evacuate NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R
@@ -35,6 +38,7 @@ Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 5 unavailable/unknown outcome, 6 wait timeout.";
 
 pub(super) enum Action {
+    GrantMaintenance(String, Box<RaftFleetMaintenanceAction>),
     MaintenanceStatus(String),
     PrepareMaintenance(String, Box<RaftFleetMaintenancePrepare>),
     CancelMaintenance(String, Box<RaftFleetMaintenanceCancel>),
@@ -98,6 +102,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut expected_revision = None;
     let mut request_id = None;
     let mut expected_process = None;
+    let mut next_process = None;
+    let mut resume_id = None;
     let mut stop_id = None;
     let mut fence_id = None;
     let mut grace_seconds = None;
@@ -129,6 +135,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--operation-id" => set(&mut operation_id, value)?,
             "--request-id" => set(&mut request_id, value)?,
             "--expected-process" => set(&mut expected_process, value)?,
+            "--next-process" => set(&mut next_process, value)?,
+            "--resume-id" => set(&mut resume_id, value)?,
             "--stop-id" => set(&mut stop_id, value)?,
             "--fence-id" => set(&mut fence_id, value)?,
             "--grace-seconds" => set(
@@ -210,7 +218,10 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             | "nodes_remove"
             | "nodes_cancel-evacuation"
             | "nodes_prepare-maintenance"
-            | "nodes_cancel-maintenance"),
+            | "nodes_cancel-maintenance"
+            | "nodes_stop-maintenance"
+            | "nodes_return-maintenance"
+            | "nodes_resume-maintenance"),
             Some(node),
         ) if cursor.is_none() => {
             validate_id(&node)?;
@@ -230,6 +241,40 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             };
             request.validate()?;
             match verb {
+                "nodes_stop-maintenance"
+                | "nodes_return-maintenance"
+                | "nodes_resume-maintenance" => {
+                    let action = match verb {
+                        "nodes_stop-maintenance" => RaftFleetMaintenanceAction::Stop {
+                            operation: request,
+                            expected_process: expected_process
+                                .take()
+                                .ok_or_else(|| invalid("--expected-process is required"))?,
+                            stop_id: stop_id
+                                .take()
+                                .ok_or_else(|| invalid("--stop-id is required"))?,
+                        },
+                        "nodes_return-maintenance" => RaftFleetMaintenanceAction::Return {
+                            operation: request,
+                            next_process: next_process
+                                .take()
+                                .ok_or_else(|| invalid("--next-process is required"))?,
+                        },
+                        _ => RaftFleetMaintenanceAction::Resume {
+                            operation: request,
+                            attestation: Box::new(
+                                attestation
+                                    .take()
+                                    .ok_or_else(|| invalid("--attestation is required"))?,
+                            ),
+                            resume_id: resume_id
+                                .take()
+                                .ok_or_else(|| invalid("--resume-id is required"))?,
+                        },
+                    };
+                    action.validate()?;
+                    Action::GrantMaintenance(node, Box::new(action))
+                }
                 "nodes_prepare-maintenance" => {
                     let request = RaftFleetMaintenancePrepare {
                         operation: request,
@@ -392,6 +437,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || attestation.is_some()
         || request_id.is_some()
         || expected_process.is_some()
+        || next_process.is_some()
+        || resume_id.is_some()
         || stop_id.is_some()
         || fence_id.is_some()
         || grace_seconds.is_some()

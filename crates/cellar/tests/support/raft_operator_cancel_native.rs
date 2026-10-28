@@ -92,11 +92,11 @@ async fn cancelled_birth(f: &Scenario, tag: u8) -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_operator_cancels_stale_departure_and_restarts_with_fresh_proof() -> Result<()> {
-    Box::pin(cancel_and_restart()).await
+    let f = Box::pin(Scenario::new(true)).await?;
+    Box::pin(cancel_and_restart(f)).await
 }
 
-async fn cancel_and_restart() -> Result<()> {
-    let mut f = Box::pin(Scenario::new(true)).await?;
+async fn cancel_and_restart(mut f: Scenario) -> Result<()> {
     let mut admin = server(&f).await?;
     let node = hex::encode([4; 16]);
     redistribute(&mut f, &admin, &node).await?;

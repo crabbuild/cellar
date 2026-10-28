@@ -17,6 +17,15 @@ pub(super) enum Stage {
     Settle,
     Verify,
     AwaitStop { ready: FleetRequestIdentity },
+    ConsentStop { ready: FleetRequestIdentity },
+    Stopping,
+    AwaitReturn,
+    Returning,
+    AwaitReturned,
+    VerifyResume,
+    Resuming,
+    VerifyComplete,
+    Finishing,
     Cancel { gated: bool },
 }
 
@@ -31,6 +40,7 @@ pub(super) struct Attempt {
     predecessor: Option<[u8; 16]>,
     input_root: [u8; 32],
     pub stage: Stage,
+    pub facts: lifecycle::Facts,
 }
 
 pub(super) fn identity(revision: u64, operation: [u8; 16]) -> Result<FleetRequestIdentity> {
@@ -71,13 +81,57 @@ impl Attempt {
         {
             return Err(FleetCatalogError::Corrupt("maintenance driver attempt"));
         }
-        if let Stage::AwaitStop { ready: parent } | Stage::Quiesce { gate: parent } = &self.stage {
+        self.facts.validate(self.request.operation)?;
+        if let Stage::ConsentStop { ready: parent }
+        | Stage::AwaitStop { ready: parent }
+        | Stage::Quiesce { gate: parent } = &self.stage
+        {
             validate_request(parent)?;
             if parent.operation != self.request.operation
                 || parent.expected_revision >= self.journal.expected_revision
             {
                 return Err(FleetCatalogError::Corrupt("maintenance driver readiness"));
             }
+        }
+        let needs_stop = matches!(
+            self.stage,
+            Stage::Stopping
+                | Stage::AwaitReturn
+                | Stage::Returning
+                | Stage::AwaitReturned
+                | Stage::VerifyResume
+                | Stage::Resuming
+                | Stage::VerifyComplete
+                | Stage::Finishing
+        );
+        let needs_offline = matches!(
+            self.stage,
+            Stage::AwaitReturn
+                | Stage::Returning
+                | Stage::AwaitReturned
+                | Stage::VerifyResume
+                | Stage::Resuming
+                | Stage::VerifyComplete
+                | Stage::Finishing
+        );
+        let needs_return = matches!(
+            self.stage,
+            Stage::AwaitReturned
+                | Stage::VerifyResume
+                | Stage::Resuming
+                | Stage::VerifyComplete
+                | Stage::Finishing
+        );
+        if needs_stop && self.facts.stop.is_none()
+            || needs_offline && self.facts.offline.is_none()
+            || needs_return && self.facts.returning.is_none()
+            || matches!(
+                self.stage,
+                Stage::Resuming | Stage::VerifyComplete | Stage::Finishing
+            ) && self.facts.resume.is_none()
+            || matches!(self.stage, Stage::Finishing) && self.facts.completion.is_none()
+        {
+            return Err(FleetCatalogError::Corrupt("operator lifecycle stage"));
         }
         Ok(())
     }
@@ -150,6 +204,18 @@ impl FleetCatalog {
         expected: Option<[u8; 16]>,
         stage: Stage,
     ) -> Result<()> {
+        self.claim_restart_operator_step(snapshot, record, expected, stage, None)
+            .await
+    }
+
+    pub(super) async fn claim_restart_operator_step(
+        &self,
+        snapshot: &FleetSnapshot,
+        record: &Record,
+        expected: Option<[u8; 16]>,
+        stage: Stage,
+        facts: Option<lifecycle::Facts>,
+    ) -> Result<()> {
         let active = self
             .active_restart_operator_inner(snapshot)
             .await?
@@ -165,6 +231,14 @@ impl FleetCatalog {
         match (&stage, cancellation) {
             (Stage::Cancel { .. }, Some(command))
                 if command.execution == previous.as_ref().map(|a| a.request.operation) => {}
+            (Stage::Stopping, Some(_))
+                if self
+                    .operator_joined_stop(snapshot, record, previous.as_ref())
+                    .await? => {}
+            (_, Some(command))
+                if self
+                    .operator_cancel_refused(snapshot, record, &command)
+                    .await? => {}
             (Stage::Cancel { .. }, _) | (_, Some(_)) => return Err(FleetCatalogError::Conflict),
             _ => (),
         }
@@ -207,6 +281,11 @@ impl FleetCatalog {
             predecessor: expected,
             input_root: hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?),
             stage,
+            facts: facts.unwrap_or_else(|| {
+                previous
+                    .as_ref()
+                    .map_or_else(lifecycle::Facts::default, |a| a.facts.clone())
+            }),
         };
         attempt.validate(record)?;
         self.commit_with_disruption(

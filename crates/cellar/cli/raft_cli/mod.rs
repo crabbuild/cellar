@@ -40,6 +40,9 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::GrantMaintenance(node, request) => {
+            maintenance::submit_action(&client, node, request, options.wait, options.timeout).await
+        }
         Action::MaintenanceStatus(operation) => {
             maintenance::status(
                 &client,

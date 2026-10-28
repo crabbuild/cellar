@@ -22,8 +22,10 @@ use cellar_logic::consensus::{NodeId, ProcessGeneration, ProposalId};
 pub use gate::{FleetRestartGateAdmission, FleetRestartGateRequest};
 pub use gate_cancel::FleetRestartGateCancelRequest;
 pub use operator::{
-    FleetRestartOperatorAdmission, FleetRestartOperatorCancelAdmission,
-    FleetRestartOperatorCancelRequest, FleetRestartOperatorCancelled, FleetRestartOperatorDriver,
+    FleetRestartOperatorAction, FleetRestartOperatorActionAdmission,
+    FleetRestartOperatorActionRequest, FleetRestartOperatorAdmission,
+    FleetRestartOperatorCancelAdmission, FleetRestartOperatorCancelRequest,
+    FleetRestartOperatorCancelled, FleetRestartOperatorCompleted, FleetRestartOperatorDriver,
     FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
     FleetRestartOperatorStatus, FleetRestartService, FleetRestartServiceOptions,
     FleetRestartServiceStatus,

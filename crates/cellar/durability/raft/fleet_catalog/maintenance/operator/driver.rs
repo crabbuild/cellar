@@ -23,6 +23,14 @@ pub enum FleetRestartOperatorPhase {
     CancelRequested,
     Cancelling,
     Cancelled,
+    Stopping,
+    Offline,
+    Returning,
+    AwaitReturned,
+    VerifyingResume,
+    Resuming,
+    Completing,
+    Complete,
 }
 
 pub struct FleetRestartOperatorProgress {
@@ -35,6 +43,8 @@ pub struct FleetRestartOperatorProgress {
     /// Historical assessment; guarded stop must renew actual current proof.
     pub ready: Option<FleetRestartReadyAdmission>,
     pub cancelled: Option<FleetRestartOperatorCancelled>,
+    pub completed: Option<FleetRestartOperatorCompleted>,
+    pub waiting: bool,
 }
 
 /// Explicitly constructed orchestration capability. The caller supplies a
@@ -46,6 +56,7 @@ pub struct FleetRestartOperatorDriver {
     pub(super) observer: RaftCells,
     pub(super) evidence: Option<Arc<dyn FleetMovementEvidence>>,
     session: Mutex<Option<Session>>,
+    resume_session: Mutex<Option<lifecycle::ResumeSession>>,
     busy: AtomicBool,
 }
 
@@ -58,12 +69,16 @@ struct Session {
 struct Lease<'a> {
     owner: &'a FleetRestartOperatorDriver,
     session: Option<Session>,
+    resume: Option<lifecycle::ResumeSession>,
 }
 
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
         if let Ok(mut slot) = self.owner.session.lock() {
             *slot = self.session.take();
+        }
+        if let Ok(mut slot) = self.owner.resume_session.lock() {
+            *slot = self.resume.take();
         }
         self.owner.busy.store(false, Ordering::Release);
     }
@@ -78,6 +93,13 @@ impl Stage {
             Self::Verify => FleetRestartOperatorPhase::Verifying,
             Self::AwaitStop { .. } => FleetRestartOperatorPhase::Ready,
             Self::Cancel { .. } => FleetRestartOperatorPhase::Cancelling,
+            Self::ConsentStop { .. } | Self::Stopping => FleetRestartOperatorPhase::Stopping,
+            Self::AwaitReturn => FleetRestartOperatorPhase::Offline,
+            Self::Returning => FleetRestartOperatorPhase::Returning,
+            Self::AwaitReturned => FleetRestartOperatorPhase::AwaitReturned,
+            Self::VerifyResume => FleetRestartOperatorPhase::VerifyingResume,
+            Self::Resuming => FleetRestartOperatorPhase::Resuming,
+            Self::VerifyComplete | Self::Finishing => FleetRestartOperatorPhase::Completing,
         }
     }
 }
@@ -98,6 +120,7 @@ impl FleetRestartOperatorDriver {
             observer,
             evidence,
             session: Mutex::new(None),
+            resume_session: Mutex::new(None),
             busy: AtomicBool::new(false),
         })
     }
@@ -109,17 +132,23 @@ impl FleetRestartOperatorDriver {
         let mut lease = Lease {
             owner: self,
             session: None,
+            resume: None,
         };
         lease.session = self
             .session
             .lock()
             .map_err(|_| FleetCatalogError::Closed)?
             .take();
+        lease.resume = self
+            .resume_session
+            .lock()
+            .map_err(|_| FleetCatalogError::Closed)?
+            .take();
         Ok(lease)
     }
 
-    /// Prepare at most one Root child or one physical/history step. It never
-    /// consents to stop, boots a process, opens admission or releases capacity.
+    /// Advance at most one durable child or physical/history step under the
+    /// separately admitted human grants and current SDK proof requirements.
     pub fn reconcile(
         &self,
         timeout: Duration,
@@ -134,6 +163,7 @@ impl FleetRestartOperatorDriver {
                 .await?
             else {
                 lease.session = None;
+                lease.resume = None;
                 return Ok(None);
             };
             let record = &admission.record;
@@ -150,14 +180,6 @@ impl FleetRestartOperatorDriver {
                     catalog.operator_cancel_command(&root, record),
                 )
                 .await?;
-            if let Some(command) = cancellation {
-                lease.session = None;
-                return super::cancellation::reconcile(
-                    self, &root, admission, attempt, command, &deadline,
-                )
-                .await
-                .map(Some);
-            }
             let mut value = FleetRestartOperatorProgress {
                 phase: attempt
                     .as_ref()
@@ -168,8 +190,74 @@ impl FleetRestartOperatorDriver {
                 blocked: None,
                 ready: None,
                 cancelled: None,
+                completed: None,
+                waiting: false,
                 admission,
             };
+            if let Some(command) = cancellation {
+                let refused = catalog
+                    .run(
+                        deadline.remaining()?,
+                        catalog.operator_cancel_refused(&root, &value.admission.record, &command),
+                    )
+                    .await?;
+                if !refused {
+                    if let Some(attempt) = attempt.as_ref().filter(|a| a.facts.offline.is_some()) {
+                        catalog
+                            .run(
+                                deadline.remaining()?,
+                                catalog.refuse_operator_cancel(
+                                    &root,
+                                    &value.admission.record,
+                                    attempt,
+                                    &command,
+                                ),
+                            )
+                            .await?;
+                        value.phase = FleetRestartOperatorPhase::Offline;
+                        return Ok(Some(value));
+                    }
+                    let joined = catalog
+                        .run(
+                            deadline.remaining()?,
+                            catalog.operator_joined_stop(
+                                &root,
+                                &value.admission.record,
+                                attempt.as_ref(),
+                            ),
+                        )
+                        .await?;
+                    if joined {
+                        let attempt = attempt.as_ref().ok_or(FleetCatalogError::Conflict)?;
+                        if !matches!(attempt.stage, Stage::Stopping) {
+                            lifecycle::step(
+                                self,
+                                &value.admission.record,
+                                attempt,
+                                Stage::Stopping,
+                                attempt.facts.clone(),
+                                &deadline,
+                            )
+                            .await?;
+                            value.phase = FleetRestartOperatorPhase::Stopping;
+                            return Ok(Some(value));
+                        }
+                    } else {
+                        lease.session = None;
+                        lease.resume = None;
+                        return super::cancellation::reconcile(
+                            self,
+                            &root,
+                            value.admission,
+                            attempt,
+                            command,
+                            &deadline,
+                        )
+                        .await
+                        .map(Some);
+                    }
+                }
+            }
             let Some(attempt) = attempt else {
                 catalog
                     .run(
@@ -184,6 +272,68 @@ impl FleetRestartOperatorDriver {
                     .await?;
                 return Ok(Some(value));
             };
+            if attempt.facts.stop.is_some()
+                && !matches!(
+                    attempt.stage,
+                    Stage::Stopping
+                        | Stage::AwaitReturn
+                        | Stage::Returning
+                        | Stage::AwaitReturned
+                        | Stage::VerifyResume
+                        | Stage::Resuming
+                        | Stage::VerifyComplete
+                        | Stage::Finishing
+                )
+            {
+                let joined = catalog
+                    .run(
+                        deadline.remaining()?,
+                        catalog.operator_joined_stop(
+                            &root,
+                            &value.admission.record,
+                            Some(&attempt),
+                        ),
+                    )
+                    .await?;
+                if joined {
+                    lease.session = None;
+                    lifecycle::step(
+                        self,
+                        &value.admission.record,
+                        &attempt,
+                        Stage::Stopping,
+                        attempt.facts.clone(),
+                        &deadline,
+                    )
+                    .await?;
+                    value.phase = FleetRestartOperatorPhase::Stopping;
+                    return Ok(Some(value));
+                }
+            }
+            if matches!(
+                attempt.stage,
+                Stage::ConsentStop { .. }
+                    | Stage::Stopping
+                    | Stage::AwaitReturn
+                    | Stage::Returning
+                    | Stage::AwaitReturned
+                    | Stage::VerifyResume
+                    | Stage::Resuming
+                    | Stage::VerifyComplete
+                    | Stage::Finishing
+            ) {
+                lease.session = None;
+                return lifecycle::reconcile(
+                    self,
+                    &root,
+                    &attempt,
+                    value,
+                    &mut lease.resume,
+                    &deadline,
+                )
+                .await
+                .map(Some);
+            }
             if lease
                 .session
                 .as_ref()
@@ -192,6 +342,17 @@ impl FleetRestartOperatorDriver {
                 lease.session = None;
             }
             match &attempt.stage {
+                Stage::ConsentStop { .. }
+                | Stage::Stopping
+                | Stage::AwaitReturn
+                | Stage::Returning
+                | Stage::AwaitReturned
+                | Stage::VerifyResume
+                | Stage::Resuming
+                | Stage::VerifyComplete
+                | Stage::Finishing => {
+                    return Err(FleetCatalogError::Corrupt("unrouted lifecycle step"))
+                }
                 Stage::Cancel { .. } => {
                     return Err(FleetCatalogError::Corrupt("missing operator cancellation"))
                 }
@@ -255,7 +416,26 @@ impl FleetRestartOperatorDriver {
                     {
                         Ok(()) => {
                             value.checked_histories = assessment.candidate().histories();
-                            value.ready = Some(assessment);
+                            let grant = catalog
+                                .run(
+                                    deadline.remaining()?,
+                                    catalog.operator_action(&root, &value.admission.record, "stop"),
+                                )
+                                .await?;
+                            if grant.is_some() {
+                                self.advance(
+                                    &value.admission.record,
+                                    &attempt,
+                                    Stage::ConsentStop {
+                                        ready: ready.clone(),
+                                    },
+                                    &deadline,
+                                )
+                                .await?;
+                                value.phase = FleetRestartOperatorPhase::Stopping;
+                            } else {
+                                value.ready = Some(assessment);
+                            }
                         }
                         Err(FleetCatalogError::Conflict) => {
                             self.advance(

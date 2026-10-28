@@ -57,7 +57,7 @@ with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
 explicit principal provisioning.
 
-## Managed Raft maintenance preparation
+## Managed Raft maintenance
 
 `POST /api/v1/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance` requires
 `fleet_maintenance`; cancellation at `cancel-maintenance` requires `fleet_cancel`.
@@ -67,9 +67,15 @@ performs no execution or metadata mutation. Configure and retain the explicit
 Node-owned `RaftFleetControl::start_maintenance_service` in the embedding host;
 HTTP requests and ordinary dashboard construction do not start a controller.
 
-The shipped CLI supports prepare/cancel/status and read-only waiting. Separate
-maintenance stop/return/resume management commands remain unfinished. See the
-[operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#maintenance-preparation-and-cancellation)
+The CLI supports prepare/cancel/status and independent stop/return/resume grants
+with read-only waiting. `POST /nodes/{node}/maintenance-actions` requires
+`fleet_stop` for stop, `fleet_maintenance` for return, and both `fleet_maintenance`
+and `fleet_capacity` for resume. Each grant is audited before dispatch. Stop
+waits for signed joined offline confirmation; return exposes canonical retained
+startup context; resume waits for verified M9 and terminal operator completion.
+The platform starts the retained process separately. Grace/rolling/second-failure
+policy and extent-backed fleet lifecycle proofs remain unfinished. See the
+[operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#intact-maintenance-operator-workflow)
 for payload scope, grants, reconciliation and current limits.
 
 ## Managed Raft placement operations

@@ -4,7 +4,8 @@
 mod records;
 mod work;
 use super::*;
-use records::{Command, Effect, Terminal, COMMAND_KIND, TERMINAL_KIND};
+pub(super) use records::Command;
+use records::{Effect, Terminal, COMMAND_KIND, TERMINAL_KIND};
 
 #[derive(Clone, Debug)]
 pub struct FleetRestartOperatorCancelRequest {
@@ -269,7 +270,7 @@ impl FleetCatalog {
         Ok(Some(command))
     }
 
-    async fn operator_journal(
+    pub(in crate::raft::fleet_catalog::maintenance::operator) async fn operator_journal(
         &self,
         snapshot: &FleetSnapshot,
         mutation: &FleetMutation,

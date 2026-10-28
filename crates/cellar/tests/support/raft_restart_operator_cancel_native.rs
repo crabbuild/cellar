@@ -27,7 +27,7 @@ pub(super) async fn begin(s: &Setup, p: usize) -> Result<FleetRestartOperatorReq
     Ok(request)
 }
 
-async fn ready(
+pub(super) async fn ready(
     s: &Setup,
     controller: &FleetRestartOperatorDriver,
 ) -> Result<FleetRestartReadyAdmission> {
@@ -54,7 +54,7 @@ async fn ready(
         .await??
 }
 
-async fn cancelled(
+pub(super) async fn cancelled(
     s: &Setup,
     controller: &FleetRestartOperatorDriver,
     original: &FleetRestartOperatorRequest,
