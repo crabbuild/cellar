@@ -444,5 +444,7 @@ permanent fence and exact archive reference select a new birth; fresh voters
 replay the image and committed LTX tail before attaching. Pending old-origin
 outbox rows refuse admission; reconciliation remains a separate unfinished
 operation. A caller boolean or object-store flag cannot fence an old live quorum.
+The real RustFS drill qualifies materialized images after loss of all three voter
+disks. Extent-backed namespaces refuse before intent publication or fencing.
 Platform-specific production fencing and fleet-wide consistent restore cuts
 remain outside this component's qualification.

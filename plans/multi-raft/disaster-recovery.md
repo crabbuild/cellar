@@ -117,7 +117,54 @@ restart. Owned surviving containers stop at the end; new volumes and private
 logs remain for inspection. Only the invocation's original voter disks are
 deleted. Unit tests separately exercise changed ownership and unconfirmed stops.
 
-Validation results are recorded after the experiment completes. Local VM results
-do not qualify independent failure domains, Amazon S3, production infrastructure
-fencing, pending-outbox reconciliation, fleet-wide atomic restore, capacity or an
-RTO service-level objective.
+## Qualification on 2026-10-28
+
+The final destructive run passed at source
+`a86490bb4869b7f71f8d5133f6ad915094233670`, after merging `main` at `5998b82c`.
+The immutable native image was
+`sha256:ea1674877860b4071d62bf456158e5f928a4237ab53a67521b10fbf7aeca66d4`.
+It used actual RustFS pinned to
+`sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858`,
+three voter processes and 24 groups in one eight-CPU Colima VM.
+
+| Check | Verified result |
+| --- | --- |
+| Before loss | 216 S3-durable acknowledgements; independent state model |
+| Selected archive cuts | Snapshot index 3 through committed index 11 in every group |
+| Infrastructure fence | All three original container IDs removed and all three voter volumes deleted; absence confirmed before signing |
+| Recovery | Fresh group, incarnation, node and disk identities; all 72 replica states matched |
+| Authority failures | Missing and forged certificates refused; identical completed recovery retried successfully |
+| Client continuity | 72 old-version-token refusals, 24 original receipt retries, 24 new S3-durable writes |
+| Post-recovery checks | 72 matching states after new writes; stale old-configuration startup failed specifically with `Fenced` |
+| Restart | 72 matching states after ordinary retained-disk restart; another independent restart checked both `served_by` and state on all 72 replicas |
+| Shutdown | All surviving owned processes stopped, no OOM; normal processes exited 0 and the refused old host exited 1 |
+
+Recovery publication through initial state/token verification took 7.71 seconds
+in this run. This excludes fencing and disk deletion, includes the identical
+operator retry, and is an observed interval rather than a recovery-time target.
+Other host workloads were present. The earlier successful run on merged source
+`26e8c9dd` observed 9.92 seconds at the same measurement boundary.
+
+At the final source, 195 affected integration cases and the outbox refusal unit
+test passed with the default thread stack (four concurrent integration tests).
+Four ignored process helpers run through their parent matrices; an opt-in
+extent/RustFS case remains unrun. Clippy with warnings denied passed for the
+library, five integration targets and the measurement binary. Formatting/layout
+covered 1,358 Rust files; dependency isolation and documentation checks passed.
+The Python harness suite passed 257 cases with one existing opt-in skip.
+
+Validation found and fixed a fixture retry-window error and a native startup
+stack regression. The latter reproduced on this branch, passed on unmodified
+`main`, and passed with the default stack after boxing catalog history traversal.
+An archive coalescing assertion and a partial-body injection assertion initially
+missed their timing conditions under concurrent load; both passed unchanged in
+the final complete suite. The initial VM loss happened before fixture creation.
+These attempts and the successful final run are retained in the
+[sanitized results and raw-evidence hashes](evidence/MR-13-disaster-recovery-progress.json).
+Private configuration, ledgers and stopped new volumes remain available locally.
+
+MR-13 remains open. This qualifies the materialized-image component and Docker
+controller boundary. It does not qualify independent failure domains, Amazon S3,
+production infrastructure fencing, extent-backed disaster seeding, pending-outbox
+reconciliation, fleet-wide atomic restore, capacity, an exhaustive new crash
+matrix, or an RTO service-level objective.
