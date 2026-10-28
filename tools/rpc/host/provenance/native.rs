@@ -56,6 +56,23 @@ impl Native {
             }
             _ => return Err(internal()),
         };
+        let child = if mode == "child" {
+            json!({"code":failure.code(),"outcome":failure.outcome()})
+        } else {
+            Value::Null
+        };
+        self.record(context, id, mode, child)?;
+        Err(failure)
+    }
+
+    pub(super) fn record(
+        &self,
+        context: &Context,
+        id: &str,
+        mode: &str,
+        child: Value,
+    ) -> Result<(), rpc::Failure> {
+        let internal = || rpc::Failure::new(rpc::Code::Internal);
         let storage = context.storage().map_err(|_| internal())?;
         let count = storage
             .get_json("count")
@@ -71,8 +88,8 @@ impl Native {
         }
         *state = Some(
             json!({"ready":true,"id":id,"mode":mode,"parent_active":true,"count":count,"receipt":receipt,
-            "child":if mode == "child" {json!({"code":failure.code(),"outcome":failure.outcome()})} else {Value::Null}}),
+            "child":child}),
         );
-        Err(failure)
+        Ok(())
     }
 }

@@ -131,6 +131,7 @@ async fn rpc_reuse_retires_an_old_tunnel_before_delayed_submission_crosses_idle_
                     "example.counter.v1.Counter/GetCount",
                     &args,
                     RpcControl {
+                        reservation: None,
                         request_id: None,
                         authority: None,
                         deadline_ms: None,

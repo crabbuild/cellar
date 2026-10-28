@@ -22,3 +22,6 @@ prost-build.workspace = true
 serde_json.workspace = true
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 syn = { workspace = true, features = ["full", "visit"] }
+
+[dev-dependencies]
+tempfile.workspace = true

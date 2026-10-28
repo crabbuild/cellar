@@ -64,6 +64,31 @@ fn contract(limits: Limits) -> Contract {
 }
 
 #[test]
+fn response_transport_allowance_carries_full_business_bytes_and_tiny_budget_refusals() {
+    let digest = "a".repeat(64);
+    for max_message_bytes in [128, 4096, 16 * 1024 * 1024] {
+        let limits = Limits {
+            max_message_bytes,
+            max_elements: 1,
+            max_decoded_slots: 1,
+            ..Default::default()
+        };
+        let maximum = envelope::response_transport_limit(limits);
+        for result in [
+            Ok(vec![0; max_message_bytes]),
+            Err(Failure::refused(Code::ResourceExhausted)),
+        ] {
+            let reply = envelope::reply(&digest, result.clone(), limits).unwrap();
+            let RpcData::Structured(bytes) = &reply else {
+                panic!("typed reply is not binary")
+            };
+            assert!(bytes.len() <= maximum);
+            assert_eq!(decode_reply(&digest, &reply, limits), result);
+        }
+    }
+}
+
+#[test]
 fn incoming_resource_exhaustion_is_distinct_from_malformed_protobuf() {
     for (limits, bytes) in [
         (

@@ -24,9 +24,14 @@ async fn matrix(
                         vector.id
                     ))
                     .send()
-                    .await?;
+                    .await
+                    .with_context(|| {
+                        format!("profile {source} {caller}->{provider}/{} send", vector.id)
+                    })?;
                 let status = response.status();
-                let body = response.text().await?;
+                let body = response.text().await.with_context(|| {
+                    format!("profile {source} {caller}->{provider}/{} body", vector.id)
+                })?;
                 ensure!(
                     status.is_success(),
                     "profile {caller}->{provider}/{}: {status} {body}",

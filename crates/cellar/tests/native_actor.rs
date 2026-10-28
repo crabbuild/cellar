@@ -301,7 +301,7 @@ async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn embedded_production_actors_route_and_prove_writes_on_caller_executors() -> Result<()> {
-    let lease_trace = lease_trace::install();
+    let lease_trace = lease_trace::install(None);
     // These executors and their lifetime belong to the application.
     let first_core = Executor::new("application-core-a")?;
     let second_core = Executor::new("application-core-b")?;

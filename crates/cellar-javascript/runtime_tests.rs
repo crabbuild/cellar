@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::EventKind;
+use anyhow::Context as _;
 use serde_json::json;
 use std::time::Instant;
 
@@ -35,12 +36,18 @@ fn invocation(
 }
 
 fn event(receiver: &mut channel::Receiver<Event>) -> Event {
+    checked_event(receiver).expect("JavaScript invocation event failed")
+}
+
+fn checked_event(receiver: &mut channel::Receiver<Event>) -> Result<Event> {
     let until = Instant::now() + Duration::from_secs(5);
     loop {
         match receiver.try_recv() {
-            Ok(value) => return value,
-            Err(channel::error::TryRecvError::Disconnected) => panic!("engine closed prematurely"),
-            Err(_) => assert!(Instant::now() < until, "engine stalled"),
+            Ok(value) => return Ok(value),
+            Err(channel::error::TryRecvError::Disconnected) => {
+                anyhow::bail!("invocation event channel closed")
+            }
+            Err(_) => ensure!(Instant::now() < until, "invocation event channel stalled"),
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -78,7 +85,8 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
     JavaScriptRuntime::run(Options::default(), source(code), |app| {
         let runtime = &app.runtime;
         let invocation = runtime.id()?;
-        let mut receive = start(runtime, invocation, Arc::new(AtomicBool::new(true)));
+        let active = Arc::new(AtomicBool::new(true));
+        let mut receive = start(runtime, invocation, active.clone());
         let head = json!({"status":200,"headers":[],"body":""});
         for (name, value) in [
             ("container.exec", json!("1")),
@@ -119,12 +127,20 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
             ("container.websocket.close", json!(null)),
             ("container.release", json!(null)),
         ] {
+            let next = checked_event(&mut receive).with_context(|| {
+                format!(
+                    "named container awaiting {name}: stopped={} active={} usage={:?}",
+                    runtime.closed.load(Ordering::Acquire),
+                    active.load(Ordering::Acquire),
+                    runtime.usage(),
+                )
+            })?;
             let Event::Operation {
                 id,
                 name: actual,
                 payload,
                 ..
-            } = event(&mut receive)
+            } = next
             else {
                 anyhow::bail!("named facade failed before {name}");
             };
@@ -134,7 +150,7 @@ fn named_container_handles_keep_their_slot_on_every_followup() -> Result<()> {
             runtime.reply(invocation, id, json!({"ok":true,"value":value}).to_string())?;
         }
         assert!(matches!(
-            event(&mut receive),
+            checked_event(&mut receive).context("named container completion")?,
             Event::Complete { failed: false, .. }
         ));
         Ok(())
@@ -675,6 +691,15 @@ fn requested_shutdown(in_microtasks: bool) {
 
 #[test]
 fn runaway_javascript_terminates_and_joins() {
+    runaway("while(true) {}", "admission");
+}
+
+#[test]
+fn runaway_microtasks_keep_their_budget_observation() {
+    runaway("await Promise.resolve(); while(true) {}", "microtasks");
+}
+
+fn runaway(body: &str, phase: &str) {
     let started = Instant::now();
     let entered = AtomicBool::new(false);
     let result = JavaScriptRuntime::run(
@@ -682,7 +707,7 @@ fn runaway_javascript_terminates_and_joins() {
             turn_timeout: Duration::from_millis(40),
             ..Default::default()
         },
-        source("while(true) {}"),
+        source(body),
         |app| {
             entered.store(true, Ordering::Release);
             let mut receive = start(
@@ -699,9 +724,22 @@ fn runaway_javascript_terminates_and_joins() {
         "must test a running handler, not startup refusal"
     );
     assert!(result.is_err());
+    let error = result.unwrap_err();
     assert_eq!(
-        result.unwrap_err().root_cause().to_string(),
+        error.root_cause().to_string(),
         "JavaScript engine turn exceeded execution budget"
+    );
+    let diagnostic = format!("{error:#}");
+    assert!(
+        diagnostic.contains(&format!("phase={phase}")),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("observed_wall_us="), "{diagnostic}");
+    assert!(diagnostic.contains("engine_thread_cpu_us="), "{diagnostic}");
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    assert!(
+        !diagnostic.contains("engine_thread_cpu_us=unavailable"),
+        "engine thread CPU clock was unavailable: {diagnostic}"
     );
     assert!(started.elapsed() < Duration::from_secs(5));
 }
@@ -793,6 +831,7 @@ fn runaway_module_initialization_is_interrupted() {
         error.contains("startup application execution") && error.contains("execution budget"),
         "startup lost its watchdog cause: {error}"
     );
+    assert!(error.contains("phase=startup"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 

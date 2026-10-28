@@ -112,6 +112,33 @@ mod tests {
     use prost_types::{DescriptorProto, FileDescriptorProto};
 
     #[test]
+    fn native_allocation_fixture_matches_the_real_generator() {
+        use prost::Message;
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../rpc/fixtures");
+        let bytes = std::fs::read(fixture.join("native-layout.binpb")).unwrap();
+        let contract =
+            cellar::sdk::rpc::Contract::from_descriptor(&bytes, Default::default()).unwrap();
+        let descriptor = prost_types::FileDescriptorSet::decode(contract.descriptor()).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        generate(directory.path(), &descriptor, contract.descriptor()).unwrap();
+        let name = "cellar.rpc.native_layout.v1.rs";
+        assert_eq!(
+            std::fs::read(directory.path().join(name)).unwrap(),
+            std::fs::read(fixture.join("native-layout-generated/rust").join(name)).unwrap(),
+            "native allocation fixture must be regenerated with the pinned generator"
+        );
+        assert_eq!(
+            std::fs::read(fixture.join("native-layout-generated/contracts.binpb")).unwrap(),
+            contract.descriptor()
+        );
+        let inventory: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture.join("native-layout-generated/rpc.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(inventory, contract.inventory());
+    }
+
+    #[test]
     fn files_without_services_and_shared_packages_receive_graph_guards_once() {
         let files = [
             ("a.proto", "shared", "First"),

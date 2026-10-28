@@ -41,6 +41,18 @@ impl Head {
         }
     }
 
+    pub fn chunked(&mut self) -> Result<()> {
+        ensure!(
+            self.get("transfer-encoding").is_none(),
+            "reply is already chunked"
+        );
+        self.fields
+            .retain(|(name, _)| !name.eq_ignore_ascii_case("content-length"));
+        self.fields
+            .push(("transfer-encoding".into(), "chunked".into()));
+        self.rebuild()
+    }
+
     fn rebuild(&mut self) -> Result<()> {
         self.raw = format!("{}\r\n", self.first).into_bytes();
         for (key, value) in &self.fields {

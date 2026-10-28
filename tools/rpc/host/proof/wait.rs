@@ -81,13 +81,13 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
     case_inner(app, client, case).await.with_context(|| {
         format!(
             "proof-wait lease observations: {:?}",
-            lease_trace::install().snapshot()
+            lease_trace::install(None).snapshot()
         )
     })
 }
 
 async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Result<Value> {
-    let lease_trace = lease_trace::install();
+    let lease_trace = lease_trace::install(None);
     lease_trace.mark("proof-wait case start");
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;
@@ -255,6 +255,11 @@ async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -
             .is_err(),
         "caller returned before cancellation/deadline while proof was held"
     );
+    let response_held = owner.services().rpc_response_usage();
+    ensure!(
+        response_held.active_buffers > 0 && response_held.reserved_response_bytes > 64 * 1024,
+        "provider response admission disappeared while proof was withheld: {response_held:?}"
+    );
     if case.caller != "rust" {
         ensure!(
             request(
@@ -288,6 +293,14 @@ async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -
         controls.peers.is_held() && controls.data.is_held(),
         "proof was released before the cancellation cleanup audit"
     );
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while owner.services().rpc_response_usage() != Default::default() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .context("provider response admission survived caller cancellation while proof stayed held")?;
+    let response_settled = owner.services().rpc_response_usage();
     let live_after = if case.sync {
         watch.resume().await?
     } else {
@@ -378,6 +391,11 @@ async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -
         !ingress_visits.is_empty() && ingress_visits.iter().all(|visit| visit.node == source),
         "caller crossed execution domains"
     );
+    let response_after = owner.services().rpc_response_usage();
+    ensure!(
+        response_after == Default::default(),
+        "provider response admission survived explicit retries"
+    );
     fleet::stop(owner, ShutdownMode::Preserve).await?;
     fleet::stop(ingress, ShutdownMode::Preserve).await?;
     fleet::stop(replica, ShutdownMode::Preserve).await?;
@@ -390,6 +408,7 @@ async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -
         "peer_proof_held":peer_held,"bucket_proof_held":data_held,
         "baseline_count":baseline.to_string(),"local_count":observed.count_matching_storage,"expected_count":expected_text,"final_count":count["value"],
         "transaction_open":observed.transaction_open,"write_position":observed.write_position,
+        "response_usage_while_proof_held":response_held,"response_usage_after_caller_settled":response_settled,"response_usage_after_case":response_after,
         "handler_returned":!case.sync,"live_before":live_before,"live_after":live_after,
         "parent_live_during_cleanup":true,"proof_held_through_cleanup":true,"receipt_replayed":true,
         "automatic_replays":0,"owner_scope_epoch_verified":true,"remote_fleet_qualified":false}),

@@ -14,9 +14,10 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
 ```
 
-This runs 112 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+This runs 144 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
 source quotas over local/authenticated peer routing, receiving quotas over
-authenticated peer routing, and post-commit reply-byte refusal over peer routes.
+authenticated peer routing, post-commit reply-byte refusal over peer routes,
+and provider response capacity over local/peer routes.
 Source and receiving request admission have independent count and byte cases.
 V8 uses the generated TypeScript binding; Node uses plain JavaScript.
 The byte case retains the default 128-call quota and reduces only the byte
@@ -47,7 +48,7 @@ same-ID retries apply the refused command once; a changed command conflicts.
 Every node joins, including after a failed assertion. Receiving requests,
 reserved input bytes, tunnels and peer entries retire to zero. The separate auditor
 checks coverage, authority, counts, quotas and zero retained reservations and
-rejects seventeen corrupted reports. The suite also runs in the combined qualifier
+rejects twenty corrupted reports. The suite also runs in the combined qualifier
 and Linux lifecycle CI.
 
 The sixteen reply cases hold a generated call from each actual caller runtime.
@@ -167,6 +168,15 @@ explicitly, and runs both `3.14` and `3.14t`, including the full Counter/failure
 suite and separate portable profile. The original handler/operation budgets
 remain in force.
 
+The qualifier installs a stderr tracing subscriber before starting any runtime.
+CI sets `RUST_LOG=warn,cellar::actor::effects=info` to retain the core's existing
+lease attempt start/completion timings and watchdog fences. Use the same filter
+locally when diagnosing a fleet failure; the default is `warn`. These records
+contain node names, fixed outcomes and timing headroom, without RPC payloads.
+The logs supplement the case and cleanup auditors; they cannot establish that a
+failed call did not commit. Keep the original lease and operation budgets while
+investigating a failure.
+
 ```text
 Python imports application + generated codecs
                   |
@@ -195,6 +205,36 @@ evidence, including integer values masquerading as booleans. It checks mode
 and cleanup separately from case coverage: each suite's assertions and case
 auditors must also pass. A successful mode check does not establish full
 resource, packaging or release qualification.
+
+## Native storage and lease progress
+
+```sh
+cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
+cargo test --locked -p cellar --test native_local_store -- --test-threads=1
+```
+
+The checkpoint regression pauses a real main-database sync during an unrelated
+put or delete. A following lease CAS must finish within its original 333 ms
+attempt window and be readable before checkpoint I/O is released. The fixture
+leaves FULL WAL syncs enabled, retains the held put's native I/O reservation
+until cleanup, and joins entered work before retiring its private VFS. The
+public bucket race requires exactly one winner among 32 same-token updates,
+then checks the stored body/token and stale-token refusal after reopen.
+
+```text
+fair writer admission -> SQLite write transaction -> release admission
+                                                       |
+                                         FULL WAL commit -> checkpoint sync
+                                                       |        (held)
+next lease CAS -> SQLite write transaction -> FULL commit + visible readback
+```
+
+SQLite serializes each transaction through COMMIT. Cellar's admission mutex
+must not serialize the later checkpoint I/O as well. This follows SQLite's
+[WAL concurrency and checkpoint behavior](https://sqlite.org/wal.html).
+Neither a timeout nor a lost reply establishes rollback or permits replay.
+These controlled regressions address a specific storage bottleneck; fresh
+hosted and original-budget adapter regressions remain required.
 
 ## Generate the shared contract
 
@@ -361,6 +401,50 @@ clients and router response encoders use matching declarations instead of their
 embedded defaults; consumer-only Rust apps can use `Registry::rpc_contract`.
 Framework refusal envelopes have a fixed control budget so small business limits
 cannot turn a valid refusal into an invalid response.
+
+Native framework reply conversion validates the borrowed envelope, digest and
+control wire before allocating a business buffer. A successful result copies
+only its business body; wrong digests, invalid controls and oversized bodies
+are refused without copying that body. Failure text has a fixed pre-decode
+allowance. The allocation regression measures new allocator layouts separately
+from the already-owned input:
+
+```sh
+cargo test --locked -p cellar --test native_rpc_reply_allocation
+```
+
+This guard covers framework reply conversion. Business-message decoders, queued
+responses, shared backing allocations and process RSS require separate evidence.
+
+Ordinary peer value replies also use dense collection and yield after 64 frames
+or 64 KiB, including empty/trailer floods. They retain the generic forwarding
+ceiling; event controls keep their stricter 64 MiB ceiling. Oversize/allocation
+refusal after a successful ordinary reply head is `ResourceExhausted/unknown`,
+without a network-retry tag. Real transport failures keep their original tag.
+Typed callers additionally carry their declared response ceiling through their
+native reservation. Peer collection refuses an oversized declaration before
+polling the body, or stops streamed growth at that ceiling. The allowance is
+the business byte limit plus 1 KiB for each of the Protobuf and clone controls.
+Malformed or oversized typed replies remain `InvalidResponse/unknown`; typed
+methods also refuse resource-lease replies. Untyped values keep their allowance.
+Native Rust decoding additionally uses the host's shared decoder allowance and
+active-stack preflight. The generated native allocation fixture reproduces
+1.5 MiB of inline allocation from 256 wire bytes and exercises native provider
+and client refusal, large oneofs, default maps, saturation, cancellation and
+cross-thread refund after domain shutdown:
+
+```sh
+cargo test --locked -p cellar --test native_rpc_decode_allocation
+cargo test --locked -p cellar-rpc-codegen
+```
+
+Configure `RuntimePolicy.max_native_rpc_decode_bytes` and
+`max_native_rpc_stack_bytes` before starting a host. See the
+[resource policy reference](../../docs/11-configuration.md#library-defaults) for
+the allowance model and its limits. These guards cover the pinned generated
+Prost layout; arbitrary application memory and whole-process RSS remain outside
+their scope. Aggregate transport response pools and exact retained-copy/RSS
+qualification remain open.
 
 The generated inventory now records structural codec shapes. Provider startup
 compares live JS/Python descriptors with the native artifact before readiness;
@@ -591,7 +675,7 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
 ```
 
-All **80 cases** use generated clients: Rust, Python, embedded V8 and Node callers
+The **128-case suite** uses generated clients: Rust, Python, embedded V8 and Node callers
 against each of the four providers, at each fault below. The owner keeps real
 SQLite state, signed peer authentication and normal fleet durability proof.
 
@@ -607,7 +691,10 @@ generated client -> native source -> relay -> signed owner -> typed handler
 | Fault | Required result | Independent observations |
 | --- | --- | --- |
 | Close a warm RPC tunnel | Fresh signed upgrade; successful generated call | Exact method, request ID, remaining budget, scope and owner epoch; one handler entry |
+| Forward a request header and one body byte, then disconnect | `Unavailable/unknown`; no automatic replay | Real receiving count/byte admission precedes disconnect; zero business entry, unchanged count and zero retained source/receiving reservations |
 | Drop a complete successful owner reply | `Unavailable/unknown`; no automatic replay | Closed mutation transaction and exact stored count; one handler entry before explicit retries |
+| Replace a proven reply with an oversized declared body; withhold its bytes | `InvalidResponse/unknown` before the original deadline | Real owner commit/receipt observed first; no replay, successful explicit receipt retries |
+| Stream beyond the caller's reply ceiling; withhold the terminating chunk | `InvalidResponse/unknown` without waiting for the suffix | Same committed owner evidence; source enforces its limit while the body grows |
 | Change the inner method to an unregistered name | `MethodNotFound/not_committed` from the real owner | No additional factory or business-handler entry; unchanged count before explicit retry |
 | Add valid unknown fields beyond the receiving element cap | `ResourceExhausted/not_committed` | Caller validation still passes; five occurrences exceed the owner's four-element limit, within its byte limit; no handler entry |
 | Add one valid unknown byte field beyond the receiving byte cap | `ResourceExhausted/not_committed` | Caller validation still passes; three occurrences stay below the element cap, but exceed the owner's 128-byte limit; no handler entry |
@@ -615,10 +702,32 @@ generated client -> native source -> relay -> signed owner -> typed handler
 The owner snapshots a stricter native catalog (128 message bytes and four
 Protobuf occurrences) than the source's default limits. Its real Rust, Python,
 V8 and Node providers retain their generated implementations. The relay changes
-only one admitted wire request, validates it against the source contract, and
+one admitted wire request or one observed, proven reply. It validates the request against the source contract and
 preserves its method, operation ID, request ID, scope and remaining deadline.
-The independent report auditor checks the actual byte/element geometry and
-rejects ten corrupted-coverage, admission, provenance and cleanup reports.
+The independent report auditor checks actual byte/element geometry, partial
+upload admission, cleanup, response limits and failure provenance. Missing or
+forged observations refuse qualification; 23 corrupted reports must be rejected.
+
+```text
+generated call -> signed owner receives header + first body byte
+                                     |
+                           request/byte admission observed
+                                     |
+relay closes before suffix ----------+--> no business dispatch
+             |
+       Unavailable / unknown
+             |
+       source + receiving reservations retire
+             |
+       explicit same-ID retry -> one mutation + saved receipt
+```
+
+The prefix fault observes the actual receiving host before closing its socket;
+it does not substitute an error result. The owner never receives a complete
+business message. The source has submitted bytes, so the caller still receives
+an unknown outcome. The fixture checks that an SDK replay does not enter the
+handler, then makes its own explicit receipt retries. Cleanup is checked before
+fresh work as well as after the full node/relay join.
 
 Host admission borrows the encoded body instead of decoding a clone graph and
 copying its buffer merely to inspect it. It bounds envelope metadata to 1 KiB,
@@ -632,42 +741,52 @@ that same ID. Native audits verify execution stays on the original remote owner,
 scope and epoch. The relay checks the actual descriptor digest and Protobuf
 request/reply; a requested target or a guest error string cannot certify a case.
 
-The relay bounds inner headers to 16 KiB, bodies to 64 KiB and connection tasks
-to 128. It rejects unsupported inner framing. Ordinary outer HTTP requests ask
+The relay bounds observed inner headers to 16 KiB, ordinary bodies to 64 KiB and
+connection tasks to 128. The streamed overflow uses a fixed 4 KiB scratch buffer
+and sends only the declared caller ceiling plus one byte. Its selected response
+may use chunked framing; other observed traffic must use full-body framing.
+Ordinary outer HTTP requests ask
 the real server for `Connection: close`: an unrelated keepalive must not later
 hide an RPC upgrade inside an unobserved byte stream. Signed upgrade headers,
 request signatures, payloads and proof responses retain their production paths.
 These are fixture bounds, not evidence of production-wide memory limits.
 
 Successful reports require both native nodes to drain and every relay task and
-language runtime to join. The independent auditor verifies all 48 unique tuples
-and rejects six corrupted reports covering missing/duplicate pairs, forged
-rollback, business execution after refusal, invalid budgets and retained sockets.
+language runtime to join. The independent auditor requires all 128 unique tuples
+and probes missing/duplicate pairs, forged rollback, business execution after
+refusal or prefix loss, invalid budgets, fabricated prefix admission and retained
+source/receiving bytes or sockets.
 This suite runs in `all` and Linux lifecycle CI, which retains its raw report/log.
 
-This closes the described generated-client reconnect, reply-loss and method
-refusal boundaries with GIL CPython. The deliberate warm-tunnel close does not
+The described reconnect, reply-loss and receiving-refusal boundaries have both
+GIL and free-threaded evidence; the ledger records the source and pending
+qualification of the response-limit additions. The deliberate warm-tunnel close does not
 force every provably-unsent Hyper race; the native transport regression separately
 checks that retry preserves identity and decreases its original budget. Full
-admission/saturation, parser/RSS, portable-profile, free-threaded Python and
+admission/saturation, parser/RSS, remaining profile/interpreter modes and
 packaging qualification remain open.
 
 ## Failures after a parent commits
 
 ```sh
 cargo run --locked -p cellar-rpc-qualification --features full -- \
-  --suite provenance --report .cellar/rpc/provenance-matrix.json
+  --suite provenance --python-mode gil --report .cellar/rpc/provenance-matrix.json
+python3 tools/rpc/check_provenance.py .cellar/rpc/provenance-matrix.json
+cargo test --locked -p cellar --test native_rpc_failure_provenance -- --test-threads=1
 ```
 
-The T06 matrix executes **96 cases**: all 16 Rust/Python/V8/Node
+The T06 matrix executes **112 cases**. Its original 96 cover all 16 Rust/Python/V8/Node
 caller/provider pairs, local and signed-peer ingress, and three failures after
-the provider syncs its atomic count and receipt.
+the provider syncs its atomic count and receipt. Sixteen additional cases use
+every generated caller against a custom native cell that returns a raw envelope.
 
 | Failure inside the parent | Parent's caller receives |
 | --- | --- |
 | Generated child call expires before its own submission | `DeadlineExceeded/unknown` |
 | Exception claims `MethodNotFound` and `not_committed` | `MethodNotFound/unknown` |
 | Exception has an unrecognized private code | `Internal/unknown` |
+| Native cell fabricates a raw `not_committed` reply | `MethodNotFound/unknown` |
+| Native cell forwards an honest host refusal after its own write | `MethodNotFound/unknown` |
 
 ```text
 generated Increment -> parent commits exact i64 count + operation receipt
@@ -687,17 +806,44 @@ Its refusal is call-local evidence. The original parent must still read its
 own committed state before throwing, proving child expiry did not revoke the
 parent. Forged outcome accessors must never run. Fixed categories cross the
 guest completion channel; private text, unknown codes and outcome fields do not.
-The native dispatcher always assigns unknown effects to entered-handler errors.
+The native host also checks raw typed outputs from custom cells. Only its own
+catalog refusal before business construction may retain `not_committed`.
+
+```text
+typed request -> host catalog
+                   |
+           +-------+----------------+
+           |                        |
+     reject before factory     construct/invoke application
+           |                        |
+     not_committed           generated or raw failure reply
+                                    |
+                              host: unknown effects
+                                    |
+                              normal output proof
+```
+
+Raw failure normalization borrows the existing response buffer. Only a valid
+framework failure within the fixed 1 KiB control allowance is decoded and
+rewritten; successful business buffers retain their ownership. Non-minimal
+varints cannot bypass this rule. Malformed controls still fail as invalid
+responses, and untyped calls retain their original value behavior.
 
 Counts exceed JavaScript's exact-number range and are checked as canonical
 64-bit values. Native observations verify the actual caller node, provider
-owner, scope, epoch, four warmed factories and exactly three Increment entries
+owner, scope, epoch, six warmed factories and exactly three Increment entries
 (one original plus two explicit retries). No refused child is constructed and
 no mutation is automatically replayed. Reports publish after native/guest drains.
+Both raw-test objects are warmed before the peer joins, so caller location
+cannot silently change which route the test exercises. The standalone native
+regression also reopens the node and verifies durable receipts and safe retries.
 
-This covers a locally proven child refusal and forged exception metadata through
-real local/peer parent calls with GIL CPython. Broader peer/admission provenance,
-interpreter modes and resource/lifecycle qualification remain open.
+The independent auditor checks all pairs and exact counts and rejects missing
+coverage, false rollback, altered child proof, duplicate mutations, extra
+factories, changed authority and incomplete cleanup. The same check accepts a
+full `--suite all` report. Use `--python-mode free-threaded` with the corresponding
+interpreter build. Broader peer/admission provenance, resource/RSS, descriptor
+and package qualification retain their separate gates.
 
 ## Deadlines and cancellation during native construction
 

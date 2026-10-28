@@ -723,8 +723,11 @@ impl Context {
             name,
             method,
             args,
-            self.io.rpc_deadline_ms.get().copied(),
-            None,
+            crate::host_rpc::CallScope::in_context(
+                self,
+                self.io.rpc_deadline_ms.get().copied(),
+                None,
+            ),
         )
     }
 

@@ -86,6 +86,19 @@ pub(super) fn validate(cases: &[Value]) -> Result<()> {
                 && case["replica_members"] == json!(["proof-ingress", "proof-replica"]),
             "real proof or replica establishment was skipped"
         );
+        let held = &case["response_usage_while_proof_held"];
+        let zero = json!({"active_buffers":0,"reserved_response_bytes":0});
+        ensure!(
+            held["active_buffers"]
+                .as_u64()
+                .is_some_and(|count| count > 0)
+                && held["reserved_response_bytes"]
+                    .as_u64()
+                    .is_some_and(|bytes| bytes > 65536)
+                && case["response_usage_after_caller_settled"] == zero
+                && case["response_usage_after_case"] == zero,
+            "proof wait skipped retained response ownership or cancellation cleanup"
+        );
         let number = |key| -> Result<i64> {
             let value = text(key)?;
             let number = value.parse::<i64>()?;

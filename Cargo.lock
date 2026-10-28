@@ -453,6 +453,8 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -656,6 +658,7 @@ dependencies = [
  "prost-types",
  "serde_json",
  "syn 2.0.119",
+ "tempfile",
 ]
 
 [[package]]

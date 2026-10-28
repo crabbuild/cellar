@@ -218,7 +218,7 @@ export function handler(Client: Client, createController?: () => Controller) {
       }
       return jsonResponse({...result, count:current.count!.value.toString(), replay});
     }
-    const client = Client.bind(ctx, binding, "alice");
+    const client = Client.bind(ctx, binding, params.cell ?? "alice");
     if (path.endsWith("/capture")) { retained = client; return jsonResponse({captured:true}); }
     try {
       if (path.endsWith("/expired")) {
