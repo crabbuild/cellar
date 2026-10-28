@@ -551,6 +551,65 @@ faults, process crashes, disk stalls, sustained load and final captured-agent
 packages retain their open gates. These supplied-bucket/loopback-peer results do
 not imply production or cross-platform qualification.
 
+### JavaScript proof and closed-domain checkpoint
+
+The [Node/V8 proof profile](per-cell-filesystem-conformance.md#javascript-in-flight-proof-and-closed-domain-profile)
+passes all 40 cases on macOS arm64 with Rust 1.98.1 and Node 24.13.1. Five
+barriers cover file fsync/fdatasync, directory fsync, filesystem sync and output
+proof, each with the original handler deadline or an actual lease-mismatch
+fence, and Preserve/lease-expiry or rolling Handoff recovery under both engines.
+The supplied development bucket and authenticated loopback peers hold real
+publication/acknowledgement after a local atomic file/state/receipt batch.
+
+Before the fix, the coupled fsync/deadline case failed in both engines:
+synthesized expiry replies lacked the error string required by the strict
+filesystem validator, producing HostError/EIO/unknown. The four asynchronous and
+synchronous expiry producers now include that field. The validator and native
+durability behavior remain unchanged. Host retirement preserves
+ContextExpired/unknown; a native Storage/EIO/unknown proof failure may win the
+race. Both must retain the public operation and zero confirmed bytes. The
+initial full run's 39/40 result exposed the latter valid outcome and remains
+separate from the final formatted-source 40/40 qualification. Success, HostError
+and known-rollback claims are rejected.
+
+Each final case observes the original native future drop, then checks 32
+old-continuation refusals, coherent proven warm readback and reuse of all four
+host descriptor slots before predecessor shutdown. After the original domains
+join, a live successor makes another 32 stale calls. Each preserves fresh full
+metadata/usage, offsets, directory cookie and positional bytes; stale closes
+cannot release the successor's four occupied slots. Rust independently checks
+the full recovered payload and SHA-256 against business state and the receipt,
+including captured inode/version. Cold readback equals warm readback and a fresh
+write advances the same inode's version. All six native outcomes are checked;
+only the forced fence may be incomplete. Every joined guest host reports
+stopped=true, active_invocations=0 and retained_bytes=0.
+
+Task-local `.cellar/filesystem-javascript-proof-pr144-artifacts/` retains the
+before/after diagnostics and distinct initial/final manifests. `final-warm/`
+contains frozen final-source executables, all 40 proof reports, 85 passing
+JavaScript library cases and six passing filesystem integration cases. The
+compatibility run passes 140 JavaScript tooling cases, strict TypeScript
+declarations, two synchronous integration cases and one selected proof case in
+each single-engine build. Promoting the unchanged peer/bucket gates and lease
+fault helper to shared native test support also passes five existing modes per
+CPython 3.14.5 ABI: fsync deadline, fsync fence/Handoff, storage proof authority
+failure/recovery and queue lost acknowledgement. Separate frozen Python
+executables and linkage records preserve the ABI identities. Strict combined
+five-crate all-target Clippy passes before the subsequent main integration.
+
+| Executable | SHA-256 |
+| --- | --- |
+| Combined Node/V8 proof harness | `73e73626f929bb1e789fcfbd30ddf10c8b83a968b122d0787918b9038516ed1e` |
+| CPython 3.14.5 GIL shared-gate regression harness | `dcc8fb4dd405355f01b32567b9730aabe387f06f1d1f15863ace403d186d321b` |
+| CPython 3.14.5 free-threaded shared-gate regression harness | `1a34a5575c1b1b4f94c64393c64a831a7997d6c5dbe1dfc27fc38134819da24c` |
+
+These asynchronous filesystem cases do not qualify synchronous transport loss.
+Remaining operation/error/domain/overload combinations, byte-I/O cancellation,
+external faults, sustained load and final package/target qualification remain
+open. Earlier captured-agent packages predate this producer fix and need a
+final-source refresh. Source hashes distinguish this checkpoint from any later
+integration or package builds.
+
 ### Captured Python ABI checkpoints
 
 Both packages use Rust 1.98.1, uv 0.11.19, the development Cargo profile with
@@ -802,9 +861,11 @@ independent of these primitive release priorities.
    barrier/deadline/fence combinations per ABI with cold coherence and complete
    cleanup checks. The Python Handoff follow-up resolves the missing-successor
    fixture topology and adds selected retained-wrapper checks after domain
-   shutdown. Extend byte-I/O cancellation, Node/V8 proof/handoff, directory-proof,
-   closed-domain and remaining lifetime/resource families across supported guest
-   runtimes.
+   shutdown. The JavaScript follow-up adds 40 Node/V8 proof cases, including
+   directory fsync, warm slot reuse and selected post-shutdown stale-wrapper
+   checks. Extend byte-I/O cancellation, remaining directory-proof/runtime
+   combinations, closed-domain and lifetime/resource families across supported
+   guest runtimes.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS
    and retained file/WAL/LTX observations. Finish optimized 4/16/64 KiB chunk

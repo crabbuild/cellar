@@ -48,7 +48,44 @@ pub async fn start_with_configuration(
     bindings: Vec<(String, String)>,
     configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
 ) -> Result<(Node, String)> {
-    let name = "javascript-test";
+    start_named_configuration(
+        path,
+        application,
+        "javascript-test",
+        classes,
+        bindings,
+        configure,
+    )
+    .await
+}
+
+/// Distinct authenticated identities for a real multi-node adapter fixture.
+#[allow(dead_code)]
+pub async fn start_named(
+    path: &Path,
+    application: Arc<dyn Application>,
+    name: &str,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
+) -> Result<(Node, String)> {
+    start_named_configuration(
+        path,
+        application,
+        name,
+        vec!["Counter".into()],
+        vec![("COUNTERS".into(), "Counter".into())],
+        configure,
+    )
+    .await
+}
+
+async fn start_named_configuration(
+    path: &Path,
+    application: Arc<dyn Application>,
+    name: &str,
+    classes: Vec<String>,
+    bindings: Vec<(String, String)>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut cellar::generation::DeploymentGraph),
+) -> Result<(Node, String)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

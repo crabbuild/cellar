@@ -25,7 +25,7 @@ mod cycles;
 mod delivery;
 #[path = "support/durability.rs"]
 mod durability;
-#[path = "support/fault_gates.rs"]
+#[path = "../../cellar/tests/support/proof_fault_gates.rs"]
 mod fault_gates;
 #[path = "support/fencing.rs"]
 mod fencing;

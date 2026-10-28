@@ -125,7 +125,7 @@ fn expire(scope: &mut v8::PinScope, operation: Operation) -> Result<()> {
     let resolver = v8::Local::new(scope, &operation.resolver);
     let payload = v8::String::new(
         scope,
-        r#"{"ok":false,"code":"ContextExpired","outcome":"unknown"}"#,
+        r#"{"ok":false,"error":"ContextExpired","code":"ContextExpired","outcome":"unknown"}"#,
     )
     .context("JavaScript cancellation allocation failed")?;
     let undefined = v8::undefined(scope);
@@ -225,7 +225,7 @@ fn refuse(scope: &v8::PinScope, message: &str) {
 fn unknown(scope: &v8::PinScope, rv: &mut v8::ReturnValue) {
     if let Some(payload) = v8::String::new(
         scope,
-        r#"{"ok":false,"code":"ContextExpired","outcome":"unknown"}"#,
+        r#"{"ok":false,"error":"ContextExpired","code":"ContextExpired","outcome":"unknown"}"#,
     ) {
         rv.set(payload.into());
     }

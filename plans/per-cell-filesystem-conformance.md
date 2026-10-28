@@ -283,7 +283,7 @@ ledger.
 
 The [Python proof harness](../crates/cellar-python/tests/support/proof_authority.rs)
 reuses real three-node fleet proof and the
-[authenticated peer/bucket gates](../crates/cellar-python/tests/support/fault_gates.rs).
+[authenticated peer/bucket gates](../crates/cellar/tests/support/proof_fault_gates.rs).
 The [filesystem fixture](../crates/cellar-python/tests/support/proof_filesystem.py)
 commits a four-chunk file, business generation and SHA-256 receipt in one
 `storage.apply` batch. A preceding generation is explicitly proven and
@@ -355,6 +355,63 @@ Executed runtime/ABI and executable identities belong in the status ledger.
 These selected Python handle families do not qualify all closed-domain paths,
 Node/V8 handoff behavior, physical outages or process crashes.
 
+## JavaScript in-flight proof and closed-domain profile
+
+The [Node/V8 proof harness](../crates/cellar-javascript/tests/filesystem_proof.rs)
+uses the [native controller](../crates/cellar-javascript/tests/support/filesystem_proof.rs),
+[guest fixture](../crates/cellar-javascript/tests/support/filesystem-proof.js),
+shared peer/bucket gates and the existing native-future observer. Forty cases
+cover each engine, five barriers (file fsync/fdatasync, directory fsync,
+filesystem sync and final output proof), deadline/fence interruption, and
+Preserve/rolling Handoff. Handler/proof/lease limits remain 10/30/5 seconds;
+the V8 pump has the existing filesystem fixture's explicit one-second bound.
+
+An acknowledged seed precedes the cut. A single checked batch commits four
+chunks, business generation and a SHA-256 receipt locally while peer append and
+bucket publication are held. Both real gates must be entered and the HTTP
+client must remain pending. A real native node-lease mismatch or the handler
+deadline retires authority. For awaited barriers, the abandoned promise must
+retain ContextExpired/unknown when host retirement settles it, or the native
+Storage/EIO/unknown proof failure when that reply wins the race. The public
+operation and zero confirmed bytes remain exact; HostError and rollback claims
+are refused.
+An HTTP timeout alone is insufficient; the native observer waits for the
+original cell future to drop.
+
+The original JavaScript continuation resumes after a separate application
+promise is released and checks 31 retained SDK calls plus one raw filesystem
+submission. Those calls require ContextExpired/not_committed and zero progress.
+After all predecessor domains close, a live successor repeats the refusals with
+ContextMismatch/not_committed; it must not lend the stale wrappers its own
+invocation authority. The cumulative count is 64 per case. Every successor-side
+refusal preserves full metadata/usage, file and dup offsets, directory cookie
+and positional bytes. Four fresh descriptors remain allocated and a fifth open
+returns ENFILE after stale close attempts.
+
+Warm readback must keep the file, business state, receipt and captured
+inode/version coherent. Before predecessor shutdown, that readback also reuses
+all four host slots while the original wrappers remain retained. Rust
+independently verifies the returned full bytes and SHA-256, then cold readback
+must match the proven warm result. Handoff cases
+start and ready successors before departure; Preserve cases honor the original
+lease before starting new logical identities. A fresh write advances the same
+inode's version without changing preceding state. Six native outcomes are
+checked, with the exact forced fence as the sole allowed incomplete outcome.
+Preserve additionally requires clean-reload preparation. After each runtime
+joins, stopped=true, active_invocations=0 and retained_bytes=0 are required.
+
+The before-fix Node and V8 fsync cases exposed a producer/validator mismatch:
+framework expiry replies lacked the required error string, so strict filesystem
+validation returned HostError/EIO/unknown. The reply producers now include that
+field while preserving ContextExpired/unknown. The validator remains strict;
+the corresponding synchronous expiry producers use the same canonical shape.
+Asynchronous filesystem cases do not qualify synchronous transport loss.
+Executed artifacts and remaining limits belong in the status ledger.
+
+These are development-bucket/loopback-peer cases. Byte-I/O cancellation,
+remaining operation/domain/overload combinations, external faults, sustained
+load and final package/target qualification remain separate gates.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -378,9 +435,10 @@ remains before this inventory can support a complete conformance claim:
    above cover both `renameat` parents, with their distinct scopes. The deadline
    cleanup profile adds retained-wrapper refusal, slot/pin release and committed
    batch recovery. The Python in-flight proof profile above adds the selected
-   barrier/deadline/fence combinations; byte-operation cancellation, Node/V8
-   proof profiles and remaining domain cases stay open. The Python handoff
-   profile adds selected retained-wrapper refusals after predecessor domain
+   barrier/deadline/fence combinations. The Node/V8 profile adds five barriers,
+   both interruption modes and Preserve/Handoff with stale-context checks.
+   Byte-operation cancellation and remaining domain families stay open. The
+   Python handoff profile adds selected retained-wrapper refusals after predecessor domain
    shutdown and coherent successor writes; it does not complete every lifetime
    family.
 3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked

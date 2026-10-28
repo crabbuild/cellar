@@ -432,7 +432,12 @@ export default async function bootstrap(config) {
       if (operation.invocation === id) {
         pending.delete(key);
         operation.resolve([
-          stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }),
+          stringify({
+            ok: false,
+            error: "ContextExpired",
+            code: "ContextExpired",
+            outcome: "unknown",
+          }),
           undefined,
         ]);
       }
