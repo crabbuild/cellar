@@ -87,7 +87,13 @@ pub(super) async fn run(config: Config) -> Result<()> {
                 tick_interval_ms: Some(25),
                 ..Default::default()
             },
-            transport: TransportOptions::default(),
+            // Match the existing full-capacity fixture's explicit transfer
+            // budget. The image-limit builder alone retains a five-minute
+            // deadline, which can expire mid-download on a slower volume.
+            transport: TransportOptions {
+                snapshot_timeout_ms: 3_600_000,
+                ..Default::default()
+            },
         },
         catalog: CatalogOptions {
             prefix: "partition/test".into(),
@@ -103,6 +109,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
         host,
     };
     native = native.with_extent_image_limit(config.quota, RaftExtentOptions::default())?;
+    let snapshot_timeout_ms = native.infrastructure.transport.snapshot_timeout_ms;
     let service = node
         .start_raft_cells(
             native,
@@ -118,7 +125,8 @@ pub(super) async fn run(config: Config) -> Result<()> {
     atomic_json(
         &config.control.join("started.json"),
         &json!({
-            "pid": std::process::id(), "from_s3": config.source.is_some(), "performance": service.performance(),
+            "pid": std::process::id(), "from_s3": config.source.is_some(),
+            "snapshot_timeout_ms": snapshot_timeout_ms, "performance": service.performance(),
         }),
     )?;
     let cell = service.cell(NamespaceId::new([82; 16])?, CELL)?;

@@ -15,7 +15,7 @@ def evidence():
         ('local_state_erased', {}), ('admitted', {}), ('archive_ready', {}),
         ('replacement_spawn_started', {'absent': True}),
         ('replacement_process_ready', {'pid': 13, 'initially_empty': True}),
-        ('seed_installed', {'pid': 13, 'from_s3': True, 'performance': {'counters': [
+        ('seed_installed', {'pid': 13, 'from_s3': True, 'snapshot_timeout_ms': 3600000, 'performance': {'counters': [
             {'name': 'object_get_body_bytes', 'value': '10000'},
             {'name': 'recovery_peer_received_bytes', 'value': '0'},
         ]}}),
@@ -44,7 +44,7 @@ class ProcessRecoveryEvidenceTests(unittest.TestCase):
         edits = [
             (2, 'signal', 15), (3, 'pid', 99),
             (7, 'absent', False), (8, 'pid', 11), (8, 'pid', 0), (8, 'initially_empty', False),
-            (9, 'pid', 11), (9, 'from_s3', False), (10, 'served_by', 2),
+            (9, 'pid', 11), (9, 'from_s3', False), (9, 'snapshot_timeout_ms', 300000), (10, 'served_by', 2),
             (11, 'pid', 10), (13, 'durability', 'local'),
             (14, 'replacement_callbacks', 2), (16, 'pid', 10),
         ]

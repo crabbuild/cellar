@@ -44,6 +44,7 @@ def validate(evidence, image_bytes):
                      and replacement['pid'] not in pids and replacement['initially_empty'] is True
                      and detail('replacement_spawn_started')['absent'] is True, 'replacement was not fresh')
     seed = detail('seed_installed')
+    recovery.require(seed.get('snapshot_timeout_ms') == 3600000, 'full-capacity snapshot deadline differs')
     counters = {item['name']: int(item['value']) for item in seed['performance']['counters']}
     recovery.require(seed['pid'] == replacement['pid'] and seed['from_s3'] is True and counters['object_get_body_bytes'] >= image_bytes
                      and counters['recovery_peer_received_bytes'] == 0, 'seed data did not come from object storage')
@@ -62,6 +63,7 @@ def validate(evidence, image_bytes):
         'fault_to_verified_write_seconds': (by_name['first_write_verified']['elapsed_us'] - by_name['fault']['elapsed_us']) / 1e6,
         'fresh_process_start_through_seed_seconds': (by_name['seed_installed']['elapsed_us'] - by_name['replacement_spawn_started']['elapsed_us']) / 1e6,
         'object_get_body_bytes': counters['object_get_body_bytes'], 'peer_recovery_bytes': 0,
+        'snapshot_timeout_ms': seed['snapshot_timeout_ms'],
         'original_worker_pids': pids, 'killed_pid': killed, 'replacement_pid': replacement['pid'],
     }
 

@@ -70,3 +70,10 @@ identity, the process/phase ledger and data-source counters. A fixture must have
 Run the small case first on the same source. Keep builds separate from physical
 measurements. This is single-owner loss with a surviving Raft quorum, not recovery
 after losing all replicas, a cold OS-cache benchmark or a production percentile.
+
+The harness explicitly selects the existing full-capacity fixture's one-hour
+`snapshot_timeout_ms` transfer budget and records the effective configuration.
+This is a capacity/correctness profile, not a one-hour recovery objective. The
+image-limit builder alone selects a five-minute minimum; slower storage can
+exhaust that budget before the image is installed. Read deadlines remain 60
+seconds, and all image, authorization, receipt and durability checks still apply.
