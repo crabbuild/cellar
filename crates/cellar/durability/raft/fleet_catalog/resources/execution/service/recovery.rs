@@ -6,7 +6,7 @@ use crate::raft::catalog::NamespaceCatalog;
 use crate::raft::fleet_catalog::deadline::Deadline;
 use crate::raft::fleet_catalog::disruption::Disruption;
 use crate::raft::fleet_stop::BootBinding;
-use cellar_logic::consensus::ProposalId;
+use cellar_logic::consensus::{NodeId, ProposalId};
 use sha2::{Digest, Sha256};
 
 /// Rooted permanent isolation intent, recovered from the operation journal.
@@ -37,8 +37,8 @@ impl FleetFailureRecoveryContext {
 /// Network failure, missing container discovery and timeouts are not proof.
 pub trait FleetFailureRecoveryPlatform: Send + Sync {
     /// Complete managed namespace handles; the catalog independently checks
-    /// rooted coverage before admitting exclusion. This callback performs no
-    /// platform mutation.
+    /// rooted coverage before admitting exclusion and at terminal removal.
+    /// Called throughout verification; this callback performs no platform mutation.
     fn namespaces<'a>(
         &'a self,
         timeout: Duration,
@@ -55,14 +55,26 @@ pub trait FleetFailureRecoveryPlatform: Send + Sync {
 pub enum FleetFailureRecoveryPhase {
     IsolationPending,
     Repairing,
+    VerifyingFinalization,
+    VerifyingRemoval,
+    Removed,
 }
 
-/// Local diagnostics. Repairing and inventory exhaustion do not certify RF3,
-/// terminal node removal, disruption-slot release or storage reclamation.
+/// Local diagnostics. Only Removed follows a journal-confirmed terminal
+/// receipt; no phase authorizes storage reclamation or grants a health lease.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FleetFailureRecoveryStatus {
     pub context: FleetFailureRecoveryContext,
     pub phase: FleetFailureRecoveryPhase,
+    pub verified_histories: u64,
+    pub total_histories: u64,
+    pub removed_revision: Option<u64>,
+}
+
+pub(super) struct Target {
+    pub context: FleetFailureRecoveryContext,
+    pub isolation: Option<ProposalId>,
+    pub finalizing: bool,
 }
 
 pub(super) struct Recovery {
@@ -70,20 +82,57 @@ pub(super) struct Recovery {
     platform: Arc<dyn FleetFailureRecoveryPlatform>,
     evidence: Arc<dyn FleetIsolatedRepairEvidence>,
     repair: Option<(ProposalId, super::isolated::IsolatedRepairService)>,
+    removal: super::removal::Removal,
+    last: Option<FleetFailureRecoveryContext>,
 }
 
 impl Recovery {
     pub fn new(
         platform: Arc<dyn FleetFailureRecoveryPlatform>,
         evidence: Arc<dyn FleetIsolatedRepairEvidence>,
-        options: FleetFailureDetectionOptions,
+        options: FleetFailureRecoveryOptions,
     ) -> Self {
         Self {
-            detection: super::detection::Detection::new(options),
+            detection: super::detection::Detection::new(options.detection.clone()),
+            removal: super::removal::Removal::new(options, platform.clone()),
+            last: None,
             platform,
             evidence,
             repair: None,
         }
+    }
+
+    async fn reconcile_completed(
+        &mut self,
+        catalog: &FleetCatalog,
+        cut: &FleetSnapshot,
+        deadline: &Deadline<'_>,
+        status: &watch::Sender<FleetMovementServiceStatus>,
+    ) -> Result<()> {
+        let Some(context) = &self.last else {
+            return Ok(());
+        };
+        let Some(receipt) = catalog
+            .isolated_removal_receipt(cut, context.operation, deadline.remaining()?)
+            .await?
+        else {
+            return Ok(());
+        };
+        if receipt.node() != context.boot.node {
+            return Err(FleetCatalogError::Conflict);
+        }
+        status.send_modify(|s| {
+            if let Some(r) = &mut s.failure_recovery {
+                r.phase = FleetFailureRecoveryPhase::Removed;
+                r.removed_revision = Some(receipt.applied_revision());
+            }
+        });
+        // The immutable committed receipt is settled. Do not reread it on
+        // every idle detection round or retain its runtime proof workspace.
+        self.last = None;
+        self.repair = None;
+        self.removal.clear();
+        Ok(())
     }
 
     pub fn pass_delay(&self, options: &FleetMovementServiceOptions) -> Option<Duration> {
@@ -119,29 +168,53 @@ impl Recovery {
                     .ok_or(FleetCatalogError::DisruptionInProgress { operation })?;
                 let operation = ProposalId::new(operation)
                     .map_err(|_| FleetCatalogError::Corrupt("failure operation"))?;
-                let active = catalog.checked_active_evacuation(cut, operation).await?;
-                let host = catalog
-                    .host_from_record(cut, active.admission().node())
-                    .await?;
+                let node = NodeId::new(boot.node)
+                    .map_err(|_| FleetCatalogError::Corrupt("failure node"))?;
+                let host = catalog.host_from_record(cut, node).await?;
+                if host.record.operation() != Some(operation.bytes()) {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                let finalizing = match host.state() {
+                    FleetNodeState::Draining => {
+                        catalog.checked_active_evacuation(cut, operation).await?;
+                        false
+                    }
+                    FleetNodeState::Finalizing => true,
+                    _ => return Err(FleetCatalogError::Conflict),
+                };
                 if host.record.boot_binding(catalog.birth_owner()?.catalog)? != boot {
                     return Err(FleetCatalogError::Conflict);
                 }
-                let isolated = host.record.isolation.is_some();
-                if isolated {
+                let isolation = host
+                    .record
+                    .isolation
+                    .map(ProposalId::new)
+                    .transpose()
+                    .map_err(|_| FleetCatalogError::Corrupt("failure isolation"))?;
+                if isolation.is_some() {
                     catalog.confirm_node_isolation(cut, &host.record).await?;
                 }
-                Ok(Some((
-                    FleetFailureRecoveryContext { operation, boot },
-                    isolated,
-                )))
+                if finalizing && isolation.is_none() {
+                    return Err(FleetCatalogError::Conflict);
+                }
+                Ok(Some(Target {
+                    context: FleetFailureRecoveryContext { operation, boot },
+                    isolation,
+                    finalizing,
+                }))
             })
-            .await?;
-        let Some((context, isolated)) = active else {
+            .await;
+        if matches!(&active, Err(FleetCatalogError::DisruptionInProgress { .. })) {
+            // A different operation may claim the slot after our terminal CAS
+            // committed but before its acknowledgement was reconciled.
+            self.reconcile_completed(catalog, cut, deadline, status)
+                .await?;
+        }
+        let Some(target) = active? else {
             self.repair = None;
-            status.send_modify(|s| {
-                s.failure_recovery = None;
-                s.isolated_repair = None;
-            });
+            self.removal.clear();
+            self.reconcile_completed(catalog, cut, deadline, status)
+                .await?;
             self.detection
                 .round(catalog, observer, cut, deadline)
                 .await?;
@@ -186,20 +259,38 @@ impl Recovery {
             // next turn must recover and authenticate the durable intent.
             return Ok(());
         };
+        let context = &target.context;
+        if self.last.as_ref() != Some(context) {
+            self.removal.clear();
+            self.repair = None;
+            self.last = Some(context.clone());
+            status.send_modify(|s| s.isolated_repair = None);
+        }
         status.send_modify(|s| {
-            s.failure_recovery = Some(FleetFailureRecoveryStatus {
-                context: context.clone(),
-                phase: if isolated {
-                    FleetFailureRecoveryPhase::Repairing
-                } else {
-                    FleetFailureRecoveryPhase::IsolationPending
-                },
-            })
+            if s.failure_recovery
+                .as_ref()
+                .is_none_or(|r| r.context != *context)
+            {
+                s.failure_recovery = Some(FleetFailureRecoveryStatus {
+                    context: context.clone(),
+                    phase: FleetFailureRecoveryPhase::IsolationPending,
+                    verified_histories: 0,
+                    total_histories: 0,
+                    removed_revision: None,
+                });
+            }
+            if target.isolation.is_some() {
+                if let Some(r) = &mut s.failure_recovery {
+                    if r.phase == FleetFailureRecoveryPhase::IsolationPending {
+                        r.phase = FleetFailureRecoveryPhase::Repairing;
+                    }
+                }
+            }
         });
-        if !isolated {
+        if target.isolation.is_none() {
             let attestation = self
                 .platform
-                .isolate(&context, deadline.remaining()?)
+                .isolate(context, deadline.remaining()?)
                 .await?;
             if attestation.boot != context.boot {
                 return Err(FleetCatalogError::Invalid("platform isolation boot"));
@@ -218,6 +309,14 @@ impl Recovery {
                 .await?;
             return Ok(());
         }
+        if target.finalizing {
+            // The durable finalization record is revalidated by preparation;
+            // the Draining-only repair admission must not gate this phase.
+            return self
+                .removal
+                .round(catalog, observer, cut, &target, deadline, status)
+                .await;
+        }
         if self
             .repair
             .as_ref()
@@ -234,6 +333,14 @@ impl Recovery {
         if let Some((_, repair)) = &mut self.repair {
             repair
                 .round(catalog, observer, cut, options, deadline, status)
+                .await?;
+        }
+        let ready = status.borrow().isolated_repair.as_ref().is_some_and(|r| {
+            r.operation == context.operation && r.inventory_exhausted && r.blocked_histories == 0
+        });
+        if ready {
+            self.removal
+                .round(catalog, observer, cut, &target, deadline, status)
                 .await?;
         }
         Ok(())

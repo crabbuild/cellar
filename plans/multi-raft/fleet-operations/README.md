@@ -84,8 +84,12 @@ classifies exact-boot connectivity with bounded authenticated probes, grace and
 sample expiry. An explicit recovery service now roots permanent exact-boot
 exclusion, reconciles trusted isolation and drives the existing repair executor.
 It resumes its own intent after controller loss, never adopts operator work and
-can isolate during retry windows with both movement slots full. A production
-isolation provider and automatic terminal removal remain unfinished.
+can isolate during retry windows with both movement slots full. After repair,
+bounded complete-inventory walks verify fresh RF3 observations and physical
+archive replay before automatic finalization and terminal removal. Controller
+loss and unknown acknowledgements reconcile through canonical receipts. Only the
+terminal transition releases the owning disruption slot; physical storage stays
+retained. Production isolation and deployed qualification remain unfinished.
 
 Extent-backed managed namespaces now retain tagged publication cuts and stored
 receipts, exact producer image origins, and independent physical archive proofs.
@@ -99,9 +103,10 @@ terminal-wait/large-fleet qualification limits. These capabilities remain opt-in
 
 The next feature gates are:
 
-1. Connect the delivered recovery service to production exact-boot isolation and
-   terminal removal, then verify restored RF3 under foreground writes. Qualify
-   probe fairness under continuously due work and repeated turn expiry.
+1. Connect the delivered recovery service to production exact-boot isolation,
+   then verify the full detection-to-removal sequence with extent-backed archives
+   and foreground writes. Qualify probe fairness under continuously due work and
+   repeated turn expiry.
 2. Finish preparation/resume repeatability within the existing five-second waits,
    then qualify bounded verification/convergence at hundreds of histories.
    Physical, voter, leadership and sample-age checks remain live; historical

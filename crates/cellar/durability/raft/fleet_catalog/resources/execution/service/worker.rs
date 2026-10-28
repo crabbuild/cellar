@@ -84,7 +84,7 @@ impl MovementServiceWork {
         &mut self,
         platform: Arc<dyn FleetFailureRecoveryPlatform>,
         repair: Arc<dyn FleetIsolatedRepairEvidence>,
-        options: FleetFailureDetectionOptions,
+        options: FleetFailureRecoveryOptions,
     ) {
         self.recovery = Some(super::recovery::Recovery::new(platform, repair, options));
     }

@@ -1462,10 +1462,14 @@ the durable handoff; neither a timeout nor Unavailable can evict a voter.
 ## Automatic failure admission and isolation handoff
 
 `start_failure_recovery_service(observer, movement_evidence, repair_evidence,
-platform, options, detection)` uses the same exclusive Node-owned worker and
+platform, options, recovery)` uses the same exclusive Node-owned worker and
 existing probe bounds. It is explicitly enabled and default-off. Installing
 `FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
 operators must select and authenticate that deployment integration.
+`FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
+archive verifier and archive limits. The embedding runtime owns the verifier's
+private scratch store and disk/memory admission, including extent storage when
+required by its namespace. Startup validates both detection and archive bounds.
 
 The worker first advances due admitted movements. During their retry/backoff
 windows it collects direct failure observations and complete namespace handles,
@@ -1491,13 +1495,38 @@ A correct platform attestation is rooted using the ordinary permanent quarantine
 API. Lost replies are reconciled from Root. The same worker then invokes the
 existing isolated-repair planner and executor, preserving survivor quorum,
 resource limits and minority-group blocking. It never adopts a manual evacuation
-or a maintenance operation. `failure_recovery` status distinguishes
-IsolationPending from Repairing; neither is a terminal removal certificate.
-Observation timestamps remain local and are never restored as durable health.
+or a maintenance operation. Repair inventory exhaustion only schedules a new
+complete verification; it does not prove removal readiness.
+
+After repair, the worker verifies one history per bounded turn, authenticating
+all three current voters and physically replaying an immutable archive covering
+the fixed publication cut. It retains a bounded cursor at the same Root; changed
+inputs discard that runtime walk. Missing inventory, reserved histories,
+unavailable archives or failed survivors keep the node and disruption slot.
+A complete candidate admits isolated Finalizing through the existing verifier.
+The worker then repeats complete verification and renews fresh survivor proofs at
+the terminal CAS. Only that CAS records Removed and releases the original slot;
+engine identity, quarantine and retained data remain tombstoned.
+
+A restarted controller recognizes the durable Finalizing phase without repeating
+Draining-only repair admission or invoking isolation again. It creates a new
+runtime verification rather than restoring proof authority from candidate bytes.
+Finalization/removal IDs bind operation, Root revision, phase and candidate
+digest, so new proof material cannot reuse another attempt's payload ID. Unknown
+CAS results are reconciled from the canonical phase/terminal journal. Competing
+attempts from one Root can admit only one successor. `isolated_removal_receipt`
+is a read-only historical query, including after another operation claims the
+slot; it cannot release that newer operation or authorize data deletion.
+
+`failure_recovery` reports IsolationPending, Repairing, VerifyingFinalization,
+VerifyingRemoval and Removed, with checked/total history counts and the confirmed
+terminal revision. Only Removed follows an accepted terminal receipt. Status
+grants no current health lease; observation timestamps remain local.
 
 This provides the SDK handoff, not a production Docker/Colima isolation driver.
-Terminal removal automation, simultaneous-failure policy, management integration
-and deployed fleet qualification remain required. Probe fairness under sustained
+Simultaneous-failure policy, management integration and deployed fleet
+qualification remain required. The complete final survivor renewal still shares
+the original turn deadline; large-fleet convergence remains to be qualified. Probe fairness under sustained
 due work or repeatedly expired turns still needs qualification; the grace is not
 a recovery-time guarantee. The changed evacuation record
 uses the experimental `/failure-recovery-1` protocol cutover; numeric format

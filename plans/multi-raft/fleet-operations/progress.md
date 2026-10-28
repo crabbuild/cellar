@@ -1,5 +1,42 @@
 # Fleet operations implementation progress
 
+## Automatic terminal removal
+
+The recovery worker now follows settled repair with a bounded complete-inventory
+walk, fresh RF3 observations and physical archive replay. It admits isolated
+Finalizing, renews the proof on the next phase and invokes the existing atomic
+Removed/slot-release boundary. `FleetFailureRecoveryOptions` now requires an
+explicit archive host, verifier and limits. Restarted workers resume Finalizing
+without repeating Draining-only repair admission or external isolation.
+
+A new regression on the predecessor reproduced the missing terminal transition:
+one RF3 repair settled, then 281 successful worker turns retained Draining and
+the disruption slot. The first implementation's complete-removal case passes.
+An independent test polling adapter corrected observed catalog-admission
+contention; operation deadlines and safety assertions are unchanged. The expanded
+seven-case recovery cohort passes, including interruption, lost-response and
+archive-failure cases. A recreated controller uses fresh replay resources and
+renews runtime proofs after durable Finalizing. Archive failure retains the node
+and disruption slot until replay succeeds; terminal acknowledgement loss is
+resolved by the typed immutable receipt. Historical receipt reads preserve a
+newly admitted operator disruption.
+
+**971 distinct selected tests pass**: seven recovery, two detection, three
+movement-service, nine isolated-repair, four topology-service, twelve evacuation,
+two maintenance settlement, two isolation, three removal, thirteen catalog and
+914 host library tests. Host/admin/logic all-target Clippy, formatting, layout
+and native dependency checks pass. The audit binds 1,783 Rust/Cargo/config
+inputs and retained executable/result hashes to this source; commit binding is
+recorded with the delivery baseline. Artifacts remain outside runtime data in
+`automatic-removal-v3`; earlier failed probes are retained.
+
+The new automatic-removal cases use materialized SQLite images. Extent-backed
+automatic removal, production isolation, simultaneous-failure policy, foreground
+writes during recovery, density, TPS/p99, repeatability and soak remain open.
+Historical qualification below applies only to its stated predecessor. This
+milestone does not complete FO-06 or enable the service by default.
+
+
 The full fleet operations goal remains active. **FO-01, FO-02 and FO-03 are
 complete at their documented local adapter boundaries.** FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
@@ -7,8 +44,8 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. An explicit SDK service now connects failure detection to durable exclusion,
-trusted isolation and replica repair. Production isolation, automatic terminal
-removal, grace/rolling/second-failure maintenance and resize remain unfinished.
+trusted isolation, replica repair and terminal removal. Production isolation,
+grace/rolling/second-failure maintenance and resize remain unfinished.
 The intact operator sequence now includes separate stop/return/resume grants,
 read-only status and explicit Node-owned execution; successor qualification is
 recorded below. Verified intact-return

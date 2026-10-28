@@ -78,13 +78,13 @@ pub use resources::{
 };
 pub use resources::{
     FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus,
-    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
-    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
-    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
-    FleetMovementServiceStatus, FleetNodeFailureStatus, FleetNodeHealth,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
+    FleetFailureRecoveryStatus, FleetIsolatedRepairContext, FleetIsolatedRepairEvidence,
+    FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
+    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
+    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
+    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,

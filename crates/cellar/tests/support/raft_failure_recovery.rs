@@ -5,8 +5,14 @@
 //! production deployment driver.
 use super::*;
 use cellar::application::consensus::verification::FleetEvacuationCancelRequest;
+use cellar::application::consensus::verification::{ArchiveLimits, ArchiveVerifier};
+use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
+use cellar_ltx::{DirectFileSystem, LtxHost};
 use sha2::{Digest, Sha256};
 use std::sync::Mutex;
+
+#[path = "raft_failure_recovery_removal.rs"]
+mod removal;
 
 // A full movement book must not prevent isolation needed by admitted work.
 
@@ -130,7 +136,7 @@ async fn full_book() -> Result<()> {
                 TIMEOUT,
             )
             .await?;
-    let platform = Platform::new(&f);
+    let platform = Platform::new(&f)?;
     platform.mode.store(2, Ordering::Release);
     let inputs = f.evidence().await?;
     let blocked = Arc::new(BlockedMovements(AtomicUsize::new(0)));
@@ -143,7 +149,7 @@ async fn full_book() -> Result<()> {
                 inputs.clone(),
                 platform.clone(),
                 options(),
-                FleetFailureDetectionOptions::default(),
+                platform.recovery_options(),
             )
             .await?;
     detection::wait_for(&f, &service, |s| {
@@ -202,12 +208,27 @@ struct Platform {
     incomplete: AtomicBool,
     lose_reply: AtomicBool,
     contexts: Mutex<Vec<FleetFailureRecoveryContext>>,
+    _scratch_root: tempfile::TempDir,
+    scratch: GenerationStore,
+    verifier: ArchiveVerifier,
+    store: Arc<crate::fault::Store>,
+    hold_finalizing: AtomicBool,
+    finalization_waiters: AtomicUsize,
+    lose_finalization_reply: AtomicBool,
+    block_removal_archives: AtomicBool,
 }
 
 impl Platform {
-    fn new(f: &RepairFleet) -> Arc<Self> {
-        Arc::new(Self {
-            catalog: f.s.f.catalog.clone(),
+    fn new(f: &RepairFleet) -> Result<Arc<Self>> {
+        let root = tempfile::tempdir()?;
+        let scratch = GenerationStore::open(
+            root.path().join("verify"),
+            Arc::new(DirectFileSystem),
+            GenerationLimits::default(),
+        )?;
+        let verifier = ArchiveVerifier::new(scratch.clone(), ImageId::new([226; 16])?)?;
+        Ok(Arc::new(Self {
+            catalog: Fixture::open_catalog(&f.s.f.domain, f.s.f.store.clone())?,
             namespaces: vec![f.s.namespace.clone()],
             boot: f.failed_boot.clone(),
             calls: AtomicUsize::new(0),
@@ -217,14 +238,33 @@ impl Platform {
             incomplete: AtomicBool::new(false),
             lose_reply: AtomicBool::new(false),
             contexts: Mutex::new(Vec::new()),
-        })
+            _scratch_root: root,
+            scratch,
+            verifier,
+            store: f.s.f.store.clone(),
+            hold_finalizing: AtomicBool::new(false),
+            finalization_waiters: AtomicUsize::new(0),
+            lose_finalization_reply: AtomicBool::new(false),
+            block_removal_archives: AtomicBool::new(false),
+        }))
+    }
+}
+
+impl Platform {
+    fn recovery_options(&self) -> FleetFailureRecoveryOptions {
+        FleetFailureRecoveryOptions {
+            detection: FleetFailureDetectionOptions::default(),
+            archive_host: LtxHost::default(),
+            archive_verifier: self.verifier.clone(),
+            archive_limits: ArchiveLimits::default(),
+        }
     }
 }
 
 impl FleetFailureRecoveryPlatform for Platform {
     fn namespaces<'a>(
         &'a self,
-        _: Duration,
+        timeout: Duration,
     ) -> Pin<
         Box<
             dyn Future<Output = std::result::Result<Vec<NamespaceCatalog>, FleetCatalogError>>
@@ -232,8 +272,37 @@ impl FleetFailureRecoveryPlatform for Platform {
                 + 'a,
         >,
     > {
-        Box::pin(async {
+        Box::pin(async move {
             self.namespace_calls.fetch_add(1, Ordering::AcqRel);
+            let context = self.contexts.lock().unwrap().last().cloned();
+            if let Some(context) = context {
+                if self.block_removal_archives.swap(false, Ordering::AcqRel) {
+                    self.store
+                        .archive_unavailable
+                        .store(true, Ordering::Release);
+                }
+                if self.lose_finalization_reply.swap(false, Ordering::AcqRel) {
+                    self.store
+                        .fail_fleet_confirmation
+                        .store(true, Ordering::Release);
+                }
+                if self.hold_finalizing.load(Ordering::Acquire) {
+                    let cut = self.catalog.read(timeout).await?;
+                    if self
+                        .catalog
+                        .finalization_receipt(&cut, context.operation(), timeout)
+                        .await?
+                        .is_some()
+                    {
+                        self.finalization_waiters.fetch_add(1, Ordering::AcqRel);
+                        self.active.fetch_add(1, Ordering::AcqRel);
+                        let _callback = Callback(self.active.clone());
+                        while self.hold_finalizing.load(Ordering::Acquire) {
+                            cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+                        }
+                    }
+                }
+            }
             Ok(if self.incomplete.load(Ordering::Acquire) {
                 Vec::new()
             } else {
@@ -299,9 +368,9 @@ async fn start(
             observer.clone(),
             inputs.clone(),
             inputs,
-            platform,
+            platform.clone(),
             options(),
-            FleetFailureDetectionOptions::default(),
+            platform.recovery_options(),
         )
         .await?)
 }
@@ -315,7 +384,7 @@ async fn fleet_failure_recovery_resumes_isolation_after_controller_loss_and_repa
 async fn recover() -> Result<()> {
     let mut f = Box::pin(RepairFleet::with_admission(false, None, 3)).await?;
     let inputs = f.evidence().await?;
-    let platform = Platform::new(&f);
+    let platform = Platform::new(&f)?;
     let before = f.s.f.catalog.read(TIMEOUT).await?;
     let service = start(&f, &f.spare, inputs.clone(), platform.clone()).await?;
     detection::wait_for(&f, &service, |_| {
@@ -461,7 +530,7 @@ async fn recover() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_failure_recovery_never_adopts_operator_evacuation() -> Result<()> {
     let f = Box::pin(RepairFleet::with_isolation(false, false)).await?;
-    let platform = Platform::new(&f);
+    let platform = Platform::new(&f)?;
     platform.mode.store(2, Ordering::Release);
     let before = f.s.f.catalog.read(TIMEOUT).await?;
     let service = start(&f, &f.spare, f.evidence().await?, platform.clone()).await?;
@@ -476,7 +545,7 @@ async fn fleet_failure_recovery_never_adopts_operator_evacuation() -> Result<()>
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_failure_recovery_incomplete_inventory_cannot_admit_or_isolate() -> Result<()> {
     let f = Box::pin(RepairFleet::with_admission(false, None, 1)).await?;
-    let platform = Platform::new(&f);
+    let platform = Platform::new(&f)?;
     platform.incomplete.store(true, Ordering::Release);
     let before = f.s.f.catalog.read(TIMEOUT).await?;
     let inputs = f.evidence().await?;

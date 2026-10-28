@@ -6,6 +6,7 @@
 mod detection;
 mod isolated;
 mod recovery;
+mod removal;
 mod schedule;
 mod topology;
 mod worker;
@@ -18,6 +19,7 @@ pub use recovery::{
     FleetFailureRecoveryContext, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
     FleetFailureRecoveryStatus,
 };
+pub use removal::FleetFailureRecoveryOptions;
 use std::pin::Pin;
 use tokio::sync::watch;
 pub(crate) use worker::MovementServiceWork;
@@ -239,7 +241,7 @@ enum ServiceMode {
     Recovery(
         Arc<dyn FleetFailureRecoveryPlatform>,
         Arc<dyn FleetIsolatedRepairEvidence>,
-        FleetFailureDetectionOptions,
+        FleetFailureRecoveryOptions,
     ),
 }
 
@@ -354,7 +356,9 @@ impl FleetCatalog {
     /// the platform adapter must pin exact deployment identity and retain data.
     /// Takes the same single node-owned worker slot as the other service modes.
     /// Resumes only failure-recovery intents, never operator maintenance.
-    /// Terminal node removal and capacity provisioning remain separate.
+    /// Replay services are required. Complete inventory, fresh RF3 and physical
+    /// archive verification precede automatic terminal removal and slot release.
+    /// Removed engines and volumes remain retained; provisioning is separate.
     pub async fn start_failure_recovery_service(
         &self,
         observer: RaftCells,
@@ -362,13 +366,13 @@ impl FleetCatalog {
         repair_evidence: Arc<dyn FleetIsolatedRepairEvidence>,
         platform: Arc<dyn FleetFailureRecoveryPlatform>,
         options: FleetMovementServiceOptions,
-        detection: FleetFailureDetectionOptions,
+        recovery: FleetFailureRecoveryOptions,
     ) -> Result<FleetMovementService> {
-        detection.validate()?;
+        recovery.validate()?;
         self.start_fleet_service(
             observer,
             movement_evidence,
-            ServiceMode::Recovery(platform, repair_evidence, detection),
+            ServiceMode::Recovery(platform, repair_evidence, recovery),
             options,
         )
         .await

@@ -16,12 +16,12 @@ use rand::RngCore;
 pub(crate) use service::MovementServiceWork;
 pub use service::{
     FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
-    FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus,
-    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
-    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
-    FleetMovementServiceStatus, FleetNodeFailureStatus, FleetNodeHealth,
-    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
-    FleetTopologyServiceStatus,
+    FleetFailureRecoveryOptions, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
+    FleetFailureRecoveryStatus, FleetIsolatedRepairServiceStatus, FleetMovementEvidence,
+    FleetMovementService, FleetMovementServiceEntry, FleetMovementServiceFailure,
+    FleetMovementServiceOptions, FleetMovementServiceStatus, FleetNodeFailureStatus,
+    FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub(crate) use work::{MovementAction, MovementCommand};
 

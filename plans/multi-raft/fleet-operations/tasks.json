@@ -3835,6 +3835,45 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_failure_recovery_completes_terminal_removal_and_releases_disruption",
+          "oracle": "After real single-node failure and RF3 repair, automatic complete inventory and archive replay reach Removed, release only the owning disruption slot, retain the engine, expose a typed isolated receipt, and preserve SQL continuity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_failure_recovery_resumes_finalizing_after_lost_replies_and_controller_loss",
+          "oracle": "Finalization acknowledgement loss preserves its canonical phase. Shutdown joins blocked verification, and another controller with fresh replay storage renews proofs and reconciles a lost terminal acknowledgement without another isolation effect. A historical receipt query preserves a newer operator disruption.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_failure_recovery_archive_failure_retains_node_and_disruption_until_replay",
+          "oracle": "With movements settled, unavailable archives prevent Finalizing and removal; node and slot stay retained. Restoring archive access permits actual replay, terminal removal and subsequent SQL writes.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [

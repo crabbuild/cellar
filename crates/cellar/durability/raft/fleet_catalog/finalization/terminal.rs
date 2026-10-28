@@ -304,6 +304,53 @@ impl FleetCatalog {
         operation: ProposalId,
         timeout: Duration,
     ) -> Result<Option<FleetRemovalAdmission>> {
+        let Some(completed) = self
+            .removal_receipt_inner(snapshot, operation, timeout)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !matches!(completed.record.proof, RemovalProof::Joined { .. }) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(Some(FleetRemovalAdmission {
+            record: completed.record,
+            applied: completed.applied,
+            observed: completed.observed,
+        }))
+    }
+
+    /// Read an immutable, journal-confirmed isolated removal after controller
+    /// loss, including when a different disruption now owns the fleet slot.
+    /// This receipt grants no health lease, slot mutation or data reclamation.
+    pub async fn isolated_removal_receipt(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<FleetIsolatedRemovalAdmission>> {
+        let Some(completed) = self
+            .removal_receipt_inner(snapshot, operation, timeout)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if !matches!(completed.record.proof, RemovalProof::Isolated { .. }) {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(Some(FleetIsolatedRemovalAdmission {
+            record: completed.record,
+            applied: completed.applied,
+            observed: completed.observed,
+        }))
+    }
+
+    async fn removal_receipt_inner(
+        &self,
+        snapshot: &FleetSnapshot,
+        operation: ProposalId,
+        timeout: Duration,
+    ) -> Result<Option<Completed>> {
         self.check_snapshot(snapshot)?;
         self.run(timeout, async {
             let Some(bytes) = self
@@ -321,18 +368,11 @@ impl FleetCatalog {
             if record.request.operation != operation.bytes() {
                 return Err(FleetCatalogError::Corrupt("removal key"));
             }
-            if !matches!(record.proof, RemovalProof::Joined { .. }) {
-                return Err(FleetCatalogError::Conflict);
-            }
             let applied = record
                 .applied(self, snapshot)
                 .await?
                 .ok_or(FleetCatalogError::Unconfirmed)?;
-            Ok(Some(FleetRemovalAdmission {
-                record,
-                applied,
-                observed: snapshot.revision(),
-            }))
+            Ok(Some(record.admission(applied, snapshot.revision())))
         })
         .await
     }
