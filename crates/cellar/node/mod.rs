@@ -1782,6 +1782,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     &method,
                     &args,
                     peer_tunnel::RpcControl {
+                        reservation: reservation.as_ref(),
                         request_id,
                         authority: authority.as_ref(),
                         deadline_ms,

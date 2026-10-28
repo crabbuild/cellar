@@ -378,25 +378,26 @@ impl HostServices {
         *self.runtime_policy.get_or_init(Default::default)
     }
 
-    pub(crate) fn reserve_outbound_rpc(
+    pub(crate) fn admit_outbound_rpc(
         &self,
         scope: &str,
         name: Option<&str>,
         method: &str,
         args: &crate::engine_api::RpcData,
-    ) -> Option<crate::host_channels::RpcReservation> {
+    ) -> Option<crate::outbound_rpc::Admitted> {
         if !self.accepts_work() {
             return None;
         }
         self.outbound_rpc
             .get_or_init(|| crate::outbound_rpc::Budget::new(self.runtime_policy()))
-            .reserve(scope, name, method, args)
+            .admit(scope, name, method, args)
     }
 
     /// SDK submission reservations, sampled independently. Counts include
     /// gate/queue/routing waits, retained local native drivers and undelivered
-    /// replies. Bytes are a length-weighted request allowance, not measured
-    /// allocations, guest heaps, responses or receiving-peer transport buffers.
+    /// replies and aliases of dense structured inputs. Bytes cover normalized
+    /// request/copy/control allowances, not allocator usable size, guest heaps,
+    /// responses or receiving-peer transport buffers.
     pub fn outbound_rpc_usage(&self) -> OutboundRpcUsage {
         self.outbound_rpc
             .get()

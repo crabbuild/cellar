@@ -13,6 +13,17 @@ pub struct Reservation {
     reply_limit: Option<usize>,
 }
 
+struct RetainedBytes {
+    data: bytes::Bytes,
+    _reservation: Reservation,
+}
+
+impl AsRef<[u8]> for RetainedBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
 impl Reservation {
     pub(crate) fn shared<T: Send + Sync + 'static>(held: Arc<T>) -> Self {
         Self {
@@ -28,5 +39,14 @@ impl Reservation {
 
     pub(crate) fn reply_limit(&self) -> Option<usize> {
         self.reply_limit
+    }
+
+    /// Transport copies and slices can outlive their request/control future.
+    /// Retain admission until their last byte owner drops, even off-domain.
+    pub(crate) fn retain_bytes(&self, data: bytes::Bytes) -> bytes::Bytes {
+        bytes::Bytes::from_owner(RetainedBytes {
+            data,
+            _reservation: self.clone(),
+        })
     }
 }

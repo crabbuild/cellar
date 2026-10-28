@@ -192,6 +192,10 @@ async fn reservation_lifetime(policy: crate::runtime_policy::RuntimePolicy) -> R
                 crate::application::rpc::Code::ResourceExhausted
             );
             completed.await?;
+            // Retiring the explicit dispatch ticket cannot refund a dense
+            // input still retained by native/transport byte ownership.
+            assert_eq!(domain.services().outbound_rpc_usage(), held);
+            drop(queued.args);
             assert_eq!(domain.services().outbound_rpc_usage(), Default::default());
             Ok::<(), anyhow::Error>(())
         })

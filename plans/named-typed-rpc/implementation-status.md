@@ -118,6 +118,67 @@ measured memory/performance, remaining descriptor semantics and packaging are
 still open. The original JavaScript timing failures remain unexplained; the
 budget-phase diagnostics do not establish their cause.
 
+## Dense request ownership and native decoder handoff (2026-10-27; in progress)
+
+Three controlled observations reproduce ownership gaps on the actual SDK path:
+
+| Boundary | Required observation / red result |
+| --- | --- |
+| Source proof gate | A one-byte view relinquishes its 8-MiB external backing before waiting; the old gate keeps it pinned |
+| Routing queue | Short JSON/scope/name/method strings do not keep 1-MiB spare allocations; the old queue retains a 1-MiB scope for 13 encoded bytes |
+| Native response codec | Response and decoder allowances overlap through native decoding; the old codec observes decoder admission with response admission already retired |
+
+Both source regressions fail, and the real-node decoder probe returns the
+expected count with `decoder_admitted=true` / `response_admitted=false`.
+Preserve the old binaries, sources, lock and logs in
+`.cellar/rpc/diagnostics/request-backing-handoff-red-v1/`. Their hashes are
+`5bec7a2fdc64e40ad63e1a2856dd42aba80658de1df1f9476087e9e7d7f8e35c`
+(source) and
+`71919b30fd21378bb837b08820aae0711e0c3b4b19e17ff7071054c90af5f568`
+(native decoder).
+
+The implementation reserves before dense normalization, then explicitly drops
+original source values before waiting. Shared tickets follow structured inputs
+and JSON peer-body copies through every byte alias, independently of dispatch
+retirement. Native clients retain their response frame through preflight and
+decoding. Raw-byte APIs keep their public owned-vector return contract. Lease
+revocation, typed reply ceilings, original deadlines and failure provenance are
+preserved; admission/normalization refusal remains before submission.
+
+The first focused source run passes 12 tests and exposes two existing queue
+tests' assumption that dropping an explicit ticket frees still-retained input
+bytes. Keep that input charged after caller/dispatch completion, then explicitly
+drop the owned request bytes and require zero reservations. The corrected broad
+run passes all 742 core tests and 37 selected native tests, but the new handoff
+probe receives an unobserved non-JSON HTTP response before its codec assertions.
+Its exact failed executable is
+`172b227663aeed9876e4c685abde030d261d9e1b5230252f3024a03f7d4bd77e`;
+preserve it with sources and log under
+`.cellar/rpc/diagnostics/request-ownership-probe-http-v2/`.
+
+Add bounded failure-only HTTP status/headers/body, business entry, host work,
+resource and lease observations; join node cancellation on probe failure. The
+diagnostic run passes both native response tests with the original 250-ms
+handler budget, including overlapping response/decoder admission and zero
+post-join reservations. All-target core Clippy, formatting (1,252 Rust files),
+layout, native dependency and documentation checks pass. This verifies the
+ownership fix in that run; it does not explain the earlier HTTP failure.
+Broader validation and exact frozen
+source/executable/report identities remain pending.
+
+Published `6addd7eb` JavaScript workflow `40623397481` fails in the container
+successor's accepted-create recovery case before adapter tests execute. The
+successor reports `Fenced/NodeLeaseExpired`; this is not a typed-codec failure.
+Preserve job `122602515937` under
+`.cellar/rpc/diagnostics/hosted-6addd7eb-js-v1/` (log SHA-256
+`9789c949e904117a8b947b8f2533696eba7dcbfda13469a641549c0abce77af5`).
+The job tests the virtual merge into main `cd9a9689`; local integration must
+include that main source before asserting an equivalent regression result.
+
+This does not close all retained-copy, effective-limit, allocator/RSS, protocol
+or package qualification. The original timing failures and the preserved Axum
+lifecycle 503 still require causal diagnosis.
+
 ## Work packages
 
 | Package | State | Authoritative evidence / next action |

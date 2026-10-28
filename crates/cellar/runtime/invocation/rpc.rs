@@ -92,28 +92,38 @@ pub(crate) async fn call_scoped(
     let submitted = AtomicBool::new(false);
     let operation = async {
         let services = crate::asyncrt::services();
-        let reservation =
-            match services.reserve_outbound_rpc(&scope, name.as_deref(), &method, &args) {
-                Some(reservation) => reservation,
-                None if event_call => {
-                    return Err(crate::application::event_stream::DeliveryError::new(
-                        crate::application::event_stream::ErrorCode::Unavailable,
-                        "event RPC admission refused before submission",
-                    )
-                    .into());
-                }
-                None => {
-                    let code = if services.accepts_work() {
-                        crate::application::rpc::Code::ResourceExhausted
-                    } else {
-                        crate::application::rpc::Code::Unavailable
-                    };
-                    return match crate::application::rpc::unsubmitted_refusal(&args, code) {
-                        Some(reply) => Ok(reply),
-                        None => Err(crate::application::rpc::Failure::new(code).into()),
-                    };
-                }
-            };
+        let admitted = match services.admit_outbound_rpc(&scope, name.as_deref(), &method, &args) {
+            Some(admitted) => admitted,
+            None if event_call => {
+                return Err(crate::application::event_stream::DeliveryError::new(
+                    crate::application::event_stream::ErrorCode::Unavailable,
+                    "event RPC admission refused before submission",
+                )
+                .into());
+            }
+            None => {
+                let code = if services.accepts_work() {
+                    crate::application::rpc::Code::ResourceExhausted
+                } else {
+                    crate::application::rpc::Code::Unavailable
+                };
+                return match crate::application::rpc::unsubmitted_refusal(&args, code) {
+                    Some(reply) => Ok(reply),
+                    None => Err(crate::application::rpc::Failure::new(code).into()),
+                };
+            }
+        };
+        // Shadowing alone would keep the original values until scope exit.
+        // Relinquish arbitrary external backing/spare capacity before a gate
+        // or queue can retain this submission. The dense bytes own admission.
+        drop((scope, name, method, args));
+        let crate::outbound_rpc::Admitted {
+            reservation,
+            scope,
+            name,
+            method,
+            args,
+        } = admitted;
         let reservation = reservation.with_reply_limit(call_scope.reply_limit);
         let (request_id, cancel, mut cancellation) = begin_call_cancellation();
         let (reply, receive) = tokio::sync::oneshot::channel();
@@ -210,3 +220,7 @@ fn source_timeout(submitted: &AtomicBool) -> anyhow::Error {
 #[cfg(test)]
 #[path = "rpc_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "rpc_backing_tests.rs"]
+mod backing_tests;

@@ -14,6 +14,9 @@ use std::{
 #[allow(dead_code)]
 #[path = "../../../tools/rpc/fixtures/generated/rust/example.counter.v1.rs"]
 mod generated;
+#[allow(dead_code)]
+#[path = "support/actor_lease_trace.rs"]
+mod lease_trace;
 #[path = "../../cellar-javascript/tests/support/native.rs"]
 mod native;
 use generated::{
@@ -30,6 +33,40 @@ struct Counts {
 }
 
 struct Counter(Arc<Counts>);
+
+#[derive(Default)]
+struct ObservedResponse {
+    inner: GetCountResponse,
+    response_admitted: bool,
+    decoder_admitted: bool,
+}
+
+impl rpc::prost::Message for ObservedResponse {
+    fn encode_raw(&self, buffer: &mut impl bytes::BufMut) {
+        rpc::prost::Message::encode_raw(&self.inner, buffer);
+    }
+
+    fn merge_field(
+        &mut self,
+        tag: u32,
+        wire: rpc::prost::encoding::WireType,
+        buffer: &mut impl bytes::Buf,
+        context: rpc::prost::encoding::DecodeContext,
+    ) -> Result<(), rpc::prost::DecodeError> {
+        let services = cellar::asyncrt::services();
+        self.response_admitted = services.rpc_response_usage().reserved_response_bytes > 0;
+        self.decoder_admitted = services.native_rpc_decode_usage().reserved_decode_bytes > 0;
+        rpc::prost::Message::merge_field(&mut self.inner, tag, wire, buffer, context)
+    }
+
+    fn encoded_len(&self) -> usize {
+        rpc::prost::Message::encoded_len(&self.inner)
+    }
+
+    fn clear(&mut self) {
+        rpc::prost::Message::clear(&mut self.inner);
+    }
+}
 
 impl CounterHandler for Counter {
     fn increment(
@@ -63,12 +100,24 @@ fn application(counts: Arc<Counts>) -> Result<Arc<dyn Application>> {
         include_bytes!("../../../tools/rpc/fixtures/counter.binpb"),
         rpc::Limits::default(),
     )?);
-    let app = Registry::new(|context, invocation| {
+    let ingress = contract.clone();
+    let app = Registry::new(move |context, invocation| {
+        let contract = ingress.clone();
         Box::pin(async move {
             let Invocation::Fetch(request) = invocation else {
                 anyhow::bail!("expected HTTP");
             };
             let url = url::Url::parse(&request.url)?;
+            if url.path() == "/observe-decoder" {
+                let client = rpc::Client::bind(&context, "COUNTERS", "decoder", contract)?;
+                let reply = client.call::<_, ObservedResponse>(
+                    "example.counter.v1.Counter/GetCount", GetCountRequest {}, Default::default(),
+                ).await?;
+                return Ok(Output::Http(http::Response::from_json(&serde_json::json!({
+                    "value":reply.inner.count.unwrap().value,
+                    "response_admitted":reply.response_admitted,"decoder_admitted":reply.decoder_admitted,
+                }))?.into_http(&context)?));
+            }
             let client =
                 CounterClient::bind(&context, "COUNTERS", url.path().trim_start_matches('/'))?;
             let result = match client.get_count(GetCountRequest {}).await {
@@ -88,6 +137,78 @@ fn application(counts: Arc<Counts>) -> Result<Arc<dyn Application>> {
     })?
     .rpc_service("Counter", "example.counter.v1.Counter", contract)?;
     Ok(Arc::new(app))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_response_frame_remains_admitted_through_the_response_codec() -> Result<()> {
+    let trace = lease_trace::install(None);
+    trace.mark("native response handoff host starting");
+    let directory = tempfile::tempdir()?;
+    let counts = Arc::new(Counts::default());
+    let (node, base) = native::start(directory.path(), application(counts.clone())?).await?;
+    let services = node.services();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    trace.mark("native response handoff host started");
+    let operation = async {
+        let mut response = client.get(format!("{base}/observe-decoder")).send().await?;
+        trace.mark("native response handoff head received");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            ensure!(body.len() + chunk.len() <= 16 * 1024, "oversize probe body: {status}; headers={headers:?}");
+            body.extend_from_slice(&chunk);
+        }
+        let diagnostic = String::from_utf8_lossy(&body);
+        ensure!(status.is_success(), "response codec probe failed: {status}; headers={headers:?}; body={diagnostic}");
+        let reply: serde_json::Value = serde_json::from_slice(&body).map_err(|error| {
+            anyhow::anyhow!("response codec probe JSON: {error}; status={status}; headers={headers:?}; body={diagnostic}")
+        })?;
+        ensure!(
+            reply["value"] == 42 && reply["decoder_admitted"] == true,
+            "probe did not execute the native response decoder: {reply}"
+        );
+        ensure!(
+            reply["response_admitted"] == true,
+            "response frame retired before its codec: {reply}"
+        );
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    // Join the host on every probe outcome. Record failures before cancellation
+    // changes the evidence; successful runs keep the observer memory-only.
+    let diagnostic = operation.as_ref().err().map(|error| {
+        format!(
+            "{error:#}; factories={}; handlers={}; node_closed={}; work={:?}; \
+             source={:?}; response={:?}; decoder={:?}; lease_observations={:?}",
+            counts.factories.load(Ordering::SeqCst),
+            counts.handlers.load(Ordering::SeqCst),
+            node.is_closed(),
+            services.application_work(),
+            services.outbound_rpc_usage(),
+            services.rpc_response_usage(),
+            services.native_rpc_decode_usage(),
+            trace.snapshot(),
+        )
+    });
+    let outcome = if operation.is_err() {
+        node.cancel().await
+    } else {
+        node.shutdown(ShutdownMode::Preserve).await
+    };
+    if let Some(diagnostic) = diagnostic {
+        anyhow::bail!("native response handoff failed: {diagnostic}; joined node={outcome:?}");
+    }
+    let outcome = outcome?;
+    ensure!(
+        matches!(outcome, NodeOutcome::Stopped(_)),
+        "response handoff node did not stop: {outcome:?}"
+    );
+    ensure!(services.rpc_response_usage() == Default::default());
+    ensure!(services.native_rpc_decode_usage() == Default::default());
+    ensure!(services.outbound_rpc_usage() == Default::default());
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

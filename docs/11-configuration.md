@@ -54,9 +54,24 @@ caller cancellation. Reply and shutdown control paths do not acquire this quota.
 
 The byte allowance is twice the encoded payload length, four times the combined
 scope/name/method UTF-8 length, plus 64 KiB for bounded control/frame copies.
-It is not an RSS or exact allocator measurement: shared backing allocations,
-spare capacity, response buffers, guest heaps and peer ingress retain separate
-limits. Trusted direct host control requests use their existing admission.
+After admission and before a source gate or queue wait, the SDK copies payloads
+and routing strings into dense storage and relinquishes its original references.
+A one-byte view therefore cannot make the host retain an arbitrarily large
+caller-owned buffer; a short JSON/routing string cannot keep spare capacity.
+Structured input aliases and JSON peer-body copies retain the shared ticket
+even after their caller/dispatch retires, including after domain closure.
+
+```text
+reserve count + bytes -> dense payload / routing strings -> drop originals
+                                      |
+                          source proof gate -> queue -> native / peer
+                                      |
+                     driver and byte aliases retire -> refund
+```
+
+This is not an RSS or allocator-usable-size measurement. Caller-retained
+application data, decoded graphs, response buffers, guest heaps and peer ingress
+retain separate limits. Trusted direct host control requests use their existing admission.
 `domain.services().outbound_rpc_usage()` exposes the two sampled counters for
 cleanup checks. Configure quotas with `NodeConfig.runtime` or
 `domain.services().configure_runtime(...)` before the first submission.
@@ -97,7 +112,10 @@ codes. Reply and shutdown progress never waits for this pool.
 bytes across host generations. This conservative allowance is not measured RSS,
 allocator usable size, application-retained decoded graphs, guest heaps or leased
 untyped capability streams. Native decoder and receiving-peer quotas still
-apply independently. Effective cross-adapter limits and further memory
+apply independently. Native typed clients keep the response frame admitted
+through response preflight and decoding, so the owned business-byte copy cannot
+cross that handoff without response ownership. Raw-byte APIs transfer their
+returned vector to their caller; guest adapters retain their separate budgets. Effective cross-adapter limits and further memory
 qualification remain recorded in the typed-RPC implementation ledger.
 
 Native typed clients and Rust service routers also reserve decoder capacity
