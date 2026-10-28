@@ -26,8 +26,10 @@ movement-service, nine isolated-repair, four topology-service, twelve evacuation
 two maintenance settlement, two isolation, three removal, thirteen catalog and
 914 host library tests. Host/admin/logic all-target Clippy, formatting, layout
 and native dependency checks pass. The audit binds 1,783 Rust/Cargo/config
-inputs and retained executable/result hashes to this source; commit binding is
-recorded with the delivery baseline. Artifacts remain outside runtime data in
+inputs and retained executable/result hashes to source
+`40d0ba86d1a747f9f498634f11c81ed4d692e3fd`. Documentation, ten plan tests and source
+preflight pass. The acceptance inventory validates 475 cases and 105 source
+anchors; this does not certify execution of every planned scenario. Artifacts remain outside runtime data in
 `automatic-removal-v3`; earlier failed probes are retained.
 
 The new automatic-removal cases use materialized SQLite images. Extent-backed

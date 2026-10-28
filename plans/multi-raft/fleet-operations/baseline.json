@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "e1eccc5c501a823a72f0b8cf9ed4332863b66485",
+  "revision": "40d0ba86d1a747f9f498634f11c81ed4d692e3fd",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -88,7 +88,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "0624e00b502d37fdf12bc3a3cdda29f69ef5091c8eb41673e16227c0fe3415a4"
+      "sha256": "d78a8b7a2fabd13caf281390a17d11f6d12891e280f8dff7f55f7fdfe48c1d03"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -165,6 +165,10 @@
     {
       "path": "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
       "sha256": "7e97a0c9713fdaffbd81f64c3164070b113d687c9859e2a20c94c9273f482d90"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/removal.rs",
+      "sha256": "792b2c6a370f89ccf2a3cb96da62e6564015f26d5b624b1e92a5ac14eb6e9236"
     },
     {
       "path": "crates/cellar/durability/raft/host.rs",
@@ -391,6 +395,10 @@
       "sha256": "0d7e53f0c0c1fded8cdc0297b80a8e12479a32d90508369f91f0f8b9b6c41983"
     },
     {
+      "path": "crates/cellar/tests/support/raft_failure_recovery_removal.rs",
+      "sha256": "7cee300b59b6e7fa4a9d06413f7c14040d95fd7098e3bd76ea299736f97bd823"
+    },
+    {
       "path": "crates/cellar/tests/support/raft_metrics_native.rs",
       "sha256": "0ec01fbf4052cee0c2fb4528b930e4a74a41d10f832ac43182631335becf11f3"
     },
@@ -415,6 +423,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "777f560f89fd70e87bb0ffad6490923b7c6bd804",
-  "review_note": "Reviewed main cd9a9689 integration and the independent operator stop/return/resume implementation at 43c080a1521e878e6efee136f76b8c561d510a6a. Selected local correctness cohorts pass 1,054 distinct cases; all 1,678 frozen Rust/Cargo/config inputs and the console permission type match the audited code commit. Canonical same-Root memoization omits saved state; physical/quorum freshness remains live. Managed extent namespaces deliberately refuse until fleet proof support exists. Earlier observation/cleanup probes and corrected default-stack/leader-polling failures remain retained. Three RustFS-only cases, full CI, deployed scale, resource limits, TPS/p99 and soak remain unqualified. Raw evidence stays outside the PR. Package status and the full goal remain incomplete."
+  "reviewed_from_revision": "e1eccc5c501a823a72f0b8cf9ed4332863b66485",
+  "review_note": "Reviewed automatic isolated-node finalization and terminal removal at 40d0ba86d1a747f9f498634f11c81ed4d692e3fd. Seven recovery cases and 964 existing selected regressions pass, with 1,783 frozen Rust/Cargo/config inputs and retained executable/result hashes audited against this source. Fresh RF3 observations and physical replay precede terminal slot release; unknown acknowledgements reconcile through typed immutable receipts. The new automatic-removal cases use materialized images. Extent-backed automatic removal, production isolation, foreground recovery performance, full CI, repeatability, density and soak remain unqualified. Managed extent namespace support was delivered earlier; the remaining extent gap is qualification of this combined automatic flow. Raw evidence stays outside the PR. Package status and the full goal remain incomplete."
 }

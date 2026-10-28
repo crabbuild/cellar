@@ -213,24 +213,31 @@ production platform-isolation adapter remains required.
 
 Start `start_failure_recovery_service` on a surviving enrolled node with ordinary
 movement and repair evidence plus a trusted `FleetFailureRecoveryPlatform`.
+Supply `FleetFailureRecoveryOptions` with detection policy, an archive host,
+an independent physical replay verifier and explicit archive limits. The embedding
+runtime owns bounded scratch storage; extent-backed namespaces require the
+corresponding extent replay verifier.
 Its namespace callback supplies complete handles; its isolation callback receives
 the rooted operation and exact boot. Installing this adapter authorizes permanent
 isolation after repeated fresh failures cross grace. The adapter must establish
 physical shutdown of all workers and prevent restart; disappearance or timeout
 alone is insufficient. Preserve volumes and engine identity.
 
-The service owns detection, exclusion admission, isolation reconciliation and
-quorum-based repair. Restarting it on another enrolled node resumes the same
+The service owns detection, exclusion admission, isolation reconciliation,
+quorum-based repair and verified terminal removal. Restarting it on another enrolled node resumes the same
 rooted intent. A timeout or service stop leaves that intent in place because the
 platform action may already have happened. Failure intents cannot be cancelled
-or rebound to another boot; complete verified terminal removal to release the
-slot. Read `failure_recovery` and `isolated_repair` status for progress, and use
-fresh membership/archive proof for completion. Manual evacuation and maintenance
+or rebound to another boot. After repair, the worker verifies complete history
+coverage, current RF3 membership and physical archive replay in bounded turns.
+It repeats proof after Finalizing; only terminal removal releases the owning
+slot. Read `failure_recovery` and `isolated_repair` status for progress;
+`Removed` follows a journal-confirmed terminal receipt and does not authorize
+storage deletion. Manual evacuation and maintenance
 operations remain owned by their existing workflows.
 
 The native integration uses joined hosts and fixture isolation evidence. A
-production Docker/Colima driver, automatic terminal removal and deployed fault
-qualification remain open. This SDK path remains default-off.
+production Docker/Colima driver, extent-backed automatic-flow coverage and
+deployed fault qualification remain open. This SDK path remains default-off.
 
 ## Delivered isolated-node repair SDK workflow
 
