@@ -25,6 +25,8 @@ mod wire;
 pub use budget::{BudgetSource, CallBudget};
 pub use catalog::Catalog;
 pub use client::{CallOptions, Client};
+#[doc(hidden)]
+pub use client::{ResponseBytes, ResponseOwner};
 pub use contract::{Contract, Limits, Method};
 pub use envelope::response as decode_reply;
 pub use envelope::{decode_envelope, encode_envelope};

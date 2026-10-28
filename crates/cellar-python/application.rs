@@ -465,8 +465,10 @@ impl PythonApplication {
                 _ = stopped.changed() => anyhow::bail!("Python runtime stopped"),
                 _ = cancellation.changed() => anyhow::bail!("Python invocation cancelled"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded, observation, raw) = result.expect("nonempty native operation set");
+                    let (id, encoded, observation, raw, response_owner) = result.expect("nonempty native operation set");
+                    // Bridge reservation precedes release of the native frame.
                     self.runtime.reply(invocation, id, encoded?, observation, raw)?;
+                    drop(response_owner);
                     continue;
                 },
                 event = receive.recv() => event,
@@ -500,6 +502,7 @@ impl PythonApplication {
                         let _mutation = mutation;
                         let _reservation = reservation;
                         let _rpc = rpc;
+                        let mut response_owner = None;
                         let result = match cellar_guest::operations::decode_metadata_with(
                             &name,
                             &payload,
@@ -515,6 +518,10 @@ impl PythonApplication {
                                     rpc_budget,
                                 )
                                 .await
+                                .map(|(value, owner)| {
+                                    response_owner = Some(owner);
+                                    value
+                                })
                             }
                             Ok((payload, _control_bytes)) => {
                                 operations::execute(
@@ -535,7 +542,13 @@ impl PythonApplication {
                             result,
                             self.runtime.options.max_value_bytes,
                         );
-                        (id, encoded, observation, name == "cell.call")
+                        (
+                            id,
+                            encoded,
+                            observation,
+                            name == "cell.call",
+                            response_owner,
+                        )
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -545,9 +558,11 @@ impl PythonApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded, observation, raw)) => self
-                            .runtime
-                            .reply(invocation, id, encoded?, observation, raw)?,
+                        std::task::Poll::Ready((id, encoded, observation, raw, response_owner)) => {
+                            self.runtime
+                                .reply(invocation, id, encoded?, observation, raw)?;
+                            drop(response_owner);
+                        }
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
