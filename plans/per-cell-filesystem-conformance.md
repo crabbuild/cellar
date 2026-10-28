@@ -379,14 +379,14 @@ commits a four-chunk file, business generation and SHA-256 receipt in one
 acknowledged. Peer append acknowledgements and bucket publications are held
 before the next batch; the client must remain pending after local commit.
 
-Eight modes select `file.fsync`, `file.fdatasync`, `fs.sync`, or final output
-proof (O16, O17, O36 and the cell output boundary), followed by either the
+Ten modes select `file.fsync`, `file.fdatasync`, `dir.fsync`, `fs.sync`, or final output
+proof (O16, O17, O34, O36 and the cell output boundary), followed by either the
 original handler deadline or an observed native node-lease mismatch fence.
 Release of the actual transports after authority retirement cannot turn the
 failed client response into success. The interrupted generation may survive or
 be absent; the test does not infer rollback from a lost acknowledgement.
 
-The original task resumes only to check 31 retained file/duplicate/directory/view
+The original task resumes only to check 50 retained file/duplicate/directory/view
 refusals and one raw filesystem submission refusal. SDK refusals require
 ContextExpired, the public operation, not_committed and zero confirmed bytes.
 Two existing storage/raw-storage authority assertions also remain in the
@@ -423,7 +423,7 @@ executed results and artifact identities belong in the status ledger.
 
 ## Python handoff and closed-domain profile
 
-Eight `--runtime-filesystem-handoff-{barrier}-{deadline|fence}` modes extend
+Ten `--runtime-filesystem-handoff-{barrier}-{deadline|fence}` modes extend
 the Python in-flight proof profile. Three successors start with new local
 directories and reach readiness before any predecessor begins Handoff. After
 proof interruption and warm coherent readback, each remaining predecessor must
@@ -434,8 +434,8 @@ not attempt to hand the final cell to an empty fleet.
 
 The old file, duplicate, directory and filesystem-view wrappers remain retained
 through predecessor domain shutdown. A live successor invocation repeats the
-31 SDK refusals and one raw submission refusal, taking the profile's cumulative
-count from 32 to 64. Each SDK call must retain ContextExpired, its public
+50 SDK refusals and one raw submission refusal, taking the profile's cumulative
+count from 51 to 102. Each SDK call must retain ContextExpired, its public
 operation, not_committed and zero confirmed bytes. After every refusal, fresh
 root/file metadata, usage, file/duplicate offsets, directory cookie and a
 positional byte prefix must remain identical. Full file/state/receipt checks
@@ -479,11 +479,11 @@ An HTTP timeout alone is insufficient; the native observer waits for the
 original cell future to drop.
 
 The original JavaScript continuation resumes after a separate application
-promise is released and checks 31 retained SDK calls plus one raw filesystem
+promise is released and checks 50 retained SDK calls plus one raw filesystem
 submission. Those calls require ContextExpired/not_committed and zero progress.
 After all predecessor domains close, a live successor repeats the refusals with
 ContextMismatch/not_committed; it must not lend the stale wrappers its own
-invocation authority. The cumulative count is 64 per case. Every successor-side
+invocation authority. The cumulative count is 102 per case. Every successor-side
 refusal preserves full metadata/usage, file and dup offsets, directory cookie
 and positional bytes. Four fresh descriptors remain allocated and a fifth open
 returns ENFILE after stale close attempts.
@@ -511,6 +511,28 @@ Executed artifacts and remaining limits belong in the status ledger.
 These are development-bucket/loopback-peer cases. Byte-I/O cancellation,
 remaining operation/domain/overload combinations, external faults, sustained
 load and final package/target qualification remain separate gates.
+
+### Complete retained filesystem method profile
+
+The current Node/V8 and Python proof fixtures cover every public method on a
+retained filesystem view, file and directory. The additional 19 calls exercise
+open/create, lstat, truncate, mkdir/rmdir, rename, chmod, utimens, opendir,
+statvfs, all five directory-relative methods, replace/edit and stateless listing.
+They use valid arguments and retained identities so local argument conversion
+cannot substitute for authority refusal. SDK calls retain exact operation,
+outcome and progress fields. Successor-state and descriptor-capacity assertions
+run after these calls as well as after the original descriptor cases.
+
+The native `preflight_authority` profile also checks every path/view method
+(including Rust's `read_file_bounded`) under wrong-cell and replaced-activation
+authority. Directory-relative identity and descriptor lifetimes remain covered
+by their distinct native profiles. Native close/drop deliberately permits
+resource cleanup after retirement; it does not admit a stale storage operation.
+Guest wrappers instead refuse submissions after their context expires.
+
+This is a finite authority profile, not every permutation of arguments and
+failure timing. Its execution status is recorded separately from its source
+coverage in the status ledger.
 
 ## Node lost byte-reply profile
 

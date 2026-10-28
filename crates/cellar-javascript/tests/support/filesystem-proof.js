@@ -82,6 +82,7 @@ async function retain(ctx) {
     file,
     duplicate: await file.dup(),
     directory: await ctx.fs.opendir("/"),
+    version: await file.fstat(),
   };
   proof.old.cookie = await proof.old.directory.telldir();
 }
@@ -120,6 +121,52 @@ async function refusals(code, observe) {
     [() => owner.fs.unlink("/ledger.bin"), "unlink"],
     [() => owner.fs.sync(), "sync"],
     [() => owner.fs.collectGarbage(), "collect_garbage"],
+    [
+      () => owner.fs.open("/ledger.bin", { access: "write", truncate: true }),
+      "open",
+    ],
+    [() => owner.fs.creat("/late-create"), "creat"],
+    [() => owner.fs.lstat("/ledger.bin"), "lstat"],
+    [() => owner.fs.truncate("/ledger.bin", 0n), "truncate"],
+    [() => owner.fs.mkdir("/late-directory"), "mkdir"],
+    [() => owner.fs.rmdir("/"), "rmdir"],
+    [() => owner.fs.rename("/ledger.bin", "/late-renamed"), "rename"],
+    [() => owner.fs.chmod("/ledger.bin", 0o400), "chmod"],
+    [() => owner.fs.utimens("/ledger.bin", 0n), "utimens"],
+    [() => owner.fs.opendir("/"), "opendir"],
+    [() => owner.fs.statvfs(), "statvfs"],
+    [
+      () =>
+        owner.fs.openat(owner.directory, "ledger.bin", {
+          access: "write",
+          truncate: true,
+        }),
+      "openat",
+    ],
+    [() => owner.fs.fstatat(owner.directory, "ledger.bin"), "fstatat"],
+    [() => owner.fs.mkdirat(owner.directory, "late-directory"), "mkdirat"],
+    [() => owner.fs.unlinkat(owner.directory, "ledger.bin"), "unlinkat"],
+    [
+      () =>
+        owner.fs.renameat(
+          owner.directory,
+          "ledger.bin",
+          owner.directory,
+          "late-renamed",
+        ),
+      "renameat",
+    ],
+    [() => owner.fs.replaceFile("/ledger.bin", utf8("late")), "replace_file"],
+    [
+      () =>
+        owner.fs.editFile("/ledger.bin", owner.version, {
+          offset: 0n,
+          delete_bytes: 1n,
+          insert: utf8("late"),
+        }),
+      "edit_file",
+    ],
+    [() => owner.fs.readDir("/", 1), "read_dir"],
   ]) {
     let refused = false;
     try {

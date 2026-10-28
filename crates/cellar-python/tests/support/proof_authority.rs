@@ -387,7 +387,7 @@ fn scenario(
                     "adapter/native routing replayed the business handler: {final_view}"
                 );
                 if filesystem {
-                    ensure!(final_view["filesystem"]["refusals"] == 32, "retired filesystem proof admitted work: {final_view}");
+                    ensure!(final_view["filesystem"]["refusals"] == 51, "retired filesystem proof admitted work: {final_view}");
                 } else {
                     control("clear")?;
                 }
@@ -469,7 +469,7 @@ fn scenario(
                         let response = client.get(format!("{address}/retired-filesystem")).send().await?.error_for_status()
                             .with_context(|| format!("retired filesystem checks in successor: {:?}", control("snapshot")))?;
                         let checked: Value = response.json().await?;
-                        ensure!(checked["refusals"] == 64 && checked["filesystem"] == restored["filesystem"]
+                        ensure!(checked["refusals"] == 102 && checked["filesystem"] == restored["filesystem"]
                             && checked["owner"].as_str().is_some_and(|name| name.starts_with("authority-proof-cold-")),
                             "retained filesystem acquired successor authority: {checked}");
                         Some(checked)
