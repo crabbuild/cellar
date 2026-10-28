@@ -53,6 +53,28 @@ async fn serve(config: NodeConfig, services: NodeServices,
 }
 ```
 
+## Executor progress during synchronous turns
+
+Use a Tokio multi-thread runtime for the host executor, even when configured
+with one async worker. Cellar-owned tasks hand the worker back while a
+synchronous application/SQLite turn runs. The turn keeps its slot permit,
+thread-local context and original task lifetime; shutdown still joins it.
+
+```text
+Cellar task                 Tokio async worker
+  acquire turn permit         hand off to replacement
+  synchronous SQLite  <----> timers / replies / lease renewal
+  return and release          continue ordinary async work
+```
+
+This preserves independent task progress; it does not interrupt synchronous
+code or extend handler, lease or shutdown deadlines. Keep a separate core
+executor when application work needs stronger isolation. Current-thread
+runtimes and caller-owned futures (including a `LocalSet`) retain inline turn
+execution and cannot promise timer progress while that turn blocks. Size the
+caller's blocking pool for its workload; exhausting that pool can prevent a
+replacement worker from starting.
+
 ## Configure HTTP and clocks
 
 `NodeConfig::http` sets the SDK request deadline, including response-body reads.

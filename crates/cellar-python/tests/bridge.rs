@@ -29,6 +29,10 @@ mod durability;
 mod fault_gates;
 #[path = "support/fencing.rs"]
 mod fencing;
+#[path = "support/first_write.rs"]
+mod first_write;
+#[path = "support/first_write_trace.rs"]
+mod first_write_trace;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
@@ -233,6 +237,14 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-first-write" {
+        let iterations = std::env::args()
+            .nth(2)
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(100);
+        return first_write::run_cases(iterations);
+    }
     if mode == "--runtime-contract" {
         return contract();
     }
@@ -559,6 +571,19 @@ fn main() -> Result<()> {
     contract()
 }
 
+fn contract_options() -> Options {
+    Options {
+        max_body_bytes: 4096,
+        max_value_bytes: 16384,
+        max_operations: 64,
+        max_batch_operations: 4,
+        max_tasks: 129,
+        telemetry_interval: Duration::from_millis(10),
+        trace_allocations: true,
+        ..Default::default()
+    }
+}
+
 fn contract() -> Result<()> {
     // Keep the normal fixture quiet, but allow an original-budget replay to
     // retain native storage phases and lease/timer evidence after a failure.
@@ -572,16 +597,7 @@ fn contract() -> Result<()> {
     }
     let directory = tempfile::tempdir()?;
     let report = run(
-        Options {
-            max_body_bytes: 4096,
-            max_value_bytes: 16384,
-            max_operations: 64,
-            max_batch_operations: 4,
-            max_tasks: 129,
-            telemetry_interval: Duration::from_millis(10),
-            trace_allocations: true,
-            ..Default::default()
-        },
+        contract_options(),
         Source::new(include_str!("bridge.py"), "bridge.py")
             .events([EventKind::Fetch])
             .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm]),
