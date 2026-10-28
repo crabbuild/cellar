@@ -484,8 +484,10 @@ dependencies = [
  "cellar-container",
  "cellar-logic",
  "futures-util",
+ "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

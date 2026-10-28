@@ -637,3 +637,84 @@ fn shutdown_policy_rejects_inconsistent_budgets_and_cli_settings_are_captured() 
     );
     Ok(())
 }
+
+// Closing a domain aborts its channel owners. An entered root poll can still
+// observe their EOF before run_scoped polls the closure notice again.
+#[tokio::test]
+async fn entered_driver_poll_distinguishes_cancelled_channels_from_failure_reports(
+) -> anyhow::Result<()> {
+    for fence in [false, true] {
+        let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+        let closing = domain.clone();
+        let outcome = domain
+            .run(async move {
+                closing.close();
+                if fence {
+                    let (sender, mut receiver) = mpsc::unbounded_channel();
+                    drop(sender);
+                    fence_outcome(receiver.recv().await)
+                } else {
+                    let (sender, mut receiver) = mpsc::unbounded_channel();
+                    drop(sender);
+                    core_outcome(receiver.recv().await)
+                }
+            })
+            .await?;
+        domain.shutdown().await;
+        assert_eq!(outcome, NodeOutcome::Cancelled);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn actual_exit_and_fence_reports_survive_domain_closure() -> anyhow::Result<()> {
+    for close in [false, true] {
+        let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+        let closing = domain.clone();
+        let (failed, exited, fenced, missing_core, missing_fence) = domain
+            .run(async move {
+                if close {
+                    closing.close();
+                }
+                (
+                    core_outcome(Some(Err("reported core failure".into()))),
+                    core_outcome(Some(Ok(()))),
+                    fence_outcome(Some(FenceReport {
+                        code: 9,
+                        reason: FenceReason::NodeLeaseMissing,
+                    })),
+                    core_outcome(None),
+                    fence_outcome(None),
+                )
+            })
+            .await?;
+        domain.shutdown().await;
+        assert_eq!(
+            failed,
+            NodeOutcome::CoreFailed {
+                error: "reported core failure".into(),
+            }
+        );
+        assert_eq!(
+            exited,
+            NodeOutcome::CoreFailed {
+                error: "the core actor stopped unexpectedly".into(),
+            }
+        );
+        assert_eq!(
+            fenced,
+            NodeOutcome::Fenced {
+                code: 9,
+                reason: FenceReason::NodeLeaseMissing,
+            }
+        );
+        for missing in [missing_core, missing_fence] {
+            if close {
+                assert_eq!(missing, NodeOutcome::Cancelled);
+            } else {
+                assert!(matches!(missing, NodeOutcome::CoreFailed { .. }));
+            }
+        }
+    }
+    Ok(())
+}
