@@ -293,3 +293,102 @@ fn bounded_pages_use_cleanup_indexes_and_validate_limits() -> Result<()> {
     assert!(page(None, 256).is_ok());
     Ok(())
 }
+
+#[test]
+fn managed_sandbox_cleanup_is_durable_fair_and_retains_parent_finalization() -> Result<()> {
+    use super::super::sandbox_work as tasks;
+    let connection = Connection::open_in_memory()?;
+    connection.execute_batch(super::super::work::SCHEMA)?;
+    let a = reserve_child(&connection, "a")?.allocation;
+    let b = reserve_child(&connection, "b")?.allocation;
+    for allocation in [&a, &b] {
+        transaction(&connection, |connection| {
+            tasks::register_in(connection, PARENT, allocation, &"c".repeat(64))
+        })?;
+    }
+    assert!(
+        tasks::claim_at(&connection, PARENT, 100)?.is_none(),
+        "active children cannot be cleaned"
+    );
+    transaction(&connection, |connection| {
+        retire_at(connection, PARENT, &"a".repeat(32), false)
+    })?;
+    assert_eq!(tasks::claim_at(&connection, PARENT, 100)?, Some(a.clone()));
+    assert_eq!(tasks::claim_at(&connection, PARENT, 100)?, Some(b.clone()));
+    assert!(tasks::claim_at(&connection, PARENT, 30_099)?.is_none());
+    tasks::check_schema(&connection)?;
+    // A failed durable claim must roll back its retry, retaining the same work.
+    let failed: Result<()> = transaction(&connection, |connection| {
+        assert_eq!(
+            tasks::claim_at(connection, PARENT, 30_100)?,
+            Some(a.clone())
+        );
+        anyhow::bail!("injected transaction failure")
+    });
+    assert!(failed.is_err());
+    assert_eq!(
+        tasks::claim_at(&connection, PARENT, 30_100)?,
+        Some(a.clone())
+    );
+    for allocation in [&a, &b] {
+        let deleting = transition_child(&connection, allocation, SandboxAllocationState::Deleting)?;
+        transition_child(&connection, &deleting, SandboxAllocationState::Deleted)?;
+    }
+    assert!(tasks::claim_at(&connection, PARENT, 60_100)?.is_none());
+    let finalization: i64 = connection.query_row(
+        "SELECT at_ms FROM __sys_work WHERE reason='sandbox-cleanup'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(
+        finalization, 0,
+        "last child must leave parent finalization discoverable"
+    );
+    transaction(&connection, |connection| {
+        retire_at(connection, PARENT, &"a".repeat(32), true)
+    })?;
+    let cleared: Option<i64> = connection.query_row(
+        "SELECT at_ms FROM __sys_work WHERE reason='sandbox-cleanup'",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(cleared, None);
+    tasks::check_schema(&connection)?;
+    Ok(())
+}
+
+#[test]
+fn managed_sandbox_refuses_old_work_schema_and_configuration_drift_before_effects() -> Result<()> {
+    use super::super::sandbox_work as tasks;
+    let connection = Connection::open_in_memory()?;
+    let allocation = reserve_child(&connection, "a")?.allocation;
+    connection.execute_batch(&super::super::work::SCHEMA.replace(", 'sandbox-cleanup'", ""))?;
+    assert!(transaction(&connection, |connection| tasks::register_in(
+        connection,
+        PARENT,
+        &allocation,
+        &"c".repeat(64)
+    ))
+    .is_err());
+    connection.execute_batch("DROP TABLE __sys_work;")?;
+    connection.execute_batch(super::super::work::SCHEMA)?;
+    transaction(&connection, |connection| {
+        tasks::register_in(connection, PARENT, &allocation, &"c".repeat(64))
+    })?;
+    assert!(transaction(&connection, |connection| tasks::register_in(
+        connection,
+        PARENT,
+        &allocation,
+        &"d".repeat(64)
+    ))
+    .is_err());
+    let query = "EXPLAIN QUERY PLAN SELECT m.name FROM __sys_sandbox_allocations AS a INDEXED BY __sys_sandbox_deleting JOIN __sys_sandbox_managed AS m ON m.name=a.name WHERE a.state='deleting' ORDER BY m.due_ms,m.name LIMIT 1";
+    let rows = connection
+        .prepare(query)?
+        .query_map([], |row| row.get::<_, String>(3))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    assert!(rows
+        .iter()
+        .any(|row| row.contains("__sys_sandbox_deleting")));
+    Ok(())
+}

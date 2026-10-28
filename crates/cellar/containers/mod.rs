@@ -37,7 +37,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, watch};
 mod capacity;
-pub use capacity::{CapacityExceeded, CapacityLimits};
+pub use capacity::{available_instances_by_class, CapacityExceeded, CapacityLimits};
 mod exec_identity;
 mod exec_options;
 mod exec_stream;
@@ -1603,6 +1603,17 @@ impl ContainerEngine {
             "destroy container failed with [{}] {}",
             reply.status.as_u16(),
             reply.message()
+        );
+        // A successful DELETE response may precede actual retirement on an
+        // Engine-compatible backend. Release ownership/capacity only after an
+        // exact immutable-ID read proves absence; never infer it from a list.
+        let observed = self
+            .docker
+            .call("GET", &format!("/containers/{id}/json"), None)
+            .await?;
+        anyhow::ensure!(
+            observed.status.as_u16() == 404,
+            "container deletion has not been observed; retain cleanup obligation"
         );
         Ok(())
     }

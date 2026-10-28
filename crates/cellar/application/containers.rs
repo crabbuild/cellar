@@ -15,6 +15,9 @@ pub use super::sandbox_catalog::{
     SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
     SandboxParent, SandboxParentState, SandboxReservation,
 };
+pub use super::sandbox_catalog::{
+    SandboxExecutor, SandboxFailure, SandboxFailureKind, MAX_SANDBOX_MESSAGE_BYTES,
+};
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};

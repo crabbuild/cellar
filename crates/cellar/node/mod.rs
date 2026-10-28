@@ -1663,10 +1663,26 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
             },
         };
         loop {
-            let resolving = app.request(scope.clone());
-            let routed = resolving.await;
+            let routed = if authority
+                .as_ref()
+                .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+            {
+                app.native_sandbox_request(scope.clone(), false).await
+            } else {
+                app.request(scope.clone()).await
+            };
             let Routed { request, route } = routed.map_err(|error| {
-                let failure = anyhow::Error::new(RoutedRequestError(error));
+                let failure = if error == RequestError::CapacityExhausted
+                    && authority
+                        .as_ref()
+                        .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+                {
+                    anyhow::Error::new(crate::application::containers::SandboxFailure {
+                        kind: crate::application::containers::SandboxFailureKind::Capacity,
+                    })
+                } else {
+                    anyhow::Error::new(RoutedRequestError(error))
+                };
                 if event_call {
                     event_failure::annotate(failure, event_failure::route_code(error))
                 } else {
@@ -1815,6 +1831,25 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         // Nothing executed. An abort tombstone must not cancel
                         // the safe redispatch of this same request identity.
                         abort.disarm();
+                    }
+                    if epoch == 0
+                        && attempt == cellar_logic::routing::Attempt::NotOwner
+                        && authority
+                            .as_ref()
+                            .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+                    {
+                        dispatcher.invalidate(&app, &scope).await;
+                        match dispatcher.wait_capacity(None).await {
+                            RemoteRetryOutcome::Ready => continue,
+                            RemoteRetryOutcome::Cancelled => {
+                                anyhow::bail!("sandbox placement cancelled")
+                            }
+                            RemoteRetryOutcome::Stop => {
+                                return Err(crate::application::containers::SandboxFailure {
+                                    kind: crate::application::containers::SandboxFailureKind::Capacity,
+                                }.into());
+                            }
+                        }
                     }
                     match dispatcher
                         .retry(&app, &scope, attempt, None, Some("rpc"))
@@ -2727,7 +2762,16 @@ pub(crate) async fn dispatch_forwarded_rpc(
     invocation.request_id = Some(request_id);
     let (cancel, _reply_wait) = runtime.begin_rpc_reply_wait(request_id);
     let dispatch = async {
-        let result = match app.request(scope.clone()).await {
+        let routed = if invocation
+            .authority
+            .as_ref()
+            .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+        {
+            app.native_sandbox_request(scope.clone(), true).await
+        } else {
+            app.request(scope.clone()).await
+        };
+        let result = match routed {
             Ok(Routed {
                 request,
                 route: Route::Local,
@@ -2773,6 +2817,12 @@ pub(crate) async fn dispatch_forwarded_rpc(
                         event_failure::route_code(error),
                     )),
                 );
+                if error == RequestError::CapacityExhausted {
+                    refusal.headers_mut().insert(
+                        hyper::header::HeaderName::from_static(STALE_ROUTE_HEADER),
+                        hyper::header::HeaderValue::from_static(STALE_ROUTE_VALUE),
+                    );
+                }
                 return refusal;
             }
         };

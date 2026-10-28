@@ -39,6 +39,7 @@ pub struct Engine {
     pub lost_responses: AtomicUsize,
     pub exit_on_sigterm: AtomicBool,
     pub refuse_remove: AtomicBool,
+    pub defer_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
     pub(super) ids: Mutex<HashMap<String, String>>,
@@ -381,7 +382,7 @@ impl Engine {
             if method == "DELETE" {
                 if self.refuse_remove.load(Ordering::SeqCst) {
                     status = 500;
-                } else {
+                } else if !self.defer_remove.load(Ordering::SeqCst) {
                     let id = resource_identity.unwrap_or_else(|| self.resource_id(name));
                     self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);

@@ -51,7 +51,7 @@ fn encode(value: &impl serde::Serialize) -> Result<String> {
     Ok(encoded)
 }
 
-fn read_parent(connection: &Connection) -> Result<Option<SandboxParent>> {
+pub(super) fn read_parent(connection: &Connection) -> Result<Option<SandboxParent>> {
     if !SCHEMA.check(connection)? {
         return Ok(None);
     }
@@ -125,7 +125,7 @@ fn decode(
     Ok(allocation)
 }
 
-fn read(
+pub(super) fn read(
     connection: &Connection,
     parent: &SandboxParent,
     name: &str,
@@ -190,7 +190,7 @@ pub(super) fn check_schema(connection: &Connection) -> Result<bool> {
     Ok(true)
 }
 
-fn transaction<T>(
+pub(super) fn transaction<T>(
     connection: &Connection,
     effect: impl FnOnce(&Connection) -> Result<T>,
 ) -> Result<T> {
@@ -318,10 +318,11 @@ pub(crate) fn reserve(
     binding: &str,
     digest: &str,
     execution_scope: &impl Fn(&str) -> String,
+    profile: Option<&str>,
 ) -> Result<(SandboxParent, SandboxReservation)> {
     with_application_storage_write(scope, |connection| {
         transaction(connection, |connection| {
-            reserve_at(
+            let reserved = reserve_at(
                 connection,
                 scope,
                 incarnation,
@@ -329,7 +330,16 @@ pub(crate) fn reserve(
                 binding,
                 digest,
                 execution_scope,
-            )
+            )?;
+            if let Some(profile) = profile {
+                super::sandbox_work::register_in(
+                    connection,
+                    scope,
+                    &reserved.1.allocation,
+                    profile,
+                )?;
+            }
+            Ok(reserved)
         })
     })
 }
@@ -375,6 +385,7 @@ fn transition_at(
         ..expected.clone()
     };
     write(connection, &allocation)?;
+    super::sandbox_work::changed(connection, scope, &allocation)?;
     Ok((parent, allocation))
 }
 
@@ -415,6 +426,7 @@ fn retire_at(
         parent.revision = next(parent.revision)?;
         write_parent(connection, &parent)?;
     }
+    super::sandbox_work::rearm(connection, scope)?;
     Ok(parent)
 }
 

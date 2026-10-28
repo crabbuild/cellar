@@ -183,7 +183,8 @@ pub(crate) fn validate_application_classes<'a>(
                 || class == crate::deploy::EVENT_CATALOG_CLASS
                 || class == cellar_logic::cron::RESERVED_CLASS
                 || class == crate::deploy::workflow_class(script)
-                || application.supports_cell(class),
+                || application.supports_cell(class)
+                || application.sandbox_executor(class).is_some(),
             "native application {script} has no factory for {class}"
         );
     }
@@ -700,7 +701,12 @@ impl NativeWorker {
                 .expect("new context has no RPC deadline");
         }
         let mut inventory_authority = None;
+        let mut sandbox_authority = None;
         let source_authority = match authority {
+            Some(crate::runtime::RpcAuthority::Sandbox(authority)) => {
+                sandbox_authority = Some(authority);
+                None
+            }
             Some(crate::runtime::RpcAuthority::Inventory(authority)) => {
                 inventory_authority = Some(authority);
                 None
@@ -725,7 +731,8 @@ impl NativeWorker {
             None => None,
         };
         context.io.framework_source.store(
-            source_authority.is_some()
+            sandbox_authority.is_some()
+                || source_authority.is_some()
                 || state_authority.is_some()
                 || inventory_authority.is_some()
                 || work.as_ref().is_some_and(|work| {
@@ -734,6 +741,7 @@ impl NativeWorker {
                         cellar_logic::work::Reason::Outbox
                             | cellar_logic::work::Reason::FilesystemMaintenance
                             | cellar_logic::work::Reason::ResourceReconciliation
+                            | cellar_logic::work::Reason::SandboxCleanup
                     )
                 }),
             Ordering::Release,
@@ -772,6 +780,13 @@ impl NativeWorker {
         context.io.begin_cpu_turn();
         let handler = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<HandlerFuture<Output>> {
+                if let Some(authority) = sandbox_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::sandbox_execution::invoke(context, invocation, authority)
+                            .await
+                    }));
+                }
                 if let Some(authority) = inventory_authority {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
@@ -798,10 +813,18 @@ impl NativeWorker {
                     }));
                 }
                 crate::application::container_supervision::recover(&context)?;
+                crate::application::sandbox_catalog::maintenance::recover(&context)?;
                 if let Some(installation) = work {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
                         match installation.reason {
+                            cellar_logic::work::Reason::SandboxCleanup => {
+                                crate::application::sandbox_catalog::maintenance::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await
+                            }
                             cellar_logic::work::Reason::Outbox => {
                                 crate::application::outbox::dispatch(context, installation).await
                             }
@@ -842,6 +865,13 @@ impl NativeWorker {
                         Err(crate::runtime::source_recovery::unavailable())
                     }));
                 }
+                anyhow::ensure!(
+                    !context.identity().is_some_and(|identity| self
+                        .application
+                        .sandbox_executor(&identity.class)
+                        .is_some()),
+                    "sandbox execution classes require authenticated parent calls"
+                );
                 let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
@@ -2173,4 +2203,47 @@ impl crate::worker::WorkerBackend for NativeWorker {
     fn turn_finish_alarm(&mut self, entry: &mut InFlight) -> Result<Option<u64>> {
         self.finish_alarm(entry)
     }
+}
+
+/// Only the durable parent catalog can mint this child execution authority.
+pub(crate) fn sandbox_rpc(
+    context: &Context,
+    authority: crate::runtime::sandbox_execution::Authority,
+    name: String,
+    input: serde_json::Value,
+) -> HandlerFuture<RpcData> {
+    let prepared = (|| -> Result<_> {
+        context.check_turn()?;
+        let scope = authority.scope().to_string();
+        authority.validate_target(&scope, crate::runtime::sandbox_execution::METHOD)?;
+        context.io.charge_subrequest().map_err(anyhow::Error::msg)?;
+        let args = crate::application::encode_rpc(
+            &cellar_native::clone::StructuredValue::from_json(input)?,
+        )?;
+        anyhow::ensure!(
+            args.payload_bytes() <= crate::application::containers::MAX_SANDBOX_MESSAGE_BYTES,
+            "sandbox encoded request exceeds byte limit"
+        );
+        Ok((scope, args))
+    })();
+    let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
+    let call_scope = crate::host_rpc::CallScope::in_context(
+        context,
+        context.io.rpc_deadline_ms.get().copied(),
+        None,
+    )
+    .with_reply_limit(crate::application::containers::MAX_SANDBOX_MESSAGE_BYTES);
+    Box::pin(async move {
+        let (scope, args) = prepared?;
+        crate::host_rpc::call_scoped(
+            gate,
+            scope,
+            Some(name),
+            crate::runtime::sandbox_execution::METHOD.into(),
+            args,
+            Some(crate::runtime::RpcAuthority::Sandbox(authority)),
+            call_scope,
+        )
+        .await
+    })
 }

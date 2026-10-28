@@ -1,10 +1,15 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Durable named allocation metadata for host-owned sandbox controllers.
+pub(crate) mod execution;
+pub(crate) mod maintenance;
 pub(crate) mod values;
 use super::{containers::ProviderAuthority, Context, HandlerFuture};
 use crate::storage::sandbox_catalog as store;
 use anyhow::{ensure, Result};
+pub use execution::{
+    SandboxExecutor, SandboxFailure, SandboxFailureKind, MAX_SANDBOX_MESSAGE_BYTES,
+};
 use rand::RngCore;
 use std::sync::Arc;
 pub use values::{
@@ -14,7 +19,8 @@ pub use values::{
 
 /// Host-only parent catalog, bound to one original root-cell event. Reopen it in
 /// each event; records survive restart and business `delete_all`. This catalog
-/// does not create compute, fence child requests or schedule cleanup by itself.
+/// can manage authenticated children through a host-registered executor. Manual
+/// reservations remain the host controller's responsibility.
 #[derive(Clone)]
 pub struct SandboxCatalog {
     authority: Arc<ProviderAuthority>,
@@ -29,7 +35,7 @@ impl SandboxCatalog {
         Ok(catalog)
     }
 
-    fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
+    pub(crate) fn check<'a>(&self, context: &'a Context) -> Result<&'a str> {
         self.authority.check(context)?;
         ensure!(
             context
@@ -88,6 +94,17 @@ impl SandboxCatalog {
         binding: &str,
         parameters_digest: &str,
     ) -> HandlerFuture<SandboxReservation> {
+        self.reserve_registered(context, name, binding, parameters_digest, None)
+    }
+
+    fn reserve_registered(
+        &self,
+        context: &Context,
+        name: &str,
+        binding: &str,
+        parameters_digest: &str,
+        profile: Option<&str>,
+    ) -> HandlerFuture<SandboxReservation> {
         let prepared: Result<_> = (|| {
             let scope = self.check(context)?;
             values::name(name)?;
@@ -106,7 +123,9 @@ impl SandboxCatalog {
                 binding,
                 parameters_digest,
                 &|name| namespace.id_from_name(name).scope(),
+                profile,
             )?;
+            maintenance::publish(context)?;
             Ok((parent, reservation, context.storage()?.sync()))
         })();
         let catalog = self.clone();
@@ -159,6 +178,7 @@ impl SandboxCatalog {
             let scope = self.check(context)?;
             expected.validate()?;
             let (parent, allocation) = store::transition(scope, expected, state)?;
+            maintenance::publish(context)?;
             Ok((parent, allocation, context.storage()?.sync()))
         })();
         let catalog = self.clone();
@@ -189,6 +209,7 @@ impl SandboxCatalog {
             let mut incarnation = [0; 16];
             crate::asyncrt::rng("sandbox_parent_incarnation").fill_bytes(&mut incarnation);
             let parent = store::retire(scope, &hex::encode(incarnation), finish)?;
+            maintenance::publish(context)?;
             Ok((parent, context.storage()?.sync()))
         })();
         let catalog = self.clone();

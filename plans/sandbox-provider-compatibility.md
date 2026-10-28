@@ -192,7 +192,7 @@ claims about the current implementation.
 
 | Area | Required target | Current gap / delivery rule |
 | --- | --- | --- |
-| Sandbox concurrency | A business cell can allocate as many named sandboxes as its workload requires | Native currently owns one container per execution cell. Optional atomic host instance/memory admission now precedes Engine effects and retains uncertain reservations. The durable named catalog and parent retirement barrier are implemented; add child execution, scheduled cleanup and fleet scheduling; scale by available capacity rather than an unbounded in-memory map or a fixed single sandbox |
+| Sandbox concurrency | A business cell can allocate as many named sandboxes as its workload requires | Native currently owns one container per execution cell. Optional atomic host instance/memory admission now precedes Engine effects and retains uncertain reservations. The durable named catalog, authenticated child execution and scheduled explicit-retirement cleanup are implemented; per-class native fleet placement is implemented; qualify saturation/recovery and add durable cell erasure; scale by available capacity rather than an unbounded in-memory map or a fixed single sandbox |
 | Lifetime | No user-specified maximum | Do not invent a global job lifetime. Publish effective provider limits and support long-lived ownership/renewal where available; ownership loss, explicit destruction and orphan cleanup still apply |
 | Transfer defaults | 64 KiB streaming frames and 16 MiB multipart parts | Chosen defaults for common transfer paths. Pinned SDK/shim profiles retain their published geometry when it is not configurable and must record/qualify it separately. Qualify exact-byte 64 MiB and 256 MiB transfers, cancellation and recovery with bounded memory and temporary storage; larger objects remain subject to explicit host/provider quotas |
 | Temporary storage | Preserve explicit host limits | Existing defaults reserve at most 1 GiB of streamed-part scratch space and 64 files. Admission must retain reservations for uncertain/entered work until joined cleanup; overload reports backpressure/refusal |
@@ -205,9 +205,12 @@ The execution topology is a business cell coordinating independently owned
 sandbox execution cells, retaining one native container per execution cell.
 The host-only [allocation catalog](../crates/cellar-container/allocations.md)
 now reserves named child identities with durable generations and parent
-retirement barriers. Child dispatch, authenticated parent authority, scheduled
-cleanup/physical deletion integration and capacity-aware fleet placement remain
-required; catalog reservation alone does not allocate compute.
+retirement barriers. Managed allocations use authenticated child RPC, bounded
+provider execution and scheduled cleanup after explicit parent retirement.
+Native resource deletion verifies exact ID absence. Physical parent/child cell
+data deletion, removed-class orphan discovery, four-language allocation facades
+and broader capacity-placement qualification remain required; manual catalog reservations
+alone do not allocate compute.
 
 Qualification should increase concurrent allocations until the configured host
 capacity is reached, verify bounded queuing/refusal, then inject owner loss and
