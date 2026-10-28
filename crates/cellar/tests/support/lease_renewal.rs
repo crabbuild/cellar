@@ -228,3 +228,99 @@ async fn a_late_committed_renewal_keeps_time_for_actual_readback() -> Result<()>
     );
     Ok(())
 }
+
+// Exercise the same shared executor layout used by embedded language hosts.
+// The application turn remains joined while lease CAS and delivery need the
+// sole async worker. The observer runs outside that executor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn synchronous_application_turn_does_not_starve_shared_executor_lease() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let executor = Executor::new("shared-turn-and-lease")?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (config, mut services) = inputs(
+        "sync-turn",
+        &directory.path().join("node"),
+        &executor,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let ttl_ms = config.actor.lease_ttl_ms;
+    ensure!(ttl_ms == 1_000);
+    services.host_executor = executor.handle();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let waiting = Arc::new(Mutex::new(Some(waiting)));
+    let (entered, receive) = tokio::sync::oneshot::channel();
+    let entered = Arc::new(Mutex::new(Some(entered)));
+    let apps = CompiledApplications::default().register("embedded-node", "test", move || {
+        let waiting = waiting.clone();
+        let entered = entered.clone();
+        Ok(Arc::new(
+            Registry::new(move |context, event| {
+                let waiting = waiting.clone();
+                let entered = entered.clone();
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    if request.url.ends_with("/blocking") {
+                        let waiting = waiting.lock().unwrap().take().unwrap();
+                        let _ = entered.lock().unwrap().take().unwrap().send(());
+                        waiting.recv_timeout(Duration::from_secs(5))?;
+                        return Ok(response("released"));
+                    }
+                    let cell = context.namespace("ACCOUNTS")?.get_by_name("one");
+                    Ok(Output::Http(cell.fetch(&context, request).await?))
+                })
+            })
+            .cell("Account", |_, _| {
+                Ok(Arc::new(Account {
+                    label: "sync",
+                    signals: None,
+                }))
+            })?,
+        ))
+    })?;
+    let node = Node::start(config, services, graph(), apps).await?;
+    ready(&node).await?;
+    let client = client()?;
+    ensure!(call(&client, &node, reqwest::Method::POST, "/").await? == "sync:1");
+    let generation = node.info().lease_generation.clone();
+    let expiry = || {
+        observer.run(async {
+            let (bytes, _) = bucket
+                .get("nodes/sync-turn.json")
+                .await?
+                .context("node lease")?;
+            let lease: serde_json::Value = serde_json::from_slice(&bytes)?;
+            ensure!(lease["generation"].as_str() == Some(generation.as_str()));
+            lease["expires_ms"].as_u64().context("node lease expiry")
+        })
+    };
+    let initial = expiry().await??;
+    let held = call(&client, &node, reqwest::Method::GET, "/blocking");
+    let observe = async {
+        receive.await?;
+        let renewed = tokio::time::timeout(Duration::from_secs(4), async {
+            while expiry().await?? < initial + 2 * ttl_ms {
+                ensure!(!node.is_closed(), "synchronous turn fenced a healthy owner");
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+        // Always release the application before propagating an observation error.
+        let _ = release.send(());
+        renewed.context("synchronous turn stalled short lease renewals")??;
+        Ok::<_, anyhow::Error>(())
+    };
+    let (held, observed) = tokio::join!(held, observe);
+    observed?;
+    ensure!(held? == "released");
+    ensure!(call(&client, &node, reqwest::Method::POST, "/").await? == "sync:2");
+    stopped(node).await?;
+    observer.shutdown().await;
+    ensure!(executor.handle().spawn(async { 7 }).await? == 7);
+    Ok(())
+}

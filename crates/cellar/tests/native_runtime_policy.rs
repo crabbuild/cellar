@@ -148,6 +148,110 @@ async fn saturated_worker_pool(
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn caller_owned_local_set_can_still_enter_a_turn() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (signals, _) = signals();
+    let runtime = stateless(&domain, signals).await?;
+    let slot = domain
+        .run(async { runtime.isolates.admit(false).map(|a| a.slot().clone()) })
+        .await??;
+    tokio::task::LocalSet::new()
+        .run_until(domain.run(async { slot.turn(|_| 42).await }))
+        .await?;
+    drop(runtime);
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn domain_shutdown_joins_an_active_synchronous_turn() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (signals, _) = signals();
+    let runtime = stateless(&domain, signals).await?;
+    let slot = domain
+        .run(async { runtime.isolates.admit(false).map(|a| a.slot().clone()) })
+        .await??;
+    let (entered, receive) = tokio::sync::oneshot::channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let finished = completed.clone();
+    let turn = domain.spawn(async move {
+        slot.turn(move |_| {
+            let _ = entered.send(());
+            let _ = waiting.recv_timeout(Duration::from_secs(2));
+            finished.store(true, std::sync::atomic::Ordering::Release);
+        })
+        .await;
+    })?;
+    receive.await?;
+    domain.close();
+    let mut shutdown = Box::pin(domain.shutdown());
+    ensure!(
+        tokio::time::timeout(Duration::from_millis(20), &mut shutdown)
+            .await
+            .is_err(),
+        "shutdown returned while a synchronous turn was still active"
+    );
+    ensure!(!completed.load(std::sync::atomic::Ordering::Acquire));
+    release.send(())?;
+    shutdown.await;
+    // Cancellation may discard the reply, but shutdown must join physical work.
+    let _ = turn.await;
+    ensure!(completed.load(std::sync::atomic::Ordering::Acquire));
+    drop(runtime);
+    Ok(())
+}
+
+// A SQLite busy wait in a synchronous turn must not strand the host timer
+// that releases the writer. The external thread has a fallback so a regression
+// fails boundedly instead of deadlocking the test runner.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn sqlite_turn_keeps_host_timers_running() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (signals, _) = signals();
+    let runtime = stateless(&domain, signals).await?;
+    let slot = domain
+        .run(async { runtime.isolates.admit(false).map(|a| a.slot().clone()) })
+        .await??;
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("busy.sqlite");
+    let writer = rusqlite::Connection::open(&path)?;
+    writer.execute_batch("CREATE TABLE counter (value INTEGER); BEGIN IMMEDIATE")?;
+    let reader = rusqlite::Connection::open(&path)?;
+    reader.busy_timeout(Duration::from_secs(2))?;
+    let (release, waiting) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || -> Result<bool> {
+        let timer_progressed = waiting.recv_timeout(Duration::from_secs(1)).is_ok();
+        writer.execute_batch("COMMIT")?;
+        Ok(timer_progressed)
+    });
+    let (entered, receive) = tokio::sync::oneshot::channel();
+    let timer = domain.spawn(async move {
+        receive.await?;
+        cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+        let _ = release.send(());
+        Ok::<_, anyhow::Error>(())
+    })?;
+    let services = domain.services();
+    let turn = domain.spawn(async move {
+        slot.turn(move |_| {
+            ensure!(Arc::ptr_eq(&services, &cellar::asyncrt::services()));
+            let _ = entered.send(());
+            reader.execute_batch("BEGIN IMMEDIATE; INSERT INTO counter VALUES (1); COMMIT")?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+    })?;
+    turn.await??;
+    timer.await??;
+    let progressed = writer.join().expect("SQLite writer panicked")?;
+    drop(runtime);
+    domain.shutdown().await;
+    ensure!(progressed, "synchronous SQLite turn starved the host timer");
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn separate_hosts_enforce_worker_admission_and_handler_budgets() -> Result<()> {
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());

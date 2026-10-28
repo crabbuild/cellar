@@ -107,6 +107,12 @@ The phase events contain no object key or payload. The filter above captures
 lease writes only and is also used by typed-RPC CI. Use `store=debug` instead
 when other object writes are needed to investigate contention. Timing is
 disabled by default; the scoped filter limits emitted phase logs to leases.
+The qualifier writes formatted logs through an 8,192-line asynchronous queue.
+A slow output sink must not block lease execution or timeout cancellation.
+After owned runtimes stop, dropped records, output errors or an incomplete
+flush make the command fail, preserving any original qualification error.
+Check the command's exit status as well as its JSON report: the report can
+already exist when final diagnostic flushing fails.
 Three real-boundary tests cover a queued
 blocking worker, a held SQLite transaction through caller timeout, and a native
 result ready while its caller remains unpolled:
@@ -127,6 +133,27 @@ RUST_LOG='warn,cellar::actor::effects=info,store=debug' \
   cargo test --locked -p cellar-python --features embed --test bridge -- \
   --runtime-contract > .cellar/rpc/python-contract-diagnostic.log 2>&1
 ```
+
+For fresh-fleet churn, select the intended Python build environment and run:
+
+```sh
+cargo test --locked -p cellar-python --features embed --test bridge -- \
+  --runtime-first-write 100
+```
+
+Each case creates a new development object store and node, submits exactly one
+Counter mutation, verifies its stored result, then joins the node. It retains
+the contract's 250 ms handler and 1,000 ms lease budgets; it never retries a
+mutation. A failure retains the temporary fleet directories and reports their
+path, the case index and elapsed time. Interpreter snapshots before and after
+a failed request are saved after node join. The count is bounded to 1–1,000
+(default 100). This focused mode runs without a tracing subscriber by default.
+Set `RUST_LOG='warn,cellar::actor::effects=info,cellar::runtime=info,store=debug,timing=debug'`
+to retain a memory-only diagnostic tail on failure: the newest 2,048 records
+of the current case, truncated to 8 KiB each. This tail deliberately discards
+older records and is not a qualification transcript. It avoids log-sink I/O
+during the request. The probe does not replace the full contract's preceding cancellation,
+restart and interpreter checks, or establish the cause of an earlier failure.
 
 ## SDK source and receiving peer saturation
 
