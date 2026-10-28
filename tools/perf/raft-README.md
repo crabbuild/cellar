@@ -52,6 +52,13 @@ and recovery set, so aggregate archive memory scales with this setting. The
 runner records it and requires the same value when continuing incomplete setup.
 Use one and two with the same image to isolate the effect of overlapping I/O.
 
+`--archive-blocking-jobs` separately bounds local archive encoding and verification
+jobs across all those producers (one to four, default one). The node records the
+value, validates `RAFT_ARCHIVE_BLOCKING_JOBS` at its CLI boundary and requires
+the same explicit setting on continuation. Foreground recovery retains its
+original executor; object-store network windows retain their own bounds. This
+limits submitted background work rather than reserving physical disk bandwidth.
+
 `--archive-max-unarchived-mib` controls the node-wide retained history and
 command reservation budget (default 256 MiB). New callbacks reserve their maximum
 image/envelope size until preparation supplies the verified size. Increasing

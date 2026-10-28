@@ -4,12 +4,18 @@
 #![cfg(feature = "node")]
 #![allow(clippy::disallowed_methods)]
 use anyhow::{ensure, Result};
-use cellar::{bucket::Bucket, sdk::*};
+use cellar::{
+    bucket::{Bucket, MultipartMaintenancePolicy},
+    sdk::*,
+};
 use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use serde_json::{json, Value};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        atomic::{AtomicI64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 #[path = "support/joined_node.rs"]
@@ -42,7 +48,10 @@ fn published_backup_gateway_uses_native_resumable_storage() -> Result<()> {
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(exercise(application))
+                .block_on(async {
+                    exercise(application.clone()).await?;
+                    exercise_expiry(application).await
+                })
         },
     )
 }
@@ -52,7 +61,17 @@ async fn start(
     database: &Path,
     application: Arc<dyn Application>,
 ) -> Result<(Node, String)> {
-    let bucket = Bucket::open_dev(database)?;
+    start_with_policy(path, database, application, Default::default(), None).await
+}
+
+async fn start_with_policy(
+    path: &Path,
+    database: &Path,
+    application: Arc<dyn Application>,
+    policy: MultipartMaintenancePolicy,
+    clock: Option<Arc<cellar::asyncrt::WallClock>>,
+) -> Result<(Node, String)> {
+    let bucket = Bucket::open_dev_with_multipart_policy(database, policy)?;
     let storage = ReplicaStorage::new(
         bucket.store.clone(),
         ReplicaStorageOptions {
@@ -61,6 +80,7 @@ async fn start(
         },
     )?;
     native::start_configured(path, application, move |config, services, graph| {
+        services.wall_clock = clock;
         // Dedicated storage qualification includes fsync and cold native fleet
         // bootstrap. Existing 250 ms module/routing fixtures are unchanged.
         config.runtime.handler_budget = Duration::from_secs(5);
@@ -87,6 +107,89 @@ async fn start(
         });
     })
     .await
+}
+
+async fn exercise_expiry(application: Arc<dyn Application>) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("bucket.sqlite");
+    let offset = Arc::new(AtomicI64::new(0));
+    let read_offset = offset.clone();
+    let clock: Arc<cellar::asyncrt::WallClock> = Arc::new(move || {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        i64::try_from(now.as_millis()).unwrap() + read_offset.load(Ordering::SeqCst)
+    });
+    let policy = MultipartMaintenancePolicy {
+        upload_ttl: Some(Duration::from_secs(60)),
+        idle_interval: Duration::from_millis(10),
+        backlog_interval: Duration::from_millis(1),
+    };
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()?;
+    let (node, address) = start_with_policy(
+        &directory.path().join("before-expiry"),
+        &database,
+        application.clone(),
+        policy,
+        Some(clock.clone()),
+    )
+    .await?;
+    let result = async {
+        let upload = request(&client, &address, "/create").await?;
+        let id = upload["uploadId"].as_str().ok_or_else(|| anyhow::anyhow!("missing upload ID"))?;
+        let receipt = part(&client, &address, id, 1, b"committed".to_vec()).await?;
+        client.post(format!("{address}/complete"))
+            .query(&[("upload", id)])
+            .json(&json!([{"partNumber":1,"etag":receipt}]))
+            .send().await?.error_for_status()?;
+        let orphan = request(&client, &address, "/create").await?;
+        part(&client, &address, orphan["uploadId"].as_str().unwrap(), 1, b"orphaned".to_vec()).await?;
+        let lost = request(&client, &address, "/lost-create").await?;
+        ensure!(lost == json!({"creates":1,"aborts":0,"failed":true}), "create response loss replayed or fabricated cleanup: {lost}");
+        let connection = rusqlite::Connection::open(&database)?;
+        let rows: (u64, u64) = connection.query_row(
+            "SELECT (SELECT count(*) FROM __sys_local_uploads), (SELECT count(*) FROM __sys_local_parts)",
+            [], |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        ensure!(rows == (2, 1), "lost creation was not durably left behind: {rows:?}");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    stop(node).await?;
+    result?;
+    // A new native host/client has no access to the lost upload ID. Persisted
+    // deadlines and its owned maintenance task must recover both orphans.
+    offset.store(61_000, Ordering::SeqCst);
+    let (node, address) = start_with_policy(
+        &directory.path().join("after-expiry"),
+        &database,
+        application,
+        MultipartMaintenancePolicy {
+            upload_ttl: None,
+            ..policy
+        },
+        Some(clock),
+    )
+    .await?;
+    let result = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let connection = rusqlite::Connection::open(&database)?;
+                let rows: (u64, u64) = connection.query_row(
+                    "SELECT (SELECT count(*) FROM __sys_local_uploads), (SELECT count(*) FROM __sys_local_parts)",
+                    [], |row| Ok((row.get(0)?, row.get(1)?)),
+                )?;
+                if rows == (0, 0) { return Ok::<_, anyhow::Error>(()); }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await??;
+        ensure!(request(&client, &address, "/head").await?["size"] == 9, "cleanup changed the completed object");
+        ensure!(request(&client, &address, "/get").await?["bytes"] == json!([99,111,109,109,105,116,116,101,100]), "cleanup replaced published bytes");
+        Ok::<_, anyhow::Error>(())
+    }.await;
+    stop(node).await?;
+    result
 }
 
 async fn stop(node: Node) -> Result<()> {
@@ -162,6 +265,14 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
     // either the bytes or receipts to the new gateway events.
     let (node, address) = start(&directory.path().join("second"), &database, application).await?;
     let result = async {
+        ensure!(
+            request(&client, &address, "/part-admission").await?
+                == json!({"code": "ValidationError", "outcome": "not_committed", "locked": false})
+        );
+        ensure!(
+            request(&client, &address, "/large-stream").await?
+                == json!({"bytes": 256 * 1024 + 17, "verified": true})
+        );
         let first = part(&client, &address, &id, 1, vec![0, 255, 42, 7]).await?;
         let second = part(&client, &address, &id, 2, b"backup".to_vec()).await?;
         ensure!(first != obsolete);
@@ -170,9 +281,11 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
             .query(&[("upload", &id)])
             .send()
             .await?;
+        let short_status = short.status();
+        let short_body = short.text().await?;
         ensure!(
-            short.status().as_u16() == 502 && short.text().await?.contains("too few bytes"),
-            "published gateway accepted a short part"
+            short_status.as_u16() == 502 && short_body.contains("too few bytes"),
+            "published gateway accepted a short part: {short_status}: {short_body}"
         );
         let oversized = client
             .get(format!("{address}/oversized"))

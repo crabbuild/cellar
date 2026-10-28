@@ -77,6 +77,13 @@ enum Suite {
 }
 
 fn main() -> Result<()> {
+    // The core already records lease attempt start/completion and self-fencing.
+    // Install a subscriber before any suite (including the early profile path)
+    // so a failed run can distinguish storage tails from missing renewals.
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(tracing_subscriber::filter::LevelFilter::WARN.into())
+        .from_env()?;
+    proof::initialize_diagnostics(filter);
     let mut arguments = std::env::args().skip(1);
     let mut report_path = None;
     let mut suite = Suite::Local;
@@ -251,16 +258,30 @@ fn main() -> Result<()> {
                     let live_checkpoint = live.clone();
                     let provenance = Arc::new(provenance::Native::default());
                     let provenance_checkpoint = provenance.clone();
+                    let raw_contract = contract.clone();
                     let rust = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
-                        .cell("RustCounter", move |_, _| {
-                            Ok(Arc::new(generated::CounterRegistration::register(
-                                rpc::Router::new(),
-                                Arc::new(crash::Counter {
-                                    crash: transaction_checkpoint.clone(),
-                                    live: live_checkpoint.clone(),
-                                    provenance: provenance_checkpoint.clone(),
-                                }),
-                            )?))
+                        .cell("RustCounter", move |_, identity| {
+                            let inner: Arc<dyn cellar::sdk::Cell> =
+                                Arc::new(generated::CounterRegistration::register(
+                                    rpc::Router::new(),
+                                    Arc::new(crash::Counter {
+                                        crash: transaction_checkpoint.clone(),
+                                        live: live_checkpoint.clone(),
+                                        provenance: provenance_checkpoint.clone(),
+                                    }),
+                                )?);
+                            if identity
+                                .name
+                                .as_deref()
+                                .is_some_and(|name| name.starts_with("t06-raw-"))
+                            {
+                                return Ok(Arc::new(provenance::Raw::new(
+                                    inner,
+                                    raw_contract.clone(),
+                                    provenance_checkpoint.clone(),
+                                )));
+                            }
+                            Ok(inner)
                         })?
                         .rpc_service(
                             "RustCounter",

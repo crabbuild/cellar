@@ -34,6 +34,7 @@
     "module.js",
     "service.js",
     "r2.js",
+    "r2-part.js",
     "r2.d.ts",
     "r2.md",
     "activation.js",

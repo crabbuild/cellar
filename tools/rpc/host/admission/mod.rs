@@ -139,7 +139,8 @@ async fn case(
                         "/rust/increment?target={provider}&delta=1&id=recovery-warm-{baseline}"
                     )
                 )
-                .await?
+                .await
+                .map_err(|error| owner.failed_request(error))?
                     == json!({"value":baseline.to_string()}),
                 "recovery warmup diverged"
             );

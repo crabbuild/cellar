@@ -91,7 +91,10 @@ impl Visit for Fields {
     }
 }
 
-pub fn install() -> &'static Arc<Trace> {
+/// One subscriber owns both bounded proof observations and optional stderr
+/// diagnostics. Only the executable boundary supplies an environment filter;
+/// actor fixtures pass None and retain their memory-only behavior.
+pub fn install(logging: Option<tracing_subscriber::EnvFilter>) -> &'static Arc<Trace> {
     static TRACE: OnceLock<Arc<Trace>> = OnceLock::new();
     TRACE.get_or_init(|| {
         let trace = Arc::new(Trace {
@@ -104,8 +107,16 @@ pub fn install() -> &'static Arc<Trace> {
                 "cellar::actor::effects" | "cellar::actor"
             ) && *metadata.level() <= tracing::Level::INFO
         });
-        let subscriber =
-            tracing_subscriber::registry().with(LeaseLayer(trace.clone()).with_filter(filter));
+        let subscriber = tracing_subscriber::registry()
+            .with(LeaseLayer(trace.clone()).with_filter(filter))
+            // The log filter is per layer: suppressing stderr must not suppress
+            // the lease events used by the proof fixture's authority checks.
+            .with(logging.map(|filter| {
+                tracing_subscriber::fmt::layer()
+                    .with_ansi(false)
+                    .with_writer(std::io::stderr)
+                    .with_filter(filter)
+            }));
         tracing::subscriber::set_global_default(subscriber).expect("actor fixture owns tracing");
         trace
     })

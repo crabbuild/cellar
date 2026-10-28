@@ -75,6 +75,13 @@ fn clone_limits(limit: usize) -> clone::Limits {
     }
 }
 
+// Both framework layers need their own fixed allowance: the Protobuf reply
+// control and its structured-clone wrapper. A minimum business limit must still
+// carry a refusal; the transport ceiling must also accept every valid reply.
+pub(super) fn response_transport_limit(limits: Limits) -> usize {
+    clone_limits(limits.reply_limit()).bytes
+}
+
 pub(super) fn valid_digest(value: &str) -> bool {
     value.len() == 64
         && value
@@ -135,18 +142,70 @@ pub(super) fn reply(
 /// Decode a typed result after the native call and its output gate completed.
 /// Any malformed response has unknown effects, regardless of its claimed code.
 pub fn response(digest: &str, data: &RpcData, limits: Limits) -> Result<Vec<u8>, Failure> {
-    let (received, bytes) = decode_envelope(data, limits.reply_limit())
-        .map_err(|_| Failure::new(Code::InvalidResponse))?;
+    // Borrow identity and control shape from the original frame. Going through
+    // decode_envelope and Prost's Vec decoder would retain two temporary
+    // body-sized buffers before returning the owned business body.
+    let (received, bytes) = view(data).map_err(|_| Failure::new(Code::InvalidResponse))?;
     if digest != received {
         return Err(Failure::new(Code::InvalidResponse));
     }
-    super::wire::validate_reply(&bytes, limits).map_err(|_| Failure::new(Code::InvalidResponse))?;
-    let reply = Reply::decode(bytes.as_slice()).map_err(|_| Failure::new(Code::InvalidResponse))?;
-    match reply.result {
-        Some(ReplyResult::Response(bytes)) if bytes.len() <= limits.max_message_bytes => Ok(bytes),
-        Some(ReplyResult::Failure(error)) if error.message.len() <= 256 => {
-            Err(Failure::received(error.code, error.outcome)?)
+    super::wire::validate_reply(bytes, limits).map_err(|_| Failure::new(Code::InvalidResponse))?;
+    if let Some(body) = super::wire::response_payload(bytes) {
+        if body.len() > limits.max_message_bytes {
+            return Err(Failure::new(Code::InvalidResponse));
         }
-        _ => Err(Failure::new(Code::InvalidResponse)),
+        return Ok(body.to_vec());
     }
+    // A valid failure has only two enums and at most 256 message bytes. Refuse
+    // a large control before the failure codec allocates its text buffer.
+    let payload = super::wire::failure_payload(bytes)
+        .filter(|payload| payload.len() <= OVERHEAD)
+        .ok_or_else(|| Failure::new(Code::InvalidResponse))?;
+    let error = WireFailure::decode(payload).map_err(|_| Failure::new(Code::InvalidResponse))?;
+    if error.message.len() > 256 {
+        return Err(Failure::new(Code::InvalidResponse));
+    }
+    Err(Failure::received(error.code, error.outcome)?)
+}
+
+/// Normalize a raw typed result from entered application code, including
+/// custom native cells that bypass Prepared::finish. Borrow successful payloads;
+/// only a valid, fixed-size framework failure may require re-encoding.
+pub(super) fn entered_reply(data: RpcData) -> Result<RpcData, Failure> {
+    let Ok((digest, bytes)) = view(&data) else {
+        // Malformed/non-value results already fail the caller's exact decoder
+        // with unknown effects. Do not turn them into valid typed responses.
+        return Ok(data);
+    };
+    // A valid failure contains two enums and at most 256 message bytes. Even
+    // non-minimal varints fit this fixed control allowance. Larger frames are
+    // either business responses or invalid failures; never copy their bodies.
+    if bytes.len() > OVERHEAD {
+        return Ok(data);
+    }
+    let Some(payload) = super::wire::failure_payload(bytes) else {
+        return Ok(data);
+    };
+    let limits = Limits {
+        max_message_bytes: 0,
+        ..Default::default()
+    };
+    if super::wire::validate_reply(bytes, limits).is_err() {
+        return Ok(data);
+    }
+    let Ok(error) = WireFailure::decode(payload) else {
+        return Ok(data);
+    };
+    if error.message.len() > 256 {
+        return Ok(data);
+    }
+    let Ok(failure) = Failure::received(error.code, error.outcome) else {
+        return Ok(data);
+    };
+    if failure.outcome() != super::EffectOutcome::NotCommitted {
+        return Ok(data);
+    }
+    // Entry into this parent is the authority boundary. Neither a forged
+    // envelope nor an honest child's refusal can prove the parent rolled back.
+    reply(&digest, Err(Failure::new(failure.code())), limits)
 }

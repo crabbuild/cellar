@@ -12,6 +12,98 @@ use std::{
     task::{Context, Poll},
 };
 
+#[tokio::test]
+async fn retained_typed_reply_saturates_the_actual_collector_without_polling_a_second_body(
+) -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let services = domain.services();
+    services.configure_runtime(crate::runtime_policy::RuntimePolicy {
+        max_rpc_response_bytes: 72 * 1024,
+        ..Default::default()
+    })?;
+    domain
+        .run(async {
+            let first = receive_typed(Full::new(Bytes::from_static(b"body")), 4).await?;
+            let alias = first.slice(..1);
+            drop(first);
+            let polls = Arc::new(AtomicUsize::new(0));
+            let failure = receive_typed(
+                DeclaredBody {
+                    polls: polls.clone(),
+                    length: 4,
+                },
+                4,
+            )
+            .await
+            .unwrap_err();
+            let typed = failure
+                .downcast_ref::<crate::application::rpc::Failure>()
+                .unwrap();
+            assert_eq!(
+                typed.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                typed.outcome(),
+                crate::application::rpc::EffectOutcome::Unknown
+            );
+            assert_eq!(
+                super::super::classify_remote_attempt(&failure),
+                cellar_logic::routing::Attempt::Ambiguous
+            );
+            assert_eq!(polls.load(Ordering::SeqCst), 0);
+            assert_eq!(services.rpc_response_usage().active_buffers, 1);
+            drop(alias);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+            let fresh = receive_typed(Full::new(Bytes::from_static(b"okay")), 4).await?;
+            drop(fresh);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn declared_reply_capacity_is_refused_before_polling_and_refunded() -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let services = domain.services();
+    services.configure_runtime(crate::runtime_policy::RuntimePolicy {
+        max_rpc_response_bytes: 72 * 1024,
+        ..Default::default()
+    })?;
+    domain
+        .run(async {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let failure = receive_typed(
+                DeclaredBody {
+                    polls: polls.clone(),
+                    length: 1024 * 1024,
+                },
+                2 * 1024 * 1024,
+            )
+            .await
+            .unwrap_err();
+            let typed = failure
+                .downcast_ref::<crate::application::rpc::Failure>()
+                .unwrap();
+            assert_eq!(
+                typed.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                typed.outcome(),
+                crate::application::rpc::EffectOutcome::Unknown
+            );
+            assert_eq!(polls.load(Ordering::SeqCst), 0);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+        })
+        .await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
 fn assert_ambiguous_protocol(failure: &anyhow::Error) {
     assert_eq!(
         failure.downcast_ref::<DeliveryError>().unwrap().code,
@@ -447,6 +539,257 @@ async fn very_large_captured_budget_still_accepts_a_ready_body() -> Result<()> {
             Ok::<_, anyhow::Error>(())
         })
         .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[test]
+fn ordinary_ready_frame_floods_yield_before_consuming_the_whole_body() {
+    use futures_util::FutureExt as _;
+
+    for kind in ["empty", "data", "trailers"] {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let observed = polls.clone();
+        let frames = futures_util::stream::iter((0..4096).map(move |_| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, std::io::Error>(match kind {
+                "data" => Frame::data(Bytes::from_static(b"x")),
+                "trailers" => Frame::trailers(hyper::HeaderMap::new()),
+                _ => Frame::data(Bytes::new()),
+            })
+        }));
+        // Poll the real ordinary-response path once. A finite flood makes a
+        // missing yield observable without hanging an executor or allocating
+        // an unbounded test body. Dropping a pending future owns its cleanup.
+        let result = receive(StreamBody::new(frames), false, None, None).now_or_never();
+        assert!(
+            result.is_none(),
+            "ordinary {kind} flood consumed a whole body in one poll"
+        );
+        assert!(
+            polls.load(Ordering::SeqCst) <= 64,
+            "ordinary {kind} flood exceeded the shared collection quantum"
+        );
+    }
+}
+
+#[tokio::test]
+async fn ordinary_oversized_declared_reply_is_refused_without_polling() {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let failure = receive(
+        DeclaredBody {
+            polls: polls.clone(),
+            length: super::super::MAX_PEER_FORWARD_BODY_BYTES as u64 + 1,
+        },
+        false,
+        None,
+        None,
+    )
+    .await
+    .expect_err("ordinary RPC admitted an oversized declared reply");
+    let failure_kind = failure
+        .downcast_ref::<crate::application::rpc::Failure>()
+        .expect("ordinary size refusal lost its typed failure");
+    assert_eq!(
+        failure_kind.code(),
+        crate::application::rpc::Code::ResourceExhausted
+    );
+    assert_eq!(
+        failure_kind.outcome(),
+        crate::application::rpc::EffectOutcome::Unknown
+    );
+    assert!(failure
+        .downcast_ref::<super::super::RemoteRpcTransportFailure>()
+        .is_none());
+    assert_eq!(
+        super::super::classify_remote_attempt(&failure),
+        cellar_logic::routing::Attempt::Ambiguous
+    );
+    assert_eq!(polls.load(Ordering::SeqCst), 0);
+}
+
+struct ObservedReplyByte {
+    value: [u8; 1],
+    live: Arc<AtomicUsize>,
+}
+
+impl AsRef<[u8]> for ObservedReplyByte {
+    fn as_ref(&self) -> &[u8] {
+        &self.value
+    }
+}
+
+impl Drop for ObservedReplyByte {
+    fn drop(&mut self) {
+        self.live.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn ordinary_fragment_collection_does_not_retain_each_frame_owner() -> Result<()> {
+    let live = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+    let owned = live.clone();
+    let observed = peak.clone();
+    let frames = futures_util::stream::iter((0..1024).map(move |_| {
+        let count = owned.fetch_add(1, Ordering::SeqCst) + 1;
+        observed.fetch_max(count, Ordering::SeqCst);
+        Ok::<_, std::io::Error>(Frame::data(Bytes::from_owner(ObservedReplyByte {
+            value: *b"x",
+            live: owned.clone(),
+        })))
+    }));
+    let bytes = receive(StreamBody::new(frames), false, None, None).await?;
+    assert_eq!(bytes.as_ref(), [b'x'; 1024]);
+    assert_eq!(live.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        peak.load(Ordering::SeqCst),
+        1,
+        "ordinary collection retained per-frame owners instead of copying densely"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn ordinary_chunk_overflow_is_unknown_and_does_not_poll_the_suffix() {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let observed = polls.clone();
+    let frames =
+        futures_util::stream::iter([b"ab".as_slice(), b"cd", b"e", b"suffix"].into_iter().map(
+            move |bytes| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Frame::data(Bytes::from_static(bytes)))
+            },
+        ));
+    let failure = accumulate(StreamBody::new(frames), 4, ReplyKind::Ordinary)
+        .await
+        .unwrap_err();
+    let typed = failure
+        .downcast_ref::<crate::application::rpc::Failure>()
+        .unwrap();
+    assert_eq!(
+        typed.code(),
+        crate::application::rpc::Code::ResourceExhausted
+    );
+    assert_eq!(
+        typed.outcome(),
+        crate::application::rpc::EffectOutcome::Unknown
+    );
+    assert!(failure
+        .downcast_ref::<super::super::RemoteRpcTransportFailure>()
+        .is_none());
+    assert_eq!(
+        super::super::classify_remote_attempt(&failure),
+        cellar_logic::routing::Attempt::Ambiguous
+    );
+    assert_eq!(polls.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
+async fn typed_reply_limits_refuse_declared_and_streamed_overflow_before_suffix() -> Result<()> {
+    let polls = Arc::new(AtomicUsize::new(0));
+    let failure = receive_typed(
+        DeclaredBody {
+            polls: polls.clone(),
+            length: 5,
+        },
+        4,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(polls.load(Ordering::SeqCst), 0);
+    assert_invalid_typed_reply(&failure);
+
+    let observed = polls.clone();
+    let frames =
+        futures_util::stream::iter([b"ab".as_slice(), b"cd", b"e", b"suffix"].into_iter().map(
+            move |bytes| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok::<_, std::io::Error>(Frame::data(Bytes::from_static(bytes)))
+            },
+        ));
+    let failure = receive_typed(StreamBody::new(frames), 4).await.unwrap_err();
+    assert_eq!(polls.load(Ordering::SeqCst), 3);
+    assert_invalid_typed_reply(&failure);
+    assert_eq!(
+        receive_typed(Full::new(Bytes::from_static(b"abcd")), 4).await?,
+        "abcd"
+    );
+    Ok(())
+}
+
+fn assert_invalid_typed_reply(failure: &anyhow::Error) {
+    let failure_kind = failure
+        .downcast_ref::<crate::application::rpc::Failure>()
+        .unwrap();
+    assert_eq!(
+        failure_kind.code(),
+        crate::application::rpc::Code::InvalidResponse
+    );
+    assert_eq!(
+        failure_kind.outcome(),
+        crate::application::rpc::EffectOutcome::Unknown
+    );
+    assert!(failure
+        .downcast_ref::<super::super::RemoteRpcTransportFailure>()
+        .is_none());
+    assert_eq!(
+        super::super::classify_remote_attempt(failure),
+        cellar_logic::routing::Attempt::Ambiguous
+    );
+}
+
+#[tokio::test]
+async fn ordinary_values_preserve_the_larger_untyped_reply_allowance() -> Result<()> {
+    // Untyped values keep the generic forwarding allowance rather than
+    // inheriting the stricter event-control or Protobuf message ceilings.
+    let payload = Bytes::from(vec![b'x'; MAX_RPC_REPLY_BYTES + 1]);
+    assert!(payload.len() > MAX_RPC_REPLY_BYTES);
+    let received = receive(Full::new(payload.clone()), false, None, None).await?;
+    assert_eq!(received, payload);
+    Ok(())
+}
+
+#[tokio::test]
+async fn ordinary_hyper_body_overflow_is_distinct_from_truncated_transport() -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        for oversized in [true, false] {
+            let (client, mut peer) = tokio::io::duplex(4096);
+            let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
+                .handshake::<_, Full<Bytes>>(hyper_util::rt::TokioIo::new(client)).await?;
+            let driver = crate::asyncrt::spawn(connection);
+            let server = crate::asyncrt::spawn(async move {
+                let mut head = Vec::new();
+                while !head.ends_with(b"\r\n\r\n") {
+                    let mut byte = [0];
+                    peer.read_exact(&mut byte).await?;
+                    head.push(byte[0]);
+                    anyhow::ensure!(head.len() <= 4096, "request head exceeds fixture budget");
+                }
+                let length = if oversized { super::super::MAX_PEER_FORWARD_BODY_BYTES + 1 } else { 10 };
+                peer.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\nx").as_bytes()).await?;
+                peer.shutdown().await?;
+                Ok::<_, anyhow::Error>(())
+            });
+            let request = hyper::Request::builder().uri("/").body(Full::new(Bytes::new()))?;
+            let head = sender.send_request(request).await?;
+            let collected = receive(head.into_body(), false, None, None).await;
+            drop(sender);
+            server.await??;
+            let _ = driver.await?;
+            let failure = collected.unwrap_err();
+            assert_eq!(failure.downcast_ref::<super::super::RemoteRpcTransportFailure>().is_some(), !oversized);
+            if oversized {
+                let typed = failure.downcast_ref::<crate::application::rpc::Failure>().unwrap();
+                assert_eq!(typed.code(), crate::application::rpc::Code::ResourceExhausted);
+                assert_eq!(typed.outcome(), crate::application::rpc::EffectOutcome::Unknown);
+            }
+            assert_eq!(super::super::classify_remote_attempt(&failure), cellar_logic::routing::Attempt::Ambiguous);
+        }
+        Ok::<_, anyhow::Error>(())
+    }).await?;
     domain.shutdown().await;
     result
 }

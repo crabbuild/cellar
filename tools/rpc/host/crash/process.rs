@@ -4,8 +4,9 @@
 use anyhow::{ensure, Context, Result};
 use serde_json::Value;
 use std::{
+    io::{Read as _, Seek as _, SeekFrom},
     os::unix::process::{CommandExt, ExitStatusExt},
-    path::Path,
+    path::{Path, PathBuf},
     process::Stdio,
     time::Duration,
 };
@@ -15,6 +16,7 @@ pub struct Owner {
     group: libc::pid_t,
     worker: Option<libc::pid_t>,
     owned: bool,
+    log: PathBuf,
 }
 
 impl Owner {
@@ -44,6 +46,7 @@ impl Owner {
             group,
             worker: None,
             owned: true,
+            log: root.join("owner.log"),
         };
         let url = tokio::time::timeout(Duration::from_secs(30), async {
             loop {
@@ -71,6 +74,24 @@ impl Owner {
         })
         .await??;
         Ok((owner, url))
+    }
+
+    /// Observe a failed request before Drop performs owned-process cleanup.
+    /// Never replay a mutation to obtain diagnostics or replace its outcome.
+    pub fn failed_request(&mut self, error: anyhow::Error) -> anyhow::Error {
+        let status = self.child.try_wait();
+        let tail = (|| -> std::io::Result<String> {
+            let mut file = std::fs::File::open(&self.log)?;
+            let length = file.metadata()?.len();
+            file.seek(SeekFrom::Start(length.saturating_sub(16 * 1024)))?;
+            let mut bytes = Vec::new();
+            file.take(16 * 1024).read_to_end(&mut bytes)?;
+            Ok(String::from_utf8_lossy(&bytes).into_owned())
+        })();
+        error.context(format!(
+            "owner request failed before cleanup: group={} worker={:?} exit={status:?}; bounded owner log={tail:?}",
+            self.group, self.worker,
+        ))
     }
 
     pub fn worker(&mut self, pid: u64) -> Result<()> {

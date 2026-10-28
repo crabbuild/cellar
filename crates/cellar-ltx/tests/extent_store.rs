@@ -5,6 +5,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
+#[path = "support/extent_buffered_import.rs"]
+mod buffered_import;
 
 use bounded_files::BoundedFiles;
 use cellar_ltx::{

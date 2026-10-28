@@ -91,7 +91,19 @@ mod tests {
         assert_eq!(capabilities.max_resources, Some(64));
         assert!(capabilities.synchronous_running);
         assert!(capabilities.queued_lifecycle);
-        assert_eq!(capabilities.operations.len(), Operation::ALL.len());
+        assert_eq!(capabilities.operations.len(), Operation::ALL.len() - 1);
+        assert!(!capabilities
+            .operations
+            .contains(&Operation::InterceptOutboundHttp.name().into()));
+        let extended = Adapter::new(Arc::new(Native.with_http_interception()))
+            .capabilities(&Limits { max_body_bytes: 42 });
+        assert_eq!(extended.operations.len(), Operation::ALL.len());
+        assert!(extended
+            .operations
+            .contains(&Operation::InterceptOutboundHttp.name().into()));
+        let mut same_metadata = extended;
+        same_metadata.operations = capabilities.operations.clone();
+        assert_eq!(same_metadata, capabilities);
         assert!(capabilities
             .operations
             .iter()

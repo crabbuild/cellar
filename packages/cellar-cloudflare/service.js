@@ -13,6 +13,18 @@ const reserved = new Set([
   "connect",
   "dup",
 ]);
+const serviceTargets = new WeakMap();
+
+/** Copy a supplied service capability without retaining its JavaScript state. */
+export function containerServiceTarget(value, context) {
+  const supplied = serviceTargets.get(value);
+  if (!supplied || supplied.current() !== context) {
+    throw new TypeError(
+      "Container HTTP handler must be a current service binding or exported entrypoint",
+    );
+  }
+  return { ...supplied.descriptor };
+}
 
 export function isEntrypoint(target) {
   return (
@@ -23,6 +35,7 @@ export function isEntrypoint(target) {
 
 /** Reusable route metadata; every effect is minted by the current native host. */
 export function serviceBinding(current, descriptor) {
+  descriptor = Object.freeze({ ...descriptor });
   const target = (options) => {
     if (descriptor.kind !== "export")
       throw new TypeError("Only loopback bindings accept props");
@@ -84,7 +97,7 @@ export function serviceBinding(current, descriptor) {
       },
     });
   }
-  return new Proxy(target, {
+  const proxy = new Proxy(target, {
     get(_target, name) {
       if (name === "__cellar_runtime_capability__") return brand;
       if (name === "then" || typeof name === "symbol") return undefined;
@@ -137,6 +150,8 @@ export function serviceBinding(current, descriptor) {
       return property([name]);
     },
   });
+  serviceTargets.set(proxy, { current, descriptor });
+  return proxy;
 }
 
 export function workerContext(context, exported, props) {

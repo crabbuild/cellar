@@ -48,6 +48,9 @@ impl CellLimits {
             blob: BlobLimits {
                 max_list_limit: i64::MAX as usize,
                 max_multipart_backlog_bytes: usize::MAX,
+                max_streamed_part_bytes: usize::MAX,
+                max_streamed_spool_bytes: usize::MAX,
+                max_streamed_parts: usize::MAX,
             },
             queue: cellar_logic::queue::Limits::unrestricted(),
             events: cellar_logic::event_stream::Limits::unrestricted(),
@@ -81,6 +84,15 @@ impl CellLimits {
                 "blob.max_multipart_backlog_bytes",
                 self.blob.max_multipart_backlog_bytes,
             ),
+            (
+                "blob.max_streamed_part_bytes",
+                self.blob.max_streamed_part_bytes,
+            ),
+            (
+                "blob.max_streamed_spool_bytes",
+                self.blob.max_streamed_spool_bytes,
+            ),
+            ("blob.max_streamed_parts", self.blob.max_streamed_parts),
             ("workflow.max_value_bytes", self.workflow.max_value_bytes),
             ("workflow.max_stream_bytes", self.workflow.max_stream_bytes),
             ("workflow.max_batch_size", self.workflow.max_batch_size),
@@ -230,6 +242,13 @@ pub struct BlobLimits {
     pub max_list_limit: usize,
     /// Bytes of multipart parts waiting for earlier parts of one upload.
     pub max_multipart_backlog_bytes: usize,
+    /// Maximum declared length of one staged resumable part.
+    pub max_streamed_part_bytes: usize,
+    /// Aggregate anonymous-file capacity reserved by this host, including
+    /// entered file/SQLite work whose awaiting event has been cancelled.
+    pub max_streamed_spool_bytes: usize,
+    /// Maximum active scratch files, including zero-length parts.
+    pub max_streamed_parts: usize,
 }
 
 impl Default for BlobLimits {
@@ -237,6 +256,9 @@ impl Default for BlobLimits {
         Self {
             max_list_limit: 1000,
             max_multipart_backlog_bytes: 256 << 20,
+            max_streamed_part_bytes: 256 << 20,
+            max_streamed_spool_bytes: 1024 << 20,
+            max_streamed_parts: 64,
         }
     }
 }

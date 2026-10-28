@@ -29,7 +29,7 @@ Rust documentation, run the command below from the repository root.
 | Workflow byte outputs | `run_stream`, `run_stream_with`, `run_stream_with_rollback`, `StreamOutput`, `StepSelector`, `Instance::step_stream` | [streams](../crates/cellar/application/workflow/stream.rs) |
 | Workflow observations | `Instance::subscribe`, `SubscribeOptions`, `Subscription`, `InstanceEvent`, `InstanceEventType` | [history](../crates/cellar/application/workflow/history.rs) |
 | Cron | `cron::Scheduled`, `no_retry` | [cron](../crates/cellar/application/cron/mod.rs) |
-| Services / egress | `service::Fetcher`, `Context::service`, outbound `fetch`, structured RPC and signals | [services](../crates/cellar/application/service.rs) |
+| Services / egress | `service::Fetcher`, `Context::service`, outbound `fetch`, structured RPC and signals | [services](../crates/cellar/application/service/mod.rs) |
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |
 | Host HTTP configuration | `HttpPolicy`, `HttpClientFactory`; `NodeConfig::http`, `NodeServices::http_client`, `HostServices::configure_http` | [HTTP policy](../crates/cellar/transport/http/policy.rs), [host services](../crates/cellar/execution/services.rs) |
 | Host wall clock | `WallClock`, `ExecutionDomain::with_wall_clock`; `NodeServices::wall_clock`, `ExternalNodeServices::wall_clock` | [Execution domain](../crates/cellar/execution/domain.rs), [Node](../crates/cellar/node/embedded.rs) |

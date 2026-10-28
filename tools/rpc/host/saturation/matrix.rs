@@ -12,6 +12,8 @@ async fn drained(gate: &Gate) -> Result<()> {
         while gate.observed_services().iter().any(|services| {
             let receiver = services.inbound_rpc_usage();
             services.outbound_rpc_usage() != Default::default()
+                || services.native_rpc_decode_usage() != Default::default()
+                || services.rpc_response_usage() != Default::default()
                 || receiver.active_requests != 0
                 || receiver.reserved_request_bytes != 0
         }) {
@@ -43,6 +45,8 @@ pub(super) async fn cases(
             policy.max_outbound_rpc_requests,
             policy.max_outbound_rpc_bytes,
         )
+    } else if side == Side::ProviderResponse {
+        (1, policy.max_rpc_response_bytes)
     } else {
         (
             policy.max_inbound_rpc_requests,
@@ -50,8 +54,12 @@ pub(super) async fn cases(
         )
     };
     ensure!(
-        max_requests == limit.policy().max_outbound_rpc_requests
-            && max_bytes == limit.policy().max_outbound_rpc_bytes,
+        (side == Side::ProviderResponse
+            && max_requests == 1
+            && max_bytes == super::RESPONSE_ENCODING_BYTES)
+            || (side != Side::ProviderResponse
+                && max_requests == limit.policy().max_outbound_rpc_requests
+                && max_bytes == limit.policy().max_outbound_rpc_bytes),
         "source policy was not installed"
     );
     let owner = if remote { OWNER } else { SOURCE };
@@ -110,6 +118,7 @@ pub(super) async fn cases(
                     "held request entered wrong state/domain: {evidence}"
                 );
                 let held = side.usage(&services, &owner_services);
+                let response_held = owner_services.rpc_response_usage();
                 ensure!(
                     held.active_requests == 1
                         && held.reserved_request_bytes > 64 * 1024
@@ -137,7 +146,7 @@ pub(super) async fn cases(
                         && app.audit.factories().len() == factories,
                     "saturated submission entered a factory or business handler"
                 );
-                Ok::<_, anyhow::Error>((evidence, held, refused))
+                Ok::<_, anyhow::Error>((evidence, held, refused, response_held))
             }
             .await;
             // Always release and join the owned request, including assertion failure.
@@ -151,7 +160,7 @@ pub(super) async fn cases(
                     Err(error.into())
                 }
             };
-            let (evidence, held, refused) = checks?;
+            let (evidence, held, refused, response_held) = checks?;
             let first = completion??;
             let holder_expected = if side == Side::ReceiverReply {
                 json!({"code":"ResourceExhausted","outcome":"unknown"})
@@ -261,6 +270,7 @@ pub(super) async fn cases(
             cases.push(json!({"side":side.name(),"route":if remote {"signed-peer"} else {"local"},"limit":limit.name(),
                 "caller":caller,"provider":provider,"class":class,"source":SOURCE,"owner":owner,
                 "scope":identity.scope,"epoch":identity.epoch,"held":evidence,"usage_while_held":held,
+                "response_usage_while_held":response_held,"response_usage_after_case":owner_services.rpc_response_usage(),
                 "max_rpc_requests":max_requests,
                 "max_rpc_bytes":max_bytes,
                 "first_refusal":refused,"refused_handler_count":0,"factory_count_change":0,

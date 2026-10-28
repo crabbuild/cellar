@@ -26,6 +26,9 @@ stateDiagram-v2
     Open --> Open: invalid receipt refuses
     Open --> Published: complete valid receipts
     Open --> Aborted: explicit abort
+    Open --> Retired: persisted deadline reached
+    Retired --> Collected: bounded host passes
+    Collected --> [*]: current object preserved
     Published --> [*]: object + metadata visible together
     Aborted --> [*]: current object preserved
 ```
@@ -51,16 +54,87 @@ async fn create(ctx: &Context) -> anyhow::Result<()> {
 }
 ```
 
-Dropping a resumable handle leaves its upload available. Call `abort` explicitly
-when abandoning it. Automatic expiry and orphan reconciliation remain delivery
-requirements. Constructing a resumed handle performs syntax checks; backend
-existence and current receipts are checked by its operations.
+Dropping a resumable handle leaves its upload available until explicit abort or
+the backend's deadline. Constructing a resumed handle performs syntax checks;
+backend existence, expiry and current receipts are checked by its operations.
+
+## Expiry and abandoned uploads
+
+The local store records a fixed deadline at allocation, seven days by default.
+A replacement client cannot extend it by changing host policy. Expired upload
+operations refuse; an observed expiry commits a retired state so clock rollback
+cannot revive the upload. Completion admitted before the deadline may finish
+after it. Temporary stages recheck the upload at indexed part publication.
+
+| Boundary | Local development contract |
+| --- | --- |
+| Host startup | Installing the fleet Blob bucket starts one domain-owned maintenance task |
+| Scope | Exact encoded host bucket scope; adjacent/nested scopes are independent |
+| Pass | Retire at most 64 due uploads; inspect at most 64 retired headers and delete one stored part |
+| Recovery | Retired headers persist until all parts are gone; new hosts resume from stored state |
+| Lost create response | The caller may never learn the ID; host expiry still reclaims its unpublished records |
+| Lost cleanup response | A fresh bounded scan converges; never replay application create/complete operations |
+| Shutdown | Cancel the maintenance timer and join entered transactions; remaining backlog resumes at next startup |
+| Public objects | Collection never deletes or rolls back a completed object |
+
+Host configuration is explicit and captured before startup:
+
+```rust
+use cellar::bucket::{Bucket, MultipartMaintenancePolicy};
+use std::{path::Path, time::Duration};
+
+let bucket = Bucket::open_dev_with_multipart_policy(
+    Path::new("objects.sqlite"),
+    MultipartMaintenancePolicy {
+        upload_ttl: Some(Duration::from_secs(7 * 24 * 60 * 60)),
+        idle_interval: Duration::from_secs(60),
+        backlog_interval: Duration::from_millis(10),
+    },
+)?;
+```
+
+`upload_ttl: None` disables deadlines for new uploads only. Without a running
+host or explicit `Bucket::reap_expired_multipart` calls, physical collection
+waits; deadline checks still refuse expired operations. Wall-clock rollback
+before any expiry observation delays retirement. Deleting one large SQLite
+part still costs time proportional to its size; pass counts do not bound disk
+latency or WAL size. This internal schema cutover refuses older local upload
+layouts and requires a fresh development store; it performs no migration.
+
+S3/GCS lifecycle and custom-provider cleanup require their own qualification.
+They do not inherit the local host's maintenance guarantee.
+
+## Stage a large part with bounded memory
+
+`begin_part` reserves native scratch capacity before opening an anonymous file.
+The temporary stage belongs to the original invocation; its upload ID and the
+published receipt remain durable values.
+
+```rust
+let mut part = upload.begin_part(ctx, 1, 12).await?;
+part.write(ctx, bytes::Bytes::from_static(b"backup bytes")).await?;
+let receipt = part.complete(ctx).await?;
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Backend | Explicit `supports_streamed_parts`; local SQLite supports it, undeclared clients refuse before allocation |
+| Writes | At most 64 KiB each; original invocation and Blob gate checked before I/O |
+| Publication | Exact declared length, SHA-256 receipt and atomic indexed replacement; old receipt survives incomplete staging |
+| Interrupted write | Discard the poisoned stage; never replay it as an append |
+| Drop / cancellation | Anonymous storage closes with its last owner; already entered file/SQLite work retains capacity and joins with the domain |
+| Uncertain completion | The part may have committed; discard temporary state and reconcile its receipt without assuming rollback |
+
+The host configures `CellLimits.blob.max_streamed_part_bytes` (256 MiB by
+default), `max_streamed_spool_bytes` (1 GiB across the host) and
+`max_streamed_parts` (64 files, including empty stages) before starting the
+generation. These limits are separate from buffered parts and bridge frames.
 
 ## Backend capabilities and bounds
 
 | Backend | Indexed identity | Metadata initiation | Current qualification |
 | --- | --- | --- | --- |
-| Local development SQLite | Persistent upload/part rows | Supported | Native API, process restart, replacement, receipt refusals and atomic completion/abort |
+| Local development SQLite | Persistent upload/part rows and fixed deadlines | Supported | Native API, process restart, replacement, expiry, bounded cleanup and atomic completion/abort |
 | S3 / GCS low-level client | Provider-owned IDs | Missing in pinned `object_store` API | Metadata-bearing native Blob profile refuses before allocation; cloud qualification pending |
 | Azure | No declared resumable client | Undeclared | Refuses this capability |
 | Supplied host client | Explicit `ResumableMultipartStore` | Client declaration | Must qualify its own persistence, receipts and uncertain outcomes |
@@ -68,8 +142,9 @@ existence and current receipts are checked by its operations.
 - Native buffered parts obey `blob.max_multipart_backlog_bytes`; completions
   accept 1–10,000 consecutive receipts.
 - The local backend's object size is bounded by SQLite's incremental BLOB API.
-  Publication copies 128 KiB at a time in one transaction. Upload inputs remain
-  caller-owned buffers; this is not an aggregate upload-memory guarantee.
+  Part staging copies at most 64 KiB; final object publication copies at most
+  128 KiB at a time in one transaction. Buffered input and caller-supplied
+  producer chunks retain their own memory; these bounds do not cap process RSS.
 - A failed completion response may follow publication. Do not automatically
   repeat create or completion, infer rollback, or erase an unresolved intent.
   Failure to observe the same completed version/ETag remains an error.

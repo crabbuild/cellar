@@ -11,9 +11,30 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, sync::Arc};
 
+#[path = "r2_parts.rs"]
+mod parts;
+pub(super) use parts::Parts;
+
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Input {
+    PartBegin {
+        binding: String,
+        key: String,
+        upload_id: String,
+        number: u32,
+        length: u64,
+    },
+    PartWrite {
+        id: String,
+        body: String,
+    },
+    PartFinish {
+        id: String,
+    },
+    PartCancel {
+        id: String,
+    },
     Head {
         binding: String,
         key: String,
@@ -136,9 +157,40 @@ pub(super) async fn execute(
     input: Value,
     limits: &Limits,
     transport: &transport::Session,
+    parts: &Parts,
     reserve: impl FnOnce(usize) -> Result<Arc<dyn Send + Sync>>,
 ) -> Result<Value> {
     match parse(name, input).context(Validation)? {
+        Input::PartBegin {
+            binding,
+            key,
+            upload_id,
+            number,
+            length,
+        } => {
+            let upload = bucket(context, &binding, &key)
+                .context(Validation)?
+                .resume_resumable_multipart(&key, &upload_id)
+                .context(Validation)?;
+            let id = parts
+                .begin(context, upload, number, length, limits.max_batch_operations)
+                .await?;
+            Ok(json!({"id": id, "max_chunk_bytes": limits.max_body_bytes.min(64 * 1024)}))
+        }
+        Input::PartWrite { id, body } => {
+            let bytes = part_bytes(body, limits.max_body_bytes.min(64 * 1024), reserve)
+                .context(Validation)?;
+            parts.write(context, &id, bytes).await?;
+            Ok(Value::Null)
+        }
+        Input::PartFinish { id } => {
+            let receipt = parts.complete(context, &id).await?;
+            Ok(json!({"partNumber": receipt.part_number, "etag": receipt.etag}))
+        }
+        Input::PartCancel { id } => {
+            parts.cancel(&id).await;
+            Ok(Value::Null)
+        }
         Input::Head { binding, key } => {
             let bucket = bucket(context, &binding, &key).context(Validation)?;
             Ok(serde_json::to_value(bucket.head(context, &key).await?)?)
@@ -300,6 +352,30 @@ pub(super) async fn execute(
             Ok(Value::Null)
         }
     }
+}
+
+fn part_bytes(
+    body: String,
+    maximum: usize,
+    reserve: impl FnOnce(usize) -> Result<Arc<dyn Send + Sync>>,
+) -> Result<bytes::Bytes> {
+    let bound = maximum.checked_add(2).context("R2 body limit overflow")? / 3;
+    ensure!(
+        body.len() <= bound.checked_mul(4).context("R2 body limit overflow")?,
+        "R2 chunk exceeds body limit"
+    );
+    let capacity = reserve(
+        body.len()
+            .div_ceil(4)
+            .checked_mul(3)
+            .context("R2 capacity overflow")?,
+    )?;
+    let bytes = STANDARD.decode(body)?;
+    ensure!(bytes.len() <= maximum, "R2 chunk exceeds body limit");
+    Ok(bytes::Bytes::from_owner(PartBytes {
+        bytes,
+        _capacity: capacity,
+    }))
 }
 
 #[cfg(test)]

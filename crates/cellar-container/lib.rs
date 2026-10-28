@@ -9,6 +9,8 @@ mod capabilities;
 pub mod e2b;
 mod files;
 mod native;
+mod native_profile;
+mod outbound;
 mod queued;
 mod reconciliation;
 mod remote_http;
@@ -21,6 +23,7 @@ use anyhow::{ensure, Context as _, Result};
 pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
+pub use outbound::ServiceTarget;
 pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;
 use std::{
@@ -78,6 +81,7 @@ pub enum Operation {
     Destroy,
     Signal,
     SetInactivityTimeout,
+    InterceptOutboundHttp,
     Exec,
     ExecOutput,
     ReadFile,
@@ -120,6 +124,7 @@ impl Operation {
         Self::Destroy,
         Self::Signal,
         Self::SetInactivityTimeout,
+        Self::InterceptOutboundHttp,
         Self::Exec,
         Self::ExecOutput,
         Self::ReadFile,
@@ -162,6 +167,7 @@ impl Operation {
             "container.destroy" => Ok(Self::Destroy),
             "container.signal" => Ok(Self::Signal),
             "container.set_inactivity_timeout" => Ok(Self::SetInactivityTimeout),
+            "container.intercept_outbound_http" => Ok(Self::InterceptOutboundHttp),
             "container.exec" => Ok(Self::Exec),
             "container.exec_output" => Ok(Self::ExecOutput),
             "container.file.read" => Ok(Self::ReadFile),
@@ -206,6 +212,7 @@ impl Operation {
             Self::Destroy => "container.destroy",
             Self::Signal => "container.signal",
             Self::SetInactivityTimeout => "container.set_inactivity_timeout",
+            Self::InterceptOutboundHttp => "container.intercept_outbound_http",
             Self::Exec => "container.exec",
             Self::ExecOutput => "container.exec_output",
             Self::ReadFile => "container.file.read",
@@ -347,6 +354,15 @@ pub trait ProviderSession: Send + Sync {
 #[derive(Default)]
 pub struct Native;
 
+impl Native {
+    /// Opt in to run-owned Worker HTTP handlers. The host must separately
+    /// configure the native runc network-helper profile. Other providers and
+    /// the ordinary native profile refuse this operation before dispatch.
+    pub fn with_http_interception(self) -> impl Provider {
+        native_profile::HttpInterception
+    }
+}
+
 impl Provider for Native {
     fn exec_pty(&self) -> bool {
         true
@@ -377,7 +393,7 @@ impl Provider for Native {
     }
 
     fn operations(&self) -> &[Operation] {
-        Operation::ALL
+        native_profile::base_operations()
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {
@@ -688,6 +704,12 @@ mod tests {
             assert_eq!(Operation::parse(operation.name()).unwrap(), *operation);
         }
         assert!(Operation::parse("container.inspect").is_err());
-        assert_eq!(Adapter::default().provider().operations(), Operation::ALL);
+        let native = Adapter::default();
+        for operation in Operation::ALL {
+            assert_eq!(
+                native.provider().operations().contains(operation),
+                *operation != Operation::InterceptOutboundHttp
+            );
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 import { containerPort } from "./port.js";
 import { containerExec, execControls } from "./exec.js";
+import { containerServiceTarget } from "./service.js";
 
 function startOptions(options) {
   if (options === undefined) return {};
@@ -79,7 +80,37 @@ export function durableObjectContainer(nativeContext) {
     return pending;
   }
 
+  function intercept(context, target, handler) {
+    const service = containerServiceTarget(handler, context);
+    const record = event(context);
+    const previous = record.tail;
+    const work = (async () => {
+      if (record.failure) throw record.failure;
+      if (previous) await previous;
+      await context._call("container.intercept_outbound_http", {
+        target,
+        service,
+      });
+    })();
+    record.tail = work;
+    work.then(undefined, (error) => {
+      record.failure = error;
+    });
+    context._containerControl(work);
+    return work;
+  }
+
   const container = {
+    interceptOutboundHttp(target, handler) {
+      const context = current();
+      if (typeof target !== "string")
+        throw new TypeError("HTTP intercept target must be a string");
+      return intercept(context, target, handler);
+    },
+    interceptAllOutboundHttp(handler) {
+      const context = current();
+      return intercept(context, null, handler);
+    },
     exec(cmd, options) {
       const context = current();
       const record = event(context);

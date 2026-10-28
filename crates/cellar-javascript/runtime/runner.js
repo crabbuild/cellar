@@ -286,13 +286,61 @@
 
   // Both incoming requests and nested-cell responses use this decoded view.
   // text() deliberately rejects invalid UTF-8 instead of replacing bad bytes.
-  function request(value) {
+  function incomingBody(context) {
+    if (typeof ReadableStream !== "function")
+      throw new ErrorClass("Incoming HTTP streams require the web runtime");
+    let released = false;
+    let remove;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      remove?.();
+      await context._call("request.body.cancel", {});
+    };
+    remove = context._rpcCleanup(release);
+    return new ReadableStream(
+      {
+        type: "bytes",
+        async pull(controller) {
+          try {
+            const chunk = await context._call("request.body.read", {});
+            if (chunk.done) {
+              await release();
+              controller.close();
+            } else {
+              const body = context._decode(chunk.body);
+              if (body.byteLength) controller.enqueue(body);
+            }
+          } catch (error) {
+            await release().catch(() => {});
+            controller.error(error);
+          }
+        },
+        cancel: release,
+      },
+      { highWaterMark: 0 },
+    );
+  }
+
+  function request(value, context) {
     const body = decode(value.body);
     const text = () =>
       decodeURIComponent(
         Array.from(body, (b) => "%" + b.toString(16).padStart(2, "0")).join(""),
       );
 
+    if (value.body_stream) {
+      const refuse = () => {
+        throw new TypeError("Consume the incoming HTTP byte stream");
+      };
+      return freeze({
+        ...value,
+        body,
+        body_stream: incomingBody(context),
+        text: refuse,
+        json: refuse,
+      });
+    }
     return freeze({ ...value, body, text, json: () => json(parse(text())) });
   }
 
@@ -522,6 +570,7 @@
                   "cell.call",
                   "workers.rpc.invoke",
                   "response.read",
+                  "request.body.read",
                   "response.closed",
                   "websocket.next",
                   "websocket.closed",
@@ -704,6 +753,11 @@
         signal: (signal) => containerCall("container.signal", { signal }),
         setInactivityTimeout: (timeout_ms) =>
           containerCall("container.set_inactivity_timeout", { timeout_ms }),
+        interceptOutboundHttp: (target, binding) =>
+          containerCall("container.intercept_outbound_http", {
+            target,
+            service: { kind: "binding", binding },
+          }),
         exec: async (options) =>
           resource("exec", await containerCall("container.exec", { options })),
         execOutput: async (options, max_bytes = 1048576) => {
@@ -1685,7 +1739,12 @@
           }
           if (invocation !== cachedId) {
             cachedId = invocation;
-            cached = context(invocation, identity, activation, contracts);
+            // Independent facade getters share the native event's canonical
+            // context. currentHost(activation) above still verifies that this
+            // continuation belongs to the original, live activation.
+            cached =
+              lifetimes.get(invocation)?.context ??
+              context(invocation, identity, activation, contracts);
           }
           return cached;
         };
@@ -1980,7 +2039,7 @@
 
       let event =
         invocation.kind === "fetch"
-          ? request(invocation.event)
+          ? request(invocation.event, ctx)
           : json(invocation.event);
 
       if (invocation.kind === "websocket_message") {

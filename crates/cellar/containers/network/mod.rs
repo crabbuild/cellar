@@ -3,13 +3,20 @@
 //! A helper namespace and its private transport belong to one container run.
 
 use super::*;
+use crate::application::service::{HttpHandler, Persistent};
 use anyhow::{ensure, Result};
 use cellar_egress::{control, docker_io::DockerIo, transport};
 use rand::RngCore;
+mod http;
 
 pub(super) const MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const RUN_LABEL: &str = "cellar.network.run";
 const ROLE_LABEL: &str = "cellar.network.role";
+
+pub(super) struct Pending {
+    target: cellar_egress::HttpTarget,
+    handler: Box<dyn HttpHandler>,
+}
 
 pub(super) struct Run {
     pub run: u64,
@@ -22,8 +29,8 @@ pub(super) struct Run {
     started: AtomicBool,
     creation_submitted: AtomicBool,
     removed: AtomicBool,
-    control: Mutex<Option<control::Routes<()>>>,
-    installer: Mutex<Option<control::Installer<()>>>,
+    control: Mutex<Option<control::Routes<Box<dyn HttpHandler>>>>,
+    installer: Mutex<Option<control::Installer<Box<dyn HttpHandler>>>>,
     task: Mutex<Option<asyncrt::TaskHandle<()>>>,
     cleanup: tokio::sync::Mutex<()>,
     done: watch::Sender<Option<Result<(), String>>>,
@@ -374,7 +381,8 @@ impl ContainerEngine {
         let io = self.docker.attach_io(id.as_str()).await?;
         let (link, mut incoming, driver) =
             transport::session(DockerIo::new(io), transport::Role::Host);
-        let (installer, routes, controller) = control::channel::<()>(link, attempt.session);
+        let (installer, routes, controller) =
+            control::channel::<Box<dyn HttpHandler>>(link.clone(), attempt.session);
         *attempt.control.lock().unwrap() = Some(routes.clone());
         if attempt.retired.load(Ordering::Acquire) {
             routes.retire();
@@ -386,19 +394,17 @@ impl ContainerEngine {
             finished: false,
         };
         attempt.started.store(true, Ordering::Release);
+        let serving = attempt.clone();
         let task = asyncrt::try_spawn(async move {
             let native = async {
                 let control = incoming
                     .next()
                     .await
                     .context("network helper omitted control readiness")?;
-                tokio::try_join!(controller.run(control), async {
-                    ensure!(
-                        incoming.next().await.is_none(),
-                        "unregistered network data stream"
-                    );
-                    Ok::<_, anyhow::Error>(())
-                })?;
+                tokio::try_join!(
+                    controller.run(control),
+                    http::serve(incoming, serving, routes, link)
+                )?;
                 Ok::<_, anyhow::Error>(())
             };
             let result = tokio::try_join!(driver.run(), native).map(|_| ());
@@ -419,17 +425,36 @@ impl ContainerEngine {
                 "start network helper",
             )
             .await?;
-        asyncrt::timeout(options.startup_timeout, installer.ready())
+        let readiness = async {
+            installer.ready().await?;
+            attempt.established.store(true, Ordering::Release);
+            let pending = {
+                let mut state = cell.state.lock().unwrap();
+                ensure!(
+                    state.run == run,
+                    "pending intercepts belong to a superseded run"
+                );
+                std::mem::take(&mut state.pending_http)
+            };
+            for rule in pending {
+                ensure!(
+                    !attempt.retired.load(Ordering::Acquire),
+                    "network helper retired during startup"
+                );
+                installer.install(rule.target, rule.handler).await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        };
+        asyncrt::timeout(options.startup_timeout, readiness)
             .await
             .context("network helper readiness timed out")??;
         ensure!(
             !attempt.retired.load(Ordering::Acquire),
             "network helper retired during startup"
         );
-        attempt.established.store(true, Ordering::Release);
         attempt.ready.store(true, Ordering::Release);
         // Keep the command sender alive with the run; dropping it would retire
-        // an otherwise healthy controller. No interception API is enabled yet.
+        // an otherwise healthy controller.
         *attempt.installer.lock().unwrap() = Some(installer);
         Ok(Some(attempt))
     }
@@ -582,8 +607,75 @@ impl ContainerEngine {
         body["Labels"][RUN_LABEL] = json!(network.token);
         body["Labels"][ROLE_LABEL] = json!("application");
     }
+
+    pub(crate) fn http_interception_configured(&self, cell: &CellContainer) -> bool {
+        self.network_helper.is_some() && self.validate_network_runtime(cell).is_ok()
+    }
+
+    pub(crate) async fn intercept_http(
+        &self,
+        cell: &Arc<CellContainer>,
+        target: cellar_egress::HttpTarget,
+        handler: Persistent,
+    ) -> Result<()> {
+        self.check_cell(cell)?;
+        ensure!(
+            self.http_interception_configured(cell),
+            "HTTP interception requires the explicit native runc network-helper profile"
+        );
+        let handler: Box<dyn HttpHandler> = Box::new(handler);
+        let network = {
+            let mut state = cell.state.lock().unwrap();
+            if state.network.is_none() && !state.running {
+                let existing = state
+                    .pending_http
+                    .iter()
+                    .position(|rule| rule.target == target);
+                let entries = state
+                    .pending_http
+                    .iter()
+                    .map(|rule| rule.target.entries())
+                    .sum::<usize>()
+                    + existing.map_or(target.entries(), |_| 0);
+                ensure!(
+                    entries <= cellar_egress::MAX_INTERCEPT_ENTRIES,
+                    "You can't configure more than 128 egress interceptors"
+                );
+                let rule = Pending { target, handler };
+                let previous = if let Some(index) = existing {
+                    Some(std::mem::replace(&mut state.pending_http[index], rule))
+                } else {
+                    state.pending_http.push(rule);
+                    None
+                };
+                drop(state);
+                drop(previous);
+                return Ok(());
+            }
+            state
+                .network
+                .clone()
+                .context("container has no ready network helper")?
+        };
+        ensure!(
+            network.run == cell.current_run() && network.active(),
+            "container network has retired"
+        );
+        let installer = network
+            .installer
+            .lock()
+            .unwrap()
+            .clone()
+            .context("network helper is not ready")?;
+        installer.install(target, handler).await?;
+        self.check_cell(cell)?;
+        ensure!(
+            network.run == cell.current_run() && network.active(),
+            "container network retired during installation"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]
-#[path = "network_tests.rs"]
 mod tests;

@@ -317,12 +317,12 @@ exec remains available without it, while signalling refuses an unverified PID.
 See the [native exec contract](../../docs/09-integrations.md#apis-in-each-language).
 The optional [R2 backup gateway subset](../../packages/cellar-cloudflare/r2.md)
 adds native resumable object storage for published gateway operations; complete
-helper backup/restore and outbound interception remain separate delivery work.
+helper backup/restore has a separate matching-image qualification campaign.
 The native [outbound transport and network helper](../cellar-egress/README.md)
 now supply bounded streams, acknowledged firewall rules, persistent DNS and
 joined process retirement. An explicit native host profile also starts an owned
-helper before its application and removes the pair together. Native Worker
-routing and public outbound interception remain the next integration step.
+helper before its application and removes the pair together. The optional HTTP
+profile below routes those streams to native services.
 
 ### Optional native network-helper lifecycle
 
@@ -368,9 +368,91 @@ through container creation. It releases those reservations before daemon startup
 so the VM forwarder can bind. This is not an atomic port handoff; a working
 daemon forwarder remains required.
 
-This lifecycle profile does not enable `interceptOutboundHttp()` or qualify full
-Sandbox backup/restore and mounts. See the
+The lifecycle option and HTTP provider opt-in are separate. See the
 [real Engine campaign](../../tools/sandbox/egress/README.md) for evidence and gaps.
+
+### Route outbound HTTP to a native service
+
+Enable `Native.with_http_interception()` in the host's provider configuration
+and configure the `runc` network helper above. Ordinary `Native`, E2B and Vercel
+omit this operation from capability discovery and refuse it before dispatch.
+
+```mermaid
+sequenceDiagram
+    participant DO as Root cell
+    participant H as Native host
+    participant C as Container/helper
+    participant A as Ownership actor
+    participant S as Declared service
+    DO->>H: Install target + service/export + copied props
+    Note over DO,H: Installing event can end
+    C->>H: HTTP message on intercepted connection
+    H->>A: Fresh scope/epoch Service gate
+    A-->>H: Ownership and durability proof
+    H->>S: Captured deployment and entrypoint
+    S-->>C: Streamed HTTP response
+```
+
+The Workers facade accepts a declared service binding or an exported entrypoint:
+
+```ts
+await this.ctx.container.interceptOutboundHttp(
+  "backups.internal",
+  this.ctx.exports.Gateway({ props: { binding: "BACKUPS" } }),
+);
+await this.ctx.container.interceptAllOutboundHttp(this.env.OUTBOUND_GATEWAY);
+```
+
+Portable facades select a host-declared service binding by name:
+
+| Language | Install a target |
+| --- | --- |
+| Rust native SDK | `ctx.container()?.intercept_outbound_http(&ctx, "*.example.test", &ctx.service("API")?).await?` |
+| JavaScript / TypeScript | `await ctx.container.interceptOutboundHttp("*.example.test", "API")` |
+| Python | `await ctx.container.intercept_outbound_http("*.example.test", "API")` |
+| Common bridge | `container.intercept_outbound_http`, input `{"target":"*.example.test","service":{"kind":"binding","binding":"API"}}` |
+
+| Boundary | HTTP profile behavior |
+| --- | --- |
+| Targets | Hostname, wildcard, IP/CIDR or catch-all; plain HTTP on port 80 |
+| Before start | Hold bounded native route metadata; acknowledge helper rules before allocating the application |
+| After start | Replace the same target in its original position; resolve the current handler for each message, including retained TCP connections |
+| Route lifetime | Container run; no installing event, activation, guest closure or guest environment is retained |
+| Authority | Host-minted scope, epoch and exact nonzero deployment generation; fresh Service gate per request; retired deployments refuse |
+| Unmatched traffic | Marked direct connection through the helper's configured network policy |
+| Resource bounds | 128 interceptor entries; hostnames and catch-all cost two, IP/CIDR one; 64 KiB captured route; 128 / 64 KiB headers; 8 KiB URL |
+| Bodies | Stream with backpressure; buffered response prefix at most 1 MiB; stop transport and joined handlers on retirement |
+| Refusal | Fixed 502 before response publication; later body failure closes the stream; no replay |
+| Gaps | HTTPS interception, upgrades, trailers and full persistence/fault qualification |
+
+Node Workers gateways opt in to incoming body streaming with
+`Source::workers_http_streams()`. Each source pull uses the original invocation
+and the configured per-chunk body limit; EOF, cancellation and errors release
+the native reader. The ordinary SDK retains its buffered request limit.
+
+The matching-image [Sandbox 1.0.3 fixture](../../tools/sandbox/cloudflare-v1/backups.mjs)
+uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
+[qualification instructions](../../tools/sandbox/cloudflare-v1/README.md)
+keep SDK/image evidence separate from router and provider tests. S3 mounts and
+complete Sandbox 1.x compatibility remain open.
+
+Known-length R2 uploads use native anonymous-file part staging with bounded
+bridge chunks, host scratch byte/file limits and atomic receipt replacement.
+The [native upload contract](../cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
+also exposes this path to Rust applications. It requires a separately declared
+backend capability.
+
+The directory-backup campaign also restores from fresh native/Node processes
+and checks allocation-time cancellation, missing/corrupt archives, destination
+preservation and grant revocation. Selected first-chunk cancellation and failed
+completion/deletion acknowledgements also preserve their failure outcomes without
+mutation replay. Abrupt crashes, larger/multi-part and verified-swap cancellation,
+lost transport responses and full image-level lost-create qualification remain
+open. The published gateway separately covers a failed create acknowledgement
+followed by automatic expiry in a replacement native host. Local Blob storage
+uses fixed deadlines and bounded, domain-owned orphan collection; see the
+[expiry contract](../cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+for scope, shutdown, clock and remote-provider limits.
 
 
 ## Understand lifetime and failure outcomes

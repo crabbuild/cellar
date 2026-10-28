@@ -43,11 +43,46 @@ impl Cell for Root {
                     "binding":"COUNTERS", "name":"peer",
                     "request":{"url":"http://peer/", "method":"GET", "headers":[], "body":""},
                 }), &limits).await?;
-                *self.0.retained.lock().unwrap() = Some((session, head));
+                session.request(
+                    &context,
+                    Request {
+                        url: "http://incoming/".into(),
+                        method: "POST".into(),
+                        headers: Vec::new(),
+                        body: vec![0, 255, 42].into(),
+                        entrypoint: None,
+                    },
+                )?;
+                *self.0.retained.lock().unwrap() = Some((session.clone(), head));
                 self.0.ready.notify_one();
                 self.0.release.notified().await;
+                let bytes = session
+                    .execute(&context, "request.body.read", json!({}), &limits)
+                    .await?;
+                ensure!(
+                    bytes == json!({"done":false,"body":"AP8q"}),
+                    "foreign event changed the incoming body"
+                );
+                ensure!(
+                    session
+                        .execute(&context, "request.body.read", json!({}), &limits)
+                        .await?["done"]
+                        == true
+                );
+                session
+                    .execute(&context, "request.body.cancel", json!({}), &limits)
+                    .await?;
             } else {
                 let (session, head) = self.0.retained.lock().unwrap().as_ref().unwrap().clone();
+                for operation in ["request.body.read", "request.body.cancel"] {
+                    ensure!(
+                        session
+                            .execute(&context, operation, json!({}), &limits)
+                            .await
+                            .is_err(),
+                        "foreign or later event used incoming body authority"
+                    );
+                }
                 ensure!(
                     session
                         .execute(

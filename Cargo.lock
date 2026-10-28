@@ -453,6 +453,8 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
 ]
 
@@ -631,11 +633,13 @@ dependencies = [
  "futures-util",
  "hex",
  "object_store",
+ "protobuf",
  "raft",
  "rand 0.8.7",
  "reqwest",
  "rusqlite",
  "rustls",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -656,6 +660,7 @@ dependencies = [
  "prost-types",
  "serde_json",
  "syn 2.0.119",
+ "tempfile",
 ]
 
 [[package]]

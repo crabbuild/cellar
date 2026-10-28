@@ -17,6 +17,7 @@ mod sql;
 pub struct State {
     authority: OnceLock<InvocationAuthority>,
     sql: sql::Cursors,
+    r2_parts: r2::Parts,
 }
 
 pub fn is_read(name: &str) -> bool {
@@ -82,7 +83,16 @@ impl State {
         let candidate = context.invocation_authority()?;
         let authority = self.authority.get_or_init(|| candidate);
         authority.check(context)?;
-        let result = r2::execute(context, name, input, options, transport, reserve).await;
+        let result = r2::execute(
+            context,
+            name,
+            input,
+            options,
+            transport,
+            &self.r2_parts,
+            reserve,
+        )
+        .await;
         authority.check(context)?;
         result
     }

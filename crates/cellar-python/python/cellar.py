@@ -1014,6 +1014,11 @@ class Container:
     async def set_inactivity_timeout(self, timeout_ms: int) -> None:
         await self._context._call("container.set_inactivity_timeout", timeout_ms=timeout_ms)
 
+    async def intercept_outbound_http(self, target: str | None, binding: str) -> None:
+        """Route plain HTTP through a declared service; requires the native helper profile."""
+        await self._context._call("container.intercept_outbound_http", target=target,
+                                  service=dict(kind="binding", binding=binding))
+
     async def exec(self, cmd: list[str], *, env: Headers = (), cwd: str | None = None,
                    user: str | None = None, combined: bool = False,
                    pty: tuple[int, int] | None = None) -> ContainerExec:

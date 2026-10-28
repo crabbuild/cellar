@@ -28,7 +28,9 @@
 //! that carries no CAS token is an error, never an empty token a later
 //! conditional write would trust.
 
-pub use crate::object_multipart::ResumableMultipartStore;
+pub use crate::object_multipart::{
+    MultipartGcProgress, MultipartMaintenancePolicy, ResumableMultipartStore, StreamedPart,
+};
 use anyhow::anyhow;
 use anyhow::Context;
 use bytes::Bytes;
@@ -642,6 +644,35 @@ impl Bucket {
             .context("bucket has no resumable multipart backend")
     }
 
+    pub fn supports_streamed_resumable_parts(&self) -> bool {
+        self.multipart
+            .as_ref()
+            .is_some_and(|client| client.supports_streamed_parts())
+    }
+
+    /// Stage one exact-length part. An incomplete/failed stage never replaces
+    /// the previous receipt; a lost completion response remains uncertain.
+    pub async fn begin_resumable_part(
+        &self,
+        key: &str,
+        id: &str,
+        index: usize,
+        length: u64,
+        capacity: Arc<dyn Send + Sync>,
+    ) -> anyhow::Result<Box<dyn StreamedPart>> {
+        anyhow::ensure!(index < 10_000, "multipart part index exceeds 9999");
+        Ok(self
+            .multipart_client()?
+            .begin_part(
+                &self.blob_path(key),
+                &id.to_string(),
+                index,
+                length,
+                capacity,
+            )
+            .await?)
+    }
+
     /// Allocate a backend-owned identity. No in-process handle is required to
     /// resume it on a later client or node. Missing capabilities refuse first.
     pub async fn create_resumable_multipart(
@@ -656,12 +687,13 @@ impl Bucket {
             "bucket lacks resumable multipart metadata support"
         );
         Ok(client
-            .create_with_options(
+            .create_scoped(
                 &self.blob_path(key),
                 PutMultipartOptions {
                     attributes,
                     ..Default::default()
                 },
+                &self.multipart_scope(),
             )
             .await?)
     }
@@ -707,6 +739,58 @@ impl Bucket {
             .multipart_client()?
             .abort_multipart(&self.blob_path(key), &id.to_string())
             .await?)
+    }
+
+    fn multipart_scope(&self) -> String {
+        let mut scope = self.blob_path("").to_string();
+        if !scope.is_empty() {
+            scope.push('/');
+        }
+        scope
+    }
+
+    /// Host-only, convergent maintenance. This never deletes public objects.
+    /// Remote backends without this capability return an explicit refusal.
+    pub async fn reap_expired_multipart(&self) -> anyhow::Result<MultipartGcProgress> {
+        Ok(self
+            .multipart_client()?
+            .reap_expired(&self.multipart_scope())
+            .await?)
+    }
+
+    #[cfg(not(cellar_internal_tests))]
+    pub(crate) fn start_multipart_maintenance(&self) {
+        let Some(policy) = self
+            .multipart
+            .as_ref()
+            .and_then(|client| client.maintenance_policy())
+        else {
+            return;
+        };
+        if policy.validate().is_err() {
+            tracing::warn!("multipart maintenance refused an invalid host policy");
+            return;
+        }
+        if crate::asyncrt::services().domain_token().is_none() {
+            return;
+        }
+        let bucket = self.clone();
+        // The domain owns this task, cancels its timer on close, and joins any
+        // already-entered blocking transaction. A later host resumes backlog.
+        let _ = crate::asyncrt::try_spawn(async move {
+            loop {
+                let delay = match bucket.reap_expired_multipart().await {
+                    Ok(progress) if progress.pending => policy.backlog_interval,
+                    Ok(_) => policy.idle_interval,
+                    Err(_) => {
+                        // Backend details can contain object keys/credentials.
+                        tracing::warn!("multipart maintenance failed; will retry a fresh scan");
+                        policy.idle_interval
+                    }
+                };
+                crate::asyncrt::sleep(delay).await;
+            }
+        });
     }
 
     /// Builds a bucket from separate ordinary and paginated stores.
@@ -797,7 +881,18 @@ impl Bucket {
     /// For an offline backup, stop every client and preserve the database with
     /// its sidecars. Use SQLite's backup API for online copies.
     pub fn open_dev(database: &std::path::Path) -> anyhow::Result<Bucket> {
-        let store = Arc::new(crate::local_store::LocalStore::open(database)?);
+        Self::open_dev_with_multipart_policy(database, Default::default())
+    }
+
+    /// Set host-owned expiry and collection cadence for local uploads. Stored
+    /// deadlines remain authoritative when another client reopens the store.
+    pub fn open_dev_with_multipart_policy(
+        database: &std::path::Path,
+        policy: MultipartMaintenancePolicy,
+    ) -> anyhow::Result<Bucket> {
+        let store = Arc::new(crate::local_store::LocalStore::open_with_multipart_policy(
+            database, policy,
+        )?);
         Ok(Bucket {
             store: store.clone(),
             paginated: store.clone(),

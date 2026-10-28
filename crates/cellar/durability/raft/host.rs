@@ -840,6 +840,10 @@ async fn initialize(
                 options.images.apply,
                 pool.image_accounting(),
                 service.log.snapshot_scratch(),
+                super::host_archive::PhysicalOptions {
+                    max_jobs: options.archive.max_blocking_jobs,
+                    performance: service.log.performance(),
+                },
             )
             .await?;
             for cell in cells.values_mut() {
@@ -3099,13 +3103,15 @@ impl Driver {
             // Each cut remains in inflight, and retains its capture permit,
             // until this entire publication returns through on_job.
             let verifier = owner.verifier.clone();
+            let physical = owner.physical.clone();
             let prepared = self.transport.prepared_snapshot_cache();
             let timer = self
                 .local
                 .performance
                 .timer(super::performance::Operation::ArchivePublicationBatch);
             self.jobs.push(Box::pin(async move {
-                let completed = super::host_archive::publish(pending, verifier, prepared).await;
+                let completed =
+                    super::host_archive::publish(pending, verifier, prepared, physical).await;
                 timer.finish(
                     !completed.is_empty() && completed.iter().all(|cut| cut.result.is_ok()),
                 );

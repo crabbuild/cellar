@@ -172,7 +172,7 @@ async def fetch(request, ctx):
         return await deadline.call(ctx, binding, query["name"], query.get("timeout"))
     if url.path.endswith("/codec-budget"):
         return await deadline.codec_budget(ctx, binding, query["phase"], query["id"])
-    counter = CounterClient.bind(ctx, binding, "alice")
+    counter = CounterClient.bind(ctx, binding, query.get("cell", "alice"))
     if url.path.endswith("/capture"):
         retained = counter
         return Response.json({"captured": True})

@@ -676,6 +676,47 @@ lagged archives; waiting for the head must remain in their reported duration.
 If the 10-second replay budget is infeasible, record the measured bound and
 redesign snapshot frequency/catch-up before accepting M1.
 
+### Node-wide local archive work admission
+
+Archive producer count bounds retained cuts but previously let each producer
+submit local encoding/verification work independently. A deterministic owning
+test holds one physical archive job and submits another cell's job through a
+second host clone. Before admission is enforced, both pass the supposed one-job
+boundary; the test fails with two successful admissions against an expected one.
+
+The native owner now shares a separate physical budget across captured
+publication clones and their verifier. `max_blocking_jobs` accepts one to four
+and defaults to one. Foreground archive restoration retains its original host;
+the adapter preserves the actual filesystem, clock and execution domain. A waiting
+job is not submitted to the physical executor; its already admitted publication
+owner and capture reservation remain held. A slot moves into the dispatched job and
+outlives caller cancellation, including while its executor has not begun the
+job. Owner cancellation/drop refuses queued admission, while entered work still
+joins through domain shutdown. Producer and memory admission remain separate.
+
+`archive_physical_admission` and `archive_physical_queue` distinguish the new
+admission delay from executor dispatch delay; both remain in overall publication
+and recovery timing. The physical test runner records the explicit setting and
+refuses continuation with a changed or missing value. This bounds local archive
+work, not object-store bandwidth. Network scheduling, measured foreground
+interference bounds, source freshness/replay-time rotation, verified warm handoff
+and remote-retention/demand-loading proof remain open. No full-size RTO gain or
+percentile qualification follows from the admission tests alone.
+
+The admission implementation passes 13 owning tests and five performance tests.
+Its runtime source passes 76 archive, 20 ordinary large-image and 32 rooted
+integration cases; 14 physical cases remain ignored. The additional public
+operations target passes all 23 cases after its exact metrics inventory is
+updated to 43 operations, 42 counters and 1,291 performance series. Before that
+expectation update, the test refuses the observed 43-operation inventory against
+the old 41-operation assertion. The qualification package now wraps the existing
+public archive and operations suites without requiring the host CLI binaries.
+All-feature Clippy, 246 Python tooling cases (one skipped), formatting/layout
+over 1,314 Rust files and dependency/documentation checks pass. The final
+test-only changes preserve every production runtime input from the archive and
+recovery validation. Source-bound physical preflights and full-size timing remain
+separate gates.
+
 ## RT-04: Connect complete extent recovery end to end
 
 The first implementation uses the existing extent-aware native descriptor,
@@ -1288,9 +1329,10 @@ Source inputs are
 with release executable
 `314d43d8344419bfb2911553b6389b8aec24404e4042aba0b9c030a56d545c4c`.
 The matching 272 MiB preflight passes all nine checks and six valid phase
-windows in 6.851718 s. Full-size objects remain live under
-`cold-recovery-qualification/e7d5b5c02b0ee89861211edb8f3b5bd2/`, and the new
-worker trees and complete source-bound evidence remain retained.
+windows in 6.851718 s. Full-size objects were initially retained under
+`cold-recovery-qualification/e7d5b5c02b0ee89861211edb8f3b5bd2/`, together with
+the worker trees and complete source-bound evidence. Their later verified
+archival and retirement are recorded below.
 
 Before seeding, the active publisher consumes 10,000,176,825 completed GET body
 bytes and succeeds at one cut; the preceding 200.704983-second trial consumed
@@ -1305,9 +1347,143 @@ the per-attempt reuse contract independently of these timing effects.
 
 These remain individual shared-host, uncontrolled-cache, repeated-payload,
 joined-domain-loss pilots. The analyzer correctly returns nonzero for the
-insufficient pilot population and leaves qualification false. Current-source
-full-size peer recovery, repeated/high-entropy and hard-process-loss campaigns,
-verified remote demand loading and durable retention/GC remain open.
+insufficient pilot population and leaves qualification false. At this point,
+current-source full-size peer recovery remained pending; the merged-source
+peer result below closes that individual pilot gap. Repeated/high-entropy and
+hard-process-loss campaigns, verified remote demand loading and durable
+retention/GC remain open.
+
+### Merged-source full-size peer pilot
+
+After PR #142 merged, the follow-up starts from updated `main` at
+`cd9a968932c81fcfd4a3fe9f03c4ce7c0e57e1b0`. This includes intervening host,
+storage and dependency changes, so it uses a fresh locked release build rather
+than rebinding the preceding executable to another commit. Source inputs are
+`af8f024b48c32f65b491e5c4c7eb4554ef70df9dd83330a1c2a83b0100e6b957`, with
+release executable
+`0f28f0cbf54dde339a1658d6fa83d55a35108b0dd9bc4ad34b05871f113dd11b`.
+
+The 12 MiB peer preflight passes all nine correctness checks and all six phase
+windows in 3.830853 s. The unchanged 9,999,998,976-byte peer oracle then passes
+with the same checks and six valid windows. Source inputs and executable bytes
+remain unchanged throughout each trial.
+
+| Full-size peer interval | Seconds |
+| --- | ---: |
+| Owner loss to first verified durable write | 86.831416 |
+| Archive wait | 0.000405 |
+| Seed transfer and installation | 81.616753 |
+| Promotion after the first read | 0.562870 |
+| First write after promotion | 0.257231 |
+| Full payload query after receipt verification | 16.992506 |
+| Owner loss to full payload verification | 103.858179 |
+
+The full payload query remains under its unchanged 60-second deadline. The
+343.22-second whole-fixture duration includes initial source preparation,
+preloading and proof establishment; it is not the recovery RTO. Installation
+still verifies the entire local closure before serving, and the replacement
+then verifies new writes, receipts, duplicate callback behavior and joined
+cleanup. Worker state and objects were initially retained under the new fixture
+prefix `cold-recovery-qualification/7a6e7d1a44b587be6ccdf205e9b25091/`. Before
+the next physical campaign, verified archives preserve all 7,188 worker files
+and 2,405 object bodies, including 2,387 extent identities. The exact inactive
+prefix, worker trees and stopped-store trash are retired after verification and
+persistence; restart again preserves all 465 other live object entries. Raw
+campaign evidence, archives and restoration instructions remain retained.
+
+During the seed window, the replacement records 10,000,075,408 received and
+appended peer bytes across 9,537 frames. Completed append work sums to
+55.638312 s, queued-frame time sums to 50.516770 s, and network receive work
+sums to 30.703258 s. These owner-clock observations overlap; they neither add
+up to the controller interval nor isolate scheduling delay from disk pressure.
+The receiver already uses one registered physical owner and two bounded wire
+windows. This result does not justify adding a duplicate receive pipeline.
+The two surviving hosts also complete 10,000,168,679 and 10,000,366,910 object
+GET body bytes in that window while normal archive publication stays enabled.
+Foreground I/O contention and destination persistence are therefore concrete
+next measurement targets; the counters alone do not prove either root cause.
+Requested PUT bytes are not actual uploaded wire bytes.
+
+This is one embedded joined-domain-loss trial with shared hardware,
+uncontrolled source/store caches and repeated pseudo-random 1 MiB payloads.
+The analyzer leaves qualification false with its three-sample pilot minimum
+unchanged. It neither establishes p95 nor qualifies hard process loss, M1 or
+M2. The preceding 90.867463-second RustFS pilot uses a different source revision;
+these observations do not establish a controlled backend comparison. The next
+qualification work still includes repeated trials, independent high-entropy
+data, hard kills and contention, followed by verified demand loading and durable
+remote retention/GC.
+
+Provisioning this drill preserves the preceding RustFS trial before reclaiming
+its capacity: all 7,188 worker files and all 2,405 object bodies match their
+decoded archives, including 2,387 domain-separated extent identities. Archive
+and metadata persistence precede retirement of the inactive worker trees and
+exact object prefix. RustFS initially retains deleted bytes in internal trash;
+the owned test server is stopped before that trash is archived, verified and
+retired. Restart preserves all 465 live object entries and their lengths/ETags.
+The new trial uses the same server binary, endpoint and internal-volume layout,
+and passes the unchanged four-image-plus-8-GiB capacity guard. Prior evidence,
+restore instructions and backups remain outside the Cargo target. No older
+RustFS instances or unrelated data are reclaimed.
+
+### Borrowed extent installation windows
+
+The accepted peer pilot identifies installation as a large part of the seed
+window but does not isolate its disk cost from concurrent archive work. One
+specific implementation issue is independently reproducible: a complete received
+extent is already resident under admission, yet installation copies it into
+64 separately allocated 64 KiB source chunks and issues 64 provider writes for
+a full 4 MiB extent. The regression reproduces 64 calls against an expected one
+before the optimization, while the three integrity/admission/cleanup guards pass.
+
+`NodeExtentStore::put_extent_bytes` now borrows that bounded input through
+`HostFile::write_all_at_window`. Native providers accept one window; injected
+providers retain 64 KiB positional writes. Peer and archive installation use
+this common path, and extent apply reuses its existing admitted working buffer.
+The streaming callback API retains its 64 KiB bound. Both input forms share
+exclusive creation, inventory charging, source integrity, file sync, independent
+destination verification, directory sync and uncertain-cleanup quarantine.
+No extra whole-extent allocation, deferred durability or incomplete local seal
+is introduced. Focused tests cover both provider modes, restart reuse, corrupt
+existing/input/destination bytes, wrong lengths, capacity refusal, partial writes,
+failed file/directory syncs and cleanup failure without premature refunds.
+The final source passes 120 LTX integration cases and 52 ordinary native cases
+(20 large-image/recovery and 32 root-image/archive). Four LTX and 14 native
+physical cases remain explicitly ignored. The no-default-features LTX check,
+all-feature/all-target LTX and qualification Clippy, all-feature host-library
+Clippy, format/layout (1,311 Rust files), native-dependency and documentation
+guards pass. The initial Clippy failure identifies an unused `io` import left
+after replacing the old closure; the final source removes it without a lint
+suppression and repeats validation with unchanged source inventories.
+
+A separate component probe compares both input APIs in the same release-built
+library with matching workspace optimization flags. Three alternating pairs
+import 32 distinct 4 MiB objects per mode. Median import time is 0.593364 s for
+streaming callbacks and 0.541661 s for borrowed input. Each run performs 32 file
+syncs and 32 directory syncs, while provider writes decrease from 2,048 to 32.
+Median borrowed-input write time is 0.202425 s, file sync time 0.140130 s and
+directory sync time 0.002746 s. These observations make directory-sync batching
+a low-priority hypothesis on this host; they do not isolate costs under the
+concurrent archive traffic of a full recovery. The probe runs after its own LTX
+test I/O has finished, while native compilation and other shared-host work may
+continue. Caches are uncontrolled; the earlier overlapping probe remains
+separately recorded. These are component observations, not native RTO or
+percentile qualification. Fresh source-bound physical pilots are required
+before claiming a full-size recovery-time gain.
+
+At `3be8c9edd6a91e5c9613746c30f4be81018f9017`, fresh peer (12 MiB) and real
+RustFS (272 MiB) preflights pass all nine checks and six valid observation
+windows. Failure to first verified durable write is 3.827742 s and 6.971304 s,
+respectively; seed installation is 0.303747 s and 1.158608 s. Inputs are
+`464cf0ca1cc939a43470a7169adc91e457f43c7906f9ac103bf65b08b1ccff2e`, with
+release executable
+`f7c617d3632429f136791d44866421b3d18fddf5f0142373365b410baa16999d`.
+Both source inventories remain unchanged throughout their trials. Their single
+observations do not meet the analyzer's unchanged pilot sample requirement.
+The new full-size campaign has not started: its capacity preflight refuses
+before creating a native trial when the unchanged four-image-plus-8-GiB guard
+is unmet. This unavailable capacity observation is separate from timed recovery
+samples. The earlier full-size timings above are not results for this new code.
 
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release

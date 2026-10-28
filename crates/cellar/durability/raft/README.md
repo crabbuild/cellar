@@ -843,6 +843,19 @@ for request admission and Raft work. The existing producer limit bounds worker
 count; capture reservations remain charged through physical cleanup, and the
 driver joins publication workers before releasing their slots during shutdown.
 
+`RaftArchiveOptions::max_blocking_jobs` separately bounds local archive
+encoding/verification jobs across every producer on the node (one to four,
+default one). Captured publication clones and the verifier share this admission;
+resident archive instances retain their original host for foreground recovery.
+The adapter preserves the injected filesystem, clock and executor. It submits a
+physical job only after admission and moves the slot into that job, so canceling
+its waiter cannot refund an executor-queued or running operation. Shutdown
+refuses queued admission, then joins entered work through the ordinary domain
+owner. `archive_physical_admission` reports the new admission wait, and
+`archive_physical_queue` reports the subsequent executor wait. Existing producer
+and memory bounds still apply. This does not cap object-store bandwidth or
+guarantee foreground latency under a saturated shared filesystem.
+
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is
 persisted in the receipt; stronger retries wait without executing or proposing
@@ -1173,10 +1186,13 @@ descriptor and re-encoded payload; a replaced checkpoint is refused. A captured
 package pins its bytes through subsequent checkpoint replacement and reclamation.
 Empty checkpoints retain no image or payload.
 
-The 64-MiB database limit remains unchanged. Full LTX framing, index entries and
-compression overhead can exceed that size, so snapshot, native image-restore and
-archive object budgets allow 128 MiB of encoded bytes. Configuration refuses
-budgets below a conservative full-snapshot bound before member storage opens.
+The default logical image ceiling remains 64 MiB; configured quotas extend to
+decimal 10 GB independently of command/delta limits. Full LTX framing, index
+entries and compression overhead can exceed the logical size, so the default
+snapshot, native image-restore and archive object budgets allow 128 MiB of encoded
+bytes. Larger cells need explicit image, snapshot, memory and disk admission.
+Configuration refuses budgets below a conservative full-snapshot bound before
+member storage opens.
 The component fixture transfers an exact 64-MiB incompressible SQLite database
 and restores its newer archived state after deleting both local node directories.
 It uses the in-memory object-store adapter; it does not qualify physical S3 or

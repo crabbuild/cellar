@@ -12,6 +12,99 @@ use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::{watch, Semaphore};
+
+#[derive(Clone)]
+pub(crate) struct PhysicalBudget {
+    slots: Arc<Semaphore>,
+    stop: watch::Receiver<bool>,
+    performance: Arc<super::performance::Registry>,
+}
+
+impl PhysicalBudget {
+    fn new(
+        max_jobs: usize,
+        stop: watch::Receiver<bool>,
+        performance: Arc<super::performance::Registry>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            (1..=4).contains(&max_jobs),
+            "invalid archive physical job limit"
+        );
+        Ok(Self {
+            slots: Arc::new(Semaphore::new(max_jobs)),
+            stop,
+            performance,
+        })
+    }
+
+    pub(crate) fn host(&self, host: cellar_ltx::LtxHost) -> cellar_ltx::LtxHost {
+        use super::performance::Operation;
+        let now = host.clone();
+        let age = host.clone();
+        let read = host.clone();
+        let work = host.clone();
+        let budget = self.clone();
+        cellar_ltx::LtxHost::new(
+            move || now.now_unix_millis(),
+            move |path| age.file_age(path),
+            move |path| {
+                let read = read.clone();
+                async move { read.read_file(path).await }
+            },
+            move |job| {
+                let work = work.clone();
+                let budget = budget.clone();
+                async move {
+                    let admission = budget.performance.timer(Operation::ArchivePhysicalAdmission);
+                    let stopped = async {
+                        let mut stop = budget.stop.clone();
+                        loop {
+                            if *stop.borrow_and_update() {
+                                return;
+                            }
+                            if stop.changed().await.is_err() {
+                                return;
+                            }
+                        }
+                    };
+                    let permit = crate::asyncrt::select_biased! { "archive shutdown cancels queued physical admission before dispatch; entered owners retain their slots until completion";
+                        _ = stopped => Err(cellar_ltx::HostTaskError::new("archive physical work stopped")),
+                        permit = budget.slots.clone().acquire_owned() => {
+                            permit
+                                .map_err(|_| cellar_ltx::HostTaskError::new("archive physical admission closed"))
+                                .and_then(|permit| {
+                                    if *budget.stop.borrow() || budget.stop.has_changed().is_err() {
+                                        Err(cellar_ltx::HostTaskError::new("archive physical work stopped"))
+                                    } else {
+                                        Ok(permit)
+                                    }
+                                })
+                        },
+                    };
+                    admission.finish(permit.is_ok());
+                    let permit = permit?;
+                    let queued = budget.performance.timer(Operation::ArchivePhysicalQueue);
+                    work.run_blocking(move || {
+                        // A cancelled waiter cannot refund a job that is still
+                        // queued on or executing in the owning domain.
+                        let _permit = permit;
+                        queued.finish(true);
+                        job();
+                    })
+                    .await
+                }
+            },
+        )
+        .with_filesystem(host.filesystem())
+    }
+}
+
+pub(crate) struct PhysicalOptions {
+    pub max_jobs: usize,
+    pub performance: Arc<super::performance::Registry>,
+}
 
 /// Node-owned archive I/O and new-command retention admission. S3 success still
 /// requires its exact verified recovery proof.
@@ -31,6 +124,10 @@ pub struct RaftArchiveOptions {
     /// and bounded recovery sets until publication completes.
     /// Object I/O overlaps; physical replay shares one exclusive workspace.
     pub max_producers: usize,
+    /// Maximum local archive encoding/verification jobs across all producers
+    /// on this node (1..=4). Foreground recovery and command executors retain
+    /// their separate admission. Object-store network windows are unchanged.
+    pub max_blocking_jobs: usize,
     /// New callbacks reserve their maximum image/envelope size, reduced to the
     /// verified physical size after preparation. Temporary reservation pressure
     /// waits within request admission bounds; retained log/image backlog that
@@ -48,6 +145,7 @@ impl Default for RaftArchiveOptions {
             retry_ms: 100,
             publication_stale_ms: 5000,
             max_producers: 2,
+            max_blocking_jobs: 1,
             max_unarchived_bytes: 256 * 1024 * 1024,
             max_unarchived_entries: 4096,
         }
@@ -60,6 +158,10 @@ impl RaftArchiveOptions {
         anyhow::ensure!(
             (1..=4).contains(&self.max_producers),
             "invalid archive producer limit"
+        );
+        anyhow::ensure!(
+            (1..=4).contains(&self.max_blocking_jobs),
+            "invalid archive physical job limit"
         );
         anyhow::ensure!(
             (1..=super::archive::bundle::MAX_GROUPS).contains(&self.max_batch_groups)
@@ -84,6 +186,7 @@ pub(super) fn publication_owner(identity: NodeIdentity) -> [u8; 32] {
 
 pub(crate) struct Owner {
     pub verifier: ArchiveVerifier,
+    pub physical: PhysicalBudget,
     pub cancellation: tokio::sync::watch::Sender<bool>,
     /// A slot covers capture, object I/O, physical verification and completion.
     /// The same cell cannot publish twice concurrently, even after SQL is idle.
@@ -133,6 +236,7 @@ pub(crate) async fn publish(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
     prepared: super::snapshot::prepared::Cache,
+    physical: PhysicalBudget,
 ) -> Vec<Completed> {
     let expected: Vec<_> = captured
         .iter()
@@ -144,7 +248,7 @@ pub(crate) async fn publish(
     // so none of those synchronous closes can occupy the driver's poll stack.
     // The driver joins the worker before releasing its producer slot.
     let producer = crate::asyncrt::try_blocking(move || {
-        crate::asyncrt::block_on(publish_owned(captured, verifier, prepared))
+        crate::asyncrt::block_on(publish_owned(captured, verifier, prepared, physical))
     });
     let result = match producer {
         Ok(producer) => producer.await.map_err(|error| {
@@ -172,6 +276,7 @@ async fn publish_owned(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
     prepared: super::snapshot::prepared::Cache,
+    physical: PhysicalBudget,
 ) -> Vec<Completed> {
     let mut identities = Vec::with_capacity(captured.len());
     let mut reservations = Vec::with_capacity(captured.len());
@@ -180,7 +285,10 @@ async fn publish_owned(
         .map(|capture| {
             identities.push((capture.scope, capture.cut.position()));
             reservations.push(capture.reservation);
-            (capture.archive, capture.cut)
+            (
+                capture.archive.with_publication_budget(&physical),
+                capture.cut,
+            )
         })
         .collect();
     let result = CellArchive::publish_batch(inputs, &verifier).await;
@@ -245,7 +353,15 @@ impl Owner {
         mut apply: cellar_ltx::apply::ApplyLimits,
         accounting: cellar_ltx::generation::GenerationAccounting,
         snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
+        scheduling: PhysicalOptions,
     ) -> anyhow::Result<Self> {
+        let (cancellation, _) = watch::channel(false);
+        let physical = PhysicalBudget::new(
+            scheduling.max_jobs,
+            cancellation.subscribe(),
+            scheduling.performance,
+        )?;
+        let host = physical.host(host);
         let filesystem = host.filesystem();
         let verifier = host
             .run_blocking(move || {
@@ -271,9 +387,9 @@ impl Owner {
                 ArchiveVerifier::new(images, nonce)
             })
             .await??;
-        let (cancellation, _) = tokio::sync::watch::channel(false);
         Ok(Self {
             verifier,
+            physical,
             cancellation,
             inflight: BTreeSet::new(),
             cursor: None,
@@ -285,145 +401,5 @@ impl Owner {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{next_scope, RaftArchiveOptions};
-    use cellar_logic::consensus::{ClusterId, GroupId, GroupScope, IncarnationId, NamespaceId};
-    use std::collections::BTreeMap;
-
-    fn scope(index: u16) -> GroupScope {
-        GroupScope {
-            cluster: ClusterId::new([1; 16]).unwrap(),
-            namespace: NamespaceId::new([2; 16]).unwrap(),
-            cell: format!("Counter:{index:04}"),
-            group: GroupId::new([3; 16]).unwrap(),
-            incarnation: IncarnationId::new([4; 16]).unwrap(),
-        }
-    }
-
-    #[test]
-    fn archive_selection_does_not_inspect_cells_before_the_cursor() {
-        let cells = (0..1500)
-            .map(|i| (scope(i), ()))
-            .collect::<BTreeMap<_, _>>();
-        let cursor = scope(1200);
-        let mut inspected = Vec::new();
-        let selected = next_scope(&cells, Some(&cursor), |key, _| {
-            inspected.push(key.clone());
-            true
-        });
-        assert_eq!(selected, Some(&scope(1201)));
-        assert_eq!(
-            inspected.len(),
-            1,
-            "eligibility scanned the preceding cells"
-        );
-        assert_eq!(inspected, vec![scope(1201)]);
-    }
-
-    #[test]
-    fn archive_selection_wraps_once_and_preserves_cyclic_eligibility() {
-        let cells = (0..6).map(|i| (scope(i), ())).collect::<BTreeMap<_, _>>();
-        for cursor in [
-            None,
-            Some(scope(0)),
-            Some(scope(3)),
-            Some(scope(5)),
-            Some(scope(9)),
-        ] {
-            for mask in 0..64 {
-                let expected = cells
-                    .keys()
-                    .filter(|key| cursor.as_ref().is_none_or(|cursor| *key > cursor))
-                    .chain(
-                        cells
-                            .keys()
-                            .filter(|key| cursor.as_ref().is_some_and(|cursor| *key <= cursor)),
-                    )
-                    .find(|key| {
-                        let index: u16 = key.cell[8..].parse().unwrap();
-                        mask & (1 << index) != 0
-                    });
-                let mut inspected = Vec::new();
-                let selected = next_scope(&cells, cursor.as_ref(), |key, _| {
-                    inspected.push(key.clone());
-                    let index: u16 = key.cell[8..].parse().unwrap();
-                    mask & (1 << index) != 0
-                });
-                assert_eq!(selected, expected);
-                let mut unique = inspected.clone();
-                unique.sort();
-                unique.dedup();
-                assert_eq!(inspected.len(), unique.len(), "a cell was inspected twice");
-            }
-        }
-        assert!(next_scope::<()>(&BTreeMap::new(), None, |_, _| panic!("empty map")).is_none());
-    }
-
-    #[test]
-    fn archive_producers_require_a_bounded_nonempty_window() {
-        for max_producers in [0, 5, usize::MAX] {
-            assert!(RaftArchiveOptions {
-                max_producers,
-                ..Default::default()
-            }
-            .validate()
-            .is_err());
-        }
-        for max_producers in 1..=4 {
-            assert!(RaftArchiveOptions {
-                max_producers,
-                ..Default::default()
-            }
-            .validate()
-            .is_ok());
-        }
-    }
-
-    #[test]
-    fn publication_scheduling_grace_is_bounded() {
-        for publication_stale_ms in [0, 99, 60_001, u64::MAX] {
-            assert!(RaftArchiveOptions {
-                publication_stale_ms,
-                ..Default::default()
-            }
-            .validate()
-            .is_err());
-        }
-        for publication_stale_ms in [100, 5000, 60_000] {
-            assert!(RaftArchiveOptions {
-                publication_stale_ms,
-                ..Default::default()
-            }
-            .validate()
-            .is_ok());
-        }
-    }
-
-    #[test]
-    fn publication_owner_distinguishes_node_disk_and_process() {
-        use cellar_logic::consensus::{DiskLineage, NodeId, NodeIdentity, ProcessGeneration};
-        let identity = NodeIdentity {
-            node: NodeId::new([1; 16]).unwrap(),
-            disk: DiskLineage::new([2; 16]).unwrap(),
-            process: ProcessGeneration::new([3; 16]).unwrap(),
-        };
-        let owner = super::publication_owner(identity);
-        assert_ne!(owner, [0; 32]);
-        for changed in [
-            NodeIdentity {
-                node: NodeId::new([4; 16]).unwrap(),
-                ..identity
-            },
-            NodeIdentity {
-                disk: DiskLineage::new([4; 16]).unwrap(),
-                ..identity
-            },
-            NodeIdentity {
-                process: ProcessGeneration::new([4; 16]).unwrap(),
-                ..identity
-            },
-        ] {
-            assert_ne!(owner, super::publication_owner(changed));
-        }
-    }
-}
+#[path = "host_archive_tests.rs"]
+mod tests;

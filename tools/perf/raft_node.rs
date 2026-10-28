@@ -117,6 +117,13 @@ async fn main() -> Result<()> {
         (1..=4).contains(&archive_producers),
         "invalid archive producer limit"
     );
+    let archive_blocking_jobs: usize = std::env::var("RAFT_ARCHIVE_BLOCKING_JOBS")
+        .unwrap_or_else(|_| RaftArchiveOptions::default().max_blocking_jobs.to_string())
+        .parse()?;
+    ensure!(
+        (1..=4).contains(&archive_blocking_jobs),
+        "invalid archive physical job limit"
+    );
     let archive_batch_groups: usize = std::env::var("RAFT_ARCHIVE_BATCH_GROUPS")
         .unwrap_or_else(|_| RaftArchiveOptions::default().max_batch_groups.to_string())
         .parse()?;
@@ -356,6 +363,7 @@ async fn main() -> Result<()> {
     };
     host.close_report.max_groups = local_count;
     host.archive.max_producers = archive_producers;
+    host.archive.max_blocking_jobs = archive_blocking_jobs;
     host.archive.max_batch_groups = archive_batch_groups;
     host.archive.max_unarchived_bytes = archive_max_unarchived_bytes;
     let service = node
@@ -446,6 +454,7 @@ async fn main() -> Result<()> {
                 let mut usage = serde_json::json!(service.resource_usage());
                 usage["archive_max_unarchived_bytes"] = archive_max_unarchived_bytes.into();
                 usage["archive_batch_groups"] = archive_batch_groups.into();
+                usage["archive_blocking_jobs"] = archive_blocking_jobs.into();
                 (axum::http::StatusCode::OK, usage.to_string())
             }
         }),
@@ -558,12 +567,13 @@ async fn main() -> Result<()> {
         }));
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await?;
     cellar::note!(
-        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} sql_workers={} sql_worker_queue={} durability={:?} archive=rustfs",
+        "raft_perf_ready node={} groups={} tick_ms={} queue_items={} archive_producers={} archive_blocking_jobs={} sql_workers={} sql_worker_queue={} durability={:?} archive=rustfs",
         i,
         local_count,
         tick_ms,
         queue_items,
         archive_producers,
+        archive_blocking_jobs,
         sql_workers,
         sql_worker_queue,
         durability
