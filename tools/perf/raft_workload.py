@@ -5,6 +5,7 @@
 The scheduler keeps the original arrival schedule under load. No mutation is
 retried. An ambiguous cell is quarantined; it cannot receive a new sequence.
 """
+import base64
 import concurrent.futures
 import hashlib
 import itertools
@@ -40,6 +41,13 @@ def input_digest(value):
 
 def arrival_count(seconds, rate):
     return math.ceil(seconds * rate)
+
+
+def payload_for(profile, phase, index, size):
+    if profile.get('payload_pattern', 'repeated') == 'repeated':
+        return 'x' * size
+    seed = f"{profile['seed']}:{phase}:{index}:payload".encode()
+    return base64.b64encode(hashlib.shake_256(seed).digest(size)).decode()[:size]
 
 
 def model(state, operation):
@@ -143,7 +151,7 @@ def run_load(profile, phase, seconds, state, ledger, send, run_id, *, clock=time
             # slow response must not change later RNG draws and workload skew.
             change = None
             if operation == 'command':
-                payload = 'x' * rng.choice(profile['write_bytes'])
+                payload = payload_for(profile, phase, index, rng.choice(profile['write_bytes']))
                 change = {'kind': rng.choice(['transfer', 'set']),
                           'value': rng.randint(0, 1000000), 'payload': payload}
             item = {'phase': phase, 'id': f'{phase}:{index}', 'cell': cell,

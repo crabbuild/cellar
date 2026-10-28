@@ -453,6 +453,8 @@ impl ReplicaLog {
             .await
     }
 
+    /// Reclaim obsolete shared engine files, retaining every group's live log,
+    /// votes and checkpoint. This does not authorize logical compaction.
     pub async fn purge(&self) -> Result<(), LogError> {
         self.request(1024, Work::Purge).await
     }
@@ -533,6 +535,7 @@ struct Worker {
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
     cache_usage: Arc<AtomicUsize>,
+    purge_pending: bool,
 }
 
 struct StorageFiles {
@@ -664,6 +667,8 @@ impl Worker {
             closed,
             cache_bytes: 0,
             cache_usage,
+            // A previous process may have synced compaction without purging.
+            purge_pending: true,
         };
         worker.recover()?;
         worker
@@ -827,6 +832,7 @@ impl Worker {
             .map_err(engine_error)?;
         self.engine.write(batch, true).map_err(engine_error)?;
         self.root = root;
+        self.purge_pending = true;
         Ok(sequence)
     }
 
@@ -1040,6 +1046,22 @@ impl Worker {
         })
     }
 
+    fn purge(&mut self) -> Result<(), LogError> {
+        let timer = self.performance.timer(Measured::EnginePurge);
+        let result = (|| {
+            // Engine rewriting preserves live entries for every group. Returned
+            // candidates are hints, never authority to compact unapplied history.
+            let candidates = self.engine.purge_expired_files().map_err(engine_error)?;
+            self.fence(&mut LogBatch::default())?;
+            // Revisit cold groups the engine could not yet rewrite. Otherwise
+            // an idle engine does no further periodic I/O until another write.
+            self.purge_pending = !candidates.is_empty();
+            Ok(())
+        })();
+        timer.finish(result.is_ok());
+        result
+    }
+
     fn run(
         &mut self,
         receiver: mpsc::Receiver<Request>,
@@ -1047,12 +1069,28 @@ impl Worker {
         abort: &AtomicBool,
         closing: &AtomicBool,
     ) -> Result<(), LogError> {
+        let mut purge_at = domain
+            .mono_ms()
+            .map_err(|_| LogError::Closed)?
+            .saturating_add(self.options.purge_interval_ms.unwrap_or(0));
         loop {
             if abort.load(Ordering::Acquire)
                 || self.closed.load(Ordering::Acquire)
                 || domain.mono_ms().is_err()
             {
                 return Err(LogError::Closed);
+            }
+            if !closing.load(Ordering::Acquire) && self.purge_pending {
+                if let Some(interval) = self.options.purge_interval_ms {
+                    let now = domain.mono_ms().map_err(|_| LogError::Closed)?;
+                    if now >= purge_at {
+                        self.purge()?;
+                        purge_at = domain
+                            .mono_ms()
+                            .map_err(|_| LogError::Closed)?
+                            .saturating_add(interval);
+                    }
+                }
             }
             let request = match receiver.recv_timeout(Duration::from_millis(10)) {
                 Ok(request) => request,
@@ -1103,11 +1141,11 @@ impl Worker {
                     fatal
                 }
                 Work::Purge(reply) => {
-                    let result = self
-                        .engine
-                        .purge_expired_files()
-                        .map_err(engine_error)
-                        .and_then(|_| self.fence(&mut LogBatch::default()).map(|_| ()));
+                    let result = self.purge();
+                    purge_at = domain
+                        .mono_ms()
+                        .map_err(|_| LogError::Closed)?
+                        .saturating_add(self.options.purge_interval_ms.unwrap_or(0));
                     let fatal = result.as_ref().err().cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);
