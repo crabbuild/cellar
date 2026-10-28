@@ -5,6 +5,9 @@
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.
 MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [zero-quorum disaster protocol](disaster-recovery.md) documents the S3 operator
+API, required infrastructure fencing authority and destructive RustFS fixture.
+
 The [TiKV performance comparison](tikv-performance.md) records the current
 batching and storage investigation, its regression evidence and remaining
 end-to-end qualification.

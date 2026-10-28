@@ -737,4 +737,5 @@ fn seal_image(
 
 #[path = "snapshot_seed.rs"]
 mod seed;
+pub(crate) use seed::DisasterSeed;
 pub(crate) use seed::{PreparedSeed, SeedDownload};

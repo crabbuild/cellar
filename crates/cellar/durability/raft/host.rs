@@ -617,6 +617,49 @@ async fn initialize(
             );
             let permit = match placement {
                 RaftCellPlacement::Replica => {
+                    if let Some(permit) =
+                        namespace.disaster_seed_permit(&birth, &service.log).await?
+                    {
+                        anyhow::ensure!(
+                            options.enable_snapshots,
+                            "disaster recovery requires snapshots"
+                        );
+                        let (source, reference) = birth
+                            .disaster_source()
+                            .ok_or_else(|| anyhow::anyhow!("missing disaster source"))?;
+                        let archive = namespace
+                            .cell_archive(source, storage.host.clone(), options.archive.limits)?
+                            .with_scratch_directory(service.log.limits().directory.clone())
+                            .with_snapshot_scratch(service.log.snapshot_scratch());
+                        let bytes = archive.read_memory_bound();
+                        let reservation = service.transport.reserve_disaster_seed(bytes)?;
+                        let set = archive
+                            .with_read_retention(reservation.clone())
+                            .recovery_set_at(reference)
+                            .await?;
+                        let output = pool
+                            .call(
+                                worker,
+                                scope.clone(),
+                                Action::SealDisasterSeed {
+                                    received: Box::new(super::snapshot::DisasterSeed {
+                                        permit,
+                                        set,
+                                        schema: class.schema_digest(),
+                                        limits: snapshot_limits,
+                                        reservation,
+                                    }),
+                                    storage: storage.clone(),
+                                },
+                                None,
+                                None,
+                            )
+                            .await?;
+                        let Value::Seeded(seed) = output.value else {
+                            anyhow::bail!("disaster SQL seed response")
+                        };
+                        service.log.create_seeded(*seed).await?;
+                    }
                     namespace.bootstrap_member(&birth, &service.log).await?
                 }
                 RaftCellPlacement::Joining {

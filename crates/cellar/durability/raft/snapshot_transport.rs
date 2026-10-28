@@ -128,6 +128,22 @@ struct Chunk {
 }
 
 impl RaftTransport {
+    pub(crate) fn reserve_disaster_seed(
+        &self,
+        bytes: usize,
+    ) -> Result<std::sync::Arc<crate::raft::budget::Permit>, TransportError> {
+        let state = &self.handle.0;
+        if bytes > state.options.max_seed_recovery_bytes {
+            return Err(TransportError::Limit);
+        }
+        Ok(std::sync::Arc::new(
+            state
+                .snapshot_receive_budget
+                .acquire(bytes + memory_bound(&state.options))
+                .ok_or(TransportError::Overloaded)?,
+        ))
+    }
+
     pub(crate) fn snapshot_limits(
         &self,
         image_bytes: u64,

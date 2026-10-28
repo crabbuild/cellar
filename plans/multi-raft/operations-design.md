@@ -438,9 +438,11 @@ this public builder and the actual daemon argument parser. Its temporary local
 catalog and development keys are qualification fixtures, not deployment defaults.
 It does not qualify physical S3, deployment fencing, scale or live upgrades.
 
-New-incarnation disaster restore remains a separate unfinished MR-13 protocol.
-No force-new-group command exists here. Restore must bind an exact selected
-archive recovery point, verifiable old-deployment fencing and a distinct new
-history. Pending old-origin outbox identities require explicit reconciliation;
-they cannot be rewritten and redispatched as if they were new effects. A caller
-boolean or object-store flag alone cannot fence an old live quorum.
+The [new-incarnation disaster protocol](disaster-recovery.md) exposes an explicit
+S3 operator API and infrastructure fencing-authority contract. A verified
+permanent fence and exact archive reference select a new birth; fresh voters
+replay the image and committed LTX tail before attaching. Pending old-origin
+outbox rows refuse admission; reconciliation remains a separate unfinished
+operation. A caller boolean or object-store flag cannot fence an old live quorum.
+Platform-specific production fencing and fleet-wide consistent restore cuts
+remain outside this component's qualification.

@@ -1082,6 +1082,39 @@ The process fixtures preserve successful conditional in-memory object mutations
 across child exit; they qualify no physical S3 or power-loss behavior.
 
 
+## Zero-quorum disaster recovery
+
+`sdk::consensus::S3DisasterRecovery` opens an existing namespace, observes an
+archive reference for operator review, binds a `DisasterRecoveryRequest`, and
+calls an explicit `DisasterFenceAuthority` before publishing a replacement birth.
+The request preserves the logical cell, namespace and schema while selecting
+fresh group, incarnation and node identities. There is no permissive authority
+implementation or force flag. An S3 intent alone cannot stop a running quorum.
+
+The authority must permanently stop the entire old deployment, including members
+absent from the selected archive, routers and effect workers, and revoke restart
+or replacement-launch capability. Its independently verified evidence binds the
+exact plan digest. Keep this authority outside the voter trust/deployment domain.
+An append-only intent closes old startup; a separately confirmed completion makes
+the new birth discoverable. Conditional writes reconcile exact bytes after lost
+responses. Incompatible retries refuse; completed retries reverify the evidence.
+
+Start the returned birth as ordinary `RaftCellPlacement::Replica` on fresh nodes
+and disks. Before attachment, the host downloads the exact old archive set,
+replays its snapshot/LTX tail on the SQL owner, and installs a materialized
+checkpoint at new index 2, term 1, vote 0 with the new initial configuration.
+The original application image, receipts, client floors and Blob bytes remain
+unchanged. No command callback is replayed. The new quorum elects its own leader;
+old incarnation tokens and stale old-birth startup refuse. Initial-member claims
+are scoped to the new incarnation, and later lost-disk startup still refuses.
+
+Pending old-origin outbox rows refuse admission. This path neither rewrites them
+nor provides an outbox reconciliation command. Ordinary retained-disk restart
+does not download or reseed from the old archive. Quorum acknowledgements beyond
+the selected archive cut can be lost; per-cell cuts do not assert a globally
+consistent fleet snapshot. See the [protocol and qualification](../../../../plans/multi-raft/disaster-recovery.md).
+
+
 ## Committed repair plans
 
 `RaftCellHandle::begin_repair`, `advance_repair` and `repair_status` expose a

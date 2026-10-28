@@ -21,6 +21,10 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 #[path = "node_directory.rs"]
 mod directory;
 pub use directory::{NodePublication, NodeRegistration, NodeView};
+#[path = "catalog_disaster.rs"]
+mod disaster;
+pub(crate) use disaster::DisasterSeedPermit;
+pub use disaster::{DisasterFenceAuthority, DisasterFenceRequest, DisasterRecoveryRequest};
 
 #[derive(Debug)]
 pub enum CatalogError {
@@ -36,6 +40,9 @@ pub enum CatalogError {
     Log(LogError),
     Runtime(super::completion::RuntimeError),
     Version(super::version::VersionError),
+    Fenced,
+    Fence(String),
+    Archive(super::archive::ArchiveError),
 }
 
 impl fmt::Display for CatalogError {
@@ -143,6 +150,7 @@ pub struct GroupBirth {
     digest: [u8; 32],
     root_digest: [u8; 32],
     catalog_owner: Arc<()>,
+    recovery: Option<Arc<disaster::Recovery>>,
 }
 
 impl GroupBirth {
@@ -168,6 +176,7 @@ impl GroupBirth {
 pub struct BootstrapPermit {
     local: GroupLog,
     birth: GroupBirth,
+    namespace: NamespaceCatalog,
 }
 
 impl BootstrapPermit {
@@ -176,6 +185,7 @@ impl BootstrapPermit {
     }
 
     pub async fn attach(&self, runtime: &RaftRuntime) -> Result<(), CatalogError> {
+        self.namespace.require_current(&self.birth).await?;
         let local = runtime
             .log()
             .group(&self.birth.scope)
@@ -415,7 +425,12 @@ impl NamespaceCatalog {
         self.check_members(&proposal.voters, &proposal.learners)?;
         let key = self.birth_key(&proposal.scope.cell);
         if let Some(bytes) = self.inner.read(&key).await? {
-            return self.decode_birth(&proposal.scope.cell, &bytes).await;
+            let birth = self.decode_birth(&proposal.scope.cell, &bytes).await?;
+            let birth = self.follow_recovery(birth).await?;
+            if birth.recovery.is_some() && birth.scope != proposal.scope {
+                return Err(CatalogError::Fenced);
+            }
+            return Ok(birth);
         }
         let reservation = wire::Reservation {
             root_digest: self.root_digest,
@@ -446,7 +461,8 @@ impl NamespaceCatalog {
         };
         let bytes = wire::encode(wire::BIRTH, &birth, self.inner.limit)?;
         let observed = self.inner.create_and_observe(&key, &bytes).await?;
-        self.decode_birth(&proposal.scope.cell, &observed).await
+        let birth = self.decode_birth(&proposal.scope.cell, &observed).await?;
+        self.follow_recovery(birth).await
     }
 
     pub async fn birth(&self, cell: &str) -> Result<Option<GroupBirth>, CatalogError> {
@@ -455,7 +471,10 @@ impl NamespaceCatalog {
             return Err(CatalogError::Invalid("cell identity"));
         }
         match self.inner.read(&self.birth_key(cell)).await? {
-            Some(bytes) => Ok(Some(self.decode_birth(cell, &bytes).await?)),
+            Some(bytes) => {
+                let birth = self.decode_birth(cell, &bytes).await?;
+                Ok(Some(self.follow_recovery(birth).await?))
+            }
             None => Ok(None),
         }
     }
@@ -508,6 +527,7 @@ impl NamespaceCatalog {
             digest: wire::digest(bytes),
             root_digest: self.root_digest,
             catalog_owner: self.inner.owner.clone(),
+            recovery: None,
         })
     }
 
@@ -521,6 +541,7 @@ impl NamespaceCatalog {
     ) -> Result<BootstrapPermit, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
+        self.require_current(birth).await?;
         let selected = birth
             .voters
             .iter()
@@ -546,6 +567,11 @@ impl NamespaceCatalog {
         }
         if remote.is_some() && local.is_none() {
             return Err(CatalogError::LostStableState);
+        }
+        if birth.recovery.is_some() && local.is_none() {
+            return Err(CatalogError::Conflict(
+                "disaster birth requires archived seed",
+            ));
         }
         // This call either durably creates genesis or verifies the existing
         // mapping's exact member, birth digest and initial ConfState.
@@ -583,6 +609,7 @@ impl NamespaceCatalog {
         Ok(BootstrapPermit {
             local,
             birth: birth.clone(),
+            namespace: self.clone(),
         })
     }
 
@@ -596,6 +623,7 @@ impl NamespaceCatalog {
     ) -> Result<Option<BootstrapPermit>, CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.check_birth(birth)?;
+        self.require_current(birth).await?;
         if birth
             .voters
             .iter()
@@ -672,6 +700,7 @@ impl NamespaceCatalog {
         Ok(Some(BootstrapPermit {
             local,
             birth: birth.clone(),
+            namespace: self.clone(),
         }))
     }
 
@@ -779,6 +808,14 @@ impl NamespaceCatalog {
     }
 
     fn claim_key(&self, birth: &GroupBirth, member: MemberId) -> Path {
+        if birth.recovery.is_some() {
+            return Path::from(format!(
+                "{}incarnations/{}/claims/{:016x}",
+                self.cell_key(&birth.scope.cell),
+                hex::encode(birth.scope.incarnation.bytes()),
+                member.get()
+            ));
+        }
         Path::from(format!(
             "{}claims/{:016x}",
             self.cell_key(&birth.scope.cell),

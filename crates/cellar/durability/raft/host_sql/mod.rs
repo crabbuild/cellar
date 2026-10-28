@@ -77,6 +77,10 @@ impl ImageView {
 }
 
 pub(crate) enum Action {
+    SealDisasterSeed {
+        received: Box<super::snapshot::DisasterSeed>,
+        storage: CellStorage,
+    },
     SealArchiveSeed {
         received: Box<super::transport::seeds::ReceivedArchiveSeed>,
         storage: CellStorage,
@@ -633,6 +637,31 @@ impl Pool {
         query_pins: &Arc<Budget>,
         accounting: &cellar_ltx::generation::GenerationAccounting,
     ) -> Result<Value, ExecutionError> {
+        if let Action::SealDisasterSeed { received, storage } = action {
+            if cells.contains_key(scope)
+                || cells.len() >= max
+                || received.scope() != scope
+                || storage.rooted.is_some()
+            {
+                return Err(ExecutionError::Invalid("disaster seed owner"));
+            }
+            let images = GenerationStore::open_with_scratch(
+                storage.directory.join("images"),
+                storage.host.filesystem(),
+                storage.images,
+                Some(accounting),
+                storage.snapshot_scratch,
+            )
+            .map_err(super::execution::storage)?;
+            images.retain_only(&[]).map_err(super::execution::storage)?;
+            images
+                .reclaim(storage.images.max_generations)
+                .map_err(super::execution::storage)?;
+            let seed = received
+                .finish(&images, storage.services)
+                .map_err(super::execution::storage)?;
+            return Ok(Value::Seeded(Box::new(seed)));
+        }
         if let Action::SealArchiveSeed { received, storage } = action {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
@@ -812,7 +841,8 @@ impl Cell {
 
     fn run(&mut self, action: Action, query_pins: &Arc<Budget>) -> Result<Value, ExecutionError> {
         match action {
-            Action::SealArchiveSeed { .. }
+            Action::SealDisasterSeed { .. }
+            | Action::SealArchiveSeed { .. }
             | Action::SealSeed { .. }
             | Action::Initialize { .. } => Err(ExecutionError::Invalid("duplicate initialization")),
             Action::Stage {
