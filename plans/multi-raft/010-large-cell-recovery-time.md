@@ -5,7 +5,7 @@
 Status: proposed implementation strategy; no recovery-time target is qualified.
 Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
 Priority P1; effort L; correctness risk HIGH. RT-01 through RT-03 are in progress;
-RT-04 is in progress; RT-05 and RT-06 remain TODO. Implement them in dependency order and record evidence before
+RT-04 and RT-05 are in progress; RT-06 remains TODO. Implement them in dependency order and record evidence before
 updating their status. This plan does not close the existing MR or R1–R9 gates.
 
 The deliverable is faster, fault-safe native peer and RustFS recovery, through
@@ -170,7 +170,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
 | RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | IN PROGRESS |
 | RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | IN PROGRESS |
-| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
+| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | In progress; private-writer groundwork only |
 | RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
 
 RT-02 and RT-03 need not wait for the entire extent backend. Establish M1 after
@@ -1721,6 +1721,19 @@ documentation and diff checks pass. The release large-image executable has
 SHA-256 `989c384cdee5aa42b48f76afda7be176813474a64ed82c5e1d08cc2489faf6c9`.
 Full-size and hard-failure qualification for this artifact remain separate gates.
 
+The source-bound `2bb3dbfc` extent campaigns subsequently pass both smokes
+(peer 12 MiB: 4.868629 s; RustFS 272 MiB: 8.712589 s) and the actual
+9,999,998,976-byte pair. Peer fault-to-verified-write is 94.956199 s; RustFS is
+92.472175 s. Each full-size run passes nine correctness checks and six phase
+windows. RustFS spends 38.455207 s waiting for archive confirmation and
+50.762878 s installing the seed; its first write takes 0.211575 s. Publication
+confirms 1,366 existing extents and uploads 1,019 missing extents. Phase-associated
+requested PUT payload is 4,270,666,801 bytes, versus about 10.0 GB in the earlier
+pilots; these counters measure API work, not network or device traffic.
+These single shared-host trials retain the existing uncontrolled-cache,
+repeated-payload and joined-domain-loss limitations. The analyzer remains
+unqualified; neither production percentiles nor hard-kill qualification follow.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained
@@ -1756,6 +1769,61 @@ and verify recovery at the same root. Loss of a required remote extent fails
 safely. A read-only or learner-only demonstration does not complete M2.
 For the same hot workload, first-use bytes/RAM stay bounded as total database
 size increases from 256 MiB to 10 GB. Full-scan workloads are reported separately.
+
+### Verified private-writer groundwork
+
+`ExtentWorkspace::from_source` now accepts an authenticated manifest and a source
+that retains its dependencies, without requiring a complete local image seal.
+Both writable constructors use the existing bounded, independently verified
+extent cache and destination-copy checks. Open SQLite handles retain the source
+after workspace retirement, including for an empty base. Observations reuse the
+exact base manifest and actual main/WAL changes; they grant no native authority.
+
+The first runtime check exposed a whole-image read at a TRUNCATE checkpoint:
+ordinary capture deliberately creates a full boundary snapshot. The new
+`Db::require_incremental_capture` policy refuses that fallback before snapshot
+collection after an initial or seeded TXID, returning `CaptureRebuildRequired`.
+Initial bootstrap still permits its bounded snapshot. Native extent writers opt
+in alongside their existing WAL recycling and disabled routine checkpoints.
+The execution host sets its rebuild fence before mutation, so a capture refusal
+cannot settle a command. Durable capture retains its existing behavior.
+
+Validation passes 129 all-feature LTX integration cases and 135 native archive,
+large-image and rooted cases. Clippy then identified two old internal-test type
+references; the fixture was adapted without changing its corruption/root
+assertions. Its five unit cases and all-feature/all-target LTX Clippy pass.
+Validation confirms that only this `cfg(test)` file differs from the integration
+test inputs. Host and qualification Clippy, format/layout over 1,355 Rust files,
+dependency, documentation and diff checks also pass.
+
+The explicit 9,999,998,976-byte writer case passes on input digest
+`e82a2cabf4c98e9af9a115696da68970d63b851a475f49ed0f9ffcdffdf3095f`.
+Three counter/receipt transactions and their duplicates fetch **two extents,
+4,972,544 bytes**, and capture **53,248 decoded LTX bytes**. Cold manifest entries
+remain unchanged, bounded observations survive passive/restart checkpoints, and
+all scratch charges release after close. Smaller fixtures independently replay
+LTX into SQLite, verify integrity/results/receipts, and refuse missing, corrupt
+or interrupted source data. The release test executable has SHA-256
+`ee7a18d8c63b0d47b1b15736bbb2fab6213d43e0ecb1772a7f1805e1ab93b895`.
+
+This is a data-access test using a file-backed source, not remote-retention,
+network, native installation or RTO qualification. It prepares a private copy of
+the retained campaign image, frees only its padding rows to install the workload
+without growing the image, and hashes source extents before measuring writer
+work. Its 25.57-second total includes preparation and is not a recovery latency.
+The original read-only fixture stays unchanged. To reproduce, set
+`CELLAR_REMOTE_WRITER_TEMPLATE` to that campaign fixture and
+`CELLAR_REMOTE_WRITER_WORK` to an admitted private directory, then run:
+
+```sh
+cargo test --locked --release -p cellar-ltx --all-features --test extent_remote_workspace decimal_ten_gb_remote_writer_fetches_only_the_hot_working_set -- --ignored --exact --nocapture --test-threads=1
+```
+
+The test requires space for its source copy, private main and 8 GiB headroom;
+the separate native recovery drill's 48.6 GB admission remains unchanged.
+`RootPublishedImage` and `RootImageApplier` still require complete local seals.
+Persistent remote references, GC fencing, hybrid apply/install proofs, restart
+and activation while hydration is paused remain implementation work for RT-05.
 
 ## RT-06: Harden and qualify the targets
 

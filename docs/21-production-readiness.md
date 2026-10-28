@@ -69,6 +69,13 @@ hot workload; it additionally requires the installed-root and retention work.
 Neither target is a service promise until its reference-profile and failure
 gates pass. Keep full hydration and broad-scan latency separate from activation.
 
+The private writer can now use a retained source without first materializing its
+base. Its 10 GB data-access test fetches two extents (4,972,544 bytes) for three
+counter/receipt transactions and their duplicates. This does not establish a
+durable remote reference or permit native activation: installed-root, GC and
+restart proofs remain open. Native extent writers also refuse unexpected
+whole-image capture fallback and require a rebuild instead.
+
 The ordinary daemon process fixture covers two small counter groups, retained
 disk, an actual killed worker, receipt reconciliation and post-restart writes.
 It does not replace the full-size crash campaign. Enable authenticated

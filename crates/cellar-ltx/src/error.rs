@@ -52,6 +52,11 @@ pub enum Error {
     #[error("transaction not available")]
     TxNotAvailable,
 
+    /// A disposable writer lost incremental capture continuity. Rebuild from
+    /// its independently authoritative image; do not acknowledge this workspace.
+    #[error("disposable capture requires a rebuild: {reason}")]
+    CaptureRebuildRequired { reason: String },
+
     /// Structured LTX error with operation context and recovery hints.
     ///
     /// Corresponds to `LTXError` in litestream.go:40-93.

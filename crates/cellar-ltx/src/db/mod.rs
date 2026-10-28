@@ -298,6 +298,7 @@ struct CaptureOutput {
 pub struct Db {
     host: crate::LtxHost,
     durability: CaptureDurability,
+    incremental_capture_only: bool,
     capture_output: Option<CaptureOutput>,
     path: PathBuf,
     meta_path: PathBuf,
@@ -484,6 +485,23 @@ impl Db {
         Ok(())
     }
 
+    /// Refuse full-image fallback after the initial or seeded capture position.
+    /// A disposable writer must rebuild from its independently authoritative
+    /// image if continuity is lost. The error is returned before snapshot page
+    /// collection, including checkpoint boundary snapshots. SQLite and earlier
+    /// cuts may already have advanced; this does not roll back a command.
+    /// Initial bootstrap at TXID zero retains the ordinary bounded snapshot.
+    /// Durable capture owners retain their existing recovery behavior.
+    pub fn require_incremental_capture(&mut self) -> Result<()> {
+        if self.durability != CaptureDurability::Disposable {
+            return Err(Error::Other(
+                "incremental-only policy requires disposable capture".into(),
+            ));
+        }
+        self.incremental_capture_only = true;
+        Ok(())
+    }
+
     fn open_with_host_and_optional_vfs(
         path: impl AsRef<Path>,
         host: crate::LtxHost,
@@ -578,6 +596,7 @@ impl Db {
         let mut db = Db {
             host,
             durability,
+            incremental_capture_only: false,
             capture_output: None,
             path,
             meta_path,
@@ -1629,6 +1648,11 @@ impl Db {
         }
         let pos = self.pos()?;
         let tx_id = TXID(pos.txid.0 + 1);
+        if self.incremental_capture_only && info.snapshotting && pos.txid != TXID(0) {
+            return Err(Error::CaptureRebuildRequired {
+                reason: info.reason,
+            });
+        }
         let filename = self.ltx_path(0, tx_id, tx_id);
 
         let db_size = self.db_file_size()?;

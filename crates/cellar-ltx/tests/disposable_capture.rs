@@ -12,6 +12,33 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[test]
+fn incremental_only_capture_permits_bootstrap_and_refuses_durable_owners() {
+    let root = tempfile::tempdir().unwrap();
+    let mut durable = Db::open(root.path().join("durable.sqlite")).unwrap();
+    assert!(durable.require_incremental_capture().is_err());
+    durable.close().unwrap();
+    let path = root.path().join("private.sqlite");
+    let mut db = Db::open_disposable_with_host(&path, Default::default(), None).unwrap();
+    db.require_incremental_capture().unwrap();
+    db.min_checkpoint_page_n = u32::MAX;
+    db.truncate_page_n = 0;
+    db.checkpoint_interval = std::time::Duration::ZERO;
+    let writer = rusqlite::Connection::open(&path).unwrap();
+    writer
+        .execute_batch("CREATE TABLE counter(value); INSERT INTO counter VALUES(7)")
+        .unwrap();
+    let bootstrap = db.capture_with_files(8, 1024 * 1024).unwrap();
+    assert_eq!(bootstrap.len(), 1);
+    assert_eq!(bootstrap[0].txid, TXID(1));
+    writer.execute("UPDATE counter SET value=8", []).unwrap();
+    let update = db.capture_with_files(8, 1024 * 1024).unwrap();
+    assert_eq!(update.len(), 1);
+    assert_eq!(update[0].txid, TXID(2));
+    drop(writer);
+    db.close().unwrap();
+}
+
+#[test]
 fn capture_decoded_budget_rejects_compressible_growth_before_page_collection() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("bounded.sqlite");
