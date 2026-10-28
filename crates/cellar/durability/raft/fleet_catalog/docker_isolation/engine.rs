@@ -2,11 +2,20 @@
 
 use super::*;
 use records::Terminal;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 pub(super) struct Engine {
     docker: Docker,
     owner: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct MemorySample {
+    pub read: String,
+    pub used: u64,
+    pub limit: u64,
 }
 
 impl Engine {
@@ -104,6 +113,73 @@ impl Engine {
         if binding.owner != self.owner
             || v["State"]["StartedAt"] != binding.started
             || v["RestartCount"].as_u64() != Some(binding.restarts)
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(())
+    }
+
+    /// Keep cache charged. CLI-style cache subtraction is not an admission
+    /// bound. Both inspections must match the same live, single-use boot.
+    pub async fn memory(
+        &self,
+        binding: &Binding,
+        capacity: &FleetCapacityAttestation,
+    ) -> Result<MemorySample> {
+        if binding.boot != capacity.boot || self.identity().await? != binding.engine {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let before = self.inspect(&binding.boot, &binding.container).await?;
+        self.check_resources(binding, capacity, &before)?;
+        let stats = self
+            .call(
+                "GET",
+                &format!(
+                    "/containers/{}/stats?stream=false&one-shot=true",
+                    binding.container
+                ),
+                None,
+                200,
+            )
+            .await?;
+        let sample = MemorySample {
+            read: string(&stats["read"])?.into(),
+            used: stats["memory_stats"]["usage"]
+                .as_u64()
+                .ok_or(FleetCatalogError::Unconfirmed)?,
+            limit: stats["memory_stats"]["limit"]
+                .as_u64()
+                .ok_or(FleetCatalogError::Unconfirmed)?,
+        };
+        if stats["id"] != binding.container
+            || !records::timestamp(&sample.read)
+            || sample.limit != capacity.memory_bytes
+            || sample.used > sample.limit
+        {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let after = self.inspect(&binding.boot, &binding.container).await?;
+        self.check_resources(binding, capacity, &after)?;
+        Ok(sample)
+    }
+
+    fn check_resources(
+        &self,
+        binding: &Binding,
+        capacity: &FleetCapacityAttestation,
+        v: &Value,
+    ) -> Result<()> {
+        self.check_start(binding, v)?;
+        let config = &v["HostConfig"];
+        if !restart_disabled(v)
+            || v["State"]["Running"] != true
+            || v["State"]["Paused"] != false
+            || v["State"]["Restarting"] != false
+            || v["State"]["Dead"] != false
+            || config["NanoCpus"].as_u64() != Some(u64::from(capacity.cpu_millis) * 1_000_000)
+            || config["Memory"].as_u64() != Some(capacity.memory_bytes)
+            || config["MemorySwap"].as_u64() != Some(capacity.memory_bytes)
+            || !capacity.memory_swap_disabled
         {
             return Err(FleetCatalogError::Conflict);
         }

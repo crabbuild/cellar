@@ -16,6 +16,9 @@ const ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
 #[path = "docker_isolation_engine_tests.rs"]
 mod real_engine;
 
+#[path = "docker_resources_tests.rs"]
+mod resources_tests;
+
 const START: &str = "2026-10-28T00:00:00.000000001Z";
 const FINISH: &str = "2026-10-28T00:01:00.000000001Z";
 const WAIT: Duration = Duration::from_secs(3);
@@ -119,6 +122,8 @@ impl Fixture {
 
 struct State {
     inspect: Value,
+    stats: Value,
+    restart_during_stats: bool,
     engine: String,
     missing: bool,
     lose_update: bool,
@@ -144,9 +149,11 @@ impl Server {
         let state = Arc::new(SyncMutex::new(State {
             inspect: json!({"Id":ID,"RestartCount":0,
                 "Config":{"Labels":{"io.cellar.fleet.owner":"fixture","io.cellar.fleet.catalog":hex::encode(boot.catalog),"io.cellar.fleet.node":hex::encode(boot.node),"io.cellar.fleet.boot-mode":"single-use","io.cellar.fleet.workers":"contained"},"Env":["SECRET=must-not-escape"]},
-                "HostConfig":{"AutoRemove":false,"Privileged":false,"PidMode":"","RestartPolicy":{"Name":"no","MaximumRetryCount":0}},
+                "HostConfig":{"AutoRemove":false,"Privileged":false,"PidMode":"","RestartPolicy":{"Name":"no","MaximumRetryCount":0},"NanoCpus":1_000_000_000u64,"Memory":3u64*1024*1024*1024,"MemorySwap":3u64*1024*1024*1024},
                 "State":{"Running":true,"Restarting":false,"Paused":false,"Dead":false,"Status":"running","Pid":123,"StartedAt":START,"FinishedAt":"0001-01-01T00:00:00Z","ExitCode":0}}),
             engine: "engine-original".into(),
+            stats: json!({"id":ID,"read":FINISH,"memory_stats":{"usage":128u64*1024*1024,"limit":3u64*1024*1024*1024,"stats":{"cache":64u64*1024*1024}}}),
+            restart_during_stats: false,
             missing: false,
             lose_update: false,
             lose_kill: false,
@@ -181,6 +188,13 @@ impl Server {
                             false,
                             state.oversized,
                         )
+                    } else if head
+                        == format!("GET /containers/{ID}/stats?stream=false&one-shot=true")
+                    {
+                        if state.restart_during_stats {
+                            state.inspect["RestartCount"] = json!(1);
+                        }
+                        (200, state.stats.clone(), false, false, false)
                     } else if head == format!("POST /containers/{ID}/update") {
                         ensure!(
                             body == json!({"RestartPolicy":{"Name":"no","MaximumRetryCount":0}})

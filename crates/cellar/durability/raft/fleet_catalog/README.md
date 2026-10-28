@@ -1477,6 +1477,18 @@ and independently inspects terminal state before storing evidence. Missing or
 changed containers do not prove isolation. Neither containers nor volumes are
 deleted. See the [operator workflow](../../../../../plans/multi-raft/fleet-operations/operator-workflows.md#docker-isolation-adapter)
 for required labels, provisioning constraints and qualification limits.
+`FleetDockerResources` implements both recovery evidence callbacks using the
+same bound containers. It joins current rooted capacity, authenticated node
+occupancy and a single Engine memory sample under a five-second ceiling. It
+checks the exact CPU/memory/swap limits and live boot before and after sampling,
+charges memory cache, and retains a digest-addressed evidence object. Missing
+measurements or a changed boot/profile refuse admission. Construction requires
+`FleetDockerResourcePolicy`: explicit non-group disk overhead, resident and peak
+copy/seed/worker bounds, and headroom. Those disk bounds must be enforced by the
+deployment; they are not inferred from Engine block-I/O counters or a filesystem
+scan. This homogeneous-policy provider covers Ready/Active recovery targets;
+departure/return settlement still needs its own retained evidence. Complete
+deployment wiring and resource-limit qualification remain separate gates.
 `FleetFailureRecoveryOptions` supplies detection bounds plus an explicit LTX host,
 archive verifier and archive limits. The embedding runtime owns the verifier's
 private scratch store and disk/memory admission, including extent storage when
@@ -1534,8 +1546,8 @@ VerifyingRemoval and Removed, with checked/total history counts and the confirme
 terminal revision. Only Removed follows an accepted terminal receipt. Status
 grants no current health lease; observation timestamps remain local.
 
-This provides the SDK handoff, not a production Docker/Colima isolation driver.
-Simultaneous-failure policy, management integration and deployed fleet
+The SDK handoff includes the opt-in Docker/Colima isolation adapter described
+above. Simultaneous-failure policy, deployment startup integration and deployed fleet
 qualification remain required. The complete final survivor renewal still shares
 the original turn deadline; large-fleet convergence remains to be qualified. Probe fairness under sustained
 due work or repeatedly expired turns still needs qualification; the grace is not

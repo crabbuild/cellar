@@ -1,5 +1,40 @@
 # Fleet operations implementation progress
 
+## Docker recovery resource inputs
+
+`FleetDockerResources` implements movement and isolated-repair evidence for bound
+Ready/Active Docker nodes. It checks fresh rooted capacity and authenticated
+native occupancy, validates live container limits around an Engine memory sample,
+charges cache, and retains digest-addressed evidence. Disk overhead and
+resident/peak work remain explicit conservative deployment bounds; the embedding
+runtime must enforce them. Missing or changed measurements refuse the attempt.
+The provider does not activate nodes or supply departure/return settlement proof.
+
+**982 distinct selected tests pass**: eight adapter cases, two real Engine cases,
+one native binding/provider-interface case, seven recovery, two detection, three
+movement-service, nine isolated-repair, four topology-service, twelve evacuation,
+two maintenance settlement, two isolation, three removal, thirteen catalog and
+914 other host library tests. Host/admin/logic all-target Clippy, formatting,
+layout, native dependencies, documentation and ten plan tests pass. The audit
+binds 1,791 Rust/Cargo/config inputs and retained executable/result hashes; the
+source commit is recorded in the delivery baseline. The acceptance inventory
+contains 486 required cases; validation does not certify all planned scenarios.
+Evidence remains outside runtime data in `docker-resources-v2`.
+
+The first verification correctly rejected a 3,221,225,472-byte configured memory
+limit on a VM exposing only 2,053,578,752 bytes. The original real Engine case
+preserves this refusal and its 3-GiB isolation/retention checks. A separate 256-MiB
+container verifies positive live memory sampling and the same retention contract.
+Both pass; no production guard or native deadline was relaxed. The failed probe
+and measured effective limits remain retained in `docker-resources-v1`.
+
+Next: runnable managed deployment startup in the order Ready, container binding,
+Active, recovery service; then the complete five-node RustFS extent-backed
+recovery/removal flow under foreground writes. Departure/return evidence,
+simultaneous-failure and rolling/grace policy, workload-aware leadership,
+desired capacity/resize, full CI and resource/TPS/p99/soak qualification remain
+open. This milestone does not complete FO-06 or the full fleet goal.
+
 ## Docker isolation adapter
 
 The `FleetDockerIsolation` provider binds an enrolled boot to a

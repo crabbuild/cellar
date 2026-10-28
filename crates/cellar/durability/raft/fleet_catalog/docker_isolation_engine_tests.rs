@@ -9,6 +9,17 @@ use rand::RngCore;
 #[ignore = "requires explicit owned Docker Engine harness"]
 async fn docker_isolation_real_engine_stops_paused_container_and_retains_data() -> anyhow::Result<()>
 {
+    run_engine_case(3 * 1024 * 1024 * 1024).await
+}
+
+#[tokio::test]
+#[ignore = "requires explicit owned Docker Engine harness"]
+async fn docker_isolation_real_engine_samples_available_memory_and_retains_data(
+) -> anyhow::Result<()> {
+    run_engine_case(256 * 1024 * 1024).await
+}
+
+async fn run_engine_case(memory_bytes: u64) -> anyhow::Result<()> {
     let socket =
         std::env::var("CELLAR_FLEET_DOCKER_TEST_SOCKET").context("explicit test Engine socket")?;
     let image = std::env::var("CELLAR_FLEET_DOCKER_TEST_IMAGE")
@@ -33,7 +44,7 @@ async fn docker_isolation_real_engine_stops_paused_container_and_retains_data() 
         "Image":image,"Cmd":["sh","-c",format!("echo {marker} > /data/marker; exec sleep 3600")],
         "Volumes":{"/data":{}},
         "Labels":{"io.cellar.fleet.owner":"fixture","io.cellar.fleet.catalog":hex::encode(f.boot.catalog),"io.cellar.fleet.node":hex::encode(f.boot.node),"io.cellar.fleet.boot-mode":"single-use","io.cellar.fleet.workers":"contained"},
-        "HostConfig":{"NetworkMode":"none","AutoRemove":false,"Privileged":false,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},"NanoCpus":1_000_000_000u64,"Memory":3u64*1024*1024*1024,"MemorySwap":3u64*1024*1024*1024}
+        "HostConfig":{"NetworkMode":"none","AutoRemove":false,"Privileged":false,"RestartPolicy":{"Name":"no","MaximumRetryCount":0},"NanoCpus":1_000_000_000u64,"Memory":memory_bytes,"MemorySwap":memory_bytes}
     })),"create owned isolation test container"))).await???;
     let id = ContainerId::new(
         created.json()?["Id"]
@@ -78,6 +89,26 @@ async fn docker_isolation_real_engine_stops_paused_container_and_retains_data() 
                 FleetDockerIsolation::new(f.catalog.clone(), docker.clone(), "fixture", vec![])?;
             let binding = adapter.inner.engine.bind(&f.boot, &id).await?;
             adapter.inner.persist_binding(&binding).await?;
+            let available = docker
+                .expect("GET", "/info", None, "read Engine capacity")
+                .await?
+                .json()?["MemTotal"]
+                .as_u64()
+                .context("Engine physical memory")?;
+            let mut capacity = resources_tests::capacity(&f.boot);
+            ensure!(available >= 256 * 1024 * 1024, "test Engine memory floor");
+            capacity.memory_bytes = memory_bytes;
+            let memory = adapter.inner.engine.memory(&binding, &capacity).await;
+            if available < memory_bytes {
+                // Docker caps the reported cgroup limit at host memory. A
+                // configured 3-GiB container in a 2-GiB VM is not that capacity.
+                ensure!(matches!(memory, Err(FleetCatalogError::Conflict)));
+            } else {
+                let memory = memory?;
+                ensure!(
+                    memory.used > 0 && memory.used <= memory.limit && memory.limit == memory_bytes
+                );
+            }
             docker
                 .expect(
                     "POST",
@@ -110,7 +141,7 @@ async fn docker_isolation_real_engine_stops_paused_container_and_retains_data() 
             ensure!(retained["HostConfig"]["RestartPolicy"]["Name"] == "no");
             ensure!(
                 retained["HostConfig"]["NanoCpus"] == 1_000_000_000u64
-                    && retained["HostConfig"]["Memory"] == 3u64 * 1024 * 1024 * 1024
+                    && retained["HostConfig"]["Memory"] == memory_bytes
             );
             ensure!(retained["Mounts"]
                 .as_array()

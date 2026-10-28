@@ -12,8 +12,10 @@ use std::pin::Pin;
 
 mod engine;
 mod records;
+mod resources;
 use engine::Engine;
 use records::{Binding, Intent, Receipt};
+pub use resources::{FleetDockerResourcePolicy, FleetDockerResources};
 
 #[cfg(test)]
 #[path = "../docker_isolation_tests.rs"]
@@ -117,24 +119,8 @@ impl FleetDockerIsolation {
         operation: ProposalId,
         boot: &BootBinding,
     ) -> Result<FleetIsolationAttestation> {
-        let key = Binding::key_for_boot(boot)?;
-        let binding: Binding = self
-            .inner
-            .read(&key)
-            .await?
-            .ok_or(FleetCatalogError::Unconfirmed)?;
-        binding.validate()?;
-        if &binding.boot != boot {
-            return Err(FleetCatalogError::Conflict);
-        }
-        let claim: Binding = self
-            .inner
-            .read(&binding.container_key())
-            .await?
-            .ok_or(FleetCatalogError::Unconfirmed)?;
-        if claim != binding {
-            return Err(FleetCatalogError::Conflict);
-        }
+        let binding = self.binding(boot).await?;
+        let key = binding.boot_key()?;
         // The recovery service supplies this context only after permanent Root
         // exclusion. This immutable intent precedes every external mutation.
         let intent = Intent {
@@ -161,6 +147,28 @@ impl FleetDockerIsolation {
                 hex::encode(records::digest(&binding)?)
             ),
         })
+    }
+
+    async fn binding(&self, boot: &BootBinding) -> Result<Binding> {
+        let key = Binding::key_for_boot(boot)?;
+        let binding: Binding = self
+            .inner
+            .read(&key)
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        binding.validate()?;
+        if &binding.boot != boot {
+            return Err(FleetCatalogError::Conflict);
+        }
+        let claim: Binding = self
+            .inner
+            .read(&binding.container_key())
+            .await?
+            .ok_or(FleetCatalogError::Unconfirmed)?;
+        if claim != binding {
+            return Err(FleetCatalogError::Conflict);
+        }
+        Ok(binding)
     }
 }
 

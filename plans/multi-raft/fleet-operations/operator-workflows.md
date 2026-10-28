@@ -258,6 +258,9 @@ call `bind_node` with its full immutable container ID. The adapter persists the
 current rooted boot, Docker Engine ID and container start identity using
 create-only records. A physical container cannot be rebound to a second boot.
 Keep the same catalog and owner when recreating the adapter.
+For newly added capacity intended for automatic recovery, use Ready qualification,
+confirm the binding, and then activate. This deployment sequence includes the
+Ready phase even though the generic capacity API also permits direct activation.
 
 Install the adapter in `start_failure_recovery_service` only after the bindings
 are confirmed. Recovery supplies the permanent rooted failure intent. The
@@ -290,6 +293,37 @@ cargo test --locked -p cellar --lib docker_isolation_real_engine_ -- --ignored -
 Use this checkout's dedicated Cargo target directory as described in AGENTS.md.
 This case verifies Engine behavior and configured container limits; it does not
 establish available VM capacity, fleet density or write performance.
+
+### Docker recovery resource inputs
+
+For a homogeneous fleet, construct `FleetDockerResources` with the bound isolation
+adapter, a surviving `RaftCells` observer and an explicit
+`FleetDockerResourcePolicy`. The policy must conservatively cover non-group disk
+usage, resident history cost, peak seed/copy/worker cost and reserved headroom.
+Derive those bounds from the deployment's enforced storage and worker limits.
+The provider measures full cgroup memory usage, including cache; it does not
+measure volume occupancy. Engine block-I/O byte counters are not disk capacity.
+
+After every eligible node has rooted capacity and a confirmed container binding,
+the embedding runtime can install the two real resource callbacks:
+
+```rust,ignore
+let resources = Arc::new(FleetDockerResources::new(
+    platform.clone(), cells.clone(), resource_policy,
+)?);
+let recovery = catalog.start_failure_recovery_service(
+    cells, resources.clone(), resources, Arc::new(platform),
+    service_options, recovery_options,
+).await?;
+```
+
+Sampling checks fresh enrollment and qualified capacity, verifies the exact
+live container around a one-shot memory read, and retains an immutable evidence
+record before returning. Missing samples, changed limits and changed boots block
+the attempt. All collection shares the original deadline, capped at five seconds.
+This provider covers Ready/Active nodes; departure/return settlement requires its
+separate retained evidence. These SDK calls still need deployment startup and
+the complete fault/workload qualification described above.
 
 ## Delivered isolated-node repair SDK workflow
 

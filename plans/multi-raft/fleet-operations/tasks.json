@@ -3272,7 +3272,7 @@
         "Drive one rooted isolated-node evacuation with an owned immutable candidate cursor, independent-group progress and uncertain-admission fencing; diagnostic exhaustion grants no terminal lifecycle authority.",
         "Use admitted-work retry windows for bounded independent required repair; retain every old debit, preserve due-effect priority and enforce global/local slot bounds across competing controllers and recreation.",
         "Deliver explicit Node-owned exact-boot connectivity classification with four authenticated probes per available round, a 500-ms per-probe ceiling and at least five seconds of repeated fresh direct-connect failures before Unavailable. Unknown outcomes, stale samples, changed boots and catalog errors reset failure history; status ages while the worker is delayed or stopped. Existing admitted movements retain priority and cancellation joins the monitor. This mode observes failures only; the separate recovery mode owns durable admission and platform handoff.",
-        "Compose exact-boot detection with a distinct rooted failure evacuation, trusted idempotent platform isolation and the existing quorum-preserving repair executor in one Node-owned service. Admit exclusion only with complete inventory and fresh observations; recover the exact operation before external effects. Preserve intent across controller loss and unknown responses, refuse wrong-boot evidence, operator-operation adoption, cancellation and reboot while isolation may be outstanding. Production isolation adapters, automatic terminal removal and deployed qualification remain required."
+        "Compose exact-boot detection with a distinct rooted failure evacuation, trusted idempotent platform isolation and the existing quorum-preserving repair executor in one Node-owned service. Admit exclusion only with complete inventory and fresh observations; recover the exact operation before external effects. Preserve intent across controller loss and unknown responses, refuse wrong-boot evidence, operator-operation adoption, cancellation and reboot while isolation may be outstanding. Exact-container Docker isolation and automatic terminal removal are implemented; deployment wiring and complete deployed qualification remain required."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3946,12 +3946,43 @@
         },
         {
           "name": "fleet_docker_binding_records_ready_boot_and_refuses_evacuation",
-          "oracle": "Real native enrollment supplies the canonical Ready boot for a durable provisioning map without advancing Root; an independently recreated adapter reconciles it, while Registered or Draining nodes cannot admit a new binding.",
+          "oracle": "Real native enrollment supplies the canonical Ready boot for a durable provisioning map without advancing Root; an independently recreated adapter reconciles it, while Registered or Draining nodes cannot admit a new binding. Resource-provider interfaces use authenticated native observations, retained Docker memory evidence and explicit conservative disk/copy bounds; evacuation invalidates fresh capacity evidence.",
           "invariants": [
             "F02",
             "F03",
             "F04",
             "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_resources_charge_cache_and_refuse_missing_stats",
+          "oracle": "The bounded live Engine sampler charges full cgroup usage including cache, and missing usage cannot become zero occupancy. No Engine mutation occurs.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_resources_refuse_changed_limits_and_mid_sample_restart",
+          "oracle": "Changed CPU, memory or swap limits and a process restart during sampling refuse evidence. The adapter never changes limits to make an observation fit.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "docker_isolation_real_engine_samples_available_memory_and_retains_data",
+          "oracle": "An independently owned 256-MiB container on an explicitly selected Engine supplies positive memory usage within its effective limit, then passes real pause/isolation/data-retention checks. The original 3-GiB case separately rejects resource evidence when effective VM capacity is lower; isolation and retained data assertions are unchanged.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
           ]
         }
       ],
