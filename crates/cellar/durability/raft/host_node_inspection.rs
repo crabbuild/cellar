@@ -20,14 +20,15 @@ impl Driver {
         minimum_revision: u64,
         physical: bool,
     ) {
-        // Physical accounting also serves the local controller. It goes through
-        // the same host turn, trust validation and delivery reservation, without
-        // manufacturing a self-to-self authenticated transport route.
-        if physical && node == self.log.limits().node {
-            let Some(bytes) = self
-                .control_budget
-                .acquire(crate::raft::physical_inventory::RESPONSE_BYTES)
-            else {
+        // Capacity and recovery controllers also inspect their own process.
+        // Keep the same host turn, trust validation and delivery reservation
+        // without manufacturing a self-to-self authenticated transport route.
+        if node == self.log.limits().node {
+            let Some(bytes) = self.control_budget.acquire(if physical {
+                crate::raft::physical_inventory::RESPONSE_BYTES
+            } else {
+                RESPONSE_RESERVATION
+            }) else {
                 reply_node(
                     &mut request,
                     Ok(Response::PeerNodeInspection(Err(
@@ -36,8 +37,13 @@ impl Driver {
                 );
                 return;
             };
-            let result = self
-                .physical_node_observation()
+            let observation = if physical {
+                self.physical_node_observation()
+                    .map(|(view, inventory)| (view, Some(Box::new(inventory))))
+            } else {
+                self.node_observation().map(|view| (view, None))
+            };
+            let result = observation
                 .map_err(|error| match error {
                     CommandFailure::Overloaded => InspectionError::Overloaded,
                     _ => InspectionError::Unavailable,
@@ -54,7 +60,7 @@ impl Driver {
                         .ok_or(InspectionError::Unavailable)?;
                     Ok(Box::new(RaftPeerNodeObservation {
                         view,
-                        inventory: Some(Box::new(inventory)),
+                        inventory,
                         sample_age_ms,
                     }))
                 });

@@ -65,13 +65,16 @@ async fn fleet_enrollment_node_probe_retained_age() -> Result<()> {
     let revision = f.catalog.read(TIMEOUT).await?.revision();
     let target = NodeId::new([5; 16])?;
     f.remote(&host, target, revision).await?;
-    let pending = host.inspect_peer_node(target, revision, TIMEOUT);
-    let retained = Duration::from_millis(150);
-    f.domain
-        .run(async { cellar::asyncrt::sleep(retained).await })
-        .await?;
-    let observed = pending.await?;
-    ensure!(observed.sample_age_ms >= retained.as_millis() as u64);
+    for target in [target, f.spec.node] {
+        let pending = host.inspect_peer_node(target, revision, TIMEOUT);
+        let retained = Duration::from_millis(150);
+        f.domain
+            .run(async { cellar::asyncrt::sleep(retained).await })
+            .await?;
+        let observed = pending.await?;
+        ensure!(observed.sample_age_ms >= retained.as_millis() as u64);
+        ensure!(observed.view.node.identity.node == target && observed.inventory.is_none());
+    }
     node.shutdown(ShutdownMode::Preserve).await?;
     peer_node.shutdown(ShutdownMode::Preserve).await?;
     f.domain.shutdown().await;
@@ -124,6 +127,26 @@ async fn fleet_enrollment_node_probe_resource_floor() -> Result<()> {
     f.domain
         .run(cellar::asyncrt::timeout(TIMEOUT, async {
             while f.store.active_fleet_reads.load(Ordering::Acquire) < 2 {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    let pending = host.inspect_peer_node(f.spec.node, revision, TIMEOUT);
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while host.resource_usage().control.bytes != 4 * 1024 * 1024 + 64 * 1024 + 4096 {
+                cellar::asyncrt::sleep(Duration::from_millis(5)).await;
+            }
+        }))
+        .await??;
+    ensure!(matches!(
+        host.inspect_peer_node(f.spec.node, revision, TIMEOUT).await,
+        Err(InspectionError::Overloaded)
+    ));
+    drop(pending);
+    f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            while host.resource_usage().control.bytes != 4 * 1024 * 1024 {
                 cellar::asyncrt::sleep(Duration::from_millis(5)).await;
             }
         }))
@@ -286,14 +309,24 @@ async fn fleet_enrollment_empty_host() -> Result<()> {
             .await,
         Err(InspectionError::Refused)
     ));
+    let local = host
+        .inspect_peer_node(f.spec.node, revision, TIMEOUT)
+        .await?;
+    ensure!(local.view.node.identity == reverse.view.node.identity);
+    ensure!(local.view.fleet_boot == reverse.view.fleet_boot && local.inventory.is_none());
     ensure!(matches!(
-        host.inspect_peer_node(f.spec.node, revision, TIMEOUT).await,
-        Err(InspectionError::Refused)
+        host.inspect_peer_node(f.spec.node, revision + 1, TIMEOUT)
+            .await,
+        Err(InspectionError::StalePeer)
     ));
     ensure!(f.calls.load(Ordering::Acquire) == 0);
     node.shutdown(ShutdownMode::Preserve).await?;
     peer_node.shutdown(ShutdownMode::Preserve).await?;
     ensure!(host.resource_usage().control.bytes == 0 && peer.resource_usage().control.bytes == 0);
+    ensure!(matches!(
+        host.inspect_peer_node(f.spec.node, revision, TIMEOUT).await,
+        Err(InspectionError::Unavailable)
+    ));
     f.domain.shutdown().await;
     Ok(())
 }

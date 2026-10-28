@@ -13,10 +13,15 @@ use tokio::net::UnixListener;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_docker_binding_records_ready_boot_and_refuses_evacuation() -> Result<()> {
-    Box::pin(binding()).await
+    Box::pin(binding(false)).await
 }
 
-async fn binding() -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_docker_resources_observe_local_repair_candidate() -> Result<()> {
+    Box::pin(binding(true)).await
+}
+
+async fn binding(local_observer: bool) -> Result<()> {
     let f = Fixture::with_managed_births(true).await?;
     let (_origin_root, origin_node, origin) = f.empty_host().await?;
     let (_target_root, target_node, target) = f.peer_host(5).await?;
@@ -112,7 +117,11 @@ async fn binding() -> Result<()> {
     f.remote(&origin, node, before).await?;
     let resources = FleetDockerResources::new(
         reopened.clone(),
-        origin.clone(),
+        if local_observer {
+            target.clone()
+        } else {
+            origin.clone()
+        },
         FleetDockerResourcePolicy {
             durable_overhead_bytes: 2 * 1024 * 1024,
             resident: FleetResourceBounds {

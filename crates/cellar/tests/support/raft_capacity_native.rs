@@ -68,6 +68,43 @@ pub(super) async fn joined(node: cellar::sdk::Node) -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_capacity_local_node_qualify_and_activate() -> Result<()> {
+    let f = Fixture::with_managed_births(true).await?;
+    let (_root, node, host) = f.empty_host().await?;
+    let evidence = attestation(&f, &host, &host).await?;
+    let boot = evidence.boot.clone();
+    for (id, action, state) in [
+        (101, FleetCapacityAction::Qualify, FleetNodeState::Ready),
+        (102, FleetCapacityAction::Activate, FleetNodeState::Active),
+    ] {
+        let cut = f.catalog.read(TIMEOUT).await?;
+        f.remote(&host, f.spec.node, cut.revision()).await?;
+        let accepted = f
+            .catalog
+            .admit_node_capacity(
+                &cut,
+                &request(id, cut.revision(), evidence.clone(), action),
+                &host,
+                &[namespace(&f).await?],
+                TIMEOUT,
+            )
+            .await?;
+        ensure!(accepted.state() == state);
+    }
+    let cut = f.catalog.read(TIMEOUT).await?;
+    let capacity = f
+        .catalog
+        .authorize_capacity(&cut, f.spec.node, TIMEOUT)
+        .await?;
+    ensure!(capacity.receive_replicas() && capacity.attestation().boot == boot);
+    ensure!(host.observe_node(TIMEOUT).await?.registered_histories == 0);
+    joined(node).await?;
+    ensure!(host.resource_usage().control.bytes == 0);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_capacity_empty_node_qualify_and_activate() -> Result<()> {
     let f = Fixture::with_managed_births(true).await?;
     let (_origin_root, origin_node, origin) = f.empty_host().await?;

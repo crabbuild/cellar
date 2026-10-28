@@ -210,9 +210,10 @@ impl RaftCells {
         })
     }
 
-    /// Inspect an enrolled remote process without a cell. Both endpoints must
+    /// Inspect an enrolled process without a cell. Both endpoints must
     /// acknowledge at least this trust revision; stale or missing metadata is
     /// not evidence of node failure. No placement or membership is activated.
+    /// A local target uses the same bounded host control path and trust checks.
     pub fn inspect_peer_node(
         &self,
         node: cellar_logic::consensus::NodeId,
