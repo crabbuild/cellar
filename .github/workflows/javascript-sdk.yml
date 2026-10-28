@@ -28,10 +28,15 @@ permissions:
   contents: read
 jobs:
   qualify:
+    name: JavaScript qualification (${{ matrix.profile }})
     runs-on: ubuntu-22.04
-    # Full source builds and serial restart/fleet examples exceed 45 minutes on
-    # shared runners. Individual application and test deadlines stay unchanged.
+    # Independent runners keep builds and restart campaigns within the job
+    # ceiling. Each runner still executes its native fixtures serially.
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [adapters, examples, packages]
     env:
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
@@ -75,6 +80,7 @@ jobs:
           npm run --prefix tools/rpc typecheck
           npm run --prefix tools/rpc build
       - name: Published sandbox compatibility input identities
+        if: matrix.profile == 'adapters'
         run: |
           node tools/sandbox/e2b/check.mjs
           node --test tools/sandbox/e2b/check.test.mjs
@@ -89,22 +95,25 @@ jobs:
           npm test --prefix tools/sandbox/cloudflare-v1
           npm run build --prefix tools/sandbox/cloudflare-v1
       - name: Chat UI desktop and mobile behavior
+        if: matrix.profile == 'adapters'
         run: |
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
           npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
+        if: matrix.profile == 'adapters'
         env:
           CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-combined
           CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-combined
         # Independent native fixtures own short leases and concurrent runtimes.
         run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node -- --test-threads=1
       - name: Node-only feature
+        if: matrix.profile == 'adapters'
         env:
           CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-node
           CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-node
         run: cargo test --locked -p cellar-javascript --no-default-features --features node -- --test-threads=1
       - name: Preserve filesystem proof and shutdown ledgers
-        if: always()
+        if: always() && matrix.profile == 'adapters'
         uses: actions/upload-artifact@v4
         with:
           name: javascript-filesystem-proof-${{ github.run_id }}-${{ github.run_attempt }}
@@ -115,6 +124,7 @@ jobs:
             ${{ runner.temp }}/filesystem-concurrency-node/*.json
           if-no-files-found: ignore
       - name: Runtime archive and admission boundaries
+        if: matrix.profile == 'adapters'
         run: |
           cargo test --locked -p cellar --lib node_environment
           cargo test --locked -p cellar --lib runtime_inventory
@@ -122,19 +132,23 @@ jobs:
           cargo test --locked -p cellar --lib runtime_directories
           cargo test --locked -p cellar --test native_artifacts
       - name: Pi agent crash recovery
+        if: matrix.profile == 'examples'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-pi-agent-example
           CELLAR_PI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-pi-agent-example" npm run --prefix examples/pi-agent test:e2e
       - name: Vercel AI SDK agent crash recovery and concurrent tasks
+        if: matrix.profile == 'examples'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:e2e
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
       - name: Filesystem agent atomic tools and cold recovery
+        if: matrix.profile == 'examples'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-filesystem-agent-example
           CELLAR_FS_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-filesystem-agent-example" npm run --prefix examples/filesystem-agent test:e2e
       - name: Vercel agent cold recovery from RustFS
+        if: matrix.profile == 'examples'
         shell: bash
         run: |
           aws --version
@@ -192,7 +206,7 @@ jobs:
           export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-tools.json"
           npm run --prefix examples/vercel-agent test:tools
       - name: RustFS recovery evidence
-        if: always()
+        if: always() && matrix.profile == 'examples'
         uses: actions/upload-artifact@v4
         with:
           name: vercel-rustfs-recovery
@@ -204,6 +218,7 @@ jobs:
             ${{ runner.temp }}/filesystem-s3-stall-fault.json
           if-no-files-found: ignore
       - name: Quality and engine boundaries
+        if: matrix.profile == 'adapters'
         run: |
           cargo clippy --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node --all-targets -- -D warnings
           cargo format --check
@@ -211,16 +226,20 @@ jobs:
           python3 tools/check_native_dependencies.py
           python3 tools/docs/check.py
       - name: Native package
+        if: matrix.profile == 'examples'
         run: cargo run --locked -p cellar -- build examples/javascript/project.json --output .cellar/javascript-package
       - name: Runnable streaming examples and restart
+        if: matrix.profile == 'examples'
         run: |
           python3 examples/streaming/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
             --backend rust --backend node-js --backend node-ts --backend v8
       - name: Runnable binding examples, restart and rebinding
+        if: matrix.profile == 'examples'
         run: |
           python3 examples/bindings/smoke.py --cellar "${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar" \
             --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
+        if: matrix.profile == 'packages'
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example
           mkdir -p .cellar
@@ -233,6 +252,7 @@ jobs:
           .cellar/node-delivery/launch.sh --help
           CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js" CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node" cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
       - name: Node fleet publish, restore and process recovery
+        if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/node/runtime.json .cellar/node-runtime
           cargo run --locked -p cellar -- build examples/node/project.json --output .cellar/node-fleet-package
@@ -240,18 +260,21 @@ jobs:
           mv .cellar/node-runtime .cellar/node-runtime-captured
           CELLAR_NODE_PACKAGE="$PWD/.cellar/node-fleet-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package published_node_package -- --ignored
       - name: Pi agent installed package end to end
+        if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/pi-agent/runtime.json .cellar/pi-agent-runtime
           cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
           mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
           CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
       - name: Filesystem agent installed package and session recovery
+        if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/filesystem-agent/runtime.json .cellar/filesystem-agent-runtime
           cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
           mv .cellar/filesystem-agent-runtime .cellar/filesystem-agent-runtime-captured
           CELLAR_FS_PACKAGE="$PWD/.cellar/filesystem-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package filesystem_agent_package -- --ignored --nocapture
       - name: Vercel installed package and filesystem recovery
+        if: matrix.profile == 'packages'
         run: |
           node tools/javascript/node-package.mjs --runtime examples/vercel-agent/runtime.json .cellar/vercel-agent-runtime
           cargo run --locked -p cellar -- build examples/vercel-agent/project.json --output .cellar/vercel-agent-package
@@ -261,11 +284,12 @@ jobs:
             cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package \
               vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts -- --exact --ignored --nocapture
       - name: Preserve installed filesystem recovery evidence
-        if: always()
+        if: always() && matrix.profile == 'packages'
         uses: actions/upload-artifact@v4
         with:
           name: vercel-installed-filesystem-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/vercel-installed-filesystem.json
           if-no-files-found: ignore
       - name: SDK archive
+        if: matrix.profile == 'packages'
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts
