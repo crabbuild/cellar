@@ -6,7 +6,7 @@ use cellar::application::consensus::verification::{
     FleetRestartOperatorCancelRequest, FleetRestartReadyAdmission, FleetRestartStopRequest,
 };
 
-fn cancel_request(
+pub(super) fn cancel_request(
     original: &FleetRestartOperatorRequest,
     revision: u64,
 ) -> Result<FleetRestartOperatorCancelRequest> {
@@ -18,7 +18,7 @@ fn cancel_request(
     })
 }
 
-async fn begin(s: &Setup, p: usize) -> Result<FleetRestartOperatorRequest> {
+pub(super) async fn begin(s: &Setup, p: usize) -> Result<FleetRestartOperatorRequest> {
     let request = intent(s, p, 188).await?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     s.f.catalog

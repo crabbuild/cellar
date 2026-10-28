@@ -21,7 +21,10 @@ impl RaftFleetNodeOperation {
         super::super::records::revision(self.expected_revision)
     }
 
-    pub(super) fn identity(&self, principal: &str) -> Result<FleetRequestIdentity> {
+    pub(in crate::management::raft) fn identity(
+        &self,
+        principal: &str,
+    ) -> Result<FleetRequestIdentity> {
         self.validate()?;
         if principal.is_empty() || principal.len() > 128 || principal.chars().any(char::is_control)
         {

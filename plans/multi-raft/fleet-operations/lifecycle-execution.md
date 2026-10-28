@@ -418,9 +418,19 @@ facts. Polling performs no physical work or mutation. A missing operation is onl
 absence at the selected Root, and Ready is a historical assessment; neither is a
 live-health lease. Older-snapshot progress remains tied to its original cut.
 
-This delivers SDK preparation, cancellation and read-only durable status. The
-management API, CLI, independently authorized stop/return/resume sequence and
-owned periodic execution remain required before the complete workflow is usable. See
+Preparation, cancellation and read-only durable status also have management
+SDK/admin/CLI adapters. `fleet_maintenance` admits preparation independently of
+stop/capacity permissions; `fleet_cancel` admits cancellation. The explicitly
+started `FleetRestartService` is owned and joined by the enrolled Node job set,
+uses its installed catalog backend/domain and bounded control budget, and
+shares one per-Node service slot across independent clients. It resumes Root
+intent after caller/controller loss. Active rounds share one original deadline,
+a soft quantum and at most sixteen complete steps; idle/blocked work is paced
+separately. No counter or status field restores health evidence. Reads never
+start execution. See the [operator workflow](operator-workflows.md#maintenance-preparation-and-cancellation).
+
+The independently authorized stop/return/resume management sequence, grace expiry
+and rolling operations remain required for the complete workflow. See
 [implementation progress](progress.md) for qualified source and test limits.
 
 ## Maintenance must remain safe when the controller or operator disappears

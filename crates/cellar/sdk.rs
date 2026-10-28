@@ -195,16 +195,19 @@ pub use crate::application::*;
 /// Rooted managed-Raft operator contracts, independent of the HTTP adapter.
 pub mod fleet_operations {
     pub use crate::management::{
-        RaftFleetAcceptance, RaftFleetBegin, RaftFleetCancel, RaftFleetCapacityAttestation,
-        RaftFleetConnection, RaftFleetControl, RaftFleetEvacuationAcceptance,
-        RaftFleetEvacuationDebt, RaftFleetEvacuationPhase, RaftFleetEvacuationProgress,
-        RaftFleetEvacuationStatus, RaftFleetFailure, RaftFleetFailureCode, RaftFleetMovement,
-        RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
-        RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
-        RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
-        RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
-        RaftFleetRegisterNode, RaftFleetStatus, RaftFleetVerificationBlocker,
-        RaftFleetVerificationReason, RaftFleetVerificationStage,
+        FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
+        RaftFleetAcceptance, RaftFleetBegin, RaftFleetBirthResolution, RaftFleetCancel,
+        RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
+        RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
+        RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure,
+        RaftFleetFailureCode, RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceCancel,
+        RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare, RaftFleetMaintenanceStatus,
+        RaftFleetMovement, RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope,
+        RaftFleetNodeAcceptance, RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel,
+        RaftFleetNodeCapacity, RaftFleetNodeDescriptor, RaftFleetNodeOperation,
+        RaftFleetNodeRemove, RaftFleetNodeState, RaftFleetNodeStatus, RaftFleetNodeStop,
+        RaftFleetOperation, RaftFleetOutcome, RaftFleetRegisterNode, RaftFleetStatus,
+        RaftFleetVerificationBlocker, RaftFleetVerificationReason, RaftFleetVerificationStage,
     };
     pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
 }

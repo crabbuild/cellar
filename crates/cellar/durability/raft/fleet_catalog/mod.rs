@@ -38,6 +38,7 @@ pub use histories::{
 };
 pub use imports::{FleetImportPhase, FleetNamespaceImport};
 pub use isolation::{FleetIsolationAttestation, FleetNodeIsolation, FleetNodeIsolationRequest};
+pub(crate) use maintenance::RestartServiceWork;
 pub use maintenance::{
     FleetRestartAdmission, FleetRestartBirthAction, FleetRestartBirthResolution,
     FleetRestartGateAdmission, FleetRestartGateCancelRequest, FleetRestartGateRequest,
@@ -50,7 +51,8 @@ pub use maintenance::{
     FleetRestartResumeCompleteRequest, FleetRestartResumeCompletion, FleetRestartResumePhase,
     FleetRestartResumeProgress, FleetRestartResumeRequest, FleetRestartResumeVerification,
     FleetRestartReturnAdmission, FleetRestartReturnRequest, FleetRestartRuntimeCandidate,
-    FleetRestartRuntimeProgress, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
+    FleetRestartRuntimeProgress, FleetRestartService, FleetRestartServiceOptions,
+    FleetRestartServiceStatus, FleetRestartSettlementBlocker, FleetRestartSettlementProgress,
     FleetRestartStopAdmission, FleetRestartStopRefreshRequest, FleetRestartStopRequest,
     FleetRestartVerification,
 };

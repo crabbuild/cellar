@@ -16,6 +16,7 @@ const REGISTRAR: &str = "fixture-registrar-token-with-at-least-32-bytes";
 const CAPACITY: &str = "fixture-capacity-token-with-at-least-32-bytes";
 const EVACUATOR: &str = "fixture-evacuator-token-with-at-least-32-bytes";
 const REMOVER: &str = "fixture-remover-token-with-at-least-32-bytes";
+const MAINTAINER: &str = "fixture-maintainer-token-with-at-least-32-bytes";
 const STOPPER: &str = "fixture-stopper-token-with-at-least-32-bytes";
 
 #[path = "raft_operator_nodes_native.rs"]
@@ -23,6 +24,8 @@ mod node_cases;
 
 #[path = "raft_operator_lifecycle_native.rs"]
 mod lifecycle_cases;
+#[path = "raft_operator_maintenance_native.rs"]
+mod maintenance_cases;
 
 const CANCELLER: &str = "fixture-canceller-token-with-at-least-32-bytes";
 
@@ -115,10 +118,16 @@ impl Server {
             ("evacuator", EVACUATOR),
             ("remover", REMOVER),
             ("stopper", STOPPER),
+            ("maintainer", MAINTAINER),
         ] {
             std::fs::write(root.path().join(name), value)?;
         }
         let principals = [
+            (
+                "maintainer",
+                MAINTAINER,
+                vec![Permission::MetadataRead, Permission::FleetMaintenance],
+            ),
             (
                 "owner",
                 OWNER,
@@ -130,6 +139,7 @@ impl Server {
                     Permission::FleetEvacuate,
                     Permission::FleetRemove,
                     Permission::FleetStop,
+                    Permission::FleetMaintenance,
                 ],
             ),
             (
@@ -261,7 +271,7 @@ impl Server {
             .output()
             .await?;
         for token in [
-            OWNER, READER, CANCELLER, REGISTRAR, CAPACITY, EVACUATOR, REMOVER, STOPPER,
+            OWNER, READER, CANCELLER, REGISTRAR, CAPACITY, EVACUATOR, REMOVER, STOPPER, MAINTAINER,
         ] {
             ensure!(!String::from_utf8_lossy(&output.stdout).contains(token));
             ensure!(!String::from_utf8_lossy(&output.stderr).contains(token));

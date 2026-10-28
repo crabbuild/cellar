@@ -231,6 +231,67 @@ cargo test -p cellar --test native_raft_fleet_enrollment --locked \
   fleet_isolated_repair_service_ -- --test-threads=1
 ```
 
+## Maintenance preparation and cancellation
+
+Maintenance preparation, read-only status and cancellation now use the shipped
+CLI and authenticated admin API. The server must explicitly start and retain
+`RaftFleetControl::start_maintenance_service` on an enrolled Node observer, with
+the complete configured namespace handles and movement evidence when needed.
+The Node job set owns execution, cancellation and join, including when the
+management server's execution domain closes. A second service on the same Node
+is refused across independent clients. Services remain default-off; durable
+intent can be queued while no worker is running.
+
+Read the current node process and catalog revision, then retain the exact
+operation, request and payload across an ambiguous response:
+
+```sh
+cellar raft fleet nodes prepare-maintenance "$NODE" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$OP" --request-id "$REQUEST" --expected-revision "$REVISION" \
+  --expected-process "$PROCESS" --grace-seconds 120 --birth-resolution cancel --wait --json
+cellar raft fleet nodes maintenance-status "$OP" --fleet F --catalog-id "$CATALOG" --json
+```
+
+The birth decision is explicitly `finish` or `cancel`; it cannot be changed by a
+retry or controller replacement. Preparation fixes the full original boot and
+runs the actual gate, settlement and matched-survivor proof walk. `--wait` polls
+only GET status after the one confirmed mutation. `ready` describes historical
+RestartReady; stop must independently renew proof and obtain separate consent.
+Wait expiry leaves the operation running. A preparation wait returns blocked exit 4
+if cancellation wins; the cancellation command's own wait succeeds at `cancelled`.
+No service is started by a status read.
+
+Cancellation uses the latest revision and new request/fence IDs, retaining the
+original operation ID. The command records intent before the worker executes
+its guarded cancellation. It waits for the canonical terminal receipt:
+
+```sh
+cellar raft fleet nodes cancel-maintenance "$NODE" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$OP" --request-id "$CANCEL_REQUEST" --expected-revision "$CURRENT_REVISION" \
+  --fence-id "$FENCE" --wait --json
+```
+
+Before preparation is admitted, cancellation fences the old request without a
+physical effect. After gate admission it requires the actual synced exact-process
+Fence and SDK receipt. The target remains excluded from placement after an
+admitted preparation is cancelled; retained occupancy remains charged. Capacity
+activation is a separate operation. Cancellation cannot override accepted stop.
+
+| API suffix under `/api/v1/fleets/{fleet}/raft` | Permission and result |
+| --- | --- |
+| `POST /nodes/{node}/prepare-maintenance` | `fleet_maintenance`; audited canonical human intent, HTTP 202 |
+| `GET /maintenance/{operation}` | `metadata_read`; one Root snapshot, no physical or metadata mutation |
+| `POST /nodes/{node}/cancel-maintenance` | `fleet_cancel`; audited cancellation intent, HTTP 202 |
+
+`operate`, stop, registration and capacity grants do not imply maintenance
+permission. The status reports original boot/process/epoch, human principal,
+Root revisions, durable phase, execution ID and historical Ready/cancellation
+references. It carries no live health lease. The CLI checks the pinned catalog,
+node, operation, request and admission revisions before displaying a confirmed
+command result. Separate maintenance stop, return and resume management commands,
+grace expiry and rolling operations remain unfinished; the SDK backends for
+M6–M9 exist, but this section does not claim their operator workflow is delivered.
+
 ## Remaining command and API contract
 
 The broader commands below are proposed FO-08 deliverables, except for the

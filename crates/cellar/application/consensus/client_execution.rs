@@ -17,6 +17,21 @@ pub(crate) struct LocalFleetActionCall {
 }
 
 impl RaftCells {
+    pub(crate) async fn start_restart_worker(
+        &self,
+        work: crate::raft::fleet_catalog::RestartServiceWork,
+        timeout: Duration,
+    ) -> Result<(), FleetCatalogError> {
+        match self
+            .node_call(NodeKind::StartRestartService(Box::new(work)), timeout)
+            .await
+        {
+            Ok(Response::FleetExecutionAction(result)) => result,
+            Err(CommandFailure::Overloaded) => Err(FleetCatalogError::Overloaded),
+            _ => Err(FleetCatalogError::Unconfirmed),
+        }
+    }
+
     pub(crate) async fn start_movement_worker(
         &self,
         work: crate::raft::fleet_catalog::MovementServiceWork,

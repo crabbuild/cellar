@@ -5,6 +5,7 @@ mod attempt;
 mod cancellation;
 mod driver;
 mod records;
+mod service;
 mod status;
 use super::super::resources::Authority;
 use super::*;
@@ -18,6 +19,8 @@ pub use driver::{
 };
 use futures_util::future::BoxFuture;
 use records::{Pointer, Record};
+pub(crate) use service::RestartServiceWork;
+pub use service::{FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus};
 pub use status::FleetRestartOperatorStatus;
 
 /// The human fixes the complete preparation scope before a controller acts.

@@ -6,6 +6,8 @@
 mod connection;
 mod failure;
 mod lifecycle;
+mod maintenance;
+pub use maintenance::*;
 mod nodes;
 mod records;
 use crate::application::consensus::RaftCells;

@@ -953,6 +953,7 @@ async fn initialize(
         sql: Some(pool.resource_observer()),
         groups: load::GroupResourceObserver::default(),
         controller: Mutex::new(None),
+        fleet_restart_service: Mutex::new(None),
         fleet_movement_service: Mutex::new(None),
         transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
@@ -1213,6 +1214,7 @@ enum SqlPurpose {
 
 enum Job {
     FleetMovementServiceStopped,
+    FleetRestartServiceStopped,
     FleetAction(Box<fleet_execution::Completed>),
     PeerFleetStop(Box<fleet_stop::Completed>),
     PeerFleetInspection(Box<fleet_inspection::PeerCompleted>),
@@ -3249,7 +3251,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
-            Job::FleetMovementServiceStopped => (),
+            Job::FleetMovementServiceStopped | Job::FleetRestartServiceStopped => (),
             Job::FleetAction(completed) => self.finish_fleet_action(*completed),
             Job::PeerFleetStop(completed) => self.finish_peer_fleet_stop(*completed),
             Job::FleetAdmission(completed) => self.finish_fleet_admission(*completed),
@@ -3576,6 +3578,10 @@ impl Driver {
             handle: self.local.clone(),
         }
         .stop_fleet_movement_service();
+        RaftCells {
+            handle: self.local.clone(),
+        }
+        .stop_fleet_restart_service();
         if let Some(control) = self.history_registration.take() {
             control.cancel();
         }

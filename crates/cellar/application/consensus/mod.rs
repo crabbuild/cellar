@@ -57,7 +57,8 @@ pub use crate::raft::fleet_catalog::{
     FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
     FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
     FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
-    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetMovementServiceStatus, FleetRestartService, FleetRestartServiceOptions,
+    FleetRestartServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use crate::raft::fleet_catalog::{

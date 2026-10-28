@@ -6,6 +6,7 @@ mod cancellation;
 mod gate;
 mod gate_cancel;
 mod operator;
+pub(crate) use operator::RestartServiceWork;
 mod records;
 mod rejoin;
 mod resume;
@@ -24,7 +25,8 @@ pub use operator::{
     FleetRestartOperatorAdmission, FleetRestartOperatorCancelAdmission,
     FleetRestartOperatorCancelRequest, FleetRestartOperatorCancelled, FleetRestartOperatorDriver,
     FleetRestartOperatorPhase, FleetRestartOperatorProgress, FleetRestartOperatorRequest,
-    FleetRestartOperatorStatus,
+    FleetRestartOperatorStatus, FleetRestartService, FleetRestartServiceOptions,
+    FleetRestartServiceStatus,
 };
 pub(super) use records::{Record, KIND};
 pub use rejoin::{FleetRestartReturnAdmission, FleetRestartReturnRequest};

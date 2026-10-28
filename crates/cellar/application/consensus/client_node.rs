@@ -3,6 +3,7 @@
 use super::*;
 
 pub(crate) enum NodeKind {
+    StartRestartService(Box<crate::raft::fleet_catalog::RestartServiceWork>),
     StartMovementService(Box<crate::raft::fleet_catalog::MovementServiceWork>),
     PeerFleetAction(Box<super::PeerFleetActionCall>),
     LocalFleetAction(Box<super::LocalFleetActionCall>),

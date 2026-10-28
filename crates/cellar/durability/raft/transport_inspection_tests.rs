@@ -300,6 +300,7 @@ async fn inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_ca
             sql: None,
             groups: crate::raft::host::GroupResourceObserver::default(),
             controller: Mutex::new(None),
+            fleet_restart_service: Mutex::new(None),
             fleet_movement_service: Mutex::new(None),
             transport: fixture.transport.resource_observer(),
             max_input_bytes: 4096,

@@ -3,6 +3,8 @@
 //! Durable operator intent and recreated preparation controllers on real hosts.
 #[path = "raft_restart_operator_cancel_native.rs"]
 mod cancellation_cases;
+#[path = "raft_restart_service_native.rs"]
+mod service_cases;
 use super::*;
 use cellar::application::consensus::verification::{
     FleetRestartBirthResolution, FleetRestartOperatorDriver, FleetRestartOperatorPhase,

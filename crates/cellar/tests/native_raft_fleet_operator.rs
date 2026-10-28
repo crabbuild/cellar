@@ -15,6 +15,118 @@ fn command(arguments: &[&str]) -> Result<std::process::Output> {
         .output()?)
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fleet_operator_maintenance_prepare_wait_refuses_cancelled_as_ready() -> Result<()> {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let root = tempfile::tempdir()?;
+    let credential = root.path().join("credential");
+    let token = "fixture-maintenance-cancel-wait-token-with-at-least-32-bytes";
+    std::fs::write(&credential, token)?;
+    let node = hex::encode([1; 16]);
+    let request = hex::encode([2; 16]);
+    let operation = hex::encode([3; 16]);
+    let catalog = hex::encode([4; 32]);
+    let process = hex::encode([5; 16]);
+    let admission = serde_json::json!({"catalog_id":catalog,"node_id":node,
+        "operation_id":operation,"request_id":request,"expected_revision":1,
+        "applied_revision":2,"observed_revision":2,"reconciled":false});
+    let status = serde_json::json!({"catalog_id":catalog,"node_id":node,
+        "operation_id":operation,"request_id":request,"expected_revision":1,
+        "applied_revision":2,"observed_revision":4,"principal":"fixture",
+        "process":process,"boot":hex::encode([6;16]),"enrollment_epoch":1,
+        "grace_seconds":120,"birth_resolution":"cancel","phase":"cancelled",
+        "execution_operation":null,"readiness_request":null,
+        "cancellation_request":hex::encode([9;16]),"cancelled_revision":4});
+    let posts = Arc::new(AtomicUsize::new(0));
+    let gets = Arc::new(AtomicUsize::new(0));
+    let post_count = posts.clone();
+    let get_count = gets.clone();
+    let router = axum::Router::new()
+        .route(
+            &format!("/api/v1/fleets/test/raft/nodes/{node}/prepare-maintenance"),
+            axum::routing::post(move || {
+                post_count.fetch_add(1, Ordering::SeqCst);
+                let value = admission.clone();
+                async move { (axum::http::StatusCode::ACCEPTED, axum::Json(value)) }
+            }),
+        )
+        .route(
+            &format!("/api/v1/fleets/test/raft/maintenance/{operation}"),
+            axum::routing::get(move || {
+                get_count.fetch_add(1, Ordering::SeqCst);
+                let value = status.clone();
+                async move { axum::Json(value) }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}", listener.local_addr()?);
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio::process::Command::new(env!("CARGO_BIN_EXE_cellar"))
+            .args([
+                "raft",
+                "fleet",
+                "nodes",
+                "prepare-maintenance",
+                &node,
+                "--operation-id",
+                &operation,
+                "--request-id",
+                &request,
+                "--expected-revision",
+                "1",
+                "--expected-process",
+                &process,
+                "--grace-seconds",
+                "120",
+                "--birth-resolution",
+                "cancel",
+                "--fleet",
+                "test",
+                "--catalog-id",
+                &catalog,
+                "--admin-url",
+                &url,
+                "--token-file",
+                credential
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("fixture token path"))?,
+                "--wait",
+                "--timeout-seconds",
+                "2",
+                "--json",
+            ])
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let _ = stop.send(());
+    server.await??;
+    let output = output??;
+    let value: Value = serde_json::from_slice(&output.stdout)?;
+    ensure!(
+        output.status.code() == Some(4) && value["error"]["code"] == "blocked",
+        "cancelled preparation: {value}"
+    );
+    ensure!(posts.load(Ordering::SeqCst) == 1 && gets.load(Ordering::SeqCst) == 1);
+    ensure!(
+        !String::from_utf8(output.stdout)?.contains(token)
+            && !String::from_utf8(output.stderr)?.contains(token)
+    );
+    Ok(())
+}
+
 async fn waiting_cli(unknown: bool) -> Result<()> {
     use std::sync::{
         atomic::{AtomicUsize, Ordering},

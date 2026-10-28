@@ -91,6 +91,7 @@ impl Driver {
             return;
         }
         match std::mem::replace(&mut request.kind, NodeKind::ControllerStatus) {
+            NodeKind::StartRestartService(work) => self.start_restart_service(request, *work),
             NodeKind::StartMovementService(work) => self.start_movement_service(request, *work),
             NodeKind::PeerFleetAction(call) => self.start_peer_fleet_action(request, *call),
             NodeKind::LocalFleetAction(call) => self.start_local_fleet_action(request, *call),

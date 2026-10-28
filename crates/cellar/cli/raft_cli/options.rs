@@ -4,7 +4,10 @@
 use super::*;
 use std::io::Read;
 
-pub(super) const HELP: &str = "cellar raft fleet nodes evacuate NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R
+pub(super) const HELP: &str = "cellar raft fleet nodes prepare-maintenance NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R --expected-process PROCESS --grace-seconds N --birth-resolution finish|cancel [--wait]
+cellar raft fleet nodes cancel-maintenance NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R --fence-id FENCE [--wait]
+cellar raft fleet nodes maintenance-status OP [--wait]
+cellar raft fleet nodes evacuate NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R
 cellar raft fleet nodes cancel-evacuation NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R [--expected-process PROCESS --fence-id FENCE]
 cellar raft fleet nodes prepare-removal NODE_HEX --operation-id OP --request-id REQUEST --expected-revision R [--wait]
 cellar raft fleet nodes stop NODE_HEX --operation-id OP --request-id STOP --expected-process PROCESS --expected-revision R
@@ -32,6 +35,9 @@ Exit codes: 0 success, 2 invalid input, 3 conflict, 4 blocked/cancelled,
 5 unavailable/unknown outcome, 6 wait timeout.";
 
 pub(super) enum Action {
+    MaintenanceStatus(String),
+    PrepareMaintenance(String, Box<RaftFleetMaintenancePrepare>),
+    CancelMaintenance(String, Box<RaftFleetMaintenanceCancel>),
     Status,
     NodeStatus(String),
     EvacuationStatus(String),
@@ -94,6 +100,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
     let mut expected_process = None;
     let mut stop_id = None;
     let mut fence_id = None;
+    let mut grace_seconds = None;
+    let mut birth_resolution = None;
     let mut keep = None;
     let mut policy = None;
     let mut descriptor = None;
@@ -123,6 +131,20 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             "--expected-process" => set(&mut expected_process, value)?,
             "--stop-id" => set(&mut stop_id, value)?,
             "--fence-id" => set(&mut fence_id, value)?,
+            "--grace-seconds" => set(
+                &mut grace_seconds,
+                value
+                    .parse::<u16>()
+                    .map_err(|_| invalid("invalid maintenance grace"))?,
+            )?,
+            "--birth-resolution" => set(
+                &mut birth_resolution,
+                match value.as_str() {
+                    "finish" => RaftFleetBirthResolution::Finish,
+                    "cancel" => RaftFleetBirthResolution::Cancel,
+                    _ => return Err(invalid("birth resolution must be finish or cancel")),
+                },
+            )?,
             "--expected-revision" => set(
                 &mut expected_revision,
                 value
@@ -173,6 +195,10 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         validate_catalog(pin)?;
     }
     let action = match (command.as_str(), target) {
+        ("nodes_maintenance-status", Some(operation)) if cursor.is_none() => {
+            validate_id(&operation)?;
+            Action::MaintenanceStatus(operation)
+        }
         ("nodes_evacuation-status", Some(operation)) if !wait && cursor.is_none() => {
             validate_id(&operation)?;
             Action::EvacuationStatus(operation)
@@ -182,7 +208,9 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             | "nodes_prepare-removal"
             | "nodes_stop"
             | "nodes_remove"
-            | "nodes_cancel-evacuation"),
+            | "nodes_cancel-evacuation"
+            | "nodes_prepare-maintenance"
+            | "nodes_cancel-maintenance"),
             Some(node),
         ) if cursor.is_none() => {
             validate_id(&node)?;
@@ -202,6 +230,32 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
             };
             request.validate()?;
             match verb {
+                "nodes_prepare-maintenance" => {
+                    let request = RaftFleetMaintenancePrepare {
+                        operation: request,
+                        expected_process: expected_process
+                            .take()
+                            .ok_or_else(|| invalid("--expected-process is required"))?,
+                        grace_seconds: grace_seconds
+                            .take()
+                            .ok_or_else(|| invalid("--grace-seconds is required"))?,
+                        birth_resolution: birth_resolution
+                            .take()
+                            .ok_or_else(|| invalid("--birth-resolution is required"))?,
+                    };
+                    request.validate()?;
+                    Action::PrepareMaintenance(node, Box::new(request))
+                }
+                "nodes_cancel-maintenance" => {
+                    let request = RaftFleetMaintenanceCancel {
+                        operation: request,
+                        fence_id: fence_id
+                            .take()
+                            .ok_or_else(|| invalid("--fence-id is required"))?,
+                    };
+                    request.validate()?;
+                    Action::CancelMaintenance(node, Box::new(request))
+                }
                 "nodes_evacuate" if !wait => Action::Evacuate(node, Box::new(request)),
                 "nodes_prepare-removal" => Action::PrepareRemoval(node, Box::new(request)),
                 "nodes_stop" if !wait => {
@@ -340,6 +394,8 @@ pub(super) fn parse(arguments: Vec<String>) -> Result<Options> {
         || expected_process.is_some()
         || stop_id.is_some()
         || fence_id.is_some()
+        || grace_seconds.is_some()
+        || birth_resolution.is_some()
     {
         return Err(invalid("options do not apply to this command"));
     }

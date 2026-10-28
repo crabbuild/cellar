@@ -27,6 +27,8 @@ pub enum Permission {
     FleetEvacuate,
     FleetRemove,
     FleetStop,
+    /// Preparation is independent of stop and capacity grants.
+    FleetMaintenance,
 }
 
 #[derive(Clone)]

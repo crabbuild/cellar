@@ -234,6 +234,7 @@ pub(crate) struct Handle {
     pub sql: Option<crate::raft::SqlResourceObserver>,
     pub groups: crate::raft::host::GroupResourceObserver,
     pub controller: Mutex<Option<(u64, super::RaftControllerResources)>>,
+    pub fleet_restart_service: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pub fleet_movement_service: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
     pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
@@ -294,6 +295,15 @@ impl RaftCells {
         // its failure after joining all owners, rather than inventing proof.
         let _ = self.handle.admission.seal();
         self.stop_fleet_movement_service();
+        self.stop_fleet_restart_service();
+    }
+
+    pub(crate) fn stop_fleet_restart_service(&self) {
+        if let Ok(slot) = self.handle.fleet_restart_service.lock() {
+            if let Some(stop) = slot.as_ref() {
+                stop.send_replace(true);
+            }
+        }
     }
 
     pub(crate) fn stop_fleet_movement_service(&self) {

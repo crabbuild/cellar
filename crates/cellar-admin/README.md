@@ -51,11 +51,26 @@ configure the external origin. The private Cellar peer listener stays private.
 ## Configure access
 
 Permissions are independent per fleet: `metadata_read`, `data_read`,
-`data_write`, `operate`, `configure`, `fleet_topology`, `fleet_cancel`, `fleet_register`, and `fleet_capacity`. Resource operations resolve declared
+`data_write`, `operate`, `configure`, `fleet_topology`, `fleet_cancel`, `fleet_register`, `fleet_capacity`, and `fleet_maintenance`. Resource operations resolve declared
 application bindings on the server before routing. Do not distribute tokens
 with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
 explicit principal provisioning.
+
+## Managed Raft maintenance preparation
+
+`POST /api/v1/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance` requires
+`fleet_maintenance`; cancellation at `cancel-maintenance` requires `fleet_cancel`.
+Both record durable audit intent before backend dispatch. `GET
+/api/v1/fleets/{fleet}/raft/maintenance/{operation}` requires `metadata_read` and
+performs no execution or metadata mutation. Configure and retain the explicit
+Node-owned `RaftFleetControl::start_maintenance_service` in the embedding host;
+HTTP requests and ordinary dashboard construction do not start a controller.
+
+The shipped CLI supports prepare/cancel/status and read-only waiting. Separate
+maintenance stop/return/resume management commands remain unfinished. See the
+[operator workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#maintenance-preparation-and-cancellation)
+for payload scope, grants, reconciliation and current limits.
 
 ## Managed Raft placement operations
 

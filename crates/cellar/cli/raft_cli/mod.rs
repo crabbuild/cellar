@@ -5,6 +5,7 @@
 //! Human operator commands use authenticated management, not bucket listing.
 mod http;
 mod lifecycle;
+mod maintenance;
 mod nodes;
 mod options;
 use crate::sdk::fleet_operations::*;
@@ -39,6 +40,43 @@ async fn execute(options: &options::Options) -> Result<Value> {
     let client = http::Client::new(options)?;
     let timeout = Duration::from_secs(30);
     match &options.action {
+        Action::MaintenanceStatus(operation) => {
+            maintenance::status(
+                &client,
+                options
+                    .catalog_id
+                    .as_deref()
+                    .ok_or_else(|| invalid("missing catalog ID"))?,
+                operation,
+                options.wait,
+                options.timeout,
+            )
+            .await
+        }
+        Action::PrepareMaintenance(node, request) => {
+            maintenance::submit(
+                &client,
+                node,
+                &request.operation,
+                request.as_ref(),
+                false,
+                options.wait,
+                options.timeout,
+            )
+            .await
+        }
+        Action::CancelMaintenance(node, request) => {
+            maintenance::submit(
+                &client,
+                node,
+                &request.operation,
+                request.as_ref(),
+                true,
+                options.wait,
+                options.timeout,
+            )
+            .await
+        }
         Action::EvacuationStatus(operation) => {
             lifecycle::status(&client, options.catalog_id.as_deref(), operation, timeout).await
         }

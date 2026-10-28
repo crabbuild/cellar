@@ -11,6 +11,7 @@ mod events;
 mod nodes;
 mod raft;
 mod raft_lifecycle;
+mod raft_maintenance;
 mod raft_nodes;
 
 pub use audit::{AuditStore, Operation};
@@ -64,6 +65,18 @@ pub fn router(console: Console) -> Result<Router> {
     let state = Arc::new(console);
     let api = Router::new()
         .route("/fleets/{fleet}/raft/status", get(raft::status))
+        .route(
+            "/fleets/{fleet}/raft/maintenance/{operation}",
+            get(raft_maintenance::status),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/prepare-maintenance",
+            post(raft_maintenance::prepare).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
+        .route(
+            "/fleets/{fleet}/raft/nodes/{node}/cancel-maintenance",
+            post(raft_maintenance::cancel).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route(
             "/fleets/{fleet}/raft/evacuations/{operation}",
             get(raft_lifecycle::status),
