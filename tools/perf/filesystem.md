@@ -106,3 +106,34 @@ credentials, runs this case serially and uploads the report. The report contains
 hashes, receipts, refusal counts and recovery outcomes, with no credentials.
 Supplied-client fault gates wrap actual S3 I/O; physical network/disk failures
 and deployment performance retain their own qualification profiles.
+
+### S3 connection cuts
+
+The transport variant runs the same client-ledger scenario through three
+supervisor-owned TCP proxies, separately covering replica publication, the
+owner's lease store and a failed recovery reader. Use a fresh private bucket;
+this variant requires a numeric loopback HTTP endpoint. It closes existing
+pooled connections and rejects new connections without replacing object-store
+methods or generating HTTP responses.
+
+```sh
+CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-OTHER-UNIQUE-TEST-ID \
+CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
+CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-socket-fault.json \
+cargo test --locked -p cellar --test native_node \
+  node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery \
+  -- --ignored --exact --nocapture
+```
+
+The JavaScript SDK workflow runs this case serially in a separate bucket on its
+private RustFS server and uploads its structured report. Each proxy admits at
+most 128 active connection tasks; a cut drains and joins them before proceeding.
+The report distinguishes forwarded, cancelled and denied connections and requires
+joined cleanup. In this mode, the three refusal counters count TCP connections,
+rather than object-store method calls. Node lease, recovery and shutdown budgets
+are unchanged from the supplied-store scenario.
+
+The [captured transport report](results/2026-10-28-filesystem-socket-faults.md)
+records local macOS evidence. This profile covers connection closure during
+bucket proof and recovery. It does not qualify packet blackholes/delay, peer
+transport cuts, credential expiry, disk stalls, or deployment SLO/RPO/RTO.

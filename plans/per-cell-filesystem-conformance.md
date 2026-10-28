@@ -517,6 +517,20 @@ replica reads beneath the supplied-client fault gates. Those gates do not simula
 physical network partition, SDK socket timeouts, credential expiry or disk stalls.
 Results and exact backend scope belong in the release ledger.
 
+The `filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery`
+variant adds real TCP connection closure beneath the unmodified S3 client. Three
+[bounded proxies](../crates/cellar/tests/support/filesystem_socket_fault.rs)
+isolate replica publication, owner lease access and recovery reads independently.
+Cuts cancel and join existing pooled connections before rejecting new ones.
+The scenario retains the same file/state/receipt ledger, ambiguous response,
+lease-expiry fence, failed-constructor admission, stale-capability checks, two
+empty-node recoveries and joined node shutdown. Proxy counters establish actual
+forwarding before the publication/lease cuts and denied connections afterward;
+all three servers and their forwarding tasks must join. A separate loopback
+control tests both directions of an established connection and refusal of a new
+one. This closes the selected connection-closure boundary, while packet stalls,
+peer failures, expired credentials and host disk faults remain separate profiles.
+
 ## Python task cancellation profile
 
 The [Python filesystem supervisor](../crates/cellar-python/tests/filesystem.rs)

@@ -16,6 +16,74 @@ use std::{
 };
 use tokio::sync::Notify;
 
+#[path = "filesystem_socket_fault.rs"]
+mod socket_fault;
+
+#[derive(Clone, Copy)]
+enum Backend {
+    Development,
+    S3,
+    S3Sockets,
+}
+
+enum Fault {
+    Publication(Arc<ReplicaPublicationFault>),
+    Store(Arc<StoreOutage>),
+    Socket(Arc<socket_fault::Control>),
+}
+
+impl Fault {
+    async fn cut(&self) -> Result<()> {
+        match self {
+            Self::Publication(fault) => fault.block_and_drain().await,
+            Self::Store(fault) => fault.isolate(),
+            Self::Socket(fault) => fault.cut().await?,
+        }
+        Ok(())
+    }
+
+    fn refused(&self) -> usize {
+        match self {
+            Self::Publication(fault) => fault.refused(),
+            Self::Store(fault) => fault.refused(),
+            Self::Socket(fault) => fault.refused(),
+        }
+    }
+}
+
+fn s3_bucket(endpoint: &str) -> Result<cellar::bucket::Bucket> {
+    let bucket = std::env::var("CELLAR_FS_S3_BUCKET")?;
+    ensure!(
+        bucket.starts_with("cellar-filesystem-"),
+        "use a private filesystem qualification bucket"
+    );
+    cellar::bucket::Bucket::open(
+        &bucket,
+        Some(endpoint),
+        "us-east-1",
+        Some(cellar::bucket::StaticCredentials {
+            access_key_id: std::env::var("AWS_ACCESS_KEY_ID")?,
+            secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
+            session_token: None,
+        }),
+        Some("filesystem-qualification"),
+    )
+}
+
+async fn socket_bucket(
+    management: &ExecutionDomain,
+    proxies: &mut Vec<socket_fault::Proxy>,
+) -> Result<(cellar::bucket::Bucket, Fault)> {
+    let proxy = socket_fault::Proxy::start(&std::env::var("CELLAR_FS_S3_ENDPOINT")?).await?;
+    let control = proxy.control.clone();
+    proxies.push(proxy);
+    let endpoint = &proxies.last().unwrap().endpoint;
+    Ok((
+        management.run(async { s3_bucket(endpoint) }).await??,
+        Fault::Socket(control),
+    ))
+}
+
 const NAME: &str = "filesystem-fault";
 
 fn scope() -> String {
@@ -162,48 +230,93 @@ fn applications(signals: Arc<Signals>) -> Result<CompiledApplications> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn filesystem_unproven_write_is_fenced_and_failed_recovery_refuses_admission() -> Result<()> {
-    scenario(false).await
+    scenario(Backend::Development).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires a private CELLAR_FS_S3_BUCKET and CELLAR_FS_S3_ENDPOINT with AWS credentials"]
 async fn filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission() -> Result<()>
 {
-    scenario(true).await
+    scenario(Backend::S3).await
 }
 
-async fn scenario(s3: bool) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires a private loopback CELLAR_FS_S3_ENDPOINT, CELLAR_FS_S3_BUCKET and AWS credentials"]
+async fn filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery() -> Result<()>
+{
+    scenario(Backend::S3Sockets).await
+}
+
+async fn scenario(backend: Backend) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut proxies = Vec::new();
+    let result = exercise(backend, &directory, &management, &mut proxies).await;
+    let mut proxy_reports = Vec::new();
+    let mut cleanup = Ok(());
+    for (index, proxy) in proxies.into_iter().enumerate() {
+        match proxy.shutdown().await {
+            Ok(mut report) => {
+                report["role"] = json!(["lease", "publication", "recovery"][index]);
+                proxy_reports.push(report);
+            }
+            Err(error) => cleanup = Err(error),
+        }
+    }
+    management.shutdown().await;
+    let mut report = result?;
+    cleanup?;
+    if matches!(backend, Backend::S3Sockets) {
+        ensure!(proxy_reports.len() == 3);
+        for proxy in &proxy_reports {
+            ensure!(proxy["denied_connections"]
+                .as_u64()
+                .is_some_and(|count| count > 0));
+            ensure!(proxy["remaining_connections"] == 0 && proxy["joined"] == true);
+        }
+        for proxy in &proxy_reports[..2] {
+            ensure!(proxy["forwarded_connections"]
+                .as_u64()
+                .is_some_and(|count| count > 0));
+            ensure!(proxy["cancelled_connections"]
+                .as_u64()
+                .is_some_and(|count| count > 0));
+        }
+    }
+    report["socket_proxies"] = json!(proxy_reports);
+    if let Some(path) = std::env::var_os("CELLAR_FS_FAULT_REPORT") {
+        std::fs::write(
+            std::path::PathBuf::from(path),
+            serde_json::to_vec_pretty(&report)?,
+        )?;
+    }
+    Ok(())
+}
+
+async fn exercise(
+    backend: Backend,
+    directory: &tempfile::TempDir,
+    management: &ExecutionDomain,
+    proxies: &mut Vec<socket_fault::Proxy>,
+) -> Result<Value> {
     let bucket = management
         .run(async {
-            if s3 {
-                let bucket = std::env::var("CELLAR_FS_S3_BUCKET")?;
-                let endpoint = std::env::var("CELLAR_FS_S3_ENDPOINT")?;
-                ensure!(
-                    bucket.starts_with("cellar-filesystem-"),
-                    "use a private filesystem qualification bucket"
-                );
-                cellar::bucket::Bucket::open(
-                    &bucket,
-                    Some(&endpoint),
-                    "us-east-1",
-                    Some(cellar::bucket::StaticCredentials {
-                        access_key_id: std::env::var("AWS_ACCESS_KEY_ID")?,
-                        secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
-                        session_token: None,
-                    }),
-                    Some("filesystem-qualification"),
-                )
-            } else {
+            if matches!(backend, Backend::Development) {
                 cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))
+            } else {
+                s3_bucket(&std::env::var("CELLAR_FS_S3_ENDPOINT")?)
             }
         })
         .await??;
     let signals = Arc::new(Signals::default());
     let _release = Release(signals.clone());
     let core = Executor::new("filesystem-outage-owner")?;
-    let (isolated, outage) = StoreOutage::wrap(&bucket)?;
+    let (isolated, outage) = if matches!(backend, Backend::S3Sockets) {
+        socket_bucket(management, proxies).await?
+    } else {
+        let (bucket, fault) = StoreOutage::wrap(&bucket)?;
+        (bucket, Fault::Store(fault))
+    };
     let (config, mut services) = inputs(
         "filesystem-outage-owner",
         &directory.path().join("old"),
@@ -212,15 +325,24 @@ async fn scenario(s3: bool) -> Result<()> {
         0,
     )
     .await?;
-    let publication = ReplicaPublicationFault::with_prefixes(
-        bucket.store.clone(),
-        format!("{}cells/{}/ltx/", bucket.prefix, scope()),
-        Vec::new(),
-    );
+    let (publication_store, publication) = if matches!(backend, Backend::S3Sockets) {
+        let (bucket, fault) = socket_bucket(management, proxies).await?;
+        (bucket.store, fault)
+    } else {
+        let publication = ReplicaPublicationFault::with_prefixes(
+            bucket.store.clone(),
+            format!("{}cells/{}/ltx/", bucket.prefix, scope()),
+            Vec::new(),
+        );
+        (
+            publication.clone() as Arc<dyn object_store::ObjectStore>,
+            Fault::Publication(publication),
+        )
+    };
     let fleet = services.fleet.as_mut().context("fleet missing")?;
     fleet.fleet_durability = false;
     fleet.replica_storage = ReplicaStorage::new(
-        publication.clone(),
+        publication_store,
         ReplicaStorageOptions {
             prefix: bucket.prefix.clone(),
             ..Default::default()
@@ -232,7 +354,7 @@ async fn scenario(s3: bool) -> Result<()> {
     let seed: Value =
         serde_json::from_str(&call(&http, &owner, reqwest::Method::POST, "/seed").await?)?;
     ensure!(seed["generation"] == 1);
-    publication.block_and_drain().await;
+    publication.cut().await?;
     let address = owner.info().public_address;
     let old_services = owner.services();
     let request = async {
@@ -255,7 +377,7 @@ async fn scenario(s3: bool) -> Result<()> {
             owner.shutdown(ShutdownMode::Handoff).await?;
             return Err(error.into());
         }
-        outage.isolate();
+        outage.cut().await?;
         tokio::time::timeout(
             Duration::from_secs(10),
             owner.run_until(std::future::pending()),
@@ -300,8 +422,13 @@ async fn scenario(s3: bool) -> Result<()> {
     // restore this cell. No application constructor or empty filesystem may
     // be admitted as a substitute for the acknowledged checkpoint.
     let bad_core = Executor::new("filesystem-outage-bad-recovery")?;
-    let (unreadable, read_fault) = StoreOutage::wrap(&bucket)?;
-    read_fault.isolate();
+    let (unreadable, read_fault) = if matches!(backend, Backend::S3Sockets) {
+        socket_bucket(management, proxies).await?
+    } else {
+        let (bucket, fault) = StoreOutage::wrap(&bucket)?;
+        (bucket, Fault::Store(fault))
+    };
+    read_fault.cut().await?;
     let (mut config, mut services) = inputs(
         "filesystem-bad-recovery",
         &directory.path().join("bad"),
@@ -375,29 +502,22 @@ async fn scenario(s3: bool) -> Result<()> {
     ready(&verifier).await?;
     let final_receipt = call(&http, &verifier, reqwest::Method::GET, "/recovered").await;
     let final_stop = stopped(verifier).await;
-    management.shutdown().await;
     final_stop?;
     let final_receipt: Value = serde_json::from_str(&final_receipt?)?;
     ensure!(final_receipt == proven);
     ensure!(signals.constructors.load(Ordering::SeqCst) == 3);
-    if let Some(path) = std::env::var_os("CELLAR_FS_FAULT_REPORT") {
-        let report = json!({
-            "format":1,"scope":scope(),"mode":"bucket proof; supplied-store fault injection",
-            "backend":if s3 {"s3"} else {"development"},
-            "acknowledged":[seed,proven],"ambiguous_response":ambiguous,
-            "unacknowledged_local_commit":signals.local_receipt.lock().unwrap().as_ref().unwrap().clone(),
-            "recovered_after_outage":recovered,"recovered_after_takeover":final_receipt,
-            "publication_refusals":publication.refused(),"lease_store_refusals":outage.refused(),
-            "recovery_read_refusals":read_fault.refused(),"failed_recovery_http_status":status.as_u16(),
-            "application_constructors":signals.constructors.load(Ordering::SeqCst),
-            "stale_descriptor_checks":signals.stale_checks.load(Ordering::SeqCst),
-            "predecessor_local_data_removed":true,"successor_local_data_removed":true,
-            "owner_fenced":true,"caller_executor_preserved":true,"remaining_nodes_joined":true,
-        });
-        std::fs::write(
-            std::path::PathBuf::from(path),
-            serde_json::to_vec_pretty(&report)?,
-        )?;
-    }
-    Ok(())
+    Ok(json!({
+        "format":1,"scope":scope(),
+        "mode":if matches!(backend, Backend::S3Sockets) {"bucket proof; TCP connection cuts"} else {"bucket proof; supplied-store fault injection"},
+        "backend":if matches!(backend, Backend::Development) {"development"} else {"s3"},
+        "acknowledged":[seed,proven],"ambiguous_response":ambiguous,
+        "unacknowledged_local_commit":signals.local_receipt.lock().unwrap().as_ref().unwrap().clone(),
+        "recovered_after_outage":recovered,"recovered_after_takeover":final_receipt,
+        "publication_refusals":publication.refused(),"lease_store_refusals":outage.refused(),
+        "recovery_read_refusals":read_fault.refused(),"failed_recovery_http_status":status.as_u16(),
+        "application_constructors":signals.constructors.load(Ordering::SeqCst),
+        "stale_descriptor_checks":signals.stale_checks.load(Ordering::SeqCst),
+        "predecessor_local_data_removed":true,"successor_local_data_removed":true,
+        "owner_fenced":true,"caller_executor_preserved":true,"remaining_nodes_joined":true,
+    }))
 }

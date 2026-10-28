@@ -1,0 +1,434 @@
+{
+  "format": 1,
+  "status": "passed_selected_profile",
+  "final": {
+    "baseline": "d16514866cc7ac963bd06145c5e20b30c3b563cc",
+    "profile": "macOS arm64, Rust 1.98.1; unoptimized; debug=0; serial fixtures",
+    "source_sha256": {
+      "crates/cellar/tests/native_node.rs": "00e3a1d4aa819c1545a63dd82e5de102cb83d84d474c0dcda5b05bb55b6c6866",
+      "crates/cellar/tests/support/node_filesystem_faults.rs": "2c7cbb067a3acfa14416289da44df10e15d1ca4c4efd803f9b930d461e9346ef",
+      "crates/cellar/tests/support/filesystem_socket_fault.rs": "311223936b0d674ee8126e12ebcdc127077fd8f0959d2ed059fe2b6f39026c4a"
+    },
+    "checks": [
+      {
+        "name": "native-filesystem",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults-final/native-node-executable",
+          "filesystem",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 47.39998087496497,
+        "log_sha256": "bc9b004cd742d1a28ef27e8206c73a866271e312afcaca09778a89417be56719"
+      },
+      {
+        "name": "supplied-list",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+          "--exact",
+          "--ignored",
+          "--list"
+        ],
+        "exit": 0,
+        "seconds": 0.017145207966677845,
+        "log_sha256": "20482c321a09de77aba5dd2112a1f6b9de6d2e6f86cbf1c39ff903d278cbdc72"
+      },
+      {
+        "name": "sockets-list",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--list"
+        ],
+        "exit": 0,
+        "seconds": 0.013709917082451284,
+        "log_sha256": "24dba87e7e6313e5b6b721ae31110e9f36d48d2db98ed170d983d13cc9d3bd0c"
+      },
+      {
+        "name": "supplied",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 15.046860583941452,
+        "log_sha256": "9c75cd905716514fe30dce19f56d3296d86b711e535ae631fd85fbf717274923"
+      },
+      {
+        "name": "sockets",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 15.95903579192236,
+        "log_sha256": "debf7f65e3226bfe5de2da4b27e1f9a077264d5cced5262fb5239956ff5c7d8f"
+      }
+    ],
+    "executable_sha256": "8bee6a8cc5cb42fb1d026008bbc0ff3da9c3e1e30dc5d0f7a8faec0db43d8194",
+    "store": {
+      "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+      "cpus": 2,
+      "memory_bytes": 2147483648
+    },
+    "supplied_report_sha256": "062b0dc936f00fc9204bde412f7d9d394d682f46b9a185f16dc1286f0f5f0962",
+    "sockets_report_sha256": "3899e97dcd358e7c19b4e1fca36ef9ef961f3451712a8ea9e3fef09259a3ee7c",
+    "complete": true,
+    "store_removed": true
+  },
+  "socket_report": {
+    "acknowledged": [
+      {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      }
+    ],
+    "ambiguous_response": {
+      "outcome": "unknown",
+      "transport_error": true
+    },
+    "application_constructors": 3,
+    "backend": "s3",
+    "caller_executor_preserved": true,
+    "failed_recovery_http_status": 500,
+    "format": 1,
+    "lease_store_refusals": 21,
+    "mode": "bucket proof; TCP connection cuts",
+    "owner_fenced": true,
+    "predecessor_local_data_removed": true,
+    "publication_refusals": 7,
+    "recovered_after_outage": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "version": "4"
+    },
+    "recovered_after_takeover": {
+      "generation": 3,
+      "inode": "2",
+      "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+      "version": "6"
+    },
+    "recovery_read_refusals": 6,
+    "remaining_nodes_joined": true,
+    "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+    "socket_proxies": [
+      {
+        "accepted_connections": 28,
+        "cancelled_connections": 7,
+        "connection_io_errors": 0,
+        "denied_connections": 21,
+        "forwarded_connections": 7,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "lease"
+      },
+      {
+        "accepted_connections": 8,
+        "cancelled_connections": 1,
+        "connection_io_errors": 0,
+        "denied_connections": 7,
+        "forwarded_connections": 1,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "publication"
+      },
+      {
+        "accepted_connections": 6,
+        "cancelled_connections": 0,
+        "connection_io_errors": 0,
+        "denied_connections": 6,
+        "forwarded_connections": 0,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "recovery"
+      }
+    ],
+    "stale_descriptor_checks": 1,
+    "successor_local_data_removed": true,
+    "unacknowledged_local_commit": {
+      "generation": 2,
+      "inode": "2",
+      "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+      "version": "6"
+    }
+  },
+  "supplied_report": {
+    "acknowledged": [
+      {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      }
+    ],
+    "ambiguous_response": {
+      "outcome": "unknown",
+      "transport_error": true
+    },
+    "application_constructors": 3,
+    "backend": "s3",
+    "caller_executor_preserved": true,
+    "failed_recovery_http_status": 500,
+    "format": 1,
+    "lease_store_refusals": 49,
+    "mode": "bucket proof; supplied-store fault injection",
+    "owner_fenced": true,
+    "predecessor_local_data_removed": true,
+    "publication_refusals": 10,
+    "recovered_after_outage": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "version": "4"
+    },
+    "recovered_after_takeover": {
+      "generation": 3,
+      "inode": "2",
+      "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+      "version": "6"
+    },
+    "recovery_read_refusals": 2,
+    "remaining_nodes_joined": true,
+    "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+    "socket_proxies": [],
+    "stale_descriptor_checks": 1,
+    "successor_local_data_removed": true,
+    "unacknowledged_local_commit": {
+      "generation": 2,
+      "inode": "2",
+      "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+      "version": "6"
+    }
+  },
+  "initial": {
+    "runtime_manifest": {
+      "baseline": "d16514866cc7ac963bd06145c5e20b30c3b563cc",
+      "profile": "macOS arm64, Rust 1.98.1; unoptimized; debug=0; serial fixtures",
+      "source_sha256": {
+        "crates/cellar/tests/native_node.rs": "00e3a1d4aa819c1545a63dd82e5de102cb83d84d474c0dcda5b05bb55b6c6866",
+        "crates/cellar/tests/support/node_filesystem_faults.rs": "2c7cbb067a3acfa14416289da44df10e15d1ca4c4efd803f9b930d461e9346ef",
+        "crates/cellar/tests/support/filesystem_socket_fault.rs": "da88b8aa5828a57aa39c4d17a6749b85265a609426ffb9118b2c6163af3d3446"
+      },
+      "checks": [
+        {
+          "name": "native-filesystem",
+          "command": [
+            "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults/native-node-executable",
+            "filesystem",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 46.90586950001307,
+          "log_sha256": "f27d4608ece61d830c859d9d526b535e56b8075103f568c6f906d37f0956484c"
+        },
+        {
+          "name": "supplied-list",
+          "command": [
+            "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults/native-node-executable",
+            "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+            "--exact",
+            "--ignored",
+            "--list"
+          ],
+          "exit": 0,
+          "seconds": 0.01367545803077519,
+          "log_sha256": "20482c321a09de77aba5dd2112a1f6b9de6d2e6f86cbf1c39ff903d278cbdc72"
+        },
+        {
+          "name": "sockets-list",
+          "command": [
+            "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults/native-node-executable",
+            "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+            "--exact",
+            "--ignored",
+            "--list"
+          ],
+          "exit": 0,
+          "seconds": 0.012933333055116236,
+          "log_sha256": "24dba87e7e6313e5b6b721ae31110e9f36d48d2db98ed170d983d13cc9d3bd0c"
+        },
+        {
+          "name": "supplied",
+          "command": [
+            "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults/native-node-executable",
+            "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 15.07038220798131,
+          "log_sha256": "3078131958a47c0f5a6de69166400a8a5ee4be4a2b900b3281f42160ff26f819"
+        },
+        {
+          "name": "sockets",
+          "command": [
+            "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-faults/native-node-executable",
+            "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+            "--exact",
+            "--ignored",
+            "--nocapture",
+            "--test-threads=1"
+          ],
+          "exit": 0,
+          "seconds": 14.702920333016664,
+          "log_sha256": "585651374f6ca88eeddeb2d6fc389049557fba344b4aad07df1ce7f7275d23f2"
+        }
+      ],
+      "executable_sha256": "84bf05e30956afd8458d68d383a043f6c6436891b82b6aa5c579c4a80e07f481",
+      "store": {
+        "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+        "cpus": 2,
+        "memory_bytes": 2147483648
+      },
+      "supplied_report_sha256": "dac2c2589c91769ec8f0e060b66131ce274378c87af63c0b1a9fc2b214007835",
+      "sockets_report_sha256": "155d70aa35d736b47f5426dc79e238fa6630fe7f02af9972fc9e95b73688a2fa",
+      "complete": true,
+      "store_removed": true
+    },
+    "clippy": "failed: raw tokio::select! violates repository macro policy; replaced with cellar::asyncrt::select_biased! and an explicit cut-before-accept reason",
+    "clippy_log_sha256": "dd1bea0f1182196610cbd9122ab9fc745d4ffa42ffa44786fb685c28cc8cf7f7",
+    "socket_report": {
+      "acknowledged": [
+        {
+          "generation": 1,
+          "inode": "2",
+          "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+          "version": "4"
+        },
+        {
+          "generation": 3,
+          "inode": "2",
+          "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+          "version": "6"
+        }
+      ],
+      "ambiguous_response": {
+        "http_status": 500,
+        "outcome": "unknown"
+      },
+      "application_constructors": 3,
+      "backend": "s3",
+      "caller_executor_preserved": true,
+      "failed_recovery_http_status": 500,
+      "format": 1,
+      "lease_store_refusals": 20,
+      "mode": "bucket proof; TCP connection cuts",
+      "owner_fenced": true,
+      "predecessor_local_data_removed": true,
+      "publication_refusals": 8,
+      "recovered_after_outage": {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      "recovered_after_takeover": {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      },
+      "recovery_read_refusals": 1,
+      "remaining_nodes_joined": true,
+      "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+      "socket_proxies": [
+        {
+          "accepted_connections": 27,
+          "cancelled_connections": 7,
+          "connection_io_errors": 0,
+          "denied_connections": 20,
+          "forwarded_connections": 7,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "lease"
+        },
+        {
+          "accepted_connections": 9,
+          "cancelled_connections": 1,
+          "connection_io_errors": 0,
+          "denied_connections": 8,
+          "forwarded_connections": 1,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "publication"
+        },
+        {
+          "accepted_connections": 1,
+          "cancelled_connections": 0,
+          "connection_io_errors": 0,
+          "denied_connections": 1,
+          "forwarded_connections": 0,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "recovery"
+        }
+      ],
+      "stale_descriptor_checks": 1,
+      "successor_local_data_removed": true,
+      "unacknowledged_local_commit": {
+        "generation": 2,
+        "inode": "2",
+        "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+        "version": "6"
+      }
+    }
+  },
+  "repository_checks": {
+    "clippy": {
+      "exit": 0,
+      "log_sha256": "0d3f6a795e8f5adf3dd5deb5bf71e81886f73fe778d6b44759a1446807c726eb"
+    },
+    "format-check": {
+      "exit": 0,
+      "log_sha256": "d7fb30f09d5a51cdab4155f83a46f7d5668c486f7ae7d170888331e35f24c35f"
+    },
+    "layout": {
+      "exit": 0,
+      "log_sha256": "2822293cfa24352407af1093625fa30a3856cce60c6884c5d838d458eebfa35e"
+    },
+    "native-dependencies": {
+      "exit": 0,
+      "log_sha256": "d0c8028b2aefb4f734bf06e5c4e227d903485d207b07c2122a7230d602f4aba5"
+    },
+    "docs": {
+      "exit": 0,
+      "log_sha256": "b2e215b315e148526da38a9d492108fe1444cfea8e7e0292abef7cf703f98060"
+    }
+  },
+  "workflow": {
+    "source_sha256": "7f5862f6a0d472852328efbd5830a29641b48c201686e57ea41318ba7ddba441",
+    "exact_case_registered": true,
+    "separate_bucket": true,
+    "always_upload_report": true,
+    "remote_execution": "not qualified by local checks"
+  },
+  "local_file_references": 107
+}

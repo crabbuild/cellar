@@ -40,6 +40,30 @@ remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
 
+## S3 transport-cut checkpoint
+
+The [TCP fault report](../tools/perf/results/2026-10-28-filesystem-socket-faults.md)
+adds a transport-level variant of the native recovery scenario. Actual S3
+connections for replica publication, the owner's lease store and failed recovery
+are cut through independent bounded loopback proxies. Existing pooled sockets
+are closed and joined before new connections are rejected. No supplied-store
+fault decorator is installed in this variant.
+
+The file/state/receipt ledger retains the acknowledged first transaction,
+classifies the locally committed second transaction's failed response as unknown,
+and requires actual owner fencing. A reader with a cut replica path admits no
+application constructor. Healthy successors recover the first transaction,
+refuse old capabilities, prove a third transaction and recover it after another
+local-data deletion. Remaining nodes and proxies join, the fenced owner's
+services close, and the caller executor survives.
+The final-source native regression and both S3 fault variants pass with unchanged
+budgets. The JavaScript SDK workflow registers the exact transport case in a
+fresh private bucket and retains its report; remote execution is still pending.
+
+This is macOS development-artifact evidence against pinned local RustFS. Packet
+blackholes/delay, physical peer cuts, credential expiry, host disk faults,
+sustained load and optimized deployment qualification remain open.
+
 ## Mode-option precedence checkpoint
 
 The O13/O25 audit reproduced a contract defect: unsupported `chmod` modes on a
@@ -997,6 +1021,7 @@ that every case in each group is complete.
 | Q01/P14-aggregate | Logical size at i64::MAX remains exact through overwrites and shrinking; further aggregate growth is EDQUOT / NotApplied without changing file state; lowering the quota still permits shrinking | `aggregate_logical_quota_at_integer_limit_is_a_known_refusal` in backend tests; the huge file is sparse and is not dense-capacity evidence |
 | F05-sqlite-full | A real SQLite page ceiling causes ENOSPC during chunk growth; observed rollback preserves prior content/accounting, the caller outcome stays Unknown, and writes succeed after removing the ceiling | `sqlite_full_during_chunk_growth_rolls_back_and_allows_later_writes` in backend tests; does not qualify host disk stalls or fleet proof failures |
 | F01/F02/F03/F06/A03/A05-store-fault | Acknowledged file/state/receipt transactions recover through a blocked publication, owner expiry, failed recovery and healthy takeover; the deliberately unpublished local transaction cannot escape as success. A failed replica reader admits no application constructor. Old descriptors/context refuse new-owner use, and a proven post-takeover transaction survives another cold restore | `filesystem_unproven_write_is_fenced_and_failed_recovery_refuses_admission` in [native failure fixture](../crates/cellar/tests/support/node_filesystem_faults.rs), using the existing supplied-store decorators. `CELLAR_FS_FAULT_REPORT` records the client ledger, recovered hashes/inode/versions, real refusal counters and joined lifecycle assertions |
+| F01/F03/F06/A05-TCP-cut | Same file/state/receipt ledger and recovery assertions through real S3 connection cuts; publication and lease pools are closed, new connections are rejected, and a cut recovery reader cannot admit an empty replacement | `filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery` in the native failure fixture; [transport checkpoint](#s3-transport-cut-checkpoint) records socket counters, two cold restores and joined cleanup |
 | FS-04-format | An older work constraint refuses first-use initialization; recovery of existing files refuses an old work constraint or resize trigger and preserves the database without migration/reset | `old_maintenance_constraint_refuses_initialization_and_recovery_without_reset` and `old_resize_accounting_refuses_recovery_without_changing_file_state` in backend tests |
 | Q05/H04/F01-maintenance | Pending orphan GC survives forced retirement and empty-local-state recovery, runs without application code, and can reduce usage while above a newly lowered quota | `filesystem_pending_reclamation_recovers_without_application_access` in [real-node tests](../crates/cellar/tests/support/node_filesystem.rs) |
 | Q05/H04/F01-readonly-maintenance | A read-only successor performs the same recovery and automatic GC without application construction, then reads the surviving file and commits/proves business state while refusing file mutation | `filesystem_readonly_recovery_reclaims_without_application_access` in real-node tests |
@@ -1147,7 +1172,9 @@ independent of these primitive release priorities.
    peer-proof failures or host disk stalls. The SQLite page-ceiling case covers
    one local disk-full boundary; complete the remaining fault matrix.
    The same native scenario now passes over actual S3 I/O beneath supplied-client
-   fault gates, including on the `5998b82c` integration. Physical socket/network,
+   fault gates, including on the `5998b82c` integration. The transport-cut
+   checkpoint additionally covers actual S3 connection closure and refusal,
+   including existing pools. Packet blackholes/delay, peer transport failures,
    credential-expiry and host-disk behavior remain separate.
 7. Complete optimized packaged-example delivery and affected-feature CI;
    run affected Rust/guest tests and strict Clippy, formatting/layout/native
