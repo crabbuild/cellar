@@ -257,6 +257,7 @@ impl Peer {
             namespace: None,
             runtime: None,
             dns: Vec::new(),
+            network_helper: None,
         });
         graph.primary.containers = vec![cellar::container::ContainerSpec {
             class_name: "Counter".into(),

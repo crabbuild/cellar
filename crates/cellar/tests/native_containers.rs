@@ -648,6 +648,7 @@ async fn embedded_container_host(
             namespace: None,
             runtime: Some(runtime.into()),
             dns: vec!["192.0.2.53".into()],
+            network_helper: None,
         })?;
     domain
         .run(async move {
@@ -932,6 +933,7 @@ async fn owned_container_domains() -> Result<()> {
             namespace: None,
             runtime: None,
             dns: Vec::new(),
+            network_helper: None,
         })?;
     restarted
         .run(async {

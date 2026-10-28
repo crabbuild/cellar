@@ -101,6 +101,7 @@ anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
+cellar-egress.workspace = true
 cellar-logic.workspace = true
 cellar-native.workspace = true
 cellar-ltx = { workspace = true, features = ["s3"] }
@@ -167,7 +168,6 @@ nix.workspace = true
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
 
 [dev-dependencies]
-cellar-egress.workspace = true
 lz4_flex.workspace = true
 
 [build-dependencies]

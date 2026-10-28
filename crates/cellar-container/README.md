@@ -320,8 +320,57 @@ adds native resumable object storage for published gateway operations; complete
 helper backup/restore and outbound interception remain separate delivery work.
 The native [outbound transport and network helper](../cellar-egress/README.md)
 now supply bounded streams, acknowledged firewall rules, persistent DNS and
-joined process retirement. Engine lifecycle and native Worker routing remain
-the next integration step.
+joined process retirement. An explicit native host profile also starts an owned
+helper before its application and removes the pair together. Native Worker
+routing and public outbound interception remain the next integration step.
+
+### Optional native network-helper lifecycle
+
+The hosting Rust process selects this profile for any handler language. Supply
+an immutable Linux image containing `cellar-egress` and nftables; image packaging
+and release qualification remain separate work. Existing hosts use
+`network_helper: None`.
+
+```rust,no_run
+use cellar::sdk::{ContainerEngineOptions, ContainerNetworkHelperOptions};
+
+fn engine(
+    socket: std::path::PathBuf,
+    helper_image: String,
+) -> anyhow::Result<ContainerEngineOptions> {
+    Ok(ContainerEngineOptions {
+        socket,
+        namespace: Some("my-native-host".into()),
+        runtime: Some("runc".into()),
+        dns: Vec::new(),
+        network_helper: Some(ContainerNetworkHelperOptions::new(
+            helper_image, // full sha256: ID or verified cellar-image: identity
+            "/opt/cellar-egress/bin/cellar-egress".into(),
+            "1.1.1.1:53".parse()?,
+        )),
+    })
+}
+```
+
+| Boundary | Native behavior |
+| --- | --- |
+| Startup | Attach the exact helper ID, await readiness, then create/start the application |
+| Runtime | Explicit `runc`; other runtimes refuse this profile before allocation |
+| Namespace | Application joins its run's helper; the application retains no `NET_ADMIN` capability |
+| Ports / DNS | Helper owns at most 64 combined image/class TCP publications and its explicit DNS upstream |
+| Capacity | Reserve another 256 MiB for each allocated helper until removal is confirmed |
+| Idle reconnect | Preserve the same application/helper IDs and join the old inactivity timer |
+| Ownership loss | Retire private transport before waiting for SDK control; remove the application before the helper |
+| Helper loss | Refuse usable routing, publish the failure and clean up both owned resources |
+
+On macOS, the helper selects available local port candidates and holds them
+through container creation. It releases those reservations before daemon startup
+so the VM forwarder can bind. This is not an atomic port handoff; a working
+daemon forwarder remains required.
+
+This lifecycle profile does not enable `interceptOutboundHttp()` or qualify full
+Sandbox backup/restore and mounts. See the
+[real Engine campaign](../../tools/sandbox/egress/README.md) for evidence and gaps.
 
 
 ## Understand lifetime and failure outcomes

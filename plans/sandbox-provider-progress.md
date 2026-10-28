@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence | Complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup | Generation-bound outbound service routing, complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -454,6 +454,89 @@ This closes the fallback that would invalidate a persistent container handler's
 generation binding. It does not implement persistent Fetchers, production
 helper/application lifetime, per-request ownership gates or HTTP interception;
 those remain the next feature delivery. The full provider goal remains active.
+
+## Production helper/application lifetime — 2026-10-27
+
+An optional native host profile now gives each application run its own immutable
+helper identity, private Engine transport and shared network namespace. The host
+awaits helper readiness before creating the application. The application drops
+all capabilities; only the helper receives `NET_ADMIN`. Selecting this profile
+requires explicit `runc` and an immutable helper image with nftables.
+
+```mermaid
+sequenceDiagram
+    participant Host as Native host
+    participant Helper as Run-owned helper
+    participant App as Application container
+    Host->>Helper: Create exact ID and attach private transport
+    Host->>Helper: Start and await acknowledged readiness
+    Host->>App: Create in helper namespace and start
+    Note over Host,App: Warm reconnect preserves both IDs
+    Host->>Helper: Retire authority on release or failure
+    Host->>App: Stop and remove exact owned ID
+    Host->>Helper: Join transport, verify exit and remove
+```
+
+| Boundary | Evidence / behavior |
+| --- | --- |
+| Actual production API | The real Engine campaign configures an execution domain and `ContainerEngine`, then starts the actual helper and separate Node HTTP application |
+| Port ownership | Docker initially refused application `ExposedPorts` in shared-container network mode with HTTP 400; publications now belong entirely to the helper |
+| Warm reconnect | The same application/helper IDs survive past the cancelled idle deadline; explicit release removes both |
+| Failure | Missing installer allocates no application; killing the actual helper invalidates routing, preserves its original monitor error and removes the owned pair |
+| Ownership | Native release retires authority synchronously before waiting for SDK serialization; full resource IDs and node/host/cell/class/run labels bound cleanup |
+| Uncertain create | An empty Engine inventory cannot discharge a submitted create whose response/ID is unresolved; retain the cleanup obligation and helper capacity rather than replay creation |
+| Startup races | Late readiness cannot restore failed transport authority; abandoning startup before helper allocation terminates its monitor and clears running state |
+| Joined transport | Cancellation returns the task handle to its run; timeout aborts and joins it; repeated cleanup after confirmed removal is idempotent |
+| Capacity | Each pending/allocated helper reserves another 256 MiB until removal is confirmed |
+| Runner recovery | The test publishes ownership before allocation; timeout output is retained and recovery validates exact labels before removing containers, networks and that owner's nft table |
+
+The completed source snapshot passes all real-image campaigns with Engine
+29.5.2, Linux 6.8.0-117-generic, arm64 and explicit `runc`. The three production
+scenarios finish in 4.62 seconds; existing kernel, helper, installer-retirement
+and private Engine scenarios also pass. All three campaign owner filters are
+empty after cleanup. Nine selected native configuration/lifecycle/port tests,
+eight native container regressions and strict native all-feature library/test
+Clippy pass. Both Node/V8 container cases and all five published module,
+routing, sleep/wake, hook and restart cases also pass. The actual matching
+Sandbox 1.0.3 image passes stdin, late reads, PTY/resize, files, faults and destroy
+in 37.63 seconds. JavaScript tooling passes 139 cases, and the qualification
+runner passes 13 input/ownership/timeout-recovery cases. Original case and
+process budgets remain unchanged.
+
+Selected quality gates also pass: strict Node/V8/provider library/test Clippy,
+Rust format/layout for 1,292 files, JavaScript formatting for 113 sources, the
+481-package native-only dependency guard, docs and whitespace checks. Qualified
+source hashes still match the completed snapshot. Original base/Sandbox/fence
+images, the VM configuration checksum and Docker default context are preserved;
+the private VM is stopped after qualification.
+
+Before the final pass, bounded HTTP diagnostics reproduce
+a 403 without the owned fixture header at a VM-selected loopback publication.
+A local bind after cleanup refuses that same port: Docker's VM allocator cannot
+see occupied Mac host ports. The helper profile now selects and temporarily
+holds available host-port candidates through creation, releasing them immediately
+before helper startup so the VM forwarder can bind. A local reservation test
+checks existing occupancy, unique selections, held capacity and release. This
+reduces the host/VM allocation collision; it is not an atomic port handoff, and
+macOS still requires a working daemon forwarder.
+
+At pushed head `9dc616ec`, Linux JavaScript/Node CI fails the accepted-create
+owner-expiry successor test. The exact local test passes, and new failure-only
+readiness, witness, peer and shutdown observations preserve its original
+15-second deadline. This is diagnostic progress, not a claimed Linux correction.
+The same head's Linux outbound workflow passes, qualifying the earlier runner
+image-input/report correction. Its typed-RPC free-threaded job passes, while the
+GIL profile fails at `rust->node/empty-message`: pre-cleanup observations show the
+owner already closed/unready and cleanup reports `NodeLeaseExpired`. Why renewal
+was lost remains unproven; the earlier free-threaded finding is not repaired by
+a later pass. SDK and Python-example workflows remain queued at this observation.
+
+This profile enables native lifecycle ownership, not public outbound
+interception. Persistent generation-bound Worker service routes, bounded HTTP
+message dispatch, full published Sandbox backup/restore and mounts remain next.
+Other runtime/provider profiles and broader ownership-transfer faults need their
+own qualification. E2B/Vercel live configuration remains deferred, and the full
+SP-02–SP-10 goal stays active.
 
 ## Verified implementation details
 

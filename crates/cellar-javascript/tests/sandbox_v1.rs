@@ -111,6 +111,7 @@ async fn exercise(
                 namespace: Some(namespace),
                 runtime: None,
                 dns: Vec::new(),
+                network_helper: None,
             });
             graph.primary.options.do_classes = vec!["Workspace".into()];
             graph.primary.options.bindings = vec![("WORKSPACES".into(), "Workspace".into())];

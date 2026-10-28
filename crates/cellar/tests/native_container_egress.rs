@@ -18,6 +18,9 @@ use std::{sync::Arc, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const SESSION: [u8; 32] = [83; 32];
+#[path = "support/container_network.rs"]
+mod production;
+
 const REQUEST: &[u8] =
     b"GET /gateway HTTP/1.1\r\nHost: backup.internal\r\nConnection: close\r\n\r\n";
 const REPLY: &[u8] =
@@ -337,5 +340,29 @@ async fn exact_engine_attach_gates_application_start_and_joins_helper() -> Resul
         &mut std::io::stdout(),
         b"\nCELLAR_EGRESS_ENGINE_RESULT={\"exact_id_attach\":true,\"helper_first\":true,\"real_application_namespace\":true,\"startup_failure_no_application\":true,\"inflight_retirement\":true,\"joined_helper\":true}\n",
     )?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires explicit owned Engine image/network configuration"]
+async fn production_cell_runs_own_their_network_helpers() -> Result<()> {
+    for scenario in [
+        production::Scenario::Reconnect,
+        production::Scenario::InstallerFailure,
+        production::Scenario::HelperFailure,
+    ] {
+        let mut campaign = Campaign::configured()?;
+        let observed = tokio::time::timeout(
+            Duration::from_secs(30),
+            production::exercise(&mut campaign, scenario),
+        )
+        .await;
+        let cleanup = campaign.remove_all().await;
+        observed.with_context(|| {
+            format!("production network deadline ({scenario:?}); cleanup={cleanup:?}")
+        })??;
+        cleanup?;
+    }
+    std::io::Write::write_all(&mut std::io::stdout(),b"\nCELLAR_EGRESS_PRODUCTION_RESULT={\"helper_first\":true,\"shared_namespace\":true,\"host_capacity\":true,\"idle_reconnect\":true,\"owned_removal\":true,\"installer_failure_no_application\":true,\"helper_failure_cleanup\":true}\n")?;
     Ok(())
 }

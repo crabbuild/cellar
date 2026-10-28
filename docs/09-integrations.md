@@ -245,11 +245,19 @@ network fence before starting managed containers. Container declarations can
 select an OCI `runtime` such as `runsc`; the daemon must have it configured.
 
 Linux hosts reach container ports through their bridge addresses. On macOS,
-Cellar uses published ports; declare them with image `EXPOSE` metadata or the
-class's bounded `exposed_ports` deployment setting, and
+the default profile uses published ports; declare them with image `EXPOSE`
+metadata or the class's bounded `exposed_ports` deployment setting, and
 `enable_internet=false` cannot enforce the same internal-network behavior.
 Use Linux when testing that isolation guarantee. The engine/fence remains a
 host-level prerequisite regardless of the handler language.
+
+An explicitly configured `ContainerEngineOptions::network_helper` selects the
+separate native helper lifecycle profile. It requires immutable helper input and
+explicit `runc`, owns DNS/port publication in the helper namespace and accounts
+for helper memory. The same native engine serves every handler language. See the
+[helper configuration and limits](../crates/cellar-container/README.md#optional-native-network-helper-lifecycle).
+Public outbound interception and complete Sandbox backup/mount compatibility
+remain unqualified.
 
 Running the **Cellar host itself inside Docker** is a separate deployment choice.
 Build the application executable for the image's Linux architecture and include

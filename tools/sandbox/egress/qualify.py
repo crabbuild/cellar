@@ -21,7 +21,13 @@ ROOT = Path(__file__).resolve().parents[3]
 ENGINE_INPUTS = (
     "Cargo.toml", "Cargo.lock", "crates/cellar/Cargo.toml",
     "crates/cellar/containers/docker.rs",
+    "crates/cellar/containers/mod.rs", "crates/cellar/containers/network.rs",
+    "crates/cellar/containers/network_options.rs", "crates/cellar/containers/idle.rs",
+    "crates/cellar/containers/ports.rs", "crates/cellar/execution/domain.rs",
+    "crates/cellar/execution/services.rs",
     "crates/cellar/tests/native_container_egress.rs",
+    "crates/cellar/tests/support/container_network.rs",
+    "tools/sandbox/egress/service.mjs",
     "tools/sandbox/egress/application.mjs", "tools/sandbox/egress/qualify.py",
 )
 
@@ -137,23 +143,109 @@ def qualify_engine(executable, docker, image, network, owner, options, evidence)
         "CELLAR_EGRESS_ENGINE_OWNER": owner,
         "CELLAR_EGRESS_ENGINE_RUNTIME": "runc",
     })
-    print("Checking native Engine attach and helper-first application startup", flush=True)
-    observed = subprocess.run(
-        [executable, "--ignored", "--nocapture", "--test-threads=1"], env=environment,
-        text=True, capture_output=True, timeout=90,
-    )
-    (evidence / "engine.log").write_text(observed.stdout + observed.stderr)
-    observed.check_returncode()
+    profiles = [
+        ("engine", "exact_engine_attach_gates_application_start_and_joins_helper", "CELLAR_EGRESS_ENGINE_RESULT="),
+        ("production-engine", "production_cell_runs_own_their_network_helpers", "CELLAR_EGRESS_PRODUCTION_RESULT="),
+    ]
+    campaigns = {}
+    for name, test, marker in profiles:
+        print(f"Checking actual {name} helper lifetime", flush=True)
+        output = ""
+        try:
+            observed = subprocess.run(
+                [executable, "--exact", test, "--ignored", "--nocapture", "--test-threads=1"],
+                env=environment, text=True, capture_output=True, timeout=90,
+            )
+            output = observed.stdout + observed.stderr
+            observed.check_returncode()
+        except subprocess.TimeoutExpired as error:
+            output = (error.stdout or b"").decode() + (error.stderr or b"").decode()
+            raise
+        finally:
+            (evidence / f"{name}.log").write_text(output)
+            pending_failure = sys.exception()
+            try:
+                cleanup_production(docker, image, owner, output)
+            except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as cleanup:
+                if pending_failure:
+                    pending_failure.add_note(f"Owned production cleanup failed: {cleanup}")
+                else:
+                    raise
+        results = [json.loads(line.removeprefix(marker))
+                   for line in observed.stdout.splitlines() if line.startswith(marker)]
+        if len(results) != 1:
+            raise RuntimeError(f"{name} qualification omitted its complete evidence")
+        campaigns[name] = results[0]
     remaining = run([*docker, "ps", "-aq", "--filter",
                      f"label=cellar.egress.qualifier={owner}"])
     if remaining:
         raise RuntimeError("native Engine campaign left owned containers after joined cleanup")
-    marker = "CELLAR_EGRESS_ENGINE_RESULT="
-    results = [json.loads(line.removeprefix(marker))
-               for line in observed.stdout.splitlines() if line.startswith(marker)]
-    if len(results) != 1:
-        raise RuntimeError("native Engine qualification omitted its complete evidence")
-    return results[0]
+    return {**campaigns["engine"], "production": campaigns["production-engine"]}
+
+
+def cleanup_production(docker, image, owner, output):
+    """Recover only published owner identities after a failed or killed test."""
+    prefix = "CELLAR_EGRESS_PRODUCTION_OWNER="
+    namespaces = set()
+    for line in output.splitlines():
+        _, marker, encoded = line.partition(prefix)
+        if not marker:
+            continue
+        identity = json.loads(encoded)
+        if (not isinstance(identity, dict)
+            or identity.get("node") != f"network-{owner}"
+            or not isinstance(identity.get("host"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", identity["host"])):
+            raise RuntimeError("production qualifier published invalid cleanup ownership")
+        namespaces.add(identity["host"])
+    errors = []
+    for namespace in sorted(namespaces):
+        try:
+            cleanup_namespace(docker, image, owner, namespace)
+        except (subprocess.SubprocessError, OSError, ValueError, RuntimeError) as error:
+            errors.append(f"{namespace}: {error}")
+    if errors:
+        raise RuntimeError("; ".join(errors))
+
+
+def cleanup_namespace(docker, image, owner, namespace):
+    filters = ["--filter", f"label=cellar.host={namespace}"]
+    ids = run([*docker, "ps", "-aq", *filters,
+               "--filter", f"label=cellar.node=network-{owner}"]).splitlines()
+    resources = []
+    for resource in ids:
+        info = json.loads(run([*docker, "inspect", "--format",
+                              '{"id":{{json .Id}},"labels":{{json .Config.Labels}}}', resource]))
+        labels = info.get("labels") if isinstance(info, dict) else None
+        if (not isinstance(labels, dict) or not isinstance(info.get("id"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", info["id"])
+            or labels.get("cellar.host") != namespace
+            or labels.get("cellar.node") != f"network-{owner}"
+            or (labels.get("cellar.network.role") not in {"helper", "application"}
+                and labels.get("cellar.fence") != "1")):
+            raise RuntimeError("production cleanup refused a foreign container")
+        resources.append(info)
+    for info in sorted(resources, key=lambda info: info["labels"].get("cellar.network.role") == "helper"):
+        run([*docker, "rm", "-f", info["id"]])
+    for network in run([*docker, "network", "ls", "-q", *filters]).splitlines():
+        info = json.loads(run([*docker, "network", "inspect", "--format",
+                              '{"id":{{json .Id}},"labels":{{json .Labels}}}', network]))
+        labels = info.get("labels") if isinstance(info, dict) else None
+        if (not isinstance(labels, dict) or not isinstance(info.get("id"), str)
+            or not re.fullmatch(r"[a-f0-9]{64}", info["id"])
+            or labels.get("cellar.host") != namespace):
+            raise RuntimeError("production cleanup refused a foreign network")
+        run([*docker, "network", "rm", info["id"]])
+    # One atomic batch removes only this owner's table, whether it already
+    # exists or was never installed. No foreign host rules are enumerated.
+    table = f"cellar_{namespace[:24]}"
+    subprocess.run([
+        *docker, "run", "--rm", "-i", "--runtime", "runc",
+        "--label", f"cellar.qualifier={owner}", "--network", "host",
+        "--cap-drop", "ALL", "--cap-add", "NET_ADMIN", "--memory", "64m",
+        "--pids-limit", "64", "--entrypoint", "/usr/sbin/nft", image, "-f", "-",
+    ], input=f"table inet {table}\ndelete table inet {table}\n",
+        text=True, capture_output=True, check=True, timeout=15)
 
 
 def prepare_context(destination, rust_image):
@@ -207,7 +299,7 @@ def prepare_context(destination, rust_image):
         "target/debug/examples/helper-qualification "
         "target/debug/examples/helper-retirement-qualification "
         "/opt/cellar-egress/bin/examples/\n"
-        'ENTRYPOINT ["/opt/cellar-egress/bin/examples/network-qualification"]\n'
+        'ENTRYPOINT []\n'
     )
     return {
         str(path.relative_to(destination)): hashlib.sha256(path.read_bytes()).hexdigest()

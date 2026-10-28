@@ -588,6 +588,7 @@ impl Node {
                     namespace: None,
                     runtime: None,
                     dns: Vec::new(),
+                    network_helper: None,
                 }
             }))?;
         if let Some(metrics) = services.metrics.clone() {

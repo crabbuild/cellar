@@ -3,7 +3,7 @@
 # Native outbound network qualification
 
 These campaigns check real Linux nftables, sockets, the network-helper binary
-and the native Engine attach client for
+and the native Engine attach client and production cell lifecycle for
 [`cellar-egress`](../../../crates/cellar-egress/README.md). They do not run the
 published Sandbox SDK or enable the application-facing interception API.
 
@@ -68,6 +68,9 @@ or JavaScript engine is embedded in that native host test.
 | Helper-first startup | Start a separate Node application container in the exact helper's network namespace only after readiness and acknowledged route installation; actual DNS and HTTP round-trip |
 | Failed startup | A missing firewall installer refuses readiness and prevents application allocation; join the failed helper and remove its recorded ID |
 | In-flight retirement | Retire the private transport after a real request arrives; subsequent response writes refuse, the application receives no reply bytes and the helper joins |
+| Production lifetime | Configure the actual native host, start the helper before its application, verify the immutable shared namespace, warm reconnect and joined removal |
+| Production failures | Missing installer refuses before application allocation; killing the actual helper invalidates application routing, preserves its monitor failure and removes the owned pair |
+| Capacity | Reserve the application's cap plus 256 MiB for its helper; release the helper reservation after confirmed removal |
 | Resource cleanup | Remove recorded IDs, reconcile only this native campaign's owner label after a lost response/timeout, remove the uniquely named network/image and attempt every cleanup |
 
 Each run writes a unique evidence directory containing build/runtime logs,
@@ -76,7 +79,11 @@ with actual image IDs, kernel/Engine versions, selected runtime,
 source revision and hashes of the source snapshot used by the build. Source
 hashes distinguish uncommitted qualification from a later commit; native attach
 inputs must remain unchanged throughout the campaign. The recorded
-revision alone is not an assertion that the checkout was clean.
+revision alone is not an assertion that the checkout was clean. The production
+test publishes its node/host ownership before allocation. The outer runner
+retains timeout output and reconciles only those validated container/network
+identities and their exact nft tables if the native test fails or is killed.
+Foreign ownership labels refuse before removal.
 
 BuildKit caches are scoped to the checkout path, with locked sharing. Source
 files are touched in the build context before compilation to force rebuilding
@@ -88,12 +95,15 @@ binaries out of the cache mount into the uniquely tagged qualification image.
 The kernel TCP DNS case checks forwarding and bytes; the helper campaign also
 exercises the persistent DNS TCP server. Helper direct fallback currently accepts
 IP addresses only. The route handler is a native protocol peer; actual
-generation-bound Worker dispatch, HTTP body/header bounds and the production
-cell lifecycle remain to be connected and qualified. The Engine campaign checks
-the real transport and helper/application topology; it is not a published SDK
-or cell-ownership qualification. Per-class saturation remains open.
+generation-bound Worker dispatch and HTTP body/header bounds remain to be
+connected and qualified. The production profile covers native startup, warm
+reconnect, installer/helper failure and removal; a native unit test also checks
+immediate authority retirement while ownership release waits for SDK control.
+Published SDK routing, fleet ownership-transfer failure campaigns and per-class
+saturation remain open.
 
-This test uses the qualifier's own namespace and private Docker network. It
-does not modify the host's bridge fence or establish that engine startup,
-ownership loss, full request routing, helper backup/restore, TLS or cloud
-providers work. Connect those paths and qualify them separately.
+The campaigns use owned namespaces and private Docker networks.
+The production profile installs and removes its own host bridge fence and
+networks. It does not establish full request routing, published helper
+backup/restore, TLS or cloud-provider compatibility. Connect those paths and
+qualify them separately.

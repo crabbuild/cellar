@@ -42,8 +42,11 @@ mod exec_stream;
 pub use exec_options::{ExecParams, TerminalSize};
 mod files;
 mod idle;
+mod network;
+mod network_options;
 mod ports;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
+pub use network_options::NetworkHelperOptions;
 pub use ports::validate_exposed_ports;
 
 /// One `containers[]` entry of a deployment, as the node sees it.
@@ -271,6 +274,7 @@ struct CellState {
     /// Retain a stopped/previous run's exact resource for owned cleanup.
     /// Ordinary operations require this resource's run to be current.
     resource: Option<EngineResource>,
+    network: Option<Arc<network::Run>>,
 }
 
 #[derive(Clone)]
@@ -339,7 +343,13 @@ pub struct CellContainer {
 impl CellContainer {
     fn publish_exit(&self, run: u64, result: Result<i64, String>) {
         if let Ok(exit) = self.exit_for(run) {
-            exit.send_replace(Some(result));
+            exit.send_if_modified(|current| {
+                if current.is_some() {
+                    return false;
+                }
+                *current = Some(result);
+                true
+            });
         }
     }
 
@@ -372,7 +382,13 @@ impl CellContainer {
             .as_ref()
             .ok_or_else(|| anyhow!("container has no Engine resource"))?;
         anyhow::ensure!(
-            state.running && state.run == run && resource.run == run,
+            state.running
+                && state.run == run
+                && resource.run == run
+                && state
+                    .network
+                    .as_ref()
+                    .is_none_or(|network| network.run == run && network.active()),
             "container has no active Engine resource for this run"
         );
         Ok(resource.id.clone())
@@ -383,6 +399,13 @@ impl CellContainer {
         let state = self.state.lock().unwrap();
         if !state.running {
             return Err("the container is not running".to_string());
+        }
+        if state
+            .network
+            .as_ref()
+            .is_some_and(|network| network.run != state.run || !network.active())
+        {
+            return Err("the container network is not ready or has retired".into());
         }
         match &state.address {
             Address::Ip(ip) => Ok(format!("{ip}:{port}")),
@@ -410,6 +433,9 @@ impl CellContainer {
     /// report the new container dead on arrival.
     pub fn begin_run(&self) -> u64 {
         let mut state = self.state.lock().unwrap();
+        if let Some(network) = &state.network {
+            network.retire();
+        }
         state.run += 1;
         state.running = true;
         state.address = Address::None;
@@ -432,6 +458,7 @@ pub struct ContainerEngine {
     runtime: Option<String>,
     /// See `Config::dns`.
     dns: Vec<String>,
+    network_helper: Option<NetworkHelperOptions>,
     /// The absolute path of the container resolv.conf this engine wrote and
     /// bind-mounts; `None` when it could not be written.
     resolv_conf: Option<PathBuf>,
@@ -463,6 +490,7 @@ struct Config {
     /// `DEFAULT_CONTAINER_DNS`. Empty takes the default when a runtime is in
     /// use and the daemon's otherwise.
     dns: Vec<String>,
+    network_helper: Option<NetworkHelperOptions>,
     /// The node's state directory. cellar writes the container resolv.conf
     /// here and bind-mounts it, so the path must be the same on the host as
     /// cellar sees it; a self-hosted node runs cellar as a host process, and
@@ -484,6 +512,9 @@ pub struct EngineOptions {
     pub runtime: Option<String>,
     /// Resolvers; an empty list uses the daemon's default or the runtime default.
     pub dns: Vec<String>,
+    /// Optional run-owned Linux helper namespace. No public interception
+    /// capability is enabled by selecting the lifecycle profile alone.
+    pub network_helper: Option<NetworkHelperOptions>,
 }
 
 #[derive(Default)]
@@ -549,6 +580,9 @@ impl ContainerService {
                 .is_none_or(|namespace| !namespace.is_empty()),
             "container namespace is empty"
         );
+        if let Some(network) = &options.network_helper {
+            network.validate()?;
+        }
         settings.options = Some(options);
         Ok(())
     }
@@ -592,6 +626,10 @@ impl ContainerService {
             bucket,
             runtime,
             dns,
+            network_helper: settings
+                .options
+                .as_ref()
+                .and_then(|options| options.network_helper.clone()),
             data_dir: std::path::absolute(data_dir)?,
         });
         Ok(())
@@ -793,6 +831,7 @@ impl ContainerEngine {
             bucket,
             runtime,
             dns,
+            network_helper,
             data_dir,
             namespace,
             ..
@@ -836,6 +875,7 @@ impl ContainerEngine {
             bucket,
             runtime,
             dns,
+            network_helper,
             resolv_conf,
             images: Mutex::new(HashMap::new()),
             cells: Mutex::new(HashMap::new()),
@@ -848,6 +888,11 @@ impl ContainerEngine {
 
     pub fn socket(&self) -> &std::path::Path {
         self.docker.socket()
+    }
+
+    /// Stable host resource identity used by Engine ownership labels.
+    pub fn namespace(&self) -> &str {
+        &self.names.key
     }
 
     async fn reap(&self) -> anyhow::Result<()> {
@@ -868,10 +913,19 @@ impl ContainerEngine {
             )
             .await?;
         let list = reply.json()?;
-        for entry in list
+        let mut resources = list
             .as_array()
             .context("engine container list is not an array")?
-        {
+            .iter()
+            .collect::<Vec<_>>();
+        // Applications must stop before removing the namespace they share.
+        resources.sort_by_key(|entry| {
+            entry
+                .pointer("/Labels/cellar.network.role")
+                .and_then(Value::as_str)
+                == Some("helper")
+        });
+        for entry in resources {
             let id = ContainerId::new(
                 entry
                     .get("Id")
@@ -929,6 +983,9 @@ impl ContainerEngine {
             state.running = false;
             state.address = Address::None;
             state.sweeper = None;
+            if let Some(network) = &state.network {
+                network.retire();
+            }
             let run = state.run;
             drop(state);
             cell.publish_exit(run, Err("container host is closed".into()));
@@ -1243,7 +1300,11 @@ impl ContainerEngine {
     /// The cell's container handle, adopting a container a previous
     /// activation on this node left running. Called at cell start for a
     /// class with a spec; the object's `running` reads the answer.
-    pub async fn attach(&self, scope: &str, class: &str) -> anyhow::Result<Arc<CellContainer>> {
+    pub async fn attach(
+        self: &Arc<Self>,
+        scope: &str,
+        class: &str,
+    ) -> anyhow::Result<Arc<CellContainer>> {
         let service = self.check_owner()?;
         let spec = service
             .deployment
@@ -1357,17 +1418,19 @@ impl ContainerEngine {
         self.cells.lock().unwrap().get(scope).cloned()
     }
 
-    /// The memory the node's running containers reserve, summed over their
-    /// instance-type caps. A cell whose container is not running reserves
-    /// nothing: a stopped container holds no memory, and an idle eviction
-    /// stops it before the sample would count it.
+    /// Running application caps plus each allocated helper's cap. Retain the
+    /// helper reservation until owned removal is confirmed, including failed
+    /// startup or cleanup whose outcome remains uncertain.
     pub fn reserved_memory_bytes(&self) -> u64 {
         self.cells
             .lock()
             .unwrap()
             .values()
-            .filter(|cell| cell.running())
-            .map(|cell| instance_memory_bytes(cell.spec.instance_type.as_deref()))
+            .map(|cell| {
+                let state = cell.state.lock().unwrap();
+                u64::from(state.running) * instance_memory_bytes(cell.spec.instance_type.as_deref())
+                    + u64::from(state.network.is_some()) * network::MEMORY_BYTES
+            })
             .sum()
     }
 
@@ -1476,7 +1539,33 @@ impl ContainerEngine {
                     .as_str()
                     .context("container inspection omitted its immutable ID")?,
             )?,
-            address: address_of(&info),
+            address: if self.network_helper.is_some() {
+                let network = cell
+                    .state
+                    .lock()
+                    .unwrap()
+                    .network
+                    .clone()
+                    .context("network container has no live host session")?;
+                anyhow::ensure!(
+                    info.pointer("/HostConfig/NetworkMode")
+                        .and_then(Value::as_str)
+                        == Some(
+                            format!(
+                                "container:{}",
+                                network
+                                    .id
+                                    .get()
+                                    .context("network helper has no recorded ID")?
+                            )
+                            .as_str()
+                        ),
+                    "container network identity changed during adoption"
+                );
+                self.network_address(&network).await?
+            } else {
+                address_of(&info)
+            },
         }))
     }
 
@@ -1524,16 +1613,35 @@ impl ContainerEngine {
     /// object's `start()` returns before this completes, as on Cloudflare;
     /// a failure surfaces through `monitor()`.
     pub async fn start(
-        &self,
+        self: &Arc<Self>,
         cell: &Arc<CellContainer>,
         run: u64,
         params: StartParams,
     ) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let mut startup = network::StartGuard::new(self, cell, run);
         let started = self.create_and_start(cell, run, params).await;
         let started = match started {
             Ok(started) => started,
             Err(error) => {
+                let network = cell
+                    .state
+                    .lock()
+                    .unwrap()
+                    .network
+                    .clone()
+                    .filter(|network| network.run == run);
+                let error = if let Some(network) = network {
+                    match self.cleanup_network(cell, &network).await {
+                        Ok(()) => error,
+                        Err(cleanup) => {
+                            error.context(format!("network startup cleanup failed: {cleanup:#}"))
+                        }
+                    }
+                } else {
+                    error
+                };
+                startup.armed = false;
                 // `start()` is fire-and-forget for the object, and its
                 // `monitor()` sees this error only if it was already
                 // waiting; say it here too, or a start that fails fast
@@ -1568,13 +1676,14 @@ impl ContainerEngine {
             state.address = started.address;
         }
         self.watch_exit(cell, run, started.id)?;
+        startup.armed = false;
         Ok(())
     }
 
     /// Wait for the container's root process to end and publish the exit
     /// for `run`; a later run's start has already replaced the state.
     fn watch_exit(
-        &self,
+        self: &Arc<Self>,
         cell: &Arc<CellContainer>,
         run: u64,
         id: ContainerId,
@@ -1582,6 +1691,7 @@ impl ContainerEngine {
         let docker = self.docker.clone();
         let cell_ = cell.clone();
         let exit = cell.exit_for(run).map_err(anyhow::Error::msg)?;
+        let engine = Arc::downgrade(self);
         asyncrt::spawn(async move {
             let result = docker
                 .call("POST", &format!("/containers/{id}/wait"), None)
@@ -1601,24 +1711,38 @@ impl ContainerEngine {
                         .ok_or_else(|| anyhow!("wait answered without a status code"))
                 })
                 .map_err(|error| format!("{error:#}"));
-            let mut state = cell_.state.lock().unwrap();
-            if state.run == run {
-                state.running = false;
-                state.address = Address::None;
+            {
+                let mut state = cell_.state.lock().unwrap();
+                if state.run == run {
+                    state.running = false;
+                    state.address = Address::None;
+                }
             }
-            drop(state);
-            exit.send_replace(Some(result));
+            exit.send_if_modified(|current| {
+                if current.is_some() { return false; }
+                *current = Some(result);
+                true
+            });
+            let network = cell_.state.lock().unwrap().network.clone().filter(|network| network.run == run);
+            if let (Some(engine), Some(network)) = (engine.upgrade(), network) {
+                network.retire();
+                let _control = cell_.sdk_control.lock().await;
+                if let Err(error) = engine.cleanup_network(&cell_, &network).await {
+                    tracing::warn!(cell = %cell_.scope, %error, "exited container network requires owned cleanup");
+                }
+            }
         })
         .detach();
         Ok(())
     }
 
     async fn create_and_start(
-        &self,
-        cell: &CellContainer,
+        self: &Arc<Self>,
+        cell: &Arc<CellContainer>,
         run: u64,
         params: StartParams,
     ) -> anyhow::Result<StartedContainer> {
+        self.validate_network_runtime(cell)?;
         self.ensure_fence().await?;
         self.enforce_instance_ceiling(cell).await?;
         self.ensure_image(&cell.spec.image).await?;
@@ -1629,6 +1753,10 @@ impl ContainerEngine {
             cell.current_run() == run,
             "container start belongs to a superseded run"
         );
+        let previous_network = cell.state.lock().unwrap().network.clone();
+        if let Some(network) = previous_network {
+            self.cleanup_network(cell, &network).await?;
+        }
         if let Some(id) = self.owned_id(cell).await? {
             self.check_cell(cell)?;
             anyhow::ensure!(
@@ -1668,8 +1796,9 @@ impl ContainerEngine {
         // ports, and Docker publishes nothing on an internal network, so
         // `enableInternet: false` would make the container unreachable.
         // Development there keeps egress and reports the limitation below.
-        let offline = !params.enable_internet && cfg!(target_os = "linux");
-        if !params.enable_internet && !offline {
+        let offline =
+            !params.enable_internet && cfg!(target_os = "linux") && self.network_helper.is_none();
+        if !params.enable_internet && !offline && self.network_helper.is_none() {
             tracing::warn!(
                 cell = %cell.scope,
                 "enableInternet: false is not enforced on this platform; the container keeps egress"
@@ -1711,7 +1840,10 @@ impl ContainerEngine {
         // keeps that address in resolv.conf whatever `--dns` says, so the
         // file itself must name a reachable resolver. An operator who set
         // `CELLAR_CONTAINER_DNS` gets it for every container.
-        let wants_resolver = runtime.is_some() || !self.dns.is_empty();
+        // The helper intercepts namespace DNS and owns its explicit upstream;
+        // it must not depend on a host path mounted into a remote daemon.
+        let wants_resolver =
+            self.network_helper.is_none() && (runtime.is_some() || !self.dns.is_empty());
         if wants_resolver {
             if let Some(resolv) = &self.resolv_conf {
                 let bind = format!("{}:/etc/resolv.conf:ro", resolv.display());
@@ -1741,6 +1873,28 @@ impl ContainerEngine {
             &cell.spec.exposed_ports,
             !cfg!(target_os = "linux"),
         )?;
+        let network = if self.network_helper.is_some() {
+            let ports = self.network_ports(cell).await?;
+            self.prepare_network(cell, run, params.enable_internet, &open, &ports)
+                .await?
+        } else {
+            None
+        };
+        if let Some(network) = &network {
+            anyhow::ensure!(network.active(), "network helper is not ready");
+            body.as_object_mut().unwrap().remove("ExposedPorts");
+            body["HostConfig"]["NetworkMode"] =
+                json!(format!("container:{}", network.id.get().unwrap()));
+            body["HostConfig"]
+                .as_object_mut()
+                .unwrap()
+                .remove("PublishAllPorts");
+            body["HostConfig"]
+                .as_object_mut()
+                .unwrap()
+                .remove("PortBindings");
+            self.network_application_labels(&mut body, network);
+        }
         if let Some(entrypoint) = params.entrypoint {
             body["Cmd"] = json!(entrypoint);
         }
@@ -1804,7 +1958,7 @@ impl ContainerEngine {
         )?;
         let current = {
             let mut state = cell.state.lock().unwrap();
-            if state.run == run {
+            if state.run == run && network.as_ref().is_none_or(|network| network.active()) {
                 state.resource = Some(EngineResource {
                     run,
                     id: id.clone(),
@@ -1818,6 +1972,11 @@ impl ContainerEngine {
             self.remove_id(&id).await?;
             anyhow::bail!("container start belongs to a superseded run");
         }
+        self.check_cell(cell)?;
+        anyhow::ensure!(
+            network.as_ref().is_none_or(|network| network.active()),
+            "network helper retired before application startup"
+        );
         self.docker
             .expect(
                 "POST",
@@ -1842,7 +2001,11 @@ impl ContainerEngine {
         );
         Ok(StartedContainer {
             id,
-            address: address_of(&info),
+            address: if let Some(network) = network {
+                self.network_address(&network).await?
+            } else {
+                address_of(&info)
+            },
         })
     }
 
@@ -1875,6 +2038,10 @@ impl ContainerEngine {
 
     pub async fn destroy(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let network = cell.state.lock().unwrap().network.clone();
+        if let Some(network) = network {
+            return self.cleanup_network(cell, &network).await;
+        }
         let run = cell.current_run();
         let id = self.owned_id(cell).await?;
         self.check_cell(cell)?;
@@ -1940,6 +2107,11 @@ impl ContainerEngine {
         let Some(cell) = self.cell(scope) else {
             return Ok(());
         };
+        if release == Release::Destroy {
+            if let Some(network) = cell.state.lock().unwrap().network.as_ref() {
+                network.retire();
+            }
+        }
         match release {
             Release::Keep => {
                 let _control = cell.sdk_control.lock().await;
