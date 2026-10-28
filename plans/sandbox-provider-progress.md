@@ -3351,3 +3351,29 @@ filesystem state after host loss.
   persistence and measured one-to-five-minute recovery remain open. These changes
   do not establish full production readiness or a new live-provider/image result.
   E2B/Vercel real-account configuration remains deferred by the user.
+
+### Validation on updated main
+
+Merged main `ed42c8ed` into PR #153 without conflicts and repeated the affected
+checks on that combined tree. The executor registration case deliberately omits
+an application factory declaration for the execution class.
+
+| Check | Result |
+| --- | --- |
+| Pure decision core | All 36 cases pass, including 18 routing-cache/placement cases |
+| Selected native boundaries | 12 sandbox state/authority cases, 40 container cases and 142 RPC cases pass |
+| Authenticated child host tests | Three pass: bounded calls/capacity/deletion proof, uncertain create with restart cleanup, and two-node placement/retirement |
+| Existing native SDK | All nine Engine/ownership/streams/ports/lifecycle cases pass |
+| Existing durable catalogs/bindings | Named catalog lifecycle across five restarts and provider-binding recovery both pass |
+| Provider adapter and examples | 26 unit cases and seven documentation examples pass |
+| Strict Clippy | Core, container adapter and pure logic, all targets, `-D warnings`, pass |
+| Repository gates | Formatting/layout for 1,420 Rust files, the 496-package native-only graph, 854 documentation references and whitespace checks pass |
+
+The two-node case uses in-process native nodes, signed peer RPC, shared durable
+fleet storage and separate Engine protocol peers. With one native slot per node,
+two children create once each on different Engines, duplicate starts create
+nothing extra, a third create is refused, and parent retirement removes both
+physical fixture resources. The protocol peer also acknowledges deletion while
+retaining a resource to prove that an acknowledgement alone cannot finish cleanup.
+These are local framework results, not a live Docker image, remote-provider,
+saturation or production recovery-time qualification.
