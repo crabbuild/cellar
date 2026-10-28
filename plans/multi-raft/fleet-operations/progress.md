@@ -18,6 +18,64 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Request-local maintenance validation
+
+Maintenance return, resume and status now carry their already-validated
+predecessor records through the same request and immutable Root. Returned boot
+confirmation still checks the canonical request and committed journal; resume
+completion reuses the returned owner that its intent already verified. Status
+can reuse the offline predecessor checked by a cancellation refusal. This
+removes repeated historical validation without retaining evidence across calls
+or changing physical, quorum, matched-progress, deadline or sample-age checks.
+No public API, record format or protocol identity changes in this step.
+
+The actual two-history CLI restart fixture exposed 247 object reads, including
+11 reads of the signed shutdown proof, for one terminal SDK status request.
+Task-scoped measurement excludes background trust refresh. The successor uses
+150 reads and three shutdown-proof reads: 39.3% and 72.7% reductions respectively.
+Its regression failed on the original implementation and now passes for both
+image representations. Each scenario also verifies that a subsequent status
+request refuses a missing signed closure or canonical boot request, even at
+the same Root after a successful read.
+
+Shared-host, unoptimized diagnostic samples measured terminal resume waits at
+4.23–4.37 seconds before this change and 3.42–3.50 seconds afterward. Full CLI
+terminal status took 394–397 ms before and 318–338 ms afterward. These small
+samples establish reduced work in this fixture; they do not qualify production
+TPS/p99, repeatability or larger fleets. Temporary diagnostics are removed.
+
+An unchanged baseline execution retained an extent `Unavailable` failure. An
+intermediate candidate also retained a five-second preparation wait failure
+despite the service reaching Ready. Preparation and overall timing repeatability
+remain open. Source `46202468` passes **946 distinct selected cases**: 881 library,
+14 operator, four return, nine resume, 15 stop, 14 preparation and nine CLI cases.
+Both complete CLI restart scenarios include the read-count and missing-record
+regressions. Host/admin all-target Clippy, formatting, layout and native dependency
+checks pass. The audit matches all **1,717 frozen Rust/Cargo/config inputs**,
+retained executable hashes and result hashes. These are selected functional
+checks, not a repeatability or deployment pass. Artifacts are outside runtime
+data under `qualification/fleet-operations/` in
+`maintenance-baseline-v1`, `maintenance-read-probe-v1`,
+`maintenance-regression-negative-v2`, `maintenance-lineage-probe-v2` and
+`maintenance-lineage-final-v1`. Earlier failed probes are retained too.
+
+The preceding published head `8a2b64b6` also has a failing JavaScript/Node workflow
+at `cellar-container`'s
+`expired_owner_cannot_acknowledge_an_accepted_create_and_successor_cleans_it`:
+the retained CI log reports `execution domain is closed`. Its cause is unconfirmed;
+this local maintenance qualification does not resolve that separate failure or
+establish full CI success.
+
+Next: finish preparation/resume reliability within the existing bounds and qualify
+larger history counts. The next feature delivery is automatic single-node repair:
+conservative failure classification, production exact-boot isolation and restored
+RF3 under foreground writes. Trusted isolation already supplied by an operator or
+test is not automatic failure handling. Grace expiry, second-failure policy and
+gated rolling maintenance follow that boundary; workload-aware leaders and desired
+capacity/resize retain their full scope. Deployed RustFS/Colima qualification must
+cover these transitions, resource limits and foreground TPS/p99. The fleet goal
+remains active.
+
 ## Extent-aware fleet lifecycle and cold repair
 
 Managed and imported extent namespaces now use tagged fleet publication state,

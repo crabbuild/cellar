@@ -94,13 +94,18 @@ terminal-wait/large-fleet qualification limits. These capabilities remain opt-in
 
 The next feature gates are:
 
-1. Stabilize terminal-resume completion within its existing five-second wait,
+1. Finish preparation/resume repeatability within the existing five-second waits,
    then qualify bounded verification/convergence at hundreds of histories.
    Physical, voter, leadership and sample-age checks remain live; historical
-   metadata work and status observation need separate measurement.
-2. Deliver grace expiry, second-failure handling, gated rolling maintenance and
-   a production exact-boot isolation provider.
-3. Add workload-aware leader balancing and safe desired capacity/resize.
+   return/resume/status validation now reuses checked predecessors within each
+   request. The progress log records its measured read reduction and the
+   remaining preparation timing failures.
+2. Complete automatic single-node repair with conservative failure classification,
+   production exact-boot isolation and restored RF3 under foreground writes.
+3. Deliver grace expiry, second-failure handling and gated rolling maintenance.
+4. Add workload-aware leader balancing and safe desired capacity/resize.
+5. Close full-CI failures and qualify deployed RustFS/Colima fault, resource,
+   foreground performance and soak behavior before enabling the capability by default.
 
 Empty/retired returned-node and deployed large-fleet qualification remain open.
 Unconfirmed closure keeps movement debt charged. `tasks.json` retains exact

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "a4312bff4599bba8ad110614e9a467a4d9502a39",
+  "baseline_revision": "46202468dcd0570437be9ca5b25433214d527deb",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -5829,7 +5829,7 @@
         },
         {
           "name": "fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity",
-          "oracle": "Actual CLI/admin with independent roles prepares a primary, confirms signed shutdown, refuses post-join cancellation, grants retained M8 return, boots paused, corrects an unexecuted wrong profile without Root churn, reconciles a lost M9 consent across service recreation, restores verified capacity and releases only terminal ownership. Both histories preserve SQL values 7 to 12 to 14 and status remains read-only.",
+          "oracle": "Actual CLI/admin with independent roles prepares a primary, confirms signed shutdown, refuses post-join cancellation, grants retained M8 return, boots paused, corrects an unexecuted wrong profile without Root churn, reconciles a lost M9 consent across service recreation, restores verified capacity and releases only terminal ownership. Both histories preserve SQL values 7 to 12 to 14 and status remains read-only. Terminal status reads the signed closure at most three times within one request; a later request at the same Root refuses a missing closure or canonical returned-boot request after prior success.",
           "invariants": [
             "F01",
             "F02",
@@ -5864,7 +5864,7 @@
         },
         {
           "name": "fleet_operator_extent_maintenance_full_restart_preserves_data_and_terminal_capacity",
-          "oracle": "The full prepare/stop/retained-return/resume CLI sequence retains root images and separate permissions, resolves unknown replies, preserves both SQL histories and restores only terminal capacity and slot ownership.",
+          "oracle": "The full prepare/stop/retained-return/resume CLI sequence retains root images and separate permissions, resolves unknown replies, preserves both SQL histories and restores only terminal capacity and slot ownership. Terminal status reads the signed closure at most three times within one request; a later request at the same Root refuses a missing closure or canonical returned-boot request after prior success.",
           "invariants": [
             "F01",
             "F02",
