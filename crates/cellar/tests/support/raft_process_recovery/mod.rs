@@ -145,6 +145,33 @@ fn repair_id() -> Result<cellar_logic::consensus::ProposalId> {
     Ok(cellar_logic::consensus::ProposalId::new([85; 16])?)
 }
 
+/// Prepare the immutable input separately from builds and timed recovery.
+#[test]
+#[ignore = "requires an empty fixture directory and 10 GB of admitted disk space"]
+fn prepare_decimal_ten_gb_fixture() -> Result<()> {
+    let directory = PathBuf::from(
+        std::env::var_os("CELLAR_PROCESS_RECOVERY_FIXTURE_DIR")
+            .context("empty fixture directory required")?,
+    );
+    ensure!(
+        directory.is_absolute() && std::fs::read_dir(&directory)?.next().is_none(),
+        "fixture directory must be absolute and empty"
+    );
+    let source = fixture::make_template(&directory, 10_000_000_000, true)?;
+    let file = File::options().read(true).write(true).open(&source)?;
+    ensure!(
+        file.metadata()?.len() == 9_999_998_976,
+        "fixture size mismatch"
+    );
+    file.sync_all()?;
+    let mut permissions = file.metadata()?.permissions();
+    permissions.set_readonly(true);
+    file.set_permissions(permissions)?;
+    file.sync_all()?;
+    eprintln!("process-recovery fixture={}", source.display());
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "child entry point owned and joined by the process-recovery controller"]
 async fn worker_process() -> Result<()> {

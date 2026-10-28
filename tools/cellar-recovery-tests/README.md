@@ -64,6 +64,17 @@ python3 tools/perf/process_recovery.py --profile 272mib \
 ```
 
 For the full-size case use `--profile 10gb --fixture /absolute/readonly/source.sqlite`.
+To create that immutable input with the same native generator, first create an
+empty directory with 10 GB free and run:
+
+```sh
+CELLAR_PROCESS_RECOVERY_FIXTURE_DIR=/absolute/empty-fixture-directory \
+  cargo test --locked --release -p cellar-recovery-tests --test native_raft_large_images \
+  process_recovery::prepare_decimal_ten_gb_fixture -- --exact --ignored --nocapture
+```
+
+The resulting `source.sqlite` is synced and made read-only. Keep fixtures,
+RustFS data and active worker directories outside build-cleanup directories.
 The runner checks disk admission, exact test selection, source/executable
 identity, the process/phase ledger and data-source counters. A fixture must have
 9,999,998,976 bytes; build and source preparation are outside the recovery timer.
