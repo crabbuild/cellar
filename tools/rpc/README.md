@@ -167,6 +167,15 @@ explicitly, and runs both `3.14` and `3.14t`, including the full Counter/failure
 suite and separate portable profile. The original handler/operation budgets
 remain in force.
 
+The qualifier installs a stderr tracing subscriber before starting any runtime.
+CI sets `RUST_LOG=warn,cellar::actor::effects=info` to retain the core's existing
+lease attempt start/completion timings and watchdog fences. Use the same filter
+locally when diagnosing a fleet failure; the default is `warn`. These records
+contain node names, fixed outcomes and timing headroom, without RPC payloads.
+The logs supplement the case and cleanup auditors; they cannot establish that a
+failed call did not commit. Keep the original lease and operation budgets while
+investigating a failure.
+
 ```text
 Python imports application + generated codecs
                   |
@@ -417,7 +426,24 @@ polling the body, or stops streamed growth at that ceiling. The allowance is
 the business byte limit plus 1 KiB for each of the Protobuf and clone controls.
 Malformed or oversized typed replies remain `InvalidResponse/unknown`; typed
 methods also refuse resource-lease replies. Untyped values keep their allowance.
-Aggregate response/codec pools and native decoder layout bounds remain open.
+Native Rust decoding additionally uses the host's shared decoder allowance and
+active-stack preflight. The generated native allocation fixture reproduces
+1.5 MiB of inline allocation from 256 wire bytes and exercises native provider
+and client refusal, large oneofs, default maps, saturation, cancellation and
+cross-thread refund after domain shutdown:
+
+```sh
+cargo test --locked -p cellar --test native_rpc_decode_allocation
+cargo test --locked -p cellar-rpc-codegen
+```
+
+Configure `RuntimePolicy.max_native_rpc_decode_bytes` and
+`max_native_rpc_stack_bytes` before starting a host. See the
+[resource policy reference](../../docs/11-configuration.md#library-defaults) for
+the allowance model and its limits. These guards cover the pinned generated
+Prost layout; arbitrary application memory and whole-process RSS remain outside
+their scope. Aggregate transport response pools and exact retained-copy/RSS
+qualification remain open.
 
 The generated inventory now records structural codec shapes. Provider startup
 compares live JS/Python descriptors with the native artifact before readiness;

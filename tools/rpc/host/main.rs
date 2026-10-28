@@ -77,6 +77,13 @@ enum Suite {
 }
 
 fn main() -> Result<()> {
+    // The core already records lease attempt start/completion and self-fencing.
+    // Install a subscriber before any suite (including the early profile path)
+    // so a failed run can distinguish storage tails from missing renewals.
+    let filter = tracing_subscriber::EnvFilter::builder()
+        .with_default_directive(tracing_subscriber::filter::LevelFilter::WARN.into())
+        .from_env()?;
+    proof::initialize_diagnostics(filter);
     let mut arguments = std::env::args().skip(1);
     let mut report_path = None;
     let mut suite = Suite::Local;

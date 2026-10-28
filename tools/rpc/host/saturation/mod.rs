@@ -178,6 +178,7 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -
     for services in gate.observed_services() {
         if services.outbound_rpc_usage() != Default::default()
             || services.inbound_rpc_usage() != Default::default()
+            || services.native_rpc_decode_usage() != Default::default()
         {
             cleanup.push("node retained SDK or peer RPC reservations after drain".into());
         }

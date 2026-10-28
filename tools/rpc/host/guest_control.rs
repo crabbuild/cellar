@@ -194,6 +194,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
     let retained = services.lock().unwrap().values().any(|services| {
         services.outbound_rpc_usage() != Default::default()
             || services.inbound_rpc_usage() != Default::default()
+            || services.native_rpc_decode_usage() != Default::default()
     });
     let cases = result.with_context(|| {
         format!("control cleanup={cleanup:?}, retained_native_admission={retained}")

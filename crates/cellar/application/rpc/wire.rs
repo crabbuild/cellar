@@ -21,18 +21,83 @@ impl std::fmt::Display for ResourceLimit {
 
 impl std::error::Error for ResourceLimit {}
 
-struct Budget {
-    elements: usize,
-    slots: usize,
+struct NativeBytes<'a> {
+    layouts: &'a BTreeMap<String, usize>,
+    bytes: usize,
+    maximum: usize,
+    stack_bytes: usize,
+    maximum_stack_bytes: usize,
 }
 
-impl Budget {
+struct Budget<'a> {
+    elements: usize,
+    slots: usize,
+    native: Option<NativeBytes<'a>>,
+}
+
+impl Budget<'_> {
     fn slots(&mut self, count: usize) -> Result<()> {
         self.slots = self
             .slots
             .checked_sub(count)
             .ok_or(ResourceLimit("RPC decoded layout exceeds slot limit"))?;
         Ok(())
+    }
+
+    fn native_slots(&mut self, count: usize) -> Result<()> {
+        if let Some(native) = &mut self.native {
+            let bytes = count
+                .checked_mul(super::native_decode::LAYOUT_BYTES)
+                .and_then(|bytes| bytes.checked_mul(super::native_decode::CAPACITY_FACTOR))
+                .ok_or(ResourceLimit("RPC native decoder layout exceeds capacity"))?;
+            native.bytes = native
+                .bytes
+                .checked_add(bytes)
+                .filter(|bytes| *bytes <= native.maximum)
+                .ok_or(ResourceLimit(
+                    "RPC native decoder exceeds its byte allowance",
+                ))?;
+        }
+        Ok(())
+    }
+
+    fn native_message(&mut self, name: &str) -> Result<()> {
+        if let Some(native) = &self.native {
+            let count = *native
+                .layouts
+                .get(name)
+                .ok_or_else(|| anyhow::anyhow!("unknown native RPC layout"))?;
+            self.native_slots(count)?;
+        }
+        Ok(())
+    }
+
+    fn native_enter(&mut self, name: &str) -> Result<Option<usize>> {
+        self.native_message(name)?;
+        let Some(native) = &mut self.native else {
+            return Ok(None);
+        };
+        let previous = native.stack_bytes;
+        let frame = native
+            .layouts
+            .get(name)
+            .and_then(|slots| slots.checked_mul(super::native_decode::LAYOUT_BYTES))
+            .and_then(|bytes| bytes.checked_mul(super::native_decode::CAPACITY_FACTOR))
+            .and_then(|bytes| bytes.checked_add(super::native_decode::FRAME_BYTES))
+            .ok_or(ResourceLimit("RPC native decoder stack exceeds capacity"))?;
+        native.stack_bytes = previous
+            .checked_add(frame)
+            .filter(|bytes| *bytes <= native.maximum_stack_bytes)
+            .ok_or(ResourceLimit(
+                "RPC native decoder exceeds its stack allowance",
+            ))?;
+        Ok(Some(previous))
+    }
+
+    fn native_leave(&mut self, previous: Option<usize>) {
+        if let (Some(native), Some(previous)) = (&mut self.native, previous) {
+            native.stack_bytes = previous;
+        }
     }
 }
 
@@ -43,6 +108,7 @@ pub(super) fn validate(contract: &Contract, message: &str, bytes: &[u8]) -> Resu
     let mut budget = Budget {
         elements: contract.limits().max_elements,
         slots: contract.limits().max_decoded_slots,
+        native: None,
     };
     walk(
         &contract.messages,
@@ -53,6 +119,50 @@ pub(super) fn validate(contract: &Contract, message: &str, bytes: &[u8]) -> Resu
         0,
         &mut budget,
     )
+}
+
+pub(super) fn native_decode_bytes(
+    contract: &Contract,
+    message: &str,
+    bytes: &[u8],
+    maximum: usize,
+    maximum_stack_bytes: usize,
+) -> Result<usize> {
+    if bytes.len() > contract.limits().max_message_bytes {
+        return Err(ResourceLimit("RPC message exceeds byte limit").into());
+    }
+    let fixed = bytes
+        .len()
+        .checked_mul(super::native_decode::CAPACITY_FACTOR)
+        .and_then(|bytes| bytes.checked_add(super::native_decode::FIXED_BYTES))
+        .filter(|bytes| *bytes <= maximum)
+        .ok_or(ResourceLimit(
+            "RPC native decoder exceeds its byte allowance",
+        ))?;
+    let mut budget = Budget {
+        elements: contract.limits().max_elements,
+        slots: contract.limits().max_decoded_slots,
+        native: Some(NativeBytes {
+            layouts: &contract.native_layouts,
+            bytes: fixed,
+            maximum,
+            stack_bytes: 0,
+            maximum_stack_bytes,
+        }),
+    };
+    walk(
+        &contract.messages,
+        Some(&contract.map_defaults),
+        contract.limits(),
+        message,
+        bytes,
+        0,
+        &mut budget,
+    )?;
+    Ok(budget
+        .native
+        .expect("native decoder accounting is installed")
+        .bytes)
 }
 
 pub(super) fn validate_reply(bytes: &[u8], limits: Limits) -> Result<()> {
@@ -96,6 +206,7 @@ pub(super) fn validate_reply(bytes: &[u8], limits: Limits) -> Result<()> {
     let mut budget = Budget {
         elements: 16,
         slots: 32,
+        native: None,
     };
     walk(messages, None, control, "Reply", bytes, 0, &mut budget)
 }
@@ -120,12 +231,13 @@ fn payload(mut bytes: &[u8], tag: u64) -> Option<&[u8]> {
     bytes.is_empty().then_some(payload)
 }
 
-fn charge(remaining: &mut Budget) -> Result<()> {
+fn charge(remaining: &mut Budget<'_>) -> Result<()> {
     remaining.elements = remaining
         .elements
         .checked_sub(1)
         .ok_or(ResourceLimit("RPC message exceeds element limit"))?;
-    remaining.slots(1)
+    remaining.slots(1)?;
+    remaining.native_slots(1)
 }
 
 fn walk(
@@ -135,7 +247,7 @@ fn walk(
     message: &str,
     mut bytes: &[u8],
     depth: usize,
-    remaining: &mut Budget,
+    remaining: &mut Budget<'_>,
 ) -> Result<()> {
     if depth > limits.max_depth {
         return Err(ResourceLimit("RPC message exceeds depth limit").into());
@@ -144,6 +256,7 @@ fn walk(
         .get(message)
         .ok_or_else(|| anyhow::anyhow!("unknown RPC message"))?;
     remaining.slots(fields.len() + 1)?;
+    let previous_stack = remaining.native_enter(message)?;
     let default = map_defaults.and_then(|maps| maps.get(message));
     let mut map_value_present = false;
     let mut control_seen = 0_u8;
@@ -214,7 +327,9 @@ fn walk(
             .get(default)
             .ok_or_else(|| anyhow::anyhow!("unknown RPC map default"))?;
         remaining.slots(fields.len() + 1)?;
+        remaining.native_message(default)?;
     }
+    remaining.native_leave(previous_stack);
     Ok(())
 }
 

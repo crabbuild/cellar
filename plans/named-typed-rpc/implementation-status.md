@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Head `dda440e4` passes both hosted Python modes' complete typed-RPC workflow, including profile, lifecycle, full failure driver and independent audits; Python examples also pass. Its SDK and JavaScript workflows were cancelled after the next push. Head `8f8c93d3` passes the complete JavaScript/Node SDK workflow. New collector/response-limit source still needs fresh hosted gates. The earlier free-threaded SDK S3 seed failure and lease-write traces remain preserved; the checkpoint source passes that seed matrix locally. |
+| P0 — hosted verification | Final hosted gates | Both SDK interpreter jobs and Python examples pass at `4cfee52c`. Its typed-RPC free-threaded job passes the full workflow, but GIL profile qualification self-fences with `NodeLeaseExpired`; JavaScript CI was cancelled. The native decoder source still needs fresh hosted gates. Earlier failures and exact identities remain preserved below. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 112 cases and peer faults 80. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
-| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion copies one validated business body; ordinary peer collection is finite/dense/cooperative. Typed limits now reach local publication and peer collection, with 112 signed-peer cases passing in both Python modes. Broader response/codec pools, native inline layouts, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
-| P1 | Language/profile coverage | Frozen diagnostic head `fd89b1b4` passes all 19 Counter/failure suites in both local CPython modes, 952 cases per mode, with independent audits and unchanged source/executable identities. Earlier source passes the hosted matrices; original local warmup failures remain unexplained. The reply-copy fix passes both 576-call profiles and 112-case provenance matrices. Complete its broader full-driver/hosted qualification and remaining descriptor, regression and packaging requirements. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation and peer faults each have 112 cases in both observed Python modes. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
+| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion copies one validated business body; ordinary peer collection is finite/dense/cooperative. Typed limits now reach local publication and peer collection, with 112 signed-peer cases passing in both Python modes. Shared native decode/stack allowances now cover transitive inline layouts with measured generated fixtures, both full failure drivers and zero post-join checks. Broader response/codec pools, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
+| P1 | Language/profile coverage | Native decoder source passes all 19 Counter/failure suites in both local CPython modes, 984 cases per mode, plus both 576-call live profiles with independent audits and unchanged sources/executables. Both hosted SDK jobs pass at `4cfee52c`, while its GIL typed-profile lease expiry remains unexplained. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -73,6 +73,143 @@ Do not mark the goal complete from native unit tests or a subset of backend
 pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
+
+- **Native decoded layouts now have shared heap and per-call stack admission.**
+  The main workspace's real generator produces a 512-string inline message.
+  Only 256 wire bytes and 386 portable slots can materialize 128 enclosing
+  messages and allocate **1,572,864 bytes** despite every child being absent.
+  With the new quota infrastructure present but decoder entry points unwired,
+  the real provider/client test accepts this message under a 1 MiB policy.
+  That failing executable SHA-256 is
+  `5d137d3566eed81f8d9d3c738533adc8a0b363cd8c852f92a20b173f90650a04`;
+  exact sources, generated artifacts, main lockfile and log are preserved in
+  `.cellar/rpc/diagnostics/native-decode-main-red-v1/`.
+
+  Native Router request decoding and Client response decoding now reserve a
+  shared host allowance before invoking Prost. The model adds transitive absent
+  inline fields, wire/container growth and fixed scratch. Stack accounting
+  follows active message nesting, restoring its previous value for siblings.
+  Defaults are 256 MiB shared decode capacity and 1 MiB per-decode stack
+  allowance; custom executors must supply stack and application headroom.
+  Overflow and saturation return `ResourceExhausted/unknown`: a constructed
+  provider or previously committed reply cannot establish rollback.
+  Request reservations stay with the handler through response encoding, while
+  client reservations end when the converted value returns to application code.
+  Owned permits refund on another thread and after domain shutdown.
+
+  A second main-lock diagnostic accepts a portable depth-64 recursive oneof,
+  then overflows a **256 KiB** OS thread stack (exit 134). The same diagnostic
+  passes on 2 MiB; do not claim a default-stack failure. Its binary, descriptor,
+  source and both outcomes remain in
+  `.cellar/rpc/diagnostics/native-stack-main-red-v1/`. Permanent bounded
+  subprocess tests now refuse the deep graph before decoding on a 512 KiB
+  thread, accept a shallow graph there, and decode/iteratively discard the
+  deep graph under a separate 32 MiB thread and explicit larger policy.
+
+  All **six focused native integration tests** pass, including allocation
+  measurement, oneof/map defaults, generated request/client refusal, shared
+  saturation, real caller cancellation, fresh progress and zero post-join usage.
+  The subsequent frozen run passes **729 core tests**, **35 native integrations**,
+  Python's 31 units plus streaming/typed-RPC integrations, **13 generator tests**,
+  generator/JavaScript all-target Clippy, Node-only checking and the standard
+  checks. Both actual interpreter modes pass 40 qualifier guards, all-target
+  qualifier Clippy and the **576-call live profile** with independent audits.
+
+  This run records **24 passed checks and four failed checks**. JavaScript has
+  three failures: V8's first SSE chunk hits the engine-turn budget; Node outbound
+  SSE and V8-to-Node `codec-budget/encode` hit the original 250 ms host budget.
+  Node routing, stale-codec admission and all five Workers-module cases pass.
+  Both full drivers then stop at their first proof-wait case: the diagnostic
+  subscriber conflicts with the proof fixture's separately installed global
+  subscriber. This is a harness regression introduced with the diagnostics,
+  not successful qualification of the remaining suites. Core all-target Clippy
+  also finds the new policy test module before implementation items.
+
+  All **3,741 watched inputs** and both executables remain unchanged throughout
+  `.cellar/rpc/native-decode-checks-v1-*`; source manifest SHA-256 is
+  `967cb22d65d5eb51f5f90b5965f60a50c30dafc92b1e283b24433d1cb195a83f`.
+  Executable hashes are
+  `4b5833b3e8a28ecf22eca708bfec07b8616954b8e8c9b7a7c30ac32b98d62647`
+  (GIL) and
+  `3b64eb41a70047a0b6bc3ccbc6c4ec12ba24f1d8f103a49b58579c32a20d8754`
+  (free-threaded). Logs, manifest and failing adapter executables are preserved
+  under `.cellar/rpc/diagnostics/native-decode-regression-failures-v1/`.
+  A single externally sampled replay of the preserved V8 SSE executable passes;
+  it does not reproduce or explain the original failure.
+
+  The policy tests are moved after the implementations with identical production
+  text. Diagnostics and the bounded proof-observation layer now share a single
+  subscriber; the stderr filter applies only to its layer so it cannot disable
+  proof capture. The exact observer regression passes with stderr set to `off`,
+  an INFO renewal recorded from another thread, and two later installs sharing
+  the original trace. The corrected policy test passes too. An earlier bare
+  `--exact` filter selected zero observer tests and is excluded from evidence.
+  The recheck passes the corrected policy test and **18 affected native tests**,
+  all **41 qualifier guards in each mode**, core/JavaScript/qualifier all-target
+  Clippy, Node-only checking and standard checks. Both modes pass the five-case
+  proof-wait smoke run, the **576-call profile**, and the complete **19-suite,
+  984-case Counter/failure driver**. Mode, peer, provenance, saturation,
+  guest-control and profile auditors pass, including their corrupt-report probes.
+  The runner initially gave the provenance auditor an extracted subsection,
+  omitting its required runtime-join fields. The two corrected audits use the
+  original full reports; no report or verifier assertions are changed.
+
+  All **3,741 watched inputs** and both executable hashes remain unchanged during
+  `.cellar/rpc/native-decode-recheck-v2-*`. Manifest SHA-256 is
+  `efcf4eaa37d484a9e95816afc12f6945e07a68094591be7348a9c1ed25d25cc1`;
+  full-report hashes are
+  `efa2d370ce0cedf4716cd68fb7fbd84ed026a27f0f63ee7dcd2ae50212473245`
+  (GIL) and
+  `82489e3f862093100c047da6ddf19911330a7d6eef1a094d6c4b34017ed1677d`
+  (free-threaded). Executable hashes are
+  `27435ae939952752d4964c5dc4778d511c80547d88818663256769f31e34825a`
+  and `3cc43de4c52d7174646e142da9de89c8c187c16fb5cc059711a19ce2367f8c1a`.
+
+  A separate 60-sample observation of the concurrent correctness runs records
+  process-tree RSS ranges of 169,744–368,416 KiB (GIL) and 168,016–376,624 KiB
+  (free-threaded). Shared pages can be counted more than once and sampling can
+  miss transients. This is unisolated diagnostic data, not allocator accounting,
+  a strict peak bound or performance qualification. Its SHA-256 is
+  `6b8042d50e00e0fb9c05206f18943276569084b08aaa0e9753505b509b5d72db`.
+
+  Post-run review adds explicit zero-decoder-reservation checks after local
+  restarts and forced owner fencing; successful fleet shutdown already checks
+  that boundary. All **19 final cleanup checks pass**: both actual modes run the
+  16-pair local matrix through two native starts and all **32 forced owner-fence
+  cases**, with native decoder usage zero after each observed join. Both modes'
+  41 guards, all-target qualifier Clippy and standard checks pass again.
+  All 3,741 watched inputs and both binaries stay unchanged during
+  `.cellar/rpc/native-decode-cleanup-v3-*`; manifest SHA-256 is
+  `ed20d9ac28d5b9c79267069fde3694625323bc26e6d54a26ed4a0383d58ffac3`.
+  Final qualifier binary hashes are
+  `99ae91af3c6300bc4e703f1b3a358ca2dbdfc607c1d0315f3b5dcedfea1ef7ab`
+  and `1cad6c7b95f5bb0562d80eb52ad457fe047c6e91a54ae5df1be263e5c60749b7`.
+  Only the two qualification cleanup assertions and ledger differ from the
+  full-driver snapshot; production code is byte-for-byte unchanged. Both hosted
+  SDK interpreter jobs pass at `4cfee52c`; its separate GIL profile lease expiry
+  and the three local JavaScript timing failures remain unexplained.
+  This allowance covers standard generated Prost layouts, not custom
+  `Message` implementations, application-retained graphs, all response pools,
+  allocator backing copies or process RSS; full resource qualification remains
+  open.
+
+- **Hosted GIL profile failure retained; free-threaded driver independently audited.**
+  At `4cfee52c`, typed-RPC run **40592333578** fails its GIL profile with both
+  nodes reporting `NodeLeaseExpired` during the V8-to-V8
+  `opposite-boundaries` call. Both bridges join with zero reservations. Artifact
+  SHA-256 is `7c3dc380c188760810081158694448e8f3f6fa21e8530f59f2dad68f2555ea5f`.
+  The failure contains no lease attempt timings: the qualifier had not installed
+  a tracing subscriber. The qualifier now installs it before every suite; CI
+  enables existing core lease start/completion records without changing budgets.
+  This is diagnostic coverage, not a fix or an explanation for the failure.
+
+  The same run's free-threaded job passes the profile, lifecycle and complete
+  19-suite driver. Its actual loaded-mode, provenance and peer-fault reports pass
+  the independent auditors locally; full-report SHA-256 is
+  `97ff7fd5bb86b97505c39b8bc95962d280942aabea2c0bf042ec1326eef2bfd9`.
+  Artifacts and original logs are preserved under
+  `.cellar/rpc/diagnostics/hosted-4cfee52c-profile-v1/`. Earlier timing failures
+  remain open; passing another mode does not explain the GIL failure.
 
 - **Typed response ceilings reach native routing and peer collection.** The
   real signed-peer relay first observes the owner's proven count/receipt, then

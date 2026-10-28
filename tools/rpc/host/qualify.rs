@@ -157,6 +157,7 @@ pub async fn local(app: Arc<super::application::Composite>) -> Result<Value> {
         )
         .await?;
         verified.extend(matrix(&client, &base, round).await?);
+        let services = host.services();
         let NodeOutcome::Stopped(proof) = host.shutdown(ShutdownMode::Preserve).await? else {
             anyhow::bail!("RPC node failed")
         };
@@ -166,6 +167,11 @@ pub async fn local(app: Arc<super::application::Composite>) -> Result<Value> {
                 && proof.cells_drained
                 && !proof.drain_timed_out,
             "native node did not drain"
+        );
+        ensure!(
+            services.native_rpc_decode_usage() == Default::default(),
+            "local RPC node retained decoder admission: {:?}",
+            services.native_rpc_decode_usage()
         );
     }
     ensure!(verified.len() == 16, "incomplete local backend matrix");

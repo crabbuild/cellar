@@ -105,13 +105,21 @@ impl Client {
             }
         };
         let signal = options.signal.clone();
+        let contract = self.contract.clone();
+        let context = self.context.clone();
         let call = self.start(method, result, options, deadline);
         Box::pin(async move {
-            let (bytes, deadline) = call.await?;
-            let response = Response::decode(bytes.as_slice())
-                .map_err(|_| Failure::new(Code::InvalidResponse))?;
+            let (bytes, deadline, method) = call.await?;
+            let admission = super::DecodeReservation::new(&contract, &method.output, &bytes);
             check_completion(deadline, signal.as_ref())?;
-            Ok(response)
+            let _admission = admission?;
+            let response =
+                Response::decode(bytes.as_slice()).map_err(|_| Failure::new(Code::InvalidResponse));
+            check_completion(deadline, signal.as_ref())?;
+            context
+                .check_turn()
+                .map_err(|_| Failure::new(Code::ContextExpired))?;
+            response
         })
     }
 
@@ -125,7 +133,7 @@ impl Client {
     ) -> HandlerFuture<Vec<u8>> {
         let deadline = self.deadline(&options, crate::asyncrt::mono_ms());
         let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
+        Box::pin(async move { call.await.map(|(bytes, _, _)| bytes) })
     }
 
     /// Submit guest-encoded bytes under a budget minted before its codecs ran.
@@ -142,7 +150,7 @@ impl Client {
                 .map(|current| deadline.min(current))
         });
         let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
+        Box::pin(async move { call.await.map(|(bytes, _, _)| bytes) })
     }
 
     fn deadline(&self, options: &CallOptions, started: u64) -> Result<u64, Failure> {
@@ -166,7 +174,7 @@ impl Client {
         request: Result<Vec<u8>, Failure>,
         options: CallOptions,
         deadline: Result<u64, Failure>,
-    ) -> HandlerFuture<(Vec<u8>, u64)> {
+    ) -> HandlerFuture<(Vec<u8>, u64, super::Method)> {
         let context = self.context.clone();
         let stub = self.stub.clone();
         let contract = self.contract.clone();
@@ -250,7 +258,7 @@ impl Client {
                     .validate_message(&method.output, &bytes)
                     .map_err(|_| Failure::new(Code::InvalidResponse))?;
                 check_completion(deadline, response_signal.as_ref())?;
-                Ok((bytes, deadline))
+                Ok((bytes, deadline, method))
             };
             let cancellation = async {
                 match options.signal {

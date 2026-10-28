@@ -81,13 +81,13 @@ async fn case(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Resu
     case_inner(app, client, case).await.with_context(|| {
         format!(
             "proof-wait lease observations: {:?}",
-            lease_trace::install().snapshot()
+            lease_trace::install(None).snapshot()
         )
     })
 }
 
 async fn case_inner(app: Arc<Composite>, client: &reqwest::Client, case: Case) -> Result<Value> {
-    let lease_trace = lease_trace::install();
+    let lease_trace = lease_trace::install(None);
     lease_trace.mark("proof-wait case start");
     app.audit.reset_after_node_drain();
     let directory = tempfile::tempdir()?;

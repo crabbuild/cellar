@@ -21,6 +21,10 @@ pub use wait::run as waits;
 pub use wait::smoke as wait_smoke;
 pub use wait::v8_repro as wait_v8_repro;
 
+pub(crate) fn initialize_diagnostics(filter: tracing_subscriber::EnvFilter) {
+    lease_trace::install(Some(filter));
+}
+
 // Reuse the owning SDK harness's real peer/object-store faults. Its lost-ack
 // variant is outside this suite; no runtime hooks or fake proof tickets exist.
 #[allow(dead_code)]
@@ -583,4 +587,30 @@ pub async fn recruitment(app: Arc<Composite>) -> Result<Value> {
         .build()?;
     let case = case(app, &client, Point::Release, "rust", "rust", "RustCounter").await?;
     Ok(json!({"format":1,"diagnostic":"late-replica-recruitment","qualified":false,"case":case}))
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    use super::*;
+
+    #[test]
+    fn logging_and_proof_observations_share_one_subscriber() {
+        // The proof layer must remain enabled even when the stderr layer is
+        // disabled, and later fixture installation must reuse the same trace.
+        initialize_diagnostics(tracing_subscriber::EnvFilter::new("off"));
+        let first = lease_trace::install(None);
+        let second = lease_trace::install(None);
+        assert!(Arc::ptr_eq(first, second));
+        let thread = "rpc-diagnostics-proof-regression";
+        std::thread::Builder::new()
+            .name(thread.into())
+            .spawn(|| {
+                tracing::info!(target: "cellar::actor::effects",
+                    event = "node_lease_attempt", attempt = "renew", outcome = "applied");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        assert!(first.applied_renewal(thread));
+    }
 }

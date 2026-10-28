@@ -44,6 +44,8 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
       CELLAR_RPC_PYTHON_MODE: '${{ matrix.mode }}'
+      # Preserve existing lease timing evidence without logging RPC payloads.
+      RUST_LOG: 'warn,cellar::actor::effects=info'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -54,7 +56,7 @@ jobs:
           python-version: '${{ matrix.python }}'
       - name: Rust toolchain
         run: |
-          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
           rustup default 1.98.1
       - name: Locked guest fixtures
         run: |
@@ -76,8 +78,8 @@ jobs:
           cargo test --locked -p cellar-guest
           cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
           cargo test --locked -p cellar --lib daemon::event_reply::tests:: -- --test-threads=1
-          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store --test native_rpc_failure_provenance --test native_rpc_reply_allocation
-          cargo test --locked -p cellar-rpc-codegen --test descriptor_admission
+          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store --test native_rpc_failure_provenance --test native_rpc_reply_allocation --test native_rpc_decode_allocation
+          cargo test --locked -p cellar-rpc-codegen -- --test-threads=1
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings

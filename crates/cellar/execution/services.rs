@@ -10,6 +10,7 @@
 //! and resource registries follow their owner.
 
 pub use crate::inbound_rpc::Usage as InboundRpcUsage;
+pub use crate::native_rpc_decode::Usage as NativeRpcDecodeUsage;
 pub use crate::outbound_rpc::Usage as OutboundRpcUsage;
 use crate::ownership_store::LiveLoad;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -97,6 +98,7 @@ pub struct HostServices {
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
     outbound_rpc: OnceLock<crate::outbound_rpc::Budget>,
     inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
+    native_rpc_decode: OnceLock<crate::native_rpc_decode::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
     events: Arc<crate::application::event_stream::service::Service>,
@@ -129,6 +131,7 @@ impl HostServices {
             runtime_policy: OnceLock::new(),
             outbound_rpc: OnceLock::new(),
             inbound_rpc: OnceLock::new(),
+            native_rpc_decode: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -162,6 +165,7 @@ impl HostServices {
             runtime_policy: OnceLock::new(),
             outbound_rpc: OnceLock::new(),
             inbound_rpc: OnceLock::new(),
+            native_rpc_decode: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -393,6 +397,30 @@ impl HostServices {
         self.outbound_rpc
             .get()
             .map_or_else(Default::default, crate::outbound_rpc::Budget::usage)
+    }
+
+    pub(crate) fn reserve_native_rpc_decode(
+        &self,
+        weight: usize,
+    ) -> Option<crate::native_rpc_decode::Admission> {
+        if !self.accepts_work() {
+            return None;
+        }
+        self.native_rpc_decode
+            .get_or_init(|| {
+                crate::native_rpc_decode::Budget::new(
+                    self.runtime_policy().max_native_rpc_decode_bytes,
+                )
+            })
+            .reserve(weight)
+    }
+
+    /// Shared native codec allowances, sampled separately from transport bytes.
+    /// Application-owned retained messages and whole-process RSS are not counted.
+    pub fn native_rpc_decode_usage(&self) -> NativeRpcDecodeUsage {
+        self.native_rpc_decode
+            .get()
+            .map_or_else(Default::default, crate::native_rpc_decode::Budget::usage)
     }
 
     pub(crate) fn admit_rpc_tunnel(&self, peer: &str) -> Option<crate::inbound_rpc::Connection> {

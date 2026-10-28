@@ -126,6 +126,8 @@ pub mod host_services;
 pub mod http_policy;
 #[path = "execution/inbound_rpc.rs"]
 mod inbound_rpc;
+#[path = "execution/native_rpc_decode.rs"]
+mod native_rpc_decode;
 #[path = "execution/outbound_rpc.rs"]
 mod outbound_rpc;
 #[path = "execution/rpc_reservation.rs"]

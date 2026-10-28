@@ -83,6 +83,7 @@ pub struct Contract {
     methods: BTreeMap<String, Method>,
     pub(super) messages: BTreeMap<String, BTreeMap<u32, Field>>,
     pub(super) map_defaults: BTreeMap<String, String>,
+    pub(super) native_layouts: BTreeMap<String, usize>,
     limits: Limits,
     codec_shapes: serde_json::Value,
 }
@@ -262,12 +263,14 @@ impl Contract {
         let codec_shapes = super::shape::project(&set);
         let descriptor = set.encode_to_vec();
         let digest = hex::encode(Sha256::digest(&descriptor));
+        let native_layouts = super::native_decode::layouts(&messages);
         Ok(Self {
             descriptor,
             digest,
             methods,
             messages,
             map_defaults,
+            native_layouts,
             limits,
             codec_shapes,
         })

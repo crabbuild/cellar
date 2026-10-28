@@ -176,6 +176,7 @@ pub async fn start_configured(
 }
 
 pub async fn stop(node: Node, mode: ShutdownMode) -> Result<()> {
+    let services = node.services();
     let label = format!("shutdown fleet RPC node {}", node.info().node);
     let outcome = node.shutdown(mode).await.context(label)?;
     let NodeOutcome::Stopped(proof) = outcome else {
@@ -187,6 +188,11 @@ pub async fn stop(node: Node, mode: ShutdownMode) -> Result<()> {
             && proof.cells_drained
             && !proof.drain_timed_out,
         "fleet RPC node did not drain: {proof:?}"
+    );
+    ensure!(
+        services.native_rpc_decode_usage() == Default::default(),
+        "fleet RPC node retained native decoder admission: {:?}",
+        services.native_rpc_decode_usage()
     );
     Ok(())
 }

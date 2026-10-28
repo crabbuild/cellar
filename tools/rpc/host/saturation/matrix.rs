@@ -12,6 +12,7 @@ async fn drained(gate: &Gate) -> Result<()> {
         while gate.observed_services().iter().any(|services| {
             let receiver = services.inbound_rpc_usage();
             services.outbound_rpc_usage() != Default::default()
+                || services.native_rpc_decode_usage() != Default::default()
                 || receiver.active_requests != 0
                 || receiver.reserved_request_bytes != 0
         }) {

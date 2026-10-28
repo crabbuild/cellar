@@ -56,7 +56,8 @@ impl Audit {
         for services in self.services.lock().unwrap().values() {
             ensure!(
                 services.inbound_rpc_usage() == Default::default()
-                    && services.outbound_rpc_usage() == Default::default(),
+                    && services.outbound_rpc_usage() == Default::default()
+                    && services.native_rpc_decode_usage() == Default::default(),
                 "profile retained native admission after node join"
             );
         }

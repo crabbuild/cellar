@@ -15,6 +15,7 @@ mod envelope;
 mod failure;
 mod graph;
 mod lease;
+mod native_decode;
 mod provenance;
 mod router;
 mod schema;
@@ -32,6 +33,8 @@ pub use graph::{
     discard_message, encode_message, validate_graph, GraphBudget, GraphDiscard, MessageGraph,
 };
 pub use lease::{Lease, LeaseClosed, LeaseControl, LeaseRevocation};
+#[doc(hidden)]
+pub use native_decode::DecodeReservation;
 pub(crate) use provenance::Entered;
 pub use router::{HandlerFuture, Prepared, Router};
 
