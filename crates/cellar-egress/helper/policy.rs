@@ -28,11 +28,12 @@ impl Policy {
     }
 
     pub async fn install(&self, targets: Vec<HttpTarget>) -> Result<()> {
-        let program = Program::new(
+        let program = Program::with_https(
             &targets,
             self.config.http_port,
             self.config.dns_port,
             self.config.internet,
+            self.config.https,
         )?;
         let mut rules = Rules::default();
         for target in targets {

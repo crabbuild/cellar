@@ -758,6 +758,11 @@
             target,
             service: { kind: "binding", binding },
           }),
+        interceptOutboundHttps: (target, binding) =>
+          containerCall("container.intercept_outbound_https", {
+            target,
+            service: { kind: "binding", binding },
+          }),
         exec: async (options) =>
           resource("exec", await containerCall("container.exec", { options })),
         execOutput: async (options, max_bytes = 1048576) => {

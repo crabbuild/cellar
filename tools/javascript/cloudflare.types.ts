@@ -85,6 +85,15 @@ const installed: Promise<void> = container.interceptOutboundHttp(
   service,
 );
 const allHttp: Promise<void> = container.interceptAllOutboundHttp(service);
+const installedHttps: Promise<void> = container.interceptOutboundHttps(
+  "*",
+  service,
+);
+// @ts-expect-error: HTTPS requires an explicit target string
+container.interceptOutboundHttps(null, service);
+// @ts-expect-error: HTTPS requires a deployed service capability
+container.interceptOutboundHttps("*", () => new Response());
+void installedHttps;
 // @ts-expect-error: interception takes deployed service capabilities, not callbacks
 container.interceptAllOutboundHttp(() => new Response("guest closure"));
 void [installed, allHttp];

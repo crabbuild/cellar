@@ -80,17 +80,22 @@ export function durableObjectContainer(nativeContext) {
     return pending;
   }
 
-  function intercept(context, target, handler) {
+  function intercept(context, target, handler, https = false) {
     const service = containerServiceTarget(handler, context);
     const record = event(context);
     const previous = record.tail;
     const work = (async () => {
       if (record.failure) throw record.failure;
       if (previous) await previous;
-      await context._call("container.intercept_outbound_http", {
-        target,
-        service,
-      });
+      await context._call(
+        https
+          ? "container.intercept_outbound_https"
+          : "container.intercept_outbound_http",
+        {
+          target,
+          service,
+        },
+      );
     })();
     record.tail = work;
     work.then(undefined, (error) => {
@@ -110,6 +115,12 @@ export function durableObjectContainer(nativeContext) {
     interceptAllOutboundHttp(handler) {
       const context = current();
       return intercept(context, null, handler);
+    },
+    interceptOutboundHttps(target, handler) {
+      const context = current();
+      if (typeof target !== "string")
+        throw new TypeError("HTTPS intercept target must be a string");
+      return intercept(context, target, handler, true);
     },
     exec(cmd, options) {
       const context = current();

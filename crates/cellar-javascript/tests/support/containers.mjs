@@ -121,6 +121,15 @@ export class Counter {
       check(profile.code === "ValidationError", "Workers profile required");
     }
     const capabilities = await c.capabilities();
+    check(
+      !capabilities.operations.includes("container.intercept_outbound_https"),
+      "HTTPS requires explicit provider profile",
+    );
+    const tls = await rejects(
+      () => c.interceptOutboundHttps("*", "API"),
+      "not_committed",
+    );
+    check(tls.code === "ValidationError", "unsupported HTTPS refusal");
     check(capabilities.synchronous_running, "declared synchronous observation");
     check(capabilities.queued_lifecycle, "declared queued lifecycle");
     check(

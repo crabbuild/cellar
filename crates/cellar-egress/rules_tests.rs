@@ -12,6 +12,7 @@ fn registration_ack_controls_visibility_and_replacement_retains_request_handles(
     let mut rules = Rules::default();
     let host = Host::parse("api.example")?;
     let destination = Destination {
+        protocol: crate::Protocol::Http,
         socket: "192.0.2.1:80".parse()?,
         host: Some(&host),
     };
@@ -44,6 +45,7 @@ fn pending_updates_cannot_overwrite_another_commit_or_revive_retired_rules() -> 
     assert!(!rules.resolves(&host, DnsFamily::V4));
     assert!(rules
         .resolve(&Destination {
+            protocol: crate::Protocol::Http,
             socket: "192.0.2.1:80".parse()?,
             host: Some(&host)
         })
@@ -122,6 +124,7 @@ fn catch_all_obeys_registration_order_and_replacement_does_not_reorder() -> Resu
         assert_eq!(
             rules
                 .resolve(&Destination {
+                    protocol: crate::Protocol::Http,
                     socket: "192.0.2.1:80".parse()?,
                     host: Some(&host)
                 })

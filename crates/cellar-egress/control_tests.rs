@@ -27,6 +27,7 @@ fn target() -> HttpTarget {
 
 fn route(routes: &Routes<String>) -> Option<Arc<String>> {
     routes.resolve(&Destination {
+        protocol: crate::Protocol::Http,
         socket: "127.0.0.2:80".parse().unwrap(),
         host: Some(&Host::parse("backup.internal").unwrap()),
     })

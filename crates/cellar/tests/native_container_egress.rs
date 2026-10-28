@@ -302,6 +302,7 @@ async fn gateway(mut stream: Stream, routes: &control::Routes<String>, mode: Mod
     let host = Host::parse("backup.internal")?;
     let handler: Arc<String> = routes
         .resolve(&Destination {
+            protocol: cellar_egress::Protocol::Http,
             socket: destination,
             host: Some(&host),
         })

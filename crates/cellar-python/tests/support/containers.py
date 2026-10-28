@@ -56,6 +56,12 @@ class Counter:
         capabilities = await container.capabilities()
         assert capabilities.provider == "audited-native" and capabilities.environment == "linux"
         assert capabilities.max_resources == 64 and "container.exec" in capabilities.operations
+        assert "container.intercept_outbound_https" not in capabilities.operations
+        try:
+            await container.intercept_outbound_https("*", "API")
+            raise AssertionError("HTTPS reached a provider without its profile")
+        except SDKError as error:
+            assert error.code == "ValidationError" and error.outcome == "not_committed"
         assert capabilities.synchronous_running
         assert capabilities.queued_lifecycle
         assert isinstance(capabilities.operations, tuple)

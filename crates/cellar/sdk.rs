@@ -196,7 +196,9 @@ pub use crate::application::*;
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain, WallClock};
+pub use crate::container::CapacityLimits as ContainerCapacityLimits;
 pub use crate::container::EngineOptions as ContainerEngineOptions;
+pub use crate::container::HttpsInterceptionOptions as ContainerHttpsInterceptionOptions;
 pub use crate::container::NetworkHelperOptions as ContainerNetworkHelperOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;

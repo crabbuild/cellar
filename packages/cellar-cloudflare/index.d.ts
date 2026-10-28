@@ -114,6 +114,11 @@ export interface DurableObjectContainer {
     handler: ServiceBinding<object>,
   ): Promise<void>;
   interceptAllOutboundHttp(handler: ServiceBinding<object>): Promise<void>;
+  /** Explicit native HTTPS profile; trust the run's injected public CA. */
+  interceptOutboundHttps(
+    target: string,
+    handler: ServiceBinding<object>,
+  ): Promise<void>;
   /** Node web-stream profile; image selection remains native host configuration. */
   exec(
     cmd: string[],

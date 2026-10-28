@@ -287,6 +287,7 @@ pub fn run(application_config: crate::config::AppConfig) -> Result<()> {
             probe_signer: signer,
             fleet: Some(fleet),
             containers: Some(cellar::container::EngineOptions {
+                capacity: None,
                 socket: "/var/run/docker.sock".into(), namespace:None, runtime:None, dns:Vec::new(),
                 network_helper: None,
             }),
