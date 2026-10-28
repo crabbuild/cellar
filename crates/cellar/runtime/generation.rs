@@ -863,8 +863,12 @@ impl Generation {
             }
         }
         let supervision = (!supervision.is_empty()).then(|| Arc::new(supervision));
-        let source_recovery =
-            crate::runtime::source_recovery::configuration(id, &node, supervision);
+        let source_recovery = crate::runtime::source_recovery::configuration_with_applications(
+            id,
+            &node,
+            supervision,
+            native_applications.values().cloned().collect(),
+        );
         let source_recovery_pool = crate::runtime::cell_pool(source_recovery.clone());
         Ok(Generation {
             native_applications,

@@ -52,6 +52,8 @@ mod queue_lost_ack;
 mod queue_observation;
 #[path = "support/routing.rs"]
 mod routing;
+#[path = "support/sandboxes.rs"]
+mod sandboxes;
 #[path = "support/schedule_recovery.rs"]
 mod schedule_recovery;
 #[path = "support/schedules.rs"]
@@ -330,6 +332,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-queue-lost-ack" {
         return queue_lost_ack::child();
     }
+    if mode == "--runtime-sandboxes" {
+        return sandboxes::child();
+    }
     if mode == "--runtime-containers" {
         return containers::child();
     }
@@ -505,6 +510,7 @@ fn main() -> Result<()> {
         "--runtime-queue-lost-ack",
         "--runtime-limits",
         "--runtime-containers",
+        "--runtime-sandboxes",
         "--runtime-initial-reads",
         "--runtime-cycles",
         "--runtime-cycles-fence",

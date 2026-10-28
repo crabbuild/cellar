@@ -1381,6 +1381,14 @@ impl AppHandle {
         resident_work: Option<ResidentWork>,
         native_container: bool,
     ) -> Result<Routed, RequestError> {
+        if resident_work.is_none() {
+            if let Some(runtime) = &self.runtime {
+                match runtime.retirements.get(&cell).await {
+                    Ok(None) => {}
+                    _ => return Err(RequestError::RuntimeFailed),
+                }
+            }
+        }
         match self
             .request_path(cell, capacity_handoff, resident_work, native_container)
             .await

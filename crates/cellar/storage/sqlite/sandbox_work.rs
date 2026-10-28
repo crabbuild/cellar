@@ -46,6 +46,9 @@ fn next(connection: &Connection) -> Result<Option<(String, u64, String, i64)>> {
 }
 
 pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
+    if super::sandbox_erasure::read(connection)?.is_some() {
+        return Ok(());
+    }
     if !SCHEMA.check(connection)? {
         return Ok(());
     }
@@ -70,6 +73,25 @@ pub(super) fn rearm(connection: &Connection, scope: &str) -> Result<()> {
             |row| row.get(0),
         )
         .optional()?;
+    if due.is_none()
+        && super::sandbox_catalog::read_parent(connection)?
+            .is_some_and(|parent| parent.state == SandboxParentState::Active)
+        && connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM __sys_sandbox_managed LIMIT 1)",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?
+    {
+        // Persist discovery even while the application is idle. A future
+        // deployment can remove this parent without erasing its obligations.
+        let now = crate::asyncrt::wall_ms().max(0);
+        due = Some(
+            current
+                .flatten()
+                .filter(|at| *at > now)
+                .unwrap_or(now.saturating_add(30_000)),
+        );
+    }
     if due != current.flatten() {
         if let Some(due) = due {
             super::work::set_in(connection, scope, Reason::SandboxCleanup, due)?;

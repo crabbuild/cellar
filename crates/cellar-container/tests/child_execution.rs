@@ -163,6 +163,14 @@ impl Cell for Root {
                     json!(true)
                 }
                 "status" => serde_json::to_value(catalog.parent(&context)?)?,
+                "allocations" => {
+                    serde_json::to_value(catalog.list(&context, None, 256)?.allocations)?
+                }
+                "erase" => {
+                    let parent = catalog.parent(&context)?.unwrap();
+                    catalog.request_erasure(&context).await?;
+                    json!(parent.scope)
+                }
                 "retired" => {
                     ensure!(catalog
                         .parent(&context)?
@@ -461,6 +469,18 @@ fn named_children_spill_to_a_peer_with_container_capacity_and_cleanup_when_full(
             .await??;
             ensure!(left_peer.engine.containers.lock().unwrap().is_empty());
             ensure!(right_peer.engine.containers.lock().unwrap().is_empty());
+            let children = request(&client, address, "allocations").await?;
+            for child in children.as_array().unwrap() {
+                let scope = child["execution_scope"].as_str().unwrap();
+                wait_erased(&nodes[0].0, scope).await?;
+                let prefix = format!("cells/{scope}/");
+                let keys = bucket.list(&prefix).await?;
+                ensure!(
+                    keys.iter()
+                        .all(|key| key.location.as_ref() == format!("{prefix}own.json")),
+                    "child replica objects remained: {keys:?}"
+                );
+            }
             ensure!(app.factories.load(Ordering::SeqCst) == 0);
             Ok::<_, anyhow::Error>(())
         }
@@ -476,4 +496,179 @@ fn named_children_spill_to_a_peer_with_container_capacity_and_cleanup_when_full(
         right_peer.stop().await?;
         result
     })
+}
+
+#[test]
+fn sandbox_sqlite_erasure_is_terminal_across_restart() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let directory = tempfile::tempdir()?;
+            let peer = peer::Peer::start().await?;
+            let app = Arc::new(App {
+                executor: Arc::new(ChildExecutor::new(Arc::new(Native), "c".repeat(64))?),
+                factories: Arc::new(AtomicUsize::new(0)),
+            });
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(20))
+                .build()?;
+            let mut erased_parent = None;
+            for restarted in [false, true] {
+                let (node, address) = native::start_with_configuration(
+                    directory.path(),
+                    app.clone(),
+                    vec!["Parent".into(), "Sandbox".into()],
+                    vec![
+                        ("PARENTS".into(), "Parent".into()),
+                        ("SANDBOXES".into(), "Sandbox".into()),
+                    ],
+                    |config, services, graph| peer.configure(config, services, graph),
+                )
+                .await?;
+                let result = async {
+                    if !restarted {
+                        request(&client, &address, "start").await?;
+                        ensure!(
+                            !client
+                                .get(format!("{address}/erase"))
+                                .send()
+                                .await?
+                                .status()
+                                .is_success(),
+                            "live parent erasure was accepted"
+                        );
+                        let children = request(&client, &address, "allocations").await?;
+                        request(&client, &address, "retire").await?;
+                        tokio::time::timeout(Duration::from_secs(45), async {
+                            loop {
+                                if request(&client, &address, "status").await?["state"] == "deleted"
+                                {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            Ok::<_, anyhow::Error>(())
+                        })
+                        .await??;
+                        for child in children.as_array().unwrap() {
+                            let scope = child["execution_scope"].as_str().unwrap();
+                            wait_erased(&node, scope).await?;
+                            ensure!(
+                                !directory.path().join(scope).exists(),
+                                "child SQLite directory remained"
+                            );
+                        }
+                        let scope = request(&client, &address, "erase")
+                            .await?
+                            .as_str()
+                            .unwrap()
+                            .to_owned();
+                        wait_erased(&node, &scope).await?;
+                        ensure!(
+                            !directory.path().join(&scope).exists(),
+                            "parent SQLite directory remained"
+                        );
+                        erased_parent = Some(scope);
+                    }
+                    ensure!(
+                        !client
+                            .get(format!("{address}/status"))
+                            .send()
+                            .await?
+                            .status()
+                            .is_success(),
+                        "erased parent was reopened"
+                    );
+                    ensure!(
+                        node.sandbox_erasure_status(erased_parent.as_ref().unwrap())
+                            .await?
+                            == Some("erased")
+                    );
+                    Ok::<_, anyhow::Error>(())
+                }
+                .await;
+                let _ = node.shutdown(ShutdownMode::Preserve).await?;
+                result?;
+            }
+            peer.stop().await
+        })
+}
+
+async fn wait_erased(node: &Node, scope: &str) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(45), async {
+        loop {
+            if node.sandbox_erasure_status(scope).await? == Some("erased") {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await?
+}
+
+#[test]
+fn removed_deployment_retires_children_without_guest_callbacks() -> Result<()> {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let directory = tempfile::tempdir()?;
+            let peer = peer::Peer::start().await?;
+            let app = Arc::new(App {
+                executor: Arc::new(ChildExecutor::new(Arc::new(Native), "c".repeat(64))?),
+                factories: Arc::new(AtomicUsize::new(0)),
+            });
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(20))
+                .build()?;
+            let (node, address) = native::start_with_configuration(
+                directory.path(),
+                app.clone(),
+                vec!["Parent".into(), "Sandbox".into()],
+                vec![
+                    ("PARENTS".into(), "Parent".into()),
+                    ("SANDBOXES".into(), "Sandbox".into()),
+                ],
+                |config, services, graph| peer.configure(config, services, graph),
+            )
+            .await?;
+            request(&client, &address, "start").await?;
+            let children = request(&client, &address, "allocations").await?;
+            let _ = node.shutdown(ShutdownMode::Preserve).await?;
+            let (node, _) = native::start_with_configuration(
+                directory.path(),
+                app,
+                Vec::new(),
+                Vec::new(),
+                |config, services, graph| {
+                    peer.configure(config, services, graph);
+                    graph.primary.containers.clear();
+                },
+            )
+            .await?;
+            let result = async {
+                // Only the persisted discovery alarm drives this removed parent.
+                for child in children.as_array().unwrap() {
+                    let scope = child["execution_scope"].as_str().unwrap();
+                    wait_erased(&node, scope).await?;
+                    ensure!(!directory.path().join(scope).exists());
+                }
+                ensure!(peer.engine.app_creates() == 2, "cleanup replayed creation");
+                ensure!(peer.engine.containers.lock().unwrap().is_empty());
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            let _ = node.shutdown(ShutdownMode::Preserve).await?;
+            peer.stop().await?;
+            result
+        })
 }

@@ -113,7 +113,10 @@ impl Context {
             "containers must be controlled by their root cell"
         );
         anyhow::ensure!(
-            self.worker_config.container_class(&identity.class),
+            self.worker_config.container_class(&identity.class)
+                || (self.worker_config.source_recovery
+                    && crate::storage::sandbox_children::load(&identity.scope)?
+                        .is_some_and(|record| record.container_spec.is_some())),
             "this cell class has no container"
         );
         let engine =

@@ -287,6 +287,9 @@ where
     }
     let mut websockets: FuturesUnordered<WebSocketFuture> = FuturesUnordered::new();
     let mut cache_prunes: FuturesUnordered<CachePruneFuture> = FuturesUnordered::new();
+    let erasure_active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut erasure_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    erasure_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut replication_health = tokio::time::interval(std::time::Duration::from_millis(250));
     let mut local_cache_prune = tokio::time::interval_at(
         tokio::time::Instant::now() + policy.local_cache_prune_period,
@@ -406,6 +409,20 @@ where
                 websockets.push(socket);
             }
             Some(()) = websockets.next(), if !websockets.is_empty() => {}
+            _ = erasure_tick.tick(), if !erasure_active.load(Ordering::Acquire) => {
+                let app = app.clone();
+                let ownership = ready_ownership.clone();
+                let active = erasure_active.clone();
+                active.store(true, Ordering::Release);
+                facet_calls.push(Box::pin(async move {
+                    let result = crate::asyncrt::timeout(std::time::Duration::from_secs(20),
+                        super::sandbox_erasure::maintain(app, ownership)).await;
+                    if let Ok(Err(error)) = result {
+                        tracing::debug!(%error, "sandbox erasure remains queued");
+                    }
+                    active.store(false, Ordering::Release);
+                }));
+            }
             _ = local_cache_prune.tick(), if local_cache_replication.is_some()
                 && local_cache_max_bytes.is_some() && cache_prunes.is_empty() => {
                 let replication = local_cache_replication.clone().unwrap();

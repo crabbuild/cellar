@@ -44,6 +44,14 @@ WebSocket upgrades/events. See [streaming and WebSockets](../../docs/27-streamin
 General ASGI lifespan, workflows, outbox, stream bindings, binary SQL parameters,
 and application-authored `wait_until` are outside its current SDK contract.
 
+## Dynamic named sandboxes
+
+`ctx.sandboxes` allocates independently routed execution cells owned by the
+current business cell. The host registers the dedicated execution class through
+`Source::sandbox_executor`; full checkpoints prevent stale calls from targeting a
+replacement child. See the [four-language allocation and erasure guide](../cellar-container/allocations.md)
+for examples, cleanup after deployment removal, limits and production boundaries.
+
 ## Cell-owned Docker and Podman containers
 
 Root cells with a declared container image can use `ctx.container` for lifecycle,

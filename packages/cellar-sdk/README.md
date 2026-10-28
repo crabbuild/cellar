@@ -706,6 +706,14 @@ with the actual selected Cellar runtime: npm installation alone does not establi
 embedded-runtime compatibility.
 
 
+## Dynamic named sandboxes
+
+`ctx.sandboxes` allocates independently routed execution cells owned by the
+current business cell. The host registers the dedicated execution class through
+`Source::sandbox_executor`; full checkpoints prevent stale calls from targeting a
+replacement child. See the [four-language allocation and erasure guide](../../crates/cellar-container/allocations.md)
+for examples, cleanup after deployment removal, limits and production boundaries.
+
 ## Cell-owned containers
 
 `ctx.container` controls a root cell's declared Docker/Podman container on both

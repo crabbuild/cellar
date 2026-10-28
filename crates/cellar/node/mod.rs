@@ -14,6 +14,8 @@
 //! work runs on the host runtime so synchronous work cannot starve the core's
 //! monotonic lease timers.
 
+mod sandbox_erasure;
+
 use crate::actor::*;
 use crate::bucket::Bucket;
 use crate::cell_dispatch::{
@@ -719,6 +721,7 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
     let Some(runtime) = app.runtime.as_ref() else {
         let error = || anyhow::anyhow!("no cell runtime");
         match req {
+            FacetReq::Erase { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Open { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Delete { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::DeleteBatch { reply, .. } => drop(reply.send(Err(error()))),
@@ -727,6 +730,17 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
         return;
     };
     match req {
+        FacetReq::Erase { request, reply } => {
+            let result = async {
+                anyhow::ensure!(
+                    runtime.published_epoch(request.record.evidence.scope()) == Some(request.epoch),
+                    "erasure activation changed"
+                );
+                runtime.retirements.begin(&request.record).await
+            }
+            .await;
+            drop(reply.send(result));
+        }
         FacetReq::Open {
             authority,
             root,
@@ -1655,6 +1669,14 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
         );
+        if let Some(value) = crate::runtime::sandbox_execution::retired_reply(
+            app.runtime.as_ref(),
+            authority.as_ref(),
+        )
+        .await?
+        {
+            return Ok(value);
+        }
         let mut dispatcher = match budget.as_ref() {
             Some(budget) => RemoteRouteRetry::until(budget.deadline_ms()),
             None => match deadline_ms {
@@ -2762,6 +2784,23 @@ pub(crate) async fn dispatch_forwarded_rpc(
     invocation.request_id = Some(request_id);
     let (cancel, _reply_wait) = runtime.begin_rpc_reply_wait(request_id);
     let dispatch = async {
+        match crate::runtime::sandbox_execution::retired_reply(
+            Some(runtime),
+            invocation.authority.as_ref(),
+        )
+        .await
+        {
+            Ok(Some(crate::engine_api::RpcData::Json(value))) => {
+                let mut reply = response(StatusCode::OK, value);
+                reply.headers_mut().insert(
+                    hyper::header::CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_static("application/json"),
+                );
+                return peer_response(reply);
+            }
+            Ok(None) => {}
+            _ => return peer_response(response(StatusCode::GONE, "sandbox has been retired")),
+        }
         let routed = if invocation
             .authority
             .as_ref()

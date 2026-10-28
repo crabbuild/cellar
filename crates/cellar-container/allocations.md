@@ -31,7 +31,7 @@ The chosen host still makes the final atomic admission decision.
 | Concept | Example | Meaning |
 | --- | --- | --- |
 | Host provider slot | `ctx.containers.get("builds")` | Select one configured provider; existing four-language API |
-| Named allocation | Catalog reservation for `build-123` | Reserve an independent child execution identity; host Rust API |
+| Named allocation | Catalog reservation for `build-123` | Reserve an independent child execution identity; Rust, Python, JavaScript and TypeScript |
 | Namespace binding | `SANDBOXES` | Configured execution-cell namespace; resolved before reservation |
 | Parent identity | Scope + random durable incarnation | Survives activation changes; distinguishes a recreated catalog |
 | Child identity | Parent identity + sandbox name + generation | Deterministic routing name and configured namespace scope |
@@ -93,7 +93,7 @@ async fn build(ctx: &Context) -> anyhow::Result<()> {
 | `start_child` | Durable registration and creation intent precede provider submission; equal names retain the original generation |
 | `inspect_child` | Observe/reconcile the same identity; never create or resume |
 | `execute_child` | Bounded exec output, files, port readiness/HTTP and capability/running observations |
-| `destroy_child` | Persist deletion intent, prove exact resource retirement, retain a child tombstone |
+| `destroy_child` | Persist deletion intent, prove exact resource retirement, queue child data erasure |
 | Binary bodies / combined command output | At most 64 KiB per bounded operation |
 | Encoded child RPC | At most 256 KiB; metadata and framing also count |
 | Process, socket and stream handles | Do not cross child calls in this profile |
@@ -103,7 +103,47 @@ async fn build(ctx: &Context) -> anyhow::Result<()> {
 Reopen `SandboxCatalog` in each root-cell event. Parent and full allocation
 checkpoints are checked before dispatch and again before returning a child reply.
 A child stores its parent incarnation, generation and configuration digest before
-provider I/O. Its deletion tombstone rejects delayed starts.
+provider I/O. Its durable deletion intent and external retirement barrier reject delayed starts.
+
+## Python, JavaScript and TypeScript
+
+The Rust host registers the native executor with
+`Source::sandbox_executor("Sandbox", executor)?` for either language adapter.
+Declare `Sandbox` and `SANDBOXES` in the deployment, but export only the business
+cell's guest class. Retain the executor registration until cleanup is complete.
+
+```typescript
+const child = await ctx.sandboxes.start("build-123", "SANDBOXES");
+const result = await ctx.sandboxes.execute(child, "container.exec_output", {
+  options: { cmd: ["echo", "hello"] },
+  max_bytes: 65536,
+});
+await ctx.sandboxes.destroy(child);
+```
+
+```python
+child = await ctx.sandboxes.start("build-123", "SANDBOXES")
+result = await ctx.sandboxes.execute(child, "container.exec_output", {
+    "options": {"cmd": ["echo", "hello"]},
+    "max_bytes": 65536,
+})
+await ctx.sandboxes.destroy(child)
+```
+
+| Facade operation | Contract |
+| --- | --- |
+| `start(name, binding, parameters)` | Default parameters are `{"options": {}}`; duplicate names reconcile the original generation |
+| `get(name)` / `list({after, limit})` | Return complete checkpoints; Python uses keyword arguments for `list` |
+| `inspect(checkpoint)` | Observe the same child without creating it |
+| `execute(checkpoint, operation, input)` | Closed set of bounded container commands shown above |
+| `destroy(checkpoint)` | Refuse a stale checkpoint; deletion is repeatable for the same identity |
+| `parent()` / `retire()` | Inspect ownership or close admission and schedule cleanup |
+| `requestErasure()` / Python `request_erasure()` | Explicit, irreversible parent-data erasure after retirement finishes |
+
+Revisions and generations are decimal **strings** in guest checkpoints. Pass the
+whole returned checkpoint; do not convert these strings to JavaScript numbers.
+A provider capacity failure may follow a committed catalog reservation. Reopen
+`get(name)` before retrying; guest failure outcomes do not promise rollback.
 
 ## Manual reservations
 
@@ -189,6 +229,8 @@ sequenceDiagram
 | Retry cadence | Claim a retry 30 seconds ahead before I/O; each attempt is bounded to 20 seconds and the host's original deadline |
 | DELETE acknowledged but resource still exists | Keep deletion pending and native capacity reserved |
 | Last child confirmed deleted | Persist a finalization wake, then retain the parent tombstone |
+| Parent class removed from deployment | The persisted 30-second discovery wake runs framework recovery, closes admission and retires managed children |
+| Execution class removed | Use the original host executor and retained native container specification for destroy/inspect only |
 | Manual reservations also present | Their controller must confirm deletion before parent retirement can finish |
 
 Application alarms and business `delete_all()` cannot erase cleanup work.
@@ -226,23 +268,55 @@ child is not automatically relocated after an admission race. Native process and
 filesystem recovery still require the separately qualified persistence profile.
 Remote providers retain their own admission semantics.
 
+## Erase retired cell data
+
+Child retirement automatically queues its SQLite and replica erasure. Parent
+business data is retained until an explicit `request_erasure(ctx).await?` (Rust)
+or the guest equivalent above. Erasure refuses live children, active provider
+bindings, retained facets, unfinished event-source retirement and consensus cells.
+
+```mermaid
+flowchart LR
+    Intent[Durable SQLite erasure intent] --> Barrier[Permanent external identity barrier]
+    Barrier --> Join[Evict and join cell runtime]
+    Join --> Delete[Delete up to 100 replica objects and local entries per pass]
+    Delete --> Verify[Observe empty replica subtree and absent local directory]
+    Verify --> Receipt[Erased receipt]
+    Barrier --> Refuse[Refuse admission and snapshot restore]
+    Receipt --> Audit[Periodic audit for delayed writes and returning caches]
+```
+
+| Stored data | Result |
+| --- | --- |
+| Cell SQLite, WAL, local replica files | Removed after the resident runtime and writer stop |
+| Current per-cell replica objects | Deleted in bounded batches; a later empty listing confirms removal |
+| Ownership epoch | Retained to fence delayed ownership work |
+| External barrier and receipt | Retained permanently outside the cell subtree; child identity is hashed |
+| Delayed authenticated destroy | Exact identity can return confirmed retirement without restoring SQLite |
+| Historical shared logs | Terminal barriers permit normal log GC and suppress replay into the erased cell |
+| Offline volumes, bucket versions and backups | Governed by their own retention policies; this is not a secure-media wipe |
+
+Use host `Node::sandbox_erasure_status(scope).await?` to observe `None`, `pending`
+or `erased`. An erased receipt records successful collection of that collector's
+files and the current shared replica objects. Other nodes audit permanent
+barriers when running; an offline disk cannot be erased remotely. Never remove
+`cell-retirement/` metadata or the local `cell-retirement.sqlite` database while
+delayed calls, replicas or historical logs can still exist.
+
 ## Delivery boundary
 
 This development format uses a hard cutover: retained work tables without the
-`sandbox-cleanup` reason refuse managed registration before provider effects.
-There is no automatic schema migration.
+`sandbox-cleanup` reason, or child records without the retained container-spec
+field, refuse activation/registration. There is no automatic schema migration.
 
 | Available now | Still required before full production qualification |
 | --- | --- |
-| Durable names, generations and parent incarnation | Four-language dynamic allocation facades |
-| Authenticated bounded execution and native capacity refusal | Placement saturation, stale samples and recovery qualification |
-| Automatic cleanup after explicit parent retirement | Cleanup after deployment removal and independent orphan discovery |
-| Exact Engine container deletion and retained tombstones | Physical deletion of parent/child SQLite and replicated objects |
+| Four-language durable names, generations and parent ownership | Placement saturation, stale samples and measured recovery |
+| Authenticated bounded execution and native capacity refusal | Wider partition and ownership-race campaigns |
+| Explicit retirement and deployment-removal cleanup | Fleet-scale cleanup throughput and retention operations |
+| Child and opt-in parent SQLite/replica erasure | Provider-specific persistent filesystem recovery |
 | Provider adapter registration | Separate live/profile qualification of remote providers |
 
-Physical **container** deletion is distinct from erasing the cell's durable data.
-Parent and child tombstones remain necessary to reject delayed work. Removing
-SQLite files or replicated objects requires an independent durable retirement
-barrier; local cache eviction does not supply one. Do not erase the catalog while
-it retains children. This profile does not promise restoration of native process
-memory or container filesystem state after host loss.
+This profile does not promise restoration of native process memory or container
+filesystem state after host loss. E2B/Vercel live qualification still requires
+the separately supplied account configuration.

@@ -220,6 +220,48 @@ export interface ContainerBindings {
   list(): Promise<readonly Readonly<ContainerBindingCapabilities>[]>;
 }
 
+/** A full checkpoint, not a callable capability. Integer identities use decimal strings. */
+export interface SandboxAllocation {
+  readonly parent_incarnation: string;
+  readonly name: string;
+  readonly binding: string;
+  readonly parameters_digest: string;
+  readonly generation: string;
+  readonly revision: string;
+  readonly execution_name: string;
+  readonly execution_scope: string;
+  readonly state: "reserved" | "ready" | "deleting" | "deleted";
+}
+
+export interface SandboxParent {
+  readonly scope: string;
+  readonly incarnation: string;
+  readonly revision: string;
+  readonly state: "active" | "deleting" | "deleted";
+}
+
+export type SandboxOperation =
+  | "container.capabilities" | "container.running" | "container.exec_output"
+  | "container.file.read" | "container.file.write" | "container.file.stat"
+  | "container.file.list" | "container.port.wait_ready" | "container.port.fetch";
+
+export interface Sandboxes {
+  start(name: string, binding: string, parameters?: Json): Promise<SandboxAllocation>;
+  get(name: string): Promise<SandboxAllocation | null>;
+  list(options?: { after?: string | null; limit?: number }): Promise<{
+    readonly allocations: readonly SandboxAllocation[];
+    readonly next: string | null;
+  }>;
+  inspect(allocation: SandboxAllocation): Promise<Json>;
+  execute(allocation: SandboxAllocation, operation: SandboxOperation, input?: Json): Promise<Json>;
+  destroy(allocation: SandboxAllocation): Promise<SandboxAllocation>;
+  parent(): Promise<SandboxParent | null>;
+  /** Closes allocation admission and schedules durable automatic child cleanup. */
+  retire(): Promise<SandboxParent>;
+  /** Irreversible parent-data erasure; requires completed cleanup. */
+  requestErasure(): Promise<void>;
+}
+
 export interface Container {
   capabilities(): Promise<Readonly<ContainerCapabilities>>;
   /** Observe and checkpoint recovery/expiry without creating, resuming or
@@ -292,6 +334,7 @@ export interface Context {
   /** Invocation-scoped control of this cell’s declared container. */
   readonly container: Container;
   readonly containers: ContainerBindings;
+  readonly sandboxes: Sandboxes;
   /** Fetch an outbound response without buffering its complete body. */
   fetchStream(request: RequestData): Promise<LiveResponse>;
 

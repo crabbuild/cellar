@@ -13,11 +13,32 @@ use std::sync::Arc;
 
 pub(crate) const SCRIPT: &str = "__cellar_source_recovery";
 
-struct Recovery(Option<Arc<crate::application::containers::Supervision>>);
+struct Recovery {
+    supervision: Option<Arc<crate::application::containers::Supervision>>,
+    applications: Vec<Arc<dyn Application>>,
+}
 
 impl Application for Recovery {
     fn container_supervision(&self) -> Option<Arc<crate::application::containers::Supervision>> {
-        self.0.clone()
+        self.supervision.clone()
+    }
+
+    fn sandbox_executor(
+        &self,
+        class: &str,
+    ) -> Option<Arc<dyn crate::application::containers::SandboxExecutor>> {
+        let mut executors = self
+            .applications
+            .iter()
+            .filter_map(|app| app.sandbox_executor(class));
+        let executor = executors.next()?;
+        // A removed class must never choose between conflicting host profiles.
+        executors
+            .all(|other| {
+                other.configuration_digest() == executor.configuration_digest()
+                    && other.requires_native_capacity() == executor.requires_native_capacity()
+            })
+            .then_some(executor)
     }
 
     fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
@@ -37,10 +58,20 @@ pub(crate) fn unavailable() -> anyhow::Error {
     crate::application::event_stream::DeliveryError::new(crate::application::event_stream::ErrorCode::Unavailable,"source application class is not deployed; only framework recovery and source controls are available").into()
 }
 
+#[cfg(test)]
 pub(crate) fn configuration(
     generation: super::GenerationId,
     node: &str,
     supervision: Option<Arc<crate::application::containers::Supervision>>,
+) -> Arc<WorkerConfig> {
+    configuration_with_applications(generation, node, supervision, Vec::new())
+}
+
+pub(crate) fn configuration_with_applications(
+    generation: super::GenerationId,
+    node: &str,
+    supervision: Option<Arc<crate::application::containers::Supervision>>,
+    applications: Vec<Arc<dyn Application>>,
 ) -> Arc<WorkerConfig> {
     let mut config = WorkerConfig::new(WorkerConfigOptions {
         src: String::new(),
@@ -59,7 +90,10 @@ pub(crate) fn configuration(
         modules: Vec::new(),
         compat: Compat::default(),
     })
-    .with_native_application(Arc::new(Recovery(supervision)));
+    .with_native_application(Arc::new(Recovery {
+        supervision,
+        applications,
+    }));
     config.generation = generation;
     config.source_recovery = true;
     Arc::new(config)

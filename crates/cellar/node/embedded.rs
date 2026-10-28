@@ -741,6 +741,25 @@ impl Node {
         self.domain.services()
     }
 
+    /// Observe permanent sandbox-cell erasure outside the retired application.
+    /// `erased` confirms the collector's files and current replica objects were
+    /// removed; offline volumes and shared historical logs have separate GC.
+    pub async fn sandbox_erasure_status(
+        &self,
+        scope: &str,
+    ) -> anyhow::Result<Option<&'static str>> {
+        self.domain
+            .run(async {
+                self.app
+                    .runtime
+                    .as_ref()
+                    .context("node has no cell runtime")?
+                    .sandbox_erasure_status(scope)
+                    .await
+            })
+            .await?
+    }
+
     pub fn is_closed(&self) -> bool {
         self.domain.is_closed()
     }
@@ -1101,6 +1120,19 @@ async fn prepare(
             &node,
             duration_ms("wake period", config.maintenance.wake_period)?,
         )?;
+    }
+    if fleet.is_none() {
+        let inventory = runtime.clone();
+        let work = crate::asyncrt::try_blocking(move || inventory.local_sandbox_work())?.await??;
+        for (cell, entry_ms) in work {
+            if runtime.retirements.get(&cell).await?.is_none() {
+                let _ = app.tx.send(Message::WakeHint {
+                    cell,
+                    entry_ms,
+                    scope: cellar_logic::WakeHintScope::Fleet,
+                });
+            }
+        }
     }
     spawn_cron_arm(app.clone());
     let info = NodeInfo {
