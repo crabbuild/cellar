@@ -34,6 +34,7 @@ fn selected(
     python: Arc<PythonApplication>,
 ) -> LocalBoxFuture<'static, Result<Value>> {
     match suite {
+        Suite::ProviderLimits => Box::pin(crate::provider_limits::run(app)),
         Suite::GuestControl => Box::pin(crate::guest_control::run(app)),
         Suite::Profile => {
             Box::pin(async { anyhow::bail!("profile needs its dedicated generated runtimes") })
@@ -83,6 +84,7 @@ async fn all(app: Arc<Composite>, python: Arc<PythonApplication>) -> Result<Valu
         ("local", Suite::Local),
         ("remote", Suite::Remote),
         ("peer_faults", Suite::PeerFaults),
+        ("provider_limits", Suite::ProviderLimits),
         ("saturation", Suite::Saturation),
         ("deadline", Suite::Deadline),
         ("cancellation", Suite::Cancellation),

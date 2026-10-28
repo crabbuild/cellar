@@ -101,6 +101,13 @@ struct Supervised {
 }
 
 impl Application for Supervised {
+    fn sandbox_executor(
+        &self,
+        class: &str,
+    ) -> Option<Arc<dyn crate::application::containers::SandboxExecutor>> {
+        self.application.sandbox_executor(class)
+    }
+
     fn container_supervision(&self) -> Option<Arc<Supervision>> {
         Some(self.supervision.clone())
     }

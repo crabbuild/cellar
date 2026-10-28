@@ -99,6 +99,38 @@ async fn simultaneous_cells_share_atomic_admission_and_include_helper_memory() -
                     admitted * (1024 * 1024 * 1024 + network::MEMORY_BYTES)
                 );
                 assert_eq!(engine.running_instances_by_class()["Sandbox"], admitted);
+                // Published fleet hints use the same uncertain reservations and
+                // helper memory as hard admission, not just running processes.
+                let sample = engine
+                    .cells
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .next()
+                    .unwrap()
+                    .clone();
+                service.settings.lock().unwrap().options = Some(crate::container::EngineOptions {
+                    capacity: limits,
+                    socket: directory.path().join("unused.sock"),
+                    namespace: None,
+                    runtime: None,
+                    dns: Vec::new(),
+                    network_helper: engine.network_helper.clone(),
+                });
+                service.deployment.write().unwrap().specs = vec![sample.spec.clone()];
+                *service.engine.lock().unwrap() = Some(engine.clone());
+                assert_eq!(available_instances_by_class()["Sandbox"], 0);
+                let occupied = engine
+                    .cells
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .find(|cell| cell.state.lock().unwrap().capacity_reserved)
+                    .unwrap()
+                    .clone();
+                occupied.state.lock().unwrap().release_unused_capacity();
+                assert_eq!(available_instances_by_class()["Sandbox"], 1);
+
                 Ok::<_, anyhow::Error>(())
             })
             .await;

@@ -2,6 +2,8 @@
 
 //! Persistent, replaceable parts. Completion and retirement share one SQLite
 //! transaction; an invalid receipt leaves both the upload and object untouched.
+//! As with ordinary puts, release writer admission before COMMIT: SQLite owns
+//! transaction serialization, and its following checkpoint must not block leases.
 
 use super::*;
 use object_store::{
@@ -50,12 +52,14 @@ impl LocalStore {
     }
 
     pub(super) fn validate_upload_sync(&self, key: &str, id: &str) -> object_store::Result<()> {
-        let _writer = self.writer.lock();
+        let writer;
         let mut connection = self.connect()?;
+        writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
         let live = Self::upload_attributes(&transaction, key, id)?.is_some();
+        drop(writer);
         transaction.commit().map_err(db_error)?;
         if live {
             Ok(())
@@ -86,12 +90,14 @@ impl LocalStore {
         receipt: String,
         write: impl FnOnce(&mut rusqlite::blob::Blob<'_>) -> object_store::Result<()>,
     ) -> object_store::Result<PartId> {
-        let _writer = self.writer.lock();
+        let writer;
         let mut connection = self.connect()?;
+        writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
         if Self::upload_attributes(&transaction, key, id)?.is_none() {
+            drop(writer);
             transaction.commit().map_err(db_error)?;
             return Err(not_found(key));
         }
@@ -109,6 +115,7 @@ impl LocalStore {
                 .map_err(db_error)?;
             write(&mut part)?;
         }
+        drop(writer);
         transaction.commit().map_err(db_error)?;
         Ok(PartId {
             content_id: receipt,
@@ -126,12 +133,14 @@ impl LocalStore {
                 "multipart completion requires 1 to 10000 parts",
             ));
         }
-        let _writer = self.writer.lock();
+        let writer;
         let mut connection = self.connect()?;
+        writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
         let Some(attributes) = Self::upload_attributes(&transaction, &key, &id)? else {
+            drop(writer);
             transaction.commit().map_err(db_error)?;
             return Err(not_found(&key));
         };
@@ -202,6 +211,7 @@ impl LocalStore {
         transaction
             .execute("DELETE FROM __sys_local_uploads WHERE id = ?1", [&id])
             .map_err(db_error)?;
+        drop(writer);
         transaction.commit().map_err(db_error)?;
         Ok(PutResult {
             e_tag: Some(etag.to_string()),
@@ -247,8 +257,9 @@ impl LocalStore {
         let store = self.clone();
         store_blocking!(move || {
             let _capacity = guard;
-            let _writer = store.writer.lock();
+            let writer;
             let mut connection = store.connect()?;
+            writer = store.writer.lock();
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
             // Capture time after SQLite writer admission, including cross-process waits.
             let expires_ms = store.multipart_policy.upload_ttl.map(|ttl| {
@@ -260,6 +271,7 @@ impl LocalStore {
                     params![id, key, attributes, scope, expires_ms],
                 )
                 .map_err(db_error)?;
+            drop(writer);
             transaction.commit().map_err(db_error)?;
             Ok(id)
         })
@@ -309,8 +321,9 @@ impl MultipartStore for LocalStore {
     async fn abort_multipart(&self, path: &Path, id: &MultipartId) -> object_store::Result<()> {
         let (store, key, id) = (self.clone(), path.to_string(), id.clone());
         store_blocking!(move || {
-            let _writer = store.writer.lock();
+            let writer;
             let mut connection = store.connect()?;
+            writer = store.writer.lock();
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db_error)?;
@@ -331,6 +344,7 @@ impl MultipartStore for LocalStore {
             transaction
                 .execute("DELETE FROM __sys_local_uploads WHERE id = ?1", [&id])
                 .map_err(db_error)?;
+            drop(writer);
             transaction.commit().map_err(db_error)?;
             Ok(())
         })

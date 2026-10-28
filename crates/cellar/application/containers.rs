@@ -11,6 +11,13 @@ pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
     MaintenancePolicy, RetentionExpired, Supervision,
 };
+pub use super::sandbox_catalog::{
+    SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
+    SandboxParent, SandboxParentState, SandboxReservation,
+};
+pub use super::sandbox_catalog::{
+    SandboxExecutor, SandboxFailure, SandboxFailureKind, MAX_SANDBOX_MESSAGE_BYTES,
+};
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
@@ -106,7 +113,10 @@ impl Context {
             "containers must be controlled by their root cell"
         );
         anyhow::ensure!(
-            self.worker_config.container_class(&identity.class),
+            self.worker_config.container_class(&identity.class)
+                || (self.worker_config.source_recovery
+                    && crate::storage::sandbox_children::load(&identity.scope)?
+                        .is_some_and(|record| record.container_spec.is_some())),
             "this cell class has no container"
         );
         let engine =

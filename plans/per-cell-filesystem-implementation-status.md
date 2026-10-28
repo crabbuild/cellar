@@ -12,9 +12,11 @@ FUSE remains a separate proposal.
 ## Release disposition
 
 The initial regular-file/directory primitive, Rust and guest APIs, transaction
-composition and durable-agent tools are implemented. Production readiness is
-still open: passing development-store tests cannot establish a deployment's
-external-store behavior, workload capacity or recovery objectives.
+composition and durable-agent tools are implemented. Primitive release remains
+open pending its operation/lifecycle/resource audit and complete feature CI.
+The acceptance target is the framework contract alongside KV and SQL, as defined
+in the [qualification target](per-cell-filesystem-implementation.md#qualification-target).
+Application-specific deployment sizing and service objectives are separate work.
 
 | Delivery package | Current disposition | Evidence or outstanding acceptance |
 | --- | --- | --- |
@@ -23,15 +25,17 @@ external-store behavior, workload capacity or recovery objectives.
 | FS-02: native primitive | Implemented | Context and exact transaction views, descriptors, byte paths, permissions, quotas and proof barriers; the operation audit retains explicit coverage limits |
 | FS-03: guest and agent APIs | Implemented | Node/V8/Python facades, checked atomic effects, saved reads and receipt-based replay; integrated macOS development packages now pass the installed profiles below |
 | FS-04: lifecycle and faults | Partially qualified | Local/native/guest retirement, development-bucket recovery and selected real peer cuts pass; complete remaining error/lifetime, external-store/disk and sustained reclamation profiles |
-| FS-05: production release | Open | Optimized artifacts, supported-target CI and a measured deployment capacity/failure envelope |
+| FS-05: primitive release | Open | Published capability/resource bounds, optimized artifacts and complete supported-target/feature CI |
 | FS-06: additional capabilities | Optional later work | Links, locks, wider metadata and object-backed content require separate contracts and qualification |
 
 The [release priorities](#release-priorities) and
 [remaining requirements](#remaining-requirements) are the acceptance checklist.
 Admission ceilings in capabilities are configuration limits, not qualified
-throughput, latency, memory or recovery guarantees. Release qualification must
-record the chosen durability mode, store, runtime/ABI, workload and SLO/RPO/RTO
-using the [Cellar qualification method](../docs/19-testing-qualification.md).
+throughput, latency, memory or recovery guarantees. Primitive evidence records
+the exercised Cellar durability mode, backend, runtime/ABI and fixture workload.
+A deployment's SLO/RPO/RTO and capacity envelope are assessed separately using
+the [Cellar qualification method](../docs/19-testing-qualification.md); selecting
+that deployment is not a prerequisite for completing the primitive.
 
 Historical task-local `.cellar/` paths below identify the original capture
 locations. That ignored directory was removed outside this task on 2026-10-28;
@@ -39,6 +43,38 @@ its uncommitted raw files are no longer available. Committed reports and hashes
 remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
+
+## CI repair checkpoint
+
+[PR #152](https://github.com/crabbuild/cellar/pull/152) follows the merged
+filesystem implementation from `dde97cbc`. The JavaScript workflow now assigns
+its existing checks to independent adapter, example and package jobs. Every
+qualification step remains present, native fixtures remain serial within each
+job, and the 90-minute job ceiling is unchanged.
+
+The extent-GC assertion counted private SQL callbacks from refused staging
+attempts as committed operations. An eight-root profile reproduced 51 callbacks
+with two typed `Overloaded` refusals, then 58 with nine refusals. The fixture now
+accounts for those pre-proposal attempts per cell while requiring exactly 49
+committed callbacks, unchanged receipt replay and exact recovered values. Both
+the original twelve-root and tighter eight-root profiles pass locally.
+
+The development object store also retained writer admission during multipart
+checkpoints. Holding a real main-database checkpoint reproduced a lease CAS
+missing its existing 333 ms bound. Multipart writes, completion, abort and expiry
+now release admission before COMMIT, matching ordinary puts and deletes. SQLite
+continues to serialize transactions and FULL WAL commits remain enabled. All 35
+local-store tests pass, including the checkpoint gate across six mutation paths,
+multipart atomicity, expiry and cancellation ownership.
+Clippy over the crate's tests, 10/100 MiB dense cold recovery and all five
+container supervision fleet cases also pass locally with the storage change.
+
+These reproductions do not establish the cause of both earlier Linux fleet
+lease-expiry failures. Repeated isolated macOS cases and the complete five-case
+container supervision suite pass; current-head CI remains required. The local
+2 GiB Linux VM again killed the compiler before producing a test executable.
+Raw repair logs are in the checkout-specific target's `qualification/ci-fixes/`.
+No lease TTL, application deadline or durable-state assertion was relaxed.
 
 ## Guest read-concurrency checkpoint
 
@@ -1168,8 +1204,9 @@ below remain the acceptance checklist.
 | --- | --- | --- |
 | P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
-| P1 | Qualify optimized artifacts and supported runtime/ABI targets | The native release example passes on Linux x86_64/arm64 and macOS arm64; integrated guest development captures pass; full guest/ABI, external-store and deployment profiles plus complete CI remain open |
-| P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
+| P1 | Qualify optimized artifacts and supported runtime/ABI targets | The native release example passes on Linux x86_64/arm64 and macOS arm64; integrated guest development captures pass; complete guest/ABI and affected CI remain required |
+| P1 | Verify published resource and progress contracts | File/transfer/descriptor limits, quota rollback, bounded reclamation and progress alongside KV/SQL traffic |
+| Separate deployment work | Measure workload capacity and tune performance | Chunk-size comparisons, traffic amplification, guest overhead and application-specific population/latency/recovery targets; not a primitive release prerequisite |
 | P2 | Consider additional capability profiles after the core baseline | Separate workload justification and contracts for links/locks/wider metadata or object-backed content; independent conformance before advertising support |
 
 FUSE and command execution remain in the separate
@@ -1217,9 +1254,9 @@ independent of these primitive release priorities.
    adds passing optimized application smokes on all three native release targets
    with the local store. The earlier local Linux arm64 build failed on the 2 GiB
    VM; later remote Linux runs have independent successful evidence.
-   Complete deployment artifact profiles, guest/ABI CI and installed
-   external-store fault profiles remain open; source-entry S3 evidence does not
-   substitute for those scopes.
+   Complete guest/ABI CI and the primitive's declared packaged recovery profiles.
+   Additional deployment/provider profiles remain separate; source-entry S3
+   evidence does not establish a deployment capacity or failure envelope.
 
 3. Complete the maintenance stress/fault matrix. Pending-work cold recovery,
    pinned-orphan fairness and reclamation above a lowered quota now have the
@@ -1256,12 +1293,14 @@ independent of these primitive release priorities.
    The Python task-cancellation profile adds confirmed between-transfer prefixes,
    delayed delivery and direct byte calls in both ABIs; V8/Python physical reply
    loss remains outside that coroutine profile.
-5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
+5. Verify declared resource limits and retain capacity observations. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS
-   and retained file/WAL/LTX observations. Finish optimized 4/16/64 KiB chunk
-   comparisons, small-file density, actual traffic amplification, hard resource
-   bounds, guest overhead, external-store/peer proof and larger-population
-   fairness; the four-cell bounded progress case is not that performance matrix.
+   and retained file/WAL/LTX observations. Primitive acceptance requires bounded
+   transfer/admission work, enforced quotas, failure rollback and reclamation
+   progress. Optimized 4/16/64 KiB chunk comparisons, small-file density, traffic
+   amplification, guest overhead and deployment-scale fairness remain separate
+   performance experiments; the four-cell progress case does not qualify those
+   workloads or a hard process-memory bound.
    All three dense sizes also pass on the `5998b82c` integration's fresh native
    executable. Its GiB run samples 2019.2 MiB RSS; this does not establish a hard
    process-memory bound or a production capacity envelope.

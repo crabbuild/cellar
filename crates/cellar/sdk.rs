@@ -227,7 +227,7 @@ pub use crate::daemon::{CompiledApplications, NativeRaftCells, NativeRaftNode};
 pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
     NodeInfo, NodeMaintenancePolicy, NodeRaftConfig, NodeRaftListeners, NodeRaftService,
-    NodeServices, NodeStartupPolicy,
+    NodeServices, NodeStartupPolicy, SandboxErasurePolicy,
 };
 pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;

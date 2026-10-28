@@ -133,3 +133,9 @@ name = "filesystem"
 path = "tests/filesystem.rs"
 harness = false
 required-features = ["embed"]
+
+[[test]]
+name = "sandboxes"
+path = "tests/sandboxes.rs"
+harness = false
+required-features = ["embed"]

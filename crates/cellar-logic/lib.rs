@@ -792,6 +792,7 @@ pub struct State {
     /// the request rather than in the HTTP adapter makes the admit/refuse race
     /// atomic with every other lifecycle transition.
     capacity_requests: BTreeSet<RequestId>,
+    native_container_requests: BTreeMap<RequestId, u64>,
     /// Signed shutdown handoffs that need ownership but not a warm runtime.
     /// A real request joining the same acquisition still causes the normal
     /// restore, so demand always outranks the lazy handoff optimization.
@@ -949,6 +950,7 @@ impl State {
             eviction_notifications: BTreeMap::new(),
             capacity_waiters: VecDeque::new(),
             capacity_requests: BTreeSet::new(),
+            native_container_requests: BTreeMap::new(),
             handoff_requests: BTreeSet::new(),
             capacity_reservations: BTreeMap::new(),
             capacity_samples: BTreeMap::new(),
@@ -1495,6 +1497,14 @@ impl State {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .native_container_requests
+            .keys()
+            .any(|request| !self.request_cells.contains_key(request))
+        {
+            return Err("native placement demand outlived its routing request".into());
+        }
+
         if self.cached_routes.len() > self.config.max_cached_routes {
             return Err("routing cache exceeds its captured limit".into());
         }
@@ -2051,6 +2061,7 @@ impl State {
         effects: &mut Vec<Effect>,
     ) {
         self.capacity_requests.remove(&request);
+        self.native_container_requests.remove(&request);
         self.handoff_requests.remove(&request);
         match &result {
             Ok(Route::Local) => {
@@ -4062,6 +4073,7 @@ impl State {
             self.activity_finished(request, effects);
         }
         self.capacity_requests.remove(&request);
+        self.native_container_requests.remove(&request);
         self.handoff_requests.remove(&request);
         let Some(id) = self.request_cells.remove(&request) else {
             return;
@@ -4173,6 +4185,8 @@ impl State {
         });
         self.capacity_requests
             .retain(|request| self.request_cells.contains_key(request));
+        self.native_container_requests
+            .retain(|request, _| self.request_cells.contains_key(request));
         self.handoff_requests
             .retain(|request| self.request_cells.contains_key(request));
     }
@@ -4200,6 +4214,35 @@ impl State {
         });
     }
 
+    fn native_container_demand(&self, cell: &Cell) -> Option<u64> {
+        if cell.requests.is_empty()
+            || cell
+                .requests
+                .iter()
+                .any(|request| !self.native_container_requests.contains_key(request))
+        {
+            return None;
+        }
+        cell.requests
+            .iter()
+            .filter_map(|request| self.native_container_requests.get(request).copied())
+            .min()
+    }
+
+    fn refuse_native_container(
+        &mut self,
+        id: &str,
+        cell: &mut Cell,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        if self.native_container_demand(cell) != Some(0) {
+            return false;
+        }
+        self.finish_requests(id, cell, Err(RequestError::CapacityExhausted), effects);
+        set_phase(&mut self.occupied, cell, Phase::Inactive);
+        true
+    }
+
     /// Place a genuinely unowned cell. Ordinary ingress may look for fleet
     /// capacity before waiting locally; a capacity handoff must either reserve
     /// a real local slot now or explicitly refuse so its caller can traverse.
@@ -4213,7 +4256,7 @@ impl State {
         if self.refuse_new_ownership_during_drain(id, cell, claim.prior.as_deref(), effects) {
             return;
         }
-        if self.has_capacity() {
+        if self.has_capacity() && self.native_container_demand(cell) != Some(0) {
             self.activate_or_wait(
                 id,
                 cell,
@@ -4245,6 +4288,7 @@ impl State {
             return;
         }
 
+        let native_full = self.native_container_demand(cell) == Some(0);
         let handoffs: Vec<RequestId> = cell
             .requests
             .iter()
@@ -4257,11 +4301,18 @@ impl State {
             self.complete_request(id, request, Err(RequestError::CapacityExhausted), effects);
         }
 
+        if native_full && cell.requests.is_empty() {
+            set_phase(&mut self.occupied, cell, Phase::Inactive);
+            return;
+        }
         if cell.requests.is_empty() || !self.config.require_node_lease {
             // Alarm wakes cannot be proxied as an HTTP capacity handoff. They
             // retain the old local wait semantics until alarm dispatch itself
             // has a fleet transport effect. Lease-disabled mode likewise has
             // no authoritative fleet membership to enumerate.
+            if self.refuse_native_container(id, cell, effects) {
+                return;
+            }
             self.activate_or_wait(
                 id,
                 cell,
@@ -4570,6 +4621,10 @@ impl State {
                 // to admit a placement a peer had room for, and the released
                 // record then stayed unowned with its epoch retained until
                 // some node read it again.
+                if self.refuse_native_container(&id, &mut cell, effects) {
+                    self.put_cell(id, cell);
+                    return;
+                }
                 self.activate_or_wait(
                     &id,
                     &mut cell,
@@ -4595,10 +4650,26 @@ impl State {
             }
         }
 
+        let native_demand = self.native_container_demand(&cell).is_some();
+        let class = id.split_once(':').map(|(class, _)| class);
         let selected = peers
             .into_iter()
             .filter(|peer| {
-                peer.node != self.node
+                (!native_demand
+                    || peer
+                        .native_container_slots
+                        .as_ref()
+                        .and_then(|slots| class.and_then(|class| slots.get(class)))
+                        .is_some_and(|slots| {
+                            *slots
+                                > self
+                                    .capacity_reservations
+                                    .get(&peer.node)
+                                    .copied()
+                                    .unwrap_or(0) as u64
+                        }))
+                    && !peer.draining
+                    && peer.node != self.node
                     && peer.expires_ms > now_ms
                     && !peer.addr.is_empty()
                     && peer.peer_protocol == self.config.peer_protocol
@@ -4668,6 +4739,10 @@ impl State {
                 effects,
             );
         } else {
+            if self.refuse_native_container(&id, &mut cell, effects) {
+                self.put_cell(id, cell);
+                return;
+            }
             self.activate_or_wait(
                 &id,
                 &mut cell,
@@ -6330,6 +6405,7 @@ impl State {
             });
             self.request_cells.remove(&request);
             self.capacity_requests.remove(&request);
+            self.native_container_requests.remove(&request);
             if let Some(queued) = self.cells.get_mut(cell) {
                 queued.requests.remove(&request);
             }
@@ -7084,6 +7160,7 @@ fn event_mono_ms(event: &Event) -> Option<u64> {
         | Event::SelfNodeLeaseRead { now_mono_ms, .. }
         | Event::NodeLeaseCasCompleted { now_mono_ms, .. }
         | Event::RequestAt { now_mono_ms, .. }
+        | Event::NativeSandboxRequestAt { now_mono_ms, .. }
         | Event::EvictRequested { now_mono_ms, .. }
         | Event::EvictRequestedAtEpoch { now_mono_ms, .. }
         | Event::CapacityRequestAt { now_mono_ms, .. }
@@ -7162,6 +7239,21 @@ pub fn on_event(state: &mut State, event: Event) -> Vec<Effect> {
         }
         Event::RequestAt { request, cell, .. } => {
             state.request(request, cell, false, false, &mut effects)
+        }
+        Event::NativeSandboxRequestAt {
+            request,
+            cell,
+            capacity_handoff,
+            available,
+            ..
+        } => {
+            if !state.request_cells.contains_key(&request) {
+                state.native_container_requests.insert(request, available);
+                state.request(request, cell, capacity_handoff, false, &mut effects);
+                if !state.request_cells.contains_key(&request) {
+                    state.native_container_requests.remove(&request);
+                }
+            }
         }
         Event::CapacityRequestAt { request, cell, .. } => {
             state.request(request, cell, true, false, &mut effects)

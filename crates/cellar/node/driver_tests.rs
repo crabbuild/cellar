@@ -289,6 +289,7 @@ async fn host_with_fence_input(
                     shutdown,
                     local_cache_max_bytes: None,
                     local_cache_prune_period: Duration::from_secs(60),
+                    sandbox_erasure: Default::default(),
                 },
             };
             Ok::<_, anyhow::Error>((prepared, actor, actor_rx, origin))

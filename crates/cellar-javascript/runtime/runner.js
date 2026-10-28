@@ -393,7 +393,13 @@
 
   // Each facade closes over one invocation ID. The backend independently checks
   // continuation identity and liveness whenever that facade calls into Rust.
-  function context(id, identity, activation, contracts = {}) {
+  function context(
+    id,
+    identity,
+    activation,
+    contracts = {},
+    invocationLimits = {},
+  ) {
     const retain = (make) => {
       if (
         (activation === null ? currentHost() : currentHost(activation)) !== id
@@ -897,6 +903,34 @@
           }),
       });
     };
+    // Checkpoints contain decimal-string generations and revisions. Keep the
+    // full checkpoint on every mutation so a stale name cannot select a successor.
+    const sandboxes = freeze({
+      start: async (name, binding, parameters = { options: {} }) =>
+        freeze(await call("sandbox.start", { name, binding, parameters })),
+      get: async (name) => {
+        const value = await call("sandbox.get", { name });
+        return value === null ? null : freeze(value);
+      },
+      list: async ({ after = null, limit = 100 } = {}) => {
+        const page = await call("sandbox.list", { after, limit });
+        return freeze({
+          allocations: freeze(page.allocations.map(freeze)),
+          next: page.next,
+        });
+      },
+      inspect: (allocation) => call("sandbox.inspect", { allocation }),
+      execute: (allocation, operation, input = {}) =>
+        call("sandbox.execute", { allocation, command: operation, input }),
+      destroy: async (allocation) =>
+        freeze(await call("sandbox.destroy", { allocation })),
+      parent: async () => {
+        const value = await call("sandbox.parent");
+        return value === null ? null : freeze(value);
+      },
+      retire: async () => freeze(await call("sandbox.retire")),
+      requestErasure: () => call("sandbox.erase"),
+    });
     const container = makeContainer();
     const containers = freeze({
       get: (name) => {
@@ -1575,10 +1609,12 @@
             const contract = contracts[method.digest];
             method.verify(contract);
             return freeze({
-              maxMessageBytes: contract.limits.max_message_bytes,
-              maxDepth: contract.limits.max_depth,
-              maxElements: contract.limits.max_elements,
-              maxDecodedSlots: contract.limits.max_decoded_slots,
+              maxMessageBytes:
+                invocationLimits[method.digest].max_message_bytes,
+              maxDepth: invocationLimits[method.digest].max_depth,
+              maxElements: invocationLimits[method.digest].max_elements,
+              maxDecodedSlots:
+                invocationLimits[method.digest].max_decoded_slots,
             });
           } catch {
             const error = new ErrorClass("ContractMismatch");
@@ -1791,7 +1827,13 @@
               const current = () => {
                 if (currentHost(activation, token.id) !== id)
                   throw new ErrorClass("ContextMismatch");
-                return context(id, identity, activation, contracts);
+                return context(
+                  id,
+                  identity,
+                  activation,
+                  contracts,
+                  invocationLimits,
+                );
               };
               result = await scopedHost(id, token.id, async () => {
                 try {
@@ -1817,23 +1859,26 @@
       _rpcValue: (value) =>
         delegates.valueOnly(
           value,
-          context(id, identity, activation, contracts),
+          context(id, identity, activation, contracts, invocationLimits),
         ),
       _deserialize: (value) => decodeClone(decode(value)),
       _rpcResult: (value, closed) =>
         delegates.result(
           value,
-          context(id, identity, activation, contracts),
+          context(id, identity, activation, contracts, invocationLimits),
           closed,
         ),
       _rpcCall: (request, args) =>
         delegates.call(
           request,
           args,
-          context(id, identity, activation, contracts),
+          context(id, identity, activation, contracts, invocationLimits),
         ),
       _rpcDecode: (reply) =>
-        delegates.reply(reply, context(id, identity, activation, contracts)),
+        delegates.reply(
+          reply,
+          context(id, identity, activation, contracts, invocationLimits),
+        ),
       _rpcRetain: retain,
       _decode: decode,
       _encode: (data) => encode(bytes(data)),
@@ -1853,6 +1898,7 @@
       variable: (name) => call("var", { name }),
       container,
       containers,
+      sandboxes,
 
       fs: filesystem,
 
@@ -1974,15 +2020,14 @@
         if (typeof rule.verify !== "function")
           throw new ErrorClass("Missing RPC codec verification");
         rule.verify(contracts[native.digest]);
-        const limits = freeze({
-          maxMessageBytes: native.limits.max_message_bytes,
-          maxDepth: native.limits.max_depth,
-          maxElements: native.limits.max_elements,
-          maxDecodedSlots: native.limits.max_decoded_slots,
-        });
         table.set(
           wire,
-          freeze({ handler, decode: rule.decode, encode: rule.encode, limits }),
+          freeze({
+            handler,
+            decode: rule.decode,
+            encode: rule.encode,
+            digest: native.digest,
+          }),
         );
       }
       rpc.set(name, table);
@@ -1995,15 +2040,25 @@
         invocation.identity,
         invocation.object,
         contracts,
+        invocation.rpc_limits,
       );
       const lifetime = lifetimes.get(id);
       if (lifetime) lifetime.context = ctx;
-      let rule, argument;
+      let rule, argument, limits;
       if (invocation.kind === "rpc") {
         rule = rpc.get(invocation.class)?.get(invocation.event.method);
         if (!rule || !(body instanceof Uint8Array))
           throw new ErrorClass("InvalidRpcInvocation");
-        argument = rule.decode(body, rule.limits);
+        // Policy belongs to this native invocation, not the runtime's static
+        // generated registration. Never mutate the table shared by other hosts.
+        const native = invocation.rpc_limits[rule.digest];
+        limits = freeze({
+          maxMessageBytes: native.max_message_bytes,
+          maxDepth: native.max_depth,
+          maxElements: native.max_elements,
+          maxDecodedSlots: native.max_decoded_slots,
+        });
+        argument = rule.decode(body, limits);
       } else if (body !== undefined) {
         throw new ErrorClass("UnexpectedAttachment");
       }
@@ -2031,7 +2086,7 @@
           throw handlerFailure(error);
         }
         try {
-          const encoded = rule.encode(result, rule.limits);
+          const encoded = rule.encode(result, limits);
           if (!(encoded instanceof Uint8Array))
             throw new ErrorClass("InvalidResponse");
           return encoded;

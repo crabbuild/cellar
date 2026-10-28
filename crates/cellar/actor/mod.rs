@@ -459,6 +459,7 @@ pub enum Message {
         request: u64,
         cell: String,
         capacity_handoff: bool,
+        native_container: bool,
         /// Present only for the signed shutdown-handoff endpoint. The actor
         /// settles this channel as soon as the ownership CAS is authoritative;
         /// the ordinary route reply remains pending until it is cancelled.
@@ -1318,13 +1319,13 @@ pub struct AppHandle {
 
 impl AppHandle {
     pub async fn request(&self, cell: String) -> Result<Routed, RequestError> {
-        self.request_with_mode(cell, false, None).await
+        self.request_with_mode(cell, false, None, false).await
     }
 
     /// Route the output gate for an effect raised inside one of `cell`'s
     /// handlers. See `ResidentWork::OutputGate`.
     pub async fn gate_request(&self, cell: String) -> Result<Routed, RequestError> {
-        self.request_with_mode(cell, false, Some(ResidentWork::OutputGate))
+        self.request_with_mode(cell, false, Some(ResidentWork::OutputGate), false)
             .await
     }
 
@@ -1336,7 +1337,7 @@ impl AppHandle {
         &self,
         cell: String,
     ) -> RequestPathReceiptForTest {
-        let (request, outcome) = self.request_path(cell, false, None).await;
+        let (request, outcome) = self.request_path(cell, false, None, false).await;
         match outcome {
             RequestPathOutcome::SubmissionFailure => {
                 RequestPathReceiptForTest::SubmissionFailure { request }
@@ -1351,8 +1352,17 @@ impl AppHandle {
         }
     }
 
+    pub(crate) async fn native_sandbox_request(
+        &self,
+        cell: String,
+        capacity_handoff: bool,
+    ) -> Result<Routed, RequestError> {
+        self.request_with_mode(cell, capacity_handoff, None, true)
+            .await
+    }
+
     pub async fn capacity_request(&self, cell: String) -> Result<Routed, RequestError> {
-        self.request_with_mode(cell, true, None).await
+        self.request_with_mode(cell, true, None, false).await
     }
 
     pub async fn websocket_request(
@@ -1360,7 +1370,7 @@ impl AppHandle {
         cell: String,
         websocket: u64,
     ) -> Result<Routed, RequestError> {
-        self.request_with_mode(cell, false, Some(ResidentWork::WebSocket(websocket)))
+        self.request_with_mode(cell, false, Some(ResidentWork::WebSocket(websocket)), false)
             .await
     }
 
@@ -1369,9 +1379,18 @@ impl AppHandle {
         cell: String,
         capacity_handoff: bool,
         resident_work: Option<ResidentWork>,
+        native_container: bool,
     ) -> Result<Routed, RequestError> {
+        if resident_work.is_none() {
+            if let Some(runtime) = &self.runtime {
+                match runtime.retirements.get(&cell).await {
+                    Ok(None) => {}
+                    _ => return Err(RequestError::RuntimeFailed),
+                }
+            }
+        }
         match self
-            .request_path(cell, capacity_handoff, resident_work)
+            .request_path(cell, capacity_handoff, resident_work, native_container)
             .await
             .1
         {
@@ -1387,6 +1406,7 @@ impl AppHandle {
         cell: String,
         capacity_handoff: bool,
         resident_work: Option<ResidentWork>,
+        native_container: bool,
     ) -> (u64, RequestPathOutcome) {
         let request = crate::asyncrt::next_core_request();
         let (reply, receive) = oneshot::channel();
@@ -1396,6 +1416,7 @@ impl AppHandle {
                 request,
                 cell,
                 capacity_handoff,
+                native_container,
                 handoff_accept: None,
                 resident_work,
                 reply,
@@ -1431,6 +1452,7 @@ impl AppHandle {
                 request,
                 cell: cell.clone(),
                 capacity_handoff: true,
+                native_container: false,
                 handoff_accept: Some(HandoffAcceptWaiter {
                     released_epoch,
                     reply: accept_reply,
@@ -2841,6 +2863,7 @@ impl Actor {
                 request,
                 cell,
                 capacity_handoff,
+                native_container,
                 handoff_accept,
                 resident_work,
                 reply,
@@ -2872,6 +2895,22 @@ impl Actor {
                             request,
                             cell: cell.clone(),
                             now_ms: now_ms(),
+                            now_mono_ms: crate::asyncrt::mono_ms(),
+                        }
+                    } else if native_container {
+                        let available = cell
+                            .split_once(':')
+                            .and_then(|(class, _)| {
+                                crate::container::available_instances_by_class()
+                                    .get(class)
+                                    .copied()
+                            })
+                            .unwrap_or(0);
+                        Event::NativeSandboxRequestAt {
+                            request,
+                            cell: cell.clone(),
+                            capacity_handoff,
+                            available,
                             now_mono_ms: crate::asyncrt::mono_ms(),
                         }
                     } else if capacity_handoff {

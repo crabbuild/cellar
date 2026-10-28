@@ -873,6 +873,8 @@ async fn serve_rpc(
                 crate::application::event_stream::name_resolution::MAX_REQUEST_BYTES
             } else if matches!(&authority, Some(crate::runtime::RpcAuthority::Catalog(_))) {
                 crate::runtime::catalog_control::MAX_RPC_BYTES
+            } else if matches!(&authority, Some(crate::runtime::RpcAuthority::Sandbox(_))) {
+                crate::application::containers::MAX_SANDBOX_MESSAGE_BYTES
             } else if method == crate::runtime::source_control::METHOD
                 || matches!(&authority, Some(crate::runtime::RpcAuthority::Source(_)))
             {

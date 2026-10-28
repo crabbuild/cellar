@@ -5,6 +5,7 @@
 
 use super::*;
 use anyhow::{ensure, Context as _, Result};
+use object_store::multipart::MultipartStore;
 use rusqlite::ffi;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, CString};
@@ -247,9 +248,26 @@ unsafe extern "C" fn close(file: *mut ffi::sqlite3_file) -> c_int {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Mutation {
+    Put,
+    Delete,
+    Part,
+    Complete,
+    Abort,
+    Reap,
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn checkpoint_sync_keeps_lease_cas_progress() -> Result<()> {
-    for delete in [false, true] {
+    for mutation in [
+        Mutation::Put,
+        Mutation::Delete,
+        Mutation::Part,
+        Mutation::Complete,
+        Mutation::Abort,
+        Mutation::Reap,
+    ] {
         let directory = tempfile::tempdir()?;
         let database = directory.path().join("objects.sqlite");
         let vfs = CheckpointVfs::register()?;
@@ -275,9 +293,25 @@ async fn checkpoint_sync_keeps_lease_cas_progress() -> Result<()> {
                         PutOptions::default(),
                     )
                     .await?;
-                if delete {
+                let upload_key = Path::from("upload");
+                let upload_id = store.create_multipart(&upload_key).await?;
+                let receipt = MultipartStore::put_part(
+                    &store,
+                    &upload_key,
+                    &upload_id,
+                    0,
+                    Bytes::from_static(b"part").into(),
+                )
+                .await?;
+                if matches!(mutation, Mutation::Reap) {
+                    store.connect()?.execute(
+                        "UPDATE __sys_local_uploads SET expires_ms = 0 WHERE id = ?1",
+                        [&upload_id],
+                    )?;
+                }
+                if !matches!(mutation, Mutation::Put | Mutation::Part) {
                     // Keep an old reader while filling the WAL so its automatic
-                    // checkpoint cannot complete. Deleting one small object after
+                    // checkpoint cannot complete. The next small mutation after
                     // releasing that reader must then checkpoint the pending WAL.
                     let pinned = store.connect_reader()?;
                     pinned.execute_batch("BEGIN; SELECT count(*) FROM __sys_local_objects;")?;
@@ -293,7 +327,7 @@ async fn checkpoint_sync_keeps_lease_cas_progress() -> Result<()> {
                 gate.armed.store(true, Ordering::Release);
                 let slots = Arc::new(Semaphore::new(1));
                 let mut write_options = PutOptions::default();
-                if !delete {
+                if matches!(mutation, Mutation::Put) {
                     let permit = Arc::new(slots.clone().try_acquire_owned()?);
                     write_options
                         .extensions
@@ -301,24 +335,47 @@ async fn checkpoint_sync_keeps_lease_cas_progress() -> Result<()> {
                 }
                 let writer_store = store.clone();
                 let writer = crate::asyncrt::try_spawn(async move {
-                    if delete {
-                        writer_store.delete(&Path::from("obsolete")).await
-                    } else {
-                        writer_store
+                    match mutation {
+                        Mutation::Delete => writer_store.delete(&Path::from("obsolete")).await,
+                        Mutation::Put => writer_store
                             .put_opts(
                                 &Path::from("large"),
                                 Bytes::from(vec![0x5a; 8 << 20]).into(),
                                 write_options,
                             )
                             .await
+                            .map(|_| ()),
+                        Mutation::Part => MultipartStore::put_part(
+                            &writer_store,
+                            &upload_key,
+                            &upload_id,
+                            0,
+                            Bytes::from(vec![0x5a; 8 << 20]).into(),
+                        )
+                        .await
+                        .map(|_| ()),
+                        Mutation::Complete => writer_store
+                            .complete_multipart(&upload_key, &upload_id, vec![receipt])
+                            .await
+                            .map(|_| ()),
+                        Mutation::Abort => {
+                            writer_store.abort_multipart(&upload_key, &upload_id).await
+                        }
+                        Mutation::Reap => {
+                            crate::object_multipart::ResumableMultipartStore::reap_expired(
+                                &writer_store,
+                                "",
+                            )
+                            .await
                             .map(|_| ())
+                        }
                     }
                 })?;
                 tokio::time::timeout(Duration::from_secs(5), gate.entered.acquire())
                     .await??
                     .forget();
                 ensure!(
-                    delete || slots.available_permits() == 0,
+                    !matches!(mutation, Mutation::Put) || slots.available_permits() == 0,
                     "native checkpoint returned its I/O reservation early"
                 );
                 let lease_store = store.clone();
@@ -367,8 +424,7 @@ async fn checkpoint_sync_keeps_lease_cas_progress() -> Result<()> {
                 );
                 ensure!(
                     timely,
-                    "lease CAS waited for unrelated {} checkpoint sync",
-                    if delete { "delete" } else { "put" }
+                    "lease CAS waited for unrelated {mutation:?} checkpoint sync"
                 );
                 ensure!(
                     visible_before_release.as_ref() == b"renewed",

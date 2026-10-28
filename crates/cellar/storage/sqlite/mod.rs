@@ -32,6 +32,10 @@ mod immutable;
 pub(crate) mod inbox;
 #[cfg(test)]
 mod json_reads_tests;
+pub(crate) mod sandbox_catalog;
+pub(crate) mod sandbox_children;
+pub(crate) mod sandbox_erasure;
+pub(crate) mod sandbox_work;
 pub use immutable::{
     open_immutable_extent_image, open_immutable_generation, ImmutableQuery, ImmutableQueryOptions,
 };
@@ -411,6 +415,10 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     container_bindings::check_schema(c)?;
+    sandbox_catalog::check_schema(c)?;
+    sandbox_children::check_schema(c)?;
+    sandbox_erasure::check_schema(c)?;
+    sandbox_work::check_schema(c)?;
     container_maintenance::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema")?;
     event_schema::stream_state(c)?;
@@ -4328,6 +4336,7 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
                         || table.starts_with("__sys_outbox")
                         || table.starts_with("__sys_inbox")
                         || table.starts_with("__sys_container_bind")
+                        || table.starts_with("__sys_sandbox_")
                         || table.starts_with("__sys_stream")
                         || table.starts_with("__sys_event_catalog")
                     {

@@ -214,6 +214,9 @@ pub struct NodeLeaseRecord {
 /// must still atomically admit the handoff before it acquires ownership.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapacityPeer {
+    /// Advisory native container slots per deployed class. None is unknown,
+    /// never permission to place a creation request on that peer.
+    pub native_container_slots: Option<std::collections::BTreeMap<String, u64>>,
     pub node: NodeId,
     pub addr: String,
     pub expires_ms: u64,
@@ -589,6 +592,15 @@ pub enum Event {
     RequestAt {
         request: RequestId,
         cell: CellId,
+        now_mono_ms: u64,
+    },
+    /// Host-authenticated native child creation. The shell supplies local
+    /// advisory capacity; final Engine admission remains mandatory.
+    NativeSandboxRequestAt {
+        request: RequestId,
+        cell: CellId,
+        capacity_handoff: bool,
+        available: u64,
         now_mono_ms: u64,
     },
     /// A peer selected this node as a possible landing place for an unowned

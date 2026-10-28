@@ -44,8 +44,9 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
       CELLAR_RPC_PYTHON_MODE: '${{ matrix.mode }}'
-      # Preserve existing lease timing evidence without logging RPC payloads.
-      RUST_LOG: 'warn,cellar::actor::effects=info'
+      # Retain native phases for lease writes, including completion after
+      # cancellation, without tracing every object write or RPC payload.
+      RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -104,7 +105,7 @@ jobs:
             exit 1
           fi
           python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/lifecycle.json
-          for rpc_suite in python-cancellation python-supervision peer-faults saturation guest-control; do
+          for rpc_suite in python-cancellation python-supervision peer-faults saturation guest-control provider-limits; do
             if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
               --suite "$rpc_suite" --python-mode "$CELLAR_RPC_PYTHON_MODE" --report ".cellar/rpc/$rpc_suite.json" \
               > ".cellar/rpc/$rpc_suite.log" 2>&1; then
@@ -116,6 +117,7 @@ jobs:
           python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
           python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
           python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
+          python3 tools/rpc/check_provider_limits.py .cellar/rpc/provider-limits.json
       - name: Full generated RPC and failure matrix
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
@@ -126,6 +128,7 @@ jobs:
           fi
           python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/all.json
           python3 tools/rpc/check_provenance.py .cellar/rpc/all.json
+          python3 tools/rpc/check_provider_limits.py .cellar/rpc/all.json
       - name: Retain lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v6
@@ -146,5 +149,7 @@ jobs:
             .cellar/rpc/saturation.log
             .cellar/rpc/guest-control.json
             .cellar/rpc/guest-control.log
+            .cellar/rpc/provider-limits.json
+            .cellar/rpc/provider-limits.log
             .cellar/rpc/all.json
             .cellar/rpc/all.log
