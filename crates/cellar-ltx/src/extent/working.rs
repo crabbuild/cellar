@@ -5,7 +5,7 @@
 //! in this module selects a committed root or acknowledges an application write.
 
 use super::{
-    image::{CacheLimits, ExtentImage},
+    image::{CacheLimits, ExtentImage, ExtentSource},
     store::SealedImageRoot,
     tree::{ExtentManifest, EXTENT_BYTES},
 };
@@ -62,8 +62,45 @@ pub struct ExtentWorkspace {
     main: Arc<MainWorkspace>,
 }
 
+enum Base {
+    Local(Arc<SealedImageRoot>),
+    Source {
+        manifest: ExtentManifest,
+        source: Arc<dyn ExtentSource>,
+    },
+}
+
+impl Base {
+    fn manifest(&self) -> &ExtentManifest {
+        match self {
+            Self::Local(image) => image.manifest(),
+            Self::Source { manifest, .. } => manifest,
+        }
+    }
+}
+
 impl ExtentWorkspace {
     pub fn new(base: Arc<SealedImageRoot>, options: WorkspaceOptions) -> crate::Result<Self> {
+        Self::open(Base::Local(base), options)
+    }
+
+    /// Open a disposable writer without first materializing its immutable base.
+    /// The caller authenticates the manifest and retains every source dependency
+    /// for the lifetime of all SQLite/VFS handles. Reads use the same bounded,
+    /// independently verified extent cache as read-only demand loading.
+    ///
+    /// Neither this workspace nor its captured LTX supplies durable root or
+    /// native activation authority. Publication still needs an independent
+    /// retained-base/result proof; private files are discarded after restart.
+    pub fn from_source(
+        manifest: ExtentManifest,
+        source: Arc<dyn ExtentSource>,
+        options: WorkspaceOptions,
+    ) -> crate::Result<Self> {
+        Self::open(Base::Source { manifest, source }, options)
+    }
+
+    fn open(base: Base, options: WorkspaceOptions) -> crate::Result<Self> {
         let geometry = base.manifest().geometry();
         if geometry.length() > options.max_image_bytes
             || !(512..=MAX_IMAGE_BYTES).contains(&options.max_image_bytes)
@@ -88,11 +125,22 @@ impl ExtentWorkspace {
         let image = if geometry.length() == 0 {
             None
         } else {
-            Some(
-                base.view()
+            let image = match &base {
+                Base::Local(image) => image
+                    .view()
                     .image(options.cache_directory, options.scratch, options.cache)
                     .map_err(|error| crate::Error::Other(Box::new(error)))?,
-            )
+                Base::Source { manifest, source } => ExtentImage::new(
+                    manifest.clone(),
+                    source.clone(),
+                    options.filesystem.clone(),
+                    options.cache_directory,
+                    options.scratch,
+                    options.cache,
+                )
+                .map_err(|error| crate::Error::Other(Box::new(error)))?,
+            };
+            Some(image)
         };
         // Exclusive creation prevents a previous working file from being
         // mistaken for a zero-filled view of this base. Never replace a file.
@@ -180,7 +228,7 @@ struct State {
 
 pub(crate) struct MainWorkspace {
     image: Option<ExtentImage>,
-    base: Arc<SealedImageRoot>,
+    base: Base,
     max_bytes: u64,
     max_wal_bytes: u64,
     _retention: Option<Arc<dyn Send + Sync>>,
