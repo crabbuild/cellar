@@ -157,7 +157,8 @@ pub async fn run(
             );
             plans.push(plan);
         }
-        println!("{}", serde_json::to_string(&plans)?);
+        cellar::cli_output::Output::new(cellar::cli_output::Format::Json)
+            .line(format_args!("{}", serde_json::to_string(&plans)?))?;
         return Ok(());
     }
     ensure!(action == "recover", "unknown disaster action");
@@ -197,6 +198,7 @@ pub async fn run(
             )
             .await?;
     }
-    println!("{{\"recovered_births\":{total}}}");
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Json)
+        .line(format_args!("{{\"recovered_births\":{total}}}"))?;
     Ok(())
 }
