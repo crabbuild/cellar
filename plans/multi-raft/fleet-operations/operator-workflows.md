@@ -193,6 +193,22 @@ that the response matches the requested catalog, node, action and exact identity
 Mutations have no implicit wait or retry. Accepted audit entries cannot be
 downgraded by late failed attempts.
 
+## Failure-observation SDK workflow
+
+On a surviving enrolled node, `start_failure_detection_service` starts the
+explicit bounded monitor. Supply ordinary movement evidence so previously
+admitted work can continue; the monitor shares that worker's exclusive slot.
+Read `FleetMovementServiceStatus::failure_detection` for exact-boot connectivity,
+consecutive direct failures, the last error and sample age. Four probes per round
+and a 500-ms per-probe ceiling bound control work. The default five-second grace
+requires repeated fresh direct-connect failures; uncertain observations reset it.
+
+Treat Healthy as connectivity only and Unavailable as a recovery-policy input.
+Neither authorizes a replacement. Metadata errors, stale samples, changed boots
+and stopped monitors produce Unknown. Stop and join this monitor before starting
+the explicit isolated-repair mode on the same node. The durable automatic handoff
+and production platform-isolation adapter remain unfinished.
+
 ## Delivered isolated-node repair SDK workflow
 
 The explicit SDK service can now select and execute replacements after trusted
@@ -345,9 +361,10 @@ they do not trigger another Ready/consent cycle.
 
 This path covers intact retained-engine maintenance. Automatic grace expiry,
 rolling orchestration, second-failure policy, resize and production isolation
-remain unfinished. Fleet enrollment currently requires materialized images;
-extent-backed fleet publication/lifecycle proofs remain a separate integration
-gap. Existing ordinary extent recovery is independent of this operator flow.
+remain unfinished. Both materialized and extent-backed managed namespaces now
+have native operator-flow coverage, including retained return and verified resume.
+Use matching protocol binaries and the namespace's original image-storage choice;
+deployed performance and larger-fleet qualification remain open.
 
 ## Remaining command and API contract
 

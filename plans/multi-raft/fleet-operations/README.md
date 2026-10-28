@@ -79,8 +79,10 @@ their exact limits.
 Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,
-without releasing that action's debt. Automatic failure
-classification and a production isolation provider remain unfinished.
+without releasing that action's debt. An explicit Node-owned failure monitor now
+classifies exact-boot connectivity with bounded authenticated probes, grace and
+sample expiry. Automatic failure-to-repair admission and a production isolation
+provider remain unfinished.
 
 Extent-backed managed namespaces now retain tagged publication cuts and stored
 receipts, exact producer image origins, and independent physical archive proofs.

@@ -6,7 +6,7 @@ FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
 placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
-and activate added capacity. Automatic failure classification, production
+and activate added capacity. Automatic failure-to-repair admission, production
 isolation, grace/rolling/second-failure maintenance and resize remain unfinished.
 The intact operator sequence now includes separate stop/return/resume grants,
 read-only status and explicit Node-owned execution; successor qualification is
@@ -17,6 +17,34 @@ the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Exact-boot failure detection
+
+The explicit Node-owned failure monitor now observes other enrolled processes
+over authenticated node-control RPC. It shares the movement worker's admission,
+budget and joined lifecycle, gives admitted work priority, and rotates through
+at most four probes per round with a 500-ms per-probe ceiling. The pure classifier
+requires repeated fresh direct-connect failures spanning the five-second default
+grace. Unknown outcomes, collection gaps and changed boots reset failure history.
+Catalog errors invalidate observations; changed Root refuses batch publication.
+Status reads age observations without requiring worker progress, and stopped
+monitors report Unknown. Healthy denotes node connectivity, not Raft quorum.
+
+This is the failure-observation component of automatic recovery. It does not
+admit evacuation, mint isolation, change membership or release resources. The
+production isolation adapter and durable transition into existing isolated repair
+remain the next implementation boundary. Source `0f9b525a` passes **907 distinct
+selected cases**: four pure classifier tests, 885 host library tests, two native
+failure-monitor scenarios, three movement-service, nine isolated-repair-service
+and four topology-service scenarios. The native tests exercise real closed-node
+TLS failure, held object-store reads, unchanged catalog/membership authority and
+owned shutdown. Existing services are covered because they share the worker.
+Host/admin/logic all-target Clippy, formatting, layout and native dependency checks
+pass. Frozen sources, executables and results are retained outside runtime data
+in `failure-detection-v1`; the source inventory contains 1,722 inputs. This is local
+functional qualification, not deployed fault detection or TPS/p99 qualification.
+The public operation remains explicit and default-off. FO-06 and the full fleet
+goal remain in progress.
 
 ## Request-local maintenance validation
 

@@ -1428,6 +1428,37 @@ operator command. Those remaining fleet features and deployed RustFS/Colima faul
 throughput, latency and soak qualification remain required before general fleet
 automation can be enabled. Startup remains explicit and default-off.
 
+## Exact-boot failure observations
+
+`start_failure_detection_service(observer, movement_evidence, options, detection)`
+starts an explicit Node-owned monitor using the same exclusive service slot and
+joined cancellation as movement execution. Existing admitted movement effects
+take priority. In an available round, the monitor probes at most four other
+enrolled boots concurrently over authenticated node control, with at most 500 ms
+per probe. It rotates through the bounded node inventory and excludes removed,
+isolated and unbooted records. The monitor does not diagnose its own process.
+
+`FleetMovementServiceStatus::failure_detection` reports connectivity as Healthy,
+Suspect, Unavailable or Unknown for each exact boot. Healthy establishes a fresh
+authenticated node response, not healthy Raft groups or available quorum. Only
+the transport's direct-connect `Unreachable` outcome accumulates failures.
+Unavailable requires at least two fresh failures spanning the configured grace
+(five seconds by default, never less). Missing discovery, authentication or
+protocol failures, local pressure and indeterminate outcomes remain Unknown and
+restart the grace. A changed boot discards its predecessor's failure history.
+
+Every observation expires after five seconds. Status reads age the samples even
+while the worker is delayed; stopped or closed monitors expose Unknown. Gaps in
+collection cannot accumulate failure time. Slow or large inventories can therefore
+remain Unknown instead of presenting stale failure conclusions. A failed catalog
+turn invalidates the current observations; a Root change during a probe batch
+refuses publication. Timestamps and counters remain local and ephemeral.
+
+This mode writes no failure, evacuation or isolation record and selects no new
+replacement. It is the observation boundary for automatic recovery. A production
+isolation adapter and durable handoff into the repair service remain required;
+neither a timeout nor an Unavailable classification can evict a voter.
+
 ## Owned repair after trusted node isolation
 
 `start_isolated_repair_service(observer, movement_evidence, repair_evidence,
@@ -1495,6 +1526,7 @@ in the ordinary durable movement book.
 last blocked history/failure and cursor exhaustion. These are local diagnostics.
 Exhaustion does not certify current health, complete evacuation, terminal node
 removal or storage release. This mode handles one explicitly rooted isolated
-node operation. Automatic failure classification, a production isolation
-provider, simultaneous-isolation policy, lifecycle CLI
+node operation. The exact-boot monitor above supplies failure classifications;
+automatic isolation/admission handoff, a production isolation provider,
+simultaneous-isolation policy, lifecycle CLI
 integration and deployed scale/performance qualification remain open.
