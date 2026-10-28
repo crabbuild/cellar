@@ -1337,6 +1337,23 @@ impl ContainerEngine {
             .find(|spec| spec.class_name == class)
             .cloned()
             .ok_or_else(|| anyhow!("class {class} has no container"))?;
+        self.attach_retained(scope, spec).await
+    }
+
+    /// Restore an exact retained specification for framework cleanup. This
+    /// does not install a deployment class or grant creation permission.
+    pub(crate) async fn attach_retained(
+        self: &Arc<Self>,
+        scope: &str,
+        spec: Arc<ContainerSpec>,
+    ) -> anyhow::Result<Arc<CellContainer>> {
+        let service = self.check_owner()?;
+        anyhow::ensure!(
+            scope
+                .split_once(':')
+                .is_some_and(|(class, _)| class == spec.class_name),
+            "retained container class differs"
+        );
         validate_exposed_ports(&spec.exposed_ports)?;
         let previous = self.cell(scope);
         let _previous_control = match &previous {

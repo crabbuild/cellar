@@ -10,6 +10,7 @@ use crate::node_lifecycle::{FenceReport, NodeOutcome, ShutdownPolicy, ShutdownRe
 
 pub(super) struct RunPolicy {
     pub shutdown: ShutdownPolicy,
+    pub sandbox_erasure: SandboxErasurePolicy,
     pub local_cache_max_bytes: Option<u64>,
     pub local_cache_prune_period: std::time::Duration,
 }
@@ -140,6 +141,7 @@ where
     // Capture before the first poll, so dropping an unstarted driver also
     // closes admission. Its host still owns joining the execution domain.
     let raft = crate::asyncrt::services().raft_lifecycle();
+    let runtime = prepared.app.runtime.clone();
     let admission_fence = AdmissionFence {
         draining: prepared.app.draining.clone(),
         raft: raft.clone(),
@@ -148,6 +150,9 @@ where
         let _admission_fence = admission_fence;
         let mut shutdown_deadline = None;
         let mut result = run_inner(prepared, stop, &mut shutdown_deadline).await;
+        if let Some(runtime) = runtime {
+            runtime.retirements.close_scans().await;
+        }
         // Both host adapters retain the entered root while closing the actual
         // registered Raft host, then join the whole domain outside this root.
         let closed = raft.close().await;
@@ -287,6 +292,9 @@ where
     }
     let mut websockets: FuturesUnordered<WebSocketFuture> = FuturesUnordered::new();
     let mut cache_prunes: FuturesUnordered<CachePruneFuture> = FuturesUnordered::new();
+    let erasure = super::sandbox_erasure::Collector::new(policy.sandbox_erasure.clone())?;
+    let mut erasure_tick = tokio::time::interval(policy.sandbox_erasure.scan_period);
+    erasure_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut replication_health = tokio::time::interval(std::time::Duration::from_millis(250));
     let mut local_cache_prune = tokio::time::interval_at(
         tokio::time::Instant::now() + policy.local_cache_prune_period,
@@ -406,6 +414,11 @@ where
                 websockets.push(socket);
             }
             Some(()) = websockets.next(), if !websockets.is_empty() => {}
+            _ = erasure_tick.tick() => {
+                if let Some(work) = erasure.schedule(app.clone(), ready_ownership.clone()) {
+                    facet_calls.push(work);
+                }
+            }
             _ = local_cache_prune.tick(), if local_cache_replication.is_some()
                 && local_cache_max_bytes.is_some() && cache_prunes.is_empty() => {
                 let replication = local_cache_replication.clone().unwrap();

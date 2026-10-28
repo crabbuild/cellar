@@ -3,6 +3,7 @@
 //! Runtime-only attachment qualification. These identity codecs intentionally
 //! isolate byte ownership/framing; real Protobuf/cell durability has separate tests.
 use super::*;
+#[cfg(feature = "embed")]
 use anyhow::Context as _;
 use cellar::sdk::rpc;
 use serde_json::json;

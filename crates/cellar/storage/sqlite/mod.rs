@@ -34,6 +34,7 @@ pub(crate) mod inbox;
 mod json_reads_tests;
 pub(crate) mod sandbox_catalog;
 pub(crate) mod sandbox_children;
+pub(crate) mod sandbox_erasure;
 pub(crate) mod sandbox_work;
 pub use immutable::{
     open_immutable_extent_image, open_immutable_generation, ImmutableQuery, ImmutableQueryOptions,
@@ -416,6 +417,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     container_bindings::check_schema(c)?;
     sandbox_catalog::check_schema(c)?;
     sandbox_children::check_schema(c)?;
+    sandbox_erasure::check_schema(c)?;
     sandbox_work::check_schema(c)?;
     container_maintenance::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema")?;

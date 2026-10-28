@@ -73,6 +73,8 @@ impl EventKind {
 pub struct Source {
     pub(crate) workers_lifetimes: bool,
     workers_http_streams: bool,
+    sandbox_executors:
+        std::collections::BTreeMap<String, Arc<dyn cellar::sdk::containers::SandboxExecutor>>,
     containers: cellar_guest::containers::Adapter,
     container_bindings: cellar_guest::containers::Bindings,
     pub(crate) code: String,
@@ -97,6 +99,7 @@ impl Source {
         Self {
             workers_lifetimes: false,
             workers_http_streams: false,
+            sandbox_executors: Default::default(),
             containers: Default::default(),
             container_bindings: Default::default(),
             code: code.into(),
@@ -127,6 +130,29 @@ impl Source {
             "duplicate filesystem capability"
         );
         self.filesystems.insert(class.into(), policy);
+        Ok(self)
+    }
+
+    /// Register a native executor for a dedicated sandbox class. The guest
+    /// exports no constructor for this class; only authenticated child RPC runs.
+    pub fn sandbox_executor(
+        mut self,
+        class: &str,
+        executor: Arc<dyn cellar::sdk::containers::SandboxExecutor>,
+    ) -> Result<Self> {
+        ensure!(
+            !class.is_empty()
+                && class.len() <= 128
+                && class
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "invalid sandbox class"
+        );
+        ensure!(
+            !self.sandbox_executors.contains_key(class),
+            "duplicate sandbox executor"
+        );
+        self.sandbox_executors.insert(class.into(), executor);
         Ok(self)
     }
 
@@ -267,6 +293,10 @@ impl Source {
         }
         let mut seen = HashSet::new();
         for name in &self.classes {
+            ensure!(
+                !self.sandbox_executors.contains_key(name),
+                "sandbox execution class cannot export guest handlers"
+            );
             ensure!(
                 !name.is_empty() && seen.insert(name),
                 "duplicate or empty JavaScript class"
@@ -996,6 +1026,13 @@ impl Drop for Lifetime {
 }
 
 impl Application for JavaScriptApplication {
+    fn sandbox_executor(
+        &self,
+        class: &str,
+    ) -> Option<Arc<dyn cellar::sdk::containers::SandboxExecutor>> {
+        self.source.sandbox_executors.get(class).cloned()
+    }
+
     fn rpc_catalog(&self) -> Option<&Catalog> {
         Some(&self.source.rpc)
     }
@@ -1010,7 +1047,9 @@ impl Application for JavaScriptApplication {
         );
         for class in &options.do_classes {
             ensure!(
-                cellar::deploy::is_reserved_class(class) || self.supports_cell(class),
+                cellar::deploy::is_reserved_class(class)
+                    || self.supports_cell(class)
+                    || self.sandbox_executor(class).is_some(),
                 "JavaScript deployment names an unregistered cell class"
             );
         }

@@ -85,6 +85,19 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
 pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
+    if name.starts_with("sandbox.") {
+        if let Some(failure) = error.downcast_ref::<cellar::sdk::containers::SandboxFailure>() {
+            use cellar::sdk::containers::SandboxFailureKind;
+            let code = match failure.kind {
+                SandboxFailureKind::Capacity => "ResourceExhausted",
+                SandboxFailureKind::Refused => "FailedPrecondition",
+                SandboxFailureKind::Unknown => "Ambiguous",
+            };
+            // Creation may already have committed its parent reservation even
+            // when the provider was refused. Never promise whole-call rollback.
+            return json!({"ok":false,"error":code,"code":code,"outcome":"unknown"});
+        }
+    }
     if let Some(failure) = error.downcast_ref::<cellar::sdk::filesystem::Error>() {
         use cellar::sdk::filesystem::Outcome;
         let outcome = match failure.outcome {

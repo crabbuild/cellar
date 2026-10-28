@@ -338,6 +338,11 @@ impl NativeWorker {
             if self.config.source_recovery {
                 let present = (|| -> Result<bool> {
                     Ok(storage::outbox::retained_source(scope)?
+                        || storage::sandbox_catalog::parent(scope)?.is_some()
+                        || storage::sandbox_children::load(scope)?.is_some()
+                        || scope.split_once(':').is_some_and(|(class, _)| {
+                            self.application.sandbox_executor(class).is_some()
+                        })
                         || storage::container_bindings::list(scope)?
                             .iter()
                             .any(|(_, checkpoint)| !checkpoint.record.is_retired()))
@@ -352,6 +357,7 @@ impl NativeWorker {
             }
             let (source_generation, source_closed) =
                 storage::outbox_control::source_admission(scope)?;
+            let source_closed = source_closed || storage::sandbox_erasure::load(scope)?.is_some();
             let resources = crate::application::storage::Resources::default();
             resources
                 .source_generation
@@ -639,7 +645,14 @@ impl NativeWorker {
                 old.drain_resources();
                 storage::reset_native_resources(scope);
                 let (source_generation, source_closed) =
-                    match storage::outbox_control::source_admission(scope) {
+                    match storage::outbox_control::source_admission(scope).and_then(
+                        |(generation, closed)| {
+                            Ok((
+                                generation,
+                                closed || storage::sandbox_erasure::load(scope)?.is_some(),
+                            ))
+                        },
+                    ) {
                         Ok(value) => value,
                         Err(error) => {
                             self.activations.insert(scope.clone(), old);

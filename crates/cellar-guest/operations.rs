@@ -215,6 +215,9 @@ pub fn is_read(name: &str) -> bool {
     if name.starts_with("workers.") {
         return crate::workers::is_read(name);
     }
+    if matches!(name, "sandbox.get" | "sandbox.list" | "sandbox.parent") {
+        return true;
+    }
     if name == "container.bindings" {
         return true;
     }
@@ -305,6 +308,9 @@ pub async fn execute(
     }
     if name.starts_with("workers.") {
         return state.workers.execute(context, name, value, options).await;
+    }
+    if name.starts_with("sandbox.") {
+        return crate::sandboxes::execute(context, name, value).await;
     }
     if name.starts_with("container.") {
         values::check_depth(&value).context(crate::failure::Validation)?;

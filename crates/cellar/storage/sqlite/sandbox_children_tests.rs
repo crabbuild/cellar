@@ -15,6 +15,7 @@ fn record() -> Record {
             configuration_digest: "c".repeat(64),
         },
         phase: Phase::Unstarted,
+        container_spec: None,
     }
 }
 
