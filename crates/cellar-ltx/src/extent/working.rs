@@ -283,6 +283,17 @@ impl MainWorkspace {
         let mut offset = index as u64 * EXTENT_BYTES;
         let start = offset;
         let end = (offset + EXTENT_BYTES).min(state.source_limit);
+        if start < end {
+            // A retained block proof permits a verified query read, but does
+            // not replace the complete source check before faulting an extent
+            // into the writable main file. A corrupt tail must refuse before
+            // any prefix is copied or counted as faulted.
+            self.image
+                .as_ref()
+                .ok_or(ffi::SQLITE_IOERR_READ)?
+                .verify_extent(u32::try_from(index).map_err(|_| ffi::SQLITE_IOERR_READ)?)
+                .map_err(|_| ffi::SQLITE_IOERR_READ)?;
+        }
         let mut source_hash = Sha256::new();
         while offset < end {
             let count = (end - offset).min(65536) as usize;

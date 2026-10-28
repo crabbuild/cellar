@@ -70,6 +70,8 @@ miss retains the ordinary byte/file reservation. Already verified local extents
 need no anonymous copy or cache sync. Handles retain their root and inventory
 lock until their last reader closes; generic `ExtentSource` downloads retain
 their separate scratch files, destination verification and synchronization.
+Writable workspace hydration explicitly checks the complete source extent
+before copying its first block, then independently checks the destination.
 
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
