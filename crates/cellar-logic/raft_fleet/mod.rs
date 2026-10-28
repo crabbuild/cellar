@@ -4,10 +4,12 @@
 //! membership, resource-release or platform authority. Adapters must authenticate
 //! observations and atomically persist reservations before admitting work.
 
+mod health;
 mod ledger;
 mod repair;
 mod topology;
 
+pub use health::{HealthObservation, HealthPolicy, HealthTracker, NodeHealth};
 pub use ledger::{
     CapacityScope, LedgerError, LedgerPolicy, LedgerSnapshot, Materialization, PhysicalSample,
     Reservation, ResourceCharge, ResourceKind, ResourceLedger, Resources, SampleAttribution,

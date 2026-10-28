@@ -18,9 +18,10 @@ pub use completion::{
 };
 pub(crate) use execution::MovementServiceWork;
 pub use execution::{
-    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
-    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
-    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use execution::{

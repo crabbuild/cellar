@@ -6,6 +6,9 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::{future::Future, pin::Pin};
 
+#[path = "raft_failure_detection.rs"]
+mod detection;
+
 #[path = "raft_isolated_repair_fairness.rs"]
 mod fairness;
 

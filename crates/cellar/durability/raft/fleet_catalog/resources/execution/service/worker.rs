@@ -19,6 +19,7 @@ pub(crate) struct MovementServiceWork {
     memory: Option<Permit>,
     node_stop: Option<watch::Receiver<bool>>,
     topology: Option<super::topology::TopologyService>,
+    detection: Option<super::detection::Detection>,
     isolated: Option<super::isolated::IsolatedRepairService>,
 }
 
@@ -45,6 +46,7 @@ impl MovementServiceWork {
             memory: None,
             node_stop: None,
             topology: None,
+            detection: None,
             isolated: None,
         }
     }
@@ -70,6 +72,10 @@ impl MovementServiceWork {
         self.isolated = config.map(|(operation, evidence)| {
             super::isolated::IsolatedRepairService::new(operation, evidence)
         });
+    }
+
+    pub(super) fn set_detection(&mut self, options: Option<FleetFailureDetectionOptions>) {
+        self.detection = options.map(super::detection::Detection::new);
     }
 
     pub(crate) fn admit(&mut self, host: &FleetHostAuthorization) -> Result<()> {
@@ -117,6 +123,9 @@ impl MovementServiceWork {
         let (stop, wait) = watch::channel(false);
         *slot = Some(stop);
         self.memory = Some(memory);
+        if let Some(detection) = &mut self.detection {
+            detection.set_origin(host.node());
+        }
         self.admitted = true;
         self.status.send_modify(|status| status.running = true);
         // Keep public cancellation and node drain independent. The node-owned
@@ -173,6 +182,10 @@ impl MovementServiceWork {
                 }
                 Err(FleetCatalogError::Closed) => return,
                 Err(error) => {
+                    if let Some(detection) = &mut self.detection {
+                        detection.invalidate();
+                    }
+                    self.publish_work();
                     let kind = schedule::classify(&error);
                     self.status.send_modify(|status| {
                         status.consecutive_round_failures =
@@ -298,6 +311,11 @@ impl MovementServiceWork {
                     )
                     .await?;
             }
+            if let Some(detection) = &mut self.detection {
+                detection
+                    .round(&self.catalog, &self.observer, &cut, &deadline)
+                    .await?;
+            }
             if let Some(topology) = self
                 .topology
                 .as_mut()
@@ -320,6 +338,12 @@ impl MovementServiceWork {
     }
 
     fn publish_work(&self) {
+        if let Some(detection) = &self.detection {
+            if let Ok(now) = self.catalog.inner.domain.mono_ms() {
+                self.status
+                    .send_modify(|status| status.failure_detection = Some(detection.view(now)));
+            }
+        }
         let work = self
             .schedule
             .entries

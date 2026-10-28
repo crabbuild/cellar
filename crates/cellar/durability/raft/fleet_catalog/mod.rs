@@ -76,10 +76,11 @@ pub use resources::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
-    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
-    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
-    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
-    FleetMovementServiceStatus, FleetTopologyCollectionOptions, FleetTopologyEvidence,
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetIsolatedRepairContext,
+    FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus,
+    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
+    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
+    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
     FleetTopologyServiceInputs, FleetTopologyServiceStatus,
 };
 pub use resources::{

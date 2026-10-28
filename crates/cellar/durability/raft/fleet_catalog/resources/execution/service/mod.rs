@@ -3,11 +3,16 @@
 //! One node-owned worker resumes admitted work. Explicit topology mode also
 //! collects and admits rooted desired placement. No timeout or local hint can
 //! release a reservation or establish convergence.
+mod detection;
 mod isolated;
 mod schedule;
 mod topology;
 mod worker;
 use super::*;
+pub use detection::{
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetNodeFailureStatus,
+    FleetNodeHealth,
+};
 use std::pin::Pin;
 use tokio::sync::watch;
 pub(crate) use worker::MovementServiceWork;
@@ -156,6 +161,7 @@ pub struct FleetIsolatedRepairServiceStatus {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
+    pub failure_detection: Option<FleetFailureDetectionStatus>,
     pub isolated_repair: Option<FleetIsolatedRepairServiceStatus>,
     pub running: bool,
     pub poll_rounds: u64,
@@ -174,6 +180,7 @@ pub struct FleetMovementServiceStatus {
 /// evidence callback to exit. Node drain/closure stops and joins it. Already
 /// submitted physical work retains its ordinary node owner and durable intent.
 pub struct FleetMovementService {
+    clock: crate::asyncrt::DomainToken,
     stop: watch::Sender<bool>,
     done: watch::Receiver<bool>,
     status: watch::Receiver<FleetMovementServiceStatus>,
@@ -181,7 +188,15 @@ pub struct FleetMovementService {
 
 impl FleetMovementService {
     pub fn status(&self) -> FleetMovementServiceStatus {
-        self.status.borrow().clone()
+        let mut status = self.status.borrow().clone();
+        if let Some(detection) = &mut status.failure_detection {
+            detection.age(if status.running {
+                self.clock.mono_ms().ok()
+            } else {
+                None
+            });
+        }
+        status
     }
 
     pub fn stop(&self) {
@@ -204,6 +219,19 @@ impl Drop for FleetMovementService {
     }
 }
 
+enum ServiceMode {
+    Admitted,
+    Topology(
+        Arc<dyn FleetTopologyEvidence>,
+        FleetTopologyCollectionOptions,
+    ),
+    Isolated(
+        cellar_logic::consensus::ProposalId,
+        Arc<dyn FleetIsolatedRepairEvidence>,
+    ),
+    Detection(FleetFailureDetectionOptions),
+}
+
 impl FleetCatalog {
     /// Start one paced worker on this enrolled origin. A second service on the
     /// same RaftCells is refused, including through a different catalog adapter.
@@ -214,7 +242,7 @@ impl FleetCatalog {
         evidence: Arc<dyn FleetMovementEvidence>,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
-        self.start_fleet_service(observer, evidence, None, None, options)
+        self.start_fleet_service(observer, evidence, ServiceMode::Admitted, options)
             .await
     }
 
@@ -260,8 +288,7 @@ impl FleetCatalog {
         self.start_fleet_service(
             observer,
             movement_evidence,
-            Some((topology_evidence, collection)),
-            None,
+            ServiceMode::Topology(topology_evidence, collection),
             options,
         )
         .await
@@ -282,8 +309,29 @@ impl FleetCatalog {
         self.start_fleet_service(
             observer,
             movement_evidence,
-            None,
-            Some((operation, repair_evidence)),
+            ServiceMode::Isolated(operation, repair_evidence),
+            options,
+        )
+        .await
+    }
+
+    /// Observe exact enrolled boots through bounded authenticated probes while
+    /// continuing already-admitted movements. At most four probes run per turn;
+    /// all observations expire after five seconds, including while other work
+    /// takes priority. Unknown outcomes restart failure grace. This explicit,
+    /// default-off mode does not isolate, evacuate or admit new replacements.
+    pub async fn start_failure_detection_service(
+        &self,
+        observer: RaftCells,
+        movement_evidence: Arc<dyn FleetMovementEvidence>,
+        options: FleetMovementServiceOptions,
+        detection: FleetFailureDetectionOptions,
+    ) -> Result<FleetMovementService> {
+        detection.validate()?;
+        self.start_fleet_service(
+            observer,
+            movement_evidence,
+            ServiceMode::Detection(detection),
             options,
         )
         .await
@@ -293,20 +341,10 @@ impl FleetCatalog {
         &self,
         observer: RaftCells,
         evidence: Arc<dyn FleetMovementEvidence>,
-        topology: Option<(
-            Arc<dyn FleetTopologyEvidence>,
-            FleetTopologyCollectionOptions,
-        )>,
-        isolated: Option<(
-            cellar_logic::consensus::ProposalId,
-            Arc<dyn FleetIsolatedRepairEvidence>,
-        )>,
+        mode: ServiceMode,
         options: FleetMovementServiceOptions,
     ) -> Result<FleetMovementService> {
         options.validate()?;
-        if topology.is_some() && isolated.is_some() {
-            return Err(FleetCatalogError::Invalid("fleet service mode"));
-        }
         // A retained capability cannot start new work after its original owner
         // closes. The receiving node independently selects its installed fleet
         // client and binds the actual worker to its own execution domain.
@@ -319,6 +357,7 @@ impl FleetCatalog {
         let (done, finished) = watch::channel(false);
         let (status, view) = watch::channel(FleetMovementServiceStatus::default());
         let service = FleetMovementService {
+            clock: observer.handle.domain.clone(),
             stop,
             done: finished,
             status: view,
@@ -332,8 +371,16 @@ impl FleetCatalog {
             done,
             status,
         );
-        work.set_topology(topology);
-        work.set_isolated_repair(isolated);
+        match mode {
+            ServiceMode::Admitted => (),
+            ServiceMode::Topology(evidence, collection) => {
+                work.set_topology(Some((evidence, collection)))
+            }
+            ServiceMode::Isolated(operation, evidence) => {
+                work.set_isolated_repair(Some((operation, evidence)))
+            }
+            ServiceMode::Detection(options) => work.set_detection(Some(options)),
+        }
         observer.start_movement_worker(work, timeout).await?;
         Ok(service)
     }
