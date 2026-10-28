@@ -397,21 +397,26 @@ impl NamespaceCatalog {
         Ok(next)
     }
 
-    pub(super) async fn follow_recovery(
-        &self,
+    // Catalog lookup is nested in every replica/learner startup path. Keep
+    // the bounded traversal on the heap instead of multiplying its future
+    // state through those enclosing startup futures.
+    pub(super) fn follow_recovery<'a>(
+        &'a self,
         mut birth: GroupBirth,
-    ) -> Result<GroupBirth, CatalogError> {
-        let mut seen = BTreeSet::new();
-        for _ in 0..MAX_HISTORY {
-            if !seen.insert(birth.scope.incarnation) {
-                return Err(CatalogError::Corrupt("cyclic disaster history"));
+    ) -> BoxFuture<'a, Result<GroupBirth, CatalogError>> {
+        Box::pin(async move {
+            let mut seen = BTreeSet::new();
+            for _ in 0..MAX_HISTORY {
+                if !seen.insert(birth.scope.incarnation) {
+                    return Err(CatalogError::Corrupt("cyclic disaster history"));
+                }
+                match self.next_recovery(&birth).await? {
+                    Some(intent) => birth = self.successor(&birth, intent).await?,
+                    None => return Ok(birth),
+                }
             }
-            match self.next_recovery(&birth).await? {
-                Some(intent) => birth = self.successor(&birth, intent).await?,
-                None => return Ok(birth),
-            }
-        }
-        Err(CatalogError::Limit)
+            Err(CatalogError::Limit)
+        })
     }
 
     async fn historical_birth(&self, scope: &GroupScope) -> Result<GroupBirth, CatalogError> {
