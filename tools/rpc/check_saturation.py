@@ -20,11 +20,13 @@ def audit(report):
     assert report["source_reservations_after_drain"] == report["receiver_reservations_after_drain"] == report["receiver_tunnels_after_drain"] == 0
     assert report["all_memory_qualified"] is report["release_qualified"] is False
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 112
+    assert len(cases) == report["case_count"] == 144
     expected = {(side, route, limit, caller, provider) for side, route in (("source", "local"), ("source", "signed-peer"), ("receiver", "signed-peer"))
                 for limit, caller, provider in itertools.product(("requests", "bytes"), LANGUAGES, LANGUAGES)}
     expected |= {("receiver-reply", "signed-peer", "bytes", caller, provider)
                  for caller, provider in itertools.product(LANGUAGES, LANGUAGES)}
+    expected |= {("provider-response", route, "bytes", caller, provider)
+                 for route, caller, provider in itertools.product(("local", "signed-peer"), LANGUAGES, LANGUAGES)}
     keys = [(c["side"], c["route"], c["limit"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
     identities = {}
@@ -51,7 +53,14 @@ def audit(report):
         assert usage["active_requests"] == 1
         assert type(usage["reserved_request_bytes"]) is int
         assert 65536 < usage["reserved_request_bytes"] <= case["max_rpc_bytes"]
-        if limit == "requests":
+        response = case["response_usage_while_held"]
+        assert response == {"active_buffers": 1, "reserved_response_bytes": 4 * (1024 * 1024 + 2048) + 65536}
+        assert case["response_usage_after_case"] == {"active_buffers": 0, "reserved_response_bytes": 0}
+        if case["side"] == "provider-response":
+            assert limit == "bytes" and case["max_rpc_requests"] == 1
+            assert case["max_rpc_bytes"] == response["reserved_response_bytes"]
+            assert usage["reserved_request_bytes"] == response["reserved_response_bytes"]
+        elif limit == "requests":
             assert case["max_rpc_requests"] == 1
             assert case["max_rpc_bytes"] == 256 * 1024 * 1024
         else:
@@ -95,6 +104,9 @@ def negative_probes(report):
         lambda r: r["cases"][0]["held"].__setitem__("epoch", 0),
         lambda r: r["cases"][0].__setitem__("automatic_replay", True),
         lambda r: r.__setitem__("native_nodes_drained", False),
+        lambda r: r["cases"][0]["response_usage_while_held"].__setitem__("active_buffers", 0),
+        lambda r: r["cases"][0]["response_usage_after_case"].__setitem__("reserved_response_bytes", 1),
+        lambda r: next(c for c in r["cases"] if c["side"] == "provider-response").__setitem__("max_rpc_bytes", 0),
         lambda r: reply_case(r)["holder_first_reply"].__setitem__("outcome", "not_committed"),
         lambda r: reply_case(r).__setitem__("holder_valid_message_bytes", 1),
         lambda r: reply_case(r).__setitem__("holder_receipt_replayed", False),

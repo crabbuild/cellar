@@ -132,6 +132,8 @@ mod native_rpc_decode;
 mod outbound_rpc;
 #[path = "execution/rpc_reservation.rs"]
 mod rpc_reservation;
+#[path = "execution/rpc_response.rs"]
+mod rpc_response;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
 #[path = "transport/tcp/mod.rs"]

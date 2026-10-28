@@ -41,6 +41,10 @@ pub struct RuntimePolicy {
     /// Shared conservative native Protobuf decode allowances. Transport buffers,
     /// application-retained values and whole-process RSS have separate ownership.
     pub max_native_rpc_decode_bytes: usize,
+    /// Shared host response encoding/collection and retained-copy allowance,
+    /// including typed provider output-proof waits. Minimum 64 KiB. This does
+    /// not cap application-created graphs, guest heaps or whole-process RSS.
+    pub max_rpc_response_bytes: usize,
     /// Conservative per-decode stack allowance. The caller-owned executor must
     /// provide enough thread stack and runtime/application headroom for it.
     pub max_native_rpc_stack_bytes: usize,
@@ -73,6 +77,7 @@ impl Default for RuntimePolicy {
             max_inbound_rpc_requests: 128,
             max_inbound_rpc_bytes: 256 * 1024 * 1024,
             max_native_rpc_decode_bytes: 256 * 1024 * 1024,
+            max_rpc_response_bytes: 256 * 1024 * 1024,
             max_native_rpc_stack_bytes: 1024 * 1024,
             max_inbound_rpc_tunnels: 256,
             max_rpc_tunnels_per_peer: 64,
@@ -85,6 +90,11 @@ impl Default for RuntimePolicy {
 
 impl RuntimePolicy {
     pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            (64 * 1024..=(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS))
+                .contains(&self.max_rpc_response_bytes),
+            "max_rpc_response_bytes must fit at least 64 KiB of response/control capacity"
+        );
         anyhow::ensure!(
             (1..=(u32::MAX as usize).min(tokio::sync::Semaphore::MAX_PERMITS))
                 .contains(&self.max_native_rpc_decode_bytes),
@@ -184,6 +194,10 @@ impl RuntimePolicy {
                 "CELLAR_MAX_NATIVE_RPC_DECODE_BYTES",
                 Self::default().max_native_rpc_decode_bytes,
             )?,
+            max_rpc_response_bytes: crate::env_vars::positive_or(
+                "CELLAR_MAX_RPC_RESPONSE_BYTES",
+                Self::default().max_rpc_response_bytes,
+            )?,
             max_native_rpc_stack_bytes: crate::env_vars::positive_or(
                 "CELLAR_MAX_NATIVE_RPC_STACK_BYTES",
                 Self::default().max_native_rpc_stack_bytes,
@@ -229,6 +243,24 @@ impl RuntimePolicy {
 #[cfg(test)]
 mod tests {
     use super::RuntimePolicy;
+
+    #[test]
+    fn response_pool_capacities_are_validated_before_allocation() {
+        for invalid in [0, 64 * 1024 - 1, usize::MAX] {
+            assert!(RuntimePolicy {
+                max_rpc_response_bytes: invalid,
+                ..Default::default()
+            }
+            .validate()
+            .is_err());
+        }
+        RuntimePolicy {
+            max_rpc_response_bytes: 64 * 1024,
+            ..Default::default()
+        }
+        .validate()
+        .unwrap();
+    }
 
     #[test]
     fn native_decoder_capacities_are_checked_before_pools_are_built() {

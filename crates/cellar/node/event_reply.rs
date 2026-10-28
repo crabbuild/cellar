@@ -78,6 +78,17 @@ enum ReplyKind {
 }
 
 impl ReplyKind {
+    fn allocation(self, failure: crate::application::rpc::Failure) -> anyhow::Error {
+        match self {
+            Self::Event => DeliveryError::new(
+                ErrorCode::Ambiguous,
+                "event RPC result allocation refused after submission",
+            )
+            .into(),
+            Self::Ordinary | Self::Typed => failure.into(),
+        }
+    }
+
     fn exhausted(self, message: &'static str) -> anyhow::Error {
         // Execution can have committed. A protocol/allocation refusal never
         // receives the transport retry tag or claims that effects rolled back.
@@ -127,7 +138,13 @@ where
         return Err(kind.exhausted("event RPC result exceeds its byte budget"));
     }
     let mut body = std::pin::pin!(body);
-    let mut bytes = Vec::new();
+    let admission = crate::asyncrt::services()
+        .reserve_rpc_response(crate::rpc_response::Buffer::initial_weight())
+        .map_err(|failure| kind.allocation(failure))?;
+    let mut bytes = crate::rpc_response::Buffer::new(admission);
+    bytes
+        .anticipate(body.size_hint().lower() as usize)
+        .map_err(|failure| kind.allocation(failure))?;
     let mut frames = 0usize;
     let mut copied = 0usize;
     while let Some(frame) = body.frame().await {
@@ -136,24 +153,15 @@ where
         })?;
         frames += 1;
         if let Ok(data) = frame.into_data() {
-            let length = bytes
+            bytes
                 .len()
                 .checked_add(data.len())
                 .filter(|length| *length <= limit)
                 .ok_or_else(|| kind.exhausted("event RPC result exceeds its byte budget"))?;
-            if length > bytes.capacity() {
-                let capacity = length
-                    .max(bytes.capacity().saturating_mul(2))
-                    .max(4096)
-                    .min(limit);
-                bytes
-                    .try_reserve_exact(capacity - bytes.len())
-                    .map_err(|_| {
-                        kind.exhausted("event RPC result buffer could not be allocated")
-                    })?;
-            }
             copied = copied.saturating_add(data.len());
-            bytes.extend_from_slice(&data);
+            bytes
+                .extend(&data, limit)
+                .map_err(|failure| kind.allocation(failure))?;
         }
         // Do not retain unused trailer maps or one allocation per tiny frame.
         // Yield even for empty/trailer frames so readiness cannot starve the
@@ -164,7 +172,7 @@ where
             copied = 0;
         }
     }
-    Ok(Bytes::from(bytes))
+    bytes.finish().map_err(|failure| kind.allocation(failure))
 }
 
 async fn cooperate() {

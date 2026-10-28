@@ -194,5 +194,10 @@ pub async fn stop(node: Node, mode: ShutdownMode) -> Result<()> {
         "fleet RPC node retained native decoder admission: {:?}",
         services.native_rpc_decode_usage()
     );
+    ensure!(
+        services.rpc_response_usage() == Default::default(),
+        "RPC node retained response admission after join: {:?}",
+        services.rpc_response_usage()
+    );
     Ok(())
 }

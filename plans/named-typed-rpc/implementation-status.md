@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Both SDK interpreter jobs and Python examples pass at `4cfee52c`. Its typed-RPC free-threaded job passes the full workflow, but GIL profile qualification self-fences with `NodeLeaseExpired`; JavaScript CI was cancelled. The native decoder source still needs fresh hosted gates. Earlier failures and exact identities remain preserved below. |
-| P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation and peer faults each have 112 cases in both observed Python modes. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
-| P0 | Resource bounds and parser correctness | Source, receiving request/input/tunnel and published-reply admission retain their existing bounds. Guest controls have a 16 KiB wire cap and pre-parse reservations, with 48 live refusal/progress cases. Native reply conversion copies one validated business body; ordinary peer collection is finite/dense/cooperative. Typed limits now reach local publication and peer collection, with 112 signed-peer cases passing in both Python modes. Shared native decode/stack allowances now cover transitive inline layouts with measured generated fixtures, both full failure drivers and zero post-join checks. Broader response/codec pools, effective minima, backing copies, allocator/RSS and saturation qualification remain open. |
-| P1 | Language/profile coverage | Native decoder source passes all 19 Counter/failure suites in both local CPython modes, 984 cases per mode, plus both 576-call live profiles with independent audits and unchanged sources/executables. Both hosted SDK jobs pass at `4cfee52c`, while its GIL typed-profile lease expiry remains unexplained. Descriptor semantics, broader regressions and packaging qualification remain open. |
+| P0 — hosted verification | Final hosted gates | Published `fa1543f1` passes both complete typed-RPC jobs. Both SDK jobs fail compilation at an Axum lease-observer caller; that call is repaired locally and both Axum feature modes pass. Require fresh hosted SDK, JavaScript and example gates for the follow-up head. Earlier failures and exact identities remain preserved below. |
+| P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults have 112 in both observed Python modes. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
+| P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Retained request backing, native response/decoder ownership handoffs, wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
+| P1 | Language/profile coverage | The response-pool production source passes all 19 Counter/failure suites in both actual local CPython modes: 1,016 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published native-decoder head `fa1543f1` also passes both hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -29,6 +29,94 @@ does not close schema, resource, packaging or performance requirements.
 Preserve existing durability evidence while addressing these gaps. Further
 recovery-fault variations follow demonstrated correctness risks; expanding the
 Counter fixture alone is not the highest-priority deliverable now.
+
+## Shared response admission (2026-10-27; local slice qualified, release open)
+
+Two controlled regressions exercise the real collector and production node with
+response infrastructure present but unwired. A retained one-byte reply slice
+does not stop a second collector from polling/accepting another body; a held
+native handler does not stop a second business result despite a one-provider
+encoding allowance. Both runtime tests fail as expected. The collector binary
+is `bd97f170f7dec17af912d8e6d95f73f74a7ccd91b15a987cb968312dc5e5551b`;
+the provider binary is
+`f82e977c42c97bb2b45be82f8181955e22bddeff434874e20e63cde8ab3d577f`.
+Sources, lock and logs are preserved under
+`.cellar/rpc/diagnostics/response-pool-red-v1/`. Two earlier provider fixture
+attempts fail compilation and are excluded from runtime evidence.
+
+The implementation introduces `RuntimePolicy.max_rpc_response_bytes` (256 MiB
+by default) and independent `HostServices::rpc_response_usage()` counters.
+Typed provider admission reserves its encoding/copy peak before factories;
+dense byte ownership then survives output-proof waits, queues, transport and
+all byte aliases. Finite typed/ordinary/event collectors reserve before growth
+and declared-minimum polling, including reallocation overlap. Unknown external
+backing is normalized before a provider result is retained. Quota refusal uses
+an exact typed failure envelope with unknown effects, including across peers.
+Invalid UTF-8 JSON conversion has its own expansion allowance. Control/refund
+paths never wait for another response.
+
+The first source revision passes 735 core tests and 22 selected native tests.
+It predates the final peer refusal envelope, declared-minimum pre-admission and
+broader qualification assertions. Do not substitute that smoke result for final
+source qualification. The extended suite requires 144 saturation cases (32 new
+provider-response local/peer cases), retained capacity during all 128 proof-wait
+cases, and zero response reservations after cancellation and node join in both
+actual CPython modes. Final validation preserves these outcomes:
+
+| Boundary | Evidence |
+| --- | --- |
+| Native/framework regressions | 738 core tests and 37 selected integrations pass |
+| JavaScript regressions | All 126 tests pass under unchanged budgets; six external cases remain ignored |
+| Python and generation | 31 Python units plus streaming/typed-RPC integrations; all 13 generator tests pass |
+| Actual interpreter modes | Each mode passes 576 live profile calls and the complete 19-suite / 1,016-case driver |
+| Resource/cancellation composition | Each mode passes 144 saturation and 128 proof-wait cases, including retained response capacity and zero post-cancellation/join reservations |
+| Independent audits | Profile, peer, provenance, saturation, guest-control and actual-mode audits pass; saturation rejects 20 corrupted reports |
+| Static/API modes | Core/JavaScript all-target Clippy, embed-only/Node-only builds, formatting/layout, native dependencies and docs pass |
+
+The frozen `response-pool-qualification-v1` run watches 3,745 inputs; all sources
+and both copied executables remain unchanged. Its manifest SHA-256 is
+`568ee8f2d45fe03f7ea702d36ddf53fdefbfb5a01d003cd46c0144a4cf591540`.
+Four of its 41 checks fail compilation because the expanded proof-audit unit
+fixture exceeds the JSON macro expansion limit. All live commands pass. Split
+that fixture's object construction rather than raising a limit or weakening
+assertions. The subsequent recheck passes all 41 guards and all-target qualifier
+Clippy in each mode, and rebuilds byte-identical production executables:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| GIL executable | `e391fa4768c9b9c689bfb41ab98862526b98437e0ff7c7a8131162eb7c1e7a95` |
+| Free-threaded executable | `bd8094c0003e9b64268d9c3cda2f4bcbb7839b6b5e9b4e8608efbbde81e90992` |
+| GIL full report | `ceffdd8f4d2d503067bb9a368faa737633a2f74e7f070783b9071aecd8804376` |
+| Free-threaded full report | `a792105cbc7756763cd32bce61641e8c1cc8e89724e5922be71647abccf94064` |
+| GIL profile | `4c88ecd090a79771d5116b4b2ed513ba0ef1408334015221f7a129cb0b808bd8` |
+| Free-threaded profile | `9976bd90301693cddfaf1caf0d31e671ada86ca246b04664e925c4ed29a0b39a` |
+
+Published `fa1543f1` passes both hosted typed-RPC jobs in run `40610862296`.
+Both SDK jobs in run `40610862321` instead fail compilation at the remaining
+Axum caller of the shared lease observer. Pass `None` explicitly; preserve both
+original logs in `.cellar/rpc/diagnostics/hosted-fa1543-axum-trace-v1/`.
+
+The first repaired Axum all-feature run exposes a separate lifecycle response
+failure: `/hold` returns 503 instead of 200 after five seconds. The handler's
+entry state and failed body were not captured, so its cause is not established.
+Preserve its executable (`42350d0ba9f00e3e9818079138715f5074afbd94587e19284e394d1f7cac0202`),
+sources and log under `.cellar/rpc/diagnostics/axum-lifecycle-503-v1/`.
+Ten serial and 32 concurrent original-binary replays all pass; they are not a fix.
+Add bounded failure-only head/body, handler-entry, host-work and lease diagnostics
+and join node cancellation on that failure. Keep every existing budget and
+assertion. The final `response-pool-axum-recheck-v3` passes all eight checks:
+35 all-feature and 29 no-default-feature Axum tests, one ignored doctest per
+mode, Clippy and static guards. Its sources and both live executables remain
+unchanged. Only test fixtures and documentation differ from the qualified RPC
+production source; the original lifecycle 503 remains an open reliability case.
+
+This allowance does not qualify whole-process RSS, allocator usable size,
+application-retained graphs or untyped leased capability streams. Broader
+source-response fault/saturation combinations, retained request backing, native
+response-to-decoder ownership handoffs, effective adapter minima,
+measured memory/performance, remaining descriptor semantics and packaging are
+still open. The original JavaScript timing failures remain unexplained; the
+budget-phase diagnostics do not establish their cause.
 
 ## Work packages
 

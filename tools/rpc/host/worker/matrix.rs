@@ -421,7 +421,8 @@ async fn live_case(
         ensure!(
             services.outbound_rpc_usage() == Default::default()
                 && services.inbound_rpc_usage() == Default::default()
-                && services.native_rpc_decode_usage() == Default::default(),
+                && services.native_rpc_decode_usage() == Default::default()
+                && services.rpc_response_usage() == Default::default(),
             "joined worker node retained RPC quotas: source={:?}, receiver={:?}, codec={:?}",
             services.outbound_rpc_usage(),
             services.inbound_rpc_usage(),

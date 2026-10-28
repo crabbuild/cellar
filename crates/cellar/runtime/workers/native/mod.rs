@@ -806,7 +806,7 @@ impl NativeWorker {
                         Err(crate::runtime::source_recovery::unavailable())
                     }));
                 }
-                let entered = crate::application::rpc::Entered::new(&invocation);
+                let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
                         if let Invocation::CellRpc { method, args } = &invocation {
@@ -817,6 +817,17 @@ impl NativeWorker {
                                     return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
                                 }
                             }
+                        }
+                        let limits = match &invocation {
+                            Invocation::CellRpc { method, .. } => self
+                                .rpc_catalog
+                                .as_deref()
+                                .and_then(|catalog| catalog.limits(&identity.class, method))
+                                .unwrap_or_default(),
+                            _ => Default::default(),
+                        };
+                        if let Some(refusal) = entered.admit_response(limits)? {
+                            return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
                         }
                         let cell = match self.instances.entry(identity.scope.clone()) {
                             std::collections::hash_map::Entry::Occupied(entry) => {
@@ -868,6 +879,9 @@ impl NativeWorker {
                         }))
                     }
                     None => {
+                        if let Some(refusal) = entered.admit_response(Default::default())? {
+                            return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
+                        }
                         let application = self.application.clone();
                         let context = context.clone();
                         Ok(Box::pin(async move {

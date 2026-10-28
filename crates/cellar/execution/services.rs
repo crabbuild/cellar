@@ -13,6 +13,7 @@ pub use crate::inbound_rpc::Usage as InboundRpcUsage;
 pub use crate::native_rpc_decode::Usage as NativeRpcDecodeUsage;
 pub use crate::outbound_rpc::Usage as OutboundRpcUsage;
 use crate::ownership_store::LiveLoad;
+pub use crate::rpc_response::Usage as RpcResponseUsage;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -99,6 +100,7 @@ pub struct HostServices {
     outbound_rpc: OnceLock<crate::outbound_rpc::Budget>,
     inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
     native_rpc_decode: OnceLock<crate::native_rpc_decode::Budget>,
+    rpc_response: OnceLock<crate::rpc_response::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
     events: Arc<crate::application::event_stream::service::Service>,
@@ -132,6 +134,7 @@ impl HostServices {
             outbound_rpc: OnceLock::new(),
             inbound_rpc: OnceLock::new(),
             native_rpc_decode: OnceLock::new(),
+            rpc_response: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -166,6 +169,7 @@ impl HostServices {
             outbound_rpc: OnceLock::new(),
             inbound_rpc: OnceLock::new(),
             native_rpc_decode: OnceLock::new(),
+            rpc_response: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
@@ -421,6 +425,31 @@ impl HostServices {
         self.native_rpc_decode
             .get()
             .map_or_else(Default::default, crate::native_rpc_decode::Budget::usage)
+    }
+
+    pub(crate) fn reserve_rpc_response(
+        &self,
+        weight: usize,
+    ) -> Result<crate::rpc_response::Admission, crate::application::rpc::Failure> {
+        if !self.accepts_work() {
+            return Err(crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::Unavailable,
+            ));
+        }
+        self.rpc_response
+            .get_or_init(|| {
+                crate::rpc_response::Budget::new(self.runtime_policy().max_rpc_response_bytes)
+            })
+            .reserve(weight)
+    }
+
+    /// Shared host response encoding/collection capacity, including proof waits
+    /// and retained byte aliases. Guest heaps and application-created graphs are
+    /// separate; this is neither allocator usable size nor whole-process RSS.
+    pub fn rpc_response_usage(&self) -> RpcResponseUsage {
+        self.rpc_response
+            .get()
+            .map_or_else(Default::default, crate::rpc_response::Budget::usage)
     }
 
     pub(crate) fn admit_rpc_tunnel(&self, peer: &str) -> Option<crate::inbound_rpc::Connection> {

@@ -1928,7 +1928,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 return Ok(if expects_structured_response {
                     crate::engine_api::RpcData::Structured(body)
                 } else {
-                    crate::engine_api::RpcData::Json(String::from_utf8_lossy(&body).into_owned())
+                    crate::engine_api::RpcData::Json(crate::rpc_response::json(body)?)
                 });
             }
         }

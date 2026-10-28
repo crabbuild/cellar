@@ -21,6 +21,7 @@ when you select the unrestricted profile.
 | `max_outbound_rpc_bytes` | 256 MiB | Length-weighted SDK request/copy/control allowance; minimum 128 KiB |
 | `max_inbound_rpc_requests` | 128 | Receiving peer RPCs, including upload, native work, output waits and retained replies |
 | `max_inbound_rpc_bytes` | 256 MiB | Shared dense input, possible copy, control and published reply payload allowance; minimum 128 KiB |
+| `max_rpc_response_bytes` | 256 MiB | Shared host response encoding, collection, copy and retained-byte allowance; minimum 64 KiB |
 | `max_native_rpc_decode_bytes` | 256 MiB | Shared conservative native Protobuf decoder allowances across host generations |
 | `max_native_rpc_stack_bytes` | 1 MiB | Per-decode active-stack estimate; the caller-owned executor needs sufficient stack and runtime headroom |
 | `max_inbound_rpc_tunnels` / `max_rpc_tunnels_per_peer` | 256 / 64 | Receiving RPC connections across the host / per authenticated peer name |
@@ -59,6 +60,45 @@ limits. Trusted direct host control requests use their existing admission.
 `domain.services().outbound_rpc_usage()` exposes the two sampled counters for
 cleanup checks. Configure quotas with `NodeConfig.runtime` or
 `domain.services().configure_runtime(...)` before the first submission.
+
+Host response capacity is separate from request admission. Typed providers
+reserve four times their configured transport ceiling (business limit plus
+both 1-KiB envelope allowances), plus 64 KiB of controls, before constructing
+business code. That covers native response encoding, Protobuf control, clone
+encoding and dense normalization. Guest heaps and bridge copies still own their
+adapter reservations. A host configured below one provider's peak allowance
+refuses that provider immediately.
+
+```text
+typed admission -> encoding reservation -> factory / handler / codecs
+                                                |
+                                      dense owned response
+                                                |
+                           durability proof -> local / peer delivery
+                                                |
+                                     last byte alias drops -> refund
+
+peer result -> reserve before collector growth -> dense owned response
+                                                |
+                                   caller codecs / byte aliases -> refund
+```
+
+Finite peer collectors share this pool for typed, ordinary and event replies.
+They reserve before buffer growth, including old/new allocation overlap, then
+retain twice the dense capacity plus 64 KiB for one possible copy and controls.
+Provider normalization replaces unknown external backing before retaining a
+result for output proof. Clones and even tiny slices keep the original capacity
+charged until their last owner drops, including after domain shutdown. A pool
+refusal after submission is `ResourceExhausted/unknown`; it grants no automatic
+retry or rollback proof. Individual protocol-size refusals retain their existing
+codes. Reply and shutdown progress never waits for this pool.
+
+`domain.services().rpc_response_usage()` samples active owners and reserved
+bytes across host generations. This conservative allowance is not measured RSS,
+allocator usable size, application-retained decoded graphs, guest heaps or leased
+untyped capability streams. Native decoder and receiving-peer quotas still
+apply independently. Effective cross-adapter limits and further memory
+qualification remain recorded in the typed-RPC implementation ledger.
 
 Native typed clients and Rust service routers also reserve decoder capacity
 before Prost runs. The portable slot profile does not capture Rust's transitive
@@ -231,6 +271,7 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
 | `CELLAR_MAX_OUTBOUND_RPC_REQUESTS` / `CELLAR_MAX_OUTBOUND_RPC_BYTES` | Host SDK submission count / length-weighted byte allowance; defaults 128 / 268435456 |
 | `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / shared input and reply payload allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_RPC_RESPONSE_BYTES` | Shared host response allowance; default 268435456 |
 | `CELLAR_MAX_NATIVE_RPC_DECODE_BYTES` | Shared native decoder allowance; default 268435456 |
 | `CELLAR_MAX_NATIVE_RPC_STACK_BYTES` | Per-decode native stack estimate; default 1048576; does not grow executor stacks |
 | `CELLAR_MAX_INBOUND_RPC_TUNNELS` / `CELLAR_MAX_RPC_TUNNELS_PER_PEER` | Receiving RPC tunnel count across the host / per verified peer; defaults 256 / 64 |

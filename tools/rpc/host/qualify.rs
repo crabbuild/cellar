@@ -173,6 +173,11 @@ pub async fn local(app: Arc<super::application::Composite>) -> Result<Value> {
             "local RPC node retained decoder admission: {:?}",
             services.native_rpc_decode_usage()
         );
+        ensure!(
+            services.rpc_response_usage() == Default::default(),
+            "RPC node retained response admission after join: {:?}",
+            services.rpc_response_usage()
+        );
     }
     ensure!(verified.len() == 16, "incomplete local backend matrix");
     Ok(

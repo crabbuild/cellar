@@ -12,6 +12,98 @@ use std::{
     task::{Context, Poll},
 };
 
+#[tokio::test]
+async fn retained_typed_reply_saturates_the_actual_collector_without_polling_a_second_body(
+) -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let services = domain.services();
+    services.configure_runtime(crate::runtime_policy::RuntimePolicy {
+        max_rpc_response_bytes: 72 * 1024,
+        ..Default::default()
+    })?;
+    domain
+        .run(async {
+            let first = receive_typed(Full::new(Bytes::from_static(b"body")), 4).await?;
+            let alias = first.slice(..1);
+            drop(first);
+            let polls = Arc::new(AtomicUsize::new(0));
+            let failure = receive_typed(
+                DeclaredBody {
+                    polls: polls.clone(),
+                    length: 4,
+                },
+                4,
+            )
+            .await
+            .unwrap_err();
+            let typed = failure
+                .downcast_ref::<crate::application::rpc::Failure>()
+                .unwrap();
+            assert_eq!(
+                typed.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                typed.outcome(),
+                crate::application::rpc::EffectOutcome::Unknown
+            );
+            assert_eq!(
+                super::super::classify_remote_attempt(&failure),
+                cellar_logic::routing::Attempt::Ambiguous
+            );
+            assert_eq!(polls.load(Ordering::SeqCst), 0);
+            assert_eq!(services.rpc_response_usage().active_buffers, 1);
+            drop(alias);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+            let fresh = receive_typed(Full::new(Bytes::from_static(b"okay")), 4).await?;
+            drop(fresh);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn declared_reply_capacity_is_refused_before_polling_and_refunded() -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let services = domain.services();
+    services.configure_runtime(crate::runtime_policy::RuntimePolicy {
+        max_rpc_response_bytes: 72 * 1024,
+        ..Default::default()
+    })?;
+    domain
+        .run(async {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let failure = receive_typed(
+                DeclaredBody {
+                    polls: polls.clone(),
+                    length: 1024 * 1024,
+                },
+                2 * 1024 * 1024,
+            )
+            .await
+            .unwrap_err();
+            let typed = failure
+                .downcast_ref::<crate::application::rpc::Failure>()
+                .unwrap();
+            assert_eq!(
+                typed.code(),
+                crate::application::rpc::Code::ResourceExhausted
+            );
+            assert_eq!(
+                typed.outcome(),
+                crate::application::rpc::EffectOutcome::Unknown
+            );
+            assert_eq!(polls.load(Ordering::SeqCst), 0);
+            assert_eq!(services.rpc_response_usage(), Default::default());
+        })
+        .await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
 fn assert_ambiguous_protocol(failure: &anyhow::Error) {
     assert_eq!(
         failure.downcast_ref::<DeliveryError>().unwrap().code,
