@@ -74,6 +74,47 @@ pairs. Preserve the full test matrix, failures and remaining work across turns.
 
 ## Current evidence
 
+- **JavaScript timing diagnosis: preserved failures remain open.** Three bounded
+  loops use the exact preserved streaming/named-RPC executables. The first
+  runs 24 processes with output capture disabled and the named-method test
+  isolated; the second restores capture and complete target ordering for 16
+  processes; the third runs 32 processes in four-process batches. Every run
+  uses fresh private test directories and unchanged handler/engine budgets.
+  All 72 processes pass. These are unsuccessful reproduction attempts, not
+  evidence that the earlier three timing failures are fixed. Manifests, binary
+  hashes, commands, CPU/wall measurements and individual logs are under
+  `.cellar/rpc/diagnostics/javascript-timing-{baseline-v1,captured-v2,concurrent-v3}/`.
+
+  To sharpen the next failure signal, the V8 watchdog preserves its first
+  observed pump phase and wall timings before current-pass cleanup. The engine
+  adds its own thread CPU reading when reporting the error, including any
+  engine-side unwind work. Fixed phases cover startup, replies, admission,
+  microtasks, completion, cancellation and retirement. The snapshot contains
+  no payload, user-controlled method or source text. CPU samples cannot change
+  deadlines or interruption causes; unavailable clocks are explicit. The
+  original execution-budget root cause survives the extra error context.
+
+  All **83 JavaScript library tests pass**, including actual runaway dispatch,
+  microtask and startup interruption under the original 40 ms test budgets,
+  requested shutdown and bounded snapshot tests. The complete JavaScript package
+  command passes **126 tests**, with six external-provider tests ignored and no
+  failures; HTTP streaming, named RPC and existing framework fixtures pass under
+  their unchanged budgets. All-target JavaScript Clippy and separate embed-only
+  and Node-only checks pass. The five affected production/lockfile hashes are
+  unchanged throughout these checks.
+
+  Both actual Python modes pass **16 V8 termination** and **32 V8 shutdown**
+  cases, mode auditors and all 41 qualifier guards. All **19 lifecycle/static
+  checks** pass, with 3,742 watched inputs and both executable hashes unchanged
+  during `.cellar/rpc/javascript-budget-observation-lifecycle-v1-*`.
+  The manifest SHA-256 is
+  `e07ab36333329937be71d7f4062b203064e28e29376d1fc8636a3d7354705199`;
+  qualifier hashes are
+  `5c09aeeb3c0be53fa1c450b3d6ef514d0c187131592b62c13d759bccc97c966d`
+  and `95bb605375fbdf0d238ea5a1295311071c1e4942285cc0037a027adae2ef98e7`.
+  This improves failure evidence without claiming a cause or a fix for V8 SSE,
+  Node outbound SSE or typed codec-budget timeouts.
+
 - **Native decoded layouts now have shared heap and per-call stack admission.**
   The main workspace's real generator produces a 512-string inline message.
   Only 256 wire bytes and 386 portable slots can materialize 128 enclosing

@@ -691,6 +691,15 @@ fn requested_shutdown(in_microtasks: bool) {
 
 #[test]
 fn runaway_javascript_terminates_and_joins() {
+    runaway("while(true) {}", "admission");
+}
+
+#[test]
+fn runaway_microtasks_keep_their_budget_observation() {
+    runaway("await Promise.resolve(); while(true) {}", "microtasks");
+}
+
+fn runaway(body: &str, phase: &str) {
     let started = Instant::now();
     let entered = AtomicBool::new(false);
     let result = JavaScriptRuntime::run(
@@ -698,7 +707,7 @@ fn runaway_javascript_terminates_and_joins() {
             turn_timeout: Duration::from_millis(40),
             ..Default::default()
         },
-        source("while(true) {}"),
+        source(body),
         |app| {
             entered.store(true, Ordering::Release);
             let mut receive = start(
@@ -715,9 +724,22 @@ fn runaway_javascript_terminates_and_joins() {
         "must test a running handler, not startup refusal"
     );
     assert!(result.is_err());
+    let error = result.unwrap_err();
     assert_eq!(
-        result.unwrap_err().root_cause().to_string(),
+        error.root_cause().to_string(),
         "JavaScript engine turn exceeded execution budget"
+    );
+    let diagnostic = format!("{error:#}");
+    assert!(
+        diagnostic.contains(&format!("phase={phase}")),
+        "{diagnostic}"
+    );
+    assert!(diagnostic.contains("observed_wall_us="), "{diagnostic}");
+    assert!(diagnostic.contains("engine_thread_cpu_us="), "{diagnostic}");
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    assert!(
+        !diagnostic.contains("engine_thread_cpu_us=unavailable"),
+        "engine thread CPU clock was unavailable: {diagnostic}"
     );
     assert!(started.elapsed() < Duration::from_secs(5));
 }
@@ -809,6 +831,7 @@ fn runaway_module_initialization_is_interrupted() {
         error.contains("startup application execution") && error.contains("execution budget"),
         "startup lost its watchdog cause: {error}"
     );
+    assert!(error.contains("phase=startup"), "{error}");
     assert!(started.elapsed() < Duration::from_secs(5));
 }
 
