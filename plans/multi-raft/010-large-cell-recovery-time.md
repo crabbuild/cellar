@@ -1342,8 +1342,13 @@ The full payload query remains under its unchanged 60-second deadline. The
 preloading and proof establishment; it is not the recovery RTO. Installation
 still verifies the entire local closure before serving, and the replacement
 then verifies new writes, receipts, duplicate callback behavior and joined
-cleanup. Worker state and objects remain retained under the new fixture prefix
-`cold-recovery-qualification/7a6e7d1a44b587be6ccdf205e9b25091/`.
+cleanup. Worker state and objects were initially retained under the new fixture
+prefix `cold-recovery-qualification/7a6e7d1a44b587be6ccdf205e9b25091/`. Before
+the next physical campaign, verified archives preserve all 7,188 worker files
+and 2,405 object bodies, including 2,387 extent identities. The exact inactive
+prefix, worker trees and stopped-store trash are retired after verification and
+persistence; restart again preserves all 465 other live object entries. Raw
+campaign evidence, archives and restoration instructions remain retained.
 
 During the seed window, the replacement records 10,000,075,408 received and
 appended peer bytes across 9,537 frames. Completed append work sums to
@@ -1379,6 +1384,51 @@ The new trial uses the same server binary, endpoint and internal-volume layout,
 and passes the unchanged four-image-plus-8-GiB capacity guard. Prior evidence,
 restore instructions and backups remain outside the Cargo target. No older
 RustFS instances or unrelated data are reclaimed.
+
+### Borrowed extent installation windows
+
+The accepted peer pilot identifies installation as a large part of the seed
+window but does not isolate its disk cost from concurrent archive work. One
+specific implementation issue is independently reproducible: a complete received
+extent is already resident under admission, yet installation copies it into
+64 separately allocated 64 KiB source chunks and issues 64 provider writes for
+a full 4 MiB extent. The regression reproduces 64 calls against an expected one
+before the optimization, while the three integrity/admission/cleanup guards pass.
+
+`NodeExtentStore::put_extent_bytes` now borrows that bounded input through
+`HostFile::write_all_at_window`. Native providers accept one window; injected
+providers retain 64 KiB positional writes. Peer and archive installation use
+this common path, and extent apply reuses its existing admitted working buffer.
+The streaming callback API retains its 64 KiB bound. Both input forms share
+exclusive creation, inventory charging, source integrity, file sync, independent
+destination verification, directory sync and uncertain-cleanup quarantine.
+No extra whole-extent allocation, deferred durability or incomplete local seal
+is introduced. Focused tests cover both provider modes, restart reuse, corrupt
+existing/input/destination bytes, wrong lengths, capacity refusal, partial writes,
+failed file/directory syncs and cleanup failure without premature refunds.
+The final source passes 120 LTX integration cases and 52 ordinary native cases
+(20 large-image/recovery and 32 root-image/archive). Four LTX and 14 native
+physical cases remain explicitly ignored. The no-default-features LTX check,
+all-feature/all-target LTX and qualification Clippy, all-feature host-library
+Clippy, format/layout (1,311 Rust files), native-dependency and documentation
+guards pass. The initial Clippy failure identifies an unused `io` import left
+after replacing the old closure; the final source removes it without a lint
+suppression and repeats validation with unchanged source inventories.
+
+A separate component probe compares both input APIs in the same release-built
+library with matching workspace optimization flags. Three alternating pairs
+import 32 distinct 4 MiB objects per mode. Median import time is 0.593364 s for
+streaming callbacks and 0.541661 s for borrowed input. Each run performs 32 file
+syncs and 32 directory syncs, while provider writes decrease from 2,048 to 32.
+Median borrowed-input write time is 0.202425 s, file sync time 0.140130 s and
+directory sync time 0.002746 s. These observations make directory-sync batching
+a low-priority hypothesis on this host; they do not isolate costs under the
+concurrent archive traffic of a full recovery. The probe runs after its own LTX
+test I/O has finished, while native compilation and other shared-host work may
+continue. Caches are uncontrolled; the earlier overlapping probe remains
+separately recorded. These are component observations, not native RTO or
+percentile qualification. Fresh source-bound physical pilots are required
+before claiming a full-size recovery-time gain.
 
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release

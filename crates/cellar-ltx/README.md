@@ -46,6 +46,16 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`NodeExtentStore::put_extent_bytes` borrows a complete, already admitted extent
+through the existing at-most-4-MiB positional write window. Native providers
+avoid splitting it into allocated 64 KiB source chunks; injected providers keep
+their bounded positional-write fallback. Capacity admission, exclusive creation,
+source identity, file sync, independent destination verification and directory
+sync still precede a reusable local proof. Existing objects are independently
+reverified rather than overwritten. Peer and archive receives share this path,
+as does an image update whose changed extent already occupies its admitted
+workspace. Streaming source callbacks retain the separate 64 KiB contract.
+
 `RootView::image` caches read-only handles to its pinned local extents. Each
 cache miss reserves the ordinary conservative byte/file allowance, independently
 hashes the opened descriptor and derives bounded block proofs. Reads recheck
