@@ -113,6 +113,11 @@ pub fn envelope(name: &str, error: &Error) -> Value {
                 "unknown"
             },
         )
+    } else if matches!(name, "container.start" | "workers.container.perform")
+        && error.is::<cellar::container::CapacityExceeded>()
+        && error.downcast_ref::<RoutedRequestError>().is_none()
+    {
+        ("ResourceExhausted", "not_committed")
     } else if error.is::<cellar::sdk::containers::RetentionExpired>() {
         ("ResourceExpired", "not_committed")
     } else if error.is::<crate::storage::Conflict>() {
@@ -172,6 +177,21 @@ mod tests {
             envelope("container.start", &anyhow::anyhow!("lost response"))["outcome"],
             "unknown"
         );
+    }
+
+    #[test]
+    fn native_capacity_refusal_is_scoped_to_the_start_operation() {
+        let error = anyhow::Error::new(cellar::container::CapacityExceeded);
+        for name in ["container.start", "workers.container.perform"] {
+            let refusal = envelope(name, &error);
+            assert_eq!(refusal["code"], "ResourceExhausted");
+            assert_eq!(refusal["outcome"], "not_committed");
+        }
+        // A parent handler can propagate a child's admission error after writes.
+        assert_eq!(envelope("cell.call", &error)["outcome"], "unknown");
+        let routed = Error::new(RoutedRequestError(RequestError::CapacityExhausted))
+            .context(cellar::container::CapacityExceeded);
+        assert_eq!(envelope("container.start", &routed)["outcome"], "unknown");
     }
 
     #[test]

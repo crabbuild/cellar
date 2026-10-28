@@ -36,6 +36,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, watch};
+mod capacity;
+pub use capacity::{CapacityExceeded, CapacityLimits};
 mod exec_identity;
 mod exec_options;
 mod exec_stream;
@@ -266,6 +268,10 @@ pub struct StartParams {
 #[derive(Default)]
 struct CellState {
     running: bool,
+    /// Includes admitted, running and uncertain application outcomes.
+    capacity_reserved: bool,
+    /// Set before create; an absent inventory cannot disprove an entered create.
+    creation_submitted: bool,
     /// Where the node dials the container: the bridge address on Linux,
     /// the published loopback ports elsewhere.
     address: Address,
@@ -464,6 +470,7 @@ pub struct ContainerEngine {
     /// See `Config::dns`.
     dns: Vec<String>,
     network_helper: Option<NetworkHelperOptions>,
+    capacity: Option<CapacityLimits>,
     /// The absolute path of the container resolv.conf this engine wrote and
     /// bind-mounts; `None` when it could not be written.
     resolv_conf: Option<PathBuf>,
@@ -496,6 +503,7 @@ struct Config {
     /// use and the daemon's otherwise.
     dns: Vec<String>,
     network_helper: Option<NetworkHelperOptions>,
+    capacity: Option<CapacityLimits>,
     /// The node's state directory. cellar writes the container resolv.conf
     /// here and bind-mounts it, so the path must be the same on the host as
     /// cellar sees it; a self-hosted node runs cellar as a host process, and
@@ -520,6 +528,9 @@ pub struct EngineOptions {
     /// Optional run-owned Linux helper namespace. No public interception
     /// capability is enabled by selecting the lifecycle profile alone.
     pub network_helper: Option<NetworkHelperOptions>,
+    /// Hard local admission limits for the actual daemon/VM allocation.
+    /// Omission retains class limits and advisory fleet capacity only.
+    pub capacity: Option<CapacityLimits>,
 }
 
 #[derive(Default)]
@@ -635,6 +646,10 @@ impl ContainerService {
                 .options
                 .as_ref()
                 .and_then(|options| options.network_helper.clone()),
+            capacity: settings
+                .options
+                .as_ref()
+                .and_then(|options| options.capacity),
             data_dir: std::path::absolute(data_dir)?,
         });
         Ok(())
@@ -837,6 +852,7 @@ impl ContainerEngine {
             runtime,
             dns,
             network_helper,
+            capacity,
             data_dir,
             namespace,
             ..
@@ -881,6 +897,7 @@ impl ContainerEngine {
             runtime,
             dns,
             network_helper,
+            capacity,
             resolv_conf,
             images: Mutex::new(HashMap::new()),
             cells: Mutex::new(HashMap::new()),
@@ -1384,6 +1401,8 @@ impl ContainerEngine {
                         );
                     }
                     state.running = true;
+                    state.capacity_reserved = true;
+                    state.creation_submitted = false;
                     state.address = started.address;
                     state.resource = Some(EngineResource {
                         run,
@@ -1423,9 +1442,8 @@ impl ContainerEngine {
         self.cells.lock().unwrap().get(scope).cloned()
     }
 
-    /// Running application caps plus each allocated helper's cap. Retain the
-    /// helper reservation until owned removal is confirmed, including failed
-    /// startup or cleanup whose outcome remains uncertain.
+    /// Admitted application/helper caps, including uncertain create/start/wait
+    /// outcomes. Release only on positive exit or owned removal evidence.
     pub fn reserved_memory_bytes(&self) -> u64 {
         self.cells
             .lock()
@@ -1433,17 +1451,16 @@ impl ContainerEngine {
             .values()
             .map(|cell| {
                 let state = cell.state.lock().unwrap();
-                u64::from(state.running) * instance_memory_bytes(cell.spec.instance_type.as_deref())
-                    + u64::from(state.network.is_some()) * network::MEMORY_BYTES
+                self.reserved_bytes(cell, &state)
             })
-            .sum()
+            .fold(0, u64::saturating_add)
     }
 
-    /// This node's running containers per class.
+    /// This node's admitted containers per class, including uncertain outcomes.
     fn running_instances_by_class(&self) -> std::collections::BTreeMap<String, u64> {
         let mut counts = std::collections::BTreeMap::new();
         for cell in self.cells.lock().unwrap().values() {
-            if cell.running() {
+            if cell.state.lock().unwrap().reserves_instance() {
                 *counts.entry(cell.spec.class_name.clone()).or_insert(0) += 1;
             }
         }
@@ -1451,10 +1468,10 @@ impl ContainerEngine {
     }
 
     /// Refuse a start that would put the class over its fleet-wide
-    /// `max_instances`. The fleet count is this node's own running
-    /// containers of the class, read live, plus every peer's count from the
-    /// shared capacity sample; `begin_run` already marked the starting cell
-    /// running, so the live count includes it. A class with no
+    /// `max_instances`. The fleet count is this node's reserved instances
+    /// of the class, read live, plus every peer's count from the shared
+    /// capacity sample. Local atomic admission already includes this start.
+    /// A class with no
     /// `max_instances`, or a node with no bucket to read the sample from as
     /// under `cellar dev`, has no fleet ceiling. See
     /// [`crate::ownership_store::fleet_class_instances`] for the staleness
@@ -1469,7 +1486,9 @@ impl ContainerEngine {
             .lock()
             .unwrap()
             .values()
-            .filter(|other| other.running() && other.spec.class_name == *class)
+            .filter(|other| {
+                other.spec.class_name == *class && other.state.lock().unwrap().reserves_instance()
+            })
             .count() as u64;
         let elsewhere = match &self.bucket {
             Some(bucket) => {
@@ -1478,7 +1497,7 @@ impl ContainerEngine {
             None => 0,
         };
         anyhow::ensure!(
-            here + elsewhere <= max,
+            here.saturating_add(elsewhere) <= max,
             "container class {class} is at its max_instances limit of {max}: \
              {here} on this node and {elsewhere} on other nodes",
         );
@@ -1661,6 +1680,7 @@ impl ContainerEngine {
                 if state.run == run {
                     state.running = false;
                     state.address = Address::None;
+                    state.release_unused_capacity();
                 }
                 drop(state);
                 cell.publish_exit(run, Err(format!("{error:#}")));
@@ -1721,6 +1741,9 @@ impl ContainerEngine {
                 if state.run == run {
                     state.running = false;
                     state.address = Address::None;
+                    if result.is_ok() {
+                        state.capacity_reserved = false;
+                    }
                 }
             }
             exit.send_if_modified(|current| {
@@ -1747,9 +1770,10 @@ impl ContainerEngine {
         run: u64,
         params: StartParams,
     ) -> anyhow::Result<StartedContainer> {
+        self.admit_start(cell, run)?;
         self.validate_network_runtime(cell)?;
-        self.ensure_fence().await?;
         self.enforce_instance_ceiling(cell).await?;
+        self.ensure_fence().await?;
         self.ensure_image(&cell.spec.image).await?;
         let (open, internal) = self.networks().await?;
         // Resolve unknown create outcomes by owned labels, then remove only
@@ -1762,7 +1786,12 @@ impl ContainerEngine {
         if let Some(network) = previous_network {
             self.cleanup_network(cell, &network).await?;
         }
-        if let Some(id) = self.owned_id(cell).await? {
+        let previous = self.owned_id(cell).await?;
+        anyhow::ensure!(
+            previous.is_some() || !cell.state.lock().unwrap().creation_submitted,
+            "container creation outcome is unknown; retain owned cleanup obligation"
+        );
+        if let Some(id) = previous {
             self.check_cell(cell)?;
             anyhow::ensure!(
                 cell.current_run() == run,
@@ -1777,6 +1806,7 @@ impl ContainerEngine {
             {
                 state.resource = None;
             }
+            state.creation_submitted = false;
         }
         let mut env: Vec<String> = DEFAULT_ENV.iter().map(|entry| entry.to_string()).collect();
         env.push(format!("CELLAR_CELL_ID={}", cell.scope));
@@ -1906,6 +1936,7 @@ impl ContainerEngine {
         // The daemon can answer 409 for a name whose previous container is
         // still being removed, so a fresh start after `destroy()` retries
         // briefly, as workerd's engine does.
+        cell.state.lock().unwrap().creation_submitted = true;
         let mut reply = self
             .docker
             .call(
@@ -1918,6 +1949,7 @@ impl ContainerEngine {
             if reply.status.as_u16() != 409 {
                 break;
             }
+            cell.state.lock().unwrap().creation_submitted = false;
             asyncrt::sleep(Duration::from_millis(100)).await;
             anyhow::ensure!(
                 cell.current_run() == run,
@@ -1936,6 +1968,7 @@ impl ContainerEngine {
                 )?;
                 self.remove_id(&id).await?;
             }
+            cell.state.lock().unwrap().creation_submitted = true;
             reply = self
                 .docker
                 .call(
@@ -1946,7 +1979,11 @@ impl ContainerEngine {
                 .await?;
         }
         if reply.status.as_u16() == 404 {
+            cell.state.lock().unwrap().creation_submitted = false;
             return Err(anyhow!("No such image available named {}", cell.spec.image));
+        }
+        if reply.status.as_u16() == 409 {
+            cell.state.lock().unwrap().creation_submitted = false;
         }
         if !reply.status.is_success() {
             return Err(anyhow!(
@@ -1963,18 +2000,27 @@ impl ContainerEngine {
         )?;
         let current = {
             let mut state = cell.state.lock().unwrap();
-            if state.run == run && network.as_ref().is_none_or(|network| network.active()) {
+            if state.run == run {
+                state.creation_submitted = false;
                 state.resource = Some(EngineResource {
                     run,
                     id: id.clone(),
                 });
-                true
+                network.as_ref().is_none_or(|network| network.active())
             } else {
                 false
             }
         };
         if !current {
             self.remove_id(&id).await?;
+            let mut state = cell.state.lock().unwrap();
+            if state
+                .resource
+                .as_ref()
+                .is_some_and(|resource| resource.id == id)
+            {
+                state.resource = None;
+            }
             anyhow::bail!("container start belongs to a superseded run");
         }
         self.check_cell(cell)?;
@@ -2066,9 +2112,14 @@ impl ContainerEngine {
         );
         let Some(id) = id else {
             let mut state = cell.state.lock().unwrap();
+            anyhow::ensure!(
+                !state.creation_submitted,
+                "container creation outcome is unknown; retain owned cleanup obligation"
+            );
             if state.run == run {
                 state.running = false;
                 state.address = Address::None;
+                state.capacity_reserved = false;
             }
             return Ok(());
         };
@@ -2087,6 +2138,8 @@ impl ContainerEngine {
         if state.run == run {
             state.running = false;
             state.address = Address::None;
+            state.creation_submitted = false;
+            state.capacity_reserved = false;
             if state
                 .resource
                 .as_ref()

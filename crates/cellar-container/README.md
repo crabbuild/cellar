@@ -324,6 +324,39 @@ joined process retirement. An explicit native host profile also starts an owned
 helper before its application and removes the pair together. The optional HTTP
 profile below routes those streams to native services.
 
+### Native capacity admission
+
+Set `EngineOptions::capacity` to `Some(CapacityLimits::new(instances, bytes)?)`
+for a hard budget on one host's managed application containers and helpers.
+Choose the budget from the actual Docker/Podman daemon or VM allocation, leaving
+space for Cellar, the daemon, image loading and the shared firewall helper. Hosts
+sharing a daemon need disjoint budgets; Cellar does not reserve other hosts' work.
+
+```mermaid
+flowchart LR
+    Start[Start request] --> Admit{Instance and memory budget}
+    Admit -->|Full| Refuse[ResourceExhausted / not_committed]
+    Admit -->|Reserved| Create[Create and start]
+    Create -->|Lost response| Hold[Retain reservation]
+    Create -->|Running| Hold
+    Hold --> Proof[Confirmed exit or owned removal]
+    Proof --> Release[Release capacity]
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Concurrent starts | Local admission is atomic across execution cells; exhausted capacity refuses before Engine effects |
+| Memory | Charge the class's application memory cap and, when configured, the helper's 256 MiB cap |
+| Unknown create/start/wait | Retain capacity; an empty inspection cannot prove an entered create was rejected |
+| Cleanup | Resolve ownership labels, remove by immutable ID, and retain unresolved cleanup obligations |
+| Class limit | `max_instances` is hard locally; fleet-wide enforcement remains based on sampled peer counts |
+| No host budget | `capacity: None` preserves class limits and advisory fleet scheduling; it supplies no hard aggregate memory budget |
+
+Rust receives `cellar::container::CapacityExceeded`. The shared Python/JS/TS
+bridge reports `ResourceExhausted` with `outcome: "not_committed"` for this start
+refusal. An earlier mutation may still have an unknown outcome. Queueing,
+placement retry and dynamic named sandbox allocation remain separate work.
+
 ### Optional native network-helper lifecycle
 
 The hosting Rust process selects this profile for any handler language. Supply
@@ -343,6 +376,10 @@ fn engine(
         namespace: Some("my-native-host".into()),
         runtime: Some("runc".into()),
         dns: Vec::new(),
+        capacity: Some(cellar::container::CapacityLimits::new(
+            16, // example host instance budget
+            24 * 1024 * 1024 * 1024, // example 24 GiB application/helper budget
+        )?),
         network_helper: Some(ContainerNetworkHelperOptions::new(
             helper_image, // full sha256: ID or verified cellar-image: identity
             "/opt/cellar-egress/bin/cellar-egress".into(),
@@ -358,7 +395,7 @@ fn engine(
 | Runtime | Explicit `runc`; other runtimes refuse this profile before allocation |
 | Namespace | Application joins its run's helper; the application retains no `NET_ADMIN` capability |
 | Ports / DNS | Helper owns at most 64 combined image/class TCP publications and its explicit DNS upstream |
-| Capacity | Reserve another 256 MiB for each allocated helper until removal is confirmed |
+| Capacity | Reserve application memory plus 256 MiB for its helper before allocation; retain uncertain outcomes until owned cleanup |
 | Idle reconnect | Preserve the same application/helper IDs and join the old inactivity timer |
 | Ownership loss | Retire private transport before waiting for SDK control; remove the application before the helper |
 | Helper loss | Refuse usable routing, publish the failure and clean up both owned resources |

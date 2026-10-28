@@ -253,6 +253,7 @@ impl Peer {
     ) {
         config.runtime.handler_budget = std::time::Duration::from_secs(10);
         services.containers = Some(cellar::container::EngineOptions {
+            capacity: None,
             socket: self.socket.clone(),
             namespace: None,
             runtime: None,

@@ -221,6 +221,7 @@ impl Drop for StartGuard {
             if state.run == self.run {
                 state.running = false;
                 state.address = Address::None;
+                state.release_unused_capacity();
             }
             state
                 .network
@@ -229,15 +230,29 @@ impl Drop for StartGuard {
         };
         self.cell
             .publish_exit(self.run, Err("container startup was abandoned".into()));
-        let Some(network) = network else {
-            return;
-        };
-        network.retire();
+        if network.is_none() {
+            let state = self.cell.state.lock().unwrap();
+            if !state.creation_submitted && state.resource.is_none() {
+                return;
+            }
+        }
+        if let Some(network) = &network {
+            network.retire();
+        }
         let engine = self.engine.clone();
         let cell = self.cell.clone();
+        let run = self.run;
         if let Ok(task) = asyncrt::try_spawn(async move {
             let _control = cell.sdk_control.lock().await;
-            if let Err(error) = engine.cleanup_network(&cell, &network).await {
+            // A later explicit start owns its own cleanup and reservation.
+            if cell.current_run() != run {
+                return;
+            }
+            let cleanup = match network {
+                Some(network) => engine.cleanup_network(&cell, &network).await,
+                None => engine.destroy(&cell).await,
+            };
+            if let Err(error) = cleanup {
                 tracing::warn!(cell = %cell.scope, %error, "cancelled network startup requires owned cleanup");
             }
         }) {
@@ -597,6 +612,10 @@ impl ContainerEngine {
             !run.creation_submitted.load(Ordering::Acquire) || !helpers.is_empty(),
             "network helper creation outcome is unknown; retain owned cleanup obligation"
         );
+        ensure!(
+            !cell.state.lock().unwrap().creation_submitted || !applications.is_empty(),
+            "application creation outcome is unknown; retain owned cleanup obligation"
+        );
         for id in applications {
             let _ = self
                 .docker
@@ -647,6 +666,7 @@ impl ContainerEngine {
             .is_some_and(|current| Arc::ptr_eq(current, run))
         {
             state.network = None;
+            state.creation_submitted = false;
             if state
                 .resource
                 .as_ref()
@@ -657,6 +677,7 @@ impl ContainerEngine {
             if state.run == run.run {
                 state.running = false;
                 state.address = Address::None;
+                state.capacity_reserved = false;
             }
         }
         drop(state);

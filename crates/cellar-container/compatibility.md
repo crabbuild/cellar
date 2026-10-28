@@ -38,6 +38,7 @@ a language facade does not grant provider support.
 | Boundary | Native | E2B | Vercel |
 | --- | --- | --- | --- |
 | Host chooses | Engine + image | Account + template | Team/project + prepared image |
+| Local capacity admission | Optional hard instance/memory budget; application and helper reservations include uncertain outcomes | Provider/account limits; no shared local pool budget | Provider/account limits; no shared local pool budget |
 | Linux prerequisites | Engine-compatible image | Secure compatible envd; coreutils for writes | Python 3 helper executable in image |
 | Ownership descriptor | `native_cell` | `local_checks_and_expiry` | `local_checks_and_expiry` |
 | Direct strict-fence profile | Native host's cell/run checks | Constructor refuses | Constructor refuses |

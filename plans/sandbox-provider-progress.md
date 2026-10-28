@@ -3202,3 +3202,68 @@ single-container-per-execution-cell model needs a named allocation/pool boundary
 before it satisfies the requested business-cell concurrency. This is required
 feature work, not a reason to remove resource bounds or silently change the
 existing single-container path.
+
+### Native capacity admission and uncertain outcomes
+
+The next allocation prerequisite adds optional `EngineOptions::capacity` hard
+limits for one host's application instances and memory. Admission is atomic
+across execution cells and includes the configured helper's 256 MiB cap before
+allocation. Size budgets for the actual Engine/VM and leave infrastructure
+headroom; separate hosts sharing a daemon need disjoint budgets. Class
+`max_instances` is hard locally; peer counts remain advisory fleet samples.
+
+| Case | Implemented behavior |
+| --- | --- |
+| Full budget | Refuse before Engine effects with typed `CapacityExceeded`; the shared direct/queued start boundary reports `ResourceExhausted` / `not_committed` |
+| Failed start or wait | Running-state failure does not discharge the application reservation |
+| Lost create acknowledgement | Retain the create obligation and budget; an empty inventory cannot authorize replay or claim successful deletion |
+| Helper cleanup | An unresolved application create also prevents removal of its helper and release of its budget |
+| Cancellation after create | Submit owned cleanup for ordinary native containers as well as helper-backed runs; later runs cannot be removed by the old cancellation task |
+| Exit or removal | Positive exit evidence releases application memory; exact owned removal releases the remaining cleanup reservation |
+
+This supplies local admission for the existing execution-cell model. Dynamic
+named allocation, durable parent/child ownership, fleet placement retry, physical
+parent deletion and the requested business-cell pool remain required feature
+work. Aggregate CPU/daemon storage budgeting, remote-provider budgets, soak and
+release qualification are separate acceptance work; this slice does not certify
+production readiness.
+
+Initial validation: all 30 selected container unit tests pass, including 16
+simultaneous candidates tested separately against memory, host-count and class
+budgets. All nine native SDK/Engine integration tests and 12 shared failure
+classification tests pass. The lifecycle fixture covers failed start, an
+accepted-but-hidden create, replay refusal, lost wait, and cancellation after
+create followed by exact owned removal. Its intentional cancelled `/start`
+connection is recognized only after the cancellation signal and is required to
+occur exactly once; other protocol errors still fail. An initial test-only
+private-field access was removed in favor of the public Engine API. No timeout,
+resource-release assertion or unknown-outcome assertion was relaxed.
+
+The updated matching-image HTTPS test configures a one-instance, 1,280 MiB
+application/helper budget. Its rerun **did not qualify**: after the private
+`cellar-sandbox-9dea` VM was started with unchanged configuration and a labeled
+helper image was built, its profile directory, socket and Docker context
+disappeared during compilation. The test failed at the first Engine connection
+with `ENOENT`, before campaign allocation; the Node runtime joined with zero
+active invocations and retained bytes. Previous-head image results remain
+previous-head evidence. This turn does not claim an image pass or a final
+inventory check against the unavailable daemon.
+
+A later SDK rerun exposed a separate Engine-peer rename race. Focused repetition
+reproduced it on attempt two: the immutable-ID waiter received a false 404 and
+correctly retired the native run. The fixture resolved its ID map and resource
+map under separate locks while rename moved both. Lookup now uses the same
+atomic lock order as rename, retaining the captured wait sender. The original
+rename/foreign-resource assertions pass in 100 consecutive focused runs after
+the fix; no production ownership check was relaxed. The peer listener also uses
+the required execution-domain selection macro, resolving its strict lint error.
+
+Final framework checks: all nine native SDK cases, 30 selected container unit
+cases, 12 failure-envelope cases, all 42 provider unit/integration cases
+(including five fleet cases), seven provider documentation examples, and strict
+six-crate all-target Clippy pass. Rust formatting/layout cover 1,356 files;
+the 496-package native dependency guard and 840-reference documentation check
+pass. These results do not replace the unavailable matching-image rerun.
+
+Both Node/V8 container facade cases and the CPython 3.14 runtime-container bridge
+also pass against the corrected Engine peer. The final formatting check passes.

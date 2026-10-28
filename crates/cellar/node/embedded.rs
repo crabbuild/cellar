@@ -584,6 +584,7 @@ impl Node {
             .services()
             .configure_containers(services.containers.clone().unwrap_or_else(|| {
                 crate::container::EngineOptions {
+                    capacity: None,
                     socket: PathBuf::from("/var/run/docker.sock"),
                     namespace: None,
                     runtime: None,
