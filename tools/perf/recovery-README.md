@@ -171,6 +171,20 @@ never dispatches, while an entered or executor-queued job retains its slot until
 its physical owner completes. Both delays remain in archive publication and
 recovery timing. These observations do not measure disk bandwidth or establish
 foreground latency under contention.
+Admission wakeups signal capacity without reserving it for an unpolled future.
+This matters when a bounded read-ahead window stops polling its later reads while
+the caller appends or prepares the next source part through the same budget.
+Only a polled dispatch claims a slot; that physical owner retains it until finish.
+
+Materialized archive replay traces also report `verified_restore_images` and
+`verified_restore_image_bytes`. These are the number and summed logical lengths
+of complete private output images in the verifier's successful proof, including
+its base. A memo hit repeats that proof's work description without executing it
+again. `replay_budget_checkpoint` identifies an eligible tail replaced because
+it exceeded `ArchiveLimits::max_replay_images`; all intermediate states are
+physically checked before replacement. These observations do not measure
+device I/O, estimate elapsed replay time or describe receivers with different
+batching limits. Extent root archives retain their separate complete-local path.
 
 The host retains at most one prepared peer/checkpoint body. Its key includes the
 engine owner, complete replica identity, birth/schema and immutable image marker;

@@ -5,7 +5,10 @@
 #![allow(clippy::disallowed_methods)] // Finite external campaign joins its own host.
 
 use anyhow::{ensure, Context as _, Result};
-use cellar::{bucket::Bucket, sdk::*};
+use cellar::{
+    bucket::{Bucket, MultipartMaintenancePolicy},
+    sdk::*,
+};
 use cellar_javascript::{EventKind, NodeOptions, Options, Source};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -42,6 +45,9 @@ fn published_directory_backups_use_owned_http_interception_and_native_storage() 
         String::from_utf8_lossy(&built.stderr)
     );
     let counts = Arc::new(counting_provider::Counts::default());
+    let mut node = NodeOptions::new(root.join("dist/backups.mjs"));
+    node.executable =
+        PathBuf::from(std::env::var_os(backup_campaign::LAUNCHER).context("owned Node launcher")?);
     joined_node::run(
         Options {
             max_body_bytes: 64 * 1024,
@@ -49,7 +55,7 @@ fn published_directory_backups_use_owned_http_interception_and_native_storage() 
             turn_timeout: Duration::from_secs(30),
             ..Default::default()
         },
-        NodeOptions::new(root.join("dist/backups.mjs")),
+        node,
         Source::module()
             .container_provider(Arc::new(counting_provider::CountingProvider {
                 inner: Arc::new(image_provider::DiagnosticNative(
@@ -90,7 +96,7 @@ async fn exercise(
         PathBuf::from(std::env::var_os(backup_campaign::ROOT).context("campaign directory")?);
     let phase = std::env::var(backup_campaign::PHASE)?;
     ensure!(
-        matches!(phase.as_str(), "create" | "recover"),
+        matches!(phase.as_str(), "create" | "crash" | "recover"),
         "unknown campaign phase"
     );
     let node_directory = directory.join(format!("node-{phase}"));
@@ -123,11 +129,28 @@ async fn exercise(
         "sandbox-backups-{}",
         directory.file_name().unwrap().to_string_lossy()
     );
-    let host = format!(
-        "{:x}",
-        Sha256::digest(format!("javascript-test\0namespace:{namespace}").as_bytes())
-    );
-    let bucket = Bucket::open_dev(&directory.join("objects.db"))?;
+    let host = backup_campaign::owner(&directory);
+    let bucket = Bucket::open_dev_with_multipart_policy(
+        &directory.join("objects.db"),
+        MultipartMaintenancePolicy {
+            upload_ttl: if phase == "recover" {
+                None
+            } else {
+                Some(Duration::from_secs(3600))
+            },
+            idle_interval: Duration::from_millis(10),
+            backlog_interval: Duration::from_millis(1),
+        },
+    )?;
+    if phase == "recover" {
+        // The third process opens production storage first. The controller
+        // never opens/checkpoints SQLite between SIGKILL and this cold client.
+        let connection = rusqlite::Connection::open(directory.join("objects.db"))?;
+        ensure!(
+            backup_campaign::upload_counts(&connection)? == (2, 1),
+            "crash recovery lost or replayed unpublished uploads before host maintenance"
+        );
+    }
     let replica_storage = ReplicaStorage::new(
         bucket.store.clone(),
         ReplicaStorageOptions {
@@ -140,7 +163,23 @@ async fn exercise(
             // Image/fsync qualification has a dedicated budget. Small runtime tests
             // retain their original deadlines and operation limits.
             config.runtime.handler_budget = Duration::from_secs(120);
+            let offset = if phase == "recover" {
+                2 * 60 * 60 * 1000
+            } else {
+                0
+            };
+            services.wall_clock = Some(Arc::new(move || {
+                i64::try_from(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis(),
+                )
+                .unwrap()
+                    + offset
+            }));
             services.containers = Some(cellar::container::EngineOptions {
+                capacity: None,
                 socket: socket.clone(),
                 namespace: Some(namespace),
                 runtime: Some("runc".into()),
@@ -217,6 +256,20 @@ async fn exercise(
                     "fresh native process did not recover the saved archive record"
                 );
             }
+            if phase == "recover" {
+                let resources: Vec<String> = serde_json::from_slice(&std::fs::read(directory.join("crash-resources.json"))?)?;
+                ensure!(resources.len() == 2, "missing actual crash resource identities");
+                for id in resources {
+                    ensure!(docker.call("GET", &format!("/containers/{id}/json"), None).await?.status.as_u16() == 404, "replacement host did not reap the exact crashed resource");
+                }
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    loop {
+                        let connection = rusqlite::Connection::open(directory.join("objects.db"))?;
+                        if backup_campaign::upload_counts(&connection)? == (0, 0) { return Ok::<_, anyhow::Error>(()); }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }).await??;
+            }
             let routes: &[&str] = if phase == "create" {
                 &[
                     "install",
@@ -228,6 +281,8 @@ async fn exercise(
                     "lost-acks",
                     "faults",
                 ]
+            } else if phase == "crash" {
+                &["install", "restore", "lost-create"]
             } else {
                 &[
                     "install",
@@ -291,6 +346,7 @@ async fn exercise(
                         "cancel-after-create" => 3,
                         "cancel-transfer" => 4,
                         "lost-acks" => 5,
+                        "lost-create" => 4,
                         "faults" => 5,
                         _ => 1,
                     };
@@ -325,6 +381,33 @@ async fn exercise(
                     )?;
                 }
             }
+            if phase == "crash" {
+                let request = client.get(format!("{address}/crash-part")).send();
+                tokio::pin!(request);
+                tokio::time::timeout(Duration::from_secs(20), async {
+                    loop {
+                        cellar::asyncrt::select! {
+                            response = &mut request => anyhow::bail!("crash barrier returned before SIGKILL: {response:?}"),
+                            _ = tokio::time::sleep(Duration::from_millis(10)) => {}
+                        }
+                        let connection = rusqlite::Connection::open(directory.join("objects.db"))?;
+                        if backup_campaign::upload_counts(&connection)? == (2, 1) {
+                            let size: u64 = connection.query_row("SELECT length(body) FROM __sys_local_parts", [], |row| row.get(0))?;
+                            ensure!(size > 64 * 1024, "crash did not follow a real larger-than-frame part");
+                            ensure!(counts.active.load(Ordering::SeqCst) > 0
+                                && counts.created.load(Ordering::SeqCst) > counts.released.load(Ordering::SeqCst)
+                                && counts.unreleased.load(Ordering::SeqCst) == 0,
+                                "crash barrier requires a live SDK process, not an implicitly dropped handle");
+                            eprintln!("Sandbox hard crash ready: two uploads, one persisted part, pending receipt and live SDK process");
+                            std::fs::write(directory.join("crash-ready"), b"committed-part, pending-receipt, live-sdk-process")?;
+                            break;
+                        }
+                    }
+                    // Keep the HTTP exchange and execution alive. Only the
+                    // outside parent may cross this actual hard-crash barrier.
+                    match request.await { Ok(response) => anyhow::bail!("crash barrier unexpectedly responded: {}", response.status()), Err(error) => anyhow::bail!("crash exchange ended without external kill: {error}") }
+                }).await??;
+            }
             Ok::<_, anyhow::Error>(())
         }
         .await;
@@ -333,7 +416,7 @@ async fn exercise(
     let outcome = stopped?;
     ensure!(
         matches!(&outcome, NodeOutcome::Stopped(report) if report.cells_drained && report.application_work_drained && !report.drain_timed_out),
-        "native host did not join: {outcome:?}"
+        "native host did not join: {outcome:?}; campaign result: {result:?}"
     );
     cleanup?;
     result

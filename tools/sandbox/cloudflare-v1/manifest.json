@@ -19,10 +19,13 @@
     "terminal-program.mjs": "b9ebbd20ad9e2f1030b7523dde178049f9c3b7ccffc26e7ca2b6c63783a95548",
     "gateways.mjs": "dae9cf0215c1e193b71e9c9f1bfdb6ea45ba18d9c30a67fc41a13d443d1248a4",
     "r2.mjs": "51e21b05b59aef0032a9f0ad549f86a0ad2b0abb629dbfcf56c2f4ec63b58eb9",
-    "backups.mjs": "508b6c1fb5140c56e340532a830be99b744bb8f8c47d1c9180bb3748193654ba",
+    "backups.mjs": "a02f876ed3026f15708f2324535f9100c2a9625e3d6235c96c20c9593bbe1a8c",
     "interception-program.mjs": "293c98b54f50666cf281ba9840a0ccbfa30e091688b1ac4be9260dc690dab515",
     "backup-failures.mjs": "4590d562e8e098ecbf986f1531f2ef761dd5ce4b0f7afc5670e3a837d9c51aa9",
-    "backup-boundaries.mjs": "c5ae8bafbd219ea5cb1b291ce811589191c453a0b39e4b2e6bb77c96f62da24c"
+    "backup-boundaries.mjs": "c5ae8bafbd219ea5cb1b291ce811589191c453a0b39e4b2e6bb77c96f62da24c",
+    "backup-recovery.mjs": "033b24a91547f30d374e0880ce0c9cf408a52b2a9c2e3a9772cbb539f1ee9f12",
+    "https.mjs": "c9ed2d312eca696fb303f38816b1590462609dce0f84d31d513435d2613b816f",
+    "https-program.mjs": "af89c56601c7ce582798aec235ee675c163a4db08e20791e552b6fbd3612900c"
   },
   "qualified_files": [
     "mkdir",

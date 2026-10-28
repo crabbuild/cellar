@@ -26,6 +26,8 @@ mod public_node;
 mod publication;
 #[path = "support/raft_archive_publication_origin.rs"]
 mod publication_origin;
+#[path = "support/raft_archive_replay_budget.rs"]
+mod replay_budget;
 #[path = "support/raft_archive_replay_memo.rs"]
 mod replay_memo;
 #[path = "support/raft_archive_snapshot_upload.rs"]

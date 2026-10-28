@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "crates/cellar-python/python"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import app
-from cellar import Conflict, Request
+from cellar import Conflict, Request, Snapshot, ValidationError as CellarValidationError
 
 
 class Storage:
@@ -25,7 +25,10 @@ class Storage:
         self.lose_ack = False
 
     async def read_json(self, key):
-        return SimpleNamespace(present=self.state is not None, value=deepcopy(self.state))
+        return Snapshot(present=self.state is not None, value=deepcopy(self.state))
+
+    async def sync(self):
+        pass
 
     async def apply(self, *, checks, puts, alarm_at_ms):
         if self.fail:
@@ -45,6 +48,10 @@ class Context:
         self.storage = Storage()
         self.identity = SimpleNamespace(name="demo")
         self.now = 100000
+        self.fs = SimpleNamespace(capabilities=self.capabilities)
+
+    async def capabilities(self):
+        return {"transport": {"max_value_bytes": 2 * 1024 * 1024}}
 
     async def now_ms(self):
         return self.now
@@ -186,6 +193,75 @@ class DurableAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.ctx.storage.state["attempts"], 2)
         self.assertEqual(self.ctx.storage.state["phase"], "tools")
 
+    async def test_model_waits_for_durable_intent_proof(self):
+        async def unavailable():
+            raise RuntimeError("proof unavailable")
+
+        with patch.object(self.ctx.storage, "sync", unavailable), patch.object(app, "model_step") as model:
+            with self.assertRaisesRegex(RuntimeError, "proof unavailable"):
+                await self.tick()
+            model.assert_not_called()
+        self.assertEqual(self.ctx.storage.state["attempts"], 1)
+        await self.tick()
+        self.assertEqual(self.ctx.storage.state["phase"], "tools")
+
+    async def test_changed_tool_configuration_refuses_pending_work(self):
+        self.ctx.storage.state["configuration"] = "different release"
+        saved = deepcopy(self.ctx.storage.state)
+        with self.assertRaisesRegex(RuntimeError, "configuration changed"):
+            await self.tick()
+        self.assertEqual(self.ctx.storage.state, saved)
+
+    async def test_small_transport_reserves_a_terminal_checkpoint(self):
+        async def capabilities():
+            return {"transport": {"max_value_bytes": 8192, "max_body_bytes": 1}}
+
+        self.ctx.fs.capabilities = capabilities
+        snapshot = await self.ctx.storage.read_json("agent")
+        state = deepcopy(snapshot.value)
+        state["padding"] = "x" * 2500
+        await app.checkpoint(self.ctx, snapshot, state)
+        saved = deepcopy(self.ctx.storage.state)
+        current = await self.ctx.storage.read_json("agent")
+        for padding in ("x" * 4000, "\U0001d11e" * 600):
+            candidate = {**saved, "padding": padding}
+            with self.assertRaises(CellarValidationError):
+                await app.checkpoint(self.ctx, current, candidate)
+            self.assertEqual(self.ctx.storage.state, saved)
+        await app.checkpoint(self.ctx, current, app.finish(deepcopy(saved), "failed", "checkpoint_limit"))
+        self.assertEqual(self.ctx.storage.state["phase"], "failed")
+        self.assertEqual(self.ctx.storage.state["padding"], "x" * 2500)
+        self.assertIsNone(self.ctx.storage.alarm)
+
+    async def test_full_tool_journal_records_terminal_failure_without_losing_decisions(self):
+        await self.tick()
+
+        async def capabilities():
+            return {"transport": {"max_value_bytes": 8192}}
+
+        self.ctx.fs.capabilities = capabilities
+        snapshot = await self.ctx.storage.read_json("agent")
+        state = deepcopy(snapshot.value)
+        state["calls"] = [{"id": "large-read", "name": "read_file", "args": {"path": "/large"}}]
+        state["padding"] = ""
+        state["padding"] = "x" * (3480 - len(app.fingerprint(state).encode()))
+        await app.checkpoint(self.ctx, snapshot, state)
+        saved = deepcopy(self.ctx.storage.state)
+
+        async def prepare(_request):
+            return dict(result={"text": "x" * 8000}, filesystem_checks=[], filesystem_mutations=[])
+
+        with patch.object(app, "FilesystemTools", return_value=SimpleNamespace(prepare=prepare)):
+            await self.tick()
+        final = self.ctx.storage.state
+        self.assertEqual(final["phase"], "failed")
+        self.assertEqual(final["error"], "checkpoint_limit")
+        self.assertEqual(final["history"], saved["history"])
+        self.assertEqual(final["calls"], saved["calls"])
+        self.assertEqual(final["filesystem_receipts"], saved["filesystem_receipts"])
+        self.assertEqual(final["notes"], {})
+        self.assertIsNone(self.ctx.storage.alarm)
+
     async def test_provider_failure_is_sanitized_and_bounded(self):
         async def failed(state):
             raise ValueError("SECRET-provider-key")
@@ -236,6 +312,7 @@ class DurableAgentTests(unittest.IsolatedAsyncioTestCase):
             return value
 
         self.ctx.storage.state["model"] = "test-model"
+        self.ctx.storage.state["configuration"] = app.configuration("test-model")
         with patch.dict(app.os.environ, {"OPENAI_API_KEY": "local-test"}), patch.object(openai, "AsyncOpenAI", client):
             for _ in range(3):
                 await self.tick()

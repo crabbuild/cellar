@@ -220,6 +220,9 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         "container.intercept_outbound_http" => {
             crate::outbound::validate(value, limits.max_body_bytes)?
         }
+        "container.intercept_outbound_https" => {
+            crate::outbound::validate_https(value, limits.max_body_bytes)?
+        }
         "container.signal" | "container.exec.kill" => {
             signal(value)?;
         }
@@ -314,6 +317,9 @@ pub(crate) async fn execute(
     }
     if name == "container.intercept_outbound_http" {
         return crate::outbound::execute(context, value, limits.max_body_bytes).await;
+    }
+    if name == "container.intercept_outbound_https" {
+        return crate::outbound::execute_https(context, value, limits.max_body_bytes).await;
     }
     // Root-cell, class declaration, current turn and activation authority are
     // resolved afresh on every call, including reads of invocation resources.

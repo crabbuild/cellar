@@ -34,7 +34,12 @@ function fixture(install = async () => null) {
     },
     async _call(operation, input) {
       calls.push({ operation, input });
-      if (operation === "container.intercept_outbound_http")
+      if (
+        [
+          "container.intercept_outbound_http",
+          "container.intercept_outbound_https",
+        ].includes(operation)
+      )
         return install(input);
       assert.equal(operation, "workers.container.perform");
       assert.equal(tickets.delete(input.ticket), true);
@@ -157,6 +162,76 @@ test("an interception refusal prevents queued starts and releases unused admissi
   assert.deepEqual(
     calls.map(({ operation }) => operation),
     ["container.intercept_outbound_http"],
+  );
+  assert.equal(tickets.size, 0);
+});
+
+test("HTTPS uses a separate operation, copies wildcard routes and precedes start", async () => {
+  const { container, calls, binding, exported, work, tickets } = fixture();
+  await container.interceptOutboundHttps("*.example.test", binding);
+  await container.interceptOutboundHttps(
+    "*",
+    exported({ props: { phase: "tls" } }),
+  );
+  container.start();
+  await Promise.all(work);
+  assert.deepEqual(
+    calls.map(({ operation }) => operation),
+    [
+      "container.intercept_outbound_https",
+      "container.intercept_outbound_https",
+      "workers.container.perform",
+    ],
+  );
+  assert.equal(calls[0].input.target, "*.example.test");
+  assert.equal(calls[1].input.target, "*");
+  assert.equal(tickets.size, 0);
+});
+
+test("HTTPS refuses invalid, forged, foreign and retired capabilities before dispatch", () => {
+  const own = fixture();
+  const foreign = fixture();
+  for (const target of [null, 443, {}]) {
+    assert.throws(
+      () => own.container.interceptOutboundHttps(target, own.binding),
+      TypeError,
+    );
+  }
+  for (const handler of [
+    () => {},
+    { kind: "binding", binding: "API" },
+    foreign.binding,
+  ]) {
+    assert.throws(
+      () => own.container.interceptOutboundHttps("*", handler),
+      TypeError,
+    );
+  }
+  own.retire();
+  assert.throws(
+    () => own.container.interceptOutboundHttps("*", own.binding),
+    /ContextMismatch/,
+  );
+  assert.deepEqual(own.calls, []);
+});
+
+test("HTTPS refusal prevents queued start and releases admission", async () => {
+  const refusal = new Error("HTTPS host profile unavailable");
+  const { container, calls, binding, work, tickets } = fixture(async () => {
+    throw refusal;
+  });
+  const installed = container.interceptOutboundHttps("*", binding);
+  container.start();
+  await assert.rejects(installed, (error) => error === refusal);
+  const outcomes = await Promise.allSettled(work);
+  assert.ok(
+    outcomes.every(
+      ({ status, reason }) => status === "rejected" && reason === refusal,
+    ),
+  );
+  assert.deepEqual(
+    calls.map(({ operation }) => operation),
+    ["container.intercept_outbound_https"],
   );
   assert.equal(tickets.size, 0);
 });

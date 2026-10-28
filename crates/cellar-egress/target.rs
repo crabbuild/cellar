@@ -20,10 +20,26 @@ impl Host {
     }
 }
 
-/// Kernel-observed destination plus a validated HTTP Host name when present.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Protocol {
+    Http,
+    Https,
+}
+
+impl Protocol {
+    pub fn default_port(self) -> u16 {
+        match self {
+            Self::Http => 80,
+            Self::Https => 443,
+        }
+    }
+}
+
+/// Kernel-observed destination, decrypted protocol and validated Host name.
 pub struct Destination<'a> {
     pub socket: SocketAddr,
     pub host: Option<&'a Host>,
+    pub protocol: Protocol,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,10 +63,24 @@ enum Pattern {
 pub struct HttpTarget {
     key: String,
     pattern: Pattern,
+    protocol: Protocol,
 }
 
 impl HttpTarget {
     pub fn parse(value: &str) -> Result<Self> {
+        Self::with_protocol(value, Protocol::Http)
+    }
+
+    /// HTTPS uses the same bare target syntax, with port 443 as its default.
+    /// `*` is the HTTPS catch-all, including address-based requests.
+    pub fn https(value: &str) -> Result<Self> {
+        if value == "*" {
+            return Ok(Self::all_https());
+        }
+        Self::with_protocol(value, Protocol::Https)
+    }
+
+    fn with_protocol(value: &str, protocol: Protocol) -> Result<Self> {
         ensure!(
             !value.is_empty() && value.len() <= 254 && value.trim() == value,
             "invalid HTTP intercept target"
@@ -79,7 +109,7 @@ impl HttpTarget {
             ensure!(socket.port() != 0, "intercept port must be nonzero");
             // An explicitly selected default port is the same registration,
             // rather than an unreachable second rule behind the bare IP.
-            let port = (socket.port() != 80).then_some(socket.port());
+            let port = (socket.port() != protocol.default_port()).then_some(socket.port());
             (
                 if port.is_some() {
                     socket.to_string()
@@ -95,14 +125,36 @@ impl HttpTarget {
             let pattern = domain(value, true)?;
             (pattern.clone(), Pattern::Host(pattern))
         };
-        Ok(Self { key, pattern })
+        let key = if protocol == Protocol::Https {
+            format!("https://{key}")
+        } else {
+            key
+        };
+        Ok(Self {
+            key,
+            pattern,
+            protocol,
+        })
     }
 
     pub fn all() -> Self {
         Self {
             key: "<all-http>".into(),
             pattern: Pattern::All,
+            protocol: Protocol::Http,
         }
+    }
+
+    pub fn all_https() -> Self {
+        Self {
+            key: "<all-https>".into(),
+            pattern: Pattern::All,
+            protocol: Protocol::Https,
+        }
+    }
+
+    pub fn protocol(&self) -> Protocol {
+        self.protocol
     }
 
     pub fn as_str(&self) -> &str {
@@ -121,28 +173,32 @@ impl HttpTarget {
             Pattern::Address {
                 port: Some(port), ..
             } => port,
-            _ => 80,
+            _ => self.protocol.default_port(),
         }
     }
 
     pub fn matches(&self, destination: &Destination<'_>) -> bool {
+        if self.protocol != destination.protocol {
+            return false;
+        }
+        let default_port = self.protocol.default_port();
         match &self.pattern {
             Pattern::Host(pattern) => {
-                destination.socket.port() == 80
+                destination.socket.port() == default_port
                     && destination
                         .host
                         .is_some_and(|host| wildcard(pattern.as_bytes(), host.0.as_bytes()))
             }
             Pattern::Address { address, port } => {
                 *address == destination.socket.ip()
-                    && destination.socket.port() == port.unwrap_or(80)
+                    && destination.socket.port() == port.unwrap_or(default_port)
             }
             Pattern::Network { address, prefix } => {
-                destination.socket.port() == 80
+                destination.socket.port() == default_port
                     && network(destination.socket.ip(), *prefix)
                         .is_ok_and(|current| current == *address)
             }
-            Pattern::All => destination.socket.port() == 80,
+            Pattern::All => destination.socket.port() == default_port,
         }
     }
 
@@ -167,6 +223,10 @@ impl TryFrom<String> for HttpTarget {
     fn try_from(value: String) -> Result<Self> {
         if value == "<all-http>" {
             Ok(Self::all())
+        } else if value == "<all-https>" {
+            Ok(Self::all_https())
+        } else if let Some(value) = value.strip_prefix("https://") {
+            Self::https(value)
         } else {
             Self::parse(&value)
         }

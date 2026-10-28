@@ -79,7 +79,7 @@ impl RootArchiveSnapshot {
 }
 
 /// Every remote object was checked in this publication attempt, either by
-/// its exact PUT read-back or by the freshly downloaded previous root. The
+/// an exact GET, its PUT read-back or the freshly downloaded previous root. The
 /// source retains the independently sealed local bytes that those checks bind.
 /// This receipt supplies material only, never an archive head or native grant.
 pub(super) struct ConfirmedRootSnapshot {
@@ -271,28 +271,62 @@ impl CellArchive {
     }
 
     async fn get_root_extent(&self, id: ExtentId) -> Result<Vec<u8>, ArchiveError> {
+        self.find_root_extent(id)
+            .await?
+            .ok_or(ArchiveError::Corrupt("missing root archive extent"))
+    }
+
+    // Only an explicit NotFound permits a new upload. A transport failure or
+    // corrupt existing object must not be mistaken for absence.
+    async fn find_root_extent(&self, id: ExtentId) -> Result<Option<Vec<u8>>, ArchiveError> {
         if id.length() as usize > self.limits.max_object_bytes {
             return Err(ArchiveError::Limit);
         }
-        let bytes = self
+        let Some((bytes, _)) = self
             .read(
                 &self.extent_key(id),
                 id.length() as usize,
                 Some(u64::from(id.length())),
             )
             .await?
-            .ok_or(ArchiveError::Corrupt("missing root archive extent"))?
-            .0;
+        else {
+            return Ok(None);
+        };
         let retention = self.read_retention.clone();
         self.host
             .run_blocking(move || {
                 let _retention = retention;
                 id.verify(&bytes)
                     .map_err(|_| ArchiveError::Corrupt("root archive extent identity"))?;
-                Ok(bytes)
+                Ok(Some(bytes))
             })
             .await
             .map_err(ArchiveError::Worker)?
+    }
+
+    async fn confirm_root_extent(
+        &self,
+        source: Arc<RootSnapshotSource>,
+        id: ExtentId,
+    ) -> Result<bool, ArchiveError> {
+        source.ensure_open().map_err(root_error)?;
+        // Probe before allocating a local receive buffer. The two-object
+        // window still fits read_memory_bound(), even when GET retains both
+        // a provider chunk and its copied output. A filename/HEAD is no proof.
+        if self.find_root_extent(id).await?.is_some() {
+            return Ok(true);
+        }
+        let retention = self.read_retention.clone();
+        let bytes = self
+            .host
+            .run_blocking(move || {
+                let _retention = retention;
+                source.read_extent(id).map_err(root_error)
+            })
+            .await
+            .map_err(ArchiveError::Worker)??;
+        self.put_root_extent(id, bytes).await?;
+        Ok(false)
     }
 
     async fn put_root_extent(&self, id: ExtentId, bytes: Vec<u8>) -> Result<(), ArchiveError> {
@@ -339,6 +373,7 @@ impl CellArchive {
         source: Arc<RootSnapshotSource>,
         previous: Option<&RootArchiveSnapshot>,
     ) -> Result<ConfirmedRootSnapshot, ArchiveError> {
+        source.ensure_open().map_err(root_error)?;
         let (set, metadata) = self.encode_root_index(&source)?;
         let extents: Vec<_> = set
             .extents()
@@ -349,31 +384,23 @@ impl CellArchive {
         let mut objects = extents.into_iter();
         let mut pending = FuturesOrdered::new();
         let mut failure = None;
+        let mut existing_objects = 0;
+        let mut uploaded_objects = 0;
         loop {
             while failure.is_none() && pending.len() < ROOT_WINDOW {
                 let Some(id) = objects.next() else { break };
-                let source = source.clone();
-                let retention = self.read_retention.clone();
-                let read = self
-                    .host
-                    .run_blocking(move || {
-                        let _retention = retention;
-                        source.read_extent(id).map_err(root_error)
-                    })
-                    .await
-                    .map_err(ArchiveError::Worker)
-                    .and_then(|result| result);
-                match read {
-                    Ok(bytes) => pending.push_back(self.put_root_extent(id, bytes)),
-                    Err(error) => failure = Some(error),
-                }
+                pending.push_back(self.confirm_root_extent(source.clone(), id));
             }
             let Some(result) = pending.next().await else {
                 break;
             };
-            if let Err(error) = result {
-                if failure.is_none() {
-                    failure = Some(error);
+            match result {
+                Ok(true) => existing_objects += 1,
+                Ok(false) => uploaded_objects += 1,
+                Err(error) => {
+                    if failure.is_none() {
+                        failure = Some(error);
+                    }
                 }
             }
             // Drain every entered confirmation on failure before returning.
@@ -397,7 +424,7 @@ impl CellArchive {
                 }),
             )
             .await?;
-        tracing::info!(event = "raft_archive_phase", phase = "root_upload_confirmed", cell = %self.scope.cell, index = set.snapshot().get_metadata().index);
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_confirmed", cell = %self.scope.cell, index = set.snapshot().get_metadata().index, reused_objects, existing_objects, uploaded_objects);
         Ok(ConfirmedRootSnapshot {
             reference: RootArchiveReference(metadata),
             set,

@@ -1,12 +1,47 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::*;
+use crate::Rules;
 
 fn destination<'a>(address: &str, host: Option<&'a Host>) -> Destination<'a> {
     Destination {
+        protocol: crate::Protocol::Http,
         socket: address.parse().unwrap(),
         host,
     }
+}
+
+#[test]
+fn tls_targets_are_protocol_scoped_canonical_and_keep_the_shared_budget() -> Result<()> {
+    let host = Host::parse("API.Example.")?;
+    for (input, canonical) in [
+        ("api.example", "https://api.example"),
+        ("192.0.2.1:443", "https://192.0.2.1"),
+        ("*", "<all-https>"),
+    ] {
+        let target = HttpTarget::https(input)?;
+        assert_eq!(target.as_str(), canonical);
+        assert_eq!(target.port(), 443);
+        assert_eq!(
+            serde_json::from_str::<HttpTarget>(&serde_json::to_string(&target)?)?,
+            target
+        );
+        let mut address = destination("192.0.2.1:443", Some(&host));
+        assert!(!target.matches(&address));
+        address.protocol = Protocol::Https;
+        assert!(target.matches(&address));
+        address.socket.set_port(80);
+        assert!(!target.matches(&address));
+    }
+    assert_eq!(HttpTarget::https("[::1]:443")?, HttpTarget::https("::1")?);
+    assert!(HttpTarget::https("https://api.example").is_err());
+    let mut rules = Rules::default();
+    for target in [HttpTarget::all(), HttpTarget::all_https()] {
+        let pending = rules.prepare(target, ())?;
+        rules.commit(pending)?;
+    }
+    assert_eq!(rules.entry_count(), 4);
+    Ok(())
 }
 
 #[test]

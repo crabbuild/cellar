@@ -101,6 +101,7 @@ impl RootWorking {
         capture.min_checkpoint_page_n = u32::MAX;
         capture.truncate_page_n = 0;
         capture.checkpoint_interval = std::time::Duration::ZERO;
+        capture.require_incremental_capture()?;
         capture.disable_disposable_close_checkpoint()?;
         let database = CommandDatabase::open(
             &path,

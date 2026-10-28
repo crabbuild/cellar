@@ -105,6 +105,13 @@ no SQL callback or physical image is manufactured before the first command.
 Remote dependency retention/GC,
 demand loading and full-size recovery qualification remain under implementation.
 
+The verification-only [remote-root registry](archive/retention/README.md) now
+provides persistent ownership metadata with explicit reservation/reference
+retirement and caller-persisted allocation intents. It is independent of the
+existing archive head. It does not yet store generation-addressed extents, run a
+collector, or supply an installed-root durability proof. Its success cannot
+permit voting, native activation or application acknowledgement.
+
 `NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by
 default or explicitly selects `Extents`. The choice is persisted in the immutable
 namespace contract. Extent replicas, standbys and joining members require
@@ -521,8 +528,8 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 `host_sql/mod.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
 Its private `images` module selects physical command/read adapters beneath the
 shared controller. The extent branch is exercised by the worker integration
-fixtures; public node configuration retains the materialized backend until the
-extent recovery and effect contracts are integrated.
+fixtures. Namespace configuration selects the materialized or extent backend;
+extent activation requires the complete local closure and ordinary native proofs.
 
 The verification facade now has `RootSnapshotSource` and `RootSnapshotSet` for
 complete local extent-closure transfer. Capture pins a coherent durable root
@@ -565,9 +572,10 @@ It is not a grant reconstructed from a manifest or cached membership.
 This is an internal marker-1 hard cutover: canonical descriptors require the
 transfer length, and peer/control and snapshot/seed authentication identities
 refuse the older protocol. Use fresh experimental native state and matching
-workers; there is no legacy descriptor reader or migration. RustFS root archival,
-node-wide inventory recovery/GC, public backend selection and full fresh-learner
-root qualification remain unfinished. Partial residency still cannot produce a
+workers; there is no legacy descriptor reader or migration. Public peer and
+RustFS extent recovery are exercised by the qualification fixtures. Full-size
+failure qualification, durable remote retention/GC and native activation before
+complete hydration remain open. Partial residency still cannot produce a
 `SealedImageRoot`.
 
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
@@ -950,6 +958,11 @@ owner. `archive_physical_admission` reports the new admission wait, and
 `archive_physical_queue` reports the subsequent executor wait. Existing producer
 and memory bounds still apply. This does not cap object-store bandwidth or
 guarantee foreground latency under a saturated shared filesystem.
+Capacity wakeups do not reserve slots for unpolled read-ahead futures. A polled
+request claims a slot immediately before dispatch; release publishes capacity
+before waking waiters. This avoids a cycle in which a bounded receive window
+reserves the slot needed by its caller's intervening append or source read.
+The dispatched job still owns its slot through cancellation and physical finish.
 
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is
@@ -977,6 +990,22 @@ Size-triggered rotation physically verifies the complete eligible extension,
 including intermediate updates, before replacing its tails with a snapshot.
 It then validates the new recovery proof before advancing the head. Changing
 this producer policy does not invalidate an existing archive.
+`ArchiveLimits::max_replay_images` additionally limits the complete private images
+sealed by a successfully verified materialized recovery set (default two;
+accepted range 1–4,096). A tail exceeding this budget is physically verified
+before a fresh base replaces it. Only the fresh base's independently confirmed
+proof may advance the conditional head. An exact same-cut publication can also
+checkpoint an existing expensive tail; an older capture never replaces a newer
+head. Missing/corrupt selected objects and invalid intermediate states still
+refuse publication. Memo hits retain the work of their exact prior physical
+proof and cannot hide a costly tail.
+The `replay_complete` trace includes `verified_restore_images` and
+`verified_restore_image_bytes`, the count and summed logical lengths of those
+outputs under this verifier's apply limits. These describe verified restore
+work, including on a memo hit; they are not newly executed I/O on a hit, measured
+device bytes or a time guarantee. A destination with stricter batching limits
+can require more passes. Existing archives remain readable, and a newer head
+observed through an older capture is returned only after its ordinary checks.
 New callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
@@ -1083,6 +1112,23 @@ index/head is exposed on failure, and independent destination replay remains
 required. `raft_archive_phase` logs distinguish encoding, confirmed upload,
 material download, physical replay and exact head confirmation; they are
 observations, not new publication proofs or recovery-time guarantees.
+
+Root extent publication first reads and hashes each object not already verified
+through the previous root in this same head-CAS attempt. A valid object needs no
+local source read or conditional-create upload. Only explicit remote absence
+permits an upload; failed reads and corrupt objects refuse confirmation. New
+uploads still require exact read-back, including after a lost PUT response.
+The captured engine must remain open, and selected-history verification still
+precedes any repair of unselected material. No HEAD, filename or earlier success
+substitutes for current byte verification.
+
+These probes run before allocating source buffers, within the existing
+two-object window and physical memory admission. Failures drain the entered
+work before returning. `root_upload_confirmed` reports `existing_objects` from
+fresh probes, `uploaded_objects`, and `reused_objects` from the already verified
+previous root. Empty-store publication pays an extra absence request per object;
+measure the tradeoff on the deployment's store rather than assuming a recovery
+latency improvement from fewer retry uploads.
 
 Native replicas coordinate publication for actual images of at least 64 MiB
 through a bounded conditional `publication` record beside the cell archive's

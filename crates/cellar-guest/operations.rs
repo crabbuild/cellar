@@ -62,6 +62,23 @@ pub async fn call_bytes_in_budget(
     signal: Option<cellar::sdk::web::AbortSignal>,
     budget: Option<cellar::sdk::rpc::CallBudget>,
 ) -> Result<Vec<u8>> {
+    Ok(
+        call_response_bytes_in_budget(context, contract, value, request, signal, budget)
+            .await?
+            .into_parts()
+            .0,
+    )
+}
+
+/// Preserve native response ownership through admission into a language bridge.
+pub async fn call_response_bytes_in_budget(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+    budget: Option<cellar::sdk::rpc::CallBudget>,
+) -> Result<cellar::sdk::rpc::ResponseBytes> {
     let timeout = (|| {
         validate("cell.call", &value)?;
         ensure!(
@@ -81,8 +98,8 @@ pub async fn call_bytes_in_budget(
     let method = field(&value, "method")?;
     let options = cellar::sdk::rpc::CallOptions { timeout, signal };
     let call = match budget {
-        Some(budget) => client.call_bytes_in_budget(method, request, options, budget),
-        None => client.call_bytes(method, request, options),
+        Some(budget) => client.call_response_bytes_in_budget(method, request, options, budget),
+        None => client.call_response_bytes(method, request, options),
     };
     Ok(call.await?)
 }
@@ -94,6 +111,7 @@ pub struct State {
     pub workers: crate::workers::State,
     pub containers: crate::containers::Session,
     pub container_bindings: crate::containers::BindingSessions,
+    pub filesystem: crate::filesystem::Session,
     pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
@@ -219,6 +237,19 @@ pub fn is_read(name: &str) -> bool {
             | "response.closed"
             | "request.body.read"
             | "request.body.cancel"
+            // No descriptor allocation, offset advancement or proof waits.
+            // Keep the Node worker's pre-IPC admission list in sync; the
+            // runtime admission test holds a mutation across these reads.
+            | "filesystem.capabilities"
+            | "filesystem.statvfs"
+            | "filesystem.pread"
+            | "filesystem.fstat"
+            | "filesystem.stat"
+            | "filesystem.lstat"
+            | "filesystem.fstatat"
+            | "filesystem.read_file"
+            | "filesystem.read_dir"
+            | "filesystem.telldir"
     )
 }
 
@@ -279,6 +310,12 @@ pub async fn execute(
         values::check_depth(&value).context(crate::failure::Validation)?;
         ensure!(value.is_object(), crate::failure::Validation);
         return crate::containers::execute(context, state, name, value, options).await;
+    }
+    if name.starts_with("filesystem.") {
+        return state
+            .filesystem
+            .execute(context, name, value, options)
+            .await;
     }
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"

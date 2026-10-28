@@ -78,6 +78,7 @@ pub struct Source {
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) rpc: Catalog,
@@ -101,6 +102,7 @@ impl Source {
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             events: Vec::new(),
             cell_events: Default::default(),
             rpc: Catalog::new(),
@@ -109,6 +111,25 @@ impl Source {
 
     /// Register a cell class with a fetch handler. Use [`Self::cell_events`]
     /// when the class also handles alarms or other supported events.
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
+    }
+
     pub fn cell(mut self, name: impl Into<String>) -> Self {
         self = self.cell_events(name, [EventKind::Fetch]);
         self
@@ -541,8 +562,10 @@ impl JavaScriptApplication {
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("JavaScript runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded, synchronous) = result.expect("nonempty native operation set");
+                    let (id, encoded, synchronous, response_owner) = result.expect("nonempty native operation set");
+                    // Bridge reservation precedes release of the native frame.
                     self.runtime.respond_parts(invocation, id, encoded?, synchronous)?;
+                    drop(response_owner);
                     continue;
                 },
                 event = receive.recv() => event,
@@ -751,16 +774,22 @@ impl JavaScriptApplication {
                                                         .context(
                                                             cellar_guest::failure::Validation,
                                                         )?;
-                                                    let result = operations::call_bytes_in_budget(
-                                                        &scoped_context,
-                                                        contract,
-                                                        payload,
-                                                        bytes,
-                                                        signal,
-                                                        budget,
-                                                    )
-                                                    .await?;
-                                                    return Ok((Value::Null, Some(result)));
+                                                    let result =
+                                                        operations::call_response_bytes_in_budget(
+                                                            &scoped_context,
+                                                            contract,
+                                                            payload,
+                                                            bytes,
+                                                            signal,
+                                                            budget,
+                                                        )
+                                                        .await?;
+                                                    let (bytes, owner) = result.into_parts();
+                                                    return Ok((
+                                                        Value::Null,
+                                                        Some(bytes),
+                                                        Some(owner),
+                                                    ));
                                                 }
                                                 ensure!(
                                                     body.is_none(),
@@ -772,6 +801,7 @@ impl JavaScriptApplication {
                                                         cellar_guest::failure::Validation
                                                     );
                                                     let limits = cellar_guest::Limits {
+                                                        max_value_bytes: options.max_value_bytes,
                                                         max_body_bytes: options.max_body_bytes,
                                                         max_batch_operations: options
                                                             .max_batch_operations,
@@ -795,7 +825,7 @@ impl JavaScriptApplication {
                                                             reserve,
                                                         )
                                                         .await?;
-                                                    return Ok((value, None));
+                                                    return Ok((value, None, None));
                                                 }
                                                 if rpc_enabled
                                                     && callback_scope.is_none()
@@ -812,7 +842,7 @@ impl JavaScriptApplication {
                                                             signal,
                                                         )
                                                         .await
-                                                        .map(|value| (value, None))
+                                                        .map(|value| (value, None, None))
                                                 } else if operation_name
                                                     .starts_with("workers.callback.")
                                                 {
@@ -825,7 +855,7 @@ impl JavaScriptApplication {
                                                             options.max_batch_operations,
                                                         )
                                                         .await
-                                                        .map(|value| (value, None))
+                                                        .map(|value| (value, None, None))
                                                 } else {
                                                     operations::execute_with_signal(
                                                         &scoped_context,
@@ -833,6 +863,8 @@ impl JavaScriptApplication {
                                                         &operation_name,
                                                         payload,
                                                         &cellar_guest::Limits {
+                                                            max_value_bytes: options
+                                                                .max_value_bytes,
                                                             max_body_bytes: options.max_body_bytes,
                                                             max_batch_operations: options
                                                                 .max_batch_operations,
@@ -840,7 +872,7 @@ impl JavaScriptApplication {
                                                         signal,
                                                     )
                                                     .await
-                                                    .map(|value| (value, None))
+                                                    .map(|value| (value, None, None))
                                                 }
                                             };
                                             match scope {
@@ -858,12 +890,16 @@ impl JavaScriptApplication {
                                 }
                                 Err(error) => Err(error),
                             };
+                        let (result, response_owner) = match result {
+                            Ok((value, body, owner)) => (Ok((value, body)), owner),
+                            Err(error) => (Err(error), None),
+                        };
                         let encoded = cellar_guest::failure::result_parts(
                             &name,
                             result,
                             runtime.options.max_value_bytes,
                         );
-                        (id, encoded, synchronous)
+                        (id, encoded, synchronous, response_owner)
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -873,9 +909,11 @@ impl JavaScriptApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded, synchronous)) => self
-                            .runtime
-                            .respond_parts(invocation, id, encoded?, synchronous)?,
+                        std::task::Poll::Ready((id, encoded, synchronous, response_owner)) => {
+                            self.runtime
+                                .respond_parts(invocation, id, encoded?, synchronous)?;
+                            drop(response_owner);
+                        }
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
@@ -999,6 +1037,7 @@ impl Application for JavaScriptApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -1020,6 +1059,7 @@ impl Application for JavaScriptApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -1028,6 +1068,10 @@ impl Application for JavaScriptApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -1075,6 +1119,7 @@ impl Cell for JavaScriptCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

@@ -305,6 +305,459 @@ class WebSocketResponse(Response):
         return {"websocket": self.socket.id, "headers": self.headers}, b""
 
 
+@dataclass(frozen=True)
+class FileStat:
+    inode: int
+    kind: str
+    mode: int
+    uid: int
+    gid: int
+    size: int
+    nlink: int
+    atime_ns: int
+    mtime_ns: int
+    ctime_ns: int
+    version: int
+    allocated_bytes: int
+
+    @classmethod
+    def _decode(cls, value):
+        value = {key: value[key] for key in cls.__dataclass_fields__}
+        for key in ("inode", "size", "nlink", "atime_ns", "mtime_ns", "ctime_ns", "version", "allocated_bytes"):
+            value[key] = int(value[key])
+        return cls(**value)
+
+
+@dataclass(frozen=True)
+class DirectoryEntry:
+    name: bytes
+    inode: int
+    kind: str
+
+
+def _filesystem_argument(operation, message):
+    error = ValidationError(message)
+    error.errno = "EINVAL"
+    return _filesystem_progress(error, 0, operation, False)
+
+
+def _filesystem_buffer(data, operation):
+    try:
+        return memoryview(data).cast("B")
+    except (TypeError, ValueError, BufferError) as error:
+        raise _filesystem_argument(operation, "Filesystem data must be contiguous bytes") from error
+
+
+def _filesystem_encode(data, operation):
+    return base64.b64encode(_filesystem_buffer(data, operation)).decode("ascii")
+
+
+def _filesystem_path(path, operation):
+    if isinstance(path, str):
+        return path
+    if isinstance(path, (bytes, bytearray, memoryview)):
+        return {"bytes_base64": _filesystem_encode(path, operation)}
+    raise _filesystem_argument(operation, "Filesystem paths must be text or bytes")
+
+
+def _filesystem_integer(value, operation):
+    if type(value) is int or type(value) is str:
+        return str(value)
+    raise _filesystem_argument(operation, "Filesystem integers must be exact integers or decimal strings")
+
+
+def _filesystem_handle(directory, operation):
+    handle = getattr(directory, "_handle", None) if isinstance(directory, (Directory, File)) else None
+    if not isinstance(handle, str):
+        raise _filesystem_argument(operation, "Filesystem directory argument must be a descriptor")
+    return handle
+
+
+def _filesystem_progress(error, completed, operation, committed):
+    if not isinstance(error, SDKError) or type(error.code) is not str or not error.code or error.outcome not in ("not_committed", "locally_committed", "unknown") or type(getattr(error, "completed_bytes", 0)) is not int or not 0 <= getattr(error, "completed_bytes", 0) <= 2**53-1:
+        error = SDKError("Filesystem host reply failed", "HostError", "unknown")
+        error.errno = "EIO"
+    if error.code == "ValidationError" and error.outcome == "not_committed" and not hasattr(error, "errno"):
+        error.errno = "EINVAL"
+    error.completed_bytes = completed + getattr(error, "completed_bytes", 0)
+    error.operation = "filesystem." + operation
+    if completed and error.outcome == "not_committed":
+        error.outcome = "locally_committed" if committed else "unknown"
+    return error
+
+
+def _filesystem_cancelled(error, completed, operation):
+    # Cancellation is control flow: retain its type, message and identity. A
+    # cancelled wait cannot establish whether its last native call committed.
+    previous = getattr(error, "completed_bytes", 0)
+    if type(previous) is not int or not 0 <= previous <= 2**53-1:
+        previous = 0
+    error.code = "Cancelled"
+    error.outcome = "unknown"
+    error.operation = "filesystem." + operation
+    error.completed_bytes = completed + previous
+
+
+def _filesystem_reply(operation, value, request):
+    """Validate acknowledgements before exposing values or advancing helpers."""
+    def require(valid):
+        if not valid:
+            raise ValueError("Invalid filesystem reply")
+
+    def record(value):
+        require(type(value) is dict)
+
+    def integer(value, maximum=2**53-1):
+        require(type(value) is int and 0 <= value <= maximum)
+
+    def decimal(value, signed=False):
+        require(type(value) is str and len(value) <= 20)
+        digits = value[1:] if signed and value.startswith("-") else value
+        require(bool(digits) and digits.isascii() and digits.isdecimal())
+        number = int(value)
+        require((-(2**63) if signed else 0) <= number <= (2**63-1 if signed else 2**64-1))
+
+    def binary(value):
+        require(type(value) is str)
+        decoded = base64.b64decode(value, validate=True)
+        require(base64.b64encode(decoded).decode("ascii") == value)
+        return len(decoded)
+
+    def entry(value):
+        record(value)
+        require(0 < binary(value["name_base64"]) <= 255)
+        decimal(value["inode"])
+        require(value["kind"] in ("File", "Directory"))
+
+    if operation in ("open", "creat", "openat", "opendir", "dup"):
+        record(value)
+        require(type(value["handle"]) is str and bool(value["handle"]))
+    elif operation in ("read", "pread", "read_file"):
+        record(value)
+        count = binary(value["data_base64"])
+        if operation != "read_file":
+            integer(value["count"], request["count"])
+            require(count == value["count"])
+        elif request["max_bytes"] is not None:
+            require(count <= request["max_bytes"])
+    elif operation in ("write", "pwrite"):
+        integer(value, binary(request["data_base64"]))
+    elif operation == "lseek":
+        decimal(value)
+    elif operation in ("stat", "lstat", "fstat", "fstatat"):
+        record(value)
+        for key in ("inode", "size", "nlink", "version", "allocated_bytes"):
+            decimal(value[key])
+        for key in ("atime_ns", "mtime_ns", "ctime_ns"):
+            decimal(value[key], True)
+        for key in ("mode", "uid", "gid"):
+            integer(value[key], 2**32-1)
+        require(value["kind"] in ("File", "Directory"))
+    elif operation == "edit_file":
+        record(value)
+        decimal(value["inode"])
+        decimal(value["version"])
+    elif operation == "readdir":
+        if value is not None:
+            entry(value)
+    elif operation in ("read_page", "read_dir"):
+        if operation == "read_dir":
+            record(value)
+        values = value if operation == "read_page" else value["entries"]
+        require(type(values) is list and len(values) <= request["limit"])
+        for item in values:
+            entry(item)
+        if operation == "read_dir" and value["next"] is not None:
+            cursor = value["next"]
+            record(cursor)
+            require(type(cursor["scope"]) is str)
+            decimal(cursor["inode"])
+            decimal(cursor["position"])
+    elif operation == "telldir":
+        require(binary(value) == 16)
+    elif operation == "collect_garbage":
+        integer(value)
+    elif operation == "statvfs":
+        record(value)
+        for key in ("logical_bytes", "allocated_bytes", "inodes", "available_logical_bytes", "available_allocated_bytes", "available_inodes"):
+            decimal(value[key])
+        integer(value["chunk_bytes"])
+        require(value["chunk_bytes"] > 0)
+    elif operation == "capabilities":
+        record(value)
+        record(value["limits"])
+        record(value["transport"])
+        for key in ("logical_uid", "logical_gid", "creation_mask"):
+            integer(value[key], 2**32-1)
+        for key in ("read_only", "regular_files", "directories", "positional_io", "directory_relative", "transactions", "symlinks", "hard_links", "advisory_locks", "atime"):
+            require(type(value[key]) is bool)
+        for key in ("max_file_bytes", "max_logical_bytes", "max_allocated_bytes", "max_inodes"):
+            decimal(value["limits"][key])
+        for key in ("max_transfer_bytes", "max_file_helper_bytes", "max_handles", "max_host_handles", "max_path_bytes", "max_path_depth", "max_discarded_ranges", "gc_batch_chunks", "max_transaction_operations", "max_transaction_bytes", "max_directory_entries", "max_namespace_directories"):
+            integer(value["limits"][key], 2**31-1)
+        for key in ("max_value_bytes", "max_body_bytes", "max_batch_operations"):
+            integer(value["transport"][key])
+    else:
+        require(value is None)
+
+
+class File:
+    """Invocation-local cell descriptor; closing never implicitly fsyncs."""
+    def __init__(self, filesystem, handle):
+        self._fs, self._handle = filesystem, handle
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        await self.close()
+
+    async def read(self, count):
+        value = await self._fs._call("read", handle=self._handle, count=count)
+        return base64.b64decode(value["data_base64"], validate=True)
+
+    async def pread(self, count, offset):
+        value = await self._fs._call("pread", handle=self._handle, count=count, offset=_filesystem_integer(offset, "pread"))
+        return base64.b64decode(value["data_base64"], validate=True)
+
+    async def write(self, data):
+        return await self._fs._call("write", handle=self._handle, data_base64=_filesystem_encode(data, "write"))
+
+    async def pwrite(self, data, offset):
+        return await self._fs._call("pwrite", handle=self._handle, data_base64=_filesystem_encode(data, "pwrite"), offset=_filesystem_integer(offset, "pwrite"))
+
+    async def write_all(self, data):
+        completed = 0
+        try:
+            data = _filesystem_buffer(data, "write_all")
+            limits = (await self._fs.capabilities())["limits"]
+            limit = limits["max_file_helper_bytes"]
+            if data.nbytes > limit:
+                raise ValidationError("Filesystem write_all exceeds helper limit")
+            if not data:
+                await self.write(data)
+            while data:
+                count = await self.write(data[:min(65536, limits["max_transfer_bytes"])])
+                if count <= 0:
+                    raise SDKError("Filesystem write made no progress", "HostError", "unknown")
+                completed += count
+                data = data[count:]
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, completed, "write_all")
+            raise
+        except Exception as error:
+            failure = _filesystem_progress(error, completed, "write_all", True)
+            if failure is error:
+                raise
+            raise failure from error
+
+    async def read_exact(self, count):
+        completed = 0
+        try:
+            limits = (await self._fs.capabilities())["limits"]
+            if type(count) is not int or not 0 <= count <= limits["max_file_helper_bytes"]:
+                raise ValidationError("Filesystem read_exact exceeds helper limit")
+            chunks = []
+            if not count:
+                await self.read(0)
+            while count:
+                chunk = await self.read(min(count, 65536))
+                if not chunk:
+                    error = SDKError("Filesystem read reached end of file", "UnexpectedEof", "not_committed")
+                    error.errno = "EIO"
+                    raise error
+                completed += len(chunk)
+                chunks.append(chunk)
+                count -= len(chunk)
+            return b"".join(chunks)
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, completed, "read_exact")
+            raise
+        except Exception as error:
+            failure = _filesystem_progress(error, completed, "read_exact", False)
+            if failure is error:
+                raise
+            raise failure from error
+
+    async def lseek(self, offset, whence="start"):
+        return int(await self._fs._call("lseek", handle=self._handle, offset=_filesystem_integer(offset, "lseek"), whence=whence))
+
+    async def fstat(self):
+        return FileStat._decode(await self._fs._call("fstat", handle=self._handle))
+
+    async def ftruncate(self, size):
+        return await self._fs._call("ftruncate", handle=self._handle, size=_filesystem_integer(size, "ftruncate"))
+
+    async def fchmod(self, mode):
+        return await self._fs._call("fchmod", handle=self._handle, mode=mode)
+
+    async def dup(self):
+        return File(self._fs, (await self._fs._call("dup", handle=self._handle))["handle"])
+
+    async def close(self):
+        return await self._fs._call("close", handle=self._handle)
+
+    async def fsync(self):
+        return await self._fs._call("fsync", handle=self._handle)
+
+    async def fdatasync(self):
+        return await self._fs._call("fdatasync", handle=self._handle)
+
+
+@dataclass(frozen=True)
+class FileVersion:
+    inode: int
+    version: int
+
+
+@dataclass(frozen=True)
+class DirectoryPage:
+    entries: list[DirectoryEntry]
+    next: dict | None
+
+
+class Directory:
+    def __init__(self, filesystem, handle):
+        self._fs, self._handle = filesystem, handle
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        await self.closedir()
+
+    async def readdir(self):
+        value = await self._fs._call("readdir", handle=self._handle)
+        return None if value is None else DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"])
+
+    async def read_page(self, limit):
+        return [DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in await self._fs._call("read_page", handle=self._handle, limit=limit)]
+
+    async def telldir(self):
+        return await self._fs._call("telldir", handle=self._handle)
+
+    async def seekdir(self, cookie):
+        return await self._fs._call("seekdir", handle=self._handle, cookie=cookie)
+
+    async def rewinddir(self):
+        return await self._fs._call("rewinddir", handle=self._handle)
+
+    async def closedir(self):
+        return await self._fs._call("closedir", handle=self._handle)
+
+    async def fstat(self):
+        return FileStat._decode(await self._fs._call("fstat", handle=self._handle))
+
+    async def fsync(self):
+        return await self._fs._call("fsync", handle=self._handle)
+
+
+class Filesystem:
+    def __init__(self, context):
+        self._context = context
+
+    async def _call(self, operation, **value):
+        try:
+            reply = await self._context._call("filesystem." + operation, **value)
+            _filesystem_reply(operation, reply, value)
+            return reply
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, 0, operation)
+            raise
+        except Exception as error:
+            failure = _filesystem_progress(error, 0, operation, False)
+            if failure is error:
+                raise
+            raise failure from error
+
+    async def capabilities(self):
+        value = await self._call("capabilities")
+        for key in ("max_file_bytes", "max_logical_bytes", "max_allocated_bytes", "max_inodes"):
+            value["limits"][key] = int(value["limits"][key])
+        return value
+
+    async def statvfs(self):
+        value = await self._call("statvfs")
+        for key in ("logical_bytes", "allocated_bytes", "inodes", "available_logical_bytes", "available_allocated_bytes", "available_inodes"):
+            value[key] = int(value[key])
+        return value
+
+    async def open(self, path, **options):
+        return File(self, (await self._call("open", path=_filesystem_path(path, "open"), options=options))["handle"])
+
+    async def creat(self, path, mode=0o666):
+        return File(self, (await self._call("creat", path=_filesystem_path(path, "creat"), mode=mode))["handle"])
+
+    async def openat(self, directory, path, **options):
+        return File(self, (await self._call("openat", directory=_filesystem_handle(directory, "openat"), path=_filesystem_path(path, "openat"), options=options))["handle"])
+
+    async def stat(self, path):
+        return FileStat._decode(await self._call("stat", path=_filesystem_path(path, "stat")))
+
+    async def lstat(self, path):
+        return FileStat._decode(await self._call("lstat", path=_filesystem_path(path, "lstat")))
+
+    async def fstatat(self, directory, path, no_follow=False):
+        return FileStat._decode(await self._call("fstatat", directory=_filesystem_handle(directory, "fstatat"), path=_filesystem_path(path, "fstatat"), no_follow=no_follow))
+
+    async def truncate(self, path, size):
+        return await self._call("truncate", path=_filesystem_path(path, "truncate"), size=_filesystem_integer(size, "truncate"))
+
+    async def mkdir(self, path, mode=0o777):
+        return await self._call("mkdir", path=_filesystem_path(path, "mkdir"), mode=mode)
+
+    async def mkdirat(self, directory, path, mode=0o777):
+        return await self._call("mkdirat", directory=_filesystem_handle(directory, "mkdirat"), path=_filesystem_path(path, "mkdirat"), mode=mode)
+
+    async def rmdir(self, path):
+        return await self._call("rmdir", path=_filesystem_path(path, "rmdir"))
+
+    async def unlink(self, path):
+        return await self._call("unlink", path=_filesystem_path(path, "unlink"))
+
+    async def unlinkat(self, directory, path, remove_directory=False):
+        return await self._call("unlinkat", directory=_filesystem_handle(directory, "unlinkat"), path=_filesystem_path(path, "unlinkat"), remove_directory=remove_directory)
+
+    async def rename(self, old, new):
+        return await self._call("rename", old=_filesystem_path(old, "rename"), new=_filesystem_path(new, "rename"))
+
+    async def renameat(self, old_directory, old, new_directory, new):
+        return await self._call("renameat", old_directory=_filesystem_handle(old_directory, "renameat"), old=_filesystem_path(old, "renameat"), new_directory=_filesystem_handle(new_directory, "renameat"), new=_filesystem_path(new, "renameat"))
+
+    async def chmod(self, path, mode):
+        return await self._call("chmod", path=_filesystem_path(path, "chmod"), mode=mode)
+
+    async def utimens(self, path, mtime_ns="now"):
+        value = mtime_ns if mtime_ns is None or mtime_ns == "now" else _filesystem_integer(mtime_ns, "utimens")
+        return await self._call("utimens", path=_filesystem_path(path, "utimens"), mtime_ns=value)
+
+    async def opendir(self, path):
+        return Directory(self, (await self._call("opendir", path=_filesystem_path(path, "opendir")))["handle"])
+
+    async def read_file(self, path, max_bytes=None):
+        return base64.b64decode((await self._call("read_file", path=_filesystem_path(path, "read_file"), max_bytes=max_bytes))["data_base64"], validate=True)
+
+    async def write_file(self, path, data):
+        return await self._call("write_file", path=_filesystem_path(path, "write_file"), data_base64=_filesystem_encode(data, "write_file"))
+
+    async def sync(self):
+        return await self._call("sync")
+
+    async def replace_file(self, path, data):
+        return await self._call("replace_file", path=_filesystem_path(path, "replace_file"), data_base64=_filesystem_encode(data, "replace_file"))
+
+    async def edit_file(self, path, expected, *, offset, delete_bytes, insert):
+        value = await self._call("edit_file", path=_filesystem_path(path, "edit_file"), inode=_filesystem_integer(getattr(expected, "inode", None), "edit_file"), version=_filesystem_integer(getattr(expected, "version", None), "edit_file"), offset=_filesystem_integer(offset, "edit_file"), delete_bytes=_filesystem_integer(delete_bytes, "edit_file"), data_base64=_filesystem_encode(insert, "edit_file"))
+        return FileVersion(int(value["inode"]), int(value["version"]))
+
+    async def read_dir(self, path, limit=100, cursor=None):
+        page = await self._call("read_dir", path=_filesystem_path(path, "read_dir"), limit=limit, cursor=cursor)
+        return DirectoryPage([DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in page["entries"]], page["next"])
+
+    async def collect_garbage(self):
+        return await self._call("collect_garbage")
+
+
 class Storage:
     def __init__(self, context: Context) -> None:
         self._context = context
@@ -324,13 +777,14 @@ class Storage:
         snapshot = await self.read_json(key)
         return snapshot.value if snapshot.present else default
 
-    async def apply(self, *, checks: Mapping[str, Snapshot] | None = None, puts: Mapping[str, JSON] | None = None, deletes: Iterable[str] = (), alarm_at_ms: int | None = None, delete_alarm: bool = False) -> None:
+    async def apply(self, *, checks: Mapping[str, Snapshot] | None = None, puts: Mapping[str, JSON] | None = None, deletes: Iterable[str] = (), alarm_at_ms: int | None = None, delete_alarm: bool = False, filesystem_checks=(), filesystem_mutations=()) -> None:
         checks = checks or {}
         if any(not isinstance(value, Snapshot) for value in checks.values()):
             raise ValidationError("checks must contain Snapshot values from read_json or MISSING")
         return await self._context._call(
             "storage.apply", checks={key: dict(present=s.present, value=s.value) for key, s in checks.items()},
-            puts=puts or {}, deletes=list(deletes), alarm_at_ms=alarm_at_ms, delete_alarm=delete_alarm)
+            puts=puts or {}, deletes=list(deletes), alarm_at_ms=alarm_at_ms, delete_alarm=delete_alarm,
+            filesystem_checks=list(filesystem_checks), filesystem_mutations=list(filesystem_mutations))
 
     async def put_json(self, key: str, value: JSON) -> None:
         await self.apply(puts={key: value})
@@ -586,6 +1040,11 @@ class Container:
         await self._context._call("container.intercept_outbound_http", target=target,
                                   service=dict(kind="binding", binding=binding))
 
+    async def intercept_outbound_https(self, target: str, binding: str) -> None:
+        """Route HTTPS through a declared service and the run's public CA."""
+        await self._context._call("container.intercept_outbound_https", target=target,
+                                  service=dict(kind="binding", binding=binding))
+
     async def exec(self, cmd: list[str], *, env: Headers = (), cwd: str | None = None,
                    user: str | None = None, combined: bool = False,
                    pty: tuple[int, int] | None = None) -> ContainerExec:
@@ -769,6 +1228,10 @@ class Context:
         }) if initial_storage else _EMPTY_INITIAL_STORAGE)
 
     @property
+    def fs(self) -> Filesystem:
+        return Filesystem(self)
+
+    @property
     def storage(self) -> Storage:
         # A handle retains its invocation, but the invocation must not retain
         # the handle: that cycle otherwise delays every request's reclamation.
@@ -874,18 +1337,37 @@ class Context:
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
-        value = _json.loads(payload)
+        try:
+            value = _json.loads(payload)
+            if type(value) is not dict or type(value["ok"]) is not bool:
+                raise ValueError("Invalid Cellar reply")
+            if value["ok"]:
+                result = value["value"] if body is None else (value["value"], body)
+            else:
+                error, code, outcome = value["error"], value["code"], value["outcome"]
+                completed = value.get("completed_bytes", 0)
+                if type(error) is not str or type(code) is not str or not code or outcome not in ("not_committed", "locally_committed", "unknown") or type(completed) is not int or not 0 <= completed < 2**64 or (value.get("errno") is not None and type(value["errno"]) is not str) or (value.get("operation") is not None and type(value["operation"]) is not str):
+                    raise ValueError("Invalid Cellar failure reply")
+                # A valid native envelope owns its evidenced outcome and cause.
+                error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
+                              "Overloaded": Overloaded, "Ambiguous": Ambiguous,
+                              "OwnershipLost": OwnershipLost}.get(code, SDKError)
+                failure = error_type(error, code, outcome)
+                failure.errno = value.get("errno")
+                failure.operation = value.get("operation")
+                failure.completed_bytes = completed
+        except Exception as cause:
+            # Settlement must reach the waiter even when metadata decoding
+            # fails. A corrupt reply cannot establish mutation rollback.
+            failure = SDKError("Invalid Cellar host reply", "HostError", "unknown")
+            failure.errno = "EIO"
+            failure.__cause__ = cause
+            future.set_exception(failure)
+            return
         if value["ok"]:
-            future.set_result(value["value"] if body is None else (value["value"], body))
+            future.set_result(result)
         else:
-            error = value["error"]
-            code = value["code"]
-            # The native envelope carries an explicit outcome. Never infer a
-            # rollback from a submitted mutation's generic backend failure.
-            error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
-                          "Overloaded": Overloaded, "Ambiguous": Ambiguous,
-                          "OwnershipLost": OwnershipLost}.get(code, SDKError)
-            future.set_exception(error_type(error, code, value["outcome"]))
+            future.set_exception(failure)
 
     def _close(self, finished=False):
         if not self._pending:

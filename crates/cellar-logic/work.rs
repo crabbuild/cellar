@@ -8,6 +8,7 @@ pub enum Reason {
     Outbox,
     StreamMaintenance,
     ResourceReconciliation,
+    FilesystemMaintenance,
 }
 
 impl Reason {
@@ -16,6 +17,7 @@ impl Reason {
             Self::Outbox => "outbox",
             Self::StreamMaintenance => "stream-maintenance",
             Self::ResourceReconciliation => "resource-reconciliation",
+            Self::FilesystemMaintenance => "filesystem-maintenance",
         }
     }
 
@@ -24,6 +26,7 @@ impl Reason {
             "outbox" => Some(Self::Outbox),
             "stream-maintenance" => Some(Self::StreamMaintenance),
             "resource-reconciliation" => Some(Self::ResourceReconciliation),
+            "filesystem-maintenance" => Some(Self::FilesystemMaintenance),
             _ => None,
         }
     }

@@ -274,6 +274,7 @@ async fn run(
         // Real local startup includes fencing and image boot, not peer latency.
         config.runtime.handler_budget = Duration::from_secs(120);
         services.containers = Some(cellar::container::EngineOptions {
+            capacity: None,
             socket: images.socket.clone(),
             namespace: Some(namespace),
             runtime: None,

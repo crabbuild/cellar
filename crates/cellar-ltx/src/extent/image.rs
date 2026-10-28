@@ -4,6 +4,7 @@
 //! files are disposable bytes, never durable inventory or admission authority.
 
 use super::{
+    fetch::{Access, Fetch},
     file::{ExtentDownload, ExtentFile},
     store::RootView,
     tree::{ExtentId, ExtentManifest, EXTENT_BYTES},
@@ -17,7 +18,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     io,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 /// Runs on the caller's owning blocking domain. The source retains every
@@ -56,9 +57,22 @@ struct Cache {
     files: BTreeMap<ExtentId, ExtentFile>,
     lru: VecDeque<ExtentId>,
     bytes: u64,
+    fetches: BTreeMap<ExtentId, Weak<Fetch>>,
 }
 
 impl Cache {
+    fn fetch(&mut self, id: ExtentId) -> Arc<Fetch> {
+        // Register under the cache mutex so a completed receive cannot slip
+        // between a cache miss and joining its existing physical owner.
+        self.fetches.retain(|_, fetch| fetch.strong_count() != 0);
+        if let Some(fetch) = self.fetches.get(&id).and_then(Weak::upgrade) {
+            return fetch;
+        }
+        let fetch = Arc::new(Fetch::default());
+        self.fetches.insert(id, Arc::downgrade(&fetch));
+        fetch
+    }
+
     fn get(&mut self, id: ExtentId) -> Option<ExtentFile> {
         let file = self.files.get(&id)?.clone();
         self.lru.retain(|candidate| *candidate != id);
@@ -208,7 +222,11 @@ impl ExtentImage {
                 .cache
                 .lock()
                 .map_err(|_| Error::Invalid("poisoned extent cache"))?;
-            std::mem::take(&mut *cache)
+            // Residency eviction must not forget an active receive. Its
+            // readers retain the same file and charge until their last close.
+            cache.bytes = 0;
+            cache.lru.clear();
+            std::mem::take(&mut cache.files)
         };
         drop(before);
         Ok(())
@@ -216,24 +234,36 @@ impl ExtentImage {
 
     fn extent(&self, index: u32) -> Result<ExtentFile, Error> {
         let id = self.inner.manifest.extent(index).ok_or(Error::Limit)?;
-        let (existing, retired) = {
+        let fetch = {
             let mut cache = self
                 .inner
                 .cache
                 .lock()
                 .map_err(|_| Error::Invalid("poisoned extent cache"))?;
-            match cache.get(id) {
-                Some(file) => (Some(file), Vec::new()),
-                None => (None, cache.make_room(id, self.inner.limits)?),
+            if let Some(file) = cache.get(id) {
+                drop(cache);
+                self.validate_at(&file, index)?;
+                return Ok(file);
             }
+            cache.fetch(id)
         };
+        let receive = match fetch.acquire()? {
+            Access::Ready(file) => {
+                self.validate_at(&file, index)?;
+                return Ok(file);
+            }
+            Access::Receive(receive) => receive,
+        };
+        let retired = self
+            .inner
+            .cache
+            .lock()
+            .map_err(|_| Error::Invalid("poisoned extent cache"))?
+            .make_room(id, self.inner.limits)?;
         drop(retired);
-        if let Some(file) = existing {
-            self.validate_at(&file, index)?;
-            return Ok(file);
-        }
-        // No cache mutex crosses source I/O, file verification or sync. The
-        // shared pool bounds duplicate concurrent misses and live reader pins.
+        // One producer spends the physical reservation. Waiting readers share
+        // its verified file even if another extent evicts its cache entry.
+        // No cache/fetch mutex crosses source I/O, verification or sync.
         let file = match &self.inner.source {
             Source::Local(view) => view.cached_extent(id, &self.inner.scratch)?,
             Source::Download(source) => {
@@ -265,6 +295,7 @@ impl ExtentImage {
             }
         };
         drop(retired);
+        receive.complete(selected.clone())?;
         Ok(selected)
     }
 

@@ -324,6 +324,39 @@ joined process retirement. An explicit native host profile also starts an owned
 helper before its application and removes the pair together. The optional HTTP
 profile below routes those streams to native services.
 
+### Native capacity admission
+
+Set `EngineOptions::capacity` to `Some(CapacityLimits::new(instances, bytes)?)`
+for a hard budget on one host's managed application containers and helpers.
+Choose the budget from the actual Docker/Podman daemon or VM allocation, leaving
+space for Cellar, the daemon, image loading and the shared firewall helper. Hosts
+sharing a daemon need disjoint budgets; Cellar does not reserve other hosts' work.
+
+```mermaid
+flowchart LR
+    Start[Start request] --> Admit{Instance and memory budget}
+    Admit -->|Full| Refuse[ResourceExhausted / not_committed]
+    Admit -->|Reserved| Create[Create and start]
+    Create -->|Lost response| Hold[Retain reservation]
+    Create -->|Running| Hold
+    Hold --> Proof[Confirmed exit or owned removal]
+    Proof --> Release[Release capacity]
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Concurrent starts | Local admission is atomic across execution cells; exhausted capacity refuses before Engine effects |
+| Memory | Charge the class's application memory cap and, when configured, the helper's 256 MiB cap |
+| Unknown create/start/wait | Retain capacity; an empty inspection cannot prove an entered create was rejected |
+| Cleanup | Resolve ownership labels, remove by immutable ID, and retain unresolved cleanup obligations |
+| Class limit | `max_instances` is hard locally; fleet-wide enforcement remains based on sampled peer counts |
+| No host budget | `capacity: None` preserves class limits and advisory fleet scheduling; it supplies no hard aggregate memory budget |
+
+Rust receives `cellar::container::CapacityExceeded`. The shared Python/JS/TS
+bridge reports `ResourceExhausted` with `outcome: "not_committed"` for this start
+refusal. An earlier mutation may still have an unknown outcome. Queueing,
+placement retry and dynamic named sandbox allocation remain separate work.
+
 ### Optional native network-helper lifecycle
 
 The hosting Rust process selects this profile for any handler language. Supply
@@ -343,6 +376,10 @@ fn engine(
         namespace: Some("my-native-host".into()),
         runtime: Some("runc".into()),
         dns: Vec::new(),
+        capacity: Some(cellar::container::CapacityLimits::new(
+            16, // example host instance budget
+            24 * 1024 * 1024 * 1024, // example 24 GiB application/helper budget
+        )?),
         network_helper: Some(ContainerNetworkHelperOptions::new(
             helper_image, // full sha256: ID or verified cellar-image: identity
             "/opt/cellar-egress/bin/cellar-egress".into(),
@@ -358,7 +395,7 @@ fn engine(
 | Runtime | Explicit `runc`; other runtimes refuse this profile before allocation |
 | Namespace | Application joins its run's helper; the application retains no `NET_ADMIN` capability |
 | Ports / DNS | Helper owns at most 64 combined image/class TCP publications and its explicit DNS upstream |
-| Capacity | Reserve another 256 MiB for each allocated helper until removal is confirmed |
+| Capacity | Reserve application memory plus 256 MiB for its helper before allocation; retain uncertain outcomes until owned cleanup |
 | Idle reconnect | Preserve the same application/helper IDs and join the old inactivity timer |
 | Ownership loss | Retire private transport before waiting for SDK control; remove the application before the helper |
 | Helper loss | Refuse usable routing, publish the failure and clean up both owned resources |
@@ -423,7 +460,7 @@ Portable facades select a host-declared service binding by name:
 | Resource bounds | 128 interceptor entries; hostnames and catch-all cost two, IP/CIDR one; 64 KiB captured route; 128 / 64 KiB headers; 8 KiB URL |
 | Bodies | Stream with backpressure; buffered response prefix at most 1 MiB; stop transport and joined handlers on retirement |
 | Refusal | Fixed 502 before response publication; later body failure closes the stream; no replay |
-| Gaps | HTTPS interception, upgrades, trailers and full persistence/fault qualification |
+| Gaps | Upgrades, trailers and full persistence/fault qualification; HTTPS requires the separate opt-in below |
 
 Node Workers gateways opt in to incoming body streaming with
 `Source::workers_http_streams()`. Each source pull uses the original invocation
@@ -436,6 +473,59 @@ uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
 keep SDK/image evidence separate from router and provider tests. S3 mounts and
 complete Sandbox 1.x compatibility remain open.
 
+### Opt in to HTTPS interception
+
+The native host selects both TLS infrastructure and provider capabilities. The
+public certificate path and client trust follow the [Cloudflare outbound traffic
+contract](https://developers.cloudflare.com/containers/configuration/outbound-traffic/):
+
+```rust,no_run
+use cellar::sdk::{ContainerHttpsInterceptionOptions, ContainerNetworkHelperOptions};
+
+fn tls_helper(image: String) -> anyhow::Result<ContainerNetworkHelperOptions> {
+    Ok(ContainerNetworkHelperOptions::new(
+        image,
+        "/opt/cellar-egress/bin/cellar-egress".into(),
+        "1.1.1.1:53".parse()?,
+    ).with_https_interception(ContainerHttpsInterceptionOptions::public_web_roots()?))
+}
+// Configure the adapter separately with Native.with_https_interception().
+```
+
+```mermaid
+flowchart LR
+    C[Container trusts public run CA] -->|TLS| H[Native TLS termination]
+    H -->|Matched rule: fresh ownership gate| G[Declared gateway]
+    H -->|Unmatched: verify original server| N[Marked helper connection]
+    K[Private run CA key in host] --> H
+```
+
+| Boundary | HTTPS profile |
+| --- | --- |
+| Opt-in | `Native.with_https_interception()` includes HTTP and HTTPS; configure `NetworkHelperOptions::with_https_interception` too |
+| CA | Fresh per run; public certificate installed before application startup at `/etc/cloudflare/certs/cloudflare-containers-ca.crt`; private key stays in the host |
+| Client trust | Explicit image/client trust, such as `NODE_EXTRA_CA_CERTS` or `REQUESTS_CA_BUNDLE`; installing the file alone does not change a client's trust store |
+| Targets | Same bare hostname, wildcard, IP/CIDR syntax; default port 443; `"*"` is the HTTPS catch-all; HTTP and HTTPS share the 128-entry budget |
+| Identity | Canonical HTTP `Host` must match TLS SNI, or the original IP for clients without SNI; authority port must match the kernel destination |
+| Retained connections | Capture 443 from startup; look up the current handler for every decrypted message |
+| Unmatched HTTPS | Use the original destination through the helper and validate its TLS certificate/name against host-selected roots; guest custom roots and client certificates are not forwarded |
+| Bounds | HTTP/1.1, 5-second handshake/read deadlines, 64 KiB pending TLS write buffer and 64 cached leaf configurations per run; CA validity is one year, then a new run is required |
+| Retirement | Close the run's transport and join handlers; another or closed host cannot reuse the CA signer |
+| Limits | No HTTP/2, upgrades, trailers or generic TLS protocol interception |
+
+| Language | HTTPS registration |
+| --- | --- |
+| Rust | `ctx.container()?.intercept_outbound_https(&ctx, "*.example.test", &ctx.service("API")?).await?` |
+| JavaScript / TypeScript | `await ctx.container.interceptOutboundHttps("*.example.test", "API")` |
+| Python | `await ctx.container.intercept_outbound_https("*.example.test", "API")` |
+| Workers facade | `await this.ctx.container.interceptOutboundHttps("*", this.ctx.exports.Gateway({ props: { mode: "read" } }))` |
+| Bridge operation | `container.intercept_outbound_https`, same copied service input as HTTP, explicit string target |
+
+Ordinary Native, HTTP-only Native and remote providers omit HTTPS capability.
+Calls refuse before effects when either required host profile is absent. The
+[matching-image fixture](../../tools/sandbox/cloudflare-v1/https.mjs) is qualified
+separately from TLS/router unit tests; see its [run instructions](../../tools/sandbox/cloudflare-v1/README.md#https-interception).
+
 Known-length R2 uploads use native anonymous-file part staging with bounded
 bridge chunks, host scratch byte/file limits and atomic receipt replacement.
 The [native upload contract](../cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
@@ -446,10 +536,11 @@ The directory-backup campaign also restores from fresh native/Node processes
 and checks allocation-time cancellation, missing/corrupt archives, destination
 preservation and grant revocation. Selected first-chunk cancellation and failed
 completion/deletion acknowledgements also preserve their failure outcomes without
-mutation replay. Abrupt crashes, larger/multi-part and verified-swap cancellation,
-lost transport responses and full image-level lost-create qualification remain
-open. The published gateway separately covers a failed create acknowledgement
-followed by automatic expiry in a replacement native host. Local Blob storage
+mutation replay. The published SDK and matching image also cover a failed create
+acknowledgement and a hard crash with a stored part awaiting its receipt. A third
+host reclaims expired uploads, reaps the exact crashed application/helper IDs and
+restores the original archive. Broader crash boundaries, larger/multi-part and
+verified-swap cancellation and lost transport responses remain open. Local Blob storage
 uses fixed deadlines and bounded, domain-owned orphan collection; see the
 [expiry contract](../cellar/application/blob/README.md#expiry-and-abandoned-uploads)
 for scope, shutdown, clock and remote-provider limits.

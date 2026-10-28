@@ -20,6 +20,8 @@ mod body;
 mod counter;
 #[path = "facets/main.rs"]
 mod facets;
+#[path = "filesystem/main.rs"]
+mod filesystem;
 #[path = "hello/main.rs"]
 mod hello;
 #[path = "kv/main.rs"]
@@ -95,6 +97,7 @@ async fn dispatch(context: Context, invocation: Invocation) -> Result<Output> {
                     websocket::client(&context, path.ends_with("/outbound")).await
                 }
                 "facets" => support::route(&context, request, "SUPERVISORS").await,
+                "notebooks" => support::route(&context, request, "NOTEBOOKS").await,
                 "tenants" => tenants::fetch(&context, request).await,
                 "outbox" => support::route(&context, request, "OUTBOX").await,
                 "agents" => support::route(&context, request, "AGENTS").await,
@@ -133,6 +136,8 @@ fn application() -> Result<Arc<dyn Application>> {
         .cell("Account", |_, _| Ok(support::cell(tenants::Account)))?
         .cell("Outbox", |_, _| Ok(support::cell(outbox::Outbox)))?
         .cell("Agent", |_, _| Ok(support::cell(agent::Agent)))?
+        .cell("Notebook", |_, _| Ok(support::cell(filesystem::Notebook)))?
+        .filesystem("Notebook", cellar::sdk::filesystem::Policy::default())?
         .workflow("Report", |context, event, steps| {
             Box::pin(workflow::run(context, event, steps))
         })?,
@@ -162,6 +167,7 @@ const SCRIPTS: &[&str] = &[
     "native-multi-tenant",
     "native-transactional-outbox",
     "native-durable-agent",
+    "native-filesystem",
 ];
 
 fn main() -> Result<()> {

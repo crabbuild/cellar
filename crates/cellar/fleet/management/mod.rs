@@ -9,8 +9,10 @@
 mod crons;
 mod event_inventory;
 mod events;
+mod filesystem;
 pub use crons::CronConfiguration;
 pub use events::{EventStreamAction, OutboxAction};
+pub use filesystem::{FilesystemQuotas, FilesystemState, FilesystemUsage};
 mod inventory;
 mod kv;
 pub use kv::{EditExpiration, KvEdit, RevisionCondition};

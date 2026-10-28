@@ -14,6 +14,15 @@ use sha2::{Digest, Sha256};
 const MAX_REPLAY_BYTES: usize = 4 * 1024 * 1024;
 const MAX_REPLAY_ENTRIES: usize = 64;
 
+/// Logical output work of a completed restore under one verifier's apply
+/// limits. It includes the base image and every subsequent private batch.
+/// This does not measure OS bytes, elapsed time or a receiver's different limits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct Work {
+    pub images: u32,
+    pub image_bytes: u64,
+}
+
 #[derive(Default, Clone, Copy)]
 struct Usage {
     files: usize,
@@ -77,6 +86,7 @@ impl Batch<'_> {
         sequence: &mut u64,
         pin: &mut Option<GenerationPin>,
         activity: Option<cellar_ltx::host::IoActivity>,
+        work: &mut Work,
     ) -> Result<(), ArchiveError> {
         if self.is_empty() {
             return Ok(());
@@ -108,6 +118,11 @@ impl Batch<'_> {
             None => images.prepare_chain_with_activity(id, pin.as_ref(), &updates, activity),
         }
         .map_err(ArchiveError::Images)?;
+        work.images = work.images.checked_add(1).ok_or(ArchiveError::Limit)?;
+        work.image_bytes = work
+            .image_bytes
+            .checked_add(next.state().length)
+            .ok_or(ArchiveError::Limit)?;
         if let Some(previous) = pin.take() {
             images.retire(previous.id()).map_err(ArchiveError::Images)?;
             drop(previous);
@@ -144,13 +159,22 @@ impl MaterializedSet {
         images: &GenerationStore,
         nonce: ImageId,
     ) -> Result<Option<GenerationPin>, ArchiveError> {
+        self.restore_with_work(images, nonce).map(|(pin, _)| pin)
+    }
+
+    pub(super) fn restore_with_work(
+        &self,
+        images: &GenerationStore,
+        nonce: ImageId,
+    ) -> Result<(Option<GenerationPin>, Work), ArchiveError> {
         let Some(snapshot_image) = self.manifest.snapshot.image else {
             self.check_payloads()?;
-            return Ok(None);
+            return Ok((None, Work::default()));
         };
         let mut state = snapshot_image.decode()?;
         let mut sequence = 0;
         let mut pin = None;
+        let mut work = Work::default();
         let mut batch = Batch {
             snapshot: Some(
                 self.snapshot
@@ -187,6 +211,7 @@ impl MaterializedSet {
                     &mut sequence,
                     &mut pin,
                     self.activity.clone(),
+                    &mut work,
                 )?;
             }
             let update = self.update(entry, state)?;
@@ -204,6 +229,7 @@ impl MaterializedSet {
                     &mut sequence,
                     &mut pin,
                     self.activity.clone(),
+                    &mut work,
                 )?;
             }
             batch.usage = batch.usage.add(
@@ -230,6 +256,7 @@ impl MaterializedSet {
                     &mut sequence,
                     &mut pin,
                     self.activity.clone(),
+                    &mut work,
                 )?;
             }
             state = result;
@@ -240,12 +267,13 @@ impl MaterializedSet {
             &mut sequence,
             &mut pin,
             self.activity.clone(),
+            &mut work,
         )?;
         let pin = pin.ok_or(ArchiveError::Corrupt("missing restored archive image"))?;
         if Some(super::super::manifest::Image::from(pin.state())) != self.manifest.image {
             return Err(ArchiveError::Corrupt("restored archive image digest"));
         }
-        Ok(Some(pin))
+        Ok((Some(pin), work))
     }
 }
 

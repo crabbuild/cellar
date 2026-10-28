@@ -182,6 +182,7 @@ fn fixture(directory: &std::path::Path) -> Result<(Arc<ContainerEngine>, Arc<Cel
             "/bin/helper".into(),
             "127.0.0.11:53".parse()?,
         )),
+        capacity: None,
         resolv_conf: None,
         docker: Docker::new(directory.join("unused.sock")),
         node: "unit".into(),
@@ -225,7 +226,7 @@ async fn empty_inventory_cannot_discharge_an_unresolved_create() -> Result<()> {
     let result = domain
         .run(async {
             let peer = asyncrt::spawn(async move {
-                for _ in 0..2 {
+                for _ in 0..3 {
                     let (mut stream, _) = listener.accept().await?;
                     let mut request = Vec::new();
                     while !request.ends_with(b"\r\n\r\n") {
@@ -244,24 +245,30 @@ async fn empty_inventory_cannot_discharge_an_unresolved_create() -> Result<()> {
                 }
                 Ok::<_, anyhow::Error>(())
             });
-            for submitted in [false, true] {
+            for (submitted, application_submitted) in [(false, false), (true, false), (false, true)]
+            {
                 let (engine, cell) = fixture(directory.path())?;
                 let number = cell.begin_run();
                 let network = Run::new(number)?;
                 network
                     .creation_submitted
                     .store(submitted, Ordering::Release);
+                if application_submitted {
+                    network.id.set(ContainerId::new(&"c".repeat(64))?).unwrap();
+                }
                 {
                     let mut state = cell.state.lock().unwrap();
                     state.running = false;
                     state.network = Some(network.clone());
+                    state.creation_submitted = application_submitted;
+                    state.capacity_reserved = application_submitted;
                 }
                 let result = asyncrt::timeout(
                     Duration::from_secs(2),
                     engine.cleanup_network(&cell, &network),
                 )
                 .await?;
-                if submitted {
+                if submitted || application_submitted {
                     assert!(result
                         .unwrap_err()
                         .to_string()
@@ -273,7 +280,11 @@ async fn empty_inventory_cannot_discharge_an_unresolved_create() -> Result<()> {
                         .network
                         .as_ref()
                         .is_some_and(|current| Arc::ptr_eq(current, &network)));
-                    assert_eq!(engine.reserved_memory_bytes(), MEMORY_BYTES);
+                    assert_eq!(
+                        engine.reserved_memory_bytes(),
+                        MEMORY_BYTES
+                            + u64::from(application_submitted) * instance_memory_bytes(None)
+                    );
                 } else {
                     result?;
                     assert!(cell.state.lock().unwrap().network.is_none());

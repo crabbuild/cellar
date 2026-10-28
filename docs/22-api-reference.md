@@ -13,6 +13,7 @@ Rust documentation, run the command below from the repository root.
 | Define handlers | `Application`, `Cell`, `Registry`, `Context`, `Invocation`, `Output`, `HandlerFuture` | [contracts](../crates/cellar/application/mod.rs) |
 | Identify/call cells | `cells::Namespace`, `Id`, `Stub`; `Context::namespace`, `exported_namespace`; stub `fetch`, `rpc`, `call`, signal variants | [cells](../crates/cellar/application/cells.rs) |
 | Current cell state | `Storage`, `ListOptions`; JSON/clone get/put/list, SQL, cursors, `sync`, alarms | [storage](../crates/cellar/application/storage/mod.rs) |
+| Current cell files | `Context::fs`, `Storage::fs` / `tx.fs`; `filesystem::{Filesystem, File, Directory, OpenOptions}`; POSIX-compatible bounded operations and proof barriers | [filesystem guide](../crates/cellar/application/filesystem/README.md), [facade](../crates/cellar/application/filesystem/mod.rs) |
 | Atomic cell operations | `tx`, `transaction`, `transaction_sync`, `rollback`; activation/domain admission at access and commit | [transactions](../crates/cellar/application/storage/transaction.rs) |
 | Outbox publication | `Context::stream::<E>`, `event_stream::Event`, `Stream<E>`, `tx.emit`; `Storage::outbox` | [event delivery guide](26-event-delivery.md), [handles](../crates/cellar/application/event_stream/mod.rs) |
 | Durable history | `event_stream::Stream::read`, `ReadOptions`, `Cursor`, `Page`, `Record` | [stream client](../crates/cellar/application/event_stream/client.rs) |

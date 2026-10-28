@@ -146,6 +146,7 @@ pyo3-build-config = { version = "=0.30.1" }
 proc-macro2 = "1"
 syn = "2"
 rand = "0.8"
+rcgen = { version = "0.14.10", default-features = false, features = ["crypto", "ring", "pem"] }
 # Direct paths keep the host adapters active for external SDK workspaces too;
 # workspace-only Cargo patches would be ignored by those consumers.
 raft = { path = "vendor/raft", version = "=0.7.0", default-features = false, features = ["protobuf-codec"] }
@@ -177,6 +178,7 @@ sha2 = { version = "0.10", features = ["asm"] }
 sqlite-vec = "=0.1.9"
 subtle = "2"
 tar = "0.4"
+time = { version = "0.3", default-features = false, features = ["std"] }
 tempfile = "3"
 thiserror = "2"
 # `stats` makes `stats.allocated` and `stats.resident` readable. The pressure

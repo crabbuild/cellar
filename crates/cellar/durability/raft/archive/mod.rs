@@ -28,11 +28,16 @@ mod physical;
 mod publication;
 mod replay;
 mod representation;
+mod retention;
 mod root_head;
 mod rooted;
 mod verifier;
 
 pub use representation::{ArchiveMetadata, ArchiveRecoverySet, CommittedArchiveCut};
+pub use retention::{
+    RootAllocation, RootDescriptor, RootIntent, RootProtection, RootReference, RootRegistry,
+    RootRegistryId, RootReservation,
+};
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
 
@@ -57,6 +62,7 @@ pub enum ArchiveError {
     Conflict,
     Limit,
     Unconfirmed,
+    ReferenceExpired,
     Stopped,
     Timeout,
     Log(super::storage::LogError),
@@ -108,6 +114,11 @@ pub struct ArchiveLimits {
     /// replay do not grow to the absolute set limit. Larger values trade fewer
     /// snapshot writes for more retained-history work; other limits still apply.
     pub max_tail_image_ratio: u32,
+    /// Rotate a materialized tail after its successful physical verification
+    /// requires more than this many complete private image seals (1..=4096).
+    /// The count uses this node's verifier apply limits; it is not a latency
+    /// guarantee for a destination with different replay limits.
+    pub max_replay_images: u32,
     pub max_dependencies: usize,
 }
 
@@ -125,6 +136,7 @@ impl Default for ArchiveLimits {
             max_entries: 1024,
             max_tails: 32,
             max_tail_image_ratio: 2,
+            max_replay_images: 2,
             max_dependencies: 128,
         }
     }
@@ -147,6 +159,7 @@ impl ArchiveLimits {
             || !(1..=4096).contains(&self.max_entries)
             || !(1..=128).contains(&self.max_tails)
             || !(1..=128).contains(&self.max_tail_image_ratio)
+            || !(1..=4096).contains(&self.max_replay_images)
             || self.max_dependencies > 1024
         {
             return Err(ArchiveError::Limit);
@@ -620,9 +633,15 @@ impl CellArchive {
     ) -> Result<MaterializedSet, ArchiveError> {
         self.validate_materialized_cut(&cut)?;
         for _ in 0..8 {
-            let previous = self.load_materialized_head_metadata().await?;
+            let mut previous = self.load_materialized_head_metadata().await?;
+            let mode = previous
+                .as_ref()
+                .map_or(PutMode::Create, |(_, _, version)| {
+                    PutMode::Update(version.clone())
+                });
             if let Some((metadata, _, _)) = &previous {
                 let old = metadata.manifest.position;
+                let previous_has_image = metadata.manifest.image.is_some();
                 if old.index >= cut.position.index.get() {
                     if old.term < cut.position.term.get()
                         || old.index == cut.position.index.get()
@@ -634,13 +653,24 @@ impl CellArchive {
                         return Err(ArchiveError::Conflict);
                     }
                     let metadata = previous
+                        .take()
                         .map(|(metadata, _, _)| metadata)
                         .ok_or(ArchiveError::Unconfirmed)?;
-                    return self
-                        .verify_set(self.load_material(metadata).await?, verifier)
-                        .await;
+                    let (set, work) = self
+                        .verify_set_with_work(self.load_material(metadata).await?, verifier)
+                        .await?;
+                    if old.index > cut.position.index.get()
+                        || set.manifest.tails.is_empty()
+                        || work.images <= self.limits.max_replay_images
+                    {
+                        return Ok(set);
+                    }
+                    // We own the exact same cut and have reverified its entire
+                    // selected history. Replace an over-budget existing tail
+                    // with a full base under its original conditional version.
+                    drop(set);
                 }
-                if metadata.manifest.image.is_some() && cut.image.is_none() {
+                if previous_has_image && cut.image.is_none() {
                     return Err(ArchiveError::Conflict);
                 }
                 if old.term > cut.position.term.get() {
@@ -700,15 +730,7 @@ impl CellArchive {
                     && count <= self.limits.max_entries)
                     .then_some((entries, tail_bytes > image_budget))
             });
-            let mode = previous
-                .as_ref()
-                .map_or(PutMode::Create, |(_, _, version)| {
-                    PutMode::Update(version.clone())
-                });
-            let PreparedManifest {
-                mut manifest,
-                confirmed_snapshot,
-            } = match (tail, previous) {
+            let prepared = match (tail, previous) {
                 (Some((entries, true)), Some((metadata, _, _))) => {
                     // A cost-based checkpoint replaces an otherwise valid
                     // extension. Verify every intermediate transition before
@@ -796,6 +818,28 @@ impl CellArchive {
                     }
                 }
             };
+            if let Some(set) = self
+                .publish_materialized_candidate(&cut, prepared, mode, verifier)
+                .await?
+            {
+                return Ok(set);
+            }
+        }
+        Err(ArchiveError::Unconfirmed)
+    }
+
+    async fn publish_materialized_candidate(
+        &self,
+        cut: &MaterializedCut,
+        mut prepared: PreparedManifest,
+        mode: PutMode,
+        verifier: &ArchiveVerifier,
+    ) -> Result<Option<MaterializedSet>, ArchiveError> {
+        loop {
+            let PreparedManifest {
+                mut manifest,
+                confirmed_snapshot,
+            } = prepared;
             let mut dependencies: BTreeMap<_, _> = manifest
                 .dependencies
                 .iter()
@@ -845,7 +889,17 @@ impl CellArchive {
                 Some(snapshot) => self.load_confirmed_material(metadata, snapshot).await?,
                 None => self.load_material(metadata).await?,
             };
-            let set = self.verify_set(set, verifier).await?;
+            let (set, work) = self.verify_set_with_work(set, verifier).await?;
+            if !manifest.tails.is_empty() && work.images > self.limits.max_replay_images {
+                tracing::info!(event = "raft_archive_phase", phase = "replay_budget_checkpoint", cell = %self.scope.cell, index = manifest.position.index, verified_restore_images = work.images, verified_restore_image_bytes = work.image_bytes, max_replay_images = self.limits.max_replay_images);
+                // Verification above includes every intermediate transition and
+                // remote dependency. Only then may a new base discard tails.
+                // No over-budget candidate head has been written. The fresh
+                // base below still needs its own confirmation and replay proof.
+                drop(set);
+                prepared = self.snapshot_manifest(cut).await?;
+                continue;
+            }
             let desired = manifest::encode(
                 2,
                 &Head {
@@ -860,16 +914,16 @@ impl CellArchive {
                     self.store.put_opts(
                         &self.key("head"),
                         desired.clone().into(),
-                        PutOptions::from(mode),
+                        PutOptions::from(mode.clone()),
                     ),
                 )
                 .await;
             match self.read(&self.key("head"), 4096, None).await? {
                 Some((observed, _)) if observed == desired => {
                     tracing::info!(event = "raft_archive_phase", phase = "head_confirmed", cell = %self.scope.cell, index = manifest.position.index);
-                    return Ok(set);
+                    return Ok(Some(set));
                 }
-                Some(_) => continue,
+                Some(_) => return Ok(None),
                 None => {
                     return match outcome {
                         Err(error) => Err(error),
@@ -878,7 +932,6 @@ impl CellArchive {
                 }
             }
         }
-        Err(ArchiveError::Unconfirmed)
     }
 
     async fn snapshot_manifest(
@@ -980,23 +1033,23 @@ impl CellArchive {
             .map_err(ArchiveError::Worker)?
     }
 
-    async fn verify_set(
+    async fn verify_set_with_work(
         &self,
         set: MaterializedSet,
         verifier: &ArchiveVerifier,
-    ) -> Result<MaterializedSet, ArchiveError> {
+    ) -> Result<(MaterializedSet, replay::Work), ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
-        let (set, replay) = self
+        let (set, verification) = self
             .host
             .run_blocking(move || {
-                let replay = verifier.verify(&set)?;
-                Ok::<_, ArchiveError>((set, replay))
+                let verification = verifier.verify_with_work(&set)?;
+                Ok::<_, ArchiveError>((set, verification))
             })
             .await
             .map_err(ArchiveError::Worker)??;
-        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = replay == verifier::Replay::Reused, image_bytes = set.manifest.image.map_or(0, |image| image.length));
-        Ok(set)
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = verification.replay == verifier::Replay::Reused, image_bytes = set.manifest.image.map_or(0, |image| image.length), verified_restore_images = verification.work.images, verified_restore_image_bytes = verification.work.image_bytes);
+        Ok((set, verification.work))
     }
 
     async fn load_materialized_head_metadata(

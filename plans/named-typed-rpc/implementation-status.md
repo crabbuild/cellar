@@ -17,11 +17,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Current head `1a2be141` passes both local full matrices and live profiles. Hosted GIL profile and JavaScript container recovery fail on lease expiry; the free-threaded full matrix is still running. Require final SDK, JavaScript, typed-RPC and example gates. Preserve exact failing logs and identities below. |
+| P0 — hosted verification | Final hosted gates | Published follow-up `3f956a37` passes both complete hosted typed-RPC jobs, including profile, lifecycle and full failure matrices (run `40634369106`, jobs `122637805858` and `122637805589`). Its preceding `1a2be141` source passes both local full matrices and live profiles, with the hosted lease failures preserved below. The pending guest-response handoff and updated-main integration have separate qualification below. Require final SDK, JavaScript, typed-RPC and example gates. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
-| P1 | Language/profile coverage | The response-pool production source passes all 19 Counter/failure suites in both actual local CPython modes: 1,016 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published native-decoder head `fa1543f1` also passes both hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
+| P1 | Language/profile coverage | The latest frozen guest-response source passes all 19 Counter/failure suites in both actual local CPython modes: 1,032 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published follow-up `3f956a37` also passes both complete hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -278,6 +278,99 @@ observer/dependency edges differ from the production source of the preceding
 1,016-case full run. This slice does not close other partial-write/flood and
 effective-limit combinations, retained-copy/RSS qualification, the preserved
 V8/lease failures, package identity, method diagnostics or performance gates.
+
+## Native response to guest bridge admission (2026-10-27; local slice qualified, release open)
+
+A real-node regression calls the shared guest RPC operation and waits before
+admitting its validated business vector into a bridge byte budget. With the
+retained-response plumbing delegated to the existing raw-vector path, the
+generated count is 42 and bridge admission succeeds, but both native admission
+observations are false. Preserve that exact failed executable
+(`112af9811c5cdaa073742dea4960b3ee7b078713ff58f9a8ba7643efdf3492b0`),
+sources, lock and log under
+`.cellar/rpc/diagnostics/guest-response-handoff-red-v1/`.
+
+The adapter API now returns validated bytes with an opaque response owner.
+JavaScript/Node and Python carry that owner through native result encoding and
+both ready/pending completion paths. Their bridge acquires byte capacity and
+queues the result before the native frame is released. Existing raw-vector API
+signatures remain intact; deadlines, cancellation and failure provenance retain
+their original paths. No transport, descriptor or format-marker change occurs.
+
+Both real-node tests pass: plain and pre-codec-budget calls, bridge refusal,
+and host cancellation while a response awaits bridge admission. They verify
+overlapping ownership and zero native reservations after join. JavaScript
+callback scopes require owned static futures; carry the owner in their result
+rather than borrowing outer state. Both adapter library checks pass after that
+correction.
+
+The frozen pre-integration batch (`guest-response-handoff-v1`, based on
+`3f956a37` plus this pending change) passes 780 core tests, 38 selected native
+integrations, all 131 JavaScript adapter tests (seven external tests ignored),
+Python's 31 units plus streaming/typed-RPC integrations in both configured build
+modes, 13 generator tests, both 41-case qualifier guards, and the completed
+Python/qualifier/Axum Clippy checks. All 55 recorded checks pass. Each frozen
+executable passes 576 live portable-profile calls and the complete 19-suite,
+1,032-case failure driver, including 128 peer faults, 144 saturation cases and
+128 proof-wait cases. Independent profile, peer, provenance, saturation,
+guest-control and actual-mode auditors pass; all 3,860 watched inputs and both
+copied executables stay unchanged. The loaded modes are GIL CPython 3.14.6/upb
+and free-threaded CPython 3.14.5/python, both with Protobuf 7.34.2. The two modes
+run concurrently; these are correctness results, not isolated performance data.
+A passing V8 container rerun does not explain or fix the earlier timeout.
+
+| Frozen artifact | SHA-256 |
+| --- | --- |
+| Source manifest | `375766e982fe553ebb1c7bb17f16f5c3e1bc25da72a0e2da124c6117c6c7b93b` |
+| GIL executable | `27ba8402f043581d2f630c2ac68ba1775b71f4939ef9154b0ae7c78531390f6a` |
+| Free-threaded executable | `b9fef7d2320dfd16c9fac3fe3c792677e33d71b88eeb447880fe3a048c8eeefa` |
+| GIL full report | `9ee28d5a0f59992217ec3479687e5976b2ee351cf020a6dff5a1aa903673f38d` |
+| Free-threaded full report | `8b7a583e80fe108f5c1acb8071eec48d4cf76e8f2ec5396ee71af3247b8daf98` |
+
+PR #143 merged during that run. A separate integration checkout starts at
+updated `main` (`3ffbadcc`); this change applies cleanly and preserves main's
+incoming Workers streams and R2 part operations. Its fresh private build and
+owning-boundary checks found the forced-closure race below. Its JavaScript
+tooling passes all 149 tests; RPC builds, tests and typechecks, documentation
+links and the 482-package native dependency guard pass. The pre-integration
+results do not qualify the additional main changes; neither snapshot establishes
+release qualification.
+
+### Forced closure can retire monitor channels
+
+On updated main, the new real-node cancellation test intermittently returns
+`CoreFailed: the core actor thread panicked`. Thirty isolated replays pass;
+the twelfth serial two-test replay reproduces that exact result. Preserve its
+executable (`107e6adfc56d79a532648d0e09ab679e528c4223f45f5490be46b4e4f0df3e06`),
+source patch and logs under `.cellar/rpc/diagnostics/main-cancel-channel-v1/`.
+
+The driver interprets an empty core-exit channel as a panic. Domain closure
+aborts the monitor task, which drops that sender. An already-entered root poll
+can observe this EOF before polling the domain's closure notice again. A
+deterministic entered-poll regression reproduces `CoreFailed` instead of
+`Cancelled` without a clock delay or panic. Its exact failed executable
+(`875ad15f9200063b67463b2961158e44fc7280ce599870a67db2472aa26cbf8c`),
+source patch and single-test failure are preserved under
+`.cellar/rpc/diagnostics/cancel-channel-red-v2/`.
+
+The shared driver now distinguishes channel retirement after domain closure
+from missing reports in a live domain, in serving and both shutdown phases.
+Only EOF plus closed authority becomes `Cancelled`. Actual core-exit and fence
+reports retain their original outcomes even after closure. All nine driver tests
+pass, including the entered-poll regression, live
+missing-report failures, and preserved reported core errors/fences after closure.
+The complete updated-main guest command now passes 34 unit tests, the allocation
+regression and both real-node response tests. Thirty serial repetitions of the
+two-test executable pass (60 tests), including native request/response census
+after join. Its hash stays
+`60a6407dda89eb883a21c39d9f04dcb25e5267c61fe97e190a5671680cd8f3d3`
+through the campaign. Formatting, layout, all-target/all-feature Clippy for the
+core and three adapter crates, Node-only and embedded-only builds, documentation
+links and the native dependency guard pass. The first integrated Clippy attempt
+stopped on a missing generated example bundle; building the three pinned example
+fixtures from the SDK workflow resolves that prerequisite, and the complete
+command passes. This cause is separate from the
+unresolved V8/lease timeouts; no budgets or durability-proof assertions change.
 
 ## Work packages
 

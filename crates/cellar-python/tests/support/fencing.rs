@@ -2,6 +2,7 @@
 
 //! Force a real lease mismatch while Python holds a live cell context, recover
 //! acknowledged state in a new domain, and resume the noncooperative old task.
+use super::fault_gates::force_lease_field;
 use super::*;
 
 /// Change the real published node generation, then join its observed outcome.
@@ -21,33 +22,6 @@ pub(super) async fn force_node_address(
     name: &str,
 ) -> Result<NodeOutcome> {
     force_lease_field(bucket, node, name, "addr", "http://127.0.0.1:1").await
-}
-
-async fn force_lease_field(
-    bucket: &cellar::bucket::Bucket,
-    node: Node,
-    name: &str,
-    field: &str,
-    value: &str,
-) -> Result<NodeOutcome> {
-    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-    let fault = domain
-        .run(async {
-            let key = format!("nodes/{name}.json");
-            let (bytes, _) = bucket.get(&key).await?.context("published node lease")?;
-            let mut lease: Value = serde_json::from_slice(&bytes)?;
-            lease[field] = json!(value);
-            bucket.put(&key, serde_json::to_vec(&lease)?).await?;
-            Ok::<_, anyhow::Error>(())
-        })
-        .await;
-    domain.shutdown().await;
-    fault??;
-    tokio::time::timeout(
-        Duration::from_secs(10),
-        node.run_until(std::future::pending()),
-    )
-    .await?
 }
 
 pub(super) fn child() -> Result<()> {

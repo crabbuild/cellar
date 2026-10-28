@@ -97,6 +97,7 @@ async fn confirmed_root_publication_does_not_download_its_own_extents_twice() ->
             )
             .await?;
         let reads = fixture.remote.root_extent_reads.load(Ordering::Acquire);
+        let hits = fixture.remote.root_extent_hits.load(Ordering::Acquire);
         let puts = fixture.remote.root_extent_puts.load(Ordering::Acquire);
         let target = NodeExtentStore::open(
             fixture.root.path().join("receiver"),
@@ -112,8 +113,8 @@ async fn confirmed_root_publication_does_not_download_its_own_extents_twice() ->
         let independent_reads = fixture.remote.root_extent_reads.load(Ordering::Acquire) - reads;
         ensure!(target.usage()?.objects == unique);
         ensure!(
-            puts == unique && reads == unique,
-            "producer used {puts} PUTs and {reads} GETs for {unique} extent confirmations"
+            puts == unique && reads == 2 * unique && hits == unique,
+            "producer used {puts} PUTs, {reads} GET probes/confirmations and {hits} object downloads for {unique} extents"
         );
         ensure!(
             independent_reads == unique,
@@ -139,12 +140,14 @@ async fn advancing_root_reuses_only_extents_verified_in_the_current_publication_
         let changed = current.difference(&old).count();
         ensure!(changed > 0 && changed < current.len());
         let before_reads = fixture.remote.root_extent_reads.load(Ordering::Acquire);
+        let before_hits = fixture.remote.root_extent_hits.load(Ordering::Acquire);
         let before_puts = fixture.remote.root_extent_puts.load(Ordering::Acquire);
         let published = fixture.archive.publish(archive_heads::cut(&fixture.source, vec![])?, &fixture.verifier).await?;
         let reads = fixture.remote.root_extent_reads.load(Ordering::Acquire) - before_reads;
         let puts = fixture.remote.root_extent_puts.load(Ordering::Acquire) - before_puts;
-        ensure!(reads == old.len() + changed && puts == changed,
-            "advance used {reads} GETs and {puts} PUTs; expected {} old checks and {changed} changed extents", old.len());
+        let hits = fixture.remote.root_extent_hits.load(Ordering::Acquire) - before_hits;
+        ensure!(reads == old.len() + 2 * changed && hits == old.len() + changed && puts == changed,
+            "advance used {reads} GET probes/confirmations, {hits} object downloads and {puts} PUTs; expected {} old checks and {changed} changed extents", old.len());
         let receiving = fixture.archive.clone().with_root_store(NodeExtentStore::open(
             fixture.root.path().join("receiver"), Arc::new(DirectFileSystem), Default::default(),
         )?);
@@ -276,7 +279,10 @@ async fn successful_extent_put_requires_confirmation_before_a_root_head_is_publi
 {
     let fixture = Publication::new().await?;
     let result = async {
-        fixture.remote.fail_root_extent.store(1, Ordering::Release);
+        fixture
+            .remote
+            .fail_root_confirmation
+            .store(true, Ordering::Release);
         let cut = archive_heads::cut(&fixture.source, vec![])?;
         ensure!(fixture
             .archive
@@ -284,11 +290,14 @@ async fn successful_extent_put_requires_confirmation_before_a_root_head_is_publi
             .await
             .is_err());
         ensure!(fixture.remote.root_extent_puts.load(Ordering::Acquire) > 0);
+        ensure!(!fixture
+            .remote
+            .fail_root_confirmation
+            .load(Ordering::Acquire));
         ensure!(
             fixture.archive.recovery_metadata().await?.is_none(),
             "unconfirmed bytes published a head"
         );
-        fixture.remote.fail_root_extent.store(0, Ordering::Release);
         drop(fixture.archive.publish(cut, &fixture.verifier).await?);
         Ok::<_, anyhow::Error>(())
     }

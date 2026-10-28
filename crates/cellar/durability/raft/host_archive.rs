@@ -13,13 +13,28 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{watch, Semaphore};
+use tokio::sync::{watch, Notify, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 #[derive(Clone)]
 pub(crate) struct PhysicalBudget {
     slots: Arc<Semaphore>,
+    changed: Arc<Notify>,
     stop: watch::Receiver<bool>,
     performance: Arc<super::performance::Registry>,
+}
+
+struct PhysicalSlot {
+    permit: Option<OwnedSemaphorePermit>,
+    changed: Arc<Notify>,
+}
+
+impl Drop for PhysicalSlot {
+    fn drop(&mut self) {
+        // Publish capacity before waking waiters. A notification must not
+        // reserve that capacity for a future its caller is no longer polling.
+        drop(self.permit.take());
+        self.changed.notify_waiters();
+    }
 }
 
 impl PhysicalBudget {
@@ -34,9 +49,50 @@ impl PhysicalBudget {
         );
         Ok(Self {
             slots: Arc::new(Semaphore::new(max_jobs)),
+            changed: Arc::new(Notify::new()),
             stop,
             performance,
         })
+    }
+
+    async fn admit(&self) -> Result<PhysicalSlot, cellar_ltx::HostTaskError> {
+        let mut stop = self.stop.clone();
+        loop {
+            if *stop.borrow_and_update() || stop.has_changed().is_err() {
+                return Err(cellar_ltx::HostTaskError::new(
+                    "archive physical work stopped",
+                ));
+            }
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            // Arm before checking capacity, so a release between the check and
+            // the await cannot be lost. No slot belongs to this notification.
+            let _ = changed.as_mut().enable();
+            match self.slots.clone().try_acquire_owned() {
+                Ok(permit) => {
+                    let slot = PhysicalSlot {
+                        permit: Some(permit),
+                        changed: self.changed.clone(),
+                    };
+                    if *stop.borrow() || stop.has_changed().is_err() {
+                        return Err(cellar_ltx::HostTaskError::new(
+                            "archive physical work stopped",
+                        ));
+                    }
+                    return Ok(slot);
+                }
+                Err(TryAcquireError::Closed) => {
+                    return Err(cellar_ltx::HostTaskError::new(
+                        "archive physical admission closed",
+                    ));
+                }
+                Err(TryAcquireError::NoPermits) => (),
+            }
+            crate::asyncrt::select_biased! { "archive shutdown cancels queued physical admission before dispatch";
+                _ = stop.changed() => (),
+                _ = &mut changed => (),
+            }
+        }
     }
 
     pub(crate) fn host(&self, host: cellar_ltx::LtxHost) -> cellar_ltx::LtxHost {
@@ -57,32 +113,10 @@ impl PhysicalBudget {
                 let work = work.clone();
                 let budget = budget.clone();
                 async move {
-                    let admission = budget.performance.timer(Operation::ArchivePhysicalAdmission);
-                    let stopped = async {
-                        let mut stop = budget.stop.clone();
-                        loop {
-                            if *stop.borrow_and_update() {
-                                return;
-                            }
-                            if stop.changed().await.is_err() {
-                                return;
-                            }
-                        }
-                    };
-                    let permit = crate::asyncrt::select_biased! { "archive shutdown cancels queued physical admission before dispatch; entered owners retain their slots until completion";
-                        _ = stopped => Err(cellar_ltx::HostTaskError::new("archive physical work stopped")),
-                        permit = budget.slots.clone().acquire_owned() => {
-                            permit
-                                .map_err(|_| cellar_ltx::HostTaskError::new("archive physical admission closed"))
-                                .and_then(|permit| {
-                                    if *budget.stop.borrow() || budget.stop.has_changed().is_err() {
-                                        Err(cellar_ltx::HostTaskError::new("archive physical work stopped"))
-                                    } else {
-                                        Ok(permit)
-                                    }
-                                })
-                        },
-                    };
+                    let admission = budget
+                        .performance
+                        .timer(Operation::ArchivePhysicalAdmission);
+                    let permit = budget.admit().await;
                     admission.finish(permit.is_ok());
                     let permit = permit?;
                     let queued = budget.performance.timer(Operation::ArchivePhysicalQueue);

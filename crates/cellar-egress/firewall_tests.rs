@@ -3,6 +3,18 @@
 use super::*;
 
 #[test]
+fn https_is_explicit_and_keeps_mark_and_offline_guards() -> Result<()> {
+    let targets = [HttpTarget::https("*.internal")?];
+    assert!(Program::new(&targets, 39189, 39190, false).is_err());
+    let program = Program::with_https(&targets, 39189, 39190, false, true)?;
+    assert!(program.as_str().contains("tcp dport { 80, 443 } redirect"));
+    assert!(program.as_str().contains("meta mark 0xce1101 return"));
+    assert!(program.as_str().contains("policy drop"));
+    assert!(Program::with_https(&targets, 443, 39190, false, true).is_err());
+    Ok(())
+}
+
+#[test]
 fn invalid_or_conflicting_ports_and_over_budget_tables_refuse_before_effects() -> Result<()> {
     for (http, dns) in [
         (0, 39190),

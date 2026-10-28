@@ -192,6 +192,30 @@ the complete verification record and test-environment limits.
 Resource operations use the authoritative owner and retain explicit outcomes.
 The following limits apply to the console unless stated otherwise.
 
+### Cell filesystem usage
+
+`GET /api/v1/fleets/{fleet}/cells/{scope}/filesystem` requires that fleet's
+`data_read` permission and samples the current owner through a signed RPC.
+`cellar::management::FleetClient::filesystem(scope)` exposes the same owner
+route for application-owned management services, which supply operator
+authentication and permission checks themselves.
+
+The response includes the cell epoch, sampling time, current class capability,
+captured byte/inode/handle quotas, revision, logical/allocated usage, retained
+unlinked data, discarded chunk allocation, and live handle/pin counts. Integers
+are canonical decimal strings. It includes no file names, contents or host
+paths. `usage: null` means the database has no initialized filesystem; sampling
+does not create one or construct the application cell instance. Disabled class
+policy and existing persisted usage are reported separately.
+
+Accounting is read-only and bounded to one million SQLite VM steps, a 100 ms
+progress-callback time budget and at most 4096 registry records. Over-budget,
+unreachable and invalid owner observations return 503 through the console API;
+they never become an empty filesystem. Replies are capped at 16 KiB. Unlinked
+allocation can remain pinned by open handles, and lowered quotas can be below
+persisted usage. These content-chunk counters do not include SQLite/WAL/LTX
+overhead or promise that all retained bytes can be reclaimed immediately.
+
 ### SQL and schema inspection
 
 Read-only SQL is enforced by SQLite's authorizer, including CTEs and PRAGMAs.

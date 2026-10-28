@@ -103,6 +103,7 @@ pub struct HostServices {
     rpc_response: OnceLock<crate::rpc_response::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
+    filesystem_handles: crate::application::filesystem::HostRegistry,
     blob_spool: Arc<crate::application::blob::part::Budget>,
     events: Arc<crate::application::event_stream::service::Service>,
     wake_entry: crate::wake_entry::WakeEntryService,
@@ -138,6 +139,7 @@ impl HostServices {
             rpc_response: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            filesystem_handles: crate::application::filesystem::HostRegistry::default(),
             blob_spool: Arc::new(crate::application::blob::part::Budget::default()),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
@@ -174,6 +176,7 @@ impl HostServices {
             rpc_response: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            filesystem_handles: crate::application::filesystem::HostRegistry::default(),
             blob_spool: Arc::new(crate::application::blob::part::Budget::default()),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
@@ -542,6 +545,10 @@ impl HostServices {
 
     pub fn cell_limits(&self) -> crate::application::limits::CellLimits {
         *self.cell_limits.get_or_init(Default::default)
+    }
+
+    pub(crate) fn filesystem_handles(&self) -> &crate::application::filesystem::HostRegistry {
+        &self.filesystem_handles
     }
 
     pub(crate) fn reserve_blob_spool(&self, bytes: usize) -> anyhow::Result<Arc<dyn Send + Sync>> {

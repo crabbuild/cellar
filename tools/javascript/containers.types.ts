@@ -59,6 +59,11 @@ async function control(ctx: Context) {
   await container.setInactivityTimeout(60000);
   await container.interceptOutboundHttp("*.example.test", "API");
   await container.interceptOutboundHttp(null, "API");
+  await container.interceptOutboundHttps("*", "API");
+  // @ts-expect-error: HTTPS requires an explicit target string
+  await container.interceptOutboundHttps(null, "API");
+  // @ts-expect-error: portable HTTPS selects a declared binding
+  await container.interceptOutboundHttps("*", () => new Response());
   // @ts-expect-error: portable interception selects a declared service binding
   await container.interceptOutboundHttp(null, () => new Response());
   const output: ContainerExecOutput = await container.execOutput(

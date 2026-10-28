@@ -4,7 +4,7 @@
 use super::*;
 use crate::application::consensus::{protocol::WireScope, EnvelopeLimits};
 use crate::raft::{archive::ArchiveReference, manifest, member_state::GroupMembership};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use cellar_logic::consensus::*;
 use cellar_ltx::{apply::ImageState, stream_snapshot, DirectFileSystem, TXID};
 use raft::prelude::{ConfState, Entry};
@@ -285,6 +285,33 @@ fn dependency_records_bind_actual_bytes_and_exact_metadata() -> Result<()> {
 }
 
 #[test]
+fn replay_work_survives_a_memo_hit_without_minting_a_new_physical_proof() -> Result<()> {
+    let fixture = Fixture::new()?;
+    let images = GenerationStore::open(
+        fixture._root.path().join("verifier"),
+        Arc::new(DirectFileSystem),
+        cellar_ltx::generation::GenerationLimits::default(),
+    )?;
+    let verifier = ArchiveVerifier::new(images.clone(), ImageId::new([40; 16])?)?;
+    let performed = verifier.verify_with_work(&fixture.set)?;
+    ensure!(performed.replay == Replay::Performed);
+    ensure!(performed.work.images == 1);
+    ensure!(
+        performed.work.image_bytes
+            == fixture
+                .set
+                .manifest
+                .image
+                .context("materialized image")?
+                .length
+    );
+    let reused = verifier.verify_with_work(&fixture.set)?;
+    ensure!(reused.replay == Replay::Reused && reused.work == performed.work);
+    ensure!(images.usage()?.generations == 0);
+    Ok(())
+}
+
+#[test]
 fn unvalidated_inputs_cannot_use_or_create_a_physical_replay_memo() -> Result<()> {
     let mut fixture = Fixture::new()?;
     let images = GenerationStore::open(
@@ -320,8 +347,11 @@ fn archive_empty_replay_memo_preserves_canonical_shape() -> Result<()> {
         cellar_ltx::generation::GenerationLimits::default(),
     )?;
     let verifier = ArchiveVerifier::new(images.clone(), ImageId::new([41; 16])?)?;
-    ensure!(verifier.verify(&fixture.set)? == Replay::Performed);
-    ensure!(verifier.verify(&fixture.set)? == Replay::Reused);
+    let performed = verifier.verify_with_work(&fixture.set)?;
+    ensure!(performed.replay == Replay::Performed);
+    ensure!(performed.work.images == 0 && performed.work.image_bytes == 0);
+    let reused = verifier.verify_with_work(&fixture.set)?;
+    ensure!(reused.replay == Replay::Reused && reused.work == performed.work);
     ensure!(fixture
         .set
         .restore_state(&images, ImageId::new([42; 16])?)?

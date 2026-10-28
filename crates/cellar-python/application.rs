@@ -59,6 +59,7 @@ pub struct Source {
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) initial_reads:
@@ -75,11 +76,31 @@ impl Source {
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             distributions: Vec::new(),
             events: Vec::new(),
             cell_events: Default::default(),
             initial_reads: Default::default(),
         }
+    }
+
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
     }
 
     pub fn cell(mut self, name: impl Into<String>) -> Self {
@@ -465,8 +486,10 @@ impl PythonApplication {
                 _ = stopped.changed() => anyhow::bail!("Python runtime stopped"),
                 _ = cancellation.changed() => anyhow::bail!("Python invocation cancelled"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded, observation, raw) = result.expect("nonempty native operation set");
+                    let (id, encoded, observation, raw, response_owner) = result.expect("nonempty native operation set");
+                    // Bridge reservation precedes release of the native frame.
                     self.runtime.reply(invocation, id, encoded?, observation, raw)?;
+                    drop(response_owner);
                     continue;
                 },
                 event = receive.recv() => event,
@@ -500,6 +523,7 @@ impl PythonApplication {
                         let _mutation = mutation;
                         let _reservation = reservation;
                         let _rpc = rpc;
+                        let mut response_owner = None;
                         let result = match cellar_guest::operations::decode_metadata_with(
                             &name,
                             &payload,
@@ -515,6 +539,10 @@ impl PythonApplication {
                                     rpc_budget,
                                 )
                                 .await
+                                .map(|(value, owner)| {
+                                    response_owner = Some(owner);
+                                    value
+                                })
                             }
                             Ok((payload, _control_bytes)) => {
                                 operations::execute(
@@ -535,7 +563,13 @@ impl PythonApplication {
                             result,
                             self.runtime.options.max_value_bytes,
                         );
-                        (id, encoded, observation, name == "cell.call")
+                        (
+                            id,
+                            encoded,
+                            observation,
+                            name == "cell.call",
+                            response_owner,
+                        )
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -545,9 +579,11 @@ impl PythonApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded, observation, raw)) => self
-                            .runtime
-                            .reply(invocation, id, encoded?, observation, raw)?,
+                        std::task::Poll::Ready((id, encoded, observation, raw, response_owner)) => {
+                            self.runtime
+                                .reply(invocation, id, encoded?, observation, raw)?;
+                            drop(response_owner);
+                        }
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }
@@ -659,6 +695,7 @@ impl Application for PythonApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -680,6 +717,7 @@ impl Application for PythonApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -688,6 +726,10 @@ impl Application for PythonApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -734,6 +776,7 @@ impl Cell for PythonCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

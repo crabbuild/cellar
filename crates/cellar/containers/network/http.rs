@@ -12,7 +12,7 @@ use bytes::Bytes;
 use cellar_egress::{
     control::Routes,
     transport::{Incoming as Connections, Link, Stream},
-    wire, Destination, Host,
+    wire, Destination, Host, Protocol,
 };
 use futures_util::{stream::FuturesUnordered, StreamExt};
 use http_body_util::{combinators::UnsyncBoxBody, BodyExt, Full, StreamBody};
@@ -30,6 +30,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncWrite, BufReader};
 
 const MAX_HEADERS: usize = 128;
 const MAX_HEAD_BYTES: usize = 64 * 1024;
@@ -78,14 +79,65 @@ async fn connection(
         anyhow::bail!("invalid helper HTTP stream direction")
     };
     ensure!(run.active(), "container network has retired");
+    let mut stream = BufReader::new(stream);
+    let first = crate::asyncrt::timeout(Duration::from_secs(5), stream.fill_buf())
+        .await??
+        .first()
+        .copied()
+        .context("empty intercepted connection")?;
+    if first == 22 {
+        let tls = run
+            .tls
+            .get()
+            .context("native HTTPS interception is not enabled")?;
+        let hello = crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            tokio_rustls::LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream),
+        )
+        .await??;
+        let identity = match hello.client_hello().server_name() {
+            Some(name) => Host::parse(name)?.as_str().to_owned(),
+            None => destination.ip().to_string(),
+        };
+        let config = tls.authority.server(identity.clone()).await?;
+        ensure!(run.active(), "TLS handshake belongs to a retired run");
+        let mut stream =
+            crate::asyncrt::timeout(Duration::from_secs(5), hello.into_stream(config)).await??;
+        stream.get_mut().1.set_buffer_limit(Some(MAX_HEAD_BYTES));
+        serve_http(
+            stream,
+            destination,
+            Protocol::Https,
+            Some(identity),
+            run,
+            routes,
+            link,
+        )
+        .await
+    } else {
+        serve_http(stream, destination, Protocol::Http, None, run, routes, link).await
+    }
+}
+
+async fn serve_http<I: AsyncRead + AsyncWrite + Send + Unpin + 'static>(
+    stream: I,
+    destination: SocketAddr,
+    protocol: Protocol,
+    identity: Option<String>,
+    run: Arc<Run>,
+    routes: Routes<Box<dyn HttpHandler>>,
+    link: Link,
+) -> Result<()> {
     let service = hyper::service::service_fn(move |request| {
-        let (run, routes, link) = (run.clone(), routes.clone(), link.clone());
+        let (run, routes, link, identity) =
+            (run.clone(), routes.clone(), link.clone(), identity.clone());
         async move {
-            let response = match route(request, destination, run, routes, link).await {
-                Ok(response) => response,
-                // Do not expose a gateway's error text or captured properties.
-                Err(_) => failure(),
-            };
+            let response =
+                match route(request, destination, protocol, identity, run, routes, link).await {
+                    Ok(response) => response,
+                    // Do not expose a gateway's error text or captured properties.
+                    Err(_) => failure(),
+                };
             Ok::<_, std::convert::Infallible>(response)
         }
     });
@@ -102,6 +154,8 @@ async fn connection(
 async fn route(
     request: Request<Incoming>,
     destination: SocketAddr,
+    protocol: Protocol,
+    identity: Option<String>,
     run: Arc<Run>,
     routes: Routes<Box<dyn HttpHandler>>,
     link: Link,
@@ -115,10 +169,15 @@ async fn route(
         .transpose()?
         .map(str::to_owned)
         .unwrap_or_else(|| destination.to_string());
-    let uri: hyper::Uri = format!("http://{authority}").parse()?;
+    let scheme = if protocol == Protocol::Https {
+        "https"
+    } else {
+        "http"
+    };
+    let uri: hyper::Uri = format!("{scheme}://{authority}").parse()?;
     let authority = uri.authority().context("HTTP request has no authority")?;
     ensure!(
-        authority.port_u16().unwrap_or(80) == destination.port(),
+        authority.port_u16().unwrap_or(protocol.default_port()) == destination.port(),
         "HTTP authority port disagrees with the intercepted destination"
     );
     let host_name = authority.host();
@@ -131,14 +190,29 @@ async fn route(
     } else {
         Some(Host::parse(host_name)?)
     };
+    if let Some(identity) = &identity {
+        let current = match &host {
+            Some(host) => host.as_str().to_owned(),
+            None => host_name
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()?
+                .to_string(),
+        };
+        ensure!(
+            current == *identity,
+            "HTTP authority disagrees with TLS identity"
+        );
+    }
     let selected = routes.resolve(&Destination {
+        protocol,
         socket: destination,
         host: host.as_ref(),
     });
     let Some(handler) = selected else {
-        return direct(request, destination, link).await;
+        let tls = identity.map(|identity| (identity, run.tls.get().unwrap().upstream.clone()));
+        return direct(request, destination, link, tls).await;
     };
-    let url = format!("http://{authority}{}", request.uri());
+    let url = format!("{scheme}://{authority}{}", request.uri());
     ensure!(
         url.len() <= MAX_URL_BYTES,
         "HTTP URL exceeds the routing limit"
@@ -296,6 +370,7 @@ async fn direct(
     mut request: Request<Incoming>,
     destination: SocketAddr,
     link: Link,
+    tls: Option<(String, Arc<rustls::ClientConfig>)>,
 ) -> Result<Response<HttpBody>> {
     let mut stream = link.open().await?;
     wire::write_open(
@@ -321,6 +396,22 @@ async fn direct(
         );
     }
     *request.headers_mut() = head;
+
+    trait Tunnel: AsyncRead + AsyncWrite + Send + Unpin {}
+
+    impl<T: AsyncRead + AsyncWrite + Send + Unpin> Tunnel for T {}
+    let stream: Box<dyn Tunnel> = if let Some((name, config)) = tls {
+        let name = rustls::pki_types::ServerName::try_from(name)?;
+        let mut stream = crate::asyncrt::timeout(
+            Duration::from_secs(5),
+            tokio_rustls::TlsConnector::from(config).connect(name, stream),
+        )
+        .await??;
+        stream.get_mut().1.set_buffer_limit(Some(MAX_HEAD_BYTES));
+        Box::new(stream)
+    } else {
+        Box::new(stream)
+    };
     let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
         .max_headers(MAX_HEADERS)
         .max_buf_size(MAX_HEAD_BYTES)

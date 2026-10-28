@@ -12,6 +12,8 @@ mod archive_download;
 mod archive_faults;
 #[path = "support/raft_rooted_archive_head.rs"]
 mod archive_heads;
+#[path = "support/raft_rooted_archive_retry.rs"]
+mod archive_retry;
 #[path = "support/raft_rooted_execution.rs"]
 mod execution;
 #[path = "support/raft_storage_fault.rs"]
@@ -21,6 +23,8 @@ mod fault;
 mod images;
 #[path = "support/raft_rooted_publication.rs"]
 mod publication;
+#[path = "support/raft_rooted_retention.rs"]
+mod retention;
 #[path = "support/raft_rooted_install.rs"]
 mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]

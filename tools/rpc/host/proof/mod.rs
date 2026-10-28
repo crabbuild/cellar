@@ -28,7 +28,7 @@ pub(crate) fn initialize_diagnostics(filter: tracing_subscriber::EnvFilter) {
 // Reuse the owning SDK harness's real peer/object-store faults. Its lost-ack
 // variant is outside this suite; no runtime hooks or fake proof tickets exist.
 #[allow(dead_code)]
-#[path = "../../../../crates/cellar-python/tests/support/fault_gates.rs"]
+#[path = "../../../../crates/cellar/tests/support/proof_fault_gates.rs"]
 mod faults;
 
 // The SDK bridge executable uses harness=false. Run the shared fault adapter's

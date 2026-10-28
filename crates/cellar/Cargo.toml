@@ -125,9 +125,11 @@ notify.workspace = true
 nu-ansi-term.workspace = true
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 parking_lot.workspace = true
+p256.workspace = true
 parquet.workspace = true
 percent-encoding.workspace = true
 rand.workspace = true
+rcgen.workspace = true
 raft.workspace = true
 raft-engine.workspace = true
 protobuf.workspace = true
@@ -146,6 +148,7 @@ sha2.workspace = true
 subtle.workspace = true
 tar.workspace = true
 tempfile.workspace = true
+time.workspace = true
 tikv-jemalloc-ctl.workspace = true
 tikv-jemallocator.workspace = true
 tokio = { workspace = true, features = ["full"] }

@@ -45,6 +45,7 @@ pub const MAX_DNS_CONNECTIONS: usize = 64;
 pub struct Config {
     pub session: [u8; 32],
     pub internet: bool,
+    pub https: bool,
     pub upstream: SocketAddr,
     pub http_port: u16,
     pub dns_port: u16,
@@ -70,7 +71,13 @@ impl Config {
                 && [self.http_port, self.dns_port].contains(&self.upstream.port())),
             "upstream DNS points at the network helper"
         );
-        Program::new(&[], self.http_port, self.dns_port, self.internet)?;
+        Program::with_https(
+            &[],
+            self.http_port,
+            self.dns_port,
+            self.internet,
+            self.https,
+        )?;
         Ok(())
     }
 }

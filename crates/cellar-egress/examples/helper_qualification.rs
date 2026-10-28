@@ -220,6 +220,7 @@ mod qualification {
             let host = Host::parse("backup.internal")?;
             let handler = routes
                 .resolve(&Destination {
+                    protocol: cellar_egress::Protocol::Http,
                     socket: destination,
                     host: Some(&host),
                 })
@@ -237,6 +238,7 @@ mod qualification {
 
     pub async fn run(peer: SocketAddr, internet: bool) -> Result<()> {
         let config = Config {
+            https: false,
             session: [72; 32],
             internet,
             upstream: "127.0.0.3:53".parse()?,

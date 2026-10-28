@@ -11,12 +11,19 @@ pub(super) fn base_operations() -> &'static [Operation] {
         Operation::ALL
             .iter()
             .copied()
-            .filter(|operation| *operation != Operation::InterceptOutboundHttp)
+            .filter(|operation| {
+                !matches!(
+                    operation,
+                    Operation::InterceptOutboundHttp | Operation::InterceptOutboundHttps
+                )
+            })
             .collect()
     })
 }
 
-pub(super) struct HttpInterception;
+pub(super) struct HttpInterception {
+    pub https: bool,
+}
 
 impl Provider for HttpInterception {
     fn name(&self) -> &str {
@@ -48,7 +55,18 @@ impl Provider for HttpInterception {
     }
 
     fn operations(&self) -> &[Operation] {
-        Operation::ALL
+        if self.https {
+            return Operation::ALL;
+        }
+
+        static HTTP: OnceLock<Vec<Operation>> = OnceLock::new();
+        HTTP.get_or_init(|| {
+            Operation::ALL
+                .iter()
+                .copied()
+                .filter(|operation| *operation != Operation::InterceptOutboundHttps)
+                .collect()
+        })
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {

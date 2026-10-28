@@ -207,6 +207,8 @@ pub mod event_inventory;
 pub mod event_metrics;
 #[path = "observability/event_state.rs"]
 pub mod event_state;
+#[path = "observability/filesystem_state.rs"]
+pub mod filesystem_state;
 #[path = "fleet/operator.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]

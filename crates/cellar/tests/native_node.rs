@@ -11,6 +11,14 @@ mod lease_renewal;
 mod node_assets;
 #[path = "support/node_events.rs"]
 mod node_events;
+#[path = "support/node_filesystem.rs"]
+mod node_filesystem;
+#[path = "support/node_filesystem_capacity.rs"]
+mod node_filesystem_capacity;
+#[path = "support/node_filesystem_fairness.rs"]
+mod node_filesystem_fairness;
+#[path = "support/node_filesystem_faults.rs"]
+mod node_filesystem_faults;
 #[path = "support/node_http.rs"]
 mod node_http;
 #[path = "support/node_preserve.rs"]

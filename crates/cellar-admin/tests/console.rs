@@ -14,6 +14,54 @@ use tower::ServiceExt;
 const TOKEN: &str = "test-console-token-with-32-or-more-bytes";
 const CONFIGURE_TOKEN: &str = "configure-test-token-with-32-or-more-bytes";
 
+#[tokio::test]
+async fn filesystem_metrics_require_data_read_and_preserve_unavailability() {
+    let (_dir, app, domain) = fixture().await;
+    let endpoint = "/api/v1/fleets/alpha/cells/Customer:one/filesystem";
+    for (token, path, expected) in [
+        (None, endpoint, StatusCode::UNAUTHORIZED),
+        (Some(TOKEN), endpoint, StatusCode::FORBIDDEN),
+        (Some(CONFIGURE_TOKEN), endpoint, StatusCode::FORBIDDEN),
+        (
+            Some("write-only-test-token-with-32-or-more-bytes"),
+            endpoint,
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some("editor-test-token-with-32-or-more-bytes"),
+            "/api/v1/fleets/beta/cells/Customer:one/filesystem",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            Some("editor-test-token-with-32-or-more-bytes"),
+            "/api/v1/fleets/alpha/cells/Customer/filesystem",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            Some("editor-test-token-with-32-or-more-bytes"),
+            endpoint,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let mut request = Request::builder().uri(path);
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let reply = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), expected);
+        if expected == StatusCode::SERVICE_UNAVAILABLE {
+            let bytes = reply.into_body().collect().await.unwrap().to_bytes();
+            let value: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(value, json!({"error":"Filesystem observation unavailable"}));
+        }
+    }
+    domain.shutdown().await;
+}
+
 async fn fixture() -> (
     tempfile::TempDir,
     Router,
