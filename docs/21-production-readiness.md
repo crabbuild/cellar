@@ -17,6 +17,7 @@ for your deployment.
 | 1,000-cell embedded report | Local embedding and recovered acknowledged writes | Earlier failures and bounded environment retained in report |
 | 10,000-cell reference | All cells written; 34,230 / 23,314 final acknowledged writes; 14 complete stop proofs | Earlier image; one VM/disk/RustFS; small overwrites; between-phase failures |
 | 2026-10-12 zero-cache 1,000-cell report | Exactly 64 tracked records; 9,284 acknowledgements recovered; Preserve proofs | Narrow routing/recovery scenario, not whole-process memory bound |
+| [Large-cell recovery work](../plans/multi-raft/010-large-cell-recovery-time.md) | Full-size pilots, source-bound smaller trials, recovery phase ledger and strict analyzer | Not a production 10 GB percentile or hard-crash qualification |
 | This documentation set | Guides, source map, interactive diagrams and readiness criteria | No deployment certification or claimed production benchmark |
 
 Read [sources.md](sources.md) for direct reports and source/image provenance.
@@ -45,6 +46,39 @@ typed-fencing changes and did not test ambiguous acknowledgements.
 this baseline does not provide evidence to claim it has passed for your release.
 For each gate, record pass/fail/open, the evidence link, artifact digest, date,
 reviewer and scope. Assign application-specific thresholds before the run.
+
+## Ten-gigabyte cell-state release gate
+
+The 10 GB recovery implementation is not yet qualified for a production RTO
+promise. Complete-local extent restoration and bounded streaming are implemented;
+their passing pilots do not close the remaining implementation and qualification
+work. [Plan 010](../plans/multi-raft/010-large-cell-recovery-time.md) records the
+source identities, failed attempts, measured intervals and proposed targets.
+
+| Remaining gate | Evidence required before release |
+| --- | --- |
+| Current-artifact full-size recovery | Repeated peer and real object-store restores of 9,999,998,976 bytes, with correct payloads, new writes, receipts and complete phase ledgers; failed trials remain counted |
+| Crash and authority envelope | Hard process loss and erased-disk recovery at the relevant persistence boundaries, corrupt/missing data, stale grants/owners, lost quorum, disk exhaustion and immutable retries |
+| Activation before full hydration | A distinct installed-root durability proof, persistent remote references and safe GC, verified demand loading and incremental first writes while hydration is paused |
+| Recovery interference and maintenance | Bounded source/replay work and foreground impact under concurrent recoveries, plus verified warm handoff before planned maintenance |
+| Candidate and operations | Green locked checks on the exact artifact, declared hardware/store/workload/cache/concurrency envelope, operator visibility and a rehearsed recovery/rollback procedure |
+
+The proposed complete-restoration target is observed p95 at most 120 seconds.
+The proposed incremental-activation target is at most 30 seconds for the declared
+hot workload; it additionally requires the installed-root and retention work.
+Neither target is a service promise until its reference-profile and failure
+gates pass. Keep full hydration and broad-scan latency separate from activation.
+
+The ordinary daemon process fixture covers two small counter groups, retained
+disk, an actual killed worker, receipt reconciliation and post-restart writes.
+It does not replace the full-size crash campaign. Enable authenticated
+node-directory refresh when restarted nodes advertise new process generations or
+endpoints, as described in the [Raft host guide](../crates/cellar/durability/raft/README.md).
+
+Capacity preflights belong to the test setup: an unavailable run is not a timed
+recovery sample, and the fixture's aggregate disk requirement is not the logical
+per-cell quota. Qualify on the intended deployment rather than transferring a
+shared development host's timing to another storage or network profile.
 
 ## Proposed adoption milestones
 

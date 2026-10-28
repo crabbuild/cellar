@@ -8,6 +8,8 @@ mod counter;
 #[path = "support/html.rs"]
 #[allow(dead_code)]
 mod graph;
+#[path = "support/raft_daemon_recovery.rs"]
+mod recovery;
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{consensus::*, *};
 use serde_json::Value;
@@ -48,8 +50,10 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
             let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
             let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
             let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-            let ordinal = mode.strip_prefix("cluster-").map(str::parse::<u8>).transpose()?;
+            let resume = mode.starts_with("cluster-resume-");
+            let ordinal = mode.strip_prefix("cluster-resume-").or_else(|| mode.strip_prefix("cluster-")).map(str::parse::<u8>).transpose()?;
             let index = ordinal.unwrap_or(0);
+            ensure!(index < 3, "invalid daemon fixture member");
             let id = NodeId::new([index + 3; 16])?;
             let disk = DiskLineage::new([index + 4; 16])?;
             let mut process = [0; 16];
@@ -107,7 +111,9 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                     },
                 })
             }).collect::<Result<Vec<_>>>()?;
-            let log_mode = if ordinal.is_some() || mode == "create" || mode == "bad-schema" || mode == "bind-fail" {
+            let log_mode = if resume {
+                LogOpenMode::Resume
+            } else if ordinal.is_some() || mode == "create" || mode == "bad-schema" || mode == "bind-fail" {
                 LogOpenMode::Create
             } else { LogOpenMode::Resume };
             Ok(NativeRaftCells {
@@ -118,7 +124,10 @@ fn child(root: PathBuf, mode: String) -> Result<()> {
                         transport: TransportOptions::default(),
                     },
                     catalog: CatalogOptions { prefix: "raft-cli".into(), ..Default::default() },
-                    cells, peers, query_origins: vec![], host: RaftHostOptions::default(),
+                    cells, peers, query_origins: vec![], host: RaftHostOptions {
+                        node_directory: ordinal.map(|_| RaftNodeDirectoryOptions::default()),
+                        ..Default::default()
+                    },
                 },
                 listeners: NodeRaftListeners { control, data, query },
                 tls: RaftTls::new(
@@ -195,11 +204,17 @@ impl Process {
     ) -> Result<Self> {
         let log = root.join(format!("{mode}-stdout.log"));
         let diagnostics = root.join(format!("{mode}-stderr.log"));
+        // A new process generation keeps the configured physical node label.
+        // The authenticated directory refreshes its new addresses and boot.
+        let label = mode.strip_prefix("cluster-resume-").map_or_else(
+            || format!("raft-cli-{mode}"),
+            |index| format!("raft-cli-cluster-{index}"),
+        );
         let mut cmd = Command::new(std::env::current_exe()?);
         cmd.env_clear()
             .env("CELLAR_RAFT_CLI_CHILD", mode)
             .env("CELLAR_RAFT_CLI_ROOT", root)
-            .env("CELLAR_NODE", format!("raft-cli-{mode}"))
+            .env("CELLAR_NODE", label)
             .env("CELLAR_TOKIO_THREADS", "3")
             .env("CELLAR_REBALANCE_INTERVAL_MS", "0")
             .env("CELLAR_PLACEMENT_WEIGHT", "1")
@@ -521,6 +536,8 @@ async fn qualify() -> Result<()> {
             }
         }
     }
+    let mut ledger = recovery::Ledger::new(root.path())?;
+    let mut acknowledged = Vec::new();
     for name in ["one", "two"] {
         let command = format!("{}:1", hex::encode([90; 16]));
         let retry = (std::time::SystemTime::now()
@@ -532,6 +549,10 @@ async fn qualify() -> Result<()> {
         let (leader, receipt) = loop {
             let mut committed = None;
             for (index, (public, _)) in addresses.iter().enumerate() {
+                ledger.record(serde_json::json!({
+                    "phase": "send", "cell": name, "command": command,
+                    "retry_until": retry, "delta": 11, "member": index + 1,
+                }))?;
                 let response = client
                     .post(format!("{public}/counters/{name}?delta=11"))
                     .bearer_auth(SECRET)
@@ -557,6 +578,10 @@ async fn qualify() -> Result<()> {
             tokio::time::sleep(Duration::from_millis(50)).await;
         };
         ensure!(receipt["value"] == 11, "wrong committed result: {receipt}");
+        ledger.record(serde_json::json!({
+            "phase": "acknowledged", "cell": name, "command": command,
+            "retry_until": retry, "delta": 11, "receipt": receipt,
+        }))?;
         for (index, (public, _)) in addresses
             .iter()
             .enumerate()
@@ -584,7 +609,23 @@ async fn qualify() -> Result<()> {
                 "follower query failed: {query}"
             );
         }
+        acknowledged.push(recovery::Acknowledged {
+            cell: name,
+            leader,
+            command,
+            retry_until: retry,
+            receipt,
+        });
     }
+    recovery::hard_kill_and_resume(
+        root.path(),
+        &client,
+        &mut cluster,
+        &mut addresses,
+        &acknowledged,
+        &mut ledger,
+    )
+    .await?;
     for (process, (_, internal)) in cluster.iter_mut().zip(&addresses) {
         client
             .post(format!("{internal}/shutdown"))
