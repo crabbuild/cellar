@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a",
+  "revision": "84e1b99a2c7a76e6767704dc2f3251564fa788fb",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -456,7 +456,7 @@
     },
     {
       "path": "tools/perf/raft_node.rs",
-      "sha256": "8d5a7c3a571a2f1b0b970ce103ca7c96c7c6a404d5dca0d85ef449b19566d2e9"
+      "sha256": "a3f712bb321b828695ea76bc4be167b521542eeb361697d23b19519b8a063e66"
     },
     {
       "path": "tools/perf/raft_run.py",

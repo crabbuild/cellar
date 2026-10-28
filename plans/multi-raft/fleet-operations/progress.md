@@ -1,5 +1,53 @@
 # Fleet operations implementation progress
 
+## Bounded deployment storage
+
+Source `84e1b99a2c7a76e6767704dc2f3251564fa788fb` adds bounded deployment storage.
+The managed runner now provisions separate persistent ext4 filesystems for
+metadata, shared Raft log/snapshots, cell images/extents/cache, recovery replay
+and RustFS data. It retains exact backing-file, loop-device and filesystem UUID
+identities. Backing files are exclusively created and prewritten; an unknown
+format outcome is never retried. Native containers use read-only roots and
+bounded temporary filesystems and logs. The policy installs explicit snapshot
+and extent-cache limits and charges all shared pools separately from group
+reservations. Native validation derives the required WAL/capture workspace
+reservation; a small image quota alone does not make a small inventory valid.
+
+Fresh mounted Raft filesystems are now accepted even though their mountpoint
+already exists. Native Create validation still refuses retained state. The
+existing canonical admission-retry behavior is preserved.
+
+The local verification includes eleven native deployment tests and 254 Python
+tests passing, with one additional Python test skipped. Host tests/binary Clippy,
+formatting, module layout, native dependency rules, documentation and ten plan
+tests pass. A real 64-MiB Colima filesystem refused growth with ENOSPC and retained
+previously synced data after remount. A separate RustFS probe successfully
+created a bucket with read-only root and bounded data/log/tmp filesystems.
+Earlier failed attempts and final evidence remain outside runtime data and the PR.
+
+**The bounded five-node deployment is not yet qualified.** Its documented
+15-cell configuration needs 19 GiB of backing plus a 4-GiB host reserve. The
+retained host observation had about 8 GiB available; preflight refused allocation
+before Engine mutations. No new Linux image or Ready/Active/RF3 recovery campaign
+is claimed. All five nodes in the previous idle startup fixture joined shutdown
+with exit code zero. Only its seven owned containers were removed; volumes and
+diagnostics remain retained. No managed native fleet is currently running.
+Loop-backed volumes require explicit mapping restoration/verification after a VM
+restart; this lab path does not implement retained fleet return.
+
+Next priorities are:
+
+1. Supply sufficient backing capacity, deploy the bounded profile, collect real
+   platform evidence, admit Ready/Active capacity, and verify RF3 writes through
+   detection, isolation, archive replay, repair and terminal removal.
+2. Complete departure/return evidence, repeatable maintenance, second-failure
+   and grace policy, and gated rolling maintenance.
+3. Deliver workload-aware leadership and desired capacity/resize, then complete
+   fault/density, matched TPS/p99 and soak qualification.
+
+This step closes deployment storage and mounted-startup gaps. It does not close
+the full end-to-end fleet goal or establish a performance improvement.
+
 ## Managed Colima startup and local fleet inspection
 
 Source `7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a` adds the executable

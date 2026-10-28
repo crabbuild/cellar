@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a",
+  "baseline_revision": "84e1b99a2c7a76e6767704dc2f3251564fa788fb",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -6556,7 +6556,9 @@
         "tools/perf/raft_fleet/recovery.rs",
         "tools/perf/raft_fleet_tests.rs",
         "tools/perf/raft_fleet_capacity_tests.rs",
-        "tools/perf/test_raft_fleet.py"
+        "tools/perf/test_raft_fleet.py",
+        "tools/perf/raft_fleet_storage.py",
+        "tools/perf/test_raft_fleet_storage.py"
       ],
       "steps": [
         "Start large-inventory qualification with explicit native stress probes and retained failed outcomes. The first five-node/500-history debug fixture at 20 ms ticks failed during warm-up before collection; it does not establish default-profile capacity. Narrow the failing registration path and compare omitted initial SQL/archive work before changing production scheduling. Deployed traffic/fault/soak and the supported envelope remain unqualified.",
