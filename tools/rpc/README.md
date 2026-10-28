@@ -50,6 +50,84 @@ also runs in the combined driver and both Python modes in lifecycle CI. This
 qualifies the catalog-policy boundary; aggregate memory/RSS qualification remains
 separate.
 
+## Diagnose lease-renewal delays
+
+Use the normal fixture environment and unchanged budgets, with opt-in store
+timing enabled:
+
+```sh
+RUST_LOG='warn,cellar::actor::effects=info,store[node_lease_store]=debug' \
+  cargo run --locked -p cellar-rpc-qualification --features full -- \
+  --suite profile --report .cellar/rpc/profile-diagnostic.json \
+  > .cellar/rpc/profile-diagnostic.log 2>&1
+```
+
+The development SQLite store emits `local_store_put_phase` events. Each write
+has one numeric operation ID and cumulative monotonic microseconds. Lease
+writes retain a `node_lease_store` span identifying the node, including native
+events emitted after the original caller is cancelled:
+
+```text
+queued -> native_entered -> connected -> writer_admitted
+                                            |
+                                   transaction_started
+                                            |
+                                     commit_started
+                                            |
+                                        committed
+                                            |
+                                     native_complete -> delivered
+
+caller_dropped can occur before native_complete: cancellation is not rollback.
+```
+
+A conditional refusal can finish natively without commit phases.
+`caller_dropped` means the wait ended before join delivery; worker-admission
+refusal can also cause it before native entry. Interpret missing phases with
+the lease outcome, rather than treating every incomplete sequence as a stall.
+
+| Interval | Boundary to investigate |
+| --- | --- |
+| `queued` to `native_entered` | Blocking-pool queue or worker scheduling |
+| `native_entered` to `connected` | SQLite connection setup |
+| `connected` to `writer_admitted` | Local writer admission |
+| `writer_admitted` to `transaction_started` | SQLite transaction/write-lock acquisition |
+| `transaction_started` to `commit_started` | CAS validation and body writes |
+| `commit_started` to `committed` | WAL commit and possible checkpoint |
+| `native_complete` to `delivered` | Async result delivery and caller polling |
+
+Renewal completion events also report `attempt_bound_ms`, `wait_elapsed_ms`
+and `wait_overrun_ms`. The bound is unchanged. An overrun means the wait was
+observed late; it does not establish that storage used all of that time.
+Phase durations are wall time, so OS descheduling can contribute within any
+interval. Correlate them with process/resource evidence before attributing a
+cause. A dropped caller and a later native completion remain separate events.
+
+The phase events contain no object key or payload. The filter above captures
+lease writes only and is also used by typed-RPC CI. Use `store=debug` instead
+when other object writes are needed to investigate contention. Timing is
+disabled by default; the scoped filter limits emitted phase logs to leases.
+Three real-boundary tests cover a queued
+blocking worker, a held SQLite transaction through caller timeout, and a native
+result ready while its caller remains unpolled:
+
+```sh
+cargo test --locked -p cellar --lib local_store::timing_tests -- --test-threads=1
+```
+
+An instrumented replay is diagnostic evidence. Preserve the original failed
+run; a passing repetition does not establish its cause or qualify the release.
+
+The embedded Python contract can also be replayed directly with its unchanged
+250 ms handler budget. Its error helper retains at most 4 KiB of a refused
+response, and logging is enabled only when `RUST_LOG` is set:
+
+```sh
+RUST_LOG='warn,cellar::actor::effects=info,store=debug' \
+  cargo test --locked -p cellar-python --features embed --test bridge -- \
+  --runtime-contract > .cellar/rpc/python-contract-diagnostic.log 2>&1
+```
+
 ## SDK source and receiving peer saturation
 
 ```sh

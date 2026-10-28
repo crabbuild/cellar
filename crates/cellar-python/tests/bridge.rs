@@ -556,6 +556,16 @@ fn main() -> Result<()> {
 }
 
 fn contract() -> Result<()> {
+    // Keep the normal fixture quiet, but allow an original-budget replay to
+    // retain native storage phases and lease/timer evidence after a failure.
+    if std::env::var_os("RUST_LOG").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()?)
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("contract tracing: {error}"))?;
+    }
     let directory = tempfile::tempdir()?;
     let report = run(
         Options {
@@ -966,13 +976,31 @@ where
     unsafe { PythonRuntime::run(options, source, host) }
 }
 
-// These fixture endpoints promise JSON on success. Preserve the failing URL
-// and HTTP status without dumping application payloads or retrying mutations.
-async fn response_json<T: serde::de::DeserializeOwned>(response: reqwest::Response) -> Result<T> {
+// These fixture endpoints promise JSON on success. Preserve the failing URL,
+// status and bounded error details without retrying mutations.
+async fn response_json<T: serde::de::DeserializeOwned>(
+    mut response: reqwest::Response,
+) -> Result<T> {
     let url = response.url().clone();
     let status = response.status();
+    if status.is_client_error() || status.is_server_error() {
+        // Preserve the native failure category without collecting an unbounded
+        // error body. The client retains its original overall request timeout.
+        const ERROR_BYTES: usize = 4096;
+        let mut body = Vec::with_capacity(ERROR_BYTES);
+        while body.len() < ERROR_BYTES {
+            let Some(chunk) = response.chunk().await? else {
+                break;
+            };
+            let retained = chunk.len().min(ERROR_BYTES - body.len());
+            body.extend_from_slice(&chunk[..retained]);
+        }
+        anyhow::bail!(
+            "HTTP {status} from {url}: {}",
+            String::from_utf8_lossy(&body)
+        );
+    }
     response
-        .error_for_status()?
         .json()
         .await
         .with_context(|| format!("decode JSON from {url} (HTTP {status})"))

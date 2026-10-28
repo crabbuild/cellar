@@ -7,6 +7,10 @@ business methods across Rust, embedded V8, Node and Python on Cellar's existing
 ownership and durability path. This ledger records evidence, not a smaller
 definition of success. Status: **in progress; not qualified**.
 
+Use the [production release gates](production-gates.md) for the current closure
+checklist and T01–T19 coverage. Historical runs below retain their original
+source identities and limits.
+
 ## Delivery priorities
 
 Pick the highest unresolved correctness or delivery risk for each run. Finish a
@@ -17,11 +21,11 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Preceding merged source `adebf588` passes the free-threaded job but fails the GIL live profile after lease-renewal timeouts (run `40642081995`). The current provider-policy change passes 40 focused local checks; its combined qualification and limits are recorded below. Require final SDK, JavaScript, typed-RPC and example gates on the published source. |
+| P0 — hosted verification | Final hosted gates | Published `fca2c0c5` passes both full typed-RPC jobs (run `40654793964`), JavaScript/Node SDK and Python examples. Both broader SDK jobs fail on standalone inventory. The follow-up fixes that regression, but its full free-threaded package run exposes an intermittent first-fleet-write 500. Require final SDK, JavaScript, typed-RPC and example gates on the follow-up source. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
-| P1 | Language/profile coverage | Current provider-policy source passes both 576-call portable profiles and 32 local/peer provider-limit cases in both actual CPython modes. The expanded 20-suite / 1,064-case combined driver is not fully qualified; see the current run below. Descriptor semantics, broader regressions and packaging qualification remain open. |
+| P1 | Language/profile coverage | Published provider-policy source passes both 576-call portable profiles, 32 provider-limit cases and both hosted 20-suite / 1,064-case drivers. Preserved local failures still prevent full qualification. Both portable profiles also pass the follow-up source. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
 | P2 | Measured performance | Publish reproducible typed/untyped/native/guest latency, throughput and durable TPS, plus saturation memory, cleanup and recovery results. |
@@ -29,6 +33,72 @@ does not close schema, resource, packaging or performance requirements.
 Preserve existing durability evidence while addressing these gaps. Further
 recovery-fault variations follow demonstrated correctness risks; expanding the
 Counter fixture alone is not the highest-priority deliverable now.
+
+## Native wait phases and standalone admission (2026-10-28; release open)
+
+Merged `origin/main` at `ed42c8ed` into the active provider-policy branch. The
+native storage regression reproduces `local reload requires replication`:
+initial lease confirmation requests inventory even for a standalone host.
+Returning no replicated inventory lets its normal activation reopen stable
+SQLite state. The same test passes before and after business writes; the five
+native local-store integrations pass as well.
+
+That fix exposes a stale Python exact-envelope fixture. It omits the new
+`rpc_limits: {}` metadata, so a purported 65,536-byte request is actually
+65,552 bytes. Include the metadata in the fixture's charge; keep the exact-limit
+acceptance, one-byte-over refusal and all production limits unchanged.
+
+Opt-in store phases distinguish blocking-pool admission, connection setup,
+writer admission, SQLite transaction/commit, native completion and async result
+delivery. Cancelled callers and later native completion retain a common write
+ID and node lease span. Renewal logs expose the original attempt bound, observed
+wait and overrun. All 38 LocalStore tests pass, including three real-boundary
+tests for a queued worker, held SQLite transaction and an unpolled caller after
+native completion. These probes locate delay; wall-time phases cannot establish
+an OS scheduling cause by themselves.
+
+The frozen `storage-phase-v1` follow-up records 21 checks: 20 pass and one fails.
+Both actual CPython modes pass 576 live profile calls, independent profile/mode
+audits and five diagnostic proof-wait cases. The full GIL Python package command,
+V8/Node SSE and WebSockets, Node compatibility/restart, affected all-target
+Clippy, format/layout/dependency/docs guards pass. External agent packaging and
+two Python doctests remain ignored. The full free-threaded Python command fails
+in the final contract's **first fleet write**, after both process-kill watchdog
+recoveries pass. Its HTTP 500 has zero retained work in the shutdown report;
+this does not turn the failure into a pass or establish whether a write committed.
+
+All 4,018 watched inputs and both copied qualifier executables stay unchanged.
+The source-manifest SHA-256 is
+`54105412439ce8ba7c10881b051e4c5661a0e9a9baf4519809d2e1c661d74ca7`.
+Logs, source patch, new files and identities are retained under
+`.cellar/rpc/diagnostics/storage-phase-v1/`. The failed free-threaded bridge is
+preserved separately with SHA-256
+`0b1744fa6650cbd07601e547bbe93c5481d706d521f1adbe85e746b2cb659618`.
+A direct original-budget replay of that executable passes; its intermittent
+failure remains unresolved. The fixture gains opt-in tracing and a bounded
+4 KiB error body after this frozen run, so future failures retain their category.
+The first instrumented replay and eight further direct contract replays pass;
+the diagnostic helper also passes targeted Clippy. These repetitions do not
+replace the failed full free-threaded command.
+An additional complete free-threaded bridge replay, including its preceding
+recovery sequence, passes with the probes enabled. Its executable and full log
+are retained in `.cellar/rpc/diagnostics/ft-contract-probes-v1/`. This establishes
+that the diagnostic fixture runs end to end; no production fix explains the
+original first-write failure, so the reliability gate remains open.
+
+The GIL profile observes 136 lease writes and 134 renewals with no wait overrun;
+its largest phase interval is 17,976 microseconds at writer admission. This is
+diagnostic evidence, not a throughput baseline or an explanation of old stalls.
+A separate live proof-wait diagnostic verifies the CI span filter: 1,395 phase
+events, all within node lease spans. CI retains these logs without tracing every
+object write. Documentation, CI logging selection and the contract's diagnostic
+helper follow the frozen run; production budgets and outcome rules are unchanged.
+
+Next: diagnose the free-threaded first-write failure and retained lease/timer
+stalls, then close composed admission/resource bounds, supported descriptor
+semantics and frozen application packaging. The
+[release checklist](production-gates.md) remains authoritative; T01–T19 are not
+declared universally complete.
 
 ## Shared response admission (2026-10-27; local slice qualified, release open)
 

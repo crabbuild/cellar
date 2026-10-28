@@ -508,6 +508,9 @@ async fn run() -> Result<()> {
             bucket: None,
         },
     )?;
+    // Standalone nodes still confirm their local inventory after acquiring
+    // in-memory authority. They have no replicated epochs to resume.
+    assert!(runtime.local_reload_cells()?.is_empty());
     for scope in ["Store:test", "Other:test", "ClearingStore:test"] {
         runtime
             .restore_cell(
@@ -542,6 +545,7 @@ async fn run() -> Result<()> {
     for path in ["/bulk", "/transaction", "/sql", "/sync"] {
         assert_eq!(fetch(&runtime, "Store:test", path).await?.status, 200);
     }
+    assert!(runtime.local_reload_cells()?.is_empty());
     let ticket = tickets.lock().unwrap().last().copied().unwrap();
     assert_eq!(ticket.channel, cellar_logic::Channel::Sync);
     assert_eq!(ticket.epoch, Some(1));

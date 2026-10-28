@@ -44,8 +44,9 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
       CELLAR_RPC_PYTHON_MODE: '${{ matrix.mode }}'
-      # Preserve existing lease timing evidence without logging RPC payloads.
-      RUST_LOG: 'warn,cellar::actor::effects=info'
+      # Retain native phases for lease writes, including completion after
+      # cancellation, without tracing every object write or RPC payload.
+      RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
