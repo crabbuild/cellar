@@ -438,8 +438,10 @@ complete Sandbox 1.x compatibility remain open.
 
 The directory-backup campaign also restores from fresh native/Node processes
 and checks allocation-time cancellation, missing/corrupt archives, destination
-preservation and grant revocation. Abrupt crash and mid-transfer outcomes remain
-separate qualification work.
+preservation and grant revocation. Selected first-chunk cancellation and failed
+completion/deletion acknowledgements also preserve their failure outcomes without
+mutation replay. Abrupt crashes, larger/multi-part and verified-swap cancellation,
+lost create/transport responses and orphan expiry remain qualification work.
 
 
 ## Understand lifetime and failure outcomes

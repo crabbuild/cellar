@@ -265,6 +265,8 @@ cargo test --locked -p cellar-javascript --features node \
 | Fresh-process recovery | Join the first native/Node processes, start new processes with an empty node directory, recover the identical record from native fleet storage and restore into a new container |
 | Pre-aborted calls | Preserve the exact abort reason for backup and restore; no provider process allocation |
 | Allocation-time cancellation | Invoke the real published gateway allocation, then abort; exactly one allocation, original reason, revoked read/write grants and no upload/part rows |
+| Transfer cancellation | Interrupt the first native upload/range body chunk and abort; preserve the caller's reason, leave the restore destination unchanged and revoke both grants |
+| Failed mutation acknowledgement | Complete/delete in real native storage, then throw from the gateway control call; observe the committed object or deletion and require exactly one mutation call |
 | Missing/corrupt input | Published `ENOENT`, `BACKUP_NOT_FOUND` and `BACKUP_INTEGRITY` errors; failed restores preserve the changed destination and revoke grants |
 | Deletion | Destroy the container, then delete the archive through the published API without starting new compute |
 | Retirement | Explicit process-handle release after every route; join each native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
@@ -282,6 +284,28 @@ shim and abort exchange runs unchanged. The other gateway and helper paths use
 the published classes directly. Valid ranged GET and part PUT requests check
 revocation, so a wrong-method refusal cannot masquerade as grant cleanup.
 
+The [boundary fixture](backup-boundaries.mjs) subclasses the published gateway
+at two additional fault seams. Its body transform interrupts the first chunk
+and triggers the caller's abort; this covers selected upload/download
+cancellation before verification. Its control hooks await real completion or
+deletion, then throw. The failed backup call does not return a usable record;
+only the test's fault observer knows the committed key for explicit observation
+and cleanup. It does not prove automatic reconciliation or transport-loss
+recovery.
+
+```mermaid
+sequenceDiagram
+    participant SDK as Published SDK
+    participant Gateway as Fault gateway
+    participant Store as Native storage
+    SDK->>Gateway: completeUpload
+    Gateway->>Store: Complete once
+    Store-->>Gateway: Committed
+    Gateway-->>SDK: Injected acknowledgement failure
+    SDK->>Gateway: Abort upload (cannot undo completed object)
+    Note over SDK,Store: Failure preserves an uncertain outcome; no completion replay
+```
+
 The host selects `Native.with_http_interception()`, the explicit `runc` network
 helper and `Source::workers_http_streams()`. Incoming HTTP reads retain the
 original invocation and cancellation authority. A reader holds one producer
@@ -291,8 +315,9 @@ SDK's buffered-body limit stays unchanged.
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
-HTTPS interception, S3 mounts, abrupt crash/mid-transfer cancellation, uncertain
-mutation responses and complete directory-backup failure/restart behavior,
+HTTPS interception, S3 mounts, abrupt crashes, larger/multi-part and
+verified-swap cancellation, lost create/transport responses, orphan expiry and
+complete directory-backup failure/restart behavior,
 full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
 requires Node; embedded V8 still lacks that web bootstrap. Shared-framework

@@ -15,6 +15,12 @@ import {
   failedBackupOperations,
   preAbortedBackupOperations,
 } from "./backup-failures.mjs";
+import {
+  TransferAbortGateway,
+  LostAcknowledgementGateway,
+  cancelBackupTransfers,
+  lostBackupAcknowledgements,
+} from "./backup-boundaries.mjs";
 
 const length = 2 * 1024 * 1024 + 17;
 function check(condition, message) {
@@ -141,6 +147,8 @@ class Workspace extends DurableObject {
     if (route === "/routing") return this.routing();
     if (route === "/pre-abort") return preAbortedBackupOperations(this);
     if (route === "/cancel-after-create") return cancelAllocatedBackup(this);
+    if (route === "/cancel-transfer") return cancelBackupTransfers(this);
+    if (route === "/lost-acks") return lostBackupAcknowledgements(this);
     if (route === "/faults") return failedBackupOperations(this);
     if (route === "/backup") {
       await this.files.mkdir("/workspace/source", { recursive: true });
@@ -247,6 +255,8 @@ export default workersApplication(
     Echo,
     DirectoryBackupGateway,
     AbortAfterUploadGateway,
+    TransferAbortGateway,
+    LostAcknowledgementGateway,
     default: {
       fetch(request, env) {
         return env.WORKSPACES.getByName("qualified").fetch(request);

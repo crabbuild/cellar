@@ -23,11 +23,11 @@ export class AbortAfterUploadGateway extends DirectoryBackupGateway {
   }
 }
 
-function check(condition, message) {
+export function check(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function rejects(action, expected, message) {
+export async function rejects(action, expected, message) {
   let failure;
   try {
     await action();
@@ -66,7 +66,7 @@ function request(method, path) {
 })().catch(() => { process.exitCode = 1; });
 `;
 
-async function denied(container) {
+export async function denied(container) {
   const process = await container.exec(["node", "-e", probeGrant]);
   const output = await process.output();
   check(output.exitCode === 0, "grant observation failed");

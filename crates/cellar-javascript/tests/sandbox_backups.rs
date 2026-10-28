@@ -224,6 +224,8 @@ async fn exercise(
                     "backup",
                     "pre-abort",
                     "cancel-after-create",
+                    "cancel-transfer",
+                    "lost-acks",
                     "faults",
                 ]
             } else {
@@ -232,6 +234,8 @@ async fn exercise(
                     "restore",
                     "pre-abort",
                     "cancel-after-create",
+                    "cancel-transfer",
+                    "lost-acks",
                     "faults",
                     "restore",
                     "destroy",
@@ -279,6 +283,8 @@ async fn exercise(
                     let fields = match route {
                         "pre-abort" => 2,
                         "cancel-after-create" => 3,
+                        "cancel-transfer" => 4,
+                        "lost-acks" => 5,
                         "faults" => 5,
                         _ => 1,
                     };

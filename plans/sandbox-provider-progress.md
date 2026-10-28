@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation-time cancellation and selected failure paths through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/mid-transfer/uncertain-response faults, full persistence/versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -2897,3 +2897,35 @@ This covers graceful process replacement and selected cancellation/errors.
 Abrupt native-process failure, mid-part/verified-swap cancellation, lost mutation
 responses, orphan expiry, broader provider/fleet cleanup and the other SP-02–SP-10
 requirements remain open. E2B/Vercel live configuration remains deferred.
+
+
+## Directory-backup transfer and acknowledgement boundaries — 2026-10-27
+
+The matching 1.0.3 SDK/image campaign passes in 41.24 s with both native/Node
+process phases exercising the new faults. The published SDK/shim bytes and the
+existing 120-second handler / 30-second JS / 64 KiB bridge-frame bounds stay
+unchanged. These cases exposed no production defect; they add required failure
+qualification at real native HTTP and Blob boundaries.
+
+| Injected boundary | Observed outcome |
+| --- | --- |
+| First upload body chunk | A fault-only gateway transform consumes one real native chunk, offers a one-byte prefix, aborts the caller and errors the body; the original abort reason survives |
+| First archive range chunk | The real gateway reads native R2 storage; the same interruption aborts before verification and leaves the marked destination unchanged |
+| Transfer retirement | Valid ranged GET and part PUT are both denied afterward; later original restore succeeds, all exec handles release explicitly and native/Node shutdown joins |
+| Completion acknowledgement | The real published `completeUpload` commits, then its fault subclass throws; backup fails, calls completion exactly once and performs one SDK abort; the completed object remains observable |
+| Deletion acknowledgement | The real published deletion commits, then throws; delete fails, is invoked exactly once and object head is absent |
+| Final durable resources | No upload/part rows or owned containers/networks remain |
+
+The test's mutation observer knows the committed key and can explicitly inspect
+and delete that object. A production failed backup call does not return this
+record. This is injected control-acknowledgement failure, not lost transport bytes
+or automatic record reconciliation. The first-chunk transform also injects a body
+error; it does not qualify every cancellation point, large/multi-part transfers
+or the post-verification swap boundary.
+
+The 145-case JS/TS suite, pinned input/drift checks and strict campaign Clippy
+pass. Full SP-02–SP-10 requirements stay open, including abrupt-process failure,
+lost create/transport responses, orphan expiry, provider recovery/physical
+deletion, S3 mounts/HTTPS and additional providers. Earlier intermittent CI
+findings are not established as fixed by these local checks. Live E2B/Vercel
+configuration remains deferred.
