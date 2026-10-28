@@ -39,7 +39,7 @@ fn definition(entered: Arc<AtomicUsize>, application: bool) -> Result<Applicatio
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn forwarding_preserves_framework_overload_classification() -> Result<()> {
-    let trace = lease_trace::install();
+    let trace = lease_trace::install(None);
     for (external, application) in [(false, false), (true, false), (false, true), (true, true)] {
         let dir = tempfile::tempdir()?;
         let entered = Arc::new(AtomicUsize::new(0));
