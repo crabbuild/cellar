@@ -1288,9 +1288,10 @@ Source inputs are
 with release executable
 `314d43d8344419bfb2911553b6389b8aec24404e4042aba0b9c030a56d545c4c`.
 The matching 272 MiB preflight passes all nine checks and six valid phase
-windows in 6.851718 s. Full-size objects remain live under
-`cold-recovery-qualification/e7d5b5c02b0ee89861211edb8f3b5bd2/`, and the new
-worker trees and complete source-bound evidence remain retained.
+windows in 6.851718 s. Full-size objects were initially retained under
+`cold-recovery-qualification/e7d5b5c02b0ee89861211edb8f3b5bd2/`, together with
+the worker trees and complete source-bound evidence. Their later verified
+archival and retirement are recorded below.
 
 Before seeding, the active publisher consumes 10,000,176,825 completed GET body
 bytes and succeeds at one cut; the preceding 200.704983-second trial consumed
@@ -1305,9 +1306,79 @@ the per-attempt reuse contract independently of these timing effects.
 
 These remain individual shared-host, uncontrolled-cache, repeated-payload,
 joined-domain-loss pilots. The analyzer correctly returns nonzero for the
-insufficient pilot population and leaves qualification false. Current-source
-full-size peer recovery, repeated/high-entropy and hard-process-loss campaigns,
-verified remote demand loading and durable retention/GC remain open.
+insufficient pilot population and leaves qualification false. At this point,
+current-source full-size peer recovery remained pending; the merged-source
+peer result below closes that individual pilot gap. Repeated/high-entropy and
+hard-process-loss campaigns, verified remote demand loading and durable
+retention/GC remain open.
+
+### Merged-source full-size peer pilot
+
+After PR #142 merged, the follow-up starts from updated `main` at
+`cd9a968932c81fcfd4a3fe9f03c4ce7c0e57e1b0`. This includes intervening host,
+storage and dependency changes, so it uses a fresh locked release build rather
+than rebinding the preceding executable to another commit. Source inputs are
+`af8f024b48c32f65b491e5c4c7eb4554ef70df9dd83330a1c2a83b0100e6b957`, with
+release executable
+`0f28f0cbf54dde339a1658d6fa83d55a35108b0dd9bc4ad34b05871f113dd11b`.
+
+The 12 MiB peer preflight passes all nine correctness checks and all six phase
+windows in 3.830853 s. The unchanged 9,999,998,976-byte peer oracle then passes
+with the same checks and six valid windows. Source inputs and executable bytes
+remain unchanged throughout each trial.
+
+| Full-size peer interval | Seconds |
+| --- | ---: |
+| Owner loss to first verified durable write | 86.831416 |
+| Archive wait | 0.000405 |
+| Seed transfer and installation | 81.616753 |
+| Promotion after the first read | 0.562870 |
+| First write after promotion | 0.257231 |
+| Full payload query after receipt verification | 16.992506 |
+| Owner loss to full payload verification | 103.858179 |
+
+The full payload query remains under its unchanged 60-second deadline. The
+343.22-second whole-fixture duration includes initial source preparation,
+preloading and proof establishment; it is not the recovery RTO. Installation
+still verifies the entire local closure before serving, and the replacement
+then verifies new writes, receipts, duplicate callback behavior and joined
+cleanup. Worker state and objects remain retained under the new fixture prefix
+`cold-recovery-qualification/7a6e7d1a44b587be6ccdf205e9b25091/`.
+
+During the seed window, the replacement records 10,000,075,408 received and
+appended peer bytes across 9,537 frames. Completed append work sums to
+55.638312 s, queued-frame time sums to 50.516770 s, and network receive work
+sums to 30.703258 s. These owner-clock observations overlap; they neither add
+up to the controller interval nor isolate scheduling delay from disk pressure.
+The receiver already uses one registered physical owner and two bounded wire
+windows. This result does not justify adding a duplicate receive pipeline.
+The two surviving hosts also complete 10,000,168,679 and 10,000,366,910 object
+GET body bytes in that window while normal archive publication stays enabled.
+Foreground I/O contention and destination persistence are therefore concrete
+next measurement targets; the counters alone do not prove either root cause.
+Requested PUT bytes are not actual uploaded wire bytes.
+
+This is one embedded joined-domain-loss trial with shared hardware,
+uncontrolled source/store caches and repeated pseudo-random 1 MiB payloads.
+The analyzer leaves qualification false with its three-sample pilot minimum
+unchanged. It neither establishes p95 nor qualifies hard process loss, M1 or
+M2. The preceding 90.867463-second RustFS pilot uses a different source revision;
+these observations do not establish a controlled backend comparison. The next
+qualification work still includes repeated trials, independent high-entropy
+data, hard kills and contention, followed by verified demand loading and durable
+remote retention/GC.
+
+Provisioning this drill preserves the preceding RustFS trial before reclaiming
+its capacity: all 7,188 worker files and all 2,405 object bodies match their
+decoded archives, including 2,387 domain-separated extent identities. Archive
+and metadata persistence precede retirement of the inactive worker trees and
+exact object prefix. RustFS initially retains deleted bytes in internal trash;
+the owned test server is stopped before that trash is archived, verified and
+retired. Restart preserves all 465 live object entries and their lengths/ETags.
+The new trial uses the same server binary, endpoint and internal-volume layout,
+and passes the unchanged four-image-plus-8-GiB capacity guard. Prior evidence,
+restore instructions and backups remain outside the Cargo target. No older
+RustFS instances or unrelated data are reclaimed.
 
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
