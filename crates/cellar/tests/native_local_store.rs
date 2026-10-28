@@ -8,6 +8,71 @@ use anyhow::{ensure, Context as _, Result};
 use cellar::{bucket::Bucket, sdk::ExecutionDomain};
 use std::io::Read as _;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_cas_has_one_winner_before_and_after_reopen() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let database = directory.path().join("objects.sqlite");
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let bucket = Bucket::open_dev(&database)?;
+            let old = bucket
+                .put_cas("owner", b"initial".to_vec(), None)
+                .await?
+                .context("initial CAS did not apply")?;
+            let mut contenders = Vec::new();
+            for index in 0_u8..32 {
+                let bucket = bucket.clone();
+                let old = old.clone();
+                contenders.push(cellar::asyncrt::try_spawn(async move {
+                    bucket.put_cas("owner", vec![index], Some(&old)).await
+                })?);
+            }
+            let mut winners = Vec::new();
+            for (index, result) in futures_util::future::join_all(contenders)
+                .await
+                .into_iter()
+                .enumerate()
+            {
+                if let Some(token) = result?? {
+                    winners.push((index as u8, token));
+                }
+            }
+            ensure!(
+                winners.len() == 1,
+                "same-token CAS race applied {} times",
+                winners.len()
+            );
+            let (index, token) = winners.pop().unwrap();
+            drop(bucket);
+            let reopened = Bucket::open_dev(&database)?;
+            let (body, saved_token) = reopened.get("owner").await?.context("winner disappeared")?;
+            ensure!(
+                body.as_ref() == [index] && saved_token == token && saved_token != old,
+                "reopen lost the single winning body/token"
+            );
+            ensure!(
+                reopened
+                    .put_cas("owner", b"stale".to_vec(), Some(&old))
+                    .await?
+                    .is_none(),
+                "stale CAS applied after reopen"
+            );
+            ensure!(
+                reopened
+                    .put_cas("owner", b"next".to_vec(), Some(&token))
+                    .await?
+                    .is_some(),
+                "winner token could not advance after reopen"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
 /// This checks the library actually linked into native applications, not the
 /// SQLite CLI or Python interpreter installed on the development machine.
 #[test]

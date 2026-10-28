@@ -60,6 +60,37 @@ pub(super) fn read_object(
 }
 
 impl NodeExtentStore {
+    /// Borrow an already admitted complete object without copying source chunks.
+    /// Native providers write one at-most-4-MiB window; other providers retain
+    /// bounded positional writes. Independent destination verification and both
+    /// persistence barriers still precede reuse. Existing local bytes are
+    /// independently verified rather than overwritten with the supplied buffer.
+    pub fn put_extent_bytes(&self, id: ExtentId, bytes: &[u8]) -> Result<(), StoreError> {
+        let operation = self.begin()?;
+        let result = self.put_extent_bytes_inner(id, bytes);
+        operation.finish()?;
+        result
+    }
+
+    pub(super) fn put_extent_bytes_inner(
+        &self,
+        id: ExtentId,
+        bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        if bytes.len() != id.length() as usize {
+            return Err(StoreError::Integrity);
+        }
+        self.put_extent_with(id, |file| {
+            if ExtentId::of(bytes)? != id {
+                return Err(StoreError::Integrity);
+            }
+            // The caller already owns this bounded input. Avoid a second
+            // extent allocation and preserve injected providers' fallback.
+            file.write_all_at_window(0, bytes)?;
+            Ok(())
+        })
+    }
+
     /// Import one immutable object. Admission precedes creation/source reads;
     /// source identity, independent destination verification and both persistence
     /// barriers precede reuse. Existing names are verified, never overwritten.
@@ -78,6 +109,31 @@ impl NodeExtentStore {
         &self,
         id: ExtentId,
         read: &mut impl FnMut(u64, usize) -> io::Result<Vec<u8>>,
+    ) -> Result<(), StoreError> {
+        self.put_extent_with(id, |file| {
+            let mut hash = id.stream_hasher();
+            let mut offset = 0;
+            while offset < u64::from(id.length()) {
+                let count = (u64::from(id.length()) - offset).min(65536) as usize;
+                let bytes = read(offset, count)?;
+                if bytes.len() != count {
+                    return Err(StoreError::Integrity);
+                }
+                hash.update(&bytes);
+                file.write_all_at(offset, &bytes)?;
+                offset += count as u64;
+            }
+            if <[u8; 32]>::from(hash.finalize()) != id.bytes() {
+                return Err(StoreError::Integrity);
+            }
+            Ok(())
+        })
+    }
+
+    fn put_extent_with(
+        &self,
+        id: ExtentId,
+        write: impl FnOnce(&mut HostFile) -> Result<(), StoreError>,
     ) -> Result<(), StoreError> {
         let exists = self.inner.state()?.objects.contains_key(&id);
         if exists {
@@ -115,21 +171,7 @@ impl NodeExtentStore {
             if file.file_len()? != 0 {
                 return Err(StoreError::Integrity);
             }
-            let mut hash = id.stream_hasher();
-            let mut offset = 0;
-            while offset < u64::from(id.length()) {
-                let count = (u64::from(id.length()) - offset).min(65536) as usize;
-                let bytes = read(offset, count)?;
-                if bytes.len() != count {
-                    return Err(StoreError::Integrity);
-                }
-                hash.update(&bytes);
-                file.write_all_at(offset, &bytes)?;
-                offset += count as u64;
-            }
-            if <[u8; 32]>::from(hash.finalize()) != id.bytes() {
-                return Err(StoreError::Integrity);
-            }
+            write(&mut file)?;
             file.sync_all()?;
             crate::extent::file::verify_file(&mut file, id)?;
             self.inner.filesystem.sync_all(&self.inner.directory)?;

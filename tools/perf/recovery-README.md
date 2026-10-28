@@ -162,6 +162,16 @@ counter. `snapshot_prepared_hits`, `snapshot_prepared_misses` and
 are node-wide fixed counters; they do not assert that a particular cell received
 or installed a body.
 
+`archive_physical_admission` measures waiting for the node-wide background
+encoding/verification limit. `archive_physical_queue` then measures waiting for
+the admitted job to begin on its owning executor. Only captured publication
+clones and their verifier use this queue; the resident archive's foreground
+restore path keeps its original host. A queued job canceled before admission
+never dispatches, while an entered or executor-queued job retains its slot until
+its physical owner completes. Both delays remain in archive publication and
+recovery timing. These observations do not measure disk bandwidth or establish
+foreground latency under contention.
+
 The host retains at most one prepared peer/checkpoint body. Its key includes the
 engine owner, complete replica identity, birth/schema and immutable image marker;
 each consumer must satisfy its current limits. Every capture rebuilds its own

@@ -1088,6 +1088,7 @@ impl Body for RetainedRpcBody {
 
 /// Node A: one RPC through the pooled rpc tunnel.
 pub(crate) struct RpcControl<'a> {
+    pub(crate) reservation: Option<&'a crate::host_channels::RpcReservation>,
     pub(crate) request_id: Option<crate::engine_api::RequestId>,
     pub(crate) authority: Option<&'a crate::runtime::RpcAuthority>,
     pub(crate) deadline_ms: Option<u64>,
@@ -1101,15 +1102,7 @@ pub(crate) async fn rpc(
     args: &crate::engine_api::RpcData,
     control: RpcControl<'_>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
-    let (content_type, payload) = match args {
-        crate::engine_api::RpcData::Leased { .. } => {
-            anyhow::bail!("leased RPC arguments require a capability session")
-        }
-        crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),
-        crate::engine_api::RpcData::Structured(bytes) => {
-            ("application/octet-stream", bytes.clone())
-        }
-    };
+    let (content_type, payload) = rpc_payload(args, control.reservation)?;
     send_inner(
         peer,
         "rpc",
@@ -1144,6 +1137,37 @@ pub(crate) async fn rpc(
         control.deadline_ms,
     )
     .await
+}
+
+fn rpc_payload(
+    args: &crate::engine_api::RpcData,
+    reservation: Option<&crate::host_channels::RpcReservation>,
+) -> anyhow::Result<(&'static str, Bytes)> {
+    Ok(match args {
+        crate::engine_api::RpcData::Leased { .. } => {
+            anyhow::bail!("leased RPC arguments require a capability session")
+        }
+        crate::engine_api::RpcData::Json(json) => {
+            let mut dense = Vec::new();
+            dense.try_reserve_exact(json.len()).map_err(|_| {
+                crate::application::rpc::Failure::new(
+                    crate::application::rpc::Code::ResourceExhausted,
+                )
+            })?;
+            dense.extend_from_slice(json.as_bytes());
+            let bytes = Bytes::from(dense);
+            // JSON's String cannot carry a ticket, but its peer body can.
+            // Hyper may retain a cloned body after its dispatch is cancelled.
+            let bytes = match reservation {
+                Some(reservation) => reservation.retain_bytes(bytes),
+                None => bytes,
+            };
+            ("application/json", bytes)
+        }
+        crate::engine_api::RpcData::Structured(bytes) => {
+            ("application/octet-stream", bytes.clone())
+        }
+    })
 }
 
 pub(crate) use crate::ws_tunnel::{claim_upgrade, park_upgrade, TunnelUpgradeClaim};

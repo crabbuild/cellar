@@ -349,7 +349,7 @@ native tests as implementation develops.
 
 | SDK family | FleetCare use and dedicated probe | Evidence / limitation |
 | --- | --- | --- |
-| Cell identity, namespaces, fetch/RPC, services | Entity commands, nested dashboard calls, structured errors, local/remote paths; named service props and cancellation | [cells](../../crates/cellar/application/cells.rs), [service](../../crates/cellar/application/service.rs) |
+| Cell identity, namespaces, fetch/RPC, services | Entity commands, nested dashboard calls, structured errors, local/remote paths; named service props and cancellation | [cells](../../crates/cellar/application/cells.rs), [service](../../crates/cellar/application/service/mod.rs) |
 | Storage JSON/clone, multi-key get/put/delete, list/cursors | Device preferences, diagnostic graph, receipts and bounded reconciliation scans | [storage](../../crates/cellar/application/storage/mod.rs) |
 | Cell SQL and transactions | Stock invariants, atomic receipt/outbox; sync/async, nested rollback, cursor cancellation and explicit sync variants | [transactions](../../crates/cellar/application/storage/transaction.rs); local transactions only |
 | SQL binding | Prepared/indexed dashboard reads, batch updates, migration/history and sessions | [SQL](../../crates/cellar/application/sql/mod.rs); dump() returns an unsupported error |

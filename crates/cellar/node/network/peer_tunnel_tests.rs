@@ -514,6 +514,7 @@ async fn submitted_rpc_reply_loss_cannot_enter_the_unsent_retry_path() -> anyhow
                     method,
                     &crate::engine_api::RpcData::Structured(payload.clone()),
                     RpcControl {
+                        reservation: None,
                         request_id: Some(identity),
                         authority: None,
                         deadline_ms: Some(crate::asyncrt::mono_ms() + 1000),
@@ -632,6 +633,7 @@ async fn changed_peer_cannot_reuse_authenticated_tunnel(change_target: bool) -> 
                     "example.counter.v1.Counter/GetCount",
                     &args,
                     RpcControl {
+                        reservation: None,
                         request_id: None,
                         authority: None,
                         deadline_ms: None,
@@ -708,4 +710,43 @@ async fn accept_until_stopped(
         _ = stopped => Ok(None),
         accepted = listener.accept() => accepted.map(|(stream, _)| Some(stream)),
     }
+}
+
+#[test]
+fn rpc_payload_aliases_keep_sdk_admission_after_dispatch_retires() -> anyhow::Result<()> {
+    for args in [
+        crate::engine_api::RpcData::Json("[\"é\",\"🙂\"]".into()),
+        crate::engine_api::RpcData::Structured(Bytes::from_static(b"structured")),
+    ] {
+        let budget = crate::outbound_rpc::Budget::new(crate::runtime_policy::RuntimePolicy {
+            max_outbound_rpc_requests: 1,
+            ..Default::default()
+        });
+        let admitted = budget
+            .admit("Counter:alice", Some("alice"), "method", &args)
+            .unwrap();
+        let held = budget.usage();
+        let (kind, payload) = rpc_payload(&admitted.args, Some(&admitted.reservation))?;
+        match &args {
+            crate::engine_api::RpcData::Json(text) => {
+                assert_eq!(kind, "application/json");
+                assert_eq!(payload.as_ref(), text.as_bytes());
+            }
+            crate::engine_api::RpcData::Structured(bytes) => {
+                assert_eq!(kind, "application/octet-stream");
+                assert_eq!(&payload, bytes);
+            }
+            _ => unreachable!(),
+        }
+        let alias = payload.slice(..1);
+        drop((payload, admitted));
+        assert_eq!(
+            budget.usage(),
+            held,
+            "a peer payload alias lost its source quota"
+        );
+        std::thread::spawn(move || drop(alias)).join().unwrap();
+        assert_eq!(budget.usage(), Default::default());
+    }
+    Ok(())
 }

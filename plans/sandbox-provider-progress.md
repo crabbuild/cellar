@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup | Generation-bound outbound service routing, complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -43,7 +43,7 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
-| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, terminals and Files | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize evidence, actual file operations, explicit handle retirement and original-event authority |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, files and directory backups | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize, actual files and DirectoryBackup backup/restore/delete; fresh ownership gates and handler replacement on a retained HTTP connection |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
@@ -2799,3 +2799,241 @@ establish a cold-first-call performance fix, and the original deadline remains
 unchanged. Fresh SDK/JavaScript CI, cold recovery and heartbeat qualification
 remain required. Positive R2 backup/mount work and the full provider goal remain
 open; no VM or live cloud-account campaign was rerun for this merge.
+
+## Run-owned HTTP routes and published directory backups — 2026-10-27
+
+The optional native `runc` helper profile now routes plain HTTP to a declared
+service or exported Worker entrypoint. It captures immutable deployment/route
+metadata and copied props, retaining no installing event or guest callback.
+Every request obtains a fresh scope/epoch Service gate. A retired generation
+refuses instead of silently selecting the current deployment.
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Provider opt-in | `Native.with_http_interception()`; default native and remote providers omit/refuse the operation before dispatch |
+| Configuration | Before-start routes install before application allocation; live replacements retain rule order and apply per message on an existing connection |
+| Native lifetime | Root-cell/run ownership, explicit cancellation, bounded headers/route metadata, streamed bodies and joined transport retirement |
+| Node incoming bodies | Explicit `Source::workers_http_streams()`; original-invocation reads/cancellation, one retained producer chunk and at most the configured bytes per bridge frame |
+| Shared controls | Native Rust SDK plus portable Python/JavaScript/TypeScript binding-name calls; Workers accepts actual service/export capabilities and copied props |
+| Published helper | Unmodified `DirectoryBackup`, `DirectoryBackupGateway`, `Files` and matching sandbox-shim 1.0.3 |
+
+On updated main `cd9a9689`, the real-image campaign passes in 8.86 s: one
+container TCP connection carries a pre-start handler from a later event, direct,
+intercepted and replacement-handler
+requests/replies, each preserving 2 MiB + 17 bytes and SHA-256. The SDK archives
+a directory, stores its record in cell SQLite, restores modified files in a
+later event and deletes the archive after container destruction. Native node
+and Node runtime join with zero retained bridge bytes/invocations and no owned
+containers; cleanup removes only empty owned networks.
+
+This campaign exposed and corrected two integration gaps: independent facade
+getters now reuse the event's canonical context after the native activation
+check; incoming HTTP reads split coalesced producer chunks without increasing
+the bridge's 64 KiB frame limit. Original buffered request limits remain intact.
+The native route/wire tests additionally cover fresh gates, expired deployment
+refusal, stream bytes, malformed authority and pending-request retirement.
+
+PR #137 merged during delivery, so this follow-up starts from updated main.
+Its last head `7a7644b4` has passing JavaScript/Node and outbound-network CI;
+these controls do not establish the cause of the earlier owner-expiry, GIL
+`NodeLeaseExpired`, free-threaded, cold-call or heartbeat findings.
+
+| Final local checks on this follow-up | Result |
+| --- | --- |
+| Native route/network tests | 10 pass; unchanged 10 s / 45 s overall bounds and production generation reaping |
+| Shared provider / guest tests | 26 / 31 pass, including bounded frame splitting and source cancellation |
+| Node integration | 16 pass; native ownership, published constructors, entrypoints, routing and sleep/wake hooks |
+| Combined Node/V8 mode | 19 pass across containers, ownership transport and Workers activation/callback/storage cases |
+| JavaScript/TypeScript | 145 pass; 116 sources formatted; pinned SDK input/drift tests pass |
+| Python facade | Syntax and binding-name wire checks pass; strict embedded library Clippy passes |
+| Strict core/Node/V8 Clippy | All selected library/test targets pass with `-D warnings`; existing dependency warnings remain |
+| Repository gates | Rust format/layout (1,320 files), native-only graph (482 packages, no JS engine), docs (833 references) and whitespace pass |
+
+The image campaign removed its owned resources and helper tag, preserved the
+preloaded images/default Docker context and original VM configuration, and
+returned the private VM to stopped state.
+
+SP-02–SP-07 remain partial. Next deliver the remaining published helper APIs
+and backup failure/restart cases, then S3 mounts/HTTPS under explicit capability
+profiles, broader provider recovery/physical deletion and additional providers.
+Live E2B/Vercel configuration remains deferred; full SP-08–SP-10 qualification
+and hosted/Dynamic Workers remain open.
+
+
+## Directory-backup process recovery and failure qualification — 2026-10-27
+
+The matching 1.0.3 SDK/shim now passes a two-process campaign in 26.53 s.
+The first native process writes an archive and record, then joins its native
+node and Node process. A second native process starts with a different empty
+node directory and a fresh Node process, recovers the identical record through
+native fleet storage, and restores the original 2 MiB + 17 bytes into a new
+container. Only the fleet/object-store database survives; expected-record JSON
+is never used as the restore input.
+
+| Case | Required observation |
+| --- | --- |
+| Pre-aborted backup/restore | Exact caller reason; no provider exec admission |
+| Abort after allocation | Fault-only subclass calls the real published `createUpload` first, then aborts; exactly one allocation and the original reason |
+| Missing source | Published `SandboxFileError` / `ENOENT` |
+| Missing archive | Published `SandboxBackupError` / `BACKUP_NOT_FOUND` |
+| Corrupt archive record | Published `BACKUP_INTEGRITY`; target remains unchanged |
+| Grant revocation | Valid ranged GET and part PUT both return 403 after failures/cancellation |
+| Continued operation | A later valid restore still returns the original bytes/SHA-256 |
+| Retirement | Every provider exec explicitly released; joined native/Node processes and no owned containers/networks |
+| Durable cleanup | Final object head is absent; zero native upload and part rows after both process phases |
+
+Both phases retain the existing 120-second native handler, 30-second JavaScript
+execution and 64 KiB bridge-frame limits. The outer process runner has a
+300-second phase limit, bounded logs and explicit termination/join. The published
+SDK/shim bytes remain pinned and unchanged. The added fault subclass changes only
+the allocation-time abort trigger, without replacing storage or the SDK exchange.
+
+Strict Clippy for the image campaign and the 145-case JS/TS suite pass. The
+`7a7644b4` Python and typed-RPC CI runs have also completed successfully; this is
+additional control evidence, not a demonstrated cause/fix for earlier lifecycle
+or latency findings. PR #146 remains the follow-up delivery branch.
+
+This covers graceful process replacement and selected cancellation/errors.
+Abrupt native-process failure, mid-part/verified-swap cancellation, lost mutation
+responses, orphan expiry, broader provider/fleet cleanup and the other SP-02–SP-10
+requirements remain open. E2B/Vercel live configuration remains deferred.
+
+
+## Directory-backup transfer and acknowledgement boundaries — 2026-10-27
+
+The matching 1.0.3 SDK/image campaign passes in 41.24 s with both native/Node
+process phases exercising the new faults. The published SDK/shim bytes and the
+existing 120-second handler / 30-second JS / 64 KiB bridge-frame bounds stay
+unchanged. These cases exposed no production defect; they add required failure
+qualification at real native HTTP and Blob boundaries.
+
+| Injected boundary | Observed outcome |
+| --- | --- |
+| First upload body chunk | A fault-only gateway transform consumes one real native chunk, offers a one-byte prefix, aborts the caller and errors the body; the original abort reason survives |
+| First archive range chunk | The real gateway reads native R2 storage; the same interruption aborts before verification and leaves the marked destination unchanged |
+| Transfer retirement | Valid ranged GET and part PUT are both denied afterward; later original restore succeeds, all exec handles release explicitly and native/Node shutdown joins |
+| Completion acknowledgement | The real published `completeUpload` commits, then its fault subclass throws; backup fails, calls completion exactly once and performs one SDK abort; the completed object remains observable |
+| Deletion acknowledgement | The real published deletion commits, then throws; delete fails, is invoked exactly once and object head is absent |
+| Final durable resources | No upload/part rows or owned containers/networks remain |
+
+The test's mutation observer knows the committed key and can explicitly inspect
+and delete that object. A production failed backup call does not return this
+record. This is injected control-acknowledgement failure, not lost transport bytes
+or automatic record reconciliation. The first-chunk transform also injects a body
+error; it does not qualify every cancellation point, large/multi-part transfers
+or the post-verification swap boundary.
+
+The 145-case JS/TS suite, pinned input/drift checks and strict campaign Clippy
+pass. Full SP-02–SP-10 requirements stay open, including abrupt-process failure,
+lost create/transport responses, orphan expiry, provider recovery/physical
+deletion, S3 mounts/HTTPS and additional providers. Earlier intermittent CI
+findings are not established as fixed by these local checks. Live E2B/Vercel
+configuration remains deferred.
+
+
+## Known-length native part staging — 2026-10-27
+
+The R2 facade no longer collects known-length parts under the bridge-frame
+ceiling. Strings, byte buffers/views, Blobs and branded `FixedLengthStream`
+inputs use the shared native staged-part API. Text counts UTF-8 length and encodes
+bounded UTF-16 windows without splitting surrogate pairs or collecting its
+entire encoded body; the Unicode boundary test includes lone surrogates. Unknown-length streams retain
+the existing buffered limit; caller-provided properties do not grant a length.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Native SDK | `ResumableMultipart::begin_part`; invocation-owned `ResumablePart::write` and `complete` |
+| Backend capability | Explicit `supports_streamed_parts`; native local SQLite implements it, other clients default to refusal |
+| Capacity | Before file allocation, reserve declared bytes and one file slot in the original host; defaults: 256 MiB per part, 1 GiB aggregate, 64 files |
+| Input | Await each write, at most the bridge limit and 64 KiB; decoded byte capacity follows entered file work |
+| Storage | Anonymous scratch file through the execution domain's filesystem; source/network waits hold no SQLite writer |
+| Publication | Require exact declared length; compute SHA-256 incrementally and atomically replace the indexed part/receipt with bounded copies |
+| Retirement | Short/failed stages preserve the previous receipt; drop closes anonymous storage. Entered I/O retains scratch capacity after waiter cancellation and joins with its domain |
+| Authority | A later native event cannot write/complete an old stage, even in the same cell; it can reconstruct the durable upload and create a fresh stage |
+| Lost completion | A failed acknowledgement may follow part publication; temporary cancellation cannot roll it back and no mutation is automatically replayed |
+
+Three integration gaps reproduced during delivery. First, local storage emits
+128 KiB chunks while the gateway test allows 4 KiB frames. The shared response
+adapter now retains one producer allocation and splits it before another pull;
+its original per-frame assertion, cancellation and error semantics remain.
+Second, an SDK short-source failure returned while native scratch admission was
+pending. That admission occupied the JS SQLite mutation slot, so publishing the
+handled 502 failed with `ConcurrentMutation`. Node and V8 classify only the four
+staged-part controls as independent native I/O, preserving mutation-failure
+provenance and all Blob/ownership gates. Ordinary storage mutation admission is
+unchanged. Finally, buffered response fragments initially outlived their origin
+host when a replacement domain polled the stream. A reproducer failed before
+the fix; the splitter now captures the original host and checks closure before
+every frame, releases pending data/source on closure and never borrows ambient
+authority. Temporary diagnostic probes were removed.
+
+| Evidence | Result |
+| --- | --- |
+| Original JS reproduction | A 19-byte known-length part failed under a 4-byte frame limit; acknowledged 4-byte writes now pass |
+| Local object store | 27 tests pass, including original multipart/restart/resource checks, 5 MiB + 17-byte staged publication and cancelled SQLite completion capacity ownership |
+| Native scratch budget | Independent-host, overflow, last-owner and empty-file-slot checks pass |
+| Shared guest boundary | 34 tests pass, including producer splitting, closed-origin/replacement-domain refusal, source cancellation and error preservation |
+| Native SDK integration | Original Blob durability suite passes with stale-event staging refusal before any new effect gate and fresh-stage publication |
+| Published gateway | Existing node/client restart, short/oversized source, receipt and transaction assertions pass; added 256 KiB + 17-byte stream at 4 KiB frames and typed oversized-length refusal |
+| Matching SDK/image | Two-process campaign passes in 41.07 s with incompressible 2 MiB + 17-byte input; archive must exceed 64 KiB and restored bytes/SHA-256 must match |
+| JS/TS and package | 149 tests pass; packed npm package includes the new internal R2 helper |
+| Strict Clippy | Core/shared guest/Node/V8 all-target checks and embedded Python library checks pass with `-D warnings` |
+| Repository gates | Rust format/layout (1,326 files), JS formatting (119 sources), native-only graph (482 packages without a JS engine), pinned inputs, docs and whitespace pass |
+
+The matching-image campaign retains its original handler/JS/frame budgets and
+checks grant revocation, acknowledgement failures, explicit process retirement,
+joined native/Node shutdown and zero upload/part rows. Full OS/RSS and concurrent
+multipart qualification, remote storage implementations, abrupt crashes,
+verified-swap/lost-create/transport failures, orphan expiry and all remaining
+SP-02–SP-10 requirements stay open. Live E2B/Vercel qualification remains deferred.
+
+## Persisted upload expiry and bounded orphan collection — 2026-10-27
+
+Local resumable uploads now capture a fixed deadline when their allocation
+obtains SQLite writer admission. The default is seven days. A replacement
+client or changed host policy cannot extend a stored deadline. This advances
+the local R2/backup recovery slice; it does not complete provider lifecycle or
+full Sandbox 1.x qualification.
+
+```mermaid
+stateDiagram-v2
+    Open --> Open: reconnect before deadline
+    Open --> Published: valid completion admitted before expiry
+    Open --> Retired: deadline observed and committed
+    Retired --> Retired: one part reclaimed per pass
+    Retired --> Collected: last part gone
+```
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Admission | Buffered part installation, stage creation, stage publication and object completion refuse expired/retired uploads |
+| Clock rollback | An expiry observation commits terminal retirement before returning failure; rolling the clock back cannot revive it |
+| Policy change | New deadlines use immutable host configuration; disabling new deadlines does not disable existing ones |
+| Scoped maintenance | Persist the exact canonical encoded host bucket scope; index by scope/status/deadline and never use wildcard matching |
+| Bounded pass | At most 64 retirements, 64 retired cleanup headers and one stored part; never materialize part bodies |
+| Lost response | A dropped maintenance waiter leaves one entered atomic pass; a fresh scan converges without replaying application mutations |
+| Host lifecycle | First Blob-bucket installation starts one domain-owned task; duplicate registration cannot start another scope's collector |
+| Shutdown/restart | Cancel the maintenance timer, join entered transactions, and leave durable backlog for the next host |
+| Completed objects | Abort/expiry/collection do not delete or replace public object bytes |
+| Schema cutover | Refuse older local upload layouts before creating replacement tables; preserve their rows and perform no migration |
+
+The [native upload guide](../crates/cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+documents host configuration and limits. The generic backend capability is
+explicit; S3/GCS and supplied providers do not inherit local expiry guarantees.
+One-part passes bound item counts, not disk latency, SQLite WAL size or total
+backlog. Clock rollback before any expiry observation can delay retirement.
+Collection requires a running host or an explicit host maintenance call.
+
+| Evidence | Result |
+| --- | --- |
+| Local object-store boundary | 34 tests pass, including seven new expiry/reconnect, scope, changed-policy, rollback, overflow, lost-waiter and owned-loop cases |
+| Existing resource controls | Original 64 MiB completion and read RSS checks pass without changing their bounds |
+| Published gateway | Passes in 2.69 seconds with the original frame/handler budgets; lost create response leaves real records, a replacement host with changed policy collects both unknown-ID and uploaded orphans, and completed bytes survive |
+| Native SDK | Blob durability/records/streams/multipart integration passes, retaining original invocation and effect-gate assertions |
+| JS/TS and pinned inputs | 149 tests and both Sandbox 1.x package/source identity checks pass; the changed qualification fixture has a new pinned digest |
+| Static/repository gates | Strict core/shared guest/Node/V8 all-target Clippy, Rust/JS formatting, module layout (1,328 Rust files), native-only graph (482 packages without an engine), docs and whitespace pass |
+
+Full image-level lost-create/transport failure, abrupt-crash recovery,
+larger/multipart and verified-swap cancellation, HTTPS, S3 mounts, remote storage
+expiry, broader provider/fleet cleanup and remaining SP-02–SP-10 requirements
+stay open. Live E2B/Vercel qualification still awaits configuration.

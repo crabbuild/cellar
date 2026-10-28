@@ -214,7 +214,20 @@ impl Router {
             }
         };
         let request = prepared.take_request();
-        let result = (entry.handler)(context, request, limits).await;
+        // Native codec admission precedes the generated decoding closure and
+        // stays with its owned request until handler/response encoding finish.
+        // The factory has already run: refusal cannot promise rollback.
+        let result = match super::DecodeReservation::new(
+            &prepared.contract,
+            &prepared.method.input,
+            &request,
+        ) {
+            Ok(_admission) => match context.check_turn() {
+                Ok(()) => (entry.handler)(context, request, limits).await,
+                Err(_) => Err(Failure::new(Code::ContextExpired)),
+            },
+            Err(failure) => Err(failure),
+        };
         Ok(prepared.finish(result)?)
     }
 }

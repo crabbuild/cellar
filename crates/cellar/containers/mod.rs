@@ -45,6 +45,7 @@ mod idle;
 mod network;
 mod network_options;
 mod ports;
+pub use cellar_egress::HttpTarget as HttpInterceptTarget;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
 pub use network_options::NetworkHelperOptions;
 pub use ports::validate_exposed_ports;
@@ -275,6 +276,7 @@ struct CellState {
     /// Ordinary operations require this resource's run to be current.
     resource: Option<EngineResource>,
     network: Option<Arc<network::Run>>,
+    pending_http: Vec<network::Pending>,
 }
 
 #[derive(Clone)]
@@ -2038,7 +2040,14 @@ impl ContainerEngine {
 
     pub async fn destroy(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         self.check_cell(cell)?;
-        let network = cell.state.lock().unwrap().network.clone();
+        let (network, pending) = {
+            let mut state = cell.state.lock().unwrap();
+            (
+                state.network.clone(),
+                std::mem::take(&mut state.pending_http),
+            )
+        };
+        drop(pending);
         if let Some(network) = network {
             return self.cleanup_network(cell, &network).await;
         }

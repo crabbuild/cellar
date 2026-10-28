@@ -100,7 +100,9 @@ fn published_sandbox_exec_files_and_processes_use_the_pinned_image() -> Result<(
     let images = Images::configured()?;
     let directory = tempfile::tempdir()?;
     let source = Source::module()
-        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .container_provider(Arc::new(image_provider::DiagnosticNative(
+            cellar_container::Native,
+        )))
         .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events(
@@ -164,7 +166,9 @@ fn published_sandbox_rpc_files_use_the_pinned_image() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let entry = fixture()?.with_file_name("sandbox-rpc.mjs");
     let source = Source::module()
-        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .container_provider(Arc::new(image_provider::DiagnosticNative(
+            cellar_container::Native,
+        )))
         .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events(
@@ -205,7 +209,9 @@ fn published_sandbox_preview_authorization_tracks_the_active_runtime() -> Result
     let directory = tempfile::tempdir()?;
     let entry = fixture()?.with_file_name("sandbox-preview.mjs");
     let source = Source::module()
-        .container_provider(Arc::new(image_provider::DiagnosticNative))
+        .container_provider(Arc::new(image_provider::DiagnosticNative(
+            cellar_container::Native,
+        )))
         .workers_lifetimes()
         .events([EventKind::Fetch])
         .cell_events(

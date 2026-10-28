@@ -13,7 +13,7 @@ use sha2::{Digest as _, Sha256};
 
 const MAX_PARTS: usize = 10_000;
 
-fn check_part(index: usize) -> object_store::Result<i64> {
+pub(super) fn check_part(index: usize) -> object_store::Result<i64> {
     if index >= MAX_PARTS {
         return Err(message_error("multipart part index exceeds 9999"));
     }
@@ -21,20 +21,47 @@ fn check_part(index: usize) -> object_store::Result<i64> {
 }
 
 impl LocalStore {
-    fn upload_attributes(
-        connection: &Connection,
+    pub(super) fn upload_attributes(
+        connection: &rusqlite::Transaction<'_>,
         key: &str,
         id: &str,
-    ) -> object_store::Result<String> {
-        connection
+    ) -> object_store::Result<Option<String>> {
+        let (attributes, expires_ms, retired): (String, Option<i64>, bool) = connection
             .query_row(
-                "SELECT attributes FROM __sys_local_uploads WHERE id = ?1 AND key = ?2",
+                "SELECT attributes, expires_ms, retired FROM __sys_local_uploads WHERE id = ?1 AND key = ?2",
                 params![id, key],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(db_error)?
-            .ok_or_else(|| not_found(key))
+            .ok_or_else(|| not_found(key))?;
+        if retired || expires_ms.is_some_and(|deadline| deadline <= crate::asyncrt::wall_ms()) {
+            connection
+                .execute(
+                    "UPDATE __sys_local_uploads SET retired = 1 WHERE id = ?1 AND key = ?2",
+                    params![id, key],
+                )
+                .map_err(db_error)?;
+            // The caller must commit retirement before returning NotFound.
+            // Rolling back this observation could revive it after clock rollback.
+            return Ok(None);
+        }
+        Ok(Some(attributes))
+    }
+
+    pub(super) fn validate_upload_sync(&self, key: &str, id: &str) -> object_store::Result<()> {
+        let _writer = self.writer.lock();
+        let mut connection = self.connect()?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        let live = Self::upload_attributes(&transaction, key, id)?.is_some();
+        transaction.commit().map_err(db_error)?;
+        if live {
+            Ok(())
+        } else {
+            Err(not_found(key))
+        }
     }
 
     fn put_part_sync(
@@ -44,26 +71,43 @@ impl LocalStore {
         index: i64,
         body: Bytes,
     ) -> object_store::Result<PartId> {
+        let receipt = hex::encode(Sha256::digest(&body));
+        self.install_part_sync(&key, &id, index, body.len(), receipt, |part| {
+            part.write_all_at(&body, 0).map_err(db_error)
+        })
+    }
+
+    pub(super) fn install_part_sync(
+        &self,
+        key: &str,
+        id: &str,
+        index: i64,
+        length: usize,
+        receipt: String,
+        write: impl FnOnce(&mut rusqlite::blob::Blob<'_>) -> object_store::Result<()>,
+    ) -> object_store::Result<PartId> {
         let _writer = self.writer.lock();
         let mut connection = self.connect()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
-        Self::upload_attributes(&transaction, &key, &id)?;
-        let receipt = hex::encode(Sha256::digest(&body));
+        if Self::upload_attributes(&transaction, key, id)?.is_none() {
+            transaction.commit().map_err(db_error)?;
+            return Err(not_found(key));
+        }
         let rowid = transaction.query_row(
             "INSERT INTO __sys_local_parts(upload_id, part_index, etag, body)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(upload_id, part_index) DO UPDATE SET etag = excluded.etag, body = excluded.body
              RETURNING rowid",
-            params![id, index, receipt, rusqlite::blob::ZeroBlob(i32::try_from(body.len()).map_err(db_error)?)],
+            params![id, index, receipt, rusqlite::blob::ZeroBlob(i32::try_from(length).map_err(db_error)?)],
             |row| row.get::<_, i64>(0),
         ).map_err(db_error)?;
         {
             let mut part = transaction
                 .blob_open(rusqlite::MAIN_DB, "__sys_local_parts", "body", rowid, false)
                 .map_err(db_error)?;
-            part.write_all_at(&body, 0).map_err(db_error)?;
+            write(&mut part)?;
         }
         transaction.commit().map_err(db_error)?;
         Ok(PartId {
@@ -87,7 +131,10 @@ impl LocalStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
-        let attributes = Self::upload_attributes(&transaction, &key, &id)?;
+        let Some(attributes) = Self::upload_attributes(&transaction, &key, &id)? else {
+            transaction.commit().map_err(db_error)?;
+            return Err(not_found(&key));
+        };
         let mut inputs = Vec::with_capacity(parts.len());
         let mut size = 0_usize;
         for (index, receipt) in parts.iter().enumerate() {
@@ -169,6 +216,20 @@ impl LocalStore {
         path: &Path,
         options: PutMultipartOptions,
     ) -> object_store::Result<MultipartId> {
+        self.create_scoped_multipart(path, options, "").await
+    }
+
+    async fn create_scoped_multipart(
+        &self,
+        path: &Path,
+        options: PutMultipartOptions,
+        scope: &str,
+    ) -> object_store::Result<MultipartId> {
+        if !scope.is_empty() && (!scope.ends_with('/') || !path.as_ref().starts_with(scope)) {
+            return Err(message_error(
+                "multipart key is outside its canonical scope",
+            ));
+        }
         if !options.tags.encoded().is_empty() {
             return Err(Error::NotSupported {
                 source: "local multipart tags are unsupported".into(),
@@ -180,19 +241,26 @@ impl LocalStore {
             .map_err(db_error)?;
         let id = hex::encode(random);
         let key = path.to_string();
+        let scope = scope.to_string();
         let attributes = encode_attributes(&options.attributes)?;
         let guard = options.extensions.get::<crate::bucket::IoGuard>().cloned();
         let store = self.clone();
         store_blocking!(move || {
             let _capacity = guard;
             let _writer = store.writer.lock();
-            store
-                .connect()?
-                .execute(
-                    "INSERT INTO __sys_local_uploads(id, key, attributes) VALUES (?1, ?2, ?3)",
-                    params![id, key, attributes],
+            let mut connection = store.connect()?;
+            let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(db_error)?;
+            // Capture time after SQLite writer admission, including cross-process waits.
+            let expires_ms = store.multipart_policy.upload_ttl.map(|ttl| {
+                crate::asyncrt::wall_ms().checked_add(i64::try_from(ttl.as_millis()).map_err(db_error)?)
+                    .ok_or_else(|| message_error("multipart deadline overflow"))
+            }).transpose()?;
+            transaction.execute(
+                    "INSERT INTO __sys_local_uploads(id, key, attributes, scope, expires_ms, retired) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+                    params![id, key, attributes, scope, expires_ms],
                 )
                 .map_err(db_error)?;
+            transaction.commit().map_err(db_error)?;
             Ok(id)
         })
         .await
@@ -273,6 +341,53 @@ impl MultipartStore for LocalStore {
 
 #[async_trait]
 impl crate::object_multipart::ResumableMultipartStore for LocalStore {
+    fn maintenance_policy(&self) -> Option<crate::object_multipart::MultipartMaintenancePolicy> {
+        Some(self.multipart_policy)
+    }
+
+    async fn reap_expired(
+        &self,
+        scope: &str,
+    ) -> object_store::Result<crate::object_multipart::MultipartGcProgress> {
+        let store = self.clone();
+        let scope = scope.to_string();
+        store_blocking!(move || store.reap_expired_sync(&scope))
+            .await
+            .map_err(db_error)?
+    }
+
+    async fn create_scoped(
+        &self,
+        path: &Path,
+        options: PutMultipartOptions,
+        scope: &str,
+    ) -> object_store::Result<MultipartId> {
+        self.create_scoped_multipart(path, options, scope).await
+    }
+
+    fn supports_streamed_parts(&self) -> bool {
+        true
+    }
+
+    async fn begin_part(
+        &self,
+        path: &Path,
+        id: &MultipartId,
+        index: usize,
+        length: u64,
+        capacity: Arc<dyn Send + Sync>,
+    ) -> object_store::Result<Box<dyn crate::object_multipart::StreamedPart>> {
+        super::streamed_part::begin(
+            self.clone(),
+            path.to_string(),
+            id.clone(),
+            index,
+            length,
+            capacity,
+        )
+        .await
+    }
+
     fn supports_metadata(&self) -> bool {
         true
     }

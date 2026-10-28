@@ -538,6 +538,16 @@ impl CellArchive {
         self
     }
 
+    /// Only the captured publication clone joins this node-wide queue. The
+    /// resident archive retains its original host for foreground restoration.
+    pub(crate) fn with_publication_budget(
+        mut self,
+        budget: &super::host_archive::PhysicalBudget,
+    ) -> Self {
+        self.host = budget.host(self.host);
+        self
+    }
+
     async fn io<T>(
         &self,
         deadline: u64,

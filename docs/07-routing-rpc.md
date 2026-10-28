@@ -169,4 +169,4 @@ version compatibility, error mapping and retry ownership in the
 before consumers require them, and retain old readers during rolling upgrades.
 
 Sources: [cell stubs](../crates/cellar/application/cells.rs),
-[services](../crates/cellar/application/service.rs), [actor](../crates/cellar/actor/mod.rs).
+[services](../crates/cellar/application/service/mod.rs), [actor](../crates/cellar/actor/mod.rs).

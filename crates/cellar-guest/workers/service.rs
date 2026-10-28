@@ -9,12 +9,7 @@ use cellar::{engine_api::RpcData, native::clone, sdk::Context, WorkerRpcOperatio
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-#[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-enum Target {
-    Binding { binding: String },
-    Export { name: String, props: Option<String> },
-}
+use cellar_container::ServiceTarget as Target;
 
 fn name(value: &str) -> Result<()> {
     ensure!(
@@ -26,30 +21,6 @@ fn name(value: &str) -> Result<()> {
 
 fn graph(bytes: &[u8], maximum: usize) -> Result<clone::StructuredValue> {
     clone::decode_with_limits(bytes, rpc::limits(maximum))
-}
-
-fn resolve(
-    context: &Context,
-    target: Target,
-    maximum: usize,
-) -> Result<cellar::sdk::service::Fetcher> {
-    match target {
-        Target::Binding { binding } => {
-            name(&binding)?;
-            context.service(&binding)
-        }
-        Target::Export {
-            name: export,
-            props,
-        } => {
-            name(&export)?;
-            let route = context.exported_entrypoint(export)?;
-            match props {
-                Some(props) => route.with_props(&graph(&STANDARD.decode(props)?, maximum)?),
-                None => Ok(route),
-            }
-        }
-    }
 }
 
 pub(super) async fn fetch_response(
@@ -66,7 +37,7 @@ pub(super) async fn fetch_response(
     let (route, request) = (|| -> Result<_> {
         let input: Input = serde_json::from_value(input)?;
         Ok((
-            resolve(context, input.service, limits.max_body_bytes)?,
+            input.service.resolve(context, limits.max_body_bytes)?,
             values::input(&input.request, limits.max_body_bytes)?,
         ))
     })()
@@ -101,7 +72,7 @@ pub(super) async fn call(context: &Context, input: Value, limits: &Limits) -> Re
     }
     let (route, operation) = (|| -> Result<_> {
         let input: Input = serde_json::from_value(input)?;
-        let route = resolve(context, input.service, limits.max_body_bytes)?;
+        let route = input.service.resolve(context, limits.max_body_bytes)?;
         let operation = match input.operation {
             Operation::Get { path: parts } => {
                 path(&parts)?;

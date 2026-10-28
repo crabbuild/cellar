@@ -62,6 +62,10 @@ impl<T: Clone> HostSlot<T> {
 
     pub(crate) fn get(&self) -> Option<T> {
         let services = crate::asyncrt::services();
+        self.get_in(&services)
+    }
+
+    pub(crate) fn get_in(&self, services: &crate::host_services::HostServices) -> Option<T> {
         if !services.accepts_work() {
             return None;
         }
@@ -491,7 +495,10 @@ pub(crate) static BLOB_STORE: HostSlot<Bucket> = HostSlot::new(|channels| &chann
 
 /// Give the Blob bindings the fleet bucket to live in.
 pub fn set_blob_store(bucket: Bucket) {
-    let _ = BLOB_STORE.set(bucket);
+    if BLOB_STORE.set(bucket.clone()).is_ok() {
+        #[cfg(not(cellar_internal_tests))]
+        bucket.start_multipart_maintenance();
+    }
 }
 
 /// Why the output gate did not release a ticket.

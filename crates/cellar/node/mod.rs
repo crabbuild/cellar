@@ -1625,6 +1625,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
         args,
         reply,
     } = call;
+    let reply_limit = reservation.as_ref().and_then(|held| held.reply_limit());
     let event_call = authority.is_some();
     let deadline_ms = deadline_ms.map(|deadline| {
         deadline.min(crate::asyncrt::mono_ms().saturating_add(app.operation_deadline_ms))
@@ -1702,7 +1703,17 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                     .await
                             })
                             .await;
-                        Ok(completed.result.map_err(local_request_error)?.data)
+                        let data = completed.result.map_err(local_request_error)?.data;
+                        if let Some(limit) = reply_limit {
+                            if !matches!(&data, crate::engine_api::RpcData::Structured(bytes) if bytes.len() <= limit)
+                            {
+                                return Err(crate::application::rpc::Failure::new(
+                                    crate::application::rpc::Code::InvalidResponse,
+                                )
+                                .into());
+                            }
+                        }
+                        Ok(data)
                     };
                     return dispatch.await;
                 }
@@ -1772,6 +1783,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     &method,
                     &args,
                     peer_tunnel::RpcControl {
+                        reservation: reservation.as_ref(),
                         request_id,
                         authority: authority.as_ref(),
                         deadline_ms,
@@ -1895,19 +1907,30 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 }
                 if rpc_lease::is_leased(response.headers())? {
                     anyhow::ensure!(!event_call, "event RPC requires a finite value reply");
+                    if reply_limit.is_some() {
+                        return Err(crate::application::rpc::Failure::new(
+                            crate::application::rpc::Code::InvalidResponse,
+                        )
+                        .into());
+                    }
                     return rpc_lease::receive(response.into_body()).await;
                 }
-                let body = event_reply::receive(
-                    response.into_body(),
-                    event_call,
-                    None,
-                    event_call.then_some(dispatcher.deadline_ms),
-                )
-                .await?;
+                let body = match reply_limit {
+                    Some(limit) => event_reply::receive_typed(response.into_body(), limit).await?,
+                    None => {
+                        event_reply::receive(
+                            response.into_body(),
+                            event_call,
+                            None,
+                            event_call.then_some(dispatcher.deadline_ms),
+                        )
+                        .await?
+                    }
+                };
                 return Ok(if expects_structured_response {
                     crate::engine_api::RpcData::Structured(body)
                 } else {
-                    crate::engine_api::RpcData::Json(String::from_utf8_lossy(&body).into_owned())
+                    crate::engine_api::RpcData::Json(crate::rpc_response::json(body)?)
                 });
             }
         }

@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Sandbox 1.0.3: native processes, terminals and Files
+# Sandbox 1.0.3: native processes, files and directory backups
 
 This separate, partial profile preserves the
 [celld/Sandbox 0.12.9 baseline](../compat/README.md).
@@ -209,6 +209,13 @@ S3 mounts. Those remain required delivery steps with the actual helper/image.
 
 ## Native R2 gateway storage
 
+The local store also persists upload deadlines. A gateway-only lost-create
+acknowledgement case leaves real upload state behind, then replaces the native
+host/client and advances its supplied wall clock. Host-owned collection removes
+unpublished records without receiving the lost upload ID, preserves the current
+object, and joins shutdown. This is separate from the matching-image campaign
+and does not qualify transport loss or cloud-provider expiry.
+
 The separate [R2 fixture](r2.mjs) drives the same published
 `DirectoryBackupGateway` against a real native SQLite Blob bucket:
 
@@ -227,14 +234,105 @@ cargo test -p cellar-javascript --features node --locked --test workers_r2
 The fixture declares a separate five-second storage handler budget for real
 fsync/fleet bootstrap; existing 250 ms routing tests retain their bounds. See the
 [R2 subset guide](../../../packages/cellar-cloudflare/r2.md) for binding setup,
-byte ownership, supported operations and profile gaps. Full helper backup/restore
-and outbound interception remain unqualified.
+byte ownership, supported operations and profile gaps. The following campaign
+adds the matching helper's directory-backup path.
+
+## Directory backups through native HTTP interception
+
+The [backup fixture](backups.mjs) uses the unchanged published `DirectoryBackup`,
+`DirectoryBackupGateway` and `Files` implementations. Configure an immutable
+native network-helper image containing `cellar-egress` and nftables, as described
+in the [host profile](../../../crates/cellar-container/README.md#optional-native-network-helper-lifecycle).
+
+```mermaid
+flowchart LR
+    Shim[Published sandbox-shim] -->|HTTP port 80| Helper[Owned native network helper]
+    Helper --> Host[Native HTTP router]
+    Host --> Gate[Fresh root ownership gate]
+    Gate --> Gateway[Published DirectoryBackupGateway]
+    Gateway --> Storage[Native resumable Blob storage]
+```
+
+```sh
+CELLAR_SANDBOX_ENGINE_SOCKET=/path/to/private/docker.sock \
+CELLAR_SANDBOX_V1_IMAGE=sha256:YOUR_MATCHING_SANDBOX_IMAGE \
+CELLAR_SANDBOX_FENCE_IMAGE=sha256:YOUR_FENCE_IMAGE \
+CELLAR_SANDBOX_NETWORK_IMAGE=sha256:YOUR_NATIVE_HELPER_IMAGE \
+cargo test --locked -p cellar-javascript --features node \
+  --test sandbox_backups -- --ignored --test-threads=1 --nocapture
+```
+
+| Check | Acceptance |
+| --- | --- |
+| Installation | Register a copied export/props before startup; finish that event before using the route |
+| Retained HTTP connection | One real container connection carries the pre-start handler from a later event, direct traffic, then two live handler versions |
+| Binary streaming | Each request/reply preserves 2 MiB + 17 bytes and SHA-256; native reads remain at most 64 KiB |
+| Published backup | Archive incompressible 2 MiB + 17-byte input through shim HTTP, gateway control RPC and native staged parts; require archive size above the 64 KiB frame limit and save its record in cell SQLite |
+| Later-event restore | Change the file, restore the stored record with the actual shim, then verify original bytes/SHA-256 |
+| Fresh-process recovery | Join the first native/Node processes, start new processes with an empty node directory, recover the identical record from native fleet storage and restore into a new container |
+| Pre-aborted calls | Preserve the exact abort reason for backup and restore; no provider process allocation |
+| Allocation-time cancellation | Invoke the real published gateway allocation, then abort; exactly one allocation, original reason, revoked read/write grants and no upload/part rows |
+| Transfer cancellation | Interrupt the first native upload/range body chunk and abort; preserve the caller's reason, leave the restore destination unchanged and revoke both grants |
+| Failed mutation acknowledgement | Complete/delete in real native storage, then throw from the gateway control call; observe the committed object or deletion and require exactly one mutation call |
+| Missing/corrupt input | Published `ENOENT`, `BACKUP_NOT_FOUND` and `BACKUP_INTEGRITY` errors; failed restores preserve the changed destination and revoke grants |
+| Deletion | Destroy the container, then delete the archive through the published API without starting new compute |
+| Retirement | Explicit process-handle release after every route; join each native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
+
+The campaign runs two separately spawned native processes, each with its own
+Node process and fresh node directory. Only the fleet/object-store database is
+shared. The saved-record JSON is an expected-value check; recovery reads the
+record from cell state. Each process has a 300-second outer bound and is joined;
+the existing 120-second handler and 30-second JS execution budgets stay intact.
+
+The [fault fixture](backup-failures.mjs) uses the published implementations.
+Its allocation-abort gateway subclasses the published gateway solely to abort
+after `super.createUpload()` has committed a real upload. The package's grant,
+shim and abort exchange runs unchanged. The other gateway and helper paths use
+the published classes directly. Valid ranged GET and part PUT requests check
+revocation, so a wrong-method refusal cannot masquerade as grant cleanup.
+
+The [boundary fixture](backup-boundaries.mjs) subclasses the published gateway
+at two additional fault seams. Its body transform interrupts the first chunk
+and triggers the caller's abort; this covers selected upload/download
+cancellation before verification. Its control hooks await real completion or
+deletion, then throw. The failed backup call does not return a usable record;
+only the test's fault observer knows the committed key for explicit observation
+and cleanup. It does not prove automatic reconciliation or transport-loss
+recovery.
+
+```mermaid
+sequenceDiagram
+    participant SDK as Published SDK
+    participant Gateway as Fault gateway
+    participant Store as Native storage
+    SDK->>Gateway: completeUpload
+    Gateway->>Store: Complete once
+    Store-->>Gateway: Committed
+    Gateway-->>SDK: Injected acknowledgement failure
+    SDK->>Gateway: Abort upload (cannot undo completed object)
+    Note over SDK,Store: Failure preserves an uncertain outcome; no completion replay
+```
+
+The host selects `Native.with_http_interception()`, the explicit `runc` network
+helper and `Source::workers_http_streams()`. Incoming HTTP reads retain the
+original invocation and cancellation authority. A reader holds one producer
+chunk, returns bounded frames and pulls again after consuming it. The ordinary
+SDK's buffered-body limit stays unchanged.
+
+Known-length R2 parts now cross that bridge in acknowledged chunks and stage
+in anonymous native files. `FixedLengthStream` bodies are not collected as whole
+parts in the adapter's JS/native memory; caller-owned buffers retain their own size.
+The host reserves the declared scratch length and file slot; short/error stages
+cannot replace a prior receipt. See the [staging contract](../../../packages/cellar-cloudflare/r2.md#bounds-and-failure-behavior)
+for defaults, unsupported backends and remaining memory qualification.
 
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
-outbound handlers, S3 mounts,
-directory backups, full cancellation/fault/persistence semantics and hosted
+HTTPS interception, S3 mounts, abrupt crashes, larger/multi-part and
+verified-swap cancellation, lost create/transport responses, orphan expiry and
+complete directory-backup failure/restart behavior,
+full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
 requires Node; embedded V8 still lacks that web bootstrap. Shared-framework
 [native supervision](../../../crates/cellar-container/supervision.md) has selected

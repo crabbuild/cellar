@@ -239,6 +239,7 @@ async fn rpc_reply_bytes_return_unknown_capacity_refusal_over_the_real_tunnel() 
                         "example.counter.v1.Counter/GetCount",
                         &args,
                         RpcControl {
+                            reservation: None,
                             request_id: None,
                             authority: None,
                             deadline_ms: None,

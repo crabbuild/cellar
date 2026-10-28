@@ -80,6 +80,14 @@ const queued: void = container.start({
   enableInternet: false,
 });
 const monitored: Promise<void> = container.monitor();
+const installed: Promise<void> = container.interceptOutboundHttp(
+  "*.example.test",
+  service,
+);
+const allHttp: Promise<void> = container.interceptAllOutboundHttp(service);
+// @ts-expect-error: interception takes deployed service capabilities, not callbacks
+container.interceptAllOutboundHttp(() => new Response("guest closure"));
+void [installed, allHttp];
 const stopped: Promise<void> = container.destroy(new Error("reason"));
 container.signal(15);
 void queued;

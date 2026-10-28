@@ -13,9 +13,9 @@ const CONTROL_BYTES: usize = 64 * 1024;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 /// Independently sampled SDK submission counters, not a process memory sample.
 pub struct Usage {
-    /// Requests whose last caller, dispatch or native-driver owner has not retired.
+    /// Requests whose last caller, dispatch, native-driver or input-byte owner remains.
     pub active_requests: usize,
-    /// Length-weighted request/copy/control allowance retained by those requests.
+    /// Dense request/copy/control allowance retained by those requests/byte aliases.
     pub reserved_request_bytes: usize,
 }
 
@@ -31,6 +31,35 @@ struct Held {
     _bytes: OwnedSemaphorePermit,
 }
 
+/// One admitted submission has known dense backing before any gate/queue wait.
+pub(crate) struct Admitted {
+    pub(crate) reservation: Reservation,
+    pub(crate) scope: String,
+    pub(crate) name: Option<String>,
+    pub(crate) method: String,
+    pub(crate) args: RpcData,
+}
+
+fn text(value: &str) -> Option<String> {
+    let mut dense = String::new();
+    dense.try_reserve_exact(value.len()).ok()?;
+    dense.push_str(value);
+    Some(dense)
+}
+
+fn dense_value(args: &RpcData, reservation: &Reservation) -> Option<RpcData> {
+    match args {
+        RpcData::Json(json) => Some(RpcData::Json(text(json)?)),
+        RpcData::Structured(bytes) => {
+            let mut data = Vec::new();
+            data.try_reserve_exact(bytes.len()).ok()?;
+            data.extend_from_slice(bytes);
+            Some(RpcData::Structured(reservation.retain_bytes(data.into())))
+        }
+        RpcData::Leased { .. } => None,
+    }
+}
+
 impl Budget {
     pub(crate) fn new(policy: RuntimePolicy) -> Self {
         Self {
@@ -41,13 +70,13 @@ impl Budget {
         }
     }
 
-    pub(crate) fn reserve(
+    pub(crate) fn admit(
         &self,
         scope: &str,
         name: Option<&str>,
         method: &str,
         args: &RpcData,
-    ) -> Option<Reservation> {
+    ) -> Option<Admitted> {
         let metadata = scope
             .len()
             .checked_add(name.map_or(0, str::len))?
@@ -79,10 +108,32 @@ impl Budget {
             .clone()
             .try_acquire_many_owned(u32::try_from(weight).ok()?)
             .ok()?;
-        Some(Reservation::shared(Arc::new(Held {
+        let reservation = Reservation::shared(Arc::new(Held {
             _call: call,
             _bytes: bytes,
-        })))
+        }));
+        // Reserve before allocating any dense copies. Caller-owned unknown
+        // backing is relinquished by the submission boundary before it waits.
+        let args = match args {
+            RpcData::Leased {
+                value: inner,
+                lease,
+            } => RpcData::Leased {
+                value: Box::new(dense_value(inner, &reservation)?),
+                lease: lease.clone(),
+            },
+            args => dense_value(args, &reservation)?,
+        };
+        Some(Admitted {
+            scope: text(scope)?,
+            name: match name {
+                Some(name) => Some(text(name)?),
+                None => None,
+            },
+            method: text(method)?,
+            args,
+            reservation,
+        })
     }
 
     pub(crate) fn usage(&self) -> Usage {
@@ -90,5 +141,43 @@ impl Budget {
             active_requests: self.max_calls - self.calls.available_permits(),
             reserved_request_bytes: self.max_bytes - self.bytes.available_permits(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::rpc::Lease;
+
+    #[test]
+    fn normalization_preserves_lease_revocation_and_refuses_nested_leases() {
+        let budget = Budget::new(RuntimePolicy::default());
+        let lease = Lease::new();
+        let args = RpcData::Json("null".into())
+            .with_lease(lease.clone())
+            .unwrap();
+        let admitted = budget.admit("scope", None, "method", &args).unwrap();
+        let RpcData::Leased {
+            value,
+            lease: normalized,
+        } = &admitted.args
+        else {
+            panic!("source normalization lost its lease");
+        };
+        assert!(matches!(value.as_ref(), RpcData::Json(value) if value == "null"));
+        assert!(!normalized.is_closed());
+        lease.close();
+        assert!(
+            normalized.is_closed(),
+            "normalization minted another lease lifetime"
+        );
+        drop(admitted);
+        assert_eq!(budget.usage(), Usage::default());
+        let nested = RpcData::Leased {
+            value: Box::new(args),
+            lease: Lease::new(),
+        };
+        assert!(budget.admit("scope", None, "method", &nested).is_none());
+        assert_eq!(budget.usage(), Usage::default());
     }
 }

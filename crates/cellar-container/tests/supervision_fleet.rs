@@ -20,6 +20,9 @@ mod e2b;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod graph;
+#[path = "../../cellar/tests/support/actor_lease_trace.rs"]
+#[allow(dead_code)]
+mod lease_trace;
 #[path = "../../cellar/tests/support/store_outage.rs"]
 mod store_outage;
 #[path = "support/vercel.rs"]
@@ -651,6 +654,8 @@ async fn accepted_create_owner_loss(
     directory: &Path,
     core: tokio::runtime::Handle,
 ) -> Result<()> {
+    let trace = lease_trace::install(None);
+    trace.mark("accepted-create original starting");
     let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
     let provider = peer.provider()?;
     let original = Arc::new(Witness::default());
@@ -664,6 +669,7 @@ async fn accepted_create_owner_loss(
         true,
     )
     .await?;
+    trace.mark("accepted-create original started");
     let owner = first.services();
     let (hold, entered, release) = peer.create_gate();
     hold.store(true, Ordering::SeqCst);
@@ -688,6 +694,7 @@ async fn accepted_create_owner_loss(
             format!("provider never accepted the held create: {evidence}; shutdown={stopped:?}")
         });
     }
+    trace.mark("accepted-create remotely accepted");
     ensure!(peer.creates() == 1 && peer.deletes() == 0);
     let (paused, entered_pause) = tokio::sync::oneshot::channel();
     // The core has one worker, matching the existing native expiry fixture.
@@ -697,12 +704,14 @@ async fn accepted_create_owner_loss(
         std::thread::sleep(Duration::from_millis(2500));
     });
     entered_pause.await?;
+    trace.mark("accepted-create original core suspended");
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
         first.run_until(std::future::pending()),
     )
     .await;
     suspended.await?;
+    trace.mark("accepted-create original core resumed");
     release.notify_one();
     let reply = request.await?;
     ensure!(
@@ -730,6 +739,7 @@ async fn accepted_create_owner_loss(
     let provider_name = provider.name().to_owned();
     let witness = Arc::new(Witness::default());
     let calls = Arc::new(Calls::default());
+    trace.mark("accepted-create successor starting");
     let second = start_node(
         &directory.join("after"),
         "provider-successor",
@@ -739,6 +749,7 @@ async fn accepted_create_owner_loss(
         false,
     )
     .await?;
+    trace.mark("accepted-create successor started");
     let result = async {
         tokio::time::timeout(Duration::from_secs(15), witness.completed.notified())
             .await
@@ -763,11 +774,12 @@ async fn accepted_create_owner_loss(
     .await;
     let evidence = if result.is_err() {
         let ready = tokio::time::timeout(Duration::from_secs(1), second.is_ready()).await;
-        Some(format!("provider={provider_name}, successor_closed={}, readiness={ready:?}, application={}, factories={}, inspections={}, failed_inspections={}, deletions={}, failed_deletions={}, creates={}, deletes={}, recent={:?}",
+        Some(format!("provider={provider_name}, successor_closed={}, readiness={ready:?}, application={}, factories={}, inspections={}, failed_inspections={}, deletions={}, failed_deletions={}, creates={}, deletes={}, recent={:?}, work={:?}, lease_observations={:?}",
             second.is_closed(), calls.application.load(Ordering::SeqCst), calls.factories.load(Ordering::SeqCst),
             witness.inspections.load(Ordering::SeqCst), witness.failed_inspections.load(Ordering::SeqCst),
             witness.deletions.load(Ordering::SeqCst), witness.failed_deletions.load(Ordering::SeqCst),
-            peer.creates(), peer.deletes(), peer.recent_requests()))
+            peer.creates(), peer.deletes(), peer.recent_requests(),
+            second.services().application_work(), trace.snapshot()))
     } else {
         None
     };
@@ -775,7 +787,12 @@ async fn accepted_create_owner_loss(
     result.with_context(|| {
         format!("accepted-create successor evidence={evidence:?}, shutdown={stopped:?}")
     })?;
-    stopped?;
+    stopped.with_context(|| {
+        format!(
+            "accepted-create successor stop; lease_observations={:?}",
+            trace.snapshot()
+        )
+    })?;
     Ok(())
 }
 

@@ -11,7 +11,7 @@ const OWNER: &str = "rpc-provenance-owner";
 const SOURCE: &str = "rpc-provenance-source";
 const DELTA: i64 = 9_007_199_254_740_993;
 
-async fn request(
+pub(super) async fn request(
     client: &reqwest::Client,
     base: &str,
     caller: &str,
@@ -60,6 +60,11 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
         }
         let factories = app.audit.factories().len();
         ensure!(factories == 4, "unexpected provenance warmup factory count");
+        // Pin both raw providers before the source joins. Caller location
+        // alone does not establish the durable object's ownership placement.
+        let raw_owners = super::raw_matrix::warm(&app, &client, &owner_url).await?;
+        let factories = app.audit.factories().len();
+        ensure!(factories == 6, "raw provenance warmup did not construct exactly two objects");
         let (node, source_url) = fleet::start(&directory.path().join("source"), app.clone(), SOURCE, bucket).await?;
         source = Some(node);
         let mut counts = BTreeMap::new();
@@ -108,6 +113,8 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
             }
         }
         ensure!(rows.len() == 96, "provenance matrix incomplete");
+        rows.extend(super::raw_matrix::run(&app, &client, &owner_url, &source_url, &raw_owners).await?);
+        ensure!(rows.len() == 112, "raw native provenance matrix incomplete");
         Ok(json!({"format":1,"suite":"provenance","case_count":rows.len(),"cases":rows,"remote_fleet_qualified":false}))
     }.await;
     let source_stop = if let Some(node) = source {

@@ -937,6 +937,10 @@ async fn initialize(
                 options.images.apply,
                 pool.image_accounting(),
                 service.log.snapshot_scratch(),
+                super::host_archive::PhysicalOptions {
+                    max_jobs: options.archive.max_blocking_jobs,
+                    performance: service.log.performance(),
+                },
             )
             .await?;
             for cell in cells.values_mut() {
@@ -3295,6 +3299,7 @@ impl Driver {
                 }));
             }
             let verifier = owner.verifier.clone();
+            let physical = owner.physical.clone();
             let prepared = self.transport.prepared_snapshot_cache();
             let timer = self
                 .local
@@ -3305,6 +3310,7 @@ impl Driver {
                     pending,
                     verifier,
                     prepared,
+                    physical,
                     move |number, completed| {
                         if let Some(sender) = senders.get_mut(number).and_then(Option::take) {
                             let _ = sender.send(completed);

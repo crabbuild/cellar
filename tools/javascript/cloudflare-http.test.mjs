@@ -23,6 +23,75 @@ const context = {
   _decode: (bytes) => Uint8Array.from(Buffer.from(bytes, "base64")),
 };
 
+test("explicit incoming HTTP streams remain pull-based and preserve binary bodies beyond a frame", async () => {
+  let pulls = 0;
+  const source = new ReadableStream(
+    {
+      type: "bytes",
+      pull(controller) {
+        if (pulls === 33) return controller.close();
+        const bytes = new Uint8Array(65536).map(
+          (_, index) => (index + pulls) % 251,
+        );
+        pulls++;
+        controller.enqueue(bytes);
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  const request = decodeRequest({
+    url: "http://gateway/",
+    method: "POST",
+    headers: [],
+    body: new Uint8Array(),
+    body_stream: source,
+  });
+  assert.equal(pulls, 0);
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  assert.equal(bytes.length, 33 * 65536);
+  for (let chunk = 0; chunk < 33; chunk++)
+    for (let index = 0; index < 65536; index++)
+      assert.equal(bytes[chunk * 65536 + index], (index + chunk) % 251);
+});
+
+test("incoming request stream errors and cancellation propagate to the original source", async () => {
+  const failure = new Error("incoming source failed");
+  let pulls = 0;
+  const request = decodeRequest({
+    url: "http://gateway/",
+    method: "POST",
+    headers: [],
+    body: new Uint8Array(),
+    body_stream: new ReadableStream(
+      {
+        pull(controller) {
+          if (pulls++) controller.error(failure);
+          else controller.enqueue(Uint8Array.of(0, 255));
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+  });
+  await assert.rejects(request.arrayBuffer(), (error) => error === failure);
+  let reason;
+  const other = decodeRequest({
+    url: "http://gateway/",
+    method: "POST",
+    headers: [],
+    body: new Uint8Array(),
+    body_stream: new ReadableStream(
+      {
+        cancel(value) {
+          reason = value;
+        },
+      },
+      { highWaterMark: 0 },
+    ),
+  });
+  await other.body.cancel(failure);
+  assert.equal(reason, failure);
+});
+
 test("module HTTP codecs retain binary bodies and separate Set-Cookie fields", async () => {
   const request = decodeRequest({
     url: "http://cell/",

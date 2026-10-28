@@ -8,43 +8,43 @@ use cellar_container::{
 };
 use serde_json::Value;
 
-pub struct DiagnosticNative;
+pub struct DiagnosticNative<P = Native>(pub P);
 
-impl Provider for DiagnosticNative {
+impl<P: Provider> Provider for DiagnosticNative<P> {
     fn exec_pty(&self) -> bool {
-        Native.exec_pty()
+        self.0.exec_pty()
     }
 
     fn name(&self) -> &str {
-        "native"
+        self.0.name()
     }
 
     fn environment(&self) -> Environment {
-        Native.environment()
+        self.0.environment()
     }
 
     fn fencing(&self) -> Fencing {
-        Native.fencing()
+        self.0.fencing()
     }
 
     fn max_resources(&self) -> Option<usize> {
-        Native.max_resources()
+        self.0.max_resources()
     }
 
     fn synchronous_running(&self) -> bool {
-        Native.synchronous_running()
+        self.0.synchronous_running()
     }
 
     fn queued_lifecycle(&self) -> bool {
-        Native.queued_lifecycle()
+        self.0.queued_lifecycle()
     }
 
     fn operations(&self) -> &[Operation] {
-        Native.operations()
+        self.0.operations()
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {
-        Box::new(Session(Native.open()))
+        Box::new(Session(self.0.open()))
     }
 }
 

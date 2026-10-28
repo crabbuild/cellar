@@ -1,11 +1,15 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 #![allow(clippy::disallowed_methods)]
+#[path = "../../cellar/tests/support/actor_lease_trace.rs"]
+#[allow(dead_code)]
+mod lease_trace;
 mod support;
 use anyhow::{ensure, Result};
 use axum::{body::Body, extract::State, response::Response, routing::get, Router};
 use cellar::sdk::{Context, NodeOutcome, ShutdownMode};
 use cellar_axum::{ApplicationBuilder, ApplicationDefinition, CellContext};
+use http_body_util::BodyExt;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -46,6 +50,8 @@ fn definition(signals: Arc<Signals>) -> Result<ApplicationDefinition> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_open_body_is_counted_and_bounded_shutdown_reports_an_incomplete_drain() -> Result<()> {
+    let trace = lease_trace::install(None);
+    trace.mark("open-body host starting");
     let directory = tempfile::tempdir()?;
     let signals = Arc::new(Signals::default());
     let factory = signals.clone();
@@ -53,11 +59,41 @@ async fn an_open_body_is_counted_and_bounded_shutdown_reports_an_incomplete_drai
         definition(factory.clone())
     })
     .await?;
+    trace.mark("open-body host started");
     let ingress = host.ingress.as_ref().unwrap().clone();
     let response = ingress
         .call(http::Request::builder().uri("/hold").body(Body::empty())?)
         .await;
-    ensure!(response.status() == 200);
+    trace.mark("open-body response head received");
+    if response.status() != 200 {
+        let status = response.status();
+        let headers = response.headers().clone();
+        let entered = signals.context.lock().unwrap().is_some();
+        let closed = host.node.is_closed();
+        let services = host.node.services();
+        // Read only a failed head's diagnostic body. The successful stream is
+        // deliberately held and must never be polled to make this check pass.
+        let body = tokio::time::timeout(
+            Duration::from_secs(1),
+            http_body_util::Limited::new(response.into_body(), 16 * 1024).collect(),
+        )
+        .await;
+        let body = match body {
+            Ok(Ok(body)) => String::from_utf8_lossy(&body.to_bytes()).into_owned(),
+            Ok(Err(error)) => format!("diagnostic body refused: {error}"),
+            Err(_) => "diagnostic body timed out".into(),
+        };
+        let observations = trace.snapshot();
+        let work = services.application_work();
+        let resources = services.rpc_response_usage();
+        let outcome = host.cancel().await;
+        anyhow::bail!(
+            "open-body response head was {status}; headers={headers:?}; body={body}; \
+             handler_entered={entered}; node_closed={closed}; work={work:?}; \
+             response_admission={resources:?}; lease_observations={observations:?}; \
+             joined node cancellation={outcome:?}"
+        );
+    }
     signals.entered.notified().await;
     let report = tokio::time::timeout(
         Duration::from_secs(7),
