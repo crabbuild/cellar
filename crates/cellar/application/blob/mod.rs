@@ -11,7 +11,9 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 use std::sync::Arc;
 
+mod resumable;
 mod types;
+pub use resumable::ResumableMultipart;
 pub use types::{
     Algorithm, Checksum, Conditional, GetOptions, HttpMetadata, ListOptions, Object, ObjectRange,
     Page, Range, StorageClass, UploadedPart, WriteOptions,
@@ -118,6 +120,59 @@ impl Bucket {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Whether this binding can resume backend uploads with Blob metadata.
+    /// This performs no remote allocation and exposes no provider credentials.
+    pub fn supports_resumable_multipart(&self) -> Result<bool> {
+        Ok(store::store()
+            .map_err(anyhow::Error::msg)?
+            .supports_resumable_multipart(true))
+    }
+
+    /// Create an upload whose backend identity outlives the creating process.
+    /// Parts remain independently replaceable until explicit completion/abort.
+    pub async fn create_resumable_multipart(
+        &self,
+        context: &Context,
+        key: &str,
+        options: WriteOptions,
+    ) -> Result<ResumableMultipart> {
+        context.check_turn()?;
+        self.key("createResumableMultipart", key)?;
+        ensure!(
+            options.conditional().is_none() && options.checksums.is_empty(),
+            "resumable multipart takes metadata but no conditions or object checksums"
+        );
+        let backend = store::store().map_err(anyhow::Error::msg)?;
+        ensure!(
+            backend.supports_resumable_multipart(true),
+            "resumable multipart metadata is unsupported by this backend"
+        );
+        let request: store::PutRequest = serde_json::from_value(options.wire())?;
+        let attributes = store::Envelope {
+            custom: request.custom,
+            http: request.http,
+            checksums: Default::default(),
+            storage_class: request.storage_class,
+        }
+        .write();
+        crate::native_worker::blob_gate(context).await?;
+        let id = backend
+            .create_resumable_multipart(&store::blob_key(&self.name, key), &attributes)
+            .await?;
+        self.resume_resumable_multipart(key, &id)
+    }
+
+    /// Construct a route without checking whether the upload still exists.
+    /// Each operation re-enters the current host's configured bucket backend.
+    pub fn resume_resumable_multipart(&self, key: &str, id: &str) -> Result<ResumableMultipart> {
+        self.key("resumeResumableMultipart", key)?;
+        ensure!(
+            !id.is_empty() && id.len() <= 16_384 && !id.contains('\0'),
+            "invalid resumable multipart identity"
+        );
+        Ok(ResumableMultipart::new(self.clone(), key, id))
     }
 
     fn key(&self, method: &str, key: &str) -> Result<()> {

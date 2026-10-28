@@ -11,6 +11,10 @@ use serde_json::Value;
 pub struct DiagnosticNative;
 
 impl Provider for DiagnosticNative {
+    fn exec_pty(&self) -> bool {
+        Native.exec_pty()
+    }
+
     fn name(&self) -> &str {
         "native"
     }

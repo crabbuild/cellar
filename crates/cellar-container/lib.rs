@@ -90,6 +90,8 @@ pub enum Operation {
     CloseStdin,
     WaitExec,
     KillExec,
+    ExecInfo,
+    ResizeExec,
     WaitPort,
     Fetch,
     FetchStream,
@@ -130,6 +132,8 @@ impl Operation {
         Self::CloseStdin,
         Self::WaitExec,
         Self::KillExec,
+        Self::ExecInfo,
+        Self::ResizeExec,
         Self::WaitPort,
         Self::Fetch,
         Self::FetchStream,
@@ -170,6 +174,8 @@ impl Operation {
             "container.exec.close_stdin" => Ok(Self::CloseStdin),
             "container.exec.wait" => Ok(Self::WaitExec),
             "container.exec.kill" => Ok(Self::KillExec),
+            "container.exec.info" => Ok(Self::ExecInfo),
+            "container.exec.resize" => Ok(Self::ResizeExec),
             "container.port.wait_ready" => Ok(Self::WaitPort),
             "container.port.fetch" => Ok(Self::Fetch),
             "container.port.fetch_stream" => Ok(Self::FetchStream),
@@ -212,6 +218,8 @@ impl Operation {
             Self::CloseStdin => "container.exec.close_stdin",
             Self::WaitExec => "container.exec.wait",
             Self::KillExec => "container.exec.kill",
+            Self::ExecInfo => "container.exec.info",
+            Self::ResizeExec => "container.exec.resize",
             Self::WaitPort => "container.port.wait_ready",
             Self::Fetch => "container.port.fetch",
             Self::FetchStream => "container.port.fetch_stream",
@@ -242,6 +250,7 @@ impl Operation {
                 | Self::ReadStdout
                 | Self::ReadStderr
                 | Self::WaitExec
+                | Self::ExecInfo
                 | Self::ReadSocket
                 | Self::ReceiveWebSocket
                 | Self::ReadResponse
@@ -256,6 +265,12 @@ pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send 
 /// Host-selected backend. Credentials and backend selection never come from guests.
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
+    /// Optional host-owned lifecycle backend, separate from event sessions.
+    /// Registration does not create or contact remote compute.
+    fn maintenance_backend(&self) -> Option<Arc<dyn cellar::sdk::containers::MaintenanceBackend>> {
+        None
+    }
+
     fn name(&self) -> &str;
 
     /// Host-configured durable slot identity. Named registration requires an
@@ -279,6 +294,12 @@ pub trait Provider: Send + Sync {
     /// Maximum live handles enforced by the provider, when declared.
     fn max_resources(&self) -> Option<usize> {
         None
+    }
+
+    /// Whether exec/exec_output accept terminal allocation. Unsupported
+    /// providers refuse this option before any provider call.
+    fn exec_pty(&self) -> bool {
+        false
     }
 
     /// Whether sessions implement an immediate, I/O-free running snapshot.
@@ -327,6 +348,10 @@ pub trait ProviderSession: Send + Sync {
 pub struct Native;
 
 impl Provider for Native {
+    fn exec_pty(&self) -> bool {
+        true
+    }
+
     fn fencing(&self) -> Fencing {
         Fencing::NativeCell
     }
@@ -468,7 +493,7 @@ impl Session {
         }
     }
 
-    /// Accept immutable lifecycle inputs without starting provider work.
+    /// Accept immutable void-control inputs without starting provider work.
     /// The returned event-owned ticket can be consumed exactly once.
     pub fn admit_queued(
         &self,
@@ -485,9 +510,17 @@ impl Session {
             ensure!(
                 matches!(
                     operation,
-                    Operation::Start | Operation::Signal | Operation::Destroy
+                    Operation::Start
+                        | Operation::Signal
+                        | Operation::Destroy
+                        | Operation::KillExec
+                        | Operation::ResizeExec
                 ),
                 "not a queued container control"
+            );
+            ensure!(
+                self.provider.operations().contains(&operation),
+                "unsupported queued provider operation"
             );
             values::check_depth(&input)?;
             ensure!(input.is_object(), "container input must be an object");
@@ -561,7 +594,18 @@ impl Session {
                     || self.provider.operations().contains(&operation),
                 "unsupported provider operation"
             );
-            native::validate(operation.name(), &input, limits)
+            native::validate(operation.name(), &input, limits)?;
+            if matches!(operation, Operation::Exec | Operation::ExecOutput)
+                && input["options"]
+                    .get("pty")
+                    .is_some_and(|value| !value.is_null())
+            {
+                ensure!(
+                    self.provider.exec_pty(),
+                    "provider does not support terminal exec"
+                );
+            }
+            Ok(())
         })()
         .context(Validation)?;
         let candidate = context.container_provider_authority()?;
@@ -578,6 +622,25 @@ impl Session {
             None
         } else {
             Some(self.control.lock().await)
+        };
+        // Event-local sessions and native maintenance share the activation's
+        // lifecycle admission. Data operations remain concurrent so a retiring
+        // generation can fence their late results without waiting for them.
+        let _lifecycle = if matches!(
+            operation,
+            Operation::Start | Operation::Destroy | Operation::Reconcile
+        ) {
+            if let Some(binding) = self.provider.binding_name() {
+                Some(
+                    cellar::sdk::containers::BindingJournal::open(context, binding)?
+                        .lock_lifecycle(context)
+                        .await?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
         };
         authority.check(context)?;
         if !operation.is_read() {

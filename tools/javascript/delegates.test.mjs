@@ -73,6 +73,38 @@ function context() {
   return { ctx, calls, jobs };
 }
 
+test("value RPC keeps dense error envelopes, sparse tails and rejects web causes", () => {
+  const codec = make();
+  const { ctx } = context();
+  const error = new TypeError("remote failure");
+  error.cause = { error };
+  const properties = { name: error.name, code: "VisibleCode" };
+  const encoded = codec.valueOnly([error, properties], ctx);
+  const bytes = Buffer.from(encoded, "base64");
+  // Native error admission requires the wire's dense two-element envelope.
+  assert.equal(String.fromCharCode(bytes[2]), "A");
+  const [copied, props] = ctx._deserialize(encoded);
+  assert.equal(copied.name, "TypeError");
+  assert.equal(copied.message, "remote failure");
+  assert.equal(copied.cause.error, copied);
+  assert.deepEqual(props, properties);
+  const sparse = [];
+  sparse[1] = "present";
+  sparse.length = 4;
+  const tail = ctx._deserialize(codec.valueOnly(sparse, ctx));
+  assert.equal(tail.length, 4);
+  assert.deepEqual(Object.keys(tail), ["1"]);
+  for (const value of [
+    new Request("http://request/"),
+    new Response(),
+    new ReadableStream(),
+  ])
+    assert.throws(
+      () => codec.valueOnly(new Error("nested", { cause: value }), ctx),
+      /RpcTarget/,
+    );
+});
+
 test("callable marker graph preserves cycles, aliases, maps and real empty objects", async () => {
   const codec = make();
   const { ctx, calls, jobs } = context();

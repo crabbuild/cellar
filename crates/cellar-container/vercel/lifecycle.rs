@@ -197,8 +197,8 @@ impl Config {
     }
 
     pub(super) async fn connected(&self, context: &Context) -> Result<Resource> {
-        let checkpoint = self
-            .journal(context)?
+        let journal = self.journal(context)?;
+        let checkpoint = journal
             .load(context)?
             .context("Vercel sandbox has not been started")?;
         self.check_record(&checkpoint.record)?;
@@ -214,6 +214,11 @@ impl Config {
         ensure!(
             info["sandbox"]["status"] == "running" && info["session"]["status"] == "running",
             "Vercel session is not running; implicit resume is forbidden"
+        );
+        journal.check_retention(context)?;
+        ensure!(
+            journal.load(context)?.as_ref() == Some(&checkpoint),
+            "Vercel binding changed while inspecting the resource"
         );
         self.verify(context, &checkpoint.record, &info)
     }
@@ -405,6 +410,19 @@ impl Config {
         let checkpoint = journal
             .compare_exchange(context, previous.as_ref().map(|c| c.revision), record)
             .await?;
+        if let Err(error) = journal.check_retention(context) {
+            if error.is::<cellar::sdk::containers::RetentionExpired>() {
+                // No create was submitted for this invocation's reservation.
+                // Never apply this retirement to an earlier uncertain create.
+                let mut retired = checkpoint.record;
+                retired.intent = Intent::Deleted;
+                retired.observation = Observation::Confirmed;
+                journal
+                    .compare_exchange(context, Some(checkpoint.revision), retired)
+                    .await?;
+            }
+            return Err(error);
+        }
         let mut create = json!({"projectId":self.project,"name":name,"image":self.image,"persistent":false,"timeout":self.lifetime_ms,"resources":{"vcpus":self.vcpus},"env":env,"tags":tags,"ports":[],"networkPolicy":{"mode":if internet{"allow-all"}else{"deny-all"}}});
         if let Some(region) = &self.region {
             create["region"] = json!(region);

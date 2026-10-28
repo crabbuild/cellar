@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Notify},
     task::JoinHandle,
 };
 
@@ -50,11 +50,19 @@ impl Drop for Streaming {
 
 #[derive(Default)]
 pub struct State {
+    pub unavailable: AtomicBool,
+    pub refused: AtomicUsize,
     pub creates: AtomicUsize,
     pub deletes: AtomicUsize,
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
+    pub hold_create: AtomicBool,
+    pub create_entered: Notify,
+    pub create_release: Notify,
     pub lost_delete: AtomicBool,
+    pub hold_delete: AtomicBool,
+    pub delete_entered: Notify,
+    pub delete_release: Notify,
     pub defer_delete: AtomicBool,
     pub hide_list: AtomicBool,
     pub mismatched_metadata: AtomicBool,
@@ -62,6 +70,9 @@ pub struct State {
     redirect_target: String,
     /// 1 truncated, 2 compressed, 3 oversized output, 4 endless stream.
     pub command_fault: AtomicUsize,
+    pub hold_command: AtomicBool,
+    pub command_entered: Notify,
+    pub command_release: Notify,
     pub streams: Arc<AtomicUsize>,
     pub requests: Mutex<Vec<(String, String)>>,
     sandboxes: Mutex<HashMap<String, Value>>,
@@ -222,6 +233,10 @@ impl State {
                 !headers.contains_key("x-access-token"),
                 "envd token leaked to control plane"
             );
+            if self.unavailable.load(Ordering::SeqCst) {
+                self.refused.fetch_add(1, Ordering::SeqCst);
+                return Ok(response(503, b"provider API unavailable".to_vec()));
+            }
             if self.redirect.swap(false, Ordering::SeqCst) {
                 return Ok(Response::builder()
                     .status(302)
@@ -246,6 +261,10 @@ impl State {
                 let id = format!("box-{n}");
                 let value = json!({"sandboxID":id,"metadata":input["metadata"],"state":"running","envdVersion":"0.6.4","envdAccessToken":format!("envd-{id}"),"domain":"e2b.app"});
                 self.sandboxes.lock().unwrap().insert(id, value.clone());
+                if self.hold_create.swap(false, Ordering::SeqCst) {
+                    self.create_entered.notify_one();
+                    self.create_release.notified().await;
+                }
                 if self.lost_create.swap(false, Ordering::SeqCst) {
                     return Ok(response(503, b"lost response after allocation".to_vec()));
                 }
@@ -287,6 +306,10 @@ impl State {
                         .lock()
                         .unwrap()
                         .retain(|(owner, _), _| owner != id);
+                    if self.hold_delete.swap(false, Ordering::SeqCst) {
+                        self.delete_entered.notify_one();
+                        self.delete_release.notified().await;
+                    }
                     if self.lost_delete.swap(false, Ordering::SeqCst) {
                         return Ok(response(503, b"lost delete reply".to_vec()));
                     }
@@ -376,6 +399,10 @@ impl State {
                         .mode = mode;
                     send.send(end(0))?;
                 } else {
+                    if self.hold_command.swap(false, Ordering::SeqCst) {
+                        self.command_entered.notify_one();
+                        self.command_release.notified().await;
+                    }
                     send.send(frame(&json!({"event":{"data":{"stdout":"AP8q"}}}), false))?;
                     send.send(frame(
                         &json!({"event":{"data":{"stderr":STANDARD.encode(b"diagnostic")}}}),

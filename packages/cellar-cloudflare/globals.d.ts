@@ -6,6 +6,16 @@ import type { WorkerWebSocket } from "./index.js";
 export {};
 
 declare global {
+  class IdentityTransformStream {
+    constructor();
+    readonly readable: ReadableStream<Uint8Array>;
+    readonly writable: WritableStream<BufferSource>;
+  }
+  class FixedLengthStream {
+    constructor(length: number | bigint);
+    readonly readable: ReadableStream<Uint8Array>;
+    readonly writable: WritableStream<BufferSource>;
+  }
   interface SubtleCrypto {
     timingSafeEqual(a: BufferSource, b: BufferSource): boolean;
   }

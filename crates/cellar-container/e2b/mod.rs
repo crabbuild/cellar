@@ -5,11 +5,13 @@ mod config;
 mod files;
 mod lifecycle;
 mod process;
+mod supervision;
 use crate::remote_http as transport;
 mod wire;
 use crate::{
     Environment, Fencing, Limits, Operation, Provider, ProviderFuture, ProviderSession, Validation,
 };
+use anyhow::Context as _;
 use cellar::sdk::Context;
 pub use config::{Config, Ownership};
 use serde_json::Value;
@@ -25,6 +27,10 @@ impl E2b {
 }
 
 impl Provider for E2b {
+    fn maintenance_backend(&self) -> Option<Arc<dyn cellar::sdk::containers::MaintenanceBackend>> {
+        Some(Arc::new(self.clone()))
+    }
+
     fn name(&self) -> &str {
         "e2b"
     }
@@ -75,35 +81,69 @@ impl ProviderSession for Session {
         limits: &'a Limits,
     ) -> ProviderFuture<'a> {
         Box::pin(async move {
-            let operation = async {
-                match operation {
-                    Operation::Start => self.0.start(context, input).await,
-                    Operation::Running => self.0.running(context).await,
-                    Operation::Reconcile => self.0.reconcile_binding(context).await,
-                    Operation::Destroy => self.0.destroy(context).await,
-                    Operation::ExecOutput => {
-                        self.0
-                            .validate_command(&input["options"])
-                            .map_err(|error| error.context(Validation))?;
-                        let sandbox = self.0.connected(context).await?;
-                        let result = self
-                            .0
-                            .command(
-                                context,
-                                &sandbox,
-                                &input["options"],
-                                input["max_bytes"].as_u64().unwrap() as usize,
-                                None,
-                            )
-                            .await?;
-                        Ok(result)
-                    }
-                    Operation::ReadFile
+            let journal = cellar::sdk::containers::BindingJournal::open(context, &self.0.binding)?;
+            let records_activity = matches!(
+                operation,
+                Operation::ExecOutput
+                    | Operation::ReadFile
                     | Operation::WriteFile
                     | Operation::StatFile
-                    | Operation::ListFiles => self.0.file(context, operation, input, limits).await,
-                    _ => Err(anyhow::anyhow!(Validation)),
+                    | Operation::ListFiles
+            );
+            let generation = journal
+                .load(context)?
+                .map(|checkpoint| checkpoint.record.generation);
+            if !matches!(
+                operation,
+                Operation::Running | Operation::Reconcile | Operation::Destroy
+            ) {
+                journal.check_retention(context)?;
+            }
+            let operation = async {
+                let value = async {
+                    match operation {
+                        Operation::Start => self.0.start(context, input).await,
+                        Operation::Running => self.0.running(context).await,
+                        Operation::Reconcile => self.0.reconcile_binding(context).await,
+                        Operation::Destroy => self.0.destroy(context).await,
+                        Operation::ExecOutput => {
+                            self.0
+                                .validate_command(&input["options"])
+                                .map_err(|error| error.context(Validation))?;
+                            let sandbox = self.0.connected(context).await?;
+                            let result = self
+                                .0
+                                .command(
+                                    context,
+                                    &sandbox,
+                                    &input["options"],
+                                    input["max_bytes"].as_u64().unwrap() as usize,
+                                    None,
+                                )
+                                .await?;
+                            Ok(result)
+                        }
+                        Operation::ReadFile
+                        | Operation::WriteFile
+                        | Operation::StatFile
+                        | Operation::ListFiles => {
+                            self.0.file(context, operation, input, limits).await
+                        }
+                        _ => Err(anyhow::anyhow!(Validation)),
+                    }
                 }
+                .await?;
+                if records_activity {
+                    journal
+                        .activity(
+                            context,
+                            generation.context(
+                                "provider binding changed during operation; outcome may be unknown",
+                            )?,
+                        )
+                        .await?;
+                }
+                Ok::<Value, anyhow::Error>(value)
             };
             cellar::asyncrt::timeout(
                 std::time::Duration::from_millis(self.0.timeout_ms),

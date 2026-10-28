@@ -9,6 +9,10 @@ use serde_json::{json, Value};
 
 impl Config {
     pub(super) fn validate_command(&self, options: &Value) -> Result<()> {
+        ensure!(
+            options.get("pty").is_none_or(Value::is_null),
+            "E2B terminal execution is not qualified"
+        );
         if let Some(user) = options["user"].as_str() {
             ensure!(
                 !user.is_empty()

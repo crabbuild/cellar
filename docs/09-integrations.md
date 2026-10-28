@@ -13,7 +13,7 @@ consistency with each external system.
 | --- | --- | --- |
 | HTTP and bodies | Use owned request/response APIs, explicit deadlines and bounded parsing | [HTTP](../crates/cellar/application/http.rs), [services](../crates/cellar/application/service.rs) |
 | Byte streams | Prefer streaming for large payloads; cancel abandoned streams; bound buffered bytes | [streams](../crates/cellar/application/streams.rs) |
-| Blob | Use streaming/ranges, conditional options and bounded paginated listings | [Blob](../crates/cellar/application/blob/mod.rs) |
+| Blob | Use streaming/ranges, conditional options, bounded listings and backend-owned multipart identities | [Blob](../crates/cellar/application/blob/README.md) |
 | Assets and cache | Stage assets with the package; define cache freshness and rebuild behavior | [assets/cache](../crates/cellar/application/assets.rs), [counter](../examples/native-counter/project.json) |
 | HTML rewriting | Transform streaming markup within the event lifetime | [rewriter](../crates/cellar/application/html_rewriter/mod.rs) |
 | WebSockets | Authenticate upgrades; define reconnect/replay and bounded fanout | [WebSocket example](../examples/native-websocket/main.rs) |
@@ -107,6 +107,8 @@ Python uses embedded CPython. TypeScript compiles before deployment.
 | Select a named provider slot | `Bindings::sessions().get(name)` | `ctx.containers.get(name)` | `ctx.containers.get(name)` |
 | Reconcile provider recovery/expiry | `Session::execute(Operation::Reconcile, …)` | `reconcile` | `reconcile` |
 | Execute with streams | `exec` | `exec` | `exec` |
+| Native terminal allocation | `ExecOptions::pty` / `TerminalSize` | `exec(..., pty=(cols, rows))` | `exec({cmd, pty: {cols, rows}})` |
+| Process identity / resize | `info(context)` / `resize(context, cols, rows)` | `info()` / `resize(cols, rows)` | Same async names |
 | Collect bounded output | `exec(...).output(...)` | `exec_output` | `execOutput` |
 | Obtain port | `port(context, port)` | `port(port)` | `port(port)` |
 | Readiness | `wait_ready` | `wait_ready` | `waitReady` |
@@ -175,6 +177,15 @@ output streams concurrently while awaiting `wait`. An empty read marks EOF.
 Observations such as monitor, process wait and stream reads can overlap a
 mutation; issue control operations sequentially.
 
+Native exec signalling requires `/bin/sh` in the image. A private prelude captures
+its container namespace PID before replacing the shell with the literal command;
+arguments never enter shell source. The prelude is removed from stdout, and the
+shell's builtin delivers subsequent signals. In these images, executable lookup
+failures report a nonzero process exit status. Commands must name a nonempty
+executable without a leading hyphen (use an explicit path for such filenames).
+Images without `/bin/sh` retain direct exec, but process signalling refuses an
+unverified PID. Docker's daemon PID is never used inside the container.
+
 HTTP forwarding rewrites the destination to the cell-owned port, preserving
 path/query, method, headers and buffered body. Redirects are returned to the
 caller. Adapter body, encoded-value, operation and concurrency limits still
@@ -234,11 +245,19 @@ network fence before starting managed containers. Container declarations can
 select an OCI `runtime` such as `runsc`; the daemon must have it configured.
 
 Linux hosts reach container ports through their bridge addresses. On macOS,
-Cellar uses published ports; declare them with image `EXPOSE` metadata or the
-class's bounded `exposed_ports` deployment setting, and
+the default profile uses published ports; declare them with image `EXPOSE`
+metadata or the class's bounded `exposed_ports` deployment setting, and
 `enable_internet=false` cannot enforce the same internal-network behavior.
 Use Linux when testing that isolation guarantee. The engine/fence remains a
 host-level prerequisite regardless of the handler language.
+
+An explicitly configured `ContainerEngineOptions::network_helper` selects the
+separate native helper lifecycle profile. It requires immutable helper input and
+explicit `runc`, owns DNS/port publication in the helper namespace and accounts
+for helper memory. The same native engine serves every handler language. See the
+[helper configuration and limits](../crates/cellar-container/README.md#optional-native-network-helper-lifecycle).
+Public outbound interception and complete Sandbox backup/mount compatibility
+remain unqualified.
 
 Running the **Cellar host itself inside Docker** is a separate deployment choice.
 Build the application executable for the image's Linux architecture and include

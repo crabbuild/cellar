@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::{
     net::TcpListener,
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, Notify},
     task::JoinHandle,
 };
 
@@ -50,11 +50,19 @@ impl Drop for Streaming {
 
 #[derive(Default)]
 pub struct State {
+    pub unavailable: AtomicBool,
+    pub refused: AtomicUsize,
     pub creates: AtomicUsize,
     pub deletes: AtomicUsize,
     pub commands: AtomicUsize,
     pub lost_create: AtomicBool,
+    pub hold_create: AtomicBool,
+    pub create_entered: Notify,
+    pub create_release: Notify,
     pub lost_delete: AtomicBool,
+    pub hold_delete: AtomicBool,
+    pub delete_entered: Notify,
+    pub delete_release: Notify,
     pub defer_delete: AtomicBool,
     pub unknown_status: AtomicBool,
     pub hide_list: AtomicBool,
@@ -62,6 +70,9 @@ pub struct State {
     pub changed_session: AtomicBool,
     pub redirect: AtomicBool,
     pub command_fault: AtomicUsize,
+    pub hold_command: AtomicBool,
+    pub command_entered: Notify,
+    pub command_release: Notify,
     pub lost_stdin: AtomicBool,
     pub streams: Arc<AtomicUsize>,
     pub requests: Mutex<Vec<(String, String)>>,
@@ -214,6 +225,10 @@ impl State {
             .into_owned()
             .collect();
         ensure!(query.get("teamId").map(String::as_str) == Some("fixture-team"));
+        if self.unavailable.load(Ordering::SeqCst) {
+            self.refused.fetch_add(1, Ordering::SeqCst);
+            return Ok(reply(503, b"provider API unavailable".to_vec()));
+        }
         if self.redirect.swap(false, Ordering::SeqCst) {
             return Ok(Response::builder()
                 .status(302)
@@ -246,6 +261,10 @@ impl State {
                 .unwrap()
                 .insert(name, info.clone())
                 .is_none());
+            if self.hold_create.swap(false, Ordering::SeqCst) {
+                self.create_entered.notify_one();
+                self.create_release.notified().await;
+            }
             if self.lost_create.swap(false, Ordering::SeqCst) {
                 return Ok(reply(503, b"lost response after allocation".to_vec()));
             }
@@ -388,6 +407,10 @@ impl State {
                 let mut info = process.info;
                 info["exitCode"] = json!(0);
                 frames.push(line(&json!({"command":info})));
+                if self.hold_command.swap(false, Ordering::SeqCst) {
+                    self.command_entered.notify_one();
+                    self.command_release.notified().await;
+                }
                 for bytes in frames {
                     process.send.send(bytes)?;
                 }
@@ -423,6 +446,10 @@ impl State {
                         .lock()
                         .unwrap()
                         .retain(|(owner, _), _| owner != id);
+                }
+                if self.hold_delete.swap(false, Ordering::SeqCst) {
+                    self.delete_entered.notify_one();
+                    self.delete_release.notified().await;
                 }
                 if self.lost_delete.swap(false, Ordering::SeqCst) {
                     return Ok(reply(503, b"lost delete reply".to_vec()));

@@ -34,6 +34,19 @@ pub(crate) struct Generations {
     pub(crate) draining: Vec<Arc<Generation>>,
 }
 
+impl Generations {
+    fn resolve(&self, id: GenerationId) -> Option<Arc<Generation>> {
+        if id == 0 || self.current.id == id {
+            Some(self.current.clone())
+        } else {
+            self.draining
+                .iter()
+                .find(|generation| generation.id == id)
+                .cloned()
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CellRuntime {
     /// The generations a call can resolve against. A reader takes one
@@ -98,15 +111,18 @@ impl CellRuntime {
         // the previous one was resolvable, find neither, and fall through to
         // the new graph -- the cross-generation call this exists to prevent.
         let generations = self.generations.read().expect("generation lock poisoned");
-        if id == 0 || generations.current.id == id {
-            return generations.current.clone();
-        }
         generations
-            .draining
-            .iter()
-            .find(|generation| generation.id == id)
-            .cloned()
+            .resolve(id)
             .unwrap_or_else(|| generations.current.clone())
+    }
+
+    /// Service routes refuse an absent nonzero generation before dispatch.
+    /// Zero retains the explicit unversioned embedding behavior.
+    pub(crate) fn service_generation(&self, id: GenerationId) -> anyhow::Result<Arc<Generation>> {
+        let generations = self.generations.read().expect("generation lock poisoned");
+        generations
+            .resolve(id)
+            .with_context(|| format!("service deployment generation {id} is no longer available"))
     }
 
     /// The id the next generation takes: one past the newest this node has

@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Storage-only execution for retained sources whose application class is gone.
+//! Framework-only execution for retained sources and provider bindings whose
+//! application class is gone.
 
 use crate::application::{
     Application, Cell, CellIdentity, Context, HandlerFuture, Invocation, Output,
@@ -12,9 +13,13 @@ use std::sync::Arc;
 
 pub(crate) const SCRIPT: &str = "__cellar_source_recovery";
 
-struct Recovery;
+struct Recovery(Option<Arc<crate::application::containers::Supervision>>);
 
 impl Application for Recovery {
+    fn container_supervision(&self) -> Option<Arc<crate::application::containers::Supervision>> {
+        self.0.clone()
+    }
+
     fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async { Err(unavailable()) })
     }
@@ -32,7 +37,11 @@ pub(crate) fn unavailable() -> anyhow::Error {
     crate::application::event_stream::DeliveryError::new(crate::application::event_stream::ErrorCode::Unavailable,"source application class is not deployed; only framework recovery and source controls are available").into()
 }
 
-pub(crate) fn configuration(generation: super::GenerationId, node: &str) -> Arc<WorkerConfig> {
+pub(crate) fn configuration(
+    generation: super::GenerationId,
+    node: &str,
+    supervision: Option<Arc<crate::application::containers::Supervision>>,
+) -> Arc<WorkerConfig> {
     let mut config = WorkerConfig::new(WorkerConfigOptions {
         src: String::new(),
         script_name: SCRIPT.into(),
@@ -50,7 +59,7 @@ pub(crate) fn configuration(generation: super::GenerationId, node: &str) -> Arc<
         modules: Vec::new(),
         compat: Compat::default(),
     })
-    .with_native_application(Arc::new(Recovery));
+    .with_native_application(Arc::new(Recovery(supervision)));
     config.generation = generation;
     config.source_recovery = true;
     Arc::new(config)

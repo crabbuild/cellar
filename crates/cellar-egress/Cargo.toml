@@ -1,0 +1,52 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+[package]
+name = "cellar-egress"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+description = "Run-owned network transport for Cellar container interception"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = []
+helper = ["dep:nix", "tokio/net", "tokio/process", "tokio/rt", "tokio/time"]
+
+[[bin]]
+name = "cellar-egress"
+path = "helper_main.rs"
+required-features = ["helper"]
+
+[[example]]
+name = "helper-qualification"
+path = "examples/helper_qualification.rs"
+required-features = ["helper"]
+
+[[example]]
+name = "helper-retirement-qualification"
+path = "examples/helper_retirement_qualification.rs"
+required-features = ["helper"]
+
+[[example]]
+name = "network-qualification"
+path = "examples/network_qualification.rs"
+required-features = ["helper"]
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+futures-util = { workspace = true, features = ["io"] }
+hickory-proto.workspace = true
+tokio = { workspace = true, features = ["sync", "macros", "io-util"] }
+tokio-util = { workspace = true, features = ["compat"] }
+yamux.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { workspace = true, optional = true, features = ["net", "socket"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["sync", "macros", "io-util", "rt", "time"] }

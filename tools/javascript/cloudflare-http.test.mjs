@@ -6,10 +6,16 @@ import {
   decodeRequest,
   decodeResponse,
   encodeResponse,
+  encodeRequest,
+  fetchRequest,
   headerPairs,
 } from "../../packages/cellar-cloudflare/http.js";
 import { workersApplication } from "../../packages/cellar-cloudflare/index.js";
-import { IdentityTransformStream } from "../../packages/cellar-cloudflare/streams.js";
+import {
+  FixedLengthStream,
+  IdentityTransformStream,
+  streamRequest,
+} from "../../packages/cellar-cloudflare/streams.js";
 
 const context = {
   _sync: () => ({ max_body_bytes: 4 }),
@@ -195,4 +201,193 @@ test("revoking an active alarm releases its queue without reporting success", as
   await cell.alarm(null, { _revoked: () => new Promise(() => {}) });
   assert.equal(calls, 2);
   release.resolve();
+});
+
+async function writeChunks(writable, chunks) {
+  const writer = writable.getWriter();
+  try {
+    for (const chunk of chunks) await writer.write(chunk);
+    await writer.close();
+  } finally {
+    writer.releaseLock();
+  }
+}
+
+test("fixed-length byte streams validate number/bigint lengths without coercion", () => {
+  for (const value of [
+    0,
+    3,
+    0n,
+    3n,
+    Number.MAX_SAFE_INTEGER,
+    9007199254740991n,
+  ])
+    assert.ok(new FixedLengthStream(value).readable);
+  for (const value of [-1, -1n, 0.5, NaN, Infinity, 2 ** 53, 9007199254740992n])
+    assert.throws(() => new FixedLengthStream(value), RangeError);
+  for (const value of [undefined, null, "3", {}, true])
+    assert.throws(() => new FixedLengthStream(value), TypeError);
+});
+
+test("fixed-length streams preserve binary chunks, BYOB EOF and backpressure", async () => {
+  const { readable, writable } = new FixedLengthStream(3n);
+  const bytes = Uint8Array.of(0, 255, 42);
+  const writing = writeChunks(writable, [
+    bytes.subarray(0, 1),
+    bytes.subarray(1),
+  ]);
+  const reader = readable.getReader({ mode: "byob" });
+  const result = [];
+  for (;;) {
+    const { value, done } = await reader.read(new Uint8Array(2));
+    result.push(...value);
+    if (done) break;
+  }
+  await writing;
+  reader.releaseLock();
+  assert.deepEqual(result, [...bytes]);
+  assert.equal(bytes.byteLength, 3);
+
+  const empty = new FixedLengthStream(0);
+  await Promise.all([
+    writeChunks(empty.writable, []),
+    new Response(empty.readable)
+      .arrayBuffer()
+      .then((value) => assert.equal(value.byteLength, 0)),
+  ]);
+});
+
+test("fixed-length underflow, overflow and nonbyte writes reject both ends", async () => {
+  for (const [chunks, message] of [
+    [[Uint8Array.of(1)], /too few bytes/],
+    [[Uint8Array.of(1, 2, 3)], /too many bytes/],
+    [["no bytes"], /typed byte buffer/],
+  ]) {
+    const { readable, writable } = new FixedLengthStream(2);
+    await Promise.all([
+      assert.rejects(writeChunks(writable, chunks), message),
+      assert.rejects(new Response(readable).arrayBuffer(), message),
+    ]);
+  }
+});
+
+test("fixed-length cancellation and producer abort retain their reason", async () => {
+  const reason = new Error("fixed-length consumer closed");
+  const stream = new FixedLengthStream(3);
+  const writer = stream.writable.getWriter();
+  let finished = false;
+  const writing = writer.write(Uint8Array.of(1)).then(() => {
+    finished = true;
+  });
+  const refused = assert.rejects(writing, (error) => error === reason);
+  await Promise.resolve();
+  assert.equal(finished, false);
+  await stream.readable.cancel(reason);
+  await refused;
+  writer.releaseLock();
+
+  const aborted = new FixedLengthStream(3);
+  const reading = assert.rejects(
+    new Response(aborted.readable).arrayBuffer(),
+    (error) => error === reason,
+  );
+  await aborted.writable.abort(reason);
+  await reading;
+});
+
+test("HTTP codecs infer only privately branded stream lengths and enforce bytes before dispatch", async () => {
+  for (const request of [false, true]) {
+    const { readable, writable } = new FixedLengthStream(3);
+    const message = request
+      ? new Request("http://cell/", {
+          method: "POST",
+          body: readable,
+          duplex: "half",
+          headers: { "content-length": "999" },
+        })
+      : new Response(readable, { headers: { "content-length": "999" } });
+    const [frame] = await Promise.all([
+      (request ? encodeRequest : encodeResponse)(message, context),
+      writeChunks(writable, [Uint8Array.of(0, 255, 42)]),
+    ]);
+    assert.equal(new Headers(frame.headers).get("content-length"), "3");
+    assert.equal(frame.body, "AP8q");
+    assert.equal(message.headers.get("content-length"), "999");
+  }
+  const fake = new ReadableStream({
+    start(controller) {
+      controller.close();
+    },
+  });
+  fake.fixedLength = 9;
+  const frame = await encodeResponse(new Response(fake), context);
+  assert.equal(new Headers(frame.headers).has("content-length"), false);
+  const { readable, writable } = new FixedLengthStream(3);
+  await Promise.all([
+    assert.rejects(
+      encodeRequest(
+        new Request("http://cell/", {
+          method: "POST",
+          body: readable,
+          duplex: "half",
+        }),
+        context,
+      ),
+      /too few bytes/,
+    ),
+    assert.rejects(writeChunks(writable, [Uint8Array.of(1)]), /too few bytes/),
+  ]);
+});
+
+test("native fetch request conversion retains length through body proxies and reads init once", async () => {
+  for (const fromRequest of [false, true]) {
+    const stream = new FixedLengthStream(3);
+    let reads = 0;
+    const init = {
+      method: "POST",
+      duplex: "half",
+      get body() {
+        reads++;
+        return stream.readable;
+      },
+    };
+    const input = fromRequest
+      ? new Request("http://cell/", init)
+      : "http://cell/";
+    const uploading = writeChunks(stream.writable, [Uint8Array.of(0, 255, 42)]);
+    const dispatch = async (frame) => {
+      assert.equal(new Headers(frame.headers).get("content-length"), "3");
+      assert.equal(frame.body, "AP8q");
+      return { status: 204, headers: [], body: "" };
+    };
+    const [response] = await Promise.all([
+      fetchRequest(input, fromRequest ? undefined : init, context, dispatch),
+      uploading,
+    ]);
+    assert.equal(response.status, 204);
+    assert.equal(reads, 1);
+  }
+});
+
+test("stream request conversion preserves native init validation and accessor receivers", async () => {
+  assert.throws(() => streamRequest("http://cell/", "invalid"), TypeError);
+  class Options {
+    #body;
+    constructor(body) {
+      this.#body = body;
+    }
+    method = "POST";
+    duplex = "half";
+    get body() {
+      return this.#body;
+    }
+  }
+  const stream = new FixedLengthStream(1);
+  const request = streamRequest("http://cell/", new Options(stream.readable));
+  const [, frame] = await Promise.all([
+    writeChunks(stream.writable, [Uint8Array.of(42)]),
+    encodeRequest(request, context),
+  ]);
+  assert.equal(new Headers(frame.headers).get("content-length"), "1");
+  assert.equal(frame.body, "Kg==");
 });

@@ -2,6 +2,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { FixedLengthStream } from "../../packages/cellar-cloudflare/streams.js";
 import { encodeStreamResponse } from "../../packages/cellar-cloudflare/output.js";
 
 function fixture(limit = 4) {
@@ -192,4 +193,37 @@ test("a disturbed Response cannot silently become a fresh partial reply", async 
     /already been used/,
   );
   assert.equal(cancelled, 1);
+});
+
+test("fixed-length response heads publish length before reads and fail short output", async () => {
+  for (const short of [false, true]) {
+    const { context, watches } = fixture();
+    const stream = new FixedLengthStream(3);
+    const response = new Response(stream.readable);
+    const frame = encodeStreamResponse(response, context);
+    assert.equal(new Headers(frame.headers).get("content-length"), "3");
+    assert.equal(watches.size, 0);
+    const writer = stream.writable.getWriter();
+    const writing = (async () => {
+      await writer.write(short ? Uint8Array.of(1) : Uint8Array.of(0, 255, 42));
+      await writer.close();
+    })();
+    const reading = (async () => {
+      const bytes = [];
+      for await (const chunk of frame.chunks) bytes.push(...chunk);
+      return bytes;
+    })();
+    if (short) {
+      await Promise.all([
+        assert.rejects(writing, /too few bytes/),
+        assert.rejects(reading, /too few bytes/),
+      ]);
+    } else {
+      const [, bytes] = await Promise.all([writing, reading]);
+      assert.deepEqual(bytes, [0, 255, 42]);
+    }
+    writer.releaseLock();
+    assert.equal(watches.size, 0);
+    assert.equal(stream.readable.locked, false);
+  }
 });

@@ -9,12 +9,24 @@ export class Counter extends Container {
   defaultPort = 8080;
   sleepAfter = "1s";
 
+  async fetch(request) {
+    console.log("lifecycle: Durable Object fetch entered");
+    try {
+      return await super.fetch(request);
+    } finally {
+      console.log("lifecycle: Durable Object fetch settled");
+    }
+  }
   async onStart() {
+    console.log("lifecycle: onStart entered");
     await this.record("starts");
+    console.log("lifecycle: onStart settled");
   }
   async onStop(params) {
+    console.log("lifecycle: onStop entered");
     await this.record("stops");
     await this.ctx.storage.put("lastStop", params);
+    console.log("lifecycle: onStop settled");
   }
   async onActivityExpired() {
     await this.record("expired");
@@ -59,6 +71,7 @@ export default workersApplication(
           await stub.dispose();
           return new Response(null, { status: 204 });
         }
+        console.log("lifecycle: Worker wake entered");
         return stub.fetch(new Request("http://container/", request));
       },
     },
