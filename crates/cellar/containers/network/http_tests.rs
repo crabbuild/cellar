@@ -24,6 +24,7 @@ struct Observed {
 
 struct Handler {
     phase: &'static str,
+    protocol: Protocol,
     observed: Arc<Observed>,
 }
 
@@ -44,6 +45,7 @@ impl HttpHandler for Handler {
     ) -> crate::application::HandlerFuture<HttpResponse> {
         let phase = self.phase;
         let observed = self.observed.clone();
+        let protocol = self.protocol;
         Box::pin(async move {
             valid()?;
             let _active = Active(observed.clone());
@@ -51,7 +53,14 @@ impl HttpHandler for Handler {
             if phase == "pending" {
                 std::future::pending::<()>().await;
             }
-            assert_eq!(request.url, "http://route.test/message");
+            assert_eq!(
+                request.url,
+                if protocol == Protocol::Https {
+                    "https://route.test/message"
+                } else {
+                    "http://route.test/message"
+                }
+            );
             assert!(!request
                 .headers
                 .iter()
@@ -93,7 +102,25 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Result<Self> {
+        Self::configured(false).await
+    }
+
+    async fn configured(https: bool) -> Result<Self> {
         let run = Run::new(1)?;
+        let origin = if https {
+            let origin = super::super::https::Authority::new().await?;
+            let mut roots = rustls::RootCertStore::empty();
+            roots.add(origin.certificate())?;
+            run.tls
+                .set(super::super::Tls {
+                    authority: super::super::https::Authority::new().await?,
+                    upstream: crate::container::HttpsInterceptionOptions::new(roots)?.upstream,
+                })
+                .map_err(|_| anyhow::anyhow!("duplicate TLS profile"))?;
+            Some(origin.server("route.test".into()).await?)
+        } else {
+            None
+        };
         let (left, right) = tokio::io::duplex(128 * 1024);
         let (host, mut incoming, host_driver) = transport::session(left, transport::Role::Host);
         let (helper, mut direct, helper_driver) =
@@ -151,22 +178,22 @@ impl Fixture {
                     wire::read_open(&mut io).await?,
                     wire::Open::Direct {
                         host: "203.0.113.7".into(),
-                        port: 80
+                        port: if origin.is_some() { 443 } else { 80 }
                     }
                 );
                 wire::write_direct_reply(&mut io, &wire::DirectReply::Connected).await?;
-                let service = hyper::service::service_fn(|_request| async {
-                    Ok::<_, std::convert::Infallible>(
-                        Response::builder()
-                            .header("x-route", "direct")
-                            .body(Full::new(Bytes::from_static(b"fallback")))
-                            .unwrap(),
-                    )
-                });
-                hyper::server::conn::http1::Builder::new()
-                    .keep_alive(false)
-                    .serve_connection(TokioIo::new(io), service)
-                    .await?;
+                if let Some(config) = &origin {
+                    // A rejected upstream name closes this attempt; the helper
+                    // continues accepting subsequent direct connections.
+                    if let Ok(io) = tokio_rustls::TlsAcceptor::from(config.clone())
+                        .accept(io)
+                        .await
+                    {
+                        fallback(io).await?;
+                    }
+                } else {
+                    fallback(io).await?;
+                }
             }
             Ok::<_, anyhow::Error>(())
         });
@@ -186,23 +213,59 @@ impl Fixture {
     async fn install(&self, phase: &'static str, observed: Arc<Observed>) -> Result<()> {
         self.installer
             .install(
-                HttpTarget::parse("route.test")?,
-                Box::new(Handler { phase, observed }),
+                if self.run.tls.get().is_some() {
+                    HttpTarget::https("route.test")?
+                } else {
+                    HttpTarget::parse("route.test")?
+                },
+                Box::new(Handler {
+                    phase,
+                    protocol: if self.run.tls.get().is_some() {
+                        Protocol::Https
+                    } else {
+                        Protocol::Http
+                    },
+                    observed,
+                }),
             )
             .await
     }
 
     async fn client(&self) -> Result<(Client, ClientTask)> {
+        self.named_client("route.test").await
+    }
+
+    async fn named_client(&self, name: &str) -> Result<(Client, ClientTask)> {
         let mut io = self.helper.open().await?;
         wire::write_open(
             &mut io,
             &wire::Open::Intercept {
-                destination: "203.0.113.7:80".parse()?,
+                destination: if self.run.tls.get().is_some() {
+                    "203.0.113.7:443"
+                } else {
+                    "203.0.113.7:80"
+                }
+                .parse()?,
             },
         )
         .await?;
-        let (client, driver) = hyper::client::conn::http1::handshake(TokioIo::new(io)).await?;
-        Ok((client, crate::asyncrt::spawn(driver)))
+        let (client, driver) = if let Some(tls) = self.run.tls.get() {
+            let mut roots = rustls::RootCertStore::empty();
+            roots.add(tls.authority.certificate())?;
+            let config = crate::container::HttpsInterceptionOptions::new(roots)?.upstream;
+            let io = tokio_rustls::TlsConnector::from(config)
+                .connect(
+                    rustls::pki_types::ServerName::try_from(name.to_owned())?,
+                    io,
+                )
+                .await?;
+            let (client, driver) = hyper::client::conn::http1::handshake(TokioIo::new(io)).await?;
+            (client, crate::asyncrt::spawn(driver))
+        } else {
+            let (client, driver) = hyper::client::conn::http1::handshake(TokioIo::new(io)).await?;
+            (client, crate::asyncrt::spawn(driver))
+        };
+        Ok((client, driver))
     }
 
     async fn close(mut self) -> Result<()> {
@@ -221,6 +284,22 @@ impl Fixture {
         self.driver.await??;
         Ok(())
     }
+}
+
+async fn fallback<I: AsyncRead + AsyncWrite + Send + Unpin + 'static>(io: I) -> Result<()> {
+    let service = hyper::service::service_fn(|_request| async {
+        Ok::<_, std::convert::Infallible>(
+            Response::builder()
+                .header("x-route", "direct")
+                .body(Full::new(Bytes::from_static(b"fallback")))
+                .unwrap(),
+        )
+    });
+    hyper::server::conn::http1::Builder::new()
+        .keep_alive(false)
+        .serve_connection(TokioIo::new(io), service)
+        .await?;
+    Ok(())
 }
 
 fn request(bytes: Vec<u8>) -> Request<Full<Bytes>> {
@@ -304,6 +383,77 @@ async fn malformed_authority_refuses_before_handler_and_retirement_cancels_pendi
             let _ = driver.await;
             fixture.close().await?;
             assert_eq!(observed.dropped.load(Ordering::SeqCst), 1);
+            Ok::<_, anyhow::Error>(())
+        }))
+        .await;
+    domain.shutdown().await;
+    result??
+}
+
+#[tokio::test]
+async fn retained_tls_connections_use_fresh_routes_and_validate_upstream_and_http_names(
+) -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(crate::asyncrt::timeout(Duration::from_secs(10), async {
+            let fixture = Fixture::configured(true).await?;
+            let observed = Arc::new(Observed::default());
+            let (mut client, driver) = fixture.client().await?;
+            let response = client.send_request(request(Vec::new())).await?;
+            assert_eq!(response.headers()["x-route"], "direct");
+            assert_eq!(
+                response.into_body().collect().await?.to_bytes(),
+                b"fallback"[..]
+            );
+            let bytes = (0..96 * 1024)
+                .map(|index| (index % 251) as u8)
+                .collect::<Vec<_>>();
+            for phase in ["one", "two"] {
+                fixture.install(phase, observed.clone()).await?;
+                let response = client.send_request(request(bytes.clone())).await?;
+                assert_eq!(response.headers()["x-route"], phase);
+                let actual = response.into_body().collect().await?.to_bytes();
+                assert_eq!(&actual[..phase.len()], phase.as_bytes());
+                assert_eq!(&actual[phase.len()..], bytes);
+            }
+            let mut mismatched = request(Vec::new());
+            mismatched
+                .headers_mut()
+                .insert(hyper::header::HOST, "wrong.test".parse()?);
+            assert_eq!(
+                client.send_request(mismatched).await?.status(),
+                hyper::StatusCode::BAD_GATEWAY
+            );
+            assert_eq!(observed.bodies.lock().unwrap().len(), 2);
+            driver.abort();
+            let _ = driver.await;
+            // The intercept CA accepts this name; direct upstream authentication
+            // must still reject the origin certificate issued only for route.test.
+            let (mut client, driver) = fixture.named_client("wrong.test").await?;
+            let mut wrong = request(Vec::new());
+            wrong
+                .headers_mut()
+                .insert(hyper::header::HOST, "wrong.test".parse()?);
+            assert_eq!(
+                client.send_request(wrong).await?.status(),
+                hyper::StatusCode::BAD_GATEWAY
+            );
+            driver.abort();
+            let _ = driver.await;
+            fixture.install("pending", observed.clone()).await?;
+            let (mut client, driver) = fixture.client().await?;
+            let _ = observed.entered.notified().now_or_never();
+            let pending =
+                crate::asyncrt::spawn(
+                    async move { client.send_request(request(Vec::new())).await },
+                );
+            observed.entered.notified().await;
+            fixture.run.retire();
+            assert!(pending.await?.is_err());
+            driver.abort();
+            let _ = driver.await;
+            fixture.close().await?;
+            assert_eq!(observed.dropped.load(Ordering::SeqCst), 3);
             Ok::<_, anyhow::Error>(())
         }))
         .await;

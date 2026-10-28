@@ -58,6 +58,15 @@ impl Cell for Root {
             let container = context.container()?;
             let path = url::Url::parse(&request.url)?.path().to_string();
             let value = match path.as_str() {
+                "/https-refused" => {
+                    assert!(!container.supports_outbound_https(&context)?);
+                    let gateway = context.exported_entrypoint("Gateway")?;
+                    assert!(container
+                        .intercept_outbound_https(&context, "*", &gateway)
+                        .await
+                        .is_err());
+                    json!(true)
+                }
                 "/start" => {
                     context
                         .storage()?
@@ -483,6 +492,13 @@ async fn run() -> Result<()> {
             .filter(|(_, path, _)| path.starts_with("/images/load"))
             .count(),
         1
+    );
+    let calls = peer.calls.lock().unwrap().len();
+    assert_eq!(call(&host, "Sandbox:test", "/https-refused").await?, true);
+    assert_eq!(
+        peer.calls.lock().unwrap().len(),
+        calls,
+        "refused HTTPS reached the Engine"
     );
     assert_eq!(call(&host, "Sandbox:test", "/running").await?, false);
     assert_eq!(call(&host, "Sandbox:test", "/monitor-empty").await?, true);

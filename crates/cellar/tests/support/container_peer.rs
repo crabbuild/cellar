@@ -332,7 +332,7 @@ impl cellar_guest::containers::Provider for AuditedProvider {
     }
 
     fn operations(&self) -> &[cellar_guest::containers::Operation] {
-        cellar_guest::containers::Operation::ALL
+        cellar_guest::containers::Native.operations()
     }
 
     fn open(&self) -> Box<dyn cellar_guest::containers::ProviderSession> {

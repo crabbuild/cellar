@@ -586,6 +586,11 @@ class Container:
         await self._context._call("container.intercept_outbound_http", target=target,
                                   service=dict(kind="binding", binding=binding))
 
+    async def intercept_outbound_https(self, target: str, binding: str) -> None:
+        """Route HTTPS through a declared service and the run's public CA."""
+        await self._context._call("container.intercept_outbound_https", target=target,
+                                  service=dict(kind="binding", binding=binding))
+
     async def exec(self, cmd: list[str], *, env: Headers = (), cwd: str | None = None,
                    user: str | None = None, combined: bool = False,
                    pty: tuple[int, int] | None = None) -> ContainerExec:

@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input; an explicit native HTTPS profile has per-run CA injection and matching-image retained TLS routing | S3 mounts, wider TLS client/fault behavior, remaining extended container/helper APIs, broader crash/larger-transfer/verified-swap/transport faults, remote orphan expiry, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -3082,3 +3082,94 @@ SDK/image. It does not establish power-loss durability, every crash point, cloud
 expiry, full transport-loss reconciliation, concurrent/multipart bounds, HTTPS,
 S3 mounts, verified-swap cancellation or full Sandbox/Workers compatibility.
 SP-02–SP-10 remain partial/outstanding; live E2B/Vercel still awaits configuration.
+
+
+## Native HTTPS interception: separate opt-in profile
+
+The shared framework now carries `container.intercept_outbound_https` through
+Rust, Python, JavaScript and TypeScript. Native hosts opt in with both
+`Native.with_https_interception()` and the helper's HTTPS options. Ordinary
+Native, HTTP-only Native and remote providers omit this operation. A configured
+provider with missing native infrastructure still refuses before effects.
+
+```mermaid
+sequenceDiagram
+    participant H as Native host
+    participant C as Application container
+    participant N as Run-owned network helper
+    participant G as Declared gateway
+    H->>H: Generate per-run CA with domain RNG
+    H->>C: Install public CA before startup
+    C->>N: TLS to port 443
+    N->>H: Original destination + private stream
+    H->>H: Validate SNI / HTTP Host and fresh ownership
+    H->>G: Stream decrypted HTTP request
+    G-->>C: Stream response over authenticated TLS
+```
+
+| Contract | Delivered boundary |
+| --- | --- |
+| Trust | Public CA at the Cloudflare certificate path; private key stays in native host; each replacement run rotates CA |
+| Scope | HTTP/1.1 on explicit HTTPS targets; wildcard/IP/CIDR and `*`; HTTP and HTTPS remain separate while sharing the existing 128-entry budget |
+| Live updates | Capture 443 at run startup and resolve the current handler per decrypted message, including an already authenticated connection |
+| Upstream | Unmatched requests use marked helper direct connections and host-selected certificate/name verification; guest trust/client certificates are not forwarded |
+| Limits | Five-second handshake/read bounds, 64 KiB pending TLS write buffer, 64 cached leaf configurations, finite CA validity and no cross-host signer reuse |
+| Ownership | Existing native request gates, retirement and joined transport; no guest event/environment retained and no mutation replay |
+
+| Evidence | Observation |
+| --- | --- |
+| Production TLS/router tests | Per-run CA separation, public-only archive, bounded cache/eviction, old accepted leaf config still authenticates, wrong-name/wrong-CA refusal, handler replacement, upstream TLS name validation and pending-request retirement pass |
+| Published SDK/image | `sandbox_https` uses unchanged Files 1.0.3 and matching shim/image; two create/routing/destroy runs pass in 21.04 seconds |
+| Real container workload | Three handlers share one TLS connection, each echoes 2 MiB + 17 bytes with exact SHA-256 under the original 64 KiB bridge frame limit; an untrusted client refuses the run CA; plain HTTP remains direct |
+| Negative request | Full-size mismatched HTTP Host receives the existing fixed 502 with `Connection: close`; a fresh authenticated connection still uses the current handler |
+| Replacement | A later run has a different public CA digest; completed process handles release and native/Node joined checks pass |
+
+Initial fixture failures came from asserting socket reuse after the router's
+explicit failure-close response. Diagnostics established that all three full
+successful transfers and the mismatch refusal had already passed. The final
+fixture keeps the full-size negative request, asserts connection closure and
+requires a new authenticated connection; successful-transfer connection reuse,
+byte checks and original deadlines are unchanged. No production failure policy
+was relaxed.
+
+This is selected native HTTPS evidence. HTTP/2, generic TLS interception,
+upgrades/trailers, guest custom upstream trust/client certificates, every TLS
+client library, wider fault/resource bounds, S3 mounts and full Sandbox/Workers
+compatibility remain open. S3 mounts need a separately explicit native filesystem
+and privilege contract plus matching `s3fs`/FUSE image qualification. Additional
+providers and Dynamic Workers remain on the original plan; E2B/Vercel live tests
+still await configuration.
+
+
+Final local checks for this HTTPS slice: 29 native container unit tests, eight
+Rust SDK/Engine tests, 78 shared provider/egress tests (including all five fleet
+cases), Node and V8 container facades, and the CPython 3.14 container boundary
+pass. Both TypeScript surfaces and all 152 JS/TS tests pass; both input pin checks
+and 122-source JS formatting pass. The existing three-process published backup
+crash campaign passes again in 45.07 seconds with the HTTPS-capable host/helper
+sources and its HTTP-only configuration. Strict all-target Clippy passes for
+core, egress, container, JavaScript (Node/V8) and embedded Python. Rust formatting,
+1,353-file layout, the 496-package native-only graph, docs and whitespace pass.
+The two separate ignored native-egress Engine campaigns were not selected by
+the ordinary SDK test run; matching-image evidence above covers this new slice.
+
+A new language assertion also exposed the shared audited test wrapper's old
+`Operation::ALL` advertisement despite its ordinary Native backend. The wrapper
+now delegates operation discovery to Native; Node/V8 and Python verify HTTPS
+absence and `not_committed` refusal. No refusal assertion was removed.
+
+## Production acceptance still required
+
+The optional sandbox/container compatibility effort is **not production-ready as
+a complete profile**. Passing local slices do not promote the remaining provider
+surfaces or resolve the earlier intermittent CI findings. Keep the full
+[delivery plan](sandbox-provider-compatibility.md#next-feature-priorities).
+
+| Remaining area | Required delivery / acceptance |
+| --- | --- |
+| S3 mounts | Explicit host/class filesystem privilege contract, pinned FUSE/s3fs image, actual published S3Mount/S3Gateway reads/writes, reuse, denied access, uncertain results, unmount and owned cleanup |
+| Runtime / SDK gaps | Remaining Workers bindings/loader and RPC lifetimes; complete published Containers/Sandbox version inventories and exact unsupported-operation refusal |
+| Recovery / ownership | Broader outage/partition, physical cell deletion, takeover, expiry/orphans, accepted-but-unanswered effects, verified-swap and multipart/concurrency qualification |
+| Other providers | Separate Daytona/Modal and optional hosted Cloudflare/Dynamic Workers implementation and qualification; E2B/Vercel real-account evidence remains deferred |
+| Resource / operational bounds | Saturation, backpressure, cancellation, storage exhaustion, long-running workloads, helper packaging, deployment/upgrade and joined-shutdown evidence |
+| Release gate | Version/operation/isolation matrix with source/image/toolchain-bound results; unresolved CI regressions and unqualified operations remain explicit and cannot be reported as production-qualified |

@@ -8,6 +8,7 @@ use anyhow::{ensure, Result};
 use cellar_egress::{control, docker_io::DockerIo, transport};
 use rand::RngCore;
 mod http;
+mod https;
 
 pub(super) const MEMORY_BYTES: u64 = 256 * 1024 * 1024;
 const RUN_LABEL: &str = "cellar.network.run";
@@ -34,6 +35,12 @@ pub(super) struct Run {
     task: Mutex<Option<asyncrt::TaskHandle<()>>>,
     cleanup: tokio::sync::Mutex<()>,
     done: watch::Sender<Option<Result<(), String>>>,
+    tls: OnceLock<Tls>,
+}
+
+struct Tls {
+    authority: Arc<https::Authority>,
+    upstream: Arc<rustls::ClientConfig>,
 }
 
 impl Run {
@@ -56,6 +63,7 @@ impl Run {
             task: Mutex::new(None),
             cleanup: tokio::sync::Mutex::new(()),
             done: watch::channel(None).0,
+            tls: OnceLock::new(),
         }))
     }
 
@@ -239,6 +247,43 @@ impl Drop for StartGuard {
 }
 
 impl ContainerEngine {
+    pub(super) async fn install_https_ca(
+        &self,
+        cell: &CellContainer,
+        id: &ContainerId,
+        run: &Arc<Run>,
+    ) -> Result<()> {
+        let Some(tls) = run.tls.get() else {
+            return Ok(());
+        };
+        self.check_cell(cell)?;
+        ensure!(
+            cell.current_run() == run.run && run.active(),
+            "CA installation belongs to a retired run"
+        );
+        let body = Bytes::from(tls.authority.archive()?);
+        let (reply, _) = self
+            .docker
+            .archive(
+                "PUT",
+                &format!("/containers/{id}/archive?path=%2F&noOverwriteDirNonDir=true"),
+                body,
+                16384,
+            )
+            .await?;
+        ensure!(
+            reply.status.is_success(),
+            "install run-owned public CA: {}",
+            reply.message()
+        );
+        self.check_cell(cell)?;
+        ensure!(
+            cell.current_run() == run.run && run.active(),
+            "CA installation completed after retirement"
+        );
+        Ok(())
+    }
+
     pub(super) async fn network_ports(&self, cell: &CellContainer) -> Result<Vec<u16>> {
         let info = self
             .docker
@@ -330,6 +375,15 @@ impl ContainerEngine {
         };
         self.ensure_image(&options.image).await?;
         let attempt = Run::new(run)?;
+        if let Some(https) = &options.https {
+            attempt
+                .tls
+                .set(Tls {
+                    authority: https::Authority::new().await?,
+                    upstream: https.upstream.clone(),
+                })
+                .map_err(|_| anyhow!("TLS run already initialized"))?;
+        }
         {
             let mut state = cell.state.lock().unwrap();
             ensure!(
@@ -352,6 +406,12 @@ impl ContainerEngine {
                 "Sysctls":{"net.ipv4.ip_unprivileged_port_start":"0",
                     "net.ipv6.conf.all.disable_ipv6":"0","net.ipv6.conf.lo.disable_ipv6":"0"}}
         });
+        if options.https.is_some() {
+            body["Cmd"]
+                .as_array_mut()
+                .unwrap()
+                .extend([json!("--https"), json!("true")]);
+        }
         ports::configure(&mut body, ports, !cfg!(target_os = "linux"))?;
         let reservations = if cfg!(target_os = "linux") {
             Vec::new()
@@ -612,6 +672,14 @@ impl ContainerEngine {
         self.network_helper.is_some() && self.validate_network_runtime(cell).is_ok()
     }
 
+    pub(crate) fn https_interception_configured(&self, cell: &CellContainer) -> bool {
+        self.http_interception_configured(cell)
+            && self
+                .network_helper
+                .as_ref()
+                .is_some_and(|options| options.https.is_some())
+    }
+
     pub(crate) async fn intercept_http(
         &self,
         cell: &Arc<CellContainer>,
@@ -622,6 +690,11 @@ impl ContainerEngine {
         ensure!(
             self.http_interception_configured(cell),
             "HTTP interception requires the explicit native runc network-helper profile"
+        );
+        ensure!(
+            target.protocol() != cellar_egress::Protocol::Https
+                || self.https_interception_configured(cell),
+            "native HTTPS interception is not configured"
         );
         let handler: Box<dyn HttpHandler> = Box::new(handler);
         let network = {

@@ -116,6 +116,7 @@ mod qualification {
                 started(&pid_path).await?;
                 let host = Host::parse("never.internal")?;
                 let destination = Destination {
+                    protocol: cellar_egress::Protocol::Http,
                     socket: "127.0.0.2:80".parse()?,
                     host: Some(&host),
                 };

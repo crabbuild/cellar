@@ -47,7 +47,10 @@ mod network_options;
 mod ports;
 pub use cellar_egress::HttpTarget as HttpInterceptTarget;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
-pub use network_options::NetworkHelperOptions;
+pub use network_options::{HttpsInterceptionOptions, NetworkHelperOptions};
+
+/// Public CA only; private signing keys never enter the application container.
+pub const HTTPS_CA_PATH: &str = "/etc/cloudflare/certs/cloudflare-containers-ca.crt";
 pub use ports::validate_exposed_ports;
 
 /// One `containers[]` entry of a deployment, as the node sees it.
@@ -1979,6 +1982,9 @@ impl ContainerEngine {
             network.as_ref().is_none_or(|network| network.active()),
             "network helper retired before application startup"
         );
+        if let Some(network) = &network {
+            self.install_https_ca(cell, &id, network).await?;
+        }
         self.docker
             .expect(
                 "POST",

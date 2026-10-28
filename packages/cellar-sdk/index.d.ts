@@ -234,6 +234,7 @@ export interface Container {
   /** Requires the explicit native HTTP-helper provider profile. Null selects
    * all plain HTTP on port 80; binding is a declared Worker service name. */
   interceptOutboundHttp(target: string | null, binding: string): Promise<null>;
+  interceptOutboundHttps(target: string, binding: string): Promise<null>;
   exec(options: ContainerExecOptions): Promise<ContainerExec>;
   /** Combined stdout/stderr limit cannot exceed the host body limit. */
   execOutput(options: ContainerExecOptions, max_bytes?: number): Promise<ContainerExecOutput>;

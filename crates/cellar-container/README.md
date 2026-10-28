@@ -423,7 +423,7 @@ Portable facades select a host-declared service binding by name:
 | Resource bounds | 128 interceptor entries; hostnames and catch-all cost two, IP/CIDR one; 64 KiB captured route; 128 / 64 KiB headers; 8 KiB URL |
 | Bodies | Stream with backpressure; buffered response prefix at most 1 MiB; stop transport and joined handlers on retirement |
 | Refusal | Fixed 502 before response publication; later body failure closes the stream; no replay |
-| Gaps | HTTPS interception, upgrades, trailers and full persistence/fault qualification |
+| Gaps | Upgrades, trailers and full persistence/fault qualification; HTTPS requires the separate opt-in below |
 
 Node Workers gateways opt in to incoming body streaming with
 `Source::workers_http_streams()`. Each source pull uses the original invocation
@@ -435,6 +435,59 @@ uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
 [qualification instructions](../../tools/sandbox/cloudflare-v1/README.md)
 keep SDK/image evidence separate from router and provider tests. S3 mounts and
 complete Sandbox 1.x compatibility remain open.
+
+### Opt in to HTTPS interception
+
+The native host selects both TLS infrastructure and provider capabilities. The
+public certificate path and client trust follow the [Cloudflare outbound traffic
+contract](https://developers.cloudflare.com/containers/configuration/outbound-traffic/):
+
+```rust,no_run
+use cellar::sdk::{ContainerHttpsInterceptionOptions, ContainerNetworkHelperOptions};
+
+fn tls_helper(image: String) -> anyhow::Result<ContainerNetworkHelperOptions> {
+    Ok(ContainerNetworkHelperOptions::new(
+        image,
+        "/opt/cellar-egress/bin/cellar-egress".into(),
+        "1.1.1.1:53".parse()?,
+    ).with_https_interception(ContainerHttpsInterceptionOptions::public_web_roots()?))
+}
+// Configure the adapter separately with Native.with_https_interception().
+```
+
+```mermaid
+flowchart LR
+    C[Container trusts public run CA] -->|TLS| H[Native TLS termination]
+    H -->|Matched rule: fresh ownership gate| G[Declared gateway]
+    H -->|Unmatched: verify original server| N[Marked helper connection]
+    K[Private run CA key in host] --> H
+```
+
+| Boundary | HTTPS profile |
+| --- | --- |
+| Opt-in | `Native.with_https_interception()` includes HTTP and HTTPS; configure `NetworkHelperOptions::with_https_interception` too |
+| CA | Fresh per run; public certificate installed before application startup at `/etc/cloudflare/certs/cloudflare-containers-ca.crt`; private key stays in the host |
+| Client trust | Explicit image/client trust, such as `NODE_EXTRA_CA_CERTS` or `REQUESTS_CA_BUNDLE`; installing the file alone does not change a client's trust store |
+| Targets | Same bare hostname, wildcard, IP/CIDR syntax; default port 443; `"*"` is the HTTPS catch-all; HTTP and HTTPS share the 128-entry budget |
+| Identity | Canonical HTTP `Host` must match TLS SNI, or the original IP for clients without SNI; authority port must match the kernel destination |
+| Retained connections | Capture 443 from startup; look up the current handler for every decrypted message |
+| Unmatched HTTPS | Use the original destination through the helper and validate its TLS certificate/name against host-selected roots; guest custom roots and client certificates are not forwarded |
+| Bounds | HTTP/1.1, 5-second handshake/read deadlines, 64 KiB pending TLS write buffer and 64 cached leaf configurations per run; CA validity is one year, then a new run is required |
+| Retirement | Close the run's transport and join handlers; another or closed host cannot reuse the CA signer |
+| Limits | No HTTP/2, upgrades, trailers or generic TLS protocol interception |
+
+| Language | HTTPS registration |
+| --- | --- |
+| Rust | `ctx.container()?.intercept_outbound_https(&ctx, "*.example.test", &ctx.service("API")?).await?` |
+| JavaScript / TypeScript | `await ctx.container.interceptOutboundHttps("*.example.test", "API")` |
+| Python | `await ctx.container.intercept_outbound_https("*.example.test", "API")` |
+| Workers facade | `await this.ctx.container.interceptOutboundHttps("*", this.ctx.exports.Gateway({ props: { mode: "read" } }))` |
+| Bridge operation | `container.intercept_outbound_https`, same copied service input as HTTP, explicit string target |
+
+Ordinary Native, HTTP-only Native and remote providers omit HTTPS capability.
+Calls refuse before effects when either required host profile is absent. The
+[matching-image fixture](../../tools/sandbox/cloudflare-v1/https.mjs) is qualified
+separately from TLS/router unit tests; see its [run instructions](../../tools/sandbox/cloudflare-v1/README.md#https-interception).
 
 Known-length R2 uploads use native anonymous-file part staging with bounded
 bridge chunks, host scratch byte/file limits and atomic receipt replacement.
