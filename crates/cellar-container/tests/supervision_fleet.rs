@@ -727,6 +727,7 @@ async fn accepted_create_owner_loss(
         peer.creates() == 1 && peer.deletes() == 0 && original.retired.lock().unwrap().is_none(),
         "remote acceptance was incorrectly retired by the fenced owner"
     );
+    let provider_name = provider.name().to_owned();
     let witness = Arc::new(Witness::default());
     let calls = Arc::new(Calls::default());
     let second = start_node(
@@ -760,8 +761,20 @@ async fn accepted_create_owner_loss(
         Ok::<_, anyhow::Error>(())
     }
     .await;
+    let evidence = if result.is_err() {
+        let ready = tokio::time::timeout(Duration::from_secs(1), second.is_ready()).await;
+        Some(format!("provider={provider_name}, successor_closed={}, readiness={ready:?}, application={}, factories={}, inspections={}, failed_inspections={}, deletions={}, failed_deletions={}, creates={}, deletes={}, recent={:?}",
+            second.is_closed(), calls.application.load(Ordering::SeqCst), calls.factories.load(Ordering::SeqCst),
+            witness.inspections.load(Ordering::SeqCst), witness.failed_inspections.load(Ordering::SeqCst),
+            witness.deletions.load(Ordering::SeqCst), witness.failed_deletions.load(Ordering::SeqCst),
+            peer.creates(), peer.deletes(), peer.recent_requests()))
+    } else {
+        None
+    };
     let stopped = stop(second, ShutdownMode::Preserve).await;
-    result?;
+    result.with_context(|| {
+        format!("accepted-create successor evidence={evidence:?}, shutdown={stopped:?}")
+    })?;
     stopped?;
     Ok(())
 }
