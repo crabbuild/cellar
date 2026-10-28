@@ -27,7 +27,8 @@ async fn sandbox_retirement_recovers_partial_publication_and_rejects_changed_ide
     assert_eq!(store.status("Parent:alice").await?, Some("pending"));
     // Slow inventory I/O cannot delay barrier publication for a new intent.
     let scan = store.scans[0].lock().await;
-    tokio::time::timeout(std::time::Duration::from_millis(100), store.begin(&record)).await??;
+    futures_util::FutureExt::now_or_never(store.begin(&record))
+        .expect("inventory must not block publication")?;
     drop(scan);
     let changed = Record::new(Evidence::Parent {
         scope: "Parent:alice".into(),
