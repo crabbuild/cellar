@@ -744,8 +744,48 @@ cases remain ignored. All-feature host/qualification/performance-node Clippy,
 246 Python tooling cases (one skipped), format/layout over 1,315 Rust files
 and dependency/documentation guards pass at source inputs
 `0161e54d978b27f05920c6f094c9608734c8ff21c71b5481136364b6bd2e2679`.
-PR #145 merged during validation. Updated-main checks and repeated real-store
-preflights are separate pending gates; the 10 GB and hard-failure gates remain open.
+PR #145 merged during validation. The updated-main checks and repeated
+real-store preflights below close the recorded scheduling reproduction; the
+10 GB and hard-failure gates remain open.
+
+At `45f024994b267b47119e8ee7d0cec68c0e802201`, based on updated `main`
+`3ffbadcc`, all 12 checks pass again: 14 owning and 15 private archive tests,
+155 native integration cases (80 archive, 20 ordinary large-image, 23 operations
+and 32 rooted), three all-feature Clippy modes and 246 Python cases with one
+skip. Fourteen physical cases remain ignored in the ordinary suite. Formatting,
+layout over 1,350 Rust files and dependency/documentation guards pass.
+
+All eight requested release preflights pass with nine correctness checks and
+six valid phase windows per trial, unchanged source inventories and executable
+bytes. Failure to first verified durable write is:
+
+| Representation/source | Physical image | Trials | Seconds |
+| --- | ---: | ---: | ---: |
+| Materialized peer | 12 MiB | 3 | 3.200869–3.939944 |
+| Materialized RustFS | 272 MiB | 3 | 12.153734–15.435117 |
+| Extent peer | 12 MiB | 1 | 3.199940 |
+| Extent RustFS | 272 MiB | 1 | 7.062406 |
+
+Inputs are
+`ea617f247e3e596bab5b51fc22b3353179d29db2f0819e21e7a1fd5eb32198a6`,
+with release executable
+`c1e59bbe471edf679f1c90a48822122c57697614bbee4f309b9ae8628bcbbe36`.
+The original stalled/interrupted release attempt remains unsuccessful. These
+shared-host, uncontrolled-cache, joined-domain-loss preflights do not establish
+a controlled speedup, 10 GB latency, hard process loss or p95 qualification.
+The analyzer keeps its three-sample pilot minimum; the single extent trials
+therefore retain a nonzero analysis exit and false target/qualification flags.
+
+The first extent preflight refuses its unchanged 32 GiB capacity guard before
+creating a native trial. Verified archival preserves the completed diagnostic
+worker, 721 inactive test objects and 2,592 stopped-server trash files before
+retirement. The owned RustFS server restarts with the same binary, endpoint,
+credential files and data directory; all 651 other live object listings retain
+their lengths, ETags and metadata. Capacity refusals and setup attempts remain
+separate from timed trials. The full-size rerun is still unstarted: its unchanged
+48,589,930,496-byte guard is unmet at the fresh recorded capacity preflight.
+Durable remote retention/GC, demand loading and broader fault/contention gates
+remain open.
 
 ### Bound materialized replay amplification
 
