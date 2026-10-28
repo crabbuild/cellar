@@ -10,19 +10,26 @@ FUSE remains a separate proposal.
 
 ## PR integration baseline
 
-The PR is rebased onto `origin/main` at
-`a9da48acf139b15b7a989c12f1237983bc333532` on 2026-10-27. Integration preserves
-the newer guest/container dispatch and RPC admission paths, uses the current
-RPC payload-size helper, and updates filesystem fixtures to the current host
-configuration API. The session example's npm lockfile and linked capacity
-reports are included in the repository.
+The branch incorporates `origin/main` at
+`cd9a968932c81fcfd4a3fe9f03c4ce7c0e57e1b0` on 2026-10-27, including the newer
+sandbox gateways and public Raft extent recovery. Conflict resolution preserves
+the newer guest dispatch/R2 paths, the filesystem value budget in both dispatch
+routes, and both filesystem/container maintenance authorities. The storage-fault
+fixture reuses main's extracted outage helper with the visibility required by
+the filesystem harness.
+
+The wire-validation checkpoint `e43825b06c5c19f6d3a20a38bd3c713654d7f106` was
+verified before this integration. On the updated tree, 21 filesystem library
+cases and 30 guest units pass. Guest-runtime, native SDK/node, recovery and final
+source gates are still being refreshed; the earlier captures below do not
+qualify the updated host.
 
 Earlier measurements and captured-package results below retain their original
 source/artifact scope. They do not qualify the rebased native host or constitute
 a completed remote CI run. Final packaged-agent captures and target/ABI checks
 must use the release candidate built from the integrated sources.
 
-Selected post-rebase local checks passed on macOS arm64 with Rust 1.98.1:
+Earlier checks against main at `a9da48ac` passed on macOS arm64 with Rust 1.98.1:
 
 | Boundary | Observed checks |
 | --- | --- |

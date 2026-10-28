@@ -32,6 +32,9 @@ use std::{
 #[serde(rename_all = "lowercase")]
 pub enum EventKind {
     Fetch,
+    /// Stateless Worker entrypoint RPC through native service/loopback routes.
+    #[serde(rename = "worker_rpc")]
+    WorkerRpc,
     /// Native cell RPC, with structured arguments and results.
     #[serde(rename = "cell_rpc")]
     CellRpc,
@@ -50,6 +53,7 @@ impl EventKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Fetch => "fetch",
+            Self::WorkerRpc => "worker_rpc",
             Self::CellRpc => "cell_rpc",
             Self::Alarm => "alarm",
             Self::Queue => "queue",
@@ -435,9 +439,28 @@ impl JavaScriptApplication {
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
                 }
-                Invocation::Fetch(request) => (
-                    "fetch",
-                    values::request(&context, request, self.runtime.options.max_body_bytes).await?,
+                Invocation::Fetch(mut request) => {
+                    let entrypoint = request.entrypoint.take();
+                    let mut frame =
+                        values::request(&context, request, self.runtime.options.max_body_bytes)
+                            .await?;
+                    if let Some(entrypoint) = entrypoint {
+                        frame["entrypoint"] = json!({"name":entrypoint.name, "props": cellar_guest::workers::service::props(&entrypoint.props, self.runtime.options.max_body_bytes)?});
+                    }
+                    ("fetch", frame)
+                }
+                Invocation::Rpc {
+                    entrypoint,
+                    operation,
+                    props,
+                } => (
+                    "worker_rpc",
+                    cellar_guest::workers::service::request(
+                        entrypoint,
+                        operation,
+                        props,
+                        self.runtime.options.max_body_bytes,
+                    )?,
                 ),
                 Invocation::Alarm { scheduled_ms } => {
                     ("alarm", json!({"scheduled_ms": scheduled_ms}))
@@ -630,148 +653,219 @@ impl JavaScriptApplication {
                     let catalog = self.source.rpc.clone();
                     let rpc_session = rpc_session.clone();
                     let rpc_enabled = self.source.workers_lifetimes;
-                    let mut operation =
-                        Box::pin(async move {
-                            // The reservation is retained by the native future even
-                            // if the awaiting JavaScript task has already been cancelled.
-                            let _bytes = _bytes;
-                            let result =
-                                match operations::decode_metadata_with(&name, &payload, |bytes| {
-                                    Ok(runtime
-                                        .bytes
-                                        .clone()
-                                        .try_acquire_many_owned(u32::try_from(bytes)?)?)
-                                }) {
-                                    Ok((payload, _control_bytes)) => {
-                                        // A parent can be draining an unawaited child
-                                        // after its JS callback returned. Completion is
-                                        // owned by this invocation and the named child;
-                                        // it must not borrow the already closed parent.
-                                        let scope = if name == "workers.callback.finish" {
-                                            Ok(None)
-                                        } else {
-                                            callback_scope
-                                                .map(|id| callbacks.scope(&context, id))
-                                                .transpose()
-                                        };
-                                        match scope {
-                                            Err(error) => Err(error),
-                                            // A transaction cannot prove its own commit
-                                            // while awaiting an external container effect.
-                                            Ok(Some(scope))
-                                                if scope.is_transaction()
-                                                    && matches!(
-                                                        name.as_str(),
-                                                        "workers.container.admit"
-                                                            | "workers.container.perform"
-                                                    ) =>
-                                            {
-                                                Err(anyhow::Error::new(
-                                                    cellar_guest::failure::Validation,
-                                                ))
-                                            }
-                                            Ok(scope) => {
-                                                let scoped_context = context.clone();
-                                                let operation_name = name.clone();
-                                                let options = runtime.options.clone();
-                                                let scope_id = id;
-                                                let future =
-                                                    async move {
-                                                        if operation_name == "cell.call" {
-                                                            let digest = payload
-                                                    .get("contract_digest")
-                                                    .and_then(Value::as_str)
-                                                    .context("missing RPC contract digest")
-                                                    .context(cellar_guest::failure::Validation)?;
-                                                            let contract = catalog
-                                                    .contract(digest)
-                                                    .context("unregistered RPC contract")
-                                                    .context(cellar_guest::failure::Validation)?;
-                                                            let bytes = body
-                                                    .context("RPC call requires a byte attachment")
-                                                    .context(cellar_guest::failure::Validation)?;
-                                                            let result =
-                                                                operations::call_bytes_in_budget(
-                                                                    &scoped_context,
-                                                                    contract,
-                                                                    payload,
-                                                                    bytes,
-                                                                    signal,
-                                                                    budget,
-                                                                )
-                                                                .await?;
-                                                            return Ok((Value::Null, Some(result)));
-                                                        }
-                                                        ensure!(
-                                                            body.is_none(),
-                                                            cellar_guest::failure::Validation
-                                                        );
-                                                        if rpc_enabled
-                                                            && callback_scope.is_none()
-                                                            && (operation_name == "workers.rpc"
-                                                                || operation_name
-                                                                    .starts_with("workers.rpc."))
-                                                        {
-                                                            rpc_session
-                                                                .execute(
-                                                                    &scoped_context,
-                                                                    &operation_name,
-                                                                    payload,
-                                                                    signal,
-                                                                )
-                                                                .await
-                                                                .map(|value| (value, None))
-                                                        } else if operation_name
-                                                            .starts_with("workers.callback.")
-                                                        {
-                                                            callbacks
-                                                                .execute(
-                                                                    &scoped_context,
-                                                                    &operation_name,
-                                                                    payload,
-                                                                    scope_id,
-                                                                    options.max_batch_operations,
-                                                                )
-                                                                .await
-                                                                .map(|value| (value, None))
-                                                        } else {
-                                                            operations::execute_with_signal(
-                                                                &scoped_context,
-                                                                &state,
-                                                                &operation_name,
-                                                                payload,
-                                                                &cellar_guest::Limits {
-                                                                    max_value_bytes: options
-                                                                        .max_value_bytes,
-                                                                    max_body_bytes: options
-                                                                        .max_body_bytes,
-                                                                    max_batch_operations: options
-                                                                        .max_batch_operations,
-                                                                },
-                                                                signal,
-                                                            )
-                                                            .await
-                                                            .map(|value| (value, None))
-                                                        }
-                                                    };
-                                                match scope {
-                                                    Some(scope) => {
-                                                        scope.run(&context, future).await
-                                                    }
-                                                    None => future.await,
+                    let mut operation = Box::pin(async move {
+                        // The reservation is retained by the native future even
+                        // if the awaiting JavaScript task has already been cancelled.
+                        let _bytes = _bytes;
+                        let result =
+                            match operations::decode_metadata_with(&name, &payload, |bytes| {
+                                Ok(runtime
+                                    .bytes
+                                    .clone()
+                                    .try_acquire_many_owned(u32::try_from(bytes)?)?)
+                            }) {
+                                Ok((mut payload, _control_bytes)) => {
+                                    // Automatic discard readers hold an invocation-owned
+                                    // process capability. This route has no SQL view and
+                                    // is limited to observations of that event's handles.
+                                    let event_owned = match &mut payload {
+                                        Value::Object(fields)
+                                            if crate::callbacks::event_owned_observation(&name)
+                                                && fields.get("$event_owned")
+                                                    == Some(&Value::Bool(true)) =>
+                                        {
+                                            fields.remove("$event_owned");
+                                            true
+                                        }
+                                        _ => false,
+                                    };
+                                    // A parent can be draining an unawaited child
+                                    // after its JS callback returned. Completion is
+                                    // owned by this invocation and the named child;
+                                    // it must not borrow the already closed parent.
+                                    let scope = if event_owned
+                                        || matches!(
+                                            name.as_str(),
+                                            "workers.callback.finish" | "container.release"
+                                        ) {
+                                        // Releasing an event-owned resource is cleanup,
+                                        // and never borrows a callback's storage view.
+                                        Ok(None)
+                                    } else {
+                                        callback_scope
+                                            .map(|id| callbacks.scope(&context, id))
+                                            .transpose()
+                                    };
+                                    match scope {
+                                        Err(error) => Err(error),
+                                        // A transaction cannot prove its own commit
+                                        // while awaiting an external container effect.
+                                        Ok(Some(scope))
+                                            if scope.is_transaction()
+                                                && matches!(
+                                                    name.as_str(),
+                                                    "workers.r2.head"
+                                                        | "workers.r2.get"
+                                                        | "workers.r2.delete"
+                                                        | "workers.r2.create"
+                                                        | "workers.r2.part"
+                                                        | "workers.r2.complete"
+                                                        | "workers.r2.abort"
+                                                        | "workers.container.admit"
+                                                        | "workers.container.perform"
+                                                        | "container.exec"
+                                                        | "container.exec_output"
+                                                ) =>
+                                        {
+                                            Err(anyhow::Error::new(
+                                                cellar_guest::failure::Validation,
+                                            ))
+                                        }
+                                        Ok(scope) => {
+                                            let scoped_context = context.clone();
+                                            let operation_name = name.clone();
+                                            let options = runtime.options.clone();
+                                            let scope_id = id;
+                                            let payload_capacity = runtime.clone();
+                                            let future = async move {
+                                                if operation_name == "cell.call" {
+                                                    let digest = payload
+                                                        .get("contract_digest")
+                                                        .and_then(Value::as_str)
+                                                        .context("missing RPC contract digest")
+                                                        .context(
+                                                            cellar_guest::failure::Validation,
+                                                        )?;
+                                                    let contract = catalog
+                                                        .contract(digest)
+                                                        .context("unregistered RPC contract")
+                                                        .context(
+                                                            cellar_guest::failure::Validation,
+                                                        )?;
+                                                    let bytes = body
+                                                        .context(
+                                                            "RPC call requires a byte attachment",
+                                                        )
+                                                        .context(
+                                                            cellar_guest::failure::Validation,
+                                                        )?;
+                                                    let result = operations::call_bytes_in_budget(
+                                                        &scoped_context,
+                                                        contract,
+                                                        payload,
+                                                        bytes,
+                                                        signal,
+                                                        budget,
+                                                    )
+                                                    .await?;
+                                                    return Ok((Value::Null, Some(result)));
                                                 }
+                                                ensure!(
+                                                    body.is_none(),
+                                                    cellar_guest::failure::Validation
+                                                );
+                                                if operation_name.starts_with("workers.r2.") {
+                                                    ensure!(
+                                                        rpc_enabled && signal.is_none(),
+                                                        cellar_guest::failure::Validation
+                                                    );
+                                                    let limits = cellar_guest::Limits {
+                                                        max_value_bytes: options.max_value_bytes,
+                                                        max_body_bytes: options.max_body_bytes,
+                                                        max_batch_operations: options
+                                                            .max_batch_operations,
+                                                    };
+                                                    let reserve = |size| {
+                                                        let lease = payload_capacity
+                                                            .reserve(size)
+                                                            .context(
+                                                                cellar_guest::failure::Validation,
+                                                            )?;
+                                                        Ok(Arc::new(lease) as Arc<dyn Send + Sync>)
+                                                    };
+                                                    let value = state
+                                                        .workers
+                                                        .r2_with_capacity(
+                                                            &scoped_context,
+                                                            &operation_name,
+                                                            payload,
+                                                            &limits,
+                                                            &state.transport,
+                                                            reserve,
+                                                        )
+                                                        .await?;
+                                                    return Ok((value, None));
+                                                }
+                                                if rpc_enabled
+                                                    && callback_scope.is_none()
+                                                    && ((operation_name == "workers.rpc"
+                                                        && payload.get("service").is_none())
+                                                        || operation_name
+                                                            .starts_with("workers.rpc."))
+                                                {
+                                                    rpc_session
+                                                        .execute(
+                                                            &scoped_context,
+                                                            &operation_name,
+                                                            payload,
+                                                            signal,
+                                                        )
+                                                        .await
+                                                        .map(|value| (value, None))
+                                                } else if operation_name
+                                                    .starts_with("workers.callback.")
+                                                {
+                                                    callbacks
+                                                        .execute(
+                                                            &scoped_context,
+                                                            &operation_name,
+                                                            payload,
+                                                            scope_id,
+                                                            options.max_batch_operations,
+                                                        )
+                                                        .await
+                                                        .map(|value| (value, None))
+                                                } else {
+                                                    operations::execute_with_signal(
+                                                        &scoped_context,
+                                                        &state,
+                                                        &operation_name,
+                                                        payload,
+                                                        &cellar_guest::Limits {
+                                                            max_value_bytes: options
+                                                                .max_value_bytes,
+                                                            max_body_bytes: options.max_body_bytes,
+                                                            max_batch_operations: options
+                                                                .max_batch_operations,
+                                                        },
+                                                        signal,
+                                                    )
+                                                    .await
+                                                    .map(|value| (value, None))
+                                                }
+                                            };
+                                            match scope {
+                                            Some(scope)
+                                                if !crate::callbacks::event_owned_observation(
+                                                    &name,
+                                                ) =>
+                                            {
+                                                scope.run(&context, future).await
                                             }
+                                            _ => future.await,
+                                        }
                                         }
                                     }
-                                    Err(error) => Err(error),
-                                };
-                            let encoded = cellar_guest::failure::result_parts(
-                                &name,
-                                result,
-                                runtime.options.max_value_bytes,
-                            );
-                            (id, encoded, synchronous)
-                        });
+                                }
+                                Err(error) => Err(error),
+                            };
+                        let encoded = cellar_guest::failure::result_parts(
+                            &name,
+                            result,
+                            runtime.options.max_value_bytes,
+                        );
+                        (id, encoded, synchronous)
+                    });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
                     // work; subsequent readiness may finish out of order.
@@ -842,6 +936,10 @@ impl JavaScriptApplication {
             values::output(context, &value, self.runtime.options.max_body_bytes)
                 .map(Output::Http)
                 .map_err(|_| anyhow::anyhow!("JavaScript response conversion failed"))
+        } else if kind == "worker_rpc" {
+            cellar_guest::workers::service::output(value, self.runtime.options.max_body_bytes)
+                .map(Output::Bytes)
+                .map_err(|_| anyhow::anyhow!("JavaScript Worker RPC response conversion failed"))
         } else if kind == "cell_rpc" {
             rpc_session
                 .output(value)

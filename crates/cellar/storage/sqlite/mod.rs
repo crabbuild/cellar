@@ -23,6 +23,7 @@ pub(crate) use command::CommandDatabase;
 pub use command::{CommandInputs, CommandTransaction};
 mod console;
 pub(crate) mod container_bindings;
+pub(crate) mod container_maintenance;
 mod event_schema;
 pub(crate) mod filesystem;
 #[cfg(test)]
@@ -410,6 +411,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     container_bindings::check_schema(c)?;
+    container_maintenance::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema")?;
     event_schema::stream_state(c)?;
     event_schema::check_version(c, "__sys_event_catalog_schema")?;

@@ -6,9 +6,48 @@ import {
   durableObjectContainer,
   workersApplication,
   type DurableObjectStorage,
+  type LoopbackService,
+  type ServiceBinding,
+  type WorkerExecutionContext,
 } from "../../packages/cellar-cloudflare/index.js";
-import { DurableObject } from "../../packages/cellar-cloudflare/workers.js";
+import {
+  DurableObject,
+  WorkerEntrypoint,
+} from "../../packages/cellar-cloudflare/workers.js";
 import type { Cell, Context } from "../../packages/cellar-sdk/index.js";
+class Greeting extends WorkerEntrypoint<
+  { MARKER: string },
+  { prefix: string }
+> {
+  greet(name: string): string {
+    return this.ctx.props.prefix + name + this.env.MARKER;
+  }
+  get setting() {
+    return { length: this.ctx.props.prefix.length };
+  }
+  fetch() {
+    return new Response("greeting");
+  }
+}
+declare module "../../packages/cellar-cloudflare/index.js" {
+  interface WorkerExports {
+    Greeter: LoopbackService<Greeting, { prefix: string }>;
+  }
+}
+declare const execution: WorkerExecutionContext<{ id: string }>;
+const service: ServiceBinding<Greeting> = execution.exports.Greeter({
+  props: { prefix: "hello" },
+});
+const greeting: Promise<string> = service.greet("user");
+const length: Promise<number> = service.setting.length;
+// @ts-expect-error: public service RPC preserves argument types
+service.greet(42);
+// @ts-expect-error: implementation state is not public RPC
+service.ctx;
+// @ts-expect-error: loopback props must match the declared entrypoint
+execution.exports.Greeter({ props: { prefix: 42 } });
+workersApplication({ default: Greeting }, { services: ["SELF"] });
+void [greeting, length];
 class Counter extends DurableObject {
   increment(by: bigint): bigint {
     return by + 1n;
@@ -173,3 +212,71 @@ const equalPreviewTokens: boolean = crypto.subtle.timingSafeEqual(
   new Uint8Array([1]),
 );
 void equalPreviewTokens;
+
+async function processTypes(container: DurableObjectContainer) {
+  const process = await container.exec(["tool", "literal; argument"], {
+    stdin: "pipe",
+    stderr: "combined",
+    env: { HELLO: "world" },
+  });
+  await process.stdin?.getWriter().close();
+  const output = await process.output();
+  const bytes: ArrayBuffer = output.stdout;
+  const code: number = await process.exitCode;
+  const signalled: void = process.kill();
+  // @ts-expect-error: kill queues a signal; completion is observed with exitCode
+  const acknowledged: Promise<void> = process.kill(9);
+  void [signalled, acknowledged];
+  await container.setInactivityTimeout(30_000);
+  const input = new ReadableStream<Uint8Array>();
+  const streamed = await container.exec(["tool"], { stdin: input });
+  await streamed.output();
+  // @ts-expect-error: process stdin accepts byte streams, not text streams
+  await container.exec(["tool"], { stdin: new ReadableStream<string>() });
+  const terminal = await container.exec(["tool"], { pty: true });
+  const pid: number | undefined = terminal.pid;
+  const isPty: boolean = terminal.isPty;
+  const resize: void = terminal.resize(132, 40);
+  void [pid, isPty, resize];
+  // @ts-expect-error: terminal dimensions are numeric
+  await container.exec(["tool"], { pty: { cols: "wide" } });
+  return { bytes, code };
+}
+void processTypes;
+
+const fixed = new FixedLengthStream(3n);
+const fixedInput: WritableStream<BufferSource> = fixed.writable;
+const fixedOutput: ReadableStream<Uint8Array> = fixed.readable;
+const identityOutput: ReadableStream<Uint8Array> = new IdentityTransformStream()
+  .readable;
+// @ts-expect-error: fixed lengths do not accept string coercion
+new FixedLengthStream("3");
+// @ts-expect-error: byte stream writers reject text
+fixed.writable.getWriter().write("text");
+void [fixedInput, fixedOutput, identityOutput];
+
+import type { R2Bucket } from "../../packages/cellar-cloudflare/index.js";
+declare const backups: R2Bucket;
+async function backupTypes() {
+  const upload = await backups.createMultipartUpload("archive", {
+    httpMetadata: { contentType: "application/zstd", cacheExpiry: new Date() },
+    customMetadata: { name: "backup" },
+  });
+  const part = await upload.uploadPart(1, new Uint8Array([0, 255]));
+  const object = await upload.complete([part]);
+  const date: Date = object.uploaded;
+  const body = await backups.get("archive", {
+    range: { offset: 1, length: 1 },
+  });
+  if (body) {
+    const bytes: ArrayBuffer = await body.arrayBuffer();
+    void bytes;
+  }
+  // @ts-expect-error: unsupported profile options must not be advertised
+  backups.createMultipartUpload("archive", { ssecKey: "unsupported" });
+  // @ts-expect-error: the current native subset does not declare put
+  backups.put("archive", "bytes");
+  void date;
+}
+workersApplication({ default: Greeting }, { r2: ["BACKUPS"] });
+void backupTypes;

@@ -29,6 +29,18 @@ async function control(ctx: Context) {
   void synchronous;
   const queued: boolean = (await container.capabilities()).queued_lifecycle;
   void queued;
+  const pty: boolean = (await container.capabilities()).exec_pty;
+  void pty;
+  const terminal = await container.exec({
+    cmd: ["sh"],
+    pty: { cols: 80, rows: 24 },
+  });
+  const terminalInfo = await terminal.info();
+  const pid: number | null = terminalInfo.pid;
+  void pid;
+  // @ts-expect-error Allocation metadata is readonly.
+  terminalInfo.pid = 1;
+  await terminal.resize(132, 40);
   const reconciliation: ContainerReconciliation = await container.reconcile();
   const generation: string | null = reconciliation.generation;
   void generation;

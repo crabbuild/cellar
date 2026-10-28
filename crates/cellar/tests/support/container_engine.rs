@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Deterministic Docker Engine API peer shared by native and adapter tests.
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
@@ -10,9 +10,9 @@ use hyper::{
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -26,6 +26,7 @@ mod files;
 
 #[derive(Default)]
 pub struct Engine {
+    pub api_minor: AtomicUsize,
     pub(super) files: files::Files,
     pub startup_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub start_entered: AtomicBool,
@@ -36,9 +37,13 @@ pub struct Engine {
     pub refuse_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
+    pub(super) ids: Mutex<HashMap<String, String>>,
+    pub(super) next_container: AtomicUsize,
+    pub(super) processes: Mutex<Vec<tokio::task::JoinHandle<()>>>,
     pub labels: Mutex<HashMap<String, Value>>,
     pub networks: Mutex<HashMap<String, Value>>,
     pub execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub(super) terminal_execs: Mutex<HashSet<String>>,
     pub calls: Mutex<Vec<(String, String, Value)>>,
     pub network_ip: Option<String>,
     pub http_port: u16,
@@ -46,11 +51,53 @@ pub struct Engine {
 }
 
 impl Engine {
+    pub async fn join_processes(&self) -> Result<()> {
+        let processes = std::mem::take(&mut *self.processes.lock().unwrap());
+        for process in processes {
+            process.await?;
+        }
+        Ok(())
+    }
+
+    pub fn resource_id(&self, name: &str) -> String {
+        self.ids
+            .lock()
+            .unwrap()
+            .entry(name.to_owned())
+            .or_insert_with(|| {
+                format!(
+                    "{:064x}",
+                    self.next_container.fetch_add(1, Ordering::SeqCst) + 1
+                )
+            })
+            .clone()
+    }
+
+    pub fn assert_immutable_effects(&self) -> Result<()> {
+        for (method, path, _) in self.calls.lock().unwrap().iter() {
+            let Some(rest) = path.strip_prefix("/containers/") else {
+                continue;
+            };
+            let (route, _) = rest.split_once('?').unwrap_or((rest, ""));
+            let target = route.split('/').next().unwrap();
+            if matches!(target, "create" | "json" | "fence")
+                || (method == "GET" && route.ends_with("/json"))
+            {
+                continue;
+            }
+            anyhow::ensure!(
+                cellar::docker::ContainerId::new(target).is_ok(),
+                "container effect used a reusable name: {method} {path}"
+            );
+        }
+        Ok(())
+    }
+
     pub async fn answer(
         self: Arc<Self>,
         mut request: HttpRequest<Incoming>,
     ) -> Result<Response<Full<Bytes>>> {
-        let path = request
+        let mut path = request
             .uri()
             .path()
             .strip_prefix("/v1.43")
@@ -72,11 +119,66 @@ impl Engine {
             .lock()
             .unwrap()
             .push((method.clone(), format!("{path}?{query}"), body.clone()));
+        // Log the wire identity, then resolve an ID to exactly the resource
+        // present at request admission. Deleted IDs cannot reach a replacement
+        // that later reuses the same name. Waits retain their captured sender.
+        let mut identity_exit = None;
+        let mut resource_identity = None;
+        if let Some(rest) = path.strip_prefix("/containers/") {
+            let (target, suffix) = rest
+                .split_once('/')
+                .map_or((rest, ""), |(target, suffix)| (target, suffix));
+            if target.len() == 64 && target.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                resource_identity = Some(target.to_owned());
+                let name = self
+                    .ids
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .find(|(_, id)| id.as_str() == target)
+                    .map(|(name, _)| name.clone());
+                let resolved = name.and_then(|name| {
+                    self.containers
+                        .lock()
+                        .unwrap()
+                        .get(&name)
+                        .cloned()
+                        .map(|exit| (name, exit))
+                });
+                let Some((name, exit)) = resolved else {
+                    return Ok(Response::builder().status(404).body(Full::new(
+                        Bytes::from_static(b"{\"message\":\"No such container\"}"),
+                    ))?);
+                };
+                let separator = if suffix.is_empty() { "" } else { "/" };
+                path = format!("/containers/{name}{separator}{suffix}");
+                identity_exit = Some(exit);
+            }
+        }
         if archive {
-            return self.files.answer(&method, &path, &query, &raw_body);
+            let name = path
+                .strip_prefix("/containers/")
+                .unwrap()
+                .strip_suffix("/archive")
+                .unwrap();
+            if !self.containers.lock().unwrap().contains_key(name) {
+                return Ok(Response::builder()
+                    .status(404)
+                    .body(Full::new(Bytes::new()))?);
+            }
+            let id = resource_identity.unwrap_or_else(|| self.resource_id(name));
+            return self.files.answer(
+                &method,
+                &format!("/containers/{id}/archive"),
+                &query,
+                &raw_body,
+            );
         }
         let mut status = 200;
-        let value = if path == "/containers/json" {
+        let value = if path == "/version" {
+            let minor = self.api_minor.load(Ordering::SeqCst);
+            json!({"ApiVersion":format!("1.{}", if minor == 0 { 43 } else { minor })})
+        } else if path == "/containers/json" {
             let filters = url::form_urlencoded::parse(query.as_bytes())
                 .find(|(key, _)| key == "filters")
                 .unwrap()
@@ -96,7 +198,7 @@ impl Engine {
                             == Some(value)
                     })
                 )
-                .map(|name| json!({"Id":name}))
+                .map(|name| json!({"Id":self.resource_id(name),"Labels":labels.get(name)}))
                 .collect::<Vec<_>>())
         } else if path == "/images/load" {
             self.app_image_loaded.store(true, Ordering::SeqCst);
@@ -137,16 +239,46 @@ impl Engine {
                 json!({"Id":"fence"})
             } else {
                 let name = query.strip_prefix("name=").unwrap().to_string();
-                self.labels
-                    .lock()
-                    .unwrap()
-                    .insert(name.clone(), body["Labels"].clone());
-                self.containers
-                    .lock()
-                    .unwrap()
-                    .insert(name.clone(), watch::channel(None).0);
-                json!({"Id":name})
+                if self.containers.lock().unwrap().contains_key(&name) {
+                    status = 409;
+                    json!({"message":"container name is already in use"})
+                } else {
+                    let id = self.resource_id(&name);
+                    self.labels
+                        .lock()
+                        .unwrap()
+                        .insert(name.clone(), body["Labels"].clone());
+                    self.containers
+                        .lock()
+                        .unwrap()
+                        .insert(name.clone(), watch::channel(None).0);
+                    json!({"Id":id})
+                }
             }
+        } else if path.starts_with("/containers/") && path.ends_with("/rename") {
+            let name = path
+                .strip_prefix("/containers/")
+                .unwrap()
+                .strip_suffix("/rename")
+                .unwrap();
+            let next = query.strip_prefix("name=").context("rename destination")?;
+            let mut labels = self.labels.lock().unwrap();
+            let mut containers = self.containers.lock().unwrap();
+            let mut ids = self.ids.lock().unwrap();
+            if containers.contains_key(next) {
+                status = 409;
+            } else if let Some(exit) = containers.remove(name) {
+                containers.insert(next.to_owned(), exit);
+                if let Some(id) = ids.remove(name) {
+                    ids.insert(next.to_owned(), id);
+                }
+                if let Some(value) = labels.remove(name) {
+                    labels.insert(next.to_owned(), value);
+                }
+            } else {
+                status = 404;
+            }
+            json!({})
         } else if path.starts_with("/containers/")
             && path.ends_with("/start")
             && path != "/containers/fence/start"
@@ -170,15 +302,21 @@ impl Engine {
             let name = path
                 .trim_start_matches("/containers/")
                 .trim_end_matches("/wait");
-            let sender = self.containers.lock().unwrap().get(name).cloned().unwrap();
-            let mut receiver = sender.subscribe();
-            let code = loop {
-                if let Some(code) = *receiver.borrow_and_update() {
-                    break code;
-                }
-                receiver.changed().await?;
-            };
-            json!({"StatusCode":code})
+            let sender =
+                identity_exit.or_else(|| self.containers.lock().unwrap().get(name).cloned());
+            if let Some(sender) = sender {
+                let mut receiver = sender.subscribe();
+                let code = loop {
+                    if let Some(code) = *receiver.borrow_and_update() {
+                        break code;
+                    }
+                    receiver.changed().await?;
+                };
+                json!({"StatusCode":code})
+            } else {
+                status = 404;
+                json!({"message":"No such container"})
+            }
         } else if path.starts_with("/containers/") && path.ends_with("/json") {
             let name = path
                 .trim_start_matches("/containers/")
@@ -192,6 +330,8 @@ impl Engine {
             match running {
                 Some(running) => {
                     json!({
+                        "Id": self.resource_id(name),
+                        "Config": {"Labels": self.labels.lock().unwrap().get(name).cloned()},
                         "State": {"Running": running},
                         "NetworkSettings": {
                             "Networks": {"fixture": {"IPAddress": self.network_ip.as_deref().unwrap_or("127.0.0.1")}},
@@ -230,9 +370,11 @@ impl Engine {
                 if self.refuse_remove.load(Ordering::SeqCst) {
                     status = 500;
                 } else {
+                    let id = resource_identity.unwrap_or_else(|| self.resource_id(name));
                     self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);
-                    self.files.remove(name);
+                    self.ids.lock().unwrap().remove(name);
+                    self.files.remove(&id);
                 }
                 let gate = self.destroy_gate.lock().unwrap().clone();
                 if let Some(mut gate) = gate {
@@ -247,7 +389,20 @@ impl Engine {
             let mut execs = self.execs.lock().unwrap();
             let id = format!("exec{}", execs.len() + 1);
             execs.insert(id.clone(), Arc::new(AtomicBool::new(false)));
+            if body["Tty"] == true {
+                self.terminal_execs.lock().unwrap().insert(id.clone());
+            }
             json!({"Id":id})
+        } else if path.starts_with("/exec/") && path.ends_with("/resize") {
+            let id = path
+                .trim_start_matches("/exec/")
+                .trim_end_matches("/resize");
+            anyhow::ensure!(
+                self.terminal_execs.lock().unwrap().contains(id),
+                "resize requires a terminal exec"
+            );
+            status = 201;
+            json!({})
         } else if path.starts_with("/exec/") && path.ends_with("/json") {
             let id = path.trim_start_matches("/exec/").trim_end_matches("/json");
             let ended = self
@@ -263,10 +418,18 @@ impl Engine {
             let id = path.trim_start_matches("/exec/").trim_end_matches("/start");
             let ended = self.execs.lock().unwrap().get(id).unwrap().clone();
             let upgrade = hyper::upgrade::on(&mut request);
-            tokio::spawn(async move {
+            let terminal = body["Tty"] == true;
+            let process = tokio::spawn(async move {
                 let mut stream = TokioIo::new(upgrade.await.unwrap());
                 let mut stdin = Vec::new();
                 stream.read_to_end(&mut stdin).await.unwrap();
+                if terminal {
+                    let _ = stream.write_all(&stdin).await;
+                    let _ = stream.write_all(b"stderr").await;
+                    ended.store(true, Ordering::SeqCst);
+                    let _ = stream.shutdown().await;
+                    return;
+                }
                 for (channel, bytes) in [(1u8, stdin.as_slice()), (2, b"stderr".as_slice())] {
                     let mut header = [0u8; 8];
                     header[0] = channel;
@@ -280,6 +443,7 @@ impl Engine {
                 ended.store(true, Ordering::SeqCst);
                 let _ = stream.shutdown().await;
             });
+            self.processes.lock().unwrap().push(process);
             return Ok(Response::builder()
                 .status(101)
                 .header("connection", "Upgrade")

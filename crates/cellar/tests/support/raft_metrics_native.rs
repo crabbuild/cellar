@@ -123,7 +123,8 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 110);
+    ensure!(identities.len() == 111);
+    ensure!(text.contains("cellar_raft_extents_sample_available 0\n"));
     for identity in &identities {
         ensure!(
             identity.starts_with("cellar_raft_")
@@ -322,7 +323,8 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let (status, json) = fetch(&node, &format!("{query}&format=json"), 11).await?;
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
-        ensure!(json.as_object().context("resource object")?.len() == 9);
+        ensure!(json.as_object().context("resource object")?.len() == 10);
+        ensure!(json.get("extents") == Some(&serde_json::Value::Null));
         let actual = serde_json::to_value(service.resource_usage())?;
         for budget in ["business", "control", "archive_capture"] {
             for capacity in ["max_bytes", "max_items"] {

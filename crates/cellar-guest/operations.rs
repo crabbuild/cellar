@@ -141,6 +141,9 @@ pub async fn execute_with_signal(
         "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.exec.read_stdout"
+            | "container.exec.read_stderr"
+            | "container.exec.wait"
             | "container.port.connect_websocket"
             | "container.websocket.receive"
             | "workers.container.fetch"
@@ -163,6 +166,9 @@ pub async fn execute_with_signal(
                         crate::containers::Operation::FetchStream
                     }
                     "container.response.read" => crate::containers::Operation::ReadResponse,
+                    "container.exec.read_stdout" => crate::containers::Operation::ReadStdout,
+                    "container.exec.read_stderr" => crate::containers::Operation::ReadStderr,
+                    "container.exec.wait" => crate::containers::Operation::WaitExec,
                     "container.port.connect_websocket" => {
                         crate::containers::Operation::ConnectWebSocket
                     }
@@ -243,6 +249,15 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name.starts_with("workers.r2.") {
+        ensure!(state.workers_lifetimes, crate::failure::Validation);
+        return state
+            .workers
+            .r2_with_capacity(context, name, value, options, &state.transport, |_| {
+                anyhow::bail!("R2 upload requires a host byte reservation")
+            })
+            .await;
+    }
     if name == "workers.fetch_stream" {
         return state
             .workers

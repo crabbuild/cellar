@@ -53,6 +53,18 @@ structured value and remote-error envelopes. The structured decoder has a
 their originating execution domain, and copied props are subject to its loader
 policy. Cancellation-aware variants are available on cell and service calls.
 
+Service HTTP, RPC and Queue dispatch preserve the selected deployment graph:
+
+| Route generation | Dispatch behavior |
+| --- | --- |
+| Current or still draining | Resolve that exact graph; its pool and invocation lifetimes still apply |
+| Absent nonzero generation | Refuse before entering application or consumer code |
+| Explicit unversioned host route (`0`) | Select the current graph |
+
+An unavailable version never silently redirects a captured service capability
+to a newer deployment. Reacquire a route under fresh authority when changing
+its target version; a failed call does not establish an earlier effect's outcome.
+
 The [named, typed RPC design](../plans/009-named-typed-rpc.md) defines Protobuf
 contracts and generated cell clients/handlers for Rust, JavaScript/TypeScript
 and Python over this native path. Named unary APIs run across all four backends

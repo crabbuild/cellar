@@ -21,6 +21,7 @@ use transaction::Transaction;
 
 #[derive(Default)]
 pub(crate) struct Resources {
+    pub(crate) provider_lifecycle: super::container_bindings::LifecycleLocks,
     pub(crate) retired: AtomicBool,
     pub(crate) source_generation: AtomicU64,
     pub(crate) source_closed: AtomicBool,

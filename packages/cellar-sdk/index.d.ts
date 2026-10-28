@@ -111,6 +111,8 @@ export interface ContainerCapabilities {
   readonly synchronous_running: boolean;
   /** Synchronous admission and event-owned startup/signal/destroy controls. */
   readonly queued_lifecycle: boolean;
+  /** Native terminal allocation for exec and execOutput. */
+  readonly exec_pty: boolean;
 }
 
 export interface ContainerStartOptions {
@@ -126,6 +128,13 @@ export interface ContainerExecOptions {
   cwd?: string;
   user?: string;
   combined?: boolean;
+  pty?: { cols: number; rows: number };
+}
+
+export interface ContainerExecInfo {
+  /** Verified container-namespace PID; null when unavailable. */
+  readonly pid: number | null;
+  readonly is_pty: boolean;
 }
 
 export interface ContainerExecOutput {
@@ -136,6 +145,8 @@ export interface ContainerExecOutput {
 
 /** Invocation-owned process streams. Drain stdout and stderr concurrently. */
 export interface ContainerExec {
+  info(): Promise<ContainerExecInfo>;
+  resize(cols: number, rows: number): Promise<null>;
   readStdout(): Promise<Uint8Array>;
   readStderr(): Promise<Uint8Array>;
   write(bytes: Uint8Array): Promise<null>;

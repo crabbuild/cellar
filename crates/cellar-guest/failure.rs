@@ -132,6 +132,8 @@ pub fn envelope(name: &str, error: &Error) -> Value {
                 "unknown"
             },
         )
+    } else if error.is::<cellar::sdk::containers::RetentionExpired>() {
+        ("ResourceExpired", "not_committed")
     } else if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
     } else if name != "cell.call" && error.is::<Validation>() {
@@ -400,6 +402,15 @@ mod tests {
         assert_eq!(
             envelope("cell.fetch", &anyhow::anyhow!("cell overload"))["code"],
             "Ambiguous"
+        );
+    }
+
+    #[test]
+    fn resource_expiry_is_a_typed_pre_effect_refusal() {
+        let error = anyhow::Error::new(cellar::sdk::containers::RetentionExpired);
+        assert_eq!(
+            super::envelope("container.exec_output", &error),
+            serde_json::json!({"ok":false,"error":"ResourceExpired","code":"ResourceExpired","outcome":"not_committed"})
         );
     }
 }

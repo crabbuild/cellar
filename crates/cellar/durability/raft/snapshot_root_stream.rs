@@ -148,6 +148,7 @@ pub(in crate::raft::snapshot) struct RootDownload {
     received: usize,
     metadata: Vec<u8>,
     set: Option<RootSnapshotSet>,
+    receive_pin: Option<cellar_ltx::internal::RootView>,
     objects: Vec<ExtentId>,
     object: usize,
     bytes: Vec<u8>,
@@ -167,6 +168,7 @@ impl RootDownload {
             store,
             received: 0,
             set: None,
+            receive_pin: None,
             objects: vec![],
             object: 0,
             bytes: vec![],
@@ -213,6 +215,7 @@ impl RootDownload {
                     &self.metadata,
                 )?;
                 self.objects = set.extents().collect();
+                self.receive_pin = Some(set.pin_receive(&self.store)?);
                 self.set = Some(set);
                 self.metadata = Vec::new();
             }

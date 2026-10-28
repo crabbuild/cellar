@@ -150,9 +150,11 @@ def worker_environment(parent, trial_dir, *, physical, keep=False):
                 shutil.rmtree(directory)
 
 
-def select_test(profile, backend):
+def select_test(profile, backend, storage='materialized'):
     require(backend in profile['backends'], 'backend is not supported by this profile')
-    return f"recovery::{profile['fixture']}_{backend}_recovers_with_complete_phase_ledger"
+    require(storage in ('materialized', 'extents'), 'storage is not supported')
+    prefix = 'extent_' if storage == 'extents' else ''
+    return f"recovery::{prefix}{profile['fixture']}_{backend}_recovers_with_complete_phase_ledger"
 
 
 def selected_results(text):
@@ -176,7 +178,7 @@ def binary_for(args, directory, identity):
     command = [cargo]
     if args.toolchain:
         command.append('+' + args.toolchain)
-    command += ['test', '--locked', '--release', '-p', 'cellar', '--test', 'native_raft_large_images',
+    command += ['test', '--locked', '--release', '-p', 'cellar-recovery-tests', '--test', 'native_raft_large_images',
                 '--no-run', '--message-format=json']
     code, timed_out = run_process(command, directory / 'build.jsonl', timeout=args.build_timeout_seconds)
     require(code == 0 and not timed_out, 'native build failed; inspect build.jsonl')
@@ -199,7 +201,7 @@ def run(args):
     profiles = json.loads(PROFILES.read_text())
     require(profiles['format'] == 1 and args.profile in profiles['profiles'], 'unknown recovery profile')
     profile = profiles['profiles'][args.profile]
-    test = select_test(profile, args.backend)
+    test = select_test(profile, args.backend, args.storage)
     if profile['ignored']:
         for name in ('CELLAR_LARGE_IMAGE_WORKDIR', 'CELLAR_LARGE_IMAGE_ENDPOINT', 'CELLAR_LARGE_IMAGE_BUCKET'):
             require(os.environ.get(name), f'missing required variable {name}')
@@ -262,7 +264,7 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--backend', choices=('peer', 'rustfs'), required=True)
-    parser.add_argument('--storage', choices=('materialized',), default='materialized')
+    parser.add_argument('--storage', choices=('materialized', 'extents'), default='materialized')
     parser.add_argument('--profile', default='reference-10gb')
     parser.add_argument('--repetitions', type=int, default=3)
     parser.add_argument('--output', type=Path, required=True)

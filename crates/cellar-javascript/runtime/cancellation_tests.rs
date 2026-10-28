@@ -8,6 +8,11 @@ use std::time::Instant;
 
 const CODE: &str = r#"
 let probe;
+function invoke(context, original, signal) {
+  if (typeof PROCESS_OPERATION !== 'undefined')
+    return context._call(PROCESS_OPERATION, {id:'1'}, undefined, signal);
+  return context[Symbol.for('cellar.rpc')].call({probe:original ? 'original' : 'forbidden'}, Uint8Array.of(original ? 42 : 43), signal);
+}
 async function fetch(request, ctx) {
   if (request.url.endsWith('/begin')) {
     const signal = {
@@ -17,7 +22,7 @@ async function fetch(request, ctx) {
     };
     probe = {context:ctx, signal};
     try {
-      await ctx[Symbol.for('cellar.rpc')].call({probe:'original'}, Uint8Array.of(42), signal);
+      await invoke(ctx, true, signal);
       throw Error('unexpected success');
     } catch (error) {
       return {code:error.code, outcome:error.outcome, unsubscribed:!signal.listener};
@@ -26,7 +31,7 @@ async function fetch(request, ctx) {
   if (request.url.endsWith('/fire')) {
     let foreignRefused = false;
     try {
-      await probe.context[Symbol.for('cellar.rpc')].call({probe:'forbidden'}, Uint8Array.of(43));
+      await invoke(probe.context, false);
     } catch (error) {
       foreignRefused = error.code === 'ContextMismatch' && error.outcome === 'not_committed';
     }
@@ -37,6 +42,7 @@ async function fetch(request, ctx) {
   }
   return {unsubscribed:!probe.signal.listener};
 }
+
 "#;
 
 fn start(runtime: &Runtime, path: &str, active: Life) -> Result<(u64, channel::Receiver<Event>)> {
@@ -204,4 +210,55 @@ fn node_cancellation_controls_bypass_full_operation_limits_and_wait_for_native_c
         source,
         retirement,
     )
+}
+
+#[cfg(feature = "embed")]
+#[test]
+fn v8_process_observation_cancellation_joins_and_preserves_original_authority() -> Result<()> {
+    for operation in [
+        "container.exec.read_stdout",
+        "container.exec.read_stderr",
+        "container.exec.wait",
+    ] {
+        let code = format!("const PROCESS_OPERATION = {operation:?};\n{CODE}");
+        let source = Source::new(
+            format!("var CellarApp = (() => {{ {code} return {{fetch}}; }})();"),
+            "process-cancel.js",
+        )
+        .events([crate::EventKind::Fetch]);
+        JavaScriptRuntime::run(options(), source.clone(), controls)?;
+        JavaScriptRuntime::run(options(), source, retirement)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "node")]
+#[test]
+fn node_process_observation_cancellation_joins_and_preserves_original_authority() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let entry = directory.path().join("process-cancel.mjs");
+    for operation in [
+        "container.exec.read_stdout",
+        "container.exec.read_stderr",
+        "container.exec.wait",
+    ] {
+        std::fs::write(
+            &entry,
+            format!("const PROCESS_OPERATION = {operation:?};\n{CODE}\nexport {{fetch}};"),
+        )?;
+        let source = Source::module().events([crate::EventKind::Fetch]);
+        node::NodeRuntime::run(
+            options(),
+            node::NodeOptions::new(&entry),
+            source.clone(),
+            controls,
+        )?;
+        node::NodeRuntime::run(
+            options(),
+            node::NodeOptions::new(&entry),
+            source,
+            retirement,
+        )?;
+    }
+    Ok(())
 }

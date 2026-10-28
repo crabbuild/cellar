@@ -84,6 +84,10 @@ struct Fixture {
 
 impl Fixture {
     async fn start(hold: bool) -> Result<Self> {
+        Self::start_storage(hold, RaftImageStorage::Materialized).await
+    }
+
+    async fn start_storage(hold: bool, image_storage: RaftImageStorage) -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         if !hold {
             gate.release();
@@ -93,12 +97,13 @@ impl Fixture {
             .iter()
             .map(|calls| definition(calls.clone(), gate.clone()))
             .collect::<Result<Vec<_>>>()?;
-        let namespace = NamespaceConfig::new(
+        let mut namespace = NamespaceConfig::new(
             ClusterId::new([1; 16])?,
             NamespaceId::new([2; 16])?,
             NamespaceMode::Raft,
             definitions[0].schema,
         );
+        namespace.image_storage = image_storage;
         let registration = RaftCellRegistration {
             placement: RaftCellPlacement::Replica,
             namespace,
@@ -167,6 +172,8 @@ impl Fixture {
             let node = fixture.nodes[index].as_ref().context("node")?;
             let peer = &peers[index];
             let host = RaftHostOptions {
+                extents: (image_storage == RaftImageStorage::Extents)
+                    .then(RaftExtentOptions::default),
                 effects: Some(RaftEffectOptions {
                     interval_ms: 20,
                     ..Default::default()
@@ -320,7 +327,11 @@ impl Fixture {
 }
 
 pub async fn no_traffic_recovery() -> Result<()> {
-    let mut fixture = Fixture::start(false).await?;
+    no_traffic_recovery_storage(RaftImageStorage::Materialized).await
+}
+
+pub async fn no_traffic_recovery_storage(image_storage: RaftImageStorage) -> Result<()> {
+    let mut fixture = Fixture::start_storage(false, image_storage).await?;
     let result = async {
         let primary = fixture.leader().await?;
         let arm = fixture

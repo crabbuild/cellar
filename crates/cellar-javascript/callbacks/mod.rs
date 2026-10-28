@@ -16,6 +16,16 @@ use tokio::sync::oneshot;
 mod synchronous;
 pub(crate) use synchronous::Pump;
 
+/// These waits consume invocation-owned process handles, with no callback
+/// storage view. Admission still validates the current callback; an admitted
+/// observation keeps its event authority after that callback returns.
+pub(crate) fn event_owned_observation(name: &str) -> bool {
+    matches!(
+        name,
+        "container.exec.wait" | "container.exec.read_stdout" | "container.exec.read_stderr"
+    )
+}
+
 #[derive(Debug)]
 struct GuestFailure;
 

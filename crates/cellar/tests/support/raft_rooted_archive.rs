@@ -9,7 +9,7 @@ use cellar_ltx::LtxHost;
 use futures_util::TryStreamExt as _;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 
-async fn history(
+pub(super) async fn history(
     store: Arc<dyn ObjectStore>,
 ) -> Result<(NamespaceCatalog, GroupBirth, CellArchive)> {
     let catalog = Catalog::new(store, CatalogOptions::default())?;
@@ -20,6 +20,7 @@ async fn history(
         [9; 32],
     );
     config.voters = VoterPolicy::SingleVoterDevelopment;
+    config.image_storage = cellar::sdk::consensus::RaftImageStorage::Extents;
     let namespace = catalog.open_namespace(config).await?;
     let birth = namespace
         .resolve_birth(BirthProposal {

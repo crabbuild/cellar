@@ -46,6 +46,7 @@ pub struct Capabilities {
     pub max_resources: Option<usize>,
     pub synchronous_running: bool,
     pub queued_lifecycle: bool,
+    pub exec_pty: bool,
 }
 
 impl Capabilities {
@@ -66,6 +67,9 @@ impl Capabilities {
             synchronous_running: provider.synchronous_running()
                 && provider.operations().contains(&Operation::Running),
             queued_lifecycle: crate::queued::supported(provider),
+            exec_pty: provider.exec_pty()
+                && (provider.operations().contains(&Operation::Exec)
+                    || provider.operations().contains(&Operation::ExecOutput)),
         }
     }
 }

@@ -41,9 +41,60 @@ pub(super) fn configure(body: &mut Value, ports: &[u16], publish: bool) -> Resul
     Ok(())
 }
 
+/// A VM daemon's automatic port allocator cannot see occupied host ports.
+/// Hold available local candidates through container creation; release them
+/// immediately before daemon startup so its forwarder can bind those ports.
+pub(super) async fn reserve_host_bindings(
+    body: &mut Value,
+    ports: &[u16],
+) -> Result<Vec<tokio::net::TcpListener>> {
+    validate_exposed_ports(ports)?;
+    let mut reservations = Vec::with_capacity(ports.len());
+    for port in ports {
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+        let host = listener.local_addr()?.port();
+        body["HostConfig"]["PortBindings"][format!("{port}/tcp")] =
+            json!([{"HostIp":"127.0.0.1","HostPort":host.to_string()}]);
+        reservations.push(listener);
+    }
+    Ok(reservations)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn vm_publications_select_and_hold_available_host_ports() -> Result<()> {
+        let occupied = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+        let mut body = json!({"HostConfig":{}});
+        let held = reserve_host_bindings(&mut body, &[8080, 9090]).await?;
+        let mut selected = BTreeSet::new();
+        for port in [8080, 9090] {
+            let host: u16 = body["HostConfig"]["PortBindings"][format!("{port}/tcp")][0]
+                ["HostPort"]
+                .as_str()
+                .unwrap()
+                .parse()?;
+            assert_ne!(host, occupied.local_addr()?.port());
+            assert!(
+                selected.insert(host),
+                "two publications received one host port"
+            );
+            assert!(
+                tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, host))
+                    .await
+                    .is_err(),
+                "publication was not reserved through creation"
+            );
+        }
+        drop(held);
+        for host in selected {
+            let _available =
+                tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, host)).await?;
+        }
+        Ok(())
+    }
 
     #[test]
     fn publication_is_bounded_and_does_not_choose_a_public_host_port() -> Result<()> {

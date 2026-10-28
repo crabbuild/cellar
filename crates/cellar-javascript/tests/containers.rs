@@ -34,7 +34,7 @@ fn exercise(application: Arc<dyn Application>, provider: Arc<peer::AuditedProvid
             let (node, address) = native::start_configured(directory.path(), application,
                 |config, services, graph| peer.configure(config, services, graph)).await?;
             let client = reqwest::Client::builder().timeout(Duration::from_secs(20)).build()?;
-            for path in ["all", "borrow", "leak-stream", "borrow-stream", "leak", "cancel", "streams-limit"] {
+            for path in ["all", "borrow", "terminal", "borrow-terminal", "leak-stream", "borrow-stream", "leak", "cancel", "streams-limit"] {
                 let started = tokio::time::Instant::now();
                 let response = client.get(format!("{address}/{path}")).send().await?;
                 let status = response.status();

@@ -856,7 +856,15 @@ impl Generation {
                 )
             })
             .collect();
-        let source_recovery = crate::runtime::source_recovery::configuration(id, &node);
+        let mut supervision = crate::application::containers::Supervision::default();
+        for application in native_applications.values() {
+            if let Some(registry) = application.container_supervision() {
+                supervision.merge(&registry)?;
+            }
+        }
+        let supervision = (!supervision.is_empty()).then(|| Arc::new(supervision));
+        let source_recovery =
+            crate::runtime::source_recovery::configuration(id, &node, supervision);
         let source_recovery_pool = crate::runtime::cell_pool(source_recovery.clone());
         Ok(Generation {
             native_applications,

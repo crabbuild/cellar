@@ -20,6 +20,7 @@ pub mod cells;
 pub(crate) mod concurrency;
 pub mod consensus;
 mod container_bindings;
+pub(crate) mod container_supervision;
 pub mod containers;
 pub mod cron;
 pub mod event_stream;
@@ -158,6 +159,11 @@ pub trait Cell: Send + Sync + 'static {
 }
 
 pub trait Application: Send + Sync + 'static {
+    /// Host-owned provider backends; registration must perform no I/O.
+    fn container_supervision(&self) -> Option<Arc<containers::Supervision>> {
+        None
+    }
+
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output>;
 
     /// Validate compiled application requirements against this deployment before
@@ -540,6 +546,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) container_supervision: Option<Arc<containers::Supervision>>,
     pub(crate) rpc_catalog: Option<Arc<rpc::Catalog>>,
     pub(crate) event_authority: Option<event_stream::Authority>,
     pub(crate) name_authority: Option<event_stream::name_resolution::NameAuthority>,

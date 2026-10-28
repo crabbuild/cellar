@@ -1,0 +1,64 @@
+# Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
+
+name: Container outbound network
+
+on:
+  pull_request:
+    paths:
+      - "crates/cellar-egress/**"
+      - "crates/cellar/containers/**"
+      - "crates/cellar/tests/native_container_egress.rs"
+      - "crates/cellar/Cargo.toml"
+      - "tools/sandbox/egress/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/container-egress.yml"
+  push:
+    branches: [main]
+    paths:
+      - "crates/cellar-egress/**"
+      - "crates/cellar/containers/**"
+      - "crates/cellar/tests/native_container_egress.rs"
+      - "crates/cellar/Cargo.toml"
+      - "tools/sandbox/egress/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/container-egress.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-egress-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: "1.98.1"
+      CARGO_INCREMENTAL: "0"
+      CARGO_TARGET_DIR: '${{ github.workspace }}/.cellar/target-egress-native'
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Check qualifier image identity handling
+        run: python3 -m unittest discover -s tools/sandbox/egress -p '*_test.py'
+      - name: Qualify kernel, helper, retirement and native Engine attach
+        run: |
+          python3 tools/sandbox/egress/qualify.py \
+            --context default \
+            --output "$RUNNER_TEMP/container-egress-evidence"
+      - name: Retain qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: container-egress-evidence
+          path: ${{ runner.temp }}/container-egress-evidence
+          if-no-files-found: warn

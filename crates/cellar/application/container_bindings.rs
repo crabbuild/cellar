@@ -4,7 +4,10 @@
 use super::{containers::ProviderAuthority, Context, HandlerFuture};
 use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, Weak},
+};
 
 pub const MAX_BINDINGS: usize = 64;
 pub const MAX_BINDING_BYTES: usize = 16 * 1024;
@@ -159,6 +162,35 @@ pub struct BindingJournal {
     authority: Arc<ProviderAuthority>,
 }
 
+/// Serializes lifecycle transitions for one binding in the current activation.
+/// Dropping releases the slot. This supplies no remote fencing or rollback.
+#[must_use = "keep the guard until lifecycle I/O and checkpointing have settled"]
+pub struct BindingLifecycleGuard {
+    _guard: tokio::sync::OwnedMutexGuard<()>,
+}
+
+#[derive(Default)]
+pub(crate) struct LifecycleLocks {
+    locks: Mutex<HashMap<Arc<str>, Weak<tokio::sync::Mutex<()>>>>,
+}
+
+impl LifecycleLocks {
+    fn get(&self, name: &Arc<str>) -> Result<Arc<tokio::sync::Mutex<()>>> {
+        let mut locks = self.locks.lock().unwrap();
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(name).and_then(Weak::upgrade) {
+            return Ok(lock);
+        }
+        ensure!(
+            locks.len() < MAX_BINDINGS,
+            "provider lifecycle limit exceeded"
+        );
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        locks.insert(name.clone(), Arc::downgrade(&lock));
+        Ok(lock)
+    }
+}
+
 impl BindingJournal {
     pub fn open(context: &Context, name: &str) -> Result<Self> {
         crate::storage::container_bindings::validate_name(name)?;
@@ -185,6 +217,92 @@ impl BindingJournal {
         crate::storage::container_bindings::load(scope, &self.name)
     }
 
+    /// Wait for exclusive lifecycle admission across event sessions and native
+    /// maintenance for this binding. Check authority again after waiting, then
+    /// load the checkpoint under the guard before deciding or issuing effects.
+    /// Command/file work stays concurrent and must check its original generation.
+    /// Acquisition is cancellable; do not reacquire while holding this guard.
+    pub fn lock_lifecycle(&self, context: &Context) -> HandlerFuture<BindingLifecycleGuard> {
+        let prepared = (|| {
+            self.check(context)?;
+            context
+                .storage()?
+                .0
+                .resources
+                .provider_lifecycle
+                .get(&self.name)
+        })();
+        let journal = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            let lock = prepared?;
+            journal.check(&context)?;
+            let guard = lock.lock_owned().await;
+            journal.check(&context)?;
+            Ok(BindingLifecycleGuard { _guard: guard })
+        })
+    }
+
+    fn check_running_generation(&self, context: &Context, generation: u64) -> Result<()> {
+        let checkpoint = self.load(context)?;
+        ensure!(
+            checkpoint.as_ref().is_some_and(|checkpoint| {
+                checkpoint.record.generation == generation
+                    && checkpoint.record.intent == BindingIntent::Running
+                    && checkpoint.record.observation == BindingObservation::Confirmed
+            }),
+            "provider binding changed during operation; outcome may be unknown"
+        );
+        Ok(())
+    }
+
+    /// A successful application interaction may extend idle retention, never
+    /// the original maximum lifetime. Provider polling must not call this.
+    /// Publication requires the same confirmed running generation before and
+    /// after durability. A failure after provider work does not prove rollback.
+    pub fn activity(&self, context: &Context, generation: u64) -> HandlerFuture<()> {
+        let prepared = (|| {
+            self.check_running_generation(context, generation)?;
+            let scope = self.check(context)?;
+            let changed = crate::storage::container_maintenance::activity(
+                scope,
+                &self.name,
+                generation,
+                crate::asyncrt::wall_ms().max(0),
+            )?;
+            if changed {
+                super::container_supervision::controller::publish(context)?;
+            }
+            changed
+                .then(|| context.storage().map(|storage| storage.sync()))
+                .transpose()
+        })();
+        let journal = self.clone();
+        let context = context.clone();
+        Box::pin(async move {
+            if let Some(flush) = prepared? {
+                flush.await?;
+            }
+            journal.check_running_generation(&context, generation)?;
+            Ok(())
+        })
+    }
+
+    /// Refuse new application work after a supervised retention deadline.
+    /// Reconciliation and explicit destruction remain available.
+    pub fn check_retention(&self, context: &Context) -> Result<()> {
+        let scope = self.check(context)?;
+        if let Some(task) = crate::storage::container_maintenance::list(scope)?
+            .into_iter()
+            .find(|task| task.binding == self.name.as_ref())
+        {
+            if task.deadline()? <= crate::asyncrt::wall_ms().max(task.logical_ms) {
+                return Err(super::container_supervision::RetentionExpired.into());
+            }
+        }
+        Ok(())
+    }
+
     /// Atomically replace the expected revision and await its required durability
     /// proof before returning. An error after the write can leave a retained
     /// pending intent. A successful return does not grant remote fencing.
@@ -201,8 +319,15 @@ impl BindingJournal {
                 &self.name,
                 expected,
                 context.identity().unwrap().epoch,
-                record,
+                record.clone(),
+                context
+                    .container_supervision
+                    .as_ref()
+                    .and_then(|registry| registry.find(&self.name, &record))
+                    .map(|registration| registration.policy),
+                crate::asyncrt::wall_ms().max(0),
             )?;
+            super::container_supervision::controller::publish(context)?;
             Ok::<_, anyhow::Error>((checkpoint, context.storage()?.sync()))
         })();
         let journal = self.clone();

@@ -488,6 +488,13 @@ async fn run() -> Result<()> {
             let _ = gate.reply.send(Ok(()));
         }
     });
+    let refused = runtime
+        .queue_service(runtime.next_generation_id(), "native-queue", dummy())
+        .await;
+    anyhow::ensure!(
+        refused.is_err() && signals.event.lock().unwrap().is_none(),
+        "an unknown generation entered the current Queue consumer instead of refusing before effects"
+    );
     assert_eq!(call_worker(&runtime, "basic").await?, "binding checked");
     let peek = operator(&runtime, Q, json!({"op":"peek"})).await?;
     assert_eq!(peek["messages"].as_array().unwrap().len(), 4);

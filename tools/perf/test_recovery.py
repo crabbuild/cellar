@@ -101,7 +101,7 @@ class RecoveryAnalysis(unittest.TestCase):
                        lambda r: r['source'].update(binary_sha256='invalid'),
                        lambda r: r['source'].update(build_profile='debug'),
                        lambda r: r.update(profile_sha256=''), lambda r: r['profile'].update(logical_quota_bytes=1),
-                       lambda r: r.update(storage='extents')]:
+                       lambda r: r.update(storage='unknown')]:
             raw = campaign()
             change(raw)
             with self.assertRaises(ValueError):
@@ -113,6 +113,31 @@ class RecoveryAnalysis(unittest.TestCase):
                 report = analyze(campaign(count), mode='qualify', target_seconds=120, minimum_samples=100)
                 self.assertFalse(report['qualified'])
                 self.assertTrue(report['qualification_blockers'])
+
+    def test_complete_extent_recovery_keeps_the_same_read_write_and_failure_oracle(self):
+        raw = campaign()
+        raw['storage'] = 'extents'
+        for trial in raw['trials']:
+            trial['evidence']['storage'] = 'extents'
+        report = analyze(raw, mode='pilot', target_seconds=120, minimum_samples=3)
+        self.assertTrue(report['target_met'])
+        self.assertFalse(report['qualified'])
+        raw['trials'][0]['evidence']['storage'] = 'materialized'
+        report = analyze(raw, mode='pilot', target_seconds=120, minimum_samples=3)
+        self.assertEqual(report['successful_trials'], 2)
+        self.assertFalse(report['target_met'])
+
+    def test_extent_profile_still_requires_complete_local_hydration(self):
+        raw = campaign()
+        raw['storage'] = 'extents'
+        for trial in raw['trials']:
+            trial['evidence']['storage'] = 'extents'
+            for event in trial['evidence']['events']:
+                if event['name'] == 'hydrated':
+                    event['elapsed_us'] = 0
+        report = analyze(raw, mode='pilot', target_seconds=120, minimum_samples=3)
+        self.assertEqual(report['successful_trials'], 0)
+        self.assertFalse(report['qualified'])
 
     def test_qualification_requires_both_hardware_and_matching_hard_failure_evidence(self):
         raw = campaign(100)
@@ -150,10 +175,13 @@ class RecoveryRunner(unittest.TestCase):
         for profile in json.loads(PROFILES.read_text())['profiles'].values():
             self.assertEqual(profile['image_bytes'], profile['logical_quota_bytes'] // 4096 * 4096)
             for backend in profile['backends']:
-                name = select_test(profile, backend).split('::')[1]
-                self.assertEqual(len(re.findall(r'async fn ' + name + r'\(', source)), 1)
+                for storage in ('materialized', 'extents'):
+                    name = select_test(profile, backend, storage).split('::')[1]
+                    self.assertEqual(len(re.findall(r'async fn ' + name + r'\(', source)), 1)
             with self.assertRaises(ValueError):
                 select_test(profile, 'unknown')
+            with self.assertRaises(ValueError):
+                select_test(profile, profile['backends'][0], 'unknown')
 
     def test_zero_or_multiple_test_selections_never_count_as_a_single_pass(self):
         self.assertEqual(selected_results('running 0 tests\ntest result: ok. 0 passed; 0 failed;'), (0, 0))

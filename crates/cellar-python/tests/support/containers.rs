@@ -33,7 +33,14 @@ pub(super) fn child() -> Result<()> {
                         let client = reqwest::Client::builder()
                             .timeout(Duration::from_secs(20))
                             .build()?;
-                        for path in ["all", "borrow", "leak", "cancel"] {
+                        for path in [
+                            "all",
+                            "borrow",
+                            "terminal",
+                            "borrow-terminal",
+                            "leak",
+                            "cancel",
+                        ] {
                             let started = tokio::time::Instant::now();
                             let response = client.get(format!("{address}/{path}")).send().await?;
                             let status = response.status();

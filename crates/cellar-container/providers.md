@@ -17,6 +17,7 @@ operations it can execute; guests discover that subset through capabilities.
 | `Provider::operations` | Advertise only fully implemented operations; subsets are supported |
 | `Provider::environment` / `max_resources` | Declare the execution environment and enforced handle cap; defaults mean unknown |
 | `Provider::fencing` | Declare actual ownership protection; default `unspecified` makes no guarantee |
+| `Provider::maintenance_backend` | Optionally expose a native lifecycle backend with stable identity; registration performs no I/O |
 | `Provider::synchronous_running` / `ProviderSession::running_snapshot` | Opt in to an immediate running-state read; the shared session still checks event authority |
 | `Provider::queued_lifecycle` / `ProviderSession::preflight` | Opt in to lifecycle admission; validate backend prerequisites without I/O or effects |
 | `Provider::open` | Allocate an invocation-local `ProviderSession`; perform no I/O |
@@ -39,6 +40,22 @@ provider resource IDs. It survives events, business-state clear and recovery;
 updates use revision checks and await native durability. Guest-visible metadata
 or ordinary application KV must not authorize a remote account resource.
 
+The shared `Session` holds `BindingJournal::lock_lifecycle` for start, destroy
+and reconciliation when the provider declares a binding name. The native
+maintenance controller shares this admission and calls the backend under its
+guard. Load lifecycle checkpoints after admission and keep their strict revision
+checks. Direct host journal users need the same guard; maintenance backends
+must not reacquire it. Command/file operations stay concurrent and retain their
+generation checks around result publication.
+
+For [supervised bindings](supervision.md), application operations check
+`BindingJournal::check_retention` before submission. Successful commands/files
+may call `activity(ctx, original_generation)`; polling must not renew retention.
+This also fences result publication against a replaced or retiring generation.
+Recheck the original checkpoint after awaited inspection. A new provider must
+implement these admission rules in its session and correlate maintenance with
+the supplied checkpoint; the backend registration does not add remote fencing.
+
 ## Backend responsibilities
 
 | Concern | Provider must supply |
@@ -48,7 +65,7 @@ or ordinary application KV must not authorize a remote account resource.
 | Bounded I/O | Private invocation handles, run invalidation, bounded frames/bodies and concurrent stdout/stderr collection |
 | Port authority | Forward only to the granted port; return redirects without following them |
 | Cleanup | Cancel/join pending work, release invocation streams, and reconcile or destroy instances on ownership loss, shutdown and explicit destroy |
-| Crash recovery | Provider-side leases/expiry and orphan reconciliation for node crashes |
+| Crash recovery | Provider-side leases/expiry and orphan reconciliation for node crashes; optional [native supervision](supervision.md) for retained binding obligations |
 | Outcome reporting | Ordinary errors for uncertain mutations; attach `Validation` only when provider effects provably did not occur |
 
 Native bridge fences and resource accounting do not automatically protect a

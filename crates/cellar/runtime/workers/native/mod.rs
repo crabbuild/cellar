@@ -335,12 +335,17 @@ impl NativeWorker {
                 self.config.compat.sqlite_vec,
             )?;
             if self.config.source_recovery {
-                let present = storage::outbox::retained_source(scope);
+                let present = (|| -> Result<bool> {
+                    Ok(storage::outbox::retained_source(scope)?
+                        || storage::container_bindings::list(scope)?
+                            .iter()
+                            .any(|(_, checkpoint)| !checkpoint.record.is_retired()))
+                })();
                 if !matches!(present, Ok(true)) {
                     storage::close(scope);
                     present?;
                     return Err(anyhow!(
-                        "removed class has no retained source identity: {scope}"
+                        "removed class has no retained source identity or provider obligation: {scope}"
                     ));
                 }
             }
@@ -426,6 +431,7 @@ impl NativeWorker {
             .set(Arc::downgrade(&state))
             .map_err(|_| anyhow!("native invocation already owns an event state"))?;
         Ok(Context {
+            container_supervision: self.application.container_supervision(),
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
             catalog_authority: None,
@@ -727,6 +733,7 @@ impl NativeWorker {
                         work.reason,
                         cellar_logic::work::Reason::Outbox
                             | cellar_logic::work::Reason::FilesystemMaintenance
+                            | cellar_logic::work::Reason::ResourceReconciliation
                     )
                 }),
             Ordering::Release,
@@ -790,6 +797,7 @@ impl NativeWorker {
                         crate::runtime::source_control::invoke(context, invocation, authority).await
                     }));
                 }
+                crate::application::container_supervision::recover(&context)?;
                 if let Some(installation) = work {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
@@ -805,11 +813,21 @@ impl NativeWorker {
                                 .await
                             }
                             cellar_logic::work::Reason::ResourceReconciliation => {
-                                crate::application::event_stream::catalog::maintain(
-                                    context,
-                                    installation,
-                                )
-                                .await
+                                if context.identity().is_some_and(|id| {
+                                    id.class == crate::deploy::EVENT_CATALOG_CLASS
+                                }) {
+                                    crate::application::event_stream::catalog::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await
+                                } else {
+                                    crate::application::container_supervision::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await
+                                }
                             }
                             cellar_logic::work::Reason::FilesystemMaintenance => {
                                 crate::application::filesystem::maintain(context, installation)
