@@ -3173,3 +3173,32 @@ surfaces or resolve the earlier intermittent CI findings. Keep the full
 | Other providers | Separate Daytona/Modal and optional hosted Cloudflare/Dynamic Workers implementation and qualification; E2B/Vercel real-account evidence remains deferred |
 | Resource / operational bounds | Saturation, backpressure, cancellation, storage exhaustion, long-running workloads, helper packaging, deployment/upgrade and joined-shutdown evidence |
 | Release gate | Version/operation/isolation matrix with source/image/toolchain-bound results; unresolved CI regressions and unqualified operations remain explicit and cannot be reported as production-qualified |
+
+
+### Updated-main HTTPS validation and production targets
+
+The HTTPS slice was moved from merged PR #147 onto current main `5998b82c`,
+which also contains the RPC response-ownership fix (#149), and opened as
+[PR #150](https://github.com/crabbuild/cellar/pull/150). On this base: both new
+guest response-ownership tests, eight Rust SDK tests, the two-run matching-image
+HTTPS campaign (18.59 seconds), three-process backup crash regression (48.10
+seconds), Node/V8 facades, the CPython 3.14 container boundary, all 78 shared
+provider/egress cases, 29 native container unit cases and strict six-crate
+all-target Clippy pass. The egress README example compiles with the explicit
+protocol field. Rust formatting/layout cover 1,354 files; the native-only graph
+remains 496 packages without a JavaScript engine. Seven campaign namespaces have
+zero owned containers/networks. The labeled temporary helper was removed and the
+private VM stopped; its configuration and the default Docker context remain
+unchanged. These are local selected-profile results; CI and broader release
+qualification remain separate.
+
+The user subsequently specified elastic sandbox counts per business cell, no
+fixed maximum lifetime, implementation-selected transfer sizes, and recovery in
+one to five minutes per sandbox. The [production targets](sandbox-provider-compatibility.md#production-targets-supplied-by-the-user)
+now record 64 KiB frames, 16 MiB parts and 64/256 MiB qualification payloads,
+plus current scratch limits and explicit recovery semantics. These larger
+transfer/concurrency/RTO targets are **not yet qualified**. Native's current
+single-container-per-execution-cell model needs a named allocation/pool boundary
+before it satisfies the requested business-cell concurrency. This is required
+feature work, not a reason to remove resource bounds or silently change the
+existing single-container path.

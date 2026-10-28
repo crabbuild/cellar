@@ -185,6 +185,31 @@ SP-07 must not replace the celld baseline without a distinct migration profile.
 Hosted deployment and live-account qualification are explicit delivery steps.
 Fixture passes are not live cloud qualification or full Workers compatibility.
 
+## Production targets supplied by the user
+
+These targets extend the original goal; they are acceptance requirements, not
+claims about the current implementation.
+
+| Area | Required target | Current gap / delivery rule |
+| --- | --- | --- |
+| Sandbox concurrency | A business cell can allocate as many named sandboxes as its workload requires | Native currently owns one container per execution cell. Add a named allocation/pool boundary with bounded admission and fleet scheduling; scale by available capacity rather than an unbounded in-memory map or a fixed single sandbox |
+| Lifetime | No user-specified maximum | Do not invent a global job lifetime. Publish effective provider limits and support long-lived ownership/renewal where available; ownership loss, explicit destruction and orphan cleanup still apply |
+| Transfer defaults | 64 KiB streaming frames and 16 MiB multipart parts | Chosen implementation targets. Qualify exact-byte 64 MiB and 256 MiB transfers, cancellation and recovery with bounded memory and temporary storage; larger objects remain subject to explicit host/provider quotas |
+| Temporary storage | Preserve explicit host limits | Existing defaults reserve at most 1 GiB of streamed-part scratch space and 64 files. Admission must retain reservations for uncertain/entered work until joined cleanup; overload reports backpressure/refusal |
+| Recovery | 60–300 seconds per sandbox | Measure from failure detection until a usable, correctly owned sandbox is available, including every state restoration promised by its profile. Never substitute a fresh empty sandbox when durable restoration was promised |
+
+The named allocation boundary must preserve scope/epoch checks, independent run
+identity, capability discovery, no replay of uncertain mutations, parent/cell
+removal cleanup and the celld-compatible single-container execution-cell path.
+Its exact execution topology must be explicit; a business cell coordinating
+sandbox execution cells must not be mistaken for multiple unbounded containers
+inside one execution-cell slot.
+
+Qualification should increase concurrent allocations until the configured host
+capacity is reached, verify bounded queuing/refusal, then inject owner loss and
+restart while measuring each sandbox's recovery against the target. No numeric
+unlimited-concurrency throughput claim is implied by "as many as needed".
+
 ## Next feature priorities
 
 The [current ledger](sandbox-provider-progress.md#requirement-audit) separates
