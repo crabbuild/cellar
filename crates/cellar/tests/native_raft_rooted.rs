@@ -23,6 +23,8 @@ mod fault;
 mod images;
 #[path = "support/raft_rooted_publication.rs"]
 mod publication;
+#[path = "support/raft_rooted_retention.rs"]
+mod retention;
 #[path = "support/raft_rooted_install.rs"]
 mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]

@@ -27,11 +27,16 @@ mod physical;
 mod publication;
 mod replay;
 mod representation;
+mod retention;
 mod root_head;
 mod rooted;
 mod verifier;
 
 pub use representation::{ArchiveMetadata, ArchiveRecoverySet, CommittedArchiveCut};
+pub use retention::{
+    RootAllocation, RootDescriptor, RootIntent, RootProtection, RootReference, RootRegistry,
+    RootRegistryId, RootReservation,
+};
 pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
 pub use verifier::ArchiveVerifier;
 
@@ -54,6 +59,7 @@ pub enum ArchiveError {
     Conflict,
     Limit,
     Unconfirmed,
+    ReferenceExpired,
     Stopped,
     Timeout,
     Log(super::storage::LogError),

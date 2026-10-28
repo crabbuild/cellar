@@ -15,8 +15,30 @@ async fn slow_confirmation_chunk() {
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 }
 
+/// One precisely controlled registry write, before CAS or after it committed.
+#[derive(Debug, Default)]
+pub struct RegistryGate {
+    pub armed: AtomicBool,
+    pub entered: tokio::sync::Notify,
+    pub resume: tokio::sync::Notify,
+}
+
+impl RegistryGate {
+    async fn pause(&self) {
+        if self.armed.swap(false, Ordering::AcqRel) {
+            self.entered.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Store {
+    pub registry_before: RegistryGate,
+    pub registry_after: RegistryGate,
+    pub fail_registry_before: AtomicBool,
+    pub fail_registry_after: AtomicBool,
+    pub registry_writes: AtomicUsize,
     /// Hold one exact ordinal initial-member claim while the host initializes.
     pub hold_nth_claim: AtomicUsize,
     pub claim_hang: AtomicBool,
@@ -208,6 +230,14 @@ impl ObjectStore for Store {
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
+        let registry = path.filename() == Some("registry") && path.as_ref().contains("/retained/");
+        if registry {
+            self.registry_writes.fetch_add(1, Ordering::AcqRel);
+            self.registry_before.pause().await;
+            if self.fail_registry_before.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -219,6 +249,12 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if registry {
+            self.registry_after.pause().await;
+            if self.fail_registry_after.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+        }
         if path.as_ref().contains("/root-extents/")
             && self.fail_root_confirmation.swap(false, Ordering::AcqRel)
         {

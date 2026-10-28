@@ -76,6 +76,11 @@ durable remote reference or permit native activation: installed-root, GC and
 restart proofs remain open. Native extent writers also refuse unexpected
 whole-image capture fallback and require a rebuild instead.
 
+The verification-only ownership registry adds persistent references, pending
+reservations and exact retry intents. It is not yet connected to native markers,
+generation-addressed object storage or a collector. Metadata ownership tests
+cannot close the partial-hydration or remote-GC release gates.
+
 The ordinary daemon process fixture covers two small counter groups, retained
 disk, an actual killed worker, receipt reconciliation and post-restart writes.
 It does not replace the full-size crash campaign. Enable authenticated

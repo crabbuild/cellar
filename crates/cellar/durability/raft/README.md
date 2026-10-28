@@ -44,6 +44,13 @@ the same authenticated grant, birth, learner/barrier and owner checks as flat
 seeding, then retains the already sealed root. Remote dependency retention/GC,
 demand loading and full-size recovery qualification remain under implementation.
 
+The verification-only [remote-root registry](archive/retention/README.md) now
+provides persistent ownership metadata with explicit reservation/reference
+retirement and caller-persisted allocation intents. It is independent of the
+existing archive head. It does not yet store generation-addressed extents, run a
+collector, or supply an installed-root durability proof. Its success cannot
+permit voting, native activation or application acknowledgement.
+
 `NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by
 default or explicitly selects `Extents`. The choice is persisted in the immutable
 namespace contract. Extent replicas, standbys and joining members require

@@ -170,7 +170,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
 | RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | IN PROGRESS |
 | RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | IN PROGRESS |
-| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | In progress; private-writer groundwork only |
+| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | In progress; private writer and ownership registry groundwork |
 | RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
 
 RT-02 and RT-03 need not wait for the entire extent backend. Establish M1 after
@@ -1824,6 +1824,50 @@ the separate native recovery drill's 48.6 GB admission remains unchanged.
 `RootPublishedImage` and `RootImageApplier` still require complete local seals.
 Persistent remote references, GC fencing, hybrid apply/install proofs, restart
 and activation while hydration is paused remain implementation work for RT-05.
+
+### Persistent ownership registry groundwork
+
+The verification archive now has an isolated remote-root ownership registry.
+Its immutable random identity and conditional record bind the exact namespace,
+birth and schema. The record protects selected roots, explicit references,
+pending upload generations and their retained parents. It refuses missing or
+corrupt control metadata rather than resetting allocation counters.
+
+Allocations require a caller-persisted intent before CAS. Each intent includes
+its expected revision, a nonce and complete operation. Exact retries reconcile
+live results without sharing another caller's hold or recreating a released
+reference. Only definite CAS conflicts retry automatically; changed read-back
+after an uncertain response requires explicit reconciliation. A child reservation
+protects its parent atomically, and abort fences a late bind. The 64 KiB record
+bounds concurrent holds/reservations while allowing released slots to be reused.
+The [component contract](../../crates/cellar/durability/raft/archive/retention/README.md)
+details these limits and the required owner reconciliation.
+
+Validation passes all 50 rooted cases, including 15 registry fault/lifecycle
+cases, plus one explicitly selected real RustFS registry case. The latter checks
+conditional competing holds, handle recreation, exact intent reconciliation and
+refusal after release; its descriptors are synthetic metadata, not a cell-data
+restore. Final code-input digest is
+`8dbc9704754927bfb170d63135e13d3963019bfef116acfe4d04f257b33366f4`.
+Host/qualification Clippy, container-test Clippy, formatting/layout over 1,359
+Rust files, dependency, documentation and diff checks pass. The 20-case large-image
+suite passes with identical production inputs; only the registry tests' required
+fair-selection macro changed afterward, and those tests were rerun.
+
+CI on the preceding writer commit reported `Overloaded` while requesting the
+recovered member's leadership transfer. The drill now observes destination
+readiness and refreshes term/revision before retrying only that typed admission
+failure within its existing 60-second deadline. The independent container-expiry
+CI failure reported a closed execution domain; the exact case passes twice
+locally. Startup/termination lease diagnostics were added without changing its
+assertions or deadlines. That CI failure's root cause remains unconfirmed.
+
+This registry does not yet store physical root descriptors or generation-addressed
+objects. It supplies a consistent mark input, not a deletion permit. Collector
+integration must verify and mark exact closures, protect pending generations,
+exclude newer generations and never reuse physical keys after deletion. Existing
+archive-head/object keys remain outside that collector. Native marker/source
+binding, hybrid installation and activation before hydration remain open.
 
 ## RT-06: Harden and qualify the targets
 
