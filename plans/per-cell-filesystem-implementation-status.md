@@ -655,6 +655,57 @@ open. Earlier captured-agent packages predate this producer fix and need a
 final-source refresh. Source hashes distinguish this checkpoint from any later
 integration or package builds.
 
+### Node lost byte-reply checkpoint
+
+All 24 [Node byte-reply cases](per-cell-filesystem-conformance.md#node-lost-byte-reply-profile)
+pass on macOS arm64 / Rust 1.98.1 / Node 24.13.1. The trusted test supervisor
+loads the unchanged production runtime source and interposes a TCP relay without
+changing operation payloads or authentication. It withholds one real successful
+read/pread/write/pwrite reply, or the second reply in read_exact/write_all, while
+forwarding heartbeats, native cancellation and unrelated invocations.
+
+The original deadline or an actual lease-mismatch fence retires the native
+future. Single calls report ContextExpired/unknown with zero confirmed bytes;
+helpers preserve the outer helper operation and exactly four confirmed bytes.
+An independent invocation proves the actual state before cancellation while the
+original HTTP request remains pending. Rust verifies full bytes/SHA-256, inode
+identity and an exact zero/one/two content-version increment. Reads preserve full
+persistent metadata. In particular, the helper-write cases recover eight
+processed bytes while acknowledging only four to the original SDK caller.
+
+After cancellation the relay releases the original frame with its SHA-256
+unchanged. The old continuation retains its original failure, runs once and
+refuses nine byte/close calls. A fresh invocation reuses all four host slots and
+records a checked inode/version reconciliation receipt without repeating the
+write. Preserve/lease-expiry and rolling Handoff both retain the reconciled
+file/state/receipt on cold recovery. After predecessor domains join, nine more
+stale calls run in a live successor, preserving full metadata/usage, offsets,
+cookie and bytes; stale closes cannot release its four occupied slots. A fresh
+atomic write advances the same inode's version. All six native outcomes and
+joined Node bridge gauges pass per case.
+
+Task-local `.cellar/filesystem-javascript-io-pr144-artifacts/` retains the initial
+helper probe, intended profile, final formatted-source manifest, frozen
+executable, 24 separate logs and 24 structured reports. The complete final
+matrix takes 310.11 seconds with the original 10/30/5-second handler/proof/lease
+budgets. The four-byte transfer ceiling exercises short transfers on a small
+file; these results do not qualify dense-file capacity. This checkpoint adds
+qualification fixtures and documentation without a production runtime change.
+
+Strict all-target JavaScript Clippy with both engines enabled passes, as does
+the selected read_exact/fence/Handoff case in the combined-feature build.
+Formatting/layout check 1,385 Rust files; 127 JavaScript sources need no
+formatting. Native dependency checks retain 482 packages without a JavaScript
+engine. Repository documentation checks pass with 845 local references.
+The frozen Node-only matrix executable SHA-256 is
+`107ea5e694da5031c03d06b437fe7254b4c1ed3ec377ac2e4d43a501a457514e`.
+
+This closes the selected Node lost-byte-reply profile. Pausing SQLite inside a
+synchronous call, V8/Python reply loss, between-transfer helper cancellation,
+remaining operation/domain/overload cases, external fleet/disk faults, sustained
+load, final captures, supported target/ABI CI and optimized capacity remain
+separate gates. The prior integrated-source checks retain their original scope.
+
 ### Captured Python ABI checkpoints
 
 Both packages use Rust 1.98.1, uv 0.11.19, the development Cargo profile with
@@ -861,8 +912,9 @@ independent of these primitive release priorities.
    group completion from those mappings.
    Facade conversion and wire parsing now have the selected profiles above;
    post-dispatch reply shape/progress failures have the controlled protocol
-   profile and real-host compatibility runs above. Actual lost replies retain
-   their transport/fleet qualification gate;
+   profile and real-host compatibility runs above. The Node byte-reply profile
+   adds six APIs through actual withheld IPC replies and native retirement;
+   remaining lost-reply/runtime/fleet combinations retain their qualification gate;
    remaining combinations, precedence, lifetimes and resource cases stay open.
 2. Finish final captured-runtime/package qualification across the supported ABI
    matrix. Vercel/Pi/Python tool parity and cold recovery now have local evidence;
@@ -908,7 +960,9 @@ independent of these primitive release priorities.
    fixture topology and adds selected retained-wrapper checks after domain
    shutdown. The JavaScript follow-up adds 40 Node/V8 proof cases, including
    directory fsync, warm slot reuse and selected post-shutdown stale-wrapper
-   checks. Extend byte-I/O cancellation, remaining directory-proof/runtime
+   checks. The Node byte-reply profile adds 24 real IPC loss/cancellation cases,
+   exact helper-prefix reconciliation and cold recovery. Extend other byte-I/O
+   cancellation and remaining directory-proof/runtime
    combinations, closed-domain and lifetime/resource families across supported
    guest runtimes.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB

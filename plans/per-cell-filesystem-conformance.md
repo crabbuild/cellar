@@ -19,6 +19,7 @@ Executed suites and qualification limits belong in the
 | Admission | [Native descriptor admission](../crates/cellar/tests/support/filesystem_admission.rs): EMFILE/ENFILE before create/truncate and capacity release |
 | Guests | [JavaScript](../crates/cellar-javascript/tests/support/filesystem.js) and [Python](../crates/cellar-python/tests/filesystem.py): real bridge calls driven by the [shared host client](../crates/cellar/tests/support/filesystem_guest.rs) |
 | Budget | [Node](../crates/cellar-javascript/tests/support/filesystem-budget.js) and [Python](../crates/cellar-python/tests/filesystem_budget.py): short transfers, encoded pages and receipt/checkpoint admission |
+| Lost replies | [Node IPC harness](../crates/cellar-javascript/tests/filesystem_io.rs): real successful byte replies withheld through native cancellation, reconciliation and cold recovery |
 | Backend | [SQLite tests](../crates/cellar/storage/sqlite/filesystem_tests.rs): persistent-table comparisons, chunk/GC invariants, quotas and exhaustion |
 
 Rust uses snake_case names. The JavaScript facade uses camelCase where the SDK
@@ -34,10 +35,10 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O03 | `fs.capabilities()` | Native/Guests check unsupported links and captured limits; Read-only checks the policy flag |
 | O04 | `fs.open()` | Native/Guests exercise independent offsets, modes and create/exclusive flags; Read-only and Admission check errors before namespace/content effects |
 | O05 | `fs.creat()` | Contracts `directory_relative` and guest metadata profiles verify mode and contents; Native/Read-only check admission/access refusals |
-| O06 | `file.read()` | Native/Guests check dup-shared offsets and bytes; Native checks zero I/O; guest metadata checks EOF beyond file size |
-| O07 | `file.write()` | Native/Guests check append versus ordinary writes; Native checks zero I/O; Read-only checks EBADF |
-| O08 | `file.pread()` | Native/Guests assert exact bytes without moving offsets; unlinked open files remain readable; Budget checks bounded short reads |
-| O09 | `file.pwrite()` | Native/Guests check positional writes on append-open handles; Native checks retained rights after chmod and zero I/O |
+| O06 | `file.read()` | Native/Guests check dup-shared offsets and bytes; Native checks zero I/O; guest metadata checks EOF beyond file size; Lost replies preserves unknown outcomes after a native read |
+| O07 | `file.write()` | Native/Guests check append versus ordinary writes; Native checks zero I/O; Read-only checks EBADF; Lost replies reconciles an unacknowledged committed prefix without repeating it |
+| O08 | `file.pread()` | Native/Guests assert exact bytes without moving offsets; unlinked open files remain readable; Budget checks bounded short reads; Lost replies refuses to expose undelivered data |
+| O09 | `file.pwrite()` | Native/Guests check positional writes on append-open handles; Native checks retained rights after chmod and zero I/O; Lost replies checks native version progress and retained bytes |
 | O10 | `file.lseek()` | Native checks independent/shared offsets and failed-seek offset preservation; Guests check exact offsets beyond 2^53 and signed overflow |
 | O11 | `file.fstat()` | Native/Guests check inode identity through rename, replacement and unlink; expired/closed handles refuse |
 | O12 | `file.ftruncate()` | Native/Guests check shrinking and zero extension without moving the offset; Backend checks truncate/rewrite before GC; Read-only checks EBADF |
@@ -85,8 +86,8 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O44 | `fs.replace_file()` | Native/Guests verify a new inode at the path while the old open inode retains its contents |
 | O45 | `fs.edit_file()` | Native/Guests check version conflicts and changed bytes; Native checks bounded patches/tail edits on a large sparse file; namespace profiles check empty regular-file no-ops, directory EISDIR and transaction/batch rollback |
 | O46 | `fs.read_dir()` | Contracts checks continuation across namespace mutations and rejects another directory's cursor; Native/Guests check bounded pages without synthetic dot entries |
-| O47 | `file.read_exact()` | Native/Budget check consumed prefix and offset on UnexpectedEof; Native/Guests check closed empty-helper refusal; Guests check expired-context and bound failures identify the helper with zero progress |
-| O48 | `file.write_all()` | Native/Budget check confirmed committed prefixes; Python Budget verifies a saved prefix after restart; Guests check expired-context and bound failures identify the helper with zero progress |
+| O47 | `file.read_exact()` | Native/Budget check consumed prefix and offset on UnexpectedEof; Native/Guests check closed empty-helper refusal; Guests check preflight operation/zero progress; Lost replies checks a confirmed prefix with a second processed but undelivered transfer |
+| O48 | `file.write_all()` | Native/Budget check confirmed committed prefixes; Python Budget verifies a saved prefix after restart; Guests check preflight operation/zero progress; Lost replies recovers more committed bytes than the caller can confirm |
 | O49 | `dir.read_page()` | Contracts checks mutation/seek continuation and linked dot entries; removed-directory profiles check empty pages after rewind |
 | O50 | `fs.collect_garbage()` | Backend checks pins, discarded revisions and quota retention; native/guest hosts check automatic maintenance/restart; Read-only refuses explicit application GC |
 | O51 | Guest `storage.apply` file checks/effects | Native batch validation checks identity/version; Guests check conflict and rollback after a preceding file mutation; file effects/receipts/checkpoints commit together |
@@ -412,6 +413,56 @@ These are development-bucket/loopback-peer cases. Byte-I/O cancellation,
 remaining operation/domain/overload combinations, external faults, sustained
 load and final package/target qualification remain separate gates.
 
+## Node lost byte-reply profile
+
+The [Node IPC harness](../crates/cellar-javascript/tests/filesystem_io.rs) uses a
+[native controller](../crates/cellar-javascript/tests/support/filesystem_io.rs),
+[guest workload](../crates/cellar-javascript/tests/support/filesystem-io.mjs) and
+[TCP relay](../crates/cellar-javascript/tests/support/filesystem-io-relay.mjs).
+The supervisor loads the unmodified production runtime source and forwards its
+authentication in memory. It changes the connection's port to the relay and
+withholds one real successful filesystem reply. Heartbeats, cancellation and
+unrelated invocations continue through the actual framed transport.
+
+Twenty-four cases cover read/pread/write/pwrite/read_exact/write_all, each with
+the original handler deadline or an actual native lease-mismatch fence, followed
+by Preserve/lease-expiry or rolling Handoff. The 10/30/5-second handler/proof/lease
+budgets match the existing proof fixtures. A four-byte transfer ceiling creates
+bounded short calls. Single-call cases lose their first reply and confirm zero
+bytes. Helpers receive one reply, then lose the second: they must preserve the
+outer helper operation, ContextExpired/unknown and exactly four confirmed bytes.
+Neither a success reply retained by the relay nor a processed transfer can be
+counted as delivered progress.
+
+Before cancellation, another real invocation proves the actual content while
+the original HTTP caller remains pending. Native Rust checks exact bytes,
+SHA-256, inode identity and the exact content-version increment for the one or
+two writes. Read cases preserve full persistent file metadata. A proven seed
+receipt remains unchanged until a fresh invocation reconciles the uncertain
+operation with a checked inode/version transaction. It saves a receipt for the
+observed content without replaying the write. Thus a helper write recovers eight
+processed bytes while reporting only four confirmed bytes to its original caller.
+
+The original native cell future must retire before the controller releases the
+held frame. Its SHA-256 must remain unchanged, and delivery of that late reply
+cannot change the original failure or repeat the application operation. Nine
+retained byte/close calls then refuse with ContextExpired/not_committed and zero
+progress. Warm recovery reuses all four host descriptor slots. After predecessor
+domains close, a live successor repeats the nine refusals with ContextMismatch;
+each preserves fresh full metadata/usage, offsets, directory cookie and bytes.
+The fifth open still returns ENFILE after stale close attempts.
+
+Cold file/state/receipt readback must equal the reconciled proven warm result.
+A new atomic write advances the same inode's version. All six native outcomes
+are checked; only the deliberately forced fence may be incomplete. The joined
+Node bridge must have no active invocations or retained native bytes. Structured
+reports and executed source/artifact identities belong in the status ledger.
+
+This profile qualifies cancellation while awaiting a real Node byte reply. It
+does not pause SQLite inside its synchronous call, qualify V8/Python reply loss,
+or replace between-transfer helper cancellation, physical peer/store/disk faults
+and sustained-load qualification.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -426,8 +477,9 @@ remains before this inventory can support a complete conformance claim:
    profiles cover selected facade conversions. The wire profiles map the
    selected syntax/range, shape and option refusals above; remaining combinations
    and precedence still need their own assertions. The reply-validation profile
-   adds controlled post-dispatch faults and helper-prefix evidence; real lost
-   replies and production fault outcomes retain their separate gates.
+   adds controlled post-dispatch faults and helper-prefix evidence. The Node
+   byte-reply profile adds selected real transport losses; remaining lost-reply
+   families and production fault outcomes retain their separate gates.
 2. Complete transaction, cancellation and closed-domain cases for each
    handle-bearing family. Extend the selected live cross-cell cases where
    additional operation families require distinct authority assertions. The
@@ -437,7 +489,9 @@ remains before this inventory can support a complete conformance claim:
    batch recovery. The Python in-flight proof profile above adds the selected
    barrier/deadline/fence combinations. The Node/V8 profile adds five barriers,
    both interruption modes and Preserve/Handoff with stale-context checks.
-   Byte-operation cancellation and remaining domain families stay open. The
+   The Node byte-reply profile adds six byte APIs through real reply loss and
+   native cancellation. Other byte-cancellation/runtime combinations and
+   remaining domain families stay open. The
    Python handoff profile adds selected retained-wrapper refusals after predecessor domain
    shutdown and coherent successor writes; it does not complete every lifetime
    family.
