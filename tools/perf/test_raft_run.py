@@ -165,7 +165,9 @@ class Freshness(unittest.TestCase):
             root = Path(directory)
             for name in ('Cargo.toml', 'Cargo.lock', 'crates/app/schema.sql',
                          'vendor/parser/wire.proto', 'examples/app/native.c',
-                         'tools/perf/driver.py', 'tools/xtask/template.html'):
+                         'tools/perf/driver.py', 'tools/xtask/template.html',
+                         'tools/cellar-rpc-codegen/main.rs', 'tools/cellar-recovery-tests/Cargo.toml',
+                         'tools/rpc/host/main.rs'):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('original')
@@ -178,6 +180,9 @@ class Freshness(unittest.TestCase):
             self.assertIn('examples/app/native.c', before)
             self.assertIn('tools/xtask/template.html', before)
             self.assertIn('tools/perf/driver.py', before)
+            for tool in ('tools/cellar-rpc-codegen/main.rs', 'tools/cellar-recovery-tests/Cargo.toml',
+                         'tools/rpc/host/main.rs'):
+                self.assertIn(tool, before)
             cache = root / 'tools/perf/__pycache__/generated.pyc'
             cache.parent.mkdir()
             cache.write_bytes(b'cache')
@@ -186,6 +191,18 @@ class Freshness(unittest.TestCase):
     def test_duplicate_manifest_path_is_refused(self):
         with self.assertRaises(ValueError):
             parse_manifest(('a' * 64 + '  crates/source.rs\n') * 2)
+
+    def test_raft_image_context_contains_every_workspace_member(self):
+        import tomllib
+        root = Path(__file__).resolve().parents[2]
+        workspace = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']
+        copies = [line.split()[1] for line in (root / 'tools/perf/raft.Dockerfile').read_text().splitlines()
+                  if line.startswith('COPY ') and '--from=' not in line]
+        for pattern in workspace['members']:
+            for member in root.glob(pattern):
+                relative = str(member.relative_to(root))
+                self.assertTrue(any(relative == source or relative.startswith(source + '/') for source in copies),
+                                f'Docker context omits workspace member {relative}')
 
 
 class Comparison(unittest.TestCase):
