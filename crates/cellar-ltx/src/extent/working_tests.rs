@@ -170,7 +170,10 @@ fn hydration_verifies_destination_before_exposing_the_base() {
     for fault in 0..3 {
         let fixture = Fixture::new(true);
         let main = &fixture.workspace.main;
-        let root = main.base.reference();
+        let Base::Local(base) = &main.base else {
+            panic!("fixture must retain its complete local image");
+        };
+        let root = base.reference();
         let mut file = MemoryFile::default();
         main.initialize(&mut file).unwrap();
         file.corrupt_write = fault == 0;
@@ -179,7 +182,7 @@ fn hydration_verifies_destination_before_exposing_the_base() {
         let mut output = [0xa5; 16];
         assert!(main.read(0, &mut output, &mut file).is_err());
         assert_eq!(output, [0xa5; 16], "unverified destination reached SQL");
-        assert_eq!(main.base.reference(), root);
+        assert_eq!(base.reference(), root);
         poisoned(main, &mut file);
     }
 }

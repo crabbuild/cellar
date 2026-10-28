@@ -22,13 +22,18 @@ struct State {
     nonce: ImageId,
     sequence: u64,
     failed: bool,
-    memo: Option<Key>,
+    memo: Option<(Key, super::replay::Work)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Replay {
     Performed,
     Reused,
+}
+
+pub(super) struct Verification {
+    pub replay: Replay,
+    pub work: super::replay::Work,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -195,6 +200,13 @@ impl ArchiveVerifier {
     }
 
     pub(super) fn verify(&self, set: &MaterializedSet) -> Result<Replay, ArchiveError> {
+        self.verify_with_work(set).map(|verified| verified.replay)
+    }
+
+    pub(super) fn verify_with_work(
+        &self,
+        set: &MaterializedSet,
+    ) -> Result<Verification, ArchiveError> {
         let mut state = self
             .inner
             .lock()
@@ -216,7 +228,7 @@ impl ArchiveVerifier {
                 return Err(error);
             }
         };
-        if state.memo == Some(key) {
+        if let Some((_, work)) = state.memo.filter(|(memo, _)| *memo == key) {
             // Fresh remote reads and full source decoding issued this set's
             // validation record. Its complete fingerprint still matches, while
             // the physical projection matches an earlier successful replay.
@@ -234,7 +246,10 @@ impl ArchiveVerifier {
                     "archive verifier retained scratch images",
                 ));
             }
-            return Ok(Replay::Reused);
+            return Ok(Verification {
+                replay: Replay::Reused,
+                work,
+            });
         }
         state.memo = None;
         state.sequence = state.sequence.checked_add(1).ok_or(ArchiveError::Limit)?;
@@ -252,7 +267,7 @@ impl ArchiveVerifier {
         // Set before any workspace I/O. Failure/panic cannot reuse a prior
         // proof or silently recycle a partially restored scratch generation.
         state.failed = true;
-        let pin = set.restore(&state.images, nonce)?;
+        let (pin, work) = set.restore_with_work(&state.images, nonce)?;
         state
             .images
             .retire(pin.id())
@@ -272,9 +287,12 @@ impl ArchiveVerifier {
         }
         // Commit the memo only after replay, independent image verification,
         // retirement and physical cleanup all succeed. State stays fixed-size.
-        state.memo = Some(key);
+        state.memo = Some((key, work));
         state.failed = false;
-        Ok(Replay::Performed)
+        Ok(Verification {
+            replay: Replay::Performed,
+            work,
+        })
     }
 }
 

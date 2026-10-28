@@ -680,6 +680,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum",
  "cellar",
  "cellar-logic",
  "cellar-ltx",
@@ -695,9 +696,11 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "tokio",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

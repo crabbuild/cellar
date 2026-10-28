@@ -3,6 +3,7 @@
 //! Immutable extent identities, physical files, cached images and node storage.
 //! Native selection and acknowledgement authority remain with the host.
 
+mod fetch;
 pub(crate) mod file;
 pub(crate) mod image;
 pub(crate) mod store;
