@@ -120,6 +120,7 @@ impl NodeExtentStore {
                     ObjectEntry {
                         bytes: metadata.len,
                         verified: false,
+                        read_proof: None,
                     },
                 );
             } else if name.len() == 66 && name.starts_with("r-") {

@@ -97,7 +97,29 @@ struct Storage {
     _reservation: ScratchReservation,
     // Derived from independently verified destination bytes only after their
     // complete extent identity matched. At most 64 digests (2 KiB) per file.
-    blocks: Vec<[u8; 32]>,
+    blocks: Arc<VerifiedBlocks>,
+}
+
+/// Process-local proofs derived only after a complete extent hash matched.
+/// They authenticate later reads from a new descriptor without keeping that
+/// descriptor open. They never survive inventory restart or authorize a seal.
+pub(crate) struct VerifiedBlocks {
+    id: ExtentId,
+    hashes: Box<[[u8; 32]]>,
+}
+
+impl VerifiedBlocks {
+    /// The caller must have independently checked the complete extent identity
+    /// over the same bytes from which these block hashes were derived.
+    pub(crate) fn from_verified(id: ExtentId, hashes: Vec<[u8; 32]>) -> Result<Arc<Self>, Error> {
+        if hashes.len() != (id.length() as usize).div_ceil(BUFFER_BYTES) {
+            return Err(Error::Invalid("extent block proof coverage"));
+        }
+        Ok(Arc::new(Self {
+            id,
+            hashes: hashes.into_boxed_slice(),
+        }))
+    }
 }
 
 /// Shared immutable data material verified against an authenticated manifest's
@@ -110,31 +132,39 @@ pub struct ExtentFile {
 
 impl ExtentFile {
     /// Borrow immutable inventory bytes without copying them into a disposable
-    /// file. Verify the opened descriptor independently; its root pin and
-    /// conservative byte/file charge outlive every clone and in-flight read.
+    /// file. Reuse authenticated block hashes only within the same inventory
+    /// lifetime; every returned block is still read and verified independently.
+    /// The root pin and charge outlive every clone and in-flight read.
     pub(crate) fn from_local(
-        file: HostFile,
+        mut file: HostFile,
         reservation: ScratchReservation,
         pin: super::store::RootView,
         id: ExtentId,
+        proof: Option<Arc<VerifiedBlocks>>,
     ) -> Result<Self, Error> {
-        let mut storage = Storage {
+        let blocks = match proof {
+            Some(proof) => {
+                if proof.id != id || file.file_len()? != u64::from(id.length()) {
+                    return Err(Error::Integrity);
+                }
+                proof
+            }
+            None => verify_file(&mut file, id)?,
+        };
+        let storage = Storage {
             file: Mutex::new(file),
             _pin: Some(pin),
             _reservation: reservation,
-            blocks: Vec::new(),
+            blocks,
         };
-        storage.blocks = verify_file(
-            storage
-                .file
-                .get_mut()
-                .map_err(|_| Error::Invalid("poisoned local extent"))?,
-            id,
-        )?;
         Ok(Self {
             storage: Arc::new(storage),
             id,
         })
+    }
+
+    pub(crate) fn block_proof(&self) -> Arc<VerifiedBlocks> {
+        self.storage.blocks.clone()
     }
 
     pub fn identity(&self) -> ExtentId {
@@ -169,6 +199,7 @@ impl ExtentFile {
             let expected = self
                 .storage
                 .blocks
+                .hashes
                 .get((position / BUFFER_BYTES as u64) as usize)
                 .ok_or(Error::Invalid("extent read proof coverage"))?;
             if <[u8; 32]>::from(Sha256::digest(&bytes)) != *expected {
@@ -192,7 +223,7 @@ impl ExtentFile {
     }
 }
 
-pub(crate) fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Vec<[u8; 32]>, Error> {
+pub(crate) fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Arc<VerifiedBlocks>, Error> {
     if file.file_len()? != u64::from(id.length()) {
         return Err(Error::Integrity);
     }
@@ -212,5 +243,5 @@ pub(crate) fn verify_file(file: &mut HostFile, id: ExtentId) -> Result<Vec<[u8; 
     if <[u8; 32]>::from(hash.finalize()) != id.bytes() {
         return Err(Error::Integrity);
     }
-    Ok(blocks)
+    VerifiedBlocks::from_verified(id, blocks)
 }

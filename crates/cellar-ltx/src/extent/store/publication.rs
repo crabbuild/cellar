@@ -10,19 +10,20 @@ pub(super) fn read_object(
     mut consume: impl FnMut(u64, &[u8]) -> Result<(), StoreError>,
 ) -> Result<(), StoreError> {
     let result = (|| {
-        let verified = {
+        let (verified, previous_proof) = {
             let state = inner.state()?;
             let entry = state.objects.get(&id).ok_or(StoreError::Missing)?;
             if entry.bytes != u64::from(id.length()) {
                 return Err(StoreError::Integrity);
             }
-            entry.verified
+            (entry.verified, entry.read_proof.clone())
         };
         let mut file = inner.checked_file(
             &inner.directory.join(object_name(id)),
             u64::from(id.length()),
         )?;
         let mut hash = id.stream_hasher();
+        let mut blocks = Vec::with_capacity((id.length() as usize).div_ceil(65536));
         let mut offset = 0;
         while offset < u64::from(id.length()) {
             let count = (u64::from(id.length()) - offset).min(65536) as usize;
@@ -31,6 +32,9 @@ pub(super) fn read_object(
                 return Err(StoreError::Integrity);
             }
             hash.update(&bytes);
+            if previous_proof.is_none() {
+                blocks.push(sha2::Sha256::digest(&bytes).into());
+            }
             consume(offset, &bytes)?;
             offset += count as u64;
         }
@@ -43,17 +47,20 @@ pub(super) fn read_object(
             file.sync_all()?;
             inner.filesystem.sync_all(&inner.directory)?;
         }
-        inner
-            .state()?
-            .objects
-            .get_mut(&id)
-            .ok_or(StoreError::Missing)?
-            .verified = true;
+        let proof = match previous_proof {
+            Some(proof) => proof,
+            None => VerifiedBlocks::from_verified(id, blocks)?,
+        };
+        let mut state = inner.state()?;
+        let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+        entry.verified = true;
+        entry.read_proof = Some(proof);
         Ok(())
     })();
     if result.is_err() {
         if let Some(entry) = inner.state()?.objects.get_mut(&id) {
             entry.verified = false;
+            entry.read_proof = None;
         }
     }
     result
@@ -156,6 +163,7 @@ impl NodeExtentStore {
                 ObjectEntry {
                     bytes: u64::from(id.length()),
                     verified: false,
+                    read_proof: None,
                 },
             );
         }
@@ -173,24 +181,25 @@ impl NodeExtentStore {
             }
             write(&mut file)?;
             file.sync_all()?;
-            crate::extent::file::verify_file(&mut file, id)?;
+            let proof = crate::extent::file::verify_file(&mut file, id)?;
             self.inner.filesystem.sync_all(&self.inner.directory)?;
-            Ok(())
+            Ok(proof)
         })();
         drop(file);
-        if let Err(error) = result {
-            let error = self.cleanup_created(&path, error)?;
-            let mut state = self.inner.state()?;
-            let entry = state.objects.remove(&id).ok_or(StoreError::Missing)?;
-            state.bytes -= entry.bytes;
-            return Err(error);
-        }
-        self.inner
-            .state()?
-            .objects
-            .get_mut(&id)
-            .ok_or(StoreError::Missing)?
-            .verified = true;
+        let proof = match result {
+            Ok(proof) => proof,
+            Err(error) => {
+                let error = self.cleanup_created(&path, error)?;
+                let mut state = self.inner.state()?;
+                let entry = state.objects.remove(&id).ok_or(StoreError::Missing)?;
+                state.bytes -= entry.bytes;
+                return Err(error);
+            }
+        };
+        let mut state = self.inner.state()?;
+        let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+        entry.verified = true;
+        entry.read_proof = Some(proof);
         Ok(())
     }
 

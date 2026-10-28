@@ -160,6 +160,12 @@ impl FileSystem for ObservedFiles {
         DirectFileSystem.lock_file(p)
     }
 
+    fn clone_read_write(&self, source: &Path, destination: &Path) -> io::Result<Option<HostFile>> {
+        Ok(DirectFileSystem
+            .clone_read_write(source, destination)?
+            .map(|file| self.wrap(file)))
+    }
+
     fn temporary_file(&self, p: Option<&Path>) -> io::Result<HostFile> {
         let file = DirectFileSystem.temporary_file(p)?;
         self.0.lock().unwrap().temporary_files += 1;
@@ -191,7 +197,15 @@ impl FileSystem for ObservedFiles {
         DirectFileSystem.remove_dir_all(p)
     }
 
+    fn remove_dir_batch(&self, p: &Path, limit: usize) -> io::Result<bool> {
+        DirectFileSystem.remove_dir_batch(p, limit)
+    }
+
     fn create_dir_all(&self, p: &Path) -> io::Result<()> {
         DirectFileSystem.create_dir_all(p)
+    }
+
+    fn set_modified_unix_millis(&self, p: &Path, millis: i64) -> io::Result<()> {
+        DirectFileSystem.set_modified_unix_millis(p, millis)
     }
 }

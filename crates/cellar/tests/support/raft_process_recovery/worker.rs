@@ -150,7 +150,22 @@ pub(super) async fn run(config: Config) -> Result<()> {
         if matches!(request.action, Action::Stop) {
             break last;
         }
+        let read_before =
+            matches!(&request.action, Action::Read { .. }).then(|| service.performance());
+        let started = Instant::now();
         let result = execute(&config, &definition, &verify, &cell, &calls, request.action).await;
+        if let Some(before) = read_before {
+            // Preserve queue/SQL/I/O observations even when the read deadline
+            // fails. A failed query must not erase the evidence needed to
+            // distinguish unavailable versions from slow physical execution.
+            atomic_json(
+                &config.control.join(format!("read-{last}.json")),
+                &json!({
+                    "elapsed_us": started.elapsed().as_micros(), "ok": result.is_ok(),
+                    "before": before, "after": service.performance(),
+                }),
+            )?;
+        }
         let response = match result {
             Ok(value) => json!({"sequence": last, "ok": true, "value": value}),
             Err(error) => json!({"sequence": last, "ok": false, "error": format!("{error:#}"),

@@ -56,11 +56,17 @@ reverified rather than overwritten. Peer and archive receives share this path,
 as does an image update whose changed extent already occupies its admitted
 workspace. Streaming source callbacks retain the separate 64 KiB contract.
 
-`RootView::image` caches read-only handles to its pinned local extents. Each
-cache miss reserves the ordinary conservative byte/file allowance, independently
-hashes the opened descriptor and derives bounded block proofs. Reads recheck
-those blocks before exposing bytes. Reopened inventory also re-establishes file
-and directory persistence barriers before reuse. Already verified local extents
+`RootView::image` caches read-only handles to its pinned local extents. Full
+independent verification derives bounded block hashes that the inventory retains
+across descriptor eviction. Each later read checks the opened file's length and
+rechecks the requested 64 KiB blocks against those hashes before exposing bytes.
+This avoids scanning a complete 4 MiB extent again for every cold query handle.
+Proofs use at most 2 KiB of hash data per object, bounded by `max_objects`
+(32 MiB at the default 16,384 objects), plus bounded in-flight verification
+metadata. Reader pins prevent reclamation of their objects and share the proofs.
+The hashes do not survive inventory restart: reopened bytes require complete
+verification and file/directory persistence barriers before reuse. Each cache
+miss retains the ordinary byte/file reservation. Already verified local extents
 need no anonymous copy or cache sync. Handles retain their root and inventory
 lock until their last reader closes; generic `ExtentSource` downloads retain
 their separate scratch files, destination verification and synchronization.

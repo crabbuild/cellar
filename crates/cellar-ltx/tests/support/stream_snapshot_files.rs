@@ -17,6 +17,7 @@ use std::{
 #[derive(Default)]
 pub struct Metrics {
     pub max_read: AtomicUsize,
+    pub read_bytes: AtomicUsize,
     pub max_write: AtomicUsize,
     pub random_write_calls: AtomicUsize,
     pub random_write_window_calls: AtomicUsize,
@@ -152,6 +153,9 @@ impl HostFileIo for File {
             return Err(io::Error::other("unbounded codec read"));
         }
         let mut bytes = self.inner.read_exact_at(offset, len)?;
+        self.metrics
+            .read_bytes
+            .fetch_add(bytes.len(), Ordering::Relaxed);
         if self.metrics.short_read.swap(false, Ordering::AcqRel) {
             bytes.pop();
         }
