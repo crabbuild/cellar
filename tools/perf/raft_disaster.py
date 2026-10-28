@@ -338,10 +338,17 @@ class Qualification:
             value = owned_container(self.docker, identifier, self.run_id)
             result = command(['docker', '--context', self.args.context, 'logs', identifier], check=False)
             (self.root / (identifier[:12] + '.log')).write_text(result.stdout + result.stderr)
-            states.append({'container_id': identifier, 'running': value['State']['Running'],
+            states.append({'container_id': identifier, 'name': value['Name'].removeprefix('/'), 'running': value['State']['Running'],
                            'exit_code': value['State']['ExitCode'], 'oom_killed': value['State']['OOMKilled']})
         self.report['stopped_containers'] = states
+        verified = all(not state['running'] and not state['oom_killed'] and
+                       (state['exit_code'] != 0 if '-stale-' in state['name'] else state['exit_code'] == 0)
+                       for state in states)
+        self.report['shutdown_verified'] = verified
+        if not verified:
+            self.report['completed'] = False
         self.save()
+        require(verified, 'owned process shutdown failed; inspect retained logs')
 
 
 def main():
