@@ -18,6 +18,48 @@ pub struct ResumableMultipart {
 }
 
 impl ResumableMultipart {
+    pub fn supports_streamed_parts(&self) -> Result<bool> {
+        Ok(store::store()
+            .map_err(anyhow::Error::msg)?
+            .supports_streamed_resumable_parts())
+    }
+
+    /// Reserve the exact declared scratch length before opening an anonymous
+    /// file. Unsupported backends refuse before allocation or source reads.
+    pub async fn begin_part(
+        &self,
+        context: &Context,
+        number: u32,
+        length: u64,
+    ) -> Result<super::ResumablePart> {
+        context.check_turn()?;
+        if !(1..=10_000).contains(&number) {
+            return Err(super::PartRefused("invalid part number").into());
+        }
+        let limits = crate::application::limits::current().blob;
+        let length_bytes = usize::try_from(length)
+            .map_err(|_| super::PartRefused("part length exceeds platform limit"))?;
+        if length_bytes > limits.max_streamed_part_bytes {
+            return Err(super::PartRefused("part exceeds scratch limit").into());
+        }
+        let backend = store::store().map_err(anyhow::Error::msg)?;
+        if !backend.supports_streamed_resumable_parts() {
+            return Err(super::PartRefused("streamed parts unsupported by this backend").into());
+        }
+        let capacity = crate::asyncrt::services().reserve_blob_spool(length_bytes)?;
+        crate::native_worker::blob_gate(context).await?;
+        let part = backend
+            .begin_resumable_part(
+                &store::blob_key(&self.bucket.name, &self.key),
+                &self.id,
+                number as usize - 1,
+                length,
+                capacity,
+            )
+            .await?;
+        super::ResumablePart::new(context, number, part)
+    }
+
     pub(super) fn new(bucket: Bucket, key: &str, id: &str) -> Self {
         Self {
             bucket,

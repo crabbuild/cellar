@@ -188,11 +188,14 @@ impl Session {
     pub(crate) fn retain_response(
         &self,
         context: &Context,
-        response: cellar::engine_api::HttpResponse,
+        mut response: cellar::engine_api::HttpResponse,
         limits: &Limits,
     ) -> Result<Value> {
         self.check(context)?;
         values::headers(&response.headers)?;
+        if let Some(source) = response.stream.take() {
+            response.stream = Some(crate::chunk_stream::bounded(source, limits.max_body_bytes)?);
+        }
         let mut cancellations = self.cancellations.lock().unwrap();
         let mut responses = self.responses.lock().unwrap();
         ensure!(

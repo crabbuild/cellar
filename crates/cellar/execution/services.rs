@@ -99,6 +99,7 @@ pub struct HostServices {
     inbound_rpc: OnceLock<crate::inbound_rpc::Budget>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
+    blob_spool: Arc<crate::application::blob::part::Budget>,
     events: Arc<crate::application::event_stream::service::Service>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -131,6 +132,7 @@ impl HostServices {
             inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            blob_spool: Arc::new(crate::application::blob::part::Budget::default()),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -164,6 +166,7 @@ impl HostServices {
             inbound_rpc: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            blob_spool: Arc::new(crate::application::blob::part::Budget::default()),
             events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -479,6 +482,15 @@ impl HostServices {
         *self.cell_limits.get_or_init(Default::default)
     }
 
+    pub(crate) fn reserve_blob_spool(&self, bytes: usize) -> anyhow::Result<Arc<dyn Send + Sync>> {
+        let limits = self.cell_limits().blob;
+        self.blob_spool.reserve(
+            bytes,
+            limits.max_streamed_spool_bytes,
+            limits.max_streamed_parts,
+        )
+    }
+
     pub(crate) fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
         if self.operation_deadline_ms.set(deadline).is_err() {
             anyhow::ensure!(self.operation_deadline_ms.get() == Some(&deadline),
@@ -511,6 +523,14 @@ impl HostServices {
     pub(crate) fn accepts_work(&self) -> bool {
         self.domain_token()
             .is_none_or(|domain| domain.mono_ms().is_ok())
+    }
+
+    /// Whether these captured services have no live execution domain. Resource
+    /// adapters use this observation after forwarding a stream; another host's
+    /// ambient domain never authorizes delivery of this host's buffered bytes.
+    pub fn is_closed(&self) -> bool {
+        self.domain_token()
+            .is_none_or(|domain| domain.mono_ms().is_err())
     }
 
     pub fn set_node_load(&self, load: Arc<LiveLoad>) {

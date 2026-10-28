@@ -260,7 +260,7 @@ cargo test --locked -p cellar-javascript --features node \
 | Installation | Register a copied export/props before startup; finish that event before using the route |
 | Retained HTTP connection | One real container connection carries the pre-start handler from a later event, direct traffic, then two live handler versions |
 | Binary streaming | Each request/reply preserves 2 MiB + 17 bytes and SHA-256; native reads remain at most 64 KiB |
-| Published backup | Create an archive through shim HTTP, gateway control RPC and native multipart storage; store its returned record in cell SQLite |
+| Published backup | Archive incompressible 2 MiB + 17-byte input through shim HTTP, gateway control RPC and native staged parts; require archive size above the 64 KiB frame limit and save its record in cell SQLite |
 | Later-event restore | Change the file, restore the stored record with the actual shim, then verify original bytes/SHA-256 |
 | Fresh-process recovery | Join the first native/Node processes, start new processes with an empty node directory, recover the identical record from native fleet storage and restore into a new container |
 | Pre-aborted calls | Preserve the exact abort reason for backup and restore; no provider process allocation |
@@ -311,6 +311,13 @@ helper and `Source::workers_http_streams()`. Incoming HTTP reads retain the
 original invocation and cancellation authority. A reader holds one producer
 chunk, returns bounded frames and pulls again after consuming it. The ordinary
 SDK's buffered-body limit stays unchanged.
+
+Known-length R2 parts now cross that bridge in acknowledged chunks and stage
+in anonymous native files. `FixedLengthStream` bodies are not collected as whole
+parts in the adapter's JS/native memory; caller-owned buffers retain their own size.
+The host reserves the declared scratch length and file slot; short/error stages
+cannot replace a prior receipt. See the [staging contract](../../../packages/cellar-cloudflare/r2.md#bounds-and-failure-behavior)
+for defaults, unsupported backends and remaining memory qualification.
 
 ## Remaining compatibility
 

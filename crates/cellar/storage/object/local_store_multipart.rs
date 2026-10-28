@@ -13,7 +13,7 @@ use sha2::{Digest as _, Sha256};
 
 const MAX_PARTS: usize = 10_000;
 
-fn check_part(index: usize) -> object_store::Result<i64> {
+pub(super) fn check_part(index: usize) -> object_store::Result<i64> {
     if index >= MAX_PARTS {
         return Err(message_error("multipart part index exceeds 9999"));
     }
@@ -21,7 +21,7 @@ fn check_part(index: usize) -> object_store::Result<i64> {
 }
 
 impl LocalStore {
-    fn upload_attributes(
+    pub(super) fn upload_attributes(
         connection: &Connection,
         key: &str,
         id: &str,
@@ -44,26 +44,40 @@ impl LocalStore {
         index: i64,
         body: Bytes,
     ) -> object_store::Result<PartId> {
+        let receipt = hex::encode(Sha256::digest(&body));
+        self.install_part_sync(&key, &id, index, body.len(), receipt, |part| {
+            part.write_all_at(&body, 0).map_err(db_error)
+        })
+    }
+
+    pub(super) fn install_part_sync(
+        &self,
+        key: &str,
+        id: &str,
+        index: i64,
+        length: usize,
+        receipt: String,
+        write: impl FnOnce(&mut rusqlite::blob::Blob<'_>) -> object_store::Result<()>,
+    ) -> object_store::Result<PartId> {
         let _writer = self.writer.lock();
         let mut connection = self.connect()?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
-        Self::upload_attributes(&transaction, &key, &id)?;
-        let receipt = hex::encode(Sha256::digest(&body));
+        Self::upload_attributes(&transaction, key, id)?;
         let rowid = transaction.query_row(
             "INSERT INTO __sys_local_parts(upload_id, part_index, etag, body)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(upload_id, part_index) DO UPDATE SET etag = excluded.etag, body = excluded.body
              RETURNING rowid",
-            params![id, index, receipt, rusqlite::blob::ZeroBlob(i32::try_from(body.len()).map_err(db_error)?)],
+            params![id, index, receipt, rusqlite::blob::ZeroBlob(i32::try_from(length).map_err(db_error)?)],
             |row| row.get::<_, i64>(0),
         ).map_err(db_error)?;
         {
             let mut part = transaction
                 .blob_open(rusqlite::MAIN_DB, "__sys_local_parts", "body", rowid, false)
                 .map_err(db_error)?;
-            part.write_all_at(&body, 0).map_err(db_error)?;
+            write(&mut part)?;
         }
         transaction.commit().map_err(db_error)?;
         Ok(PartId {
@@ -273,6 +287,29 @@ impl MultipartStore for LocalStore {
 
 #[async_trait]
 impl crate::object_multipart::ResumableMultipartStore for LocalStore {
+    fn supports_streamed_parts(&self) -> bool {
+        true
+    }
+
+    async fn begin_part(
+        &self,
+        path: &Path,
+        id: &MultipartId,
+        index: usize,
+        length: u64,
+        capacity: Arc<dyn Send + Sync>,
+    ) -> object_store::Result<Box<dyn crate::object_multipart::StreamedPart>> {
+        super::streamed_part::begin(
+            self.clone(),
+            path.to_string(),
+            id.clone(),
+            index,
+            length,
+            capacity,
+        )
+        .await
+    }
+
     fn supports_metadata(&self) -> bool {
         true
     }

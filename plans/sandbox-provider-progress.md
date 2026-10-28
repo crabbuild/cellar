@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -2929,3 +2929,60 @@ lost create/transport responses, orphan expiry, provider recovery/physical
 deletion, S3 mounts/HTTPS and additional providers. Earlier intermittent CI
 findings are not established as fixed by these local checks. Live E2B/Vercel
 configuration remains deferred.
+
+
+## Known-length native part staging — 2026-10-27
+
+The R2 facade no longer collects known-length parts under the bridge-frame
+ceiling. Strings, byte buffers/views, Blobs and branded `FixedLengthStream`
+inputs use the shared native staged-part API. Text counts UTF-8 length and encodes
+bounded UTF-16 windows without splitting surrogate pairs or collecting its
+entire encoded body; the Unicode boundary test includes lone surrogates. Unknown-length streams retain
+the existing buffered limit; caller-provided properties do not grant a length.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Native SDK | `ResumableMultipart::begin_part`; invocation-owned `ResumablePart::write` and `complete` |
+| Backend capability | Explicit `supports_streamed_parts`; native local SQLite implements it, other clients default to refusal |
+| Capacity | Before file allocation, reserve declared bytes and one file slot in the original host; defaults: 256 MiB per part, 1 GiB aggregate, 64 files |
+| Input | Await each write, at most the bridge limit and 64 KiB; decoded byte capacity follows entered file work |
+| Storage | Anonymous scratch file through the execution domain's filesystem; source/network waits hold no SQLite writer |
+| Publication | Require exact declared length; compute SHA-256 incrementally and atomically replace the indexed part/receipt with bounded copies |
+| Retirement | Short/failed stages preserve the previous receipt; drop closes anonymous storage. Entered I/O retains scratch capacity after waiter cancellation and joins with its domain |
+| Authority | A later native event cannot write/complete an old stage, even in the same cell; it can reconstruct the durable upload and create a fresh stage |
+| Lost completion | A failed acknowledgement may follow part publication; temporary cancellation cannot roll it back and no mutation is automatically replayed |
+
+Three integration gaps reproduced during delivery. First, local storage emits
+128 KiB chunks while the gateway test allows 4 KiB frames. The shared response
+adapter now retains one producer allocation and splits it before another pull;
+its original per-frame assertion, cancellation and error semantics remain.
+Second, an SDK short-source failure returned while native scratch admission was
+pending. That admission occupied the JS SQLite mutation slot, so publishing the
+handled 502 failed with `ConcurrentMutation`. Node and V8 classify only the four
+staged-part controls as independent native I/O, preserving mutation-failure
+provenance and all Blob/ownership gates. Ordinary storage mutation admission is
+unchanged. Finally, buffered response fragments initially outlived their origin
+host when a replacement domain polled the stream. A reproducer failed before
+the fix; the splitter now captures the original host and checks closure before
+every frame, releases pending data/source on closure and never borrows ambient
+authority. Temporary diagnostic probes were removed.
+
+| Evidence | Result |
+| --- | --- |
+| Original JS reproduction | A 19-byte known-length part failed under a 4-byte frame limit; acknowledged 4-byte writes now pass |
+| Local object store | 27 tests pass, including original multipart/restart/resource checks, 5 MiB + 17-byte staged publication and cancelled SQLite completion capacity ownership |
+| Native scratch budget | Independent-host, overflow, last-owner and empty-file-slot checks pass |
+| Shared guest boundary | 34 tests pass, including producer splitting, closed-origin/replacement-domain refusal, source cancellation and error preservation |
+| Native SDK integration | Original Blob durability suite passes with stale-event staging refusal before any new effect gate and fresh-stage publication |
+| Published gateway | Existing node/client restart, short/oversized source, receipt and transaction assertions pass; added 256 KiB + 17-byte stream at 4 KiB frames and typed oversized-length refusal |
+| Matching SDK/image | Two-process campaign passes in 41.07 s with incompressible 2 MiB + 17-byte input; archive must exceed 64 KiB and restored bytes/SHA-256 must match |
+| JS/TS and package | 149 tests pass; packed npm package includes the new internal R2 helper |
+| Strict Clippy | Core/shared guest/Node/V8 all-target checks and embedded Python library checks pass with `-D warnings` |
+| Repository gates | Rust format/layout (1,326 files), JS formatting (119 sources), native-only graph (482 packages without a JS engine), pinned inputs, docs and whitespace pass |
+
+The matching-image campaign retains its original handler/JS/frame budgets and
+checks grant revocation, acknowledgement failures, explicit process retirement,
+joined native/Node shutdown and zero upload/part rows. Full OS/RSS and concurrent
+multipart qualification, remote storage implementations, abrupt crashes,
+verified-swap/lost-create/transport failures, orphan expiry and all remaining
+SP-02–SP-10 requirements stay open. Live E2B/Vercel qualification remains deferred.

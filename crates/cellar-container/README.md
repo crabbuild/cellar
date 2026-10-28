@@ -436,6 +436,12 @@ uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
 keep SDK/image evidence separate from router and provider tests. S3 mounts and
 complete Sandbox 1.x compatibility remain open.
 
+Known-length R2 uploads use native anonymous-file part staging with bounded
+bridge chunks, host scratch byte/file limits and atomic receipt replacement.
+The [native upload contract](../cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
+also exposes this path to Rust applications. It requires a separately declared
+backend capability.
+
 The directory-backup campaign also restores from fresh native/Node processes
 and checks allocation-time cancellation, missing/corrupt archives, destination
 preservation and grant revocation. Selected first-chunk cancellation and failed

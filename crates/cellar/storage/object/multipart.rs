@@ -3,7 +3,19 @@
 //! Persistent upload identities and replaceable indexed parts.
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use object_store::{multipart::MultipartStore, path::Path, MultipartId, PutMultipartOptions};
+use std::sync::Arc;
+
+/// One unpublished part, staged without retaining its complete body in memory.
+/// Dropping it discards its scratch storage, never the existing part or object.
+/// Entered I/O must retain the original scratch-capacity owner until it ends.
+#[async_trait]
+pub trait StreamedPart: Send {
+    async fn write(&mut self, bytes: Bytes) -> object_store::Result<()>;
+
+    async fn complete(self: Box<Self>) -> object_store::Result<object_store::multipart::PartId>;
+}
 
 /// Host-supplied multipart client addressing the same root as the bucket's
 /// ordinary/CAS clients. Upload identifiers survive client replacement.
@@ -13,6 +25,26 @@ use object_store::{multipart::MultipartStore, path::Path, MultipartId, PutMultip
 /// require it refuse before an upload is allocated.
 #[async_trait]
 pub trait ResumableMultipartStore: MultipartStore {
+    fn supports_streamed_parts(&self) -> bool {
+        false
+    }
+
+    /// `capacity` grants storage capacity only, never application authority.
+    /// The backend retains it with its anonymous file and entered I/O. Writes
+    /// are at most 64 KiB, and completion requires exactly `length` bytes.
+    async fn begin_part(
+        &self,
+        _path: &Path,
+        _id: &MultipartId,
+        _index: usize,
+        _length: u64,
+        _capacity: Arc<dyn Send + Sync>,
+    ) -> object_store::Result<Box<dyn StreamedPart>> {
+        Err(object_store::Error::NotSupported {
+            source: "streamed resumable parts are unsupported by this backend".into(),
+        })
+    }
+
     fn supports_metadata(&self) -> bool {
         false
     }

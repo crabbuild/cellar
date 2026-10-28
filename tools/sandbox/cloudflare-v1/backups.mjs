@@ -29,6 +29,15 @@ function check(condition, message) {
 function bytes() {
   return Uint8Array.from({ length }, (_, index) => index % 251);
 }
+function archiveBytes() {
+  let state = 0x6d2b79f5;
+  return Uint8Array.from({ length }, () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state & 255;
+  });
+}
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -152,7 +161,7 @@ class Workspace extends DurableObject {
     if (route === "/faults") return failedBackupOperations(this);
     if (route === "/backup") {
       await this.files.mkdir("/workspace/source", { recursive: true });
-      await this.files.writeFile("/workspace/source/binary", bytes());
+      await this.files.writeFile("/workspace/source/binary", archiveBytes());
       const record = await this.backups.backup({
         dir: "/workspace/source",
         name: "native-http-backup",
@@ -175,7 +184,7 @@ class Workspace extends DurableObject {
       const restored = await this.files.readFile("/workspace/source/binary");
       const body = new Uint8Array(await restored.arrayBuffer());
       check(
-        body.length === length && sha256(body) === sha256(bytes()),
+        body.length === length && sha256(body) === sha256(archiveBytes()),
         "published backup/restore bytes",
       );
       return Response.json({ bytes: body.length, sha256: sha256(body) });

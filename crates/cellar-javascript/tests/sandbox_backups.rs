@@ -264,15 +264,21 @@ async fn exercise(
                 } else if route == "backup" {
                     ensure!(
                         value["format"] == "tar+zstd/1"
-                            && value["size"].as_u64().is_some_and(|size| size > 0)
+                            && value["size"].as_u64().is_some_and(|size| size > 64 * 1024)
                             && value["sha256"]
                                 .as_str()
                                 .is_some_and(|hash| hash.len() == 64),
                         "published archive record"
                     );
                 } else if route == "restore" {
+                    let mut state = 0x6d2b79f5_u32;
                     let bytes = (0..2 * 1024 * 1024 + 17)
-                        .map(|i| (i % 251) as u8)
+                        .map(|_| {
+                            state ^= state << 13;
+                            state ^= state >> 17;
+                            state ^= state << 5;
+                            state as u8
+                        })
                         .collect::<Vec<_>>();
                     ensure!(
                         value["bytes"] == bytes.len()

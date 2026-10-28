@@ -162,6 +162,14 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
     // either the bytes or receipts to the new gateway events.
     let (node, address) = start(&directory.path().join("second"), &database, application).await?;
     let result = async {
+        ensure!(
+            request(&client, &address, "/part-admission").await?
+                == json!({"code": "ValidationError", "outcome": "not_committed", "locked": false})
+        );
+        ensure!(
+            request(&client, &address, "/large-stream").await?
+                == json!({"bytes": 256 * 1024 + 17, "verified": true})
+        );
         let first = part(&client, &address, &id, 1, vec![0, 255, 42, 7]).await?;
         let second = part(&client, &address, &id, 2, b"backup".to_vec()).await?;
         ensure!(first != obsolete);
@@ -170,9 +178,11 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
             .query(&[("upload", &id)])
             .send()
             .await?;
+        let short_status = short.status();
+        let short_body = short.text().await?;
         ensure!(
-            short.status().as_u16() == 502 && short.text().await?.contains("too few bytes"),
-            "published gateway accepted a short part"
+            short_status.as_u16() == 502 && short_body.contains("too few bytes"),
+            "published gateway accepted a short part: {short_status}: {short_body}"
         );
         let oversized = client
             .get(format!("{address}/oversized"))

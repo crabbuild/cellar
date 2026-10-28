@@ -28,7 +28,7 @@
 //! that carries no CAS token is an error, never an empty token a later
 //! conditional write would trust.
 
-pub use crate::object_multipart::ResumableMultipartStore;
+pub use crate::object_multipart::{ResumableMultipartStore, StreamedPart};
 use anyhow::anyhow;
 use anyhow::Context;
 use bytes::Bytes;
@@ -640,6 +640,35 @@ impl Bucket {
         self.multipart
             .as_deref()
             .context("bucket has no resumable multipart backend")
+    }
+
+    pub fn supports_streamed_resumable_parts(&self) -> bool {
+        self.multipart
+            .as_ref()
+            .is_some_and(|client| client.supports_streamed_parts())
+    }
+
+    /// Stage one exact-length part. An incomplete/failed stage never replaces
+    /// the previous receipt; a lost completion response remains uncertain.
+    pub async fn begin_resumable_part(
+        &self,
+        key: &str,
+        id: &str,
+        index: usize,
+        length: u64,
+        capacity: Arc<dyn Send + Sync>,
+    ) -> anyhow::Result<Box<dyn StreamedPart>> {
+        anyhow::ensure!(index < 10_000, "multipart part index exceeds 9999");
+        Ok(self
+            .multipart_client()?
+            .begin_part(
+                &self.blob_path(key),
+                &id.to_string(),
+                index,
+                length,
+                capacity,
+            )
+            .await?)
     }
 
     /// Allocate a backend-owned identity. No in-process handle is required to

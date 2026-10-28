@@ -117,7 +117,9 @@ pub fn envelope(name: &str, error: &Error) -> Value {
         ("ResourceExpired", "not_committed")
     } else if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
-    } else if name != "cell.call" && error.is::<Validation>() {
+    } else if name != "cell.call"
+        && (error.is::<Validation>() || error.is::<cellar::sdk::blob::PartRefused>())
+    {
         ("ValidationError", "not_committed")
     } else if let Some(RoutedRequestError(verdict)) = error.downcast_ref::<RoutedRequestError>() {
         match verdict {

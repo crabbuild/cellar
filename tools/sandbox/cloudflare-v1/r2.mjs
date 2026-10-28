@@ -34,6 +34,63 @@ const app = workersApplication(
           props: { ...grant, mode: "control" },
         });
         const uploadId = url.searchParams.get("upload");
+        if (url.pathname === "/part-admission") {
+          const upload =
+            await this.env.BACKUPS.createMultipartUpload("backups/refused");
+          const { readable } = new FixedLengthStream(256 * 1024 * 1024 + 1);
+          try {
+            await upload.uploadPart(1, readable);
+            throw new Error("oversized stage admitted");
+          } catch (error) {
+            return Response.json({
+              code: error.code,
+              outcome: error.outcome,
+              locked: readable.locked,
+            });
+          } finally {
+            await upload.abort();
+          }
+        }
+        if (url.pathname === "/large-stream") {
+          const key = "backups/large-stream";
+          const upload = await this.env.BACKUPS.createMultipartUpload(key);
+          const length = 256 * 1024 + 17;
+          const { readable, writable } = new FixedLengthStream(length);
+          const writer = writable.getWriter();
+          const producer = (async () => {
+            try {
+              for (let offset = 0; offset < length; offset += 16384)
+                await writer.write(
+                  Uint8Array.from(
+                    { length: Math.min(16384, length - offset) },
+                    (_, index) => (offset + index) % 251,
+                  ),
+                );
+              await writer.close();
+            } finally {
+              writer.releaseLock();
+            }
+          })();
+          try {
+            const [part] = await Promise.all([
+              upload.uploadPart(1, readable),
+              producer,
+            ]);
+            await upload.complete([part]);
+            const object = await this.env.BACKUPS.get(key);
+            const body = new Uint8Array(await object.arrayBuffer());
+            if (
+              body.length !== length ||
+              !body.every((byte, index) => byte === index % 251)
+            )
+              throw new Error("streamed part corrupted bytes");
+            await this.env.BACKUPS.delete(key);
+            return Response.json({ bytes: body.length, verified: true });
+          } catch (error) {
+            await upload.abort();
+            throw error;
+          }
+        }
         if (url.pathname === "/short-part") {
           const gateway = this.ctx.exports.DirectoryBackupGateway({
             props: { ...grant, mode: "write", uploadId },

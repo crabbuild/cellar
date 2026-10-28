@@ -683,7 +683,9 @@ impl JavaScriptApplication {
                                     let scope = if event_owned
                                         || matches!(
                                             name.as_str(),
-                                            "workers.callback.finish" | "container.release"
+                                            "workers.callback.finish"
+                                                | "container.release"
+                                                | "workers.r2.part_cancel"
                                         ) {
                                         // Releasing an event-owned resource is cleanup,
                                         // and never borrows a callback's storage view.
@@ -708,6 +710,9 @@ impl JavaScriptApplication {
                                                         | "workers.r2.part"
                                                         | "workers.r2.complete"
                                                         | "workers.r2.abort"
+                                                        | "workers.r2.part_begin"
+                                                        | "workers.r2.part_write"
+                                                        | "workers.r2.part_finish"
                                                         | "workers.container.admit"
                                                         | "workers.container.perform"
                                                         | "container.exec"

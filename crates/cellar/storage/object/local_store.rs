@@ -458,6 +458,13 @@ macro_rules! store_blocking {
 #[path = "local_store_multipart.rs"]
 mod multipart;
 
+#[path = "local_store_streamed_part.rs"]
+mod streamed_part;
+
+#[cfg(test)]
+#[path = "local_store_streamed_part_tests.rs"]
+mod streamed_part_tests;
+
 #[cfg(test)]
 #[path = "local_store_multipart_tests.rs"]
 mod multipart_tests;

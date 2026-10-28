@@ -56,6 +56,32 @@ when abandoning it. Automatic expiry and orphan reconciliation remain delivery
 requirements. Constructing a resumed handle performs syntax checks; backend
 existence and current receipts are checked by its operations.
 
+## Stage a large part with bounded memory
+
+`begin_part` reserves native scratch capacity before opening an anonymous file.
+The temporary stage belongs to the original invocation; its upload ID and the
+published receipt remain durable values.
+
+```rust
+let mut part = upload.begin_part(ctx, 1, 12).await?;
+part.write(ctx, bytes::Bytes::from_static(b"backup bytes")).await?;
+let receipt = part.complete(ctx).await?;
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Backend | Explicit `supports_streamed_parts`; local SQLite supports it, undeclared clients refuse before allocation |
+| Writes | At most 64 KiB each; original invocation and Blob gate checked before I/O |
+| Publication | Exact declared length, SHA-256 receipt and atomic indexed replacement; old receipt survives incomplete staging |
+| Interrupted write | Discard the poisoned stage; never replay it as an append |
+| Drop / cancellation | Anonymous storage closes with its last owner; already entered file/SQLite work retains capacity and joins with the domain |
+| Uncertain completion | The part may have committed; discard temporary state and reconcile its receipt without assuming rollback |
+
+The host configures `CellLimits.blob.max_streamed_part_bytes` (256 MiB by
+default), `max_streamed_spool_bytes` (1 GiB across the host) and
+`max_streamed_parts` (64 files, including empty stages) before starting the
+generation. These limits are separate from buffered parts and bridge frames.
+
 ## Backend capabilities and bounds
 
 | Backend | Indexed identity | Metadata initiation | Current qualification |
@@ -68,8 +94,9 @@ existence and current receipts are checked by its operations.
 - Native buffered parts obey `blob.max_multipart_backlog_bytes`; completions
   accept 1–10,000 consecutive receipts.
 - The local backend's object size is bounded by SQLite's incremental BLOB API.
-  Publication copies 128 KiB at a time in one transaction. Upload inputs remain
-  caller-owned buffers; this is not an aggregate upload-memory guarantee.
+  Part staging copies at most 64 KiB; final object publication copies at most
+  128 KiB at a time in one transaction. Buffered input and caller-supplied
+  producer chunks retain their own memory; these bounds do not cap process RSS.
 - A failed completion response may follow publication. Do not automatically
   repeat create or completion, infer rollback, or erase an unresolved intent.
   Failure to observe the same completed version/ETag remains an error.

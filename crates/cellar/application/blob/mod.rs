@@ -11,8 +11,10 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 use std::sync::Arc;
 
+pub(crate) mod part;
 mod resumable;
 mod types;
+pub use part::{PartRefused, ResumablePart};
 pub use resumable::ResumableMultipart;
 pub use types::{
     Algorithm, Checksum, Conditional, GetOptions, HttpMetadata, ListOptions, Object, ObjectRange,
