@@ -17,8 +17,9 @@ two maintenance settlement, two isolation, three removal, thirteen catalog and
 914 other host library tests. Host/admin/logic all-target Clippy, formatting,
 layout, native dependencies, documentation and ten plan tests pass. The audit
 binds 1,791 Rust/Cargo/config inputs and retained executable/result hashes; the
-source commit is recorded in the delivery baseline. The acceptance inventory
-contains 486 required cases; validation does not certify all planned scenarios.
+source commit is `2990d411feb71ba45fb0e64111266bda2694469b`. The acceptance inventory
+validates 486 required cases and 114 source anchors; this does not certify all
+planned scenarios.
 Evidence remains outside runtime data in `docker-resources-v2`.
 
 The first verification correctly rejected a 3,221,225,472-byte configured memory
