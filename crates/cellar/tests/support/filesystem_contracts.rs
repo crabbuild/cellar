@@ -63,9 +63,15 @@ pub(crate) async fn preflight_authority(
                 .unwrap(),
             "open",
         ),
-        (previous.creat("/scope-refused", 0o600).err().unwrap(), "creat"),
+        (
+            previous.creat("/scope-refused", 0o600).err().unwrap(),
+            "creat",
+        ),
         (previous.lstat("/").unwrap_err(), "lstat"),
-        (previous.truncate("/scope-refused", 0).unwrap_err(), "truncate"),
+        (
+            previous.truncate("/scope-refused", 0).unwrap_err(),
+            "truncate",
+        ),
         (previous.rmdir("/scope-refused").unwrap_err(), "rmdir"),
         (previous.unlink("/scope-refused").unwrap_err(), "unlink"),
         (
@@ -73,12 +79,23 @@ pub(crate) async fn preflight_authority(
             "rename",
         ),
         (
-            previous.utimens("/", Times { atime: Time::Omit, mtime: Time::Now }).unwrap_err(),
+            previous
+                .utimens(
+                    "/",
+                    Times {
+                        atime: Time::Omit,
+                        mtime: Time::Now,
+                    },
+                )
+                .unwrap_err(),
             "utimens",
         ),
         (previous.opendir("/").err().unwrap(), "opendir"),
         (previous.statvfs().unwrap_err(), "statvfs"),
-        (previous.read_file("/scope-refused").unwrap_err(), "read_file"),
+        (
+            previous.read_file("/scope-refused").unwrap_err(),
+            "read_file",
+        ),
         (
             previous.read_file_bounded("/scope-refused", 1).unwrap_err(),
             "read_file_bounded",
@@ -88,8 +105,20 @@ pub(crate) async fn preflight_authority(
             "replace_file",
         ),
         (
-            previous.edit_file("/scope-refused", FileVersion { inode: 1, version: 1 },
-                &Edit { offset: 0, delete_bytes: 0, insert: b"bad".to_vec() }).unwrap_err(),
+            previous
+                .edit_file(
+                    "/scope-refused",
+                    FileVersion {
+                        inode: 1,
+                        version: 1,
+                    },
+                    &Edit {
+                        offset: 0,
+                        delete_bytes: 0,
+                        insert: b"bad".to_vec(),
+                    },
+                )
+                .unwrap_err(),
             "edit_file",
         ),
         (previous.read_dir("/", 1, None).unwrap_err(), "read_dir"),
