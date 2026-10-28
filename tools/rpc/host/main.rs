@@ -18,6 +18,7 @@ mod counter;
 mod crash;
 mod cycles;
 mod deadline;
+mod diagnostics;
 mod dispatch;
 mod fleet;
 #[allow(dead_code)]
@@ -85,7 +86,11 @@ fn main() -> Result<()> {
     let filter = tracing_subscriber::EnvFilter::builder()
         .with_default_directive(tracing_subscriber::filter::LevelFilter::WARN.into())
         .from_env()?;
-    proof::initialize_diagnostics(filter);
+    let diagnostics = diagnostics::initialize(filter);
+    diagnostics.finish(run())
+}
+
+fn run() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let mut report_path = None;
     let mut suite = Suite::Local;

@@ -44,8 +44,22 @@ contract passes 400 pre-fix replays, including concurrent runs; its original
 first-write failure remains unexplained. Implementation `a7b3534c` passes both
 full local Python SDK modes, V8/Node streaming and compatibility, JavaScript
 typed RPC, 20 focused native checks, affected Clippy and repository guards.
-Final serial validation records 3,999 unchanged tracked files; hosted CI remains
-queued. These passes do not close the retained failure's cause. See the
+Final serial validation records 3,999 unchanged tracked files. Subsequent
+`17ecfb42` hosted GIL RPC CI passes the profile but fails lifecycle after a
+worker-owner lease expires. A focused free-threaded probe also reproduces the
+first-write 500 on its 222nd fresh fleet with logging disabled. A separate
+controlled test identifies synchronous diagnostic-output backpressure; the
+qualifier now queues output and refuses incomplete diagnostic evidence. This
+does not yet establish the cause of the first-write or hosted lease failure.
+The follow-up passes 46 qualifier unit tests and both local 96-case lifecycle
+matrices with mode audits, joined runtimes and zero bridge reservations. Its
+free-threaded Python contract fails cross-domain context isolation with HTTP
+500 before reaching the fleet-write stage; a direct timing-enabled replay passes.
+Both failed observations remain release blockers. The GIL contract and the
+focused first-write probes pass; their success does not close those causes.
+See the
+[current investigation](implementation-status.md#diagnostic-backpressure-and-first-write-reproduction-2026-10-28-release-open)
+and the
 [latest implementation evidence](implementation-status.md#synchronous-turn-timer-starvation-2026-10-28-release-open).
 
 ## Remaining work, in delivery order
