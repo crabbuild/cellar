@@ -9,9 +9,9 @@ throughput and latency results below are **contended observations**: unrelated
 host Rust compilations overlapped the measured runs. They do not establish a
 latency improvement, sustainable capacity, or completion of MR-14/Q1.
 
-The [machine-readable evidence](evidence/MR-14-log-reclamation-progress.json)
-contains all thirteen runs, source/executable hashes, exact profiles, counters,
-resource observations, host contention, and hashes of retained raw evidence.
+Machine-readable evidence is retained locally outside version control. It contains
+all thirteen runs, source/executable hashes, exact profiles, counters, resource
+observations, host contention, and hashes of retained raw evidence.
 
 ## Sources and fixture
 

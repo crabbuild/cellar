@@ -893,7 +893,9 @@ pub(crate) mod catalog_control;
 pub use cancellation::InvocationCancellation;
 pub(crate) mod event_inventory;
 pub(crate) mod event_state;
+pub(crate) mod filesystem_state;
 pub(crate) mod rpc_authority;
+pub(crate) mod sandbox_execution;
 pub(crate) mod source_control;
 pub(crate) mod source_destruction;
 pub(crate) mod source_recovery;
@@ -1442,6 +1444,10 @@ impl RuntimeManager {
         epoch: u64,
         fresh: bool,
     ) -> anyhow::Result<(cellar_logic::isolate::HeapId, GenerationId)> {
+        anyhow::ensure!(
+            self.retirements.get(&cell).await?.is_none(),
+            "cell has been permanently retired"
+        );
         let db_path = self.db_path(&cell, epoch);
         let class = cell
             .split_once(':')
@@ -1449,7 +1455,27 @@ impl RuntimeManager {
             .ok_or_else(|| anyhow!("cell scope has no class: {cell}"))?;
         let generation = self.generation();
         let configured = generation.cell_config(class);
-        let config = match cellar_logic::work::materialization(configured.is_some(), fresh) {
+        let retained_local = if fresh && configured.is_none() && self.replication.is_none() {
+            let path = db_path.clone();
+            let filesystem = crate::asyncrt::fs();
+            asyncrt::try_blocking(move || match filesystem.metadata(&path) {
+                Ok(metadata) => Ok(metadata.is_file),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+                Err(error) => Err(error),
+            })?
+            .await??
+        } else {
+            false
+        };
+        let cleanup_class = generation
+            .source_recovery
+            .native_application
+            .as_ref()
+            .is_some_and(|app| app.sandbox_executor(class).is_some());
+        let config = match cellar_logic::work::materialization(
+            configured.is_some(),
+            fresh && !cleanup_class && !retained_local,
+        ) {
             cellar_logic::work::Materialization::Application => configured.expect("deployed class"),
             cellar_logic::work::Materialization::InspectRetainedSource => {
                 generation.source_recovery.clone()
@@ -1904,6 +1930,17 @@ impl RuntimeManager {
             drop(old);
         }
         (receive, guard)
+    }
+
+    /// Permanent sandbox-cell erasure status: absent, pending, or erased.
+    /// An erased receipt covers this node's files and the current replica objects;
+    /// offline volumes and historical shared logs retain their own GC policies.
+    pub async fn sandbox_erasure_status(&self, cell: &str) -> anyhow::Result<Option<&'static str>> {
+        anyhow::ensure!(
+            cellar_logic::cell::valid_cell_scope(cell) && cell.contains(':'),
+            "invalid cell scope"
+        );
+        self.retirements.status(cell).await
     }
 
     pub fn published_epoch(&self, cell: &str) -> Option<u64> {

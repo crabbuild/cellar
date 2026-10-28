@@ -251,6 +251,12 @@ metadata or the class's bounded `exposed_ports` deployment setting, and
 Use Linux when testing that isolation guarantee. The engine/fence remains a
 host-level prerequisite regardless of the handler language.
 
+Set `EngineOptions::capacity` for a hard per-host instance and memory budget
+sized to the actual daemon/VM allocation. Admission includes helper memory and
+retains reservations for uncertain create/start/wait outcomes. A full budget
+refuses a new start before Engine effects; see
+[native capacity admission](../crates/cellar-container/README.md#native-capacity-admission).
+
 An explicitly configured `ContainerEngineOptions::network_helper` selects the
 separate native helper lifecycle profile. It requires immutable helper input and
 explicit `runc`, owns DNS/port publication in the helper namespace and accounts

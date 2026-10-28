@@ -59,6 +59,11 @@ async function control(ctx: Context) {
   await container.setInactivityTimeout(60000);
   await container.interceptOutboundHttp("*.example.test", "API");
   await container.interceptOutboundHttp(null, "API");
+  await container.interceptOutboundHttps("*", "API");
+  // @ts-expect-error: HTTPS requires an explicit target string
+  await container.interceptOutboundHttps(null, "API");
+  // @ts-expect-error: portable HTTPS selects a declared binding
+  await container.interceptOutboundHttps("*", () => new Response());
   // @ts-expect-error: portable interception selects a declared service binding
   await container.interceptOutboundHttp(null, () => new Response());
   const output: ContainerExecOutput = await container.execOutput(
@@ -164,3 +169,25 @@ async function providerCapabilities(
   return { environment, version };
 }
 void providerCapabilities;
+
+// Dynamic allocations keep a complete checkpoint and string integer identity.
+async function namedSandboxes(
+  ctx: import("../../packages/cellar-sdk/index.js").Context,
+) {
+  const child = await ctx.sandboxes.start("build", "SANDBOXES");
+  const generation: string = child.generation;
+  await ctx.sandboxes.execute(child, "container.exec_output", {
+    options: { cmd: ["echo", generation] },
+    max_bytes: 1024,
+  });
+  // @ts-expect-error Cross-event process handles are intentionally unsupported.
+  await ctx.sandboxes.execute(child, "container.exec", {});
+  // @ts-expect-error A name alone must not select a replacement generation.
+  await ctx.sandboxes.destroy("build");
+  const page = await ctx.sandboxes.list({ limit: 10 });
+  const cursor: string | null = page.next;
+  await ctx.sandboxes.list({ after: cursor });
+  await ctx.sandboxes.destroy(child);
+  await ctx.sandboxes.retire();
+}
+void namedSandboxes;

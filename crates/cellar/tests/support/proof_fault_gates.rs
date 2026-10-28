@@ -280,3 +280,32 @@ impl MultipartUpload for PublicationUpload {
         self.upload.abort().await
     }
 }
+
+/// Alter one real published lease field, then join the observed native fence.
+pub async fn force_lease_field(
+    bucket: &cellar::bucket::Bucket,
+    node: cellar::sdk::Node,
+    name: &str,
+    field: &str,
+    value: &str,
+) -> Result<cellar::sdk::NodeOutcome> {
+    use anyhow::Context as _;
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fault = domain
+        .run(async {
+            let key = format!("nodes/{name}.json");
+            let (bytes, _) = bucket.get(&key).await?.context("published node lease")?;
+            let mut lease: serde_json::Value = serde_json::from_slice(&bytes)?;
+            lease[field] = serde_json::json!(value);
+            bucket.put(&key, serde_json::to_vec(&lease)?).await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    fault??;
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        node.run_until(std::future::pending()),
+    )
+    .await?
+}

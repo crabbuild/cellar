@@ -40,6 +40,10 @@ async function until(fn, description, timeout = 120000) {
 }
 
 async function scenario(boundary) {
+  const filesystem = boundary.startsWith("filesystem");
+  const taskPrompt = filesystem
+    ? "Exercise the bounded cell filesystem tools, including a stale-version refusal."
+    : prompt;
   const directory = join(root, boundary);
   await mkdir(directory);
   const store = await recoveryStore(directory, boundary);
@@ -87,6 +91,8 @@ async function scenario(boundary) {
           CELLAR_NODE: `tools-${boundary}-${generation}`,
           CELLAR_AI_PROVIDER: live ? "openai" : "fixture",
           CELLAR_AI_MODEL: process.env.CELLAR_AI_MODEL ?? "gpt-6-luna",
+          CELLAR_AI_TEST_LIVE: filesystem ? "0" : live ? "1" : "0",
+          CELLAR_AI_FILESYSTEM: filesystem ? "1" : "0",
           CELLAR_TEST_DATA_DIR: data,
           CELLAR_TOKIO_THREADS: "2",
           CELLAR_PLACEMENT_WEIGHT: "1",
@@ -102,7 +108,9 @@ async function scenario(boundary) {
           CELLAR_AI_COMPLETIONS: completions,
           CELLAR_AI_MARKER: marker,
           CELLAR_AI_PAUSE_AT:
-            generation === 1 && boundary === "external" ? boundary : "",
+            generation === 1 && (boundary === "external" || filesystem)
+              ? boundary
+              : "",
           RUST_LOG: "warn",
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -160,7 +168,7 @@ async function scenario(boundary) {
     await kill();
     const beforeRestart = await store.inspect();
     const deleted = current.data;
-    const rows = await workerState(deleted);
+    const rows = await workerState(deleted, { filesystem });
     assert.ok(
       (await readdir(deleted)).length > 0,
       "old worker must have local files to erase",
@@ -209,20 +217,21 @@ async function scenario(boundary) {
     const post = await fetch(`${origin}/api/tasks/task`, {
       method: "POST",
       headers: { origin },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt: taskPrompt }),
     });
     assert.equal(post.status, 202);
-    if (boundary === "external") {
+    if (boundary === "external" || filesystem) {
       await until(async () => {
         try {
           await access(marker);
           return true;
         } catch {}
       }, "remote effect committed");
-      assert.equal(
-        (await (await fetch(`${origin}/api/tickets`)).json()).effects,
-        1,
-      );
+      if (!filesystem)
+        assert.equal(
+          (await (await fetch(`${origin}/api/tickets`)).json()).effects,
+          1,
+        );
       await coldRestart();
     }
     // Wait on a test observation file, without a task GET that could activate it.
@@ -242,24 +251,84 @@ async function scenario(boundary) {
     }
     const result = await (await fetch(`${origin}/api/tasks/task`)).json();
     assert.equal(result.status, "completed", JSON.stringify(result));
-    assert.equal(result.count, 13);
+    assert.equal(result.count, filesystem ? 0 : 13);
     assert.equal(result.attempts, 2);
-    assert.equal(result.toolReceipts, 6);
-    assert.deepEqual(result.receipts.map((item) => item.name).sort(), [
-      "calculate",
-      "createTicket",
-      "increment",
-      "lookup",
-      "readState",
-      "saveNote",
-    ]);
-    assert.equal(
-      result.receipts.find((item) => item.name === "calculate").result.value,
-      168,
+    assert.equal(result.toolReceipts, filesystem ? 9 : 6);
+    assert.deepEqual(
+      result.receipts.map((item) => item.name).sort(),
+      filesystem
+        ? [
+            "deleteFile",
+            "editFile",
+            "editFile",
+            "listFiles",
+            "readFile",
+            "readFile",
+            "renameFile",
+            "searchFiles",
+            "writeFile",
+          ]
+        : [
+            "calculate",
+            "createTicket",
+            "increment",
+            "lookup",
+            "readState",
+            "saveNote",
+          ],
     );
+    if (!filesystem)
+      assert.equal(
+        result.receipts.find((item) => item.name === "calculate").result.value,
+        168,
+      );
     const tickets = await (await fetch(`${origin}/api/tickets`)).json();
-    assert.equal(tickets.effects, 1);
-    assert.equal(tickets.requests, boundary === "external" ? 2 : 1);
+    assert.equal(tickets.effects, filesystem ? 0 : 1);
+    assert.equal(
+      tickets.requests,
+      filesystem ? 0 : boundary === "external" ? 2 : 1,
+    );
+    if (filesystem) {
+      const reads = result.receipts.filter((item) => item.name === "readFile");
+      assert.equal(reads[0].result.text, "first contents");
+      assert.equal(reads[1].result.text, "other contents");
+      const edits = result.receipts.filter((item) => item.name === "editFile");
+      assert.equal(edits[0].result.inserted_bytes, 5);
+      assert.deepEqual(edits[1].result.error, {
+        code: "Conflict",
+        errno: "EBUSY",
+        outcome: "not_committed",
+      });
+      assert.equal(
+        result.receipts.find((item) => item.name === "listFiles").result.entries
+          .length,
+        1,
+      );
+      assert.equal(
+        result.receipts.find((item) => item.name === "searchFiles").result
+          .matches.length,
+        1,
+      );
+      const captured = restarts[0].workerState[0].files[0];
+      assert.equal(captured.inode, reads[0].result.inode);
+      if (boundary === "filesystem") {
+        assert.equal(
+          captured.version,
+          reads[0].result.version,
+          "recovery must replay the write receipt without rewriting the file",
+        );
+        assert.equal(
+          Buffer.from(captured.prefix, "base64").toString(),
+          "first contents",
+        );
+      } else {
+        assert.ok(BigInt(captured.version) > BigInt(reads[0].result.version));
+        assert.equal(
+          Buffer.from(captured.prefix, "base64").toString(),
+          "other contents",
+        );
+      }
+    }
     if (boundary === "stream") {
       assert.ok(
         events.some((event) => event.type === "text" && event.attempt === 1),
@@ -286,7 +355,7 @@ async function scenario(boundary) {
         "interruption must precede the final model checkpoint",
       );
     }
-    if (live)
+    if (live && !filesystem)
       assert.ok(
         result.usage.every(
           (item) => item.inputTokens.total > 0 && item.outputTokens.total > 0,
@@ -300,12 +369,16 @@ async function scenario(boundary) {
       result.modelSteps + (boundary === "stream" ? 1 : 0),
       "only the interrupted, uncheckpointed model response may repeat",
     );
-    const recoveredRows = await workerState(current.data);
+    const recoveredRows = await workerState(current.data, { filesystem });
     assert.equal(recoveredRows.length, 1);
-    assert.equal(recoveredRows[0].count, 13);
-    assert.deepEqual(recoveredRows[0].notes, [
-      result.receipts.find((item) => item.name === "saveNote").input,
-    ]);
+    assert.equal(recoveredRows[0].count, filesystem ? 0 : 13);
+    assert.deepEqual(
+      recoveredRows[0].notes,
+      filesystem
+        ? []
+        : [result.receipts.find((item) => item.name === "saveNote").input],
+    );
+    if (filesystem) assert.deepEqual(recoveredRows[0].files, []);
     if (boundary === "stream")
       assert.deepEqual(recoveredRows, restarts[0].workerState);
     assert.equal(
@@ -313,7 +386,7 @@ async function scenario(boundary) {
         await fetch(`${origin}/api/tasks/task`, {
           method: "POST",
           headers: { origin },
-          body: JSON.stringify({ prompt }),
+          body: JSON.stringify({ prompt: taskPrompt }),
         })
       ).status,
       200,
@@ -350,7 +423,7 @@ async function scenario(boundary) {
       workerState: recoveredRows,
     });
     console.log(
-      `PASS ${boundary}: six tools, two attempts, count 13, one external effect, ${tickets.requests} downstream requests, unchanged duplicate`,
+      `PASS ${boundary}: ${result.toolReceipts} receipts, two attempts, count ${result.count}, ${tickets.effects} external effects, ${tickets.requests} downstream requests, unchanged duplicate`,
     );
   } finally {
     abort.abort();
@@ -368,6 +441,8 @@ async function scenario(boundary) {
 
 try {
   await scenario("external");
+  await scenario("filesystem");
+  await scenario("filesystem-read");
   // A provider fixture can finish synchronously before a socket round trip.
   // Streaming interruption is qualified against the real provider only.
   if (live) await scenario("stream");

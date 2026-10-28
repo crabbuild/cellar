@@ -159,9 +159,9 @@ stack regression. The latter reproduced on this branch, passed on unmodified
 An archive coalescing assertion and a partial-body injection assertion initially
 missed their timing conditions under concurrent load; both passed unchanged in
 the final complete suite. The initial VM loss happened before fixture creation.
-These attempts and the successful final run are retained in the
-[sanitized results and raw-evidence hashes](evidence/MR-13-disaster-recovery-progress.json).
-Private configuration, ledgers and stopped new volumes remain available locally.
+Machine-readable results and raw-evidence hashes for these attempts and the
+successful final run are retained locally outside version control, together with
+private configuration, ledgers and stopped new volumes.
 
 MR-13 remains open. This qualifies the materialized-image component and Docker
 controller boundary. It does not qualify independent failure domains, Amazon S3,

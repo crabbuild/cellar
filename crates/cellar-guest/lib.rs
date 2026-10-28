@@ -6,10 +6,13 @@
 mod chunk_stream;
 pub mod containers;
 pub mod failure;
+pub mod filesystem;
+mod filesystem_batch;
 pub mod operations;
 mod request_body;
 mod rpc_control;
 pub mod rpc_failure;
+mod sandboxes;
 mod storage;
 pub mod transport;
 pub mod values;
@@ -19,6 +22,7 @@ pub mod workers;
 /// Limits enforced before entering native effects.
 #[derive(Clone, Debug)]
 pub struct Limits {
+    pub max_value_bytes: usize,
     pub max_body_bytes: usize,
     pub max_batch_operations: usize,
 }

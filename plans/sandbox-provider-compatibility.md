@@ -185,6 +185,38 @@ SP-07 must not replace the celld baseline without a distinct migration profile.
 Hosted deployment and live-account qualification are explicit delivery steps.
 Fixture passes are not live cloud qualification or full Workers compatibility.
 
+## Production targets supplied by the user
+
+These targets extend the original goal; they are acceptance requirements, not
+claims about the current implementation.
+
+| Area | Required target | Current gap / delivery rule |
+| --- | --- | --- |
+| Sandbox concurrency | A business cell can allocate as many named sandboxes as its workload requires | Native currently owns one container per execution cell. Optional atomic host instance/memory admission now precedes Engine effects and retains uncertain reservations. The durable named catalog, authenticated child execution and scheduled explicit-retirement cleanup are implemented; per-class native fleet placement is implemented; four-language dynamic facades, deployment-removal cleanup and durable cell erasure are implemented; qualify deployment saturation/recovery; scale by available capacity rather than an unbounded in-memory map or a fixed single sandbox |
+| Lifetime | No user-specified maximum | Do not invent a global job lifetime. Publish effective provider limits and support long-lived ownership/renewal where available; ownership loss, explicit destruction and orphan cleanup still apply |
+| Transfer defaults | 64 KiB streaming frames and 16 MiB multipart parts | Chosen defaults for common transfer paths. Pinned SDK/shim profiles retain their published geometry when it is not configurable and must record/qualify it separately. Qualify exact-byte 64 MiB and 256 MiB transfers, cancellation and recovery with bounded memory and temporary storage; larger objects remain subject to explicit host/provider quotas |
+| Temporary storage | Preserve explicit host limits | Existing defaults reserve at most 1 GiB of streamed-part scratch space and 64 files. Admission must retain reservations for uncertain/entered work until joined cleanup; overload reports backpressure/refusal |
+| Recovery | At most 300 seconds per sandbox; aim for 60 seconds or less | The [native fleet protocol profile](../crates/cellar-container/fleet-qualification.md) recovers all 1,024 original sandboxes within 73.425 seconds, including a 30-second provider outage; 812 meet 60 seconds. Live deployment/provider and wider failure qualification remain required. Never substitute a fresh empty sandbox when durable restoration was promised |
+
+The named allocation boundary must preserve scope/epoch checks, independent run
+identity, capability discovery, no replay of uncertain mutations, parent/cell
+removal cleanup and the celld-compatible single-container execution-cell path.
+The execution topology is a business cell coordinating independently owned
+sandbox execution cells, retaining one native container per execution cell.
+The native [allocation catalog](../crates/cellar-container/allocations.md)
+now reserves named child identities with durable generations and parent
+retirement barriers. Managed allocations use authenticated child RPC, bounded
+provider execution and scheduled cleanup after explicit parent retirement.
+Native resource deletion verifies exact ID absence. Child and opt-in parent
+SQLite/replica erasure, removed-class orphan discovery and four-language allocation
+facades are implemented. Broader capacity-placement qualification remains open;
+manual catalog reservations alone do not allocate compute.
+
+Qualification should increase concurrent allocations until the configured host
+capacity is reached, verify bounded queuing/refusal, then inject owner loss and
+restart while measuring each sandbox's recovery against the target. No numeric
+unlimited-concurrency throughput claim is implied by "as many as needed".
+
 ## Next feature priorities
 
 The [current ledger](sandbox-provider-progress.md#requirement-audit) separates
@@ -199,8 +231,8 @@ qualification remains open.
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
 | 1 — qualification | Free-threaded typed RPC, peer-proxy lifetime, cold recovery, cold-first-call and heartbeat | Current main's RPC admission/idle-reuse protection is merged. At head `9dc616ec`, Linux JavaScript/Node fails accepted-create owner-expiry recovery; its exact local test and full five-case fleet suite pass, with new bounded failure observations at unchanged budgets. The same head's outbound workflow and free-threaded typed RPC pass, while GIL typed RPC fails with a closed owner and `NodeLeaseExpired`. The renewal cause, earlier free-threaded finding, intermittent local 250 ms dispatch failure and heartbeat finding remain unproven; successful controls do not repair those qualification gaps. The later `7a7644b4` JavaScript/Node, outbound, Python and typed-RPC workflows pass; those controls do not establish the earlier failures’ causes |
-| 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Provider API outage through repeated cold replacement and owner-specific store isolation now have native peer coverage; broader outages, partitions, physical deletion and provider-enforced fencing remain open |
-| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | Known-length native part staging and persisted local expiry are delivered. The matching published SDK/image now covers selected lost-create acknowledgement and hard-crash recovery: a replacement process reclaims unpublished rows, reaps the exact crashed application/helper resources and restores the earlier archive. Next deliver HTTPS and S3 mounts, and qualify lost transport responses, larger/multi-part and verified-swap cancellation and broader crash boundaries. Remote-provider expiry, additional providers and Dynamic Workers remain open; the evidence ledger preserves the detailed operation/profile inventory |
+| 2 — feature delivery | Faulted fleet recovery, cleanup throughput and stronger provider lifecycle guarantees | Native currently has one container per execution cell; the user requires scalable named sandboxes per business cell with bounded capacity admission. Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Provider API outage through repeated cold replacement and owner-specific store isolation now have native peer coverage; named allocation now has Python/JS/TS facades, deployment-removal cleanup and child/opt-in-parent SQLite/replica erasure with permanent external barriers. The 1,024-sandbox native protocol campaign now measures recovery, faulted cleanup and fleet cache audits within 300 seconds. Broader outages/partitions, deployment-specific saturation and provider-enforced fencing remain open |
+| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | Known-length native part staging and persisted local expiry are delivered. The matching published SDK/image now covers selected lost-create acknowledgement and hard-crash recovery: a replacement process reclaims unpublished rows, reaps the exact crashed application/helper resources and restores the earlier archive. The optional native HTTPS profile now has per-run CA injection and matching-image TLS routing evidence. Next deliver S3 mounts and qualify wider TLS/fault/client behavior, lost transport responses, larger/multi-part and verified-swap cancellation and broader crash boundaries. Remote-provider expiry, additional providers and Dynamic Workers remain open; the evidence ledger preserves the detailed operation/profile inventory |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06

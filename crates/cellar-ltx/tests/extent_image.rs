@@ -7,6 +7,9 @@
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
 
+#[path = "support/extent_fetch_coalescing.rs"]
+mod fetch_coalescing;
+
 use bounded_files::BoundedFiles;
 use cellar_ltx::{
     generation::ReadServices,
@@ -161,14 +164,18 @@ impl Fixture {
     }
 
     fn image(&self) -> ExtentImage {
+        self.image_with(self.source.clone(), self.scratch.clone())
+    }
+
+    fn image_with(&self, source: Arc<dyn ExtentSource>, scratch: ScratchPool) -> ExtentImage {
         let encoded = self.manifest.encode().unwrap();
         let manifest = ExtentManifest::decode(&encoded, self.manifest.root()).unwrap();
         ExtentImage::new(
             manifest,
-            self.source.clone(),
+            source,
             self.files.clone(),
             self.root.path().into(),
-            self.scratch.clone(),
+            scratch,
             CacheLimits {
                 max_cached_bytes: EXTENT_BYTES,
                 max_cached_extents: 1,

@@ -21,14 +21,17 @@ pub use wait::run as waits;
 pub use wait::smoke as wait_smoke;
 pub use wait::v8_repro as wait_v8_repro;
 
-pub(crate) fn initialize_diagnostics(filter: tracing_subscriber::EnvFilter) {
-    lease_trace::install(Some(filter));
+pub(crate) fn initialize_diagnostics<W>(filter: tracing_subscriber::EnvFilter, writer: W)
+where
+    W: for<'writer> tracing_subscriber::fmt::MakeWriter<'writer> + Send + Sync + 'static,
+{
+    lease_trace::install_with_writer(Some(filter), writer);
 }
 
 // Reuse the owning SDK harness's real peer/object-store faults. Its lost-ack
 // variant is outside this suite; no runtime hooks or fake proof tickets exist.
 #[allow(dead_code)]
-#[path = "../../../../crates/cellar-python/tests/support/fault_gates.rs"]
+#[path = "../../../../crates/cellar/tests/support/proof_fault_gates.rs"]
 mod faults;
 
 // The SDK bridge executable uses harness=false. Run the shared fault adapter's
@@ -597,7 +600,7 @@ mod diagnostics_tests {
     fn logging_and_proof_observations_share_one_subscriber() {
         // The proof layer must remain enabled even when the stderr layer is
         // disabled, and later fixture installation must reuse the same trace.
-        initialize_diagnostics(tracing_subscriber::EnvFilter::new("off"));
+        initialize_diagnostics(tracing_subscriber::EnvFilter::new("off"), std::io::sink);
         let first = lease_trace::install(None);
         let second = lease_trace::install(None);
         assert!(Arc::ptr_eq(first, second));

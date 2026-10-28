@@ -95,6 +95,16 @@ impl Visit for Fields {
 /// diagnostics. Only the executable boundary supplies an environment filter;
 /// actor fixtures pass None and retain their memory-only behavior.
 pub fn install(logging: Option<tracing_subscriber::EnvFilter>) -> &'static Arc<Trace> {
+    install_with_writer(logging, std::io::stderr)
+}
+
+pub fn install_with_writer<W>(
+    logging: Option<tracing_subscriber::EnvFilter>,
+    writer: W,
+) -> &'static Arc<Trace>
+where
+    W: for<'writer> tracing_subscriber::fmt::MakeWriter<'writer> + Send + Sync + 'static,
+{
     static TRACE: OnceLock<Arc<Trace>> = OnceLock::new();
     TRACE.get_or_init(|| {
         let trace = Arc::new(Trace {
@@ -114,7 +124,7 @@ pub fn install(logging: Option<tracing_subscriber::EnvFilter>) -> &'static Arc<T
             .with(logging.map(|filter| {
                 tracing_subscriber::fmt::layer()
                     .with_ansi(false)
-                    .with_writer(std::io::stderr)
+                    .with_writer(writer)
                     .with_filter(filter)
             }));
         tracing::subscriber::set_global_default(subscriber).expect("actor fixture owns tracing");

@@ -17,9 +17,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
+| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Named dynamic allocation, deployment-removal cleanup and SQLite/replica erasure are delivered in the milestone below; richer operations, broader outages/partitions, deployment-specific scale, remote fencing and live failure qualification remain |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/larger-transfer/verified-swap/lost-create/transport faults, orphan expiry, full persistence/versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation/first-chunk cancellation and selected archive/control-acknowledgement failure paths through native HTTP and Blob storage; known-length part staging uses anonymous files and host byte/file limits, with incompressible matching-image input; an explicit native HTTPS profile has per-run CA injection and matching-image retained TLS routing | S3 mounts, wider TLS client/fault behavior, remaining extended container/helper APIs, broader crash/larger-transfer/verified-swap/transport faults, remote orphan expiry, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -42,7 +42,8 @@ independent of the optional Workers runtime.
 | Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
-| Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
+| Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Durable cell erasure and the 1,024-sandbox local fleet campaign are delivered below; broader outages/partitions and remote fencing remain open |
+| Delivered native named-child slice; production qualification open | Authenticated child execution, explicit-parent retirement and capacity-aware placement | Protected parent/child identities, bounded RPC, restartable scheduled cleanup, exact Engine deletion proof and two-host placement. Dynamic language allocation, removed-deployment discovery and durable cell erasure are delivered. The 1,024-sandbox native protocol profile meets the 300-second recovery ceiling; deployment-specific saturation and live-provider qualification remain open |
 | Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, files and directory backups | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize, actual files and DirectoryBackup backup/restore/delete; fresh ownership gates and handler replacement on a retained HTTP connection |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
@@ -3082,3 +3083,401 @@ SDK/image. It does not establish power-loss durability, every crash point, cloud
 expiry, full transport-loss reconciliation, concurrent/multipart bounds, HTTPS,
 S3 mounts, verified-swap cancellation or full Sandbox/Workers compatibility.
 SP-02–SP-10 remain partial/outstanding; live E2B/Vercel still awaits configuration.
+
+
+## Native HTTPS interception: separate opt-in profile
+
+The shared framework now carries `container.intercept_outbound_https` through
+Rust, Python, JavaScript and TypeScript. Native hosts opt in with both
+`Native.with_https_interception()` and the helper's HTTPS options. Ordinary
+Native, HTTP-only Native and remote providers omit this operation. A configured
+provider with missing native infrastructure still refuses before effects.
+
+```mermaid
+sequenceDiagram
+    participant H as Native host
+    participant C as Application container
+    participant N as Run-owned network helper
+    participant G as Declared gateway
+    H->>H: Generate per-run CA with domain RNG
+    H->>C: Install public CA before startup
+    C->>N: TLS to port 443
+    N->>H: Original destination + private stream
+    H->>H: Validate SNI / HTTP Host and fresh ownership
+    H->>G: Stream decrypted HTTP request
+    G-->>C: Stream response over authenticated TLS
+```
+
+| Contract | Delivered boundary |
+| --- | --- |
+| Trust | Public CA at the Cloudflare certificate path; private key stays in native host; each replacement run rotates CA |
+| Scope | HTTP/1.1 on explicit HTTPS targets; wildcard/IP/CIDR and `*`; HTTP and HTTPS remain separate while sharing the existing 128-entry budget |
+| Live updates | Capture 443 at run startup and resolve the current handler per decrypted message, including an already authenticated connection |
+| Upstream | Unmatched requests use marked helper direct connections and host-selected certificate/name verification; guest trust/client certificates are not forwarded |
+| Limits | Five-second handshake/read bounds, 64 KiB pending TLS write buffer, 64 cached leaf configurations, finite CA validity and no cross-host signer reuse |
+| Ownership | Existing native request gates, retirement and joined transport; no guest event/environment retained and no mutation replay |
+
+| Evidence | Observation |
+| --- | --- |
+| Production TLS/router tests | Per-run CA separation, public-only archive, bounded cache/eviction, old accepted leaf config still authenticates, wrong-name/wrong-CA refusal, handler replacement, upstream TLS name validation and pending-request retirement pass |
+| Published SDK/image | `sandbox_https` uses unchanged Files 1.0.3 and matching shim/image; two create/routing/destroy runs pass in 21.04 seconds |
+| Real container workload | Three handlers share one TLS connection, each echoes 2 MiB + 17 bytes with exact SHA-256 under the original 64 KiB bridge frame limit; an untrusted client refuses the run CA; plain HTTP remains direct |
+| Negative request | Full-size mismatched HTTP Host receives the existing fixed 502 with `Connection: close`; a fresh authenticated connection still uses the current handler |
+| Replacement | A later run has a different public CA digest; completed process handles release and native/Node joined checks pass |
+
+Initial fixture failures came from asserting socket reuse after the router's
+explicit failure-close response. Diagnostics established that all three full
+successful transfers and the mismatch refusal had already passed. The final
+fixture keeps the full-size negative request, asserts connection closure and
+requires a new authenticated connection; successful-transfer connection reuse,
+byte checks and original deadlines are unchanged. No production failure policy
+was relaxed.
+
+This is selected native HTTPS evidence. HTTP/2, generic TLS interception,
+upgrades/trailers, guest custom upstream trust/client certificates, every TLS
+client library, wider fault/resource bounds, S3 mounts and full Sandbox/Workers
+compatibility remain open. S3 mounts need a separately explicit native filesystem
+and privilege contract plus matching `s3fs`/FUSE image qualification. Additional
+providers and Dynamic Workers remain on the original plan; E2B/Vercel live tests
+still await configuration.
+
+
+Final local checks for this HTTPS slice: 29 native container unit tests, eight
+Rust SDK/Engine tests, 78 shared provider/egress tests (including all five fleet
+cases), Node and V8 container facades, and the CPython 3.14 container boundary
+pass. Both TypeScript surfaces and all 152 JS/TS tests pass; both input pin checks
+and 122-source JS formatting pass. The existing three-process published backup
+crash campaign passes again in 45.07 seconds with the HTTPS-capable host/helper
+sources and its HTTP-only configuration. Strict all-target Clippy passes for
+core, egress, container, JavaScript (Node/V8) and embedded Python. Rust formatting,
+1,353-file layout, the 496-package native-only graph, docs and whitespace pass.
+The two separate ignored native-egress Engine campaigns were not selected by
+the ordinary SDK test run; matching-image evidence above covers this new slice.
+
+A new language assertion also exposed the shared audited test wrapper's old
+`Operation::ALL` advertisement despite its ordinary Native backend. The wrapper
+now delegates operation discovery to Native; Node/V8 and Python verify HTTPS
+absence and `not_committed` refusal. No refusal assertion was removed.
+
+## Production acceptance still required
+
+The optional sandbox/container compatibility effort is **not production-ready as
+a complete profile**. Passing local slices do not promote the remaining provider
+surfaces or resolve the earlier intermittent CI findings. Keep the full
+[delivery plan](sandbox-provider-compatibility.md#next-feature-priorities).
+
+| Remaining area | Required delivery / acceptance |
+| --- | --- |
+| S3 mounts | Explicit host/class filesystem privilege contract, pinned FUSE/s3fs image, actual published S3Mount/S3Gateway reads/writes, reuse, denied access, uncertain results, unmount and owned cleanup |
+| Runtime / SDK gaps | Remaining Workers bindings/loader and RPC lifetimes; complete published Containers/Sandbox version inventories and exact unsupported-operation refusal |
+| Recovery / ownership | Broader outage/partition, physical cell deletion, takeover, expiry/orphans, accepted-but-unanswered effects, verified-swap and multipart/concurrency qualification |
+| Other providers | Separate Daytona/Modal and optional hosted Cloudflare/Dynamic Workers implementation and qualification; E2B/Vercel real-account evidence remains deferred |
+| Resource / operational bounds | Saturation, backpressure, cancellation, storage exhaustion, long-running workloads, helper packaging, deployment/upgrade and joined-shutdown evidence |
+| Release gate | Version/operation/isolation matrix with source/image/toolchain-bound results; unresolved CI regressions and unqualified operations remain explicit and cannot be reported as production-qualified |
+
+
+### Updated-main HTTPS validation and production targets
+
+The HTTPS slice was moved from merged PR #147 onto current main `5998b82c`,
+which also contains the RPC response-ownership fix (#149), and opened as
+[PR #150](https://github.com/crabbuild/cellar/pull/150). On this base: both new
+guest response-ownership tests, eight Rust SDK tests, the two-run matching-image
+HTTPS campaign (18.59 seconds), three-process backup crash regression (48.10
+seconds), Node/V8 facades, the CPython 3.14 container boundary, all 78 shared
+provider/egress cases, 29 native container unit cases and strict six-crate
+all-target Clippy pass. The egress README example compiles with the explicit
+protocol field. Rust formatting/layout cover 1,354 files; the native-only graph
+remains 496 packages without a JavaScript engine. Seven campaign namespaces have
+zero owned containers/networks. The labeled temporary helper was removed and the
+private VM stopped; its configuration and the default Docker context remain
+unchanged. These are local selected-profile results; CI and broader release
+qualification remain separate.
+
+The user subsequently specified elastic sandbox counts per business cell, no
+fixed maximum lifetime, implementation-selected transfer sizes, and recovery in
+one to five minutes per sandbox. The [production targets](sandbox-provider-compatibility.md#production-targets-supplied-by-the-user)
+now record 64 KiB frames, 16 MiB parts and 64/256 MiB qualification payloads,
+plus current scratch limits and explicit recovery semantics. These larger
+transfer/concurrency/RTO targets are **not yet qualified**. Native's current
+single-container-per-execution-cell model needs a named allocation/pool boundary
+before it satisfies the requested business-cell concurrency. This is required
+feature work, not a reason to remove resource bounds or silently change the
+existing single-container path.
+
+### Native capacity admission and uncertain outcomes
+
+The next allocation prerequisite adds optional `EngineOptions::capacity` hard
+limits for one host's application instances and memory. Admission is atomic
+across execution cells and includes the configured helper's 256 MiB cap before
+allocation. Size budgets for the actual Engine/VM and leave infrastructure
+headroom; separate hosts sharing a daemon need disjoint budgets. Class
+`max_instances` is hard locally; peer counts remain advisory fleet samples.
+
+| Case | Implemented behavior |
+| --- | --- |
+| Full budget | Refuse before Engine effects with typed `CapacityExceeded`; the shared direct/queued start boundary reports `ResourceExhausted` / `not_committed` |
+| Failed start or wait | Running-state failure does not discharge the application reservation |
+| Lost create acknowledgement | Retain the create obligation and budget; an empty inventory cannot authorize replay or claim successful deletion |
+| Helper cleanup | An unresolved application create also prevents removal of its helper and release of its budget |
+| Cancellation after create | Submit owned cleanup for ordinary native containers as well as helper-backed runs; later runs cannot be removed by the old cancellation task |
+| Exit or removal | Positive exit evidence releases application memory; exact owned removal releases the remaining cleanup reservation |
+
+This supplies local admission for the existing execution-cell model. Dynamic
+named allocation, durable parent/child ownership, fleet placement retry, physical
+parent deletion and the requested business-cell pool remain required feature
+work. Aggregate CPU/daemon storage budgeting, remote-provider budgets, soak and
+release qualification are separate acceptance work; this slice does not certify
+production readiness.
+
+Initial validation: all 30 selected container unit tests pass, including 16
+simultaneous candidates tested separately against memory, host-count and class
+budgets. All nine native SDK/Engine integration tests and 12 shared failure
+classification tests pass. The lifecycle fixture covers failed start, an
+accepted-but-hidden create, replay refusal, lost wait, and cancellation after
+create followed by exact owned removal. Its intentional cancelled `/start`
+connection is recognized only after the cancellation signal and is required to
+occur exactly once; other protocol errors still fail. An initial test-only
+private-field access was removed in favor of the public Engine API. No timeout,
+resource-release assertion or unknown-outcome assertion was relaxed.
+
+The updated matching-image HTTPS test configures a one-instance, 1,280 MiB
+application/helper budget. Its rerun **did not qualify**: after the private
+`cellar-sandbox-9dea` VM was started with unchanged configuration and a labeled
+helper image was built, its profile directory, socket and Docker context
+disappeared during compilation. The test failed at the first Engine connection
+with `ENOENT`, before campaign allocation; the Node runtime joined with zero
+active invocations and retained bytes. Previous-head image results remain
+previous-head evidence. This turn does not claim an image pass or a final
+inventory check against the unavailable daemon.
+
+A later SDK rerun exposed a separate Engine-peer rename race. Focused repetition
+reproduced it on attempt two: the immutable-ID waiter received a false 404 and
+correctly retired the native run. The fixture resolved its ID map and resource
+map under separate locks while rename moved both. Lookup now uses the same
+atomic lock order as rename, retaining the captured wait sender. The original
+rename/foreign-resource assertions pass in 100 consecutive focused runs after
+the fix; no production ownership check was relaxed. The peer listener also uses
+the required execution-domain selection macro, resolving its strict lint error.
+
+Final framework checks: all nine native SDK cases, 30 selected container unit
+cases, 12 failure-envelope cases, all 42 provider unit/integration cases
+(including five fleet cases), seven provider documentation examples, and strict
+six-crate all-target Clippy pass. Rust formatting/layout cover 1,356 files;
+the 496-package native dependency guard and 840-reference documentation check
+pass. These results do not replace the unavailable matching-image rerun.
+
+Both Node/V8 container facade cases and the CPython 3.14 runtime-container bridge
+also pass against the corrected Engine peer. The final formatting check passes.
+
+
+## Durable named allocation catalog
+
+The next native topology is a business cell owning a catalog of independently
+routed sandbox execution cells. Each execution cell retains the existing single
+native container contract. This slice adds the host-only `SandboxCatalog`; it
+reserves child identities but does not yet create compute or expose child calls.
+See the [allocation guide](../crates/cellar-container/allocations.md) for the
+state diagrams, controller obligations and API examples.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Named reservation | Current parent scope/incarnation + name + generation determine an execution name; the configured namespace determines its scope |
+| Duplicate or uncertain create | Same generation and parameter digest; only the first reservation reports fresh; no implicit replay |
+| Replacement | Confirmed old-child deletion is required; the next generation has a different execution identity |
+| Parent retirement | Atomically closes reservation/readiness admission before cleanup; finishing refuses until every child is confirmed deleted |
+| Cleanup inventory | Indexed keyset pages of at most 256 entries; no fixed parent allocation count or resident map |
+| Authority and durability | Original root-event checks, full checkpoint comparison, native storage sync and post-sync parent/child recheck |
+| Protected recovery | Guest SQL cannot forge records; business clear preserves them; unsupported, incomplete or inconsistent retained catalogs refuse opening |
+
+The catalog records controller-supplied evidence. It cannot establish remote
+absence, fence accepted child work, or schedule cleanup on its own. Parent and
+child tombstones remain durable. Physical parent removal must not erase these
+obligations before the pending host/controller integration is implemented.
+
+PR #150 merged during implementation. The change was moved onto a fresh branch
+from main `dde97cbc`, including the merged per-cell filesystem work. The next
+feature slice is authenticated child dispatch with creation/reconnect and
+scheduled cleanup, followed by physical deletion integration, four-language
+allocation facades and capacity-aware fleet placement. These remain open;
+this catalog does not establish a production named sandbox pool.
+
+Validation on that updated main: six catalog unit cases pass, including 1,025
+named allocations cleaned in 17-entry pages, index selection, schema corruption,
+transaction rollback, parent isolation and late-generation refusal. The native
+host lifecycle test passes across five restarts, covering cancellation before
+reservation acknowledgement, stale/foreign event handles, business clear,
+replacement, parent-close races, resumed cleanup and final tombstones. The
+existing provider-binding recovery test also passes. Strict core/container
+all-target Clippy, formatting/layout (1,400 Rust files), the 496-package native
+engine dependency guard, documentation and whitespace checks pass. Existing
+vendor/configuration warnings remain; no lint suppression or test deadline was
+changed. No live provider, Docker image, fleet placement or load/RTO campaign
+was run for this catalog-only slice.
+
+## Authenticated named children and native fleet placement — 2026-10-28
+
+The catalog now controls independently routed execution cells through a
+host-registered `ChildExecutor`. This extends the catalog-only milestone above;
+the [allocation guide](../crates/cellar-container/allocations.md) shows the
+registration API, lifecycle, cleanup and placement diagrams.
+
+| Delivered behavior | Evidence boundary |
+| --- | --- |
+| Authenticated child execution | Private framework RPC binds the parent scope/incarnation, child name/generation, parameters and executor configuration. Ordinary fetch/RPC cannot invoke the dedicated executor class |
+| Durable creation intent | Persist the child identity and intent before provider effects. Proven capacity refusal permits retry; uncertain creation is never replayed. A child tombstone rejects a delayed start |
+| Bounded commands | Exec output, files and port HTTP/readiness; 64 KiB bodies/output and 256 KiB encoded control messages. Invocation-local process/socket/stream handles are not exported |
+| Automatic explicit-parent retirement | Managed registration precedes child creation. `begin_retirement` closes admission and schedules cleanup independently of application alarms. Claims persist a 30-second retry before a bounded 20-second attempt |
+| Physical Engine resource deletion | Delete the immutable container ID, then require an exact-ID 404 before confirming retirement or releasing its remaining reservation. An acknowledged delete with a surviving resource remains pending |
+| Native fleet placement | New unowned children use per-class instance/memory slots, including helper memory and uncertain reservations. Unknown/full/expired/pressured/draining peers are ineligible; the destination still performs atomic admission |
+| Cleanup under saturation | Destroy/reconcile use ordinary ownership routing. Full container capacity does not prevent cleanup; duplicate starts retain their original execution identity |
+
+Slot samples are advisory and include selections already made against the same
+sample. A proven peer refusal invalidates that sample and can retry within the
+original deadline. Lost replies do not authorize mutation replay. Placement does
+not move an existing owner after an admission race or restore native process or
+filesystem state after host loss.
+
+### Remaining production boundaries
+
+- **Durable cell-data erasure:** parent and child SQLite/replica tombstones remain.
+  A retirement barrier outside the erased cells must fence delayed work before
+  physical durable-data deletion can be safe. Local cache eviction is insufficient.
+- **Deployment removal:** automatic retirement of these managed named children
+  when a parent/executor class disappears still needs discovery independent of
+  the removed application. Existing provider-slot recovery is a separate profile.
+- **Public facades:** named dynamic allocation currently uses the native Rust host
+  API. Existing Rust/Python/JavaScript/TypeScript provider-slot APIs are unchanged.
+- **Qualification:** wider placement races, saturation, partitions, restart
+  persistence and measured one-to-five-minute recovery remain open. These changes
+  do not establish full production readiness or a new live-provider/image result.
+  E2B/Vercel real-account configuration remains deferred by the user.
+
+### Validation on updated main
+
+Merged main `ed42c8ed` into PR #153 without conflicts and repeated the affected
+checks on that combined tree. The executor registration case deliberately omits
+an application factory declaration for the execution class.
+
+| Check | Result |
+| --- | --- |
+| Pure decision core | All 36 cases pass, including 18 routing-cache/placement cases |
+| Selected native boundaries | 12 sandbox state/authority cases, 40 container cases and 142 RPC cases pass |
+| Authenticated child host tests | Three pass: bounded calls/capacity/deletion proof, uncertain create with restart cleanup, and two-node placement/retirement |
+| Existing native SDK | All nine Engine/ownership/streams/ports/lifecycle cases pass |
+| Existing durable catalogs/bindings | Named catalog lifecycle across five restarts and provider-binding recovery both pass |
+| Provider adapter and examples | 26 unit cases and seven documentation examples pass |
+| Strict Clippy | Core, container adapter and pure logic, all targets, `-D warnings`, pass |
+| Repository gates | Formatting/layout for 1,420 Rust files, the 496-package native-only graph, 854 documentation references and whitespace checks pass |
+
+The two-node case uses in-process native nodes, signed peer RPC, shared durable
+fleet storage and separate Engine protocol peers. With one native slot per node,
+two children create once each on different Engines, duplicate starts create
+nothing extra, a third create is refused, and parent retirement removes both
+physical fixture resources. The protocol peer also acknowledges deletion while
+retaining a resource to prove that an acknowledgement alone cannot finish cleanup.
+These are local framework results, not a live Docker image, remote-provider,
+saturation or production recovery-time qualification.
+
+## Durable erasure and dynamic language allocations — 2026-10-28
+
+This follow-up implements the next three requested delivery items. The
+[allocation guide](../crates/cellar-container/allocations.md) includes the APIs,
+erasure sequence, retained metadata and qualification limits.
+
+| Delivery | Behavior |
+| --- | --- |
+| Durable child erasure | Exact provider retirement precedes a protected SQLite intent, immutable external identity barrier, joined runtime eviction and bounded SQLite/replica deletion |
+| Explicit parent erasure | `request_erasure` requires finished child cleanup and refuses remaining provider/facet/event/consensus obligations; ordinary parent retirement preserves business data |
+| Crash recovery | Pending external publication is recoverable; the permanent barrier refuses admission, snapshot restore and historical-log replay; periodic audits reclaim delayed objects and returning local caches |
+| Deployment removal | Active managed parents retain a discovery wake. Framework recovery closes removed parents and uses the original host executor plus retained native container specification to clean children |
+| Standalone restart | A protected-work inventory discovers SQLite sandbox work without fleet replication or application requests |
+| Python/JavaScript/TypeScript | `ctx.sandboxes` supports start/get/list/inspect/bounded execute/destroy/parent retirement and opt-in parent erasure; both host adapters expose dedicated executor registration |
+| Checkpoint integrity | Decimal-string revisions/generations preserve native integer identities; full checkpoints and original parent invocation authority remain mandatory |
+
+Erasure preserves minimal external identity records and ownership epochs. It is
+not a secure wipe of offline disks, historical shared logs, bucket versions or
+backups. Shared logs retain their GC policy; permanent barriers suppress replay.
+Executor credentials/configuration must remain available until provider cleanup
+finishes. The broader SP-02–SP-10 profile and fleet qualification work remains
+open, including live E2B/Vercel testing deferred by the user.
+
+### Validation on updated main
+
+Merged main `2e68fac2` without conflicts. The combined-tree checks use Rust
+1.98.1, Node 24.21.0 and CPython 3.14 on macOS arm64.
+
+| Check | Result |
+| --- | --- |
+| Erasure and sandbox authority | 14 native cases pass, including partial publication, immutable identity, bounded deletion, neighboring-cell preservation and blocked historical replay |
+| Child host lifecycle | Five cases pass, including two-node replica erasure, terminal standalone erasure across restart, and deployment-removal cleanup without application calls |
+| Dynamic language allocations | Node, embedded V8 and a dedicated CPython main-thread process pass the same real-node lifecycle contract; TypeScript positive and negative declarations pass |
+| Guest bridge | All 38 cases pass, including lossless large generation/revision values and rejection of extra authority |
+| Existing native boundaries | 142 RPC cases, 40 container cases and nine native SDK cases pass |
+| Durable catalogs and adapters | Named allocation restart and provider binding cases pass; 26 adapter unit cases and seven documentation examples pass |
+| Strict Clippy | Core, container, guest and Python embedding pass on all targets; JavaScript passes in Node-only and combined Node/embedded modes with `-D warnings` |
+| Repository gates | Formatting/layout for 1,432 Rust files, 132 JavaScript/TypeScript sources, the 496-package native-only graph and 855 documentation references pass |
+
+The new replica inspection initially failed because the test read its development
+store outside an execution domain. An explicit observer domain fixes the test;
+the exact two-node case and the full five-case host suite then pass without
+weakening deletion assertions. The Python case uses a dedicated process to own
+interpreter initialization and avoid duplicate shared fixture modules.
+
+These are local framework and Engine-protocol results. They do not add a live
+provider/image qualification, fleet-scale throughput result or measured
+one-to-five-minute production recovery guarantee.
+
+## Fleet-scale erasure and per-sandbox recovery — 2026-10-28
+
+The [qualification guide](../crates/cellar-container/fleet-qualification.md)
+contains the failure sequence, reproducible commands and scoped acceptance.
+The results below summarize the 1,024-sandbox campaign. The harness emits
+per-sandbox JSON for separate retention using the guide's reproduction commands.
+
+| Issue found | Delivered correction |
+| --- | --- |
+| One erasure job per second could not serve a large backlog within the target | Per-node bounded concurrency (default 8), 250 ms discovery and independent 20-second attempt deadlines |
+| Selecting the next retirement rescanned/materialized the remaining inventory | Retained unordered provider streams and indexed 128-object SQLite pages; discovery consumes a bounded number of entries |
+| One malformed retirement could prevent neighboring work | Metadata discovery and per-record validation are separate; invalid payloads fail independently |
+| Continuous completed audits spent idle-fleet resources | Exhausted pending/audit passes back off; new local requests wake idle pending discovery |
+| A slow scan could delay new barrier publication | Publication never waits for the inventory mutex; an immediate-completion regression holds that mutex |
+| Entered local deletion can outlive an async timeout | The scope and concurrency permit remain owned until blocking filesystem work returns; driver work is joined and listing responses close before domain shutdown |
+
+The original listing regression failed before paging because a late corrupt
+metadata row prevented the first 128 healthy results from being yielded. It now
+passes while still reporting corruption when that later page is consumed.
+
+| Measurement at source `ee2156e3` | Result |
+| --- | --- |
+| Workload | 1,024 allocated sandboxes; two business parents, two cold successors, 64 resident cells per node, eight concurrent observations |
+| Failure | Original node's store client stays isolated; lease-expiry fencing; provider API unavailable for 30 seconds |
+| Recovery p50 / p95 / maximum | 44.568 / 70.128 / 73.425 seconds; all 1,024 within 300 seconds |
+| Preferred 60-second target | 812 / 1,024 pass; 212 exceed the preference |
+| Cleanup p50 / p95 / maximum | 169.412 / 171.401 / 194.371 seconds; all 1,024 within 300 seconds despite false delete acknowledgements and a lost committed-delete reply |
+| Returning disk and online caches | All child directories absent within 66.437 seconds of rejoin, including joined shutdown |
+| Data/identity | Original checkpoints and exact 4 KiB files survive; exactly 1,024 creates; zero remaining provider resources; replica subtrees retain only ownership epochs; parent business data remains |
+
+This is native Cellar with an E2B HTTP/Connect protocol peer on macOS arm64,
+not a live VM or a native container filesystem-restoration profile. It does not
+close unrelated Linux/language failures, broader partition/overload tests,
+live-provider fencing or SP-02–SP-10 full-profile acceptance. The next production
+qualification work is the intended deployment's provider/store failure matrix,
+capacity saturation and retained-state profile. E2B/Vercel live testing remains
+deferred until account configuration is supplied.
+
+
+### Regression checks for fleet collection
+
+| Boundary | Passing local evidence |
+| --- | --- |
+| Development object store | 39 tests, including paged metadata, literal/encoded prefixes and original execution-domain ownership |
+| Sandbox erasure and authority | 15 tests, including unordered bounded discovery, malformed records, nonblocking publication and permanent barriers |
+| Child lifecycle | Five host tests, including deployment removal, standalone restart, exact deletion proof and capacity-aware two-node routing |
+| Existing remote lifecycle | Eight E2B/replacement/supervision tests covering expiry, uncertain create/delete, backend loss, generation replacement and admitted-operation exclusion |
+| Recovery campaign | 24-child regression and separately run 1,024-child qualification; every original checkpoint/file preserved and all online child directories collected |
+| Documentation | Seven crate examples and documentation link checks |
+| Static checks | Strict all-target Clippy for `cellar`, `cellar-container` and `cellar-logic`; repository formatting/layout and native-only dependency checks |
+
+The measurements above refer to source `ee2156e3`. The later formatter-only
+change to evidence output does not change runtime behavior or its assertions.
+Full cross-platform CI is separate from these local checks.

@@ -53,12 +53,15 @@ impl EventKind {
 /// Python source included in the compiled host, with explicitly registered cells.
 #[derive(Clone)]
 pub struct Source {
+    sandbox_executors:
+        std::collections::BTreeMap<String, Arc<dyn cellar::sdk::containers::SandboxExecutor>>,
     containers: cellar_guest::containers::Adapter,
     container_bindings: cellar_guest::containers::Bindings,
     pub(crate) rpc: Catalog,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) initial_reads:
@@ -69,17 +72,61 @@ pub struct Source {
 impl Source {
     pub fn new(code: impl Into<String>, filename: impl Into<String>) -> Self {
         Self {
+            sandbox_executors: Default::default(),
             containers: Default::default(),
             container_bindings: Default::default(),
             rpc: Catalog::new(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             distributions: Vec::new(),
             events: Vec::new(),
             cell_events: Default::default(),
             initial_reads: Default::default(),
         }
+    }
+
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
+    }
+
+    /// Register a native executor for a dedicated sandbox class. The guest
+    /// exports no constructor for this class; only authenticated child RPC runs.
+    pub fn sandbox_executor(
+        mut self,
+        class: &str,
+        executor: Arc<dyn cellar::sdk::containers::SandboxExecutor>,
+    ) -> Result<Self> {
+        ensure!(
+            !class.is_empty()
+                && class.len() <= 128
+                && class
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "invalid sandbox class"
+        );
+        ensure!(
+            !self.sandbox_executors.contains_key(class),
+            "duplicate sandbox executor"
+        );
+        self.sandbox_executors.insert(class.into(), executor);
+        Ok(self)
     }
 
     pub fn cell(mut self, name: impl Into<String>) -> Self {
@@ -243,6 +290,10 @@ impl Source {
         let mut seen = HashSet::new();
         for name in &self.classes {
             ensure!(
+                !self.sandbox_executors.contains_key(name),
+                "sandbox execution class cannot export guest handlers"
+            );
+            ensure!(
                 !name.is_empty() && seen.insert(name),
                 "duplicate or empty Python class"
             );
@@ -344,7 +395,7 @@ impl PythonApplication {
                     if let Some(refusal) = self
                         .source
                         .rpc
-                        .refusal_after_factory(class, &method, &args)?
+                        .refusal_in_context(&context, class, &method, &args)?
                     {
                         return Ok(Output::Rpc(refusal));
                     }
@@ -353,11 +404,7 @@ impl PythonApplication {
                         .rpc
                         .provider(class, &method)
                         .ok_or_else(|| anyhow::anyhow!("undeclared Python RPC method"))?;
-                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
-                        &args,
-                        contract.limits().max_message_bytes,
-                    )?;
-                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    let mut prepared = Prepared::from_context(&context, contract, &method, &args)?;
                     body = prepared.take_request();
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
@@ -397,7 +444,8 @@ impl PythonApplication {
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
         let mut payload = serde_json::to_string(
-            &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
+            &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity,
+                "rpc_limits":self.source.rpc.invocation_limits(&context)}),
         )?;
         if let Some(keys) = class
             .as_ref()
@@ -636,6 +684,13 @@ impl PythonApplication {
 }
 
 impl Application for PythonApplication {
+    fn sandbox_executor(
+        &self,
+        class: &str,
+    ) -> Option<Arc<dyn cellar::sdk::containers::SandboxExecutor>> {
+        self.source.sandbox_executors.get(class).cloned()
+    }
+
     fn rpc_catalog(&self) -> Option<&Catalog> {
         Some(&self.source.rpc)
     }
@@ -650,7 +705,9 @@ impl Application for PythonApplication {
         );
         for class in &options.do_classes {
             ensure!(
-                cellar::deploy::is_reserved_class(class) || self.supports_cell(class),
+                cellar::deploy::is_reserved_class(class)
+                    || self.supports_cell(class)
+                    || self.sandbox_executor(class).is_some(),
                 "Python deployment names an unregistered cell class"
             );
         }
@@ -674,6 +731,7 @@ impl Application for PythonApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -695,6 +753,7 @@ impl Application for PythonApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -703,6 +762,10 @@ impl Application for PythonApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -749,6 +812,7 @@ impl Cell for PythonCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

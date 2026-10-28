@@ -179,6 +179,7 @@ async fn exercise(
                     + offset
             }));
             services.containers = Some(cellar::container::EngineOptions {
+                capacity: None,
                 socket: socket.clone(),
                 namespace: Some(namespace),
                 runtime: Some("runc".into()),

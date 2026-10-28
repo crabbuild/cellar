@@ -45,7 +45,7 @@ impl ExtentObservation {
 ///
 /// Reuse requires the same live Db, history/schema/epoch, page size and a complete
 /// SHA-256 match of the previous committed WAL prefix. A tracked extent working
-/// VFS can additionally establish a sealed baseline and actual main-file writes
+/// VFS can additionally retain the exact base manifest and actual main-file writes
 /// across checkpoints. On WAL reset, both prior and current WAL extents are
 /// reread, so missing old frames cannot silently reuse an old logical image.
 /// Other VFS providers fall back to full inspection. Every WAL frame is checksum verified within

@@ -27,6 +27,7 @@ console-audit.sqlite*
 !/examples/node/package-lock.json
 /examples/pi-agent/dist/
 !/examples/pi-agent/package-lock.json
+!/examples/filesystem-agent/package-lock.json
 /examples/vercel-agent/dist/
 !/examples/vercel-agent/package-lock.json
 /examples/vercel-agent/ui/dist/

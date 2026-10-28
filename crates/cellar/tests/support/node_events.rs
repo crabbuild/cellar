@@ -21,6 +21,10 @@ mod event_fetch_reply;
 #[path = "event_unproven_ack.rs"]
 mod event_unproven_ack;
 
+// Shared supplied-store faults also qualify filesystem ownership and proof.
+pub(super) use event_owner_outage::Outage as StoreOutage;
+pub(super) use event_unproven_ack::PublicationFault as ReplicaPublicationFault;
+
 #[path = "event_running_owner.rs"]
 mod event_running_owner;
 

@@ -11,6 +11,10 @@
     "./rpc": {
       "types": "./rpc/index.d.ts",
       "default": "./rpc/index.js"
+    },
+    "./filesystem-tools": {
+      "types": "./filesystem-tools.d.ts",
+      "default": "./filesystem-tools.js"
     }
   },
   "files": [
@@ -18,6 +22,8 @@
     "index.d.ts",
     "rpc",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "filesystem-tools.js",
+    "filesystem-tools.d.ts"
   ]
 }

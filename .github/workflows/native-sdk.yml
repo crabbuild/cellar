@@ -71,6 +71,77 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
+  filesystem_release:
+    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'
+    name: Filesystem release application (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      # Keep the native application aligned with the CLI release targets.
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - runner: macos-14
+            target: aarch64-apple-darwin
+    env:
+      CARGO_BUILD_JOBS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      FS_RELEASE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust and record the build environment
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          mkdir -p "$RUNNER_TEMP/filesystem-release"
+          rustc --version --verbose > "$RUNNER_TEMP/filesystem-release/rustc.txt"
+          grep -Fx "host: $FS_RELEASE_TARGET" "$RUNNER_TEMP/filesystem-release/rustc.txt"
+          cargo --version > "$RUNNER_TEMP/filesystem-release/cargo.txt"
+          git rev-parse HEAD > "$RUNNER_TEMP/filesystem-release/source.txt"
+      - name: Build the release CLI and filesystem application
+        run: |
+          cargo build --release --locked -p cellar --bin cellar --bin cellar-native-examples \
+            2>&1 | tee "$RUNNER_TEMP/filesystem-release/build.log"
+          python3 - <<'PY'
+          import hashlib, json, os, platform, subprocess
+          from pathlib import Path
+          result = {
+              "source": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+              "target": os.environ["FS_RELEASE_TARGET"],
+              "platform": platform.platform(),
+              "profile": "release",
+              "executables": {
+                  name: hashlib.sha256((Path("target/release") / name).read_bytes()).hexdigest()
+                  for name in ("cellar", "cellar-native-examples")
+              },
+          }
+          Path(os.environ["RUNNER_TEMP"], "filesystem-release", "artifacts.json").write_text(json.dumps(result, indent=2) + "\n")
+          PY
+      - name: Exercise the release filesystem application and restart
+        run: |
+          python3 examples/focused_smoke.py --cellar target/release/cellar \
+            --example filesystem --profile release \
+            2>&1 | tee "$RUNNER_TEMP/filesystem-release/smoke.log"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          recorded = json.loads(Path(os.environ["RUNNER_TEMP"], "filesystem-release", "artifacts.json").read_text())
+          for name, digest in recorded["executables"].items():
+              assert hashlib.sha256((Path("target/release") / name).read_bytes()).hexdigest() == digest, name
+          print("PASS release executable identities unchanged through restart")
+          PY
+      - name: Preserve release filesystem observations
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: filesystem-release-${{ matrix.target }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-release/
+          if-no-files-found: error
+          retention-days: 7
   python_fleet:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'python-fleet'
     uses: ./.github/workflows/python-fleet.yml
@@ -139,12 +210,26 @@ jobs:
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
           npm test --prefix tools/perf/cloudflare
       - name: Test embedded Python adapter
+        env:
+          CELLAR_FS_PY_CANCELLATION_REPORT: ${{ runner.temp }}/filesystem-python-task-cancellation.json
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-python-concurrency
         run: |
           python -m venv .cellar/rpc/python
           .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
           export CELLAR_RPC_PYTHON_SITE="$(.cellar/rpc/python/bin/python -c 'import site; print(site.getsitepackages()[0])')"
           .cellar/rpc/python/bin/python -B tools/rpc/test_python_rpc.py
           cargo test -p cellar-python --features embed --locked -- --test-threads=1
+          cargo test --locked -p cellar-python --features embed --test filesystem -- --read-only
+          cargo test --locked -p cellar-python --features embed --test filesystem -- --task-cancellation
+      - name: Preserve Python filesystem task-cancellation observations
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: filesystem-python-task-cancellation-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/filesystem-python-task-cancellation.json
+            ${{ runner.temp }}/filesystem-python-concurrency/*.json
+          if-no-files-found: ignore
       - name: Verify native and Python baseline harness
         run: |
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
@@ -250,6 +335,7 @@ jobs:
         env:
           # Failed native fixtures retain synthetic recovery observations here.
           TMPDIR: ${{ runner.temp }}/native-failure-fixtures
+          CELLAR_FS_FAULT_REPORT: ${{ runner.temp }}/filesystem-proof-fault.json
         run: |
           mkdir -p "$TMPDIR"
           # Fleet fixtures own concurrent runtimes and short authority leases.
@@ -260,6 +346,27 @@ jobs:
           cargo test -p cellar --bin cellar-perf-cells --bin cellar-perf-load --locked -- --test-threads=1
           cargo test --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-features --doc --locked
           cargo clippy --workspace --exclude cellar-javascript --exclude cellar-rpc-qualification --all-targets --all-features --locked -- -D warnings
+      - name: Preserve filesystem proof and recovery ledger
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: filesystem-proof-fault-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-proof-fault.json
+          if-no-files-found: ignore
+      - name: Qualify dense filesystem writes and cold recovery
+        env:
+          CELLAR_FS_CAPACITY_MIB: "10"
+          CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
+        run: |
+          cargo test --locked -p cellar --all-features --test native_node \
+            filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
+      - name: Preserve dense filesystem observations
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: dense-filesystem-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-dense-capacity.json
+          if-no-files-found: ignore
       - name: Test Axum feature modes and generated contract
         run: |
           cargo test -p cellar-axum --no-default-features --locked

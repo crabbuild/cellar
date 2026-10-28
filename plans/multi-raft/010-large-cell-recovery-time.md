@@ -5,7 +5,7 @@
 Status: proposed implementation strategy; no recovery-time target is qualified.
 Prepared 2026-10-26 against `c6338ad45f64425e44ba54a9ad04f2058b947089`.
 Priority P1; effort L; correctness risk HIGH. RT-01 through RT-03 are in progress;
-RT-04 is in progress; RT-05 and RT-06 remain TODO. Implement them in dependency order and record evidence before
+RT-04 and RT-05 are in progress; RT-06 remains TODO. Implement them in dependency order and record evidence before
 updating their status. This plan does not close the existing MR or R1–R9 gates.
 
 The deliverable is faster, fault-safe native peer and RustFS recovery, through
@@ -170,7 +170,7 @@ cutover; do not introduce legacy readers, silent backend fallback or migrations.
 | RT-02 | Bounded bulk pipeline and shared prepared snapshot bytes | RT-01 | M / high | IN PROGRESS |
 | RT-03 | Archive freshness, recovery scheduling and warm handoff | RT-01; integrate RT-02 | M / high | IN PROGRESS |
 | RT-04 | Complete public extent snapshot/peer/archive recovery | RT-01; integrate RT-02/03 | L / high | IN PROGRESS |
-| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | TODO |
+| RT-05 | Verified demand loading, incremental first write and hydration | RT-04 | L / high | In progress; private writer and ownership registry groundwork |
 | RT-06 | Hard-failure, concurrency and percentile qualification | Fault cases accompany every package; final gate needs RT-02–05 | L / high | TODO |
 
 RT-02 and RT-03 need not wait for the entire extent backend. Establish M1 after
@@ -716,6 +716,111 @@ over 1,314 Rust files and dependency/documentation checks pass. The final
 test-only changes preserve every production runtime input from the archive and
 recovery validation. Source-bound physical preflights and full-size timing remain
 separate gates.
+
+### Work-conserving physical dispatch
+
+The first real RustFS materialized 272 MiB preflight after replay-budget work
+stalled at archive catch-up: surviving publications stopped at material reads
+before replacement startup. Its release attempt at `b1e7eaae` was intentionally
+canceled through the owning runner after capturing evidence; that interrupted
+requested trial remains unsuccessful. A same-source lab diagnostic completed,
+showing scheduling sensitivity rather than establishing a release recovery time.
+
+A deterministic owning test holds the only physical job, polls a read-ahead
+waiter once, releases the first job and then drives an append without polling
+the read-ahead future again. The old fair semaphore reserves the released permit
+for that unpolled waiter; the append times out. This is the same dependency cycle
+as a bounded receive/upload window whose caller performs intervening physical I/O.
+
+Admission now arms a capacity notification before a nonblocking acquisition.
+A wakeup owns no permit; only a polled dispatch can claim capacity. The physical
+job's guard releases its permit before notifying waiters and still outlives
+caller cancellation or executor queueing. Owner stop/drop remains the cancellation
+boundary. This retains the node-wide concurrency cap and existing pipeline
+windows without spawning a task per job. Before integrating updated `main`,
+all 14 owning tests and 15 private archive tests pass, together with 80 archive,
+20 ordinary large-image, 23 public operations and 32 rooted cases; 14 physical
+cases remain ignored. All-feature host/qualification/performance-node Clippy,
+246 Python tooling cases (one skipped), format/layout over 1,315 Rust files
+and dependency/documentation guards pass at source inputs
+`0161e54d978b27f05920c6f094c9608734c8ff21c71b5481136364b6bd2e2679`.
+PR #145 merged during validation. The updated-main checks and repeated
+real-store preflights below close the recorded scheduling reproduction; the
+10 GB and hard-failure gates remain open.
+
+At `45f024994b267b47119e8ee7d0cec68c0e802201`, based on updated `main`
+`3ffbadcc`, all 12 checks pass again: 14 owning and 15 private archive tests,
+155 native integration cases (80 archive, 20 ordinary large-image, 23 operations
+and 32 rooted), three all-feature Clippy modes and 246 Python cases with one
+skip. Fourteen physical cases remain ignored in the ordinary suite. Formatting,
+layout over 1,350 Rust files and dependency/documentation guards pass.
+
+All eight requested release preflights pass with nine correctness checks and
+six valid phase windows per trial, unchanged source inventories and executable
+bytes. Failure to first verified durable write is:
+
+| Representation/source | Physical image | Trials | Seconds |
+| --- | ---: | ---: | ---: |
+| Materialized peer | 12 MiB | 3 | 3.200869–3.939944 |
+| Materialized RustFS | 272 MiB | 3 | 12.153734–15.435117 |
+| Extent peer | 12 MiB | 1 | 3.199940 |
+| Extent RustFS | 272 MiB | 1 | 7.062406 |
+
+Inputs are
+`ea617f247e3e596bab5b51fc22b3353179d29db2f0819e21e7a1fd5eb32198a6`,
+with release executable
+`c1e59bbe471edf679f1c90a48822122c57697614bbee4f309b9ae8628bcbbe36`.
+The original stalled/interrupted release attempt remains unsuccessful. These
+shared-host, uncontrolled-cache, joined-domain-loss preflights do not establish
+a controlled speedup, 10 GB latency, hard process loss or p95 qualification.
+The analyzer keeps its three-sample pilot minimum; the single extent trials
+therefore retain a nonzero analysis exit and false target/qualification flags.
+
+The first extent preflight refuses its unchanged 32 GiB capacity guard before
+creating a native trial. Verified archival preserves the completed diagnostic
+worker, 721 inactive test objects and 2,592 stopped-server trash files before
+retirement. The owned RustFS server restarts with the same binary, endpoint,
+credential files and data directory; all 651 other live object listings retain
+their lengths, ETags and metadata. Capacity refusals and setup attempts remain
+separate from timed trials. The full-size rerun is still unstarted: its unchanged
+48,589,930,496-byte guard is unmet at the fresh recorded capacity preflight.
+Durable remote retention/GC, demand loading and broader fault/contention gates
+remain open.
+
+### Bound materialized replay amplification
+
+Encoded tail bytes alone miss complete-image rewrite amplification. Replay
+seals bounded private batches; one small retained tail can therefore require
+several complete output images. The new regression disables size-triggered
+rotation, sets a one-image replay budget and captures 64 data updates. Before
+enforcement it advertises all 64 entries, requiring a second image rewrite.
+
+`ArchiveLimits::max_replay_images` now accepts one through 4,096 and defaults to
+two. The verifier records completed image seals and their summed logical lengths
+only with a successful physical proof and joined cleanup. Its fixed-size memo
+retains those values for the exact physical key. An over-budget candidate must
+pass every existing intermediate-image and remote-dependency check before the
+publisher replaces it with a separately confirmed full base. Only that final
+base may advance the conditional head. An existing over-budget tail can also be
+checkpointed at the exact same cut; an older capture cannot rewind a newer head.
+
+The trace exposes `verified_restore_images`, `verified_restore_image_bytes` and
+the `replay_budget_checkpoint` decision. This is work under the verifier's apply
+limits, not measured device bytes, a bound for stricter receiver limits or a
+replay-time guarantee. The publisher still pays for the final verification that
+triggers rotation; subsequent recoveries can use the fresh base. Existing valid
+archives remain readable. Measured replay-time rotation, archive-lag readiness,
+foreground bandwidth, verified warm handoff and demand loading remain open.
+Validation passes 15 archive private tests, the four focused public budget cases
+and the complete optimized archive/large-image/rooted suites (80, 20 and 32 cases;
+14 physical cases remain ignored). The budget fixture verifies one versus two
+actual destination image syncs, same-cut checkpointing without stale-cut rewind,
+missing/corrupt prior payload refusal and an overwritten false intermediate
+digest. All-feature host/qualification/performance-node Clippy, 246 Python
+tooling cases (one skipped), formatting/layout over 1,315 Rust files and the
+dependency/documentation guards pass. The frozen runtime input SHA-256 is
+`33736da88a529956013068d7a0bca2c198cd4c97f7b3f972221ac0a55e8c565d`.
+Physical timing and full-size M1/M2 qualification remain separate gates.
 
 ## RT-04: Connect complete extent recovery end to end
 
@@ -1542,6 +1647,93 @@ dependency and documentation guards pass. The full-size pilots retain the
 preceding frozen source and executable; neither these small instrumentation
 cases nor the failed full-size RustFS run qualify M1/M2.
 
+### Three same-artifact full-size pilots after the archive admission fix
+
+At commit `c1bb3a038c361f458b3ddd7baf15316cc1713ebd`, input digest
+`b6a2a20375b1f9c8c5c0ded0d5d74ff47609c0a73ece2cbdf138bb9392b9e633`,
+the release executable with SHA-256
+`c080c658f643102fda2951135db279190b340c3974d7df569fdff6ca30c7c2c3`
+passes three actual 9,999,998,976-byte extent restores per backend. Every trial
+passes all nine correctness checks, all six phase-observation windows and joined
+cleanup. Capacity preflights pass after development-host disk cleanup.
+
+| Backend | Trial 1 | Trial 2 | Trial 3 | Median |
+| --- | ---: | ---: | ---: | ---: |
+| Peer | 94.874534 s | 119.430358 s | 95.223625 s | 95.223625 s |
+| RustFS | 138.557515 s | 105.314964 s | 106.169031 s | 106.169031 s |
+
+These intervals include injected owner loss through the verified durable write.
+The RustFS trial above 120 seconds remains in the population: its pilot target
+is unmet. RustFS archive-coverage waits are 64.173601, 54.988260 and 58.703560
+seconds; seed installation takes 70.827723, 47.394451 and 43.379604 seconds.
+The peer seed intervals are 91.100102, 114.532020 and 90.580674 seconds. First
+writes after full hydration take 0.199513–0.341893 seconds. This does not establish
+an inexpensive first write against an incompletely hydrated image.
+
+The evidence controller retains raw campaigns, exact executable provenance,
+phase ledgers and successful worker-retirement receipts. Its combined analyzer
+requires identical source, profile, backend, image size and trial completeness;
+all six outcomes are retained. These are single-host, uncontrolled-cache,
+repeated-payload, joined-domain-loss pilots. Three samples establish neither
+production percentiles nor hard process-loss qualification. RT-05/06 and both
+production milestones remain open.
+
+The subsequent `5c050d37` component change coalesces concurrent reads of an
+uncached extent under one receive/scratch reservation. A gated two-reader
+regression reproduces `ScratchFull` before the change and passes afterward.
+Failure, corruption, producer panic, cache eviction and independent-extent
+concurrency cases pass. All-feature LTX extent suites pass 62 cases, with three
+existing physical cases ignored; all-target/all-feature Clippy and repository
+guards pass. These full-size timings use the preceding `c1bb3a03` executable;
+they do not qualify the newer component or native partial activation.
+
+### Avoid retransmitting already stored extent objects on publication retry
+
+The next regression reproduces three conditional-create requests for three
+already stored extents. It also shows that a failed confirmation read follows
+an unnecessary upload. Root confirmation now probes and hashes remote bytes
+before reading the local source. Only explicit absence permits an upload;
+transport failures and corrupt objects stop confirmation. Newly uploaded objects
+still require exact read-back, including when the PUT response is lost.
+
+The source engine must remain open. Existing selected history still verifies
+before new material can be uploaded, so this optimization cannot repair or hide
+a missing/corrupt selected dependency. Probing precedes the source buffer
+allocation and stays within the existing two-object/16 MiB read bound. The
+entered work drains on failure. Completion traces separately report freshly
+verified existing objects, new uploads and previous-root reuse.
+
+The first native rooted suite passes 35 cases with two physical cases ignored,
+including the new retry, unknown-PUT-response, corruption, read-failure and
+closed-source cases. Publication tests still require exactly one successful
+object download per new extent: an absence probe adds a request, not another
+object download. Public RustFS smoke/full-size measurements on the resulting
+artifact are required before attributing an RTO improvement to this change.
+
+Final validation at input digest
+`7d6b7419ac19f6978406046000c9b6332f5c9c2ba60aa76154b88fb7e6882ab1`
+passes 135 native archive, large-image and rooted cases, with 14 physical cases
+ignored in the ordinary suites. The explicit RustFS root restore also passes:
+the source owner closes and its directory is removed before restoration,
+native installation and restart verification. All-feature host-library and
+all-target qualification Clippy, formatting/layout (1,354 Rust files), dependency,
+documentation and diff checks pass. The release large-image executable has
+SHA-256 `989c384cdee5aa42b48f76afda7be176813474a64ed82c5e1d08cc2489faf6c9`.
+Full-size and hard-failure qualification for this artifact remain separate gates.
+
+The source-bound `2bb3dbfc` extent campaigns subsequently pass both smokes
+(peer 12 MiB: 4.868629 s; RustFS 272 MiB: 8.712589 s) and the actual
+9,999,998,976-byte pair. Peer fault-to-verified-write is 94.956199 s; RustFS is
+92.472175 s. Each full-size run passes nine correctness checks and six phase
+windows. RustFS spends 38.455207 s waiting for archive confirmation and
+50.762878 s installing the seed; its first write takes 0.211575 s. Publication
+confirms 1,366 existing extents and uploads 1,019 missing extents. Phase-associated
+requested PUT payload is 4,270,666,801 bytes, versus about 10.0 GB in the earlier
+pilots; these counters measure API work, not network or device traffic.
+These single shared-host trials retain the existing uncontrolled-cache,
+repeated-payload and joined-domain-loss limitations. The analyzer remains
+unqualified; neither production percentiles nor hard-kill qualification follow.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained
@@ -1577,6 +1769,105 @@ and verify recovery at the same root. Loss of a required remote extent fails
 safely. A read-only or learner-only demonstration does not complete M2.
 For the same hot workload, first-use bytes/RAM stay bounded as total database
 size increases from 256 MiB to 10 GB. Full-scan workloads are reported separately.
+
+### Verified private-writer groundwork
+
+`ExtentWorkspace::from_source` now accepts an authenticated manifest and a source
+that retains its dependencies, without requiring a complete local image seal.
+Both writable constructors use the existing bounded, independently verified
+extent cache and destination-copy checks. Open SQLite handles retain the source
+after workspace retirement, including for an empty base. Observations reuse the
+exact base manifest and actual main/WAL changes; they grant no native authority.
+
+The first runtime check exposed a whole-image read at a TRUNCATE checkpoint:
+ordinary capture deliberately creates a full boundary snapshot. The new
+`Db::require_incremental_capture` policy refuses that fallback before snapshot
+collection after an initial or seeded TXID, returning `CaptureRebuildRequired`.
+Initial bootstrap still permits its bounded snapshot. Native extent writers opt
+in alongside their existing WAL recycling and disabled routine checkpoints.
+The execution host sets its rebuild fence before mutation, so a capture refusal
+cannot settle a command. Durable capture retains its existing behavior.
+
+Validation passes 129 all-feature LTX integration cases and 135 native archive,
+large-image and rooted cases. Clippy then identified two old internal-test type
+references; the fixture was adapted without changing its corruption/root
+assertions. Its five unit cases and all-feature/all-target LTX Clippy pass.
+Validation confirms that only this `cfg(test)` file differs from the integration
+test inputs. Host and qualification Clippy, format/layout over 1,355 Rust files,
+dependency, documentation and diff checks also pass.
+
+The explicit 9,999,998,976-byte writer case passes on input digest
+`e82a2cabf4c98e9af9a115696da68970d63b851a475f49ed0f9ffcdffdf3095f`.
+Three counter/receipt transactions and their duplicates fetch **two extents,
+4,972,544 bytes**, and capture **53,248 decoded LTX bytes**. Cold manifest entries
+remain unchanged, bounded observations survive passive/restart checkpoints, and
+all scratch charges release after close. Smaller fixtures independently replay
+LTX into SQLite, verify integrity/results/receipts, and refuse missing, corrupt
+or interrupted source data. The release test executable has SHA-256
+`ee7a18d8c63b0d47b1b15736bbb2fab6213d43e0ecb1772a7f1805e1ab93b895`.
+
+This is a data-access test using a file-backed source, not remote-retention,
+network, native installation or RTO qualification. It prepares a private copy of
+the retained campaign image, frees only its padding rows to install the workload
+without growing the image, and hashes source extents before measuring writer
+work. Its 25.57-second total includes preparation and is not a recovery latency.
+The original read-only fixture stays unchanged. To reproduce, set
+`CELLAR_REMOTE_WRITER_TEMPLATE` to that campaign fixture and
+`CELLAR_REMOTE_WRITER_WORK` to an admitted private directory, then run:
+
+```sh
+cargo test --locked --release -p cellar-ltx --all-features --test extent_remote_workspace decimal_ten_gb_remote_writer_fetches_only_the_hot_working_set -- --ignored --exact --nocapture --test-threads=1
+```
+
+The test requires space for its source copy, private main and 8 GiB headroom;
+the separate native recovery drill's 48.6 GB admission remains unchanged.
+`RootPublishedImage` and `RootImageApplier` still require complete local seals.
+Persistent remote references, GC fencing, hybrid apply/install proofs, restart
+and activation while hydration is paused remain implementation work for RT-05.
+
+### Persistent ownership registry groundwork
+
+The verification archive now has an isolated remote-root ownership registry.
+Its immutable random identity and conditional record bind the exact namespace,
+birth and schema. The record protects selected roots, explicit references,
+pending upload generations and their retained parents. It refuses missing or
+corrupt control metadata rather than resetting allocation counters.
+
+Allocations require a caller-persisted intent before CAS. Each intent includes
+its expected revision, a nonce and complete operation. Exact retries reconcile
+live results without sharing another caller's hold or recreating a released
+reference. Only definite CAS conflicts retry automatically; changed read-back
+after an uncertain response requires explicit reconciliation. A child reservation
+protects its parent atomically, and abort fences a late bind. The 64 KiB record
+bounds concurrent holds/reservations while allowing released slots to be reused.
+The [component contract](../../crates/cellar/durability/raft/archive/retention/README.md)
+details these limits and the required owner reconciliation.
+
+Validation passes all 50 rooted cases, including 15 registry fault/lifecycle
+cases, plus one explicitly selected real RustFS registry case. The latter checks
+conditional competing holds, handle recreation, exact intent reconciliation and
+refusal after release; its descriptors are synthetic metadata, not a cell-data
+restore. Final code-input digest is
+`8dbc9704754927bfb170d63135e13d3963019bfef116acfe4d04f257b33366f4`.
+Host/qualification Clippy, container-test Clippy, formatting/layout over 1,359
+Rust files, dependency, documentation and diff checks pass. The 20-case large-image
+suite passes with identical production inputs; only the registry tests' required
+fair-selection macro changed afterward, and those tests were rerun.
+
+CI on the preceding writer commit reported `Overloaded` while requesting the
+recovered member's leadership transfer. The drill now observes destination
+readiness and refreshes term/revision before retrying only that typed admission
+failure within its existing 60-second deadline. The independent container-expiry
+CI failure reported a closed execution domain; the exact case passes twice
+locally. Startup/termination lease diagnostics were added without changing its
+assertions or deadlines. That CI failure's root cause remains unconfirmed.
+
+This registry does not yet store physical root descriptors or generation-addressed
+objects. It supplies a consistent mark input, not a deletion permit. Collector
+integration must verify and mark exact closures, protect pending generations,
+exclude newer generations and never reuse physical keys after deletion. Existing
+archive-head/object keys remain outside that collector. Native marker/source
+binding, hybrid installation and activation before hydration remain open.
 
 ## RT-06: Harden and qualify the targets
 

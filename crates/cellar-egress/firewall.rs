@@ -27,6 +27,18 @@ impl Program {
         dns_port: u16,
         internet: bool,
     ) -> Result<Self> {
+        Self::with_https(targets, http_port, dns_port, internet, false)
+    }
+
+    /// TLS-enabled runs retain port 443 from startup so later registrations
+    /// also apply to existing, already-decrypted connections.
+    pub fn with_https(
+        targets: &[HttpTarget],
+        http_port: u16,
+        dns_port: u16,
+        internet: bool,
+        https: bool,
+    ) -> Result<Self> {
         ensure!(
             http_port != 0
                 && dns_port != 0
@@ -36,6 +48,17 @@ impl Program {
                 && http_port != 80
                 && dns_port != 80,
             "invalid network helper ports"
+        );
+        ensure!(
+            !https || (http_port != 443 && dns_port != 443),
+            "HTTPS conflicts with a helper listener"
+        );
+        ensure!(
+            https
+                || targets
+                    .iter()
+                    .all(|target| target.protocol() == crate::Protocol::Http),
+            "HTTPS interception is not enabled"
         );
         ensure!(
             targets.len() <= MAX_INTERCEPT_ENTRIES
@@ -48,6 +71,9 @@ impl Program {
             "duplicate intercept target"
         );
         let mut ports = BTreeSet::from([80]);
+        if https {
+            ports.insert(443);
+        }
         for target in targets {
             let port = target.port();
             ensure!(

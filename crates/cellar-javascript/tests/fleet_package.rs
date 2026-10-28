@@ -20,6 +20,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/fleet_package_vercel.rs"]
+mod vercel;
+
 struct Node {
     process: Child,
     log: PathBuf,
@@ -39,6 +42,16 @@ impl Drop for Node {
 
 impl Node {
     async fn start(root: &Path, name: &str, bucket: &Path, program: &Path) -> Result<Self> {
+        Self::start_with_env(root, name, bucket, program, &[]).await
+    }
+
+    async fn start_with_env(
+        root: &Path,
+        name: &str,
+        bucket: &Path,
+        program: &Path,
+        environment: &[(&str, String)],
+    ) -> Result<Self> {
         let log = root.join(format!("{name}.log"));
         let stdout = File::create(&log)?;
         // Listener announcements are stdout data. Merging stderr into the
@@ -65,6 +78,9 @@ impl Node {
             .env("RUST_LOG", "warn")
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
+        for (key, value) in environment {
+            command.env(key, value);
+        }
         command
             .env("CELLAR_NATIVE_FLEET", "1")
             .env("CELLAR_BUCKET", "cellar-dev")
@@ -389,5 +405,139 @@ async fn pi_agent_package_scenario() -> Result<()> {
     }
     second.stop(&client).await?;
     Output::new(Format::Text).line(format_args!("PACKAGED_PI: SIGKILL recovery preserved 8 complete transcripts; 32 concurrent retries made no changes; host joined"))?;
+    Ok(())
+}
+
+async fn filesystem_turn(
+    client: &Client,
+    node: &Node,
+    session: usize,
+    turn: &str,
+) -> Result<Value> {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        let response = client
+            .get(format!(
+                "{}/sessions/session-{session}/turns/{turn}",
+                node.ingress
+            ))
+            .send()
+            .await?;
+        if response.status().is_success() {
+            let value: Value = response.json().await?;
+            ensure!(
+                value["status"] != "interrupted",
+                "filesystem agent interrupted: {value}"
+            );
+            if value["status"] == "completed" {
+                return Ok(value);
+            }
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "filesystem session {session}/{turn} timed out\n{}",
+            node.logs()?
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires CELLAR_FS_PACKAGE built with examples/filesystem-agent/project.json"]
+async fn filesystem_agent_package_restores_session_files_and_followup_turns() -> Result<()> {
+    run_in_domain(filesystem_package_scenario()).await
+}
+
+async fn filesystem_package_scenario() -> Result<()> {
+    let staged =
+        PathBuf::from(std::env::var_os("CELLAR_FS_PACKAGE").context("CELLAR_FS_PACKAGE required")?)
+            .canonicalize()?;
+    let directory = tempfile::tempdir()?;
+    let root = directory.path();
+    let database = root.join("bucket.sqlite");
+    let installed = install_staged(root, &staged).await?;
+    let client = Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(15))
+        .build()?;
+    let mut first = Node::start(root, "filesystem-package-first", &database, &installed).await?;
+    first.ready(&client).await?;
+    // Exercise the production entry restored from its verified archive, with
+    // independent cell roots and no qualification-only hooks in that package.
+    let original = futures_util::future::join_all((0..4).map(|id| {
+        let client = &client;
+        let node = &first;
+        async move {
+            let response = client
+                .post(format!("{}/sessions/session-{id}/turns/one", node.ingress))
+                .json(&serde_json::json!({"prompt":format!("session {id} durable notes")}))
+                .send()
+                .await?;
+            ensure!(
+                response.status() == 202,
+                "filesystem package acceptance: {}\n{}",
+                response.status(),
+                node.logs()?
+            );
+            filesystem_turn(client, node, id, "one").await
+        }
+    }))
+    .await
+    .into_iter()
+    .collect::<Result<Vec<_>>>()?;
+    first.process.kill()?;
+    first.process.wait()?;
+    std::fs::remove_dir_all(root.join("filesystem-package-first-data"))?;
+    let mut second = Node::start(root, "filesystem-package-second", &database, &installed).await?;
+    second.ready(&client).await?;
+    for (id, before) in original.iter().enumerate() {
+        ensure!(
+            &filesystem_turn(&client, &second, id, "one").await? == before,
+            "packaged filesystem run changed during recovery"
+        );
+        let duplicate = client
+            .post(format!(
+                "{}/sessions/session-{id}/turns/one",
+                second.ingress
+            ))
+            .json(&serde_json::json!({"prompt":format!("session {id} durable notes")}))
+            .send()
+            .await?;
+        ensure!(
+            duplicate.status() == 200,
+            "packaged filesystem duplicate refused"
+        );
+        let conflict = client
+            .post(format!(
+                "{}/sessions/session-{id}/turns/one",
+                second.ingress
+            ))
+            .json(&serde_json::json!({"prompt":"different input"}))
+            .send()
+            .await?;
+        ensure!(
+            conflict.status() == 409,
+            "packaged filesystem accepted conflicting input"
+        );
+        let followup = client
+            .post(format!(
+                "{}/sessions/session-{id}/turns/two",
+                second.ingress
+            ))
+            .json(&serde_json::json!({"prompt":"read:/notes.txt"}))
+            .send()
+            .await?;
+        ensure!(
+            followup.status() == 202,
+            "packaged filesystem follow-up refused"
+        );
+        let answer = filesystem_turn(&client, &second, id, "two").await?;
+        ensure!(
+            answer["text"] == format!("session {id} durable notes"),
+            "packaged session lost or shared file content: {answer}"
+        );
+    }
+    second.stop(&client).await?;
+    Output::new(Format::Text).line(format_args!("PACKAGED_FILESYSTEM: 4 isolated sessions; SIGKILL and empty-node recovery preserved runs, receipts and follow-up file reads; host joined"))?;
     Ok(())
 }

@@ -73,11 +73,14 @@ impl EventKind {
 pub struct Source {
     pub(crate) workers_lifetimes: bool,
     workers_http_streams: bool,
+    sandbox_executors:
+        std::collections::BTreeMap<String, Arc<dyn cellar::sdk::containers::SandboxExecutor>>,
     containers: cellar_guest::containers::Adapter,
     container_bindings: cellar_guest::containers::Bindings,
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) rpc: Catalog,
@@ -96,11 +99,13 @@ impl Source {
         Self {
             workers_lifetimes: false,
             workers_http_streams: false,
+            sandbox_executors: Default::default(),
             containers: Default::default(),
             container_bindings: Default::default(),
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             events: Vec::new(),
             cell_events: Default::default(),
             rpc: Catalog::new(),
@@ -109,6 +114,48 @@ impl Source {
 
     /// Register a cell class with a fetch handler. Use [`Self::cell_events`]
     /// when the class also handles alarms or other supported events.
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
+    }
+
+    /// Register a native executor for a dedicated sandbox class. The guest
+    /// exports no constructor for this class; only authenticated child RPC runs.
+    pub fn sandbox_executor(
+        mut self,
+        class: &str,
+        executor: Arc<dyn cellar::sdk::containers::SandboxExecutor>,
+    ) -> Result<Self> {
+        ensure!(
+            !class.is_empty()
+                && class.len() <= 128
+                && class
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_'),
+            "invalid sandbox class"
+        );
+        ensure!(
+            !self.sandbox_executors.contains_key(class),
+            "duplicate sandbox executor"
+        );
+        self.sandbox_executors.insert(class.into(), executor);
+        Ok(self)
+    }
+
     pub fn cell(mut self, name: impl Into<String>) -> Self {
         self = self.cell_events(name, [EventKind::Fetch]);
         self
@@ -246,6 +293,10 @@ impl Source {
         }
         let mut seen = HashSet::new();
         for name in &self.classes {
+            ensure!(
+                !self.sandbox_executors.contains_key(name),
+                "sandbox execution class cannot export guest handlers"
+            );
             ensure!(
                 !name.is_empty() && seen.insert(name),
                 "duplicate or empty JavaScript class"
@@ -410,11 +461,12 @@ impl JavaScriptApplication {
                     let identity = context
                         .identity()
                         .ok_or_else(|| anyhow::anyhow!("cell RPC requires a cell identity"))?;
-                    if let Some(refusal) =
-                        self.source
-                            .rpc
-                            .refusal_after_factory(&identity.class, &method, &args)?
-                    {
+                    if let Some(refusal) = self.source.rpc.refusal_in_context(
+                        &context,
+                        &identity.class,
+                        &method,
+                        &args,
+                    )? {
                         return Ok(Output::Rpc(refusal));
                     }
                     let contract = self
@@ -422,11 +474,7 @@ impl JavaScriptApplication {
                         .rpc
                         .provider(&identity.class, &method)
                         .ok_or_else(|| anyhow::anyhow!("undeclared JavaScript RPC method"))?;
-                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
-                        &args,
-                        contract.limits().max_message_bytes,
-                    )?;
-                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    let mut prepared = Prepared::from_context(&context, contract, &method, &args)?;
                     body = Some(prepared.take_request());
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
@@ -512,7 +560,8 @@ impl JavaScriptApplication {
             "event": payload,
             "object": object,
             "class": class,
-            "identity": identity
+            "identity": identity,
+            "rpc_limits": self.source.rpc.invocation_limits(&context)
         }))?;
         let charge = crate::runtime::value_size(&payload, body.as_deref())?;
         ensure!(
@@ -780,6 +829,7 @@ impl JavaScriptApplication {
                                                         cellar_guest::failure::Validation
                                                     );
                                                     let limits = cellar_guest::Limits {
+                                                        max_value_bytes: options.max_value_bytes,
                                                         max_body_bytes: options.max_body_bytes,
                                                         max_batch_operations: options
                                                             .max_batch_operations,
@@ -841,6 +891,8 @@ impl JavaScriptApplication {
                                                         &operation_name,
                                                         payload,
                                                         &cellar_guest::Limits {
+                                                            max_value_bytes: options
+                                                                .max_value_bytes,
                                                             max_body_bytes: options.max_body_bytes,
                                                             max_batch_operations: options
                                                                 .max_batch_operations,
@@ -974,6 +1026,13 @@ impl Drop for Lifetime {
 }
 
 impl Application for JavaScriptApplication {
+    fn sandbox_executor(
+        &self,
+        class: &str,
+    ) -> Option<Arc<dyn cellar::sdk::containers::SandboxExecutor>> {
+        self.source.sandbox_executors.get(class).cloned()
+    }
+
     fn rpc_catalog(&self) -> Option<&Catalog> {
         Some(&self.source.rpc)
     }
@@ -988,7 +1047,9 @@ impl Application for JavaScriptApplication {
         );
         for class in &options.do_classes {
             ensure!(
-                cellar::deploy::is_reserved_class(class) || self.supports_cell(class),
+                cellar::deploy::is_reserved_class(class)
+                    || self.supports_cell(class)
+                    || self.sandbox_executor(class).is_some(),
                 "JavaScript deployment names an unregistered cell class"
             );
         }
@@ -1013,6 +1074,7 @@ impl Application for JavaScriptApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -1034,6 +1096,7 @@ impl Application for JavaScriptApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -1042,6 +1105,10 @@ impl Application for JavaScriptApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -1089,6 +1156,7 @@ impl Cell for JavaScriptCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

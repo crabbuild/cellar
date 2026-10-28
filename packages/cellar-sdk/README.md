@@ -22,6 +22,82 @@ Use the [embedded TypeScript example](../../examples/javascript/README.md) or
 instructions. The [adapter guide](../../crates/cellar-javascript/README.md)
 describes runtime limits and supported events.
 
+## Per-cell files and durable file tools
+
+After the native host enables `Source::filesystem` for a cell class, its
+invocations access that cell's files through `ctx.fs`. The
+[filesystem guide](../../crates/cellar/application/filesystem/README.md) defines
+the supported operation profile, byte paths, limits, errors and handle lifetime.
+JavaScript offsets/versions are bigint. Byte contents and non-UTF-8 paths use
+`Uint8Array`. Built-in Node `fs` continues to address the process environment.
+
+```ts
+const file = await ctx.fs.open("/notes.txt", { access: "read_write", create: true });
+try {
+  await file.pwrite(utf8("hello"), 0n);
+  const bytes = await file.pread(5, 0n);
+  await file.fsync();
+} finally {
+  await file.close();
+}
+```
+
+Separate awaits are separate operations. Compose path mutations with business
+state using `ctx.storage.apply({filesystem_checks, filesystem_mutations, puts,
+checks, ...})`. Native validation and one cell transaction cover the full batch.
+Descriptor tokens cannot be included in that batch.
+
+`@cellar/sdk/filesystem-tools` adds bounded, receipt-backed read/stat/list/write/
+replace/edit/rename/unlink/search tools:
+
+```ts
+import { createFilesystemTools } from "@cellar/sdk/filesystem-tools";
+const tools = createFilesystemTools(ctx);
+const saved = await tools.execute("turn-1:tool-1", {
+  operation: "write", path: "/notes.txt", content: "hello",
+});
+```
+
+Supply an ID from a saved model decision and preserve it across recovery. The
+helper snapshots arguments before its first wait, compares the complete bounded
+canonical request fingerprint on replay, commits effects/receipt together and
+awaits proof. Replayed reads return saved bytes even after later edits. Known
+file/conflict/argument-validation refusals are saved results; ambiguous failures propagate for later
+receipt reconciliation. The helper does not retry a submitted mutation.
+
+Receipt admission also checks the future `storage.read` response envelope against
+the native transport limit, including JSON escaping of the saved request. An
+oversized result can become a small recorded refusal. If even the request and
+refusal cannot fit a replayable receipt, the call rejects before file mutation.
+Configured tool byte ceilings remain subject to these transport bounds.
+
+Agent frameworks with an existing receipt journal can use `tools.prepare(request)`.
+It captures a bounded result and returns `filesystem_checks` and
+`filesystem_mutations` without committing them. Commit those fields, the exact
+request fingerprint and the result in the journal's one checked `storage.apply`,
+then await `storage.sync()`. Check the journal before preparation on replay.
+The caller must also bound its complete journal value and checked batch so both
+fit the native storage read/request transport envelopes.
+Use `validateFilesystemCheckpoint(batch, capabilities.transport)` before
+submitting the batch. It checks all future storage-read values as well as the
+complete request. For a pending monolithic journal, pass
+`{journalKeys: ["run"]}` to reserve 1 KiB beyond its next compare-and-save for a
+terminal/recovery update. Terminal writes omit `journalKeys`. The value budget
+bounds this JSON metadata; the body budget applies to binary bodies. Python's
+`cellar_filesystem_tools.validate_filesystem_checkpoint` provides the same
+contract and accounts for the Python bridge's Unicode escaping.
+`filesystemToolRefusal(error)` returns a receipt value only for a proven
+no-commit refusal; retain the original journal guards when saving that refusal
+without the rejected file effects. Unknown commits require reconciliation.
+The [Vercel agent](../../examples/vercel-agent/tools.ts) demonstrates this path.
+
+The [session agent example](../../examples/filesystem-agent/README.md) demonstrates
+follow-up turns sharing one cell's files. Runtime capabilities expose effective
+transfer/helper/directory limits and transport ceilings; whole-file helpers and
+tool journals are bounded independently of file size. The release
+[status ledger](../../plans/per-cell-filesystem-implementation-status.md) records
+remaining qualification.
+
 ## Named, typed business methods
 
 Protobuf service generation adds a typed entity API through `@cellar/sdk/rpc`.
@@ -629,6 +705,14 @@ declarations, a license and an explicit supported SDK range. Test the component
 with the actual selected Cellar runtime: npm installation alone does not establish
 embedded-runtime compatibility.
 
+
+## Dynamic named sandboxes
+
+`ctx.sandboxes` allocates independently routed execution cells owned by the
+current business cell. The host registers the dedicated execution class through
+`Source::sandbox_executor`; full checkpoints prevent stale calls from targeting a
+replacement child. See the [four-language allocation and erasure guide](../../crates/cellar-container/allocations.md)
+for examples, cleanup after deployment removal, limits and production boundaries.
 
 ## Cell-owned containers
 

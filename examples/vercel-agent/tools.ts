@@ -3,7 +3,17 @@
 import { createHash } from "node:crypto";
 import { tool } from "ai";
 import { z } from "zod";
-import type { Context, Json, Snapshot } from "@cellar/sdk";
+import type { Batch, Context, Json } from "@cellar/sdk";
+import {
+  createFilesystemTools,
+  filesystemToolRefusal,
+} from "@cellar/sdk/filesystem-tools";
+
+const filePath = z.string().min(1).max(4096);
+const fileInteger = z
+  .string()
+  .max(19)
+  .regex(/^(0|[1-9][0-9]*)$/);
 
 export const schemas = {
   increment: z.object({ amount: z.number().int().min(1).max(100) }).strict(),
@@ -35,6 +45,47 @@ export const schemas = {
       priority: z.enum(["low", "normal", "high"]),
     })
     .strict(),
+
+  readFile: z
+    .object({
+      path: filePath,
+      offset: fileInteger.optional(),
+      max_bytes: z.number().int().min(1).max(32768).optional(),
+    })
+    .strict(),
+  listFiles: z
+    .object({
+      path: filePath,
+      limit: z.number().int().min(1).max(128).optional(),
+      cursor: z
+        .object({
+          scope: z.string().max(4096),
+          inode: fileInteger,
+          position: fileInteger,
+        })
+        .strict()
+        .nullable()
+        .optional(),
+    })
+    .strict(),
+  writeFile: z
+    .object({ path: filePath, content: z.string().max(8192) })
+    .strict(),
+  editFile: z
+    .object({
+      path: filePath,
+      inode: fileInteger,
+      version: fileInteger,
+      offset: fileInteger,
+      delete_bytes: fileInteger,
+      insert: z.string().max(8192),
+    })
+    .strict(),
+  renameFile: z.object({ path: filePath, destination: filePath }).strict(),
+  deleteFile: z.object({ path: filePath }).strict(),
+  searchFiles: z
+    .object({ path: filePath, pattern: z.string().min(1).max(128) })
+    .strict(),
 };
 
 export interface Receipt {
@@ -54,10 +105,11 @@ export interface ToolServices {
   token: string;
 }
 
-export type Save = (extra?: {
-  checks?: Record<string, Snapshot>;
-  puts?: Record<string, Json>;
-}) => Promise<void>;
+export type Effects = Pick<
+  Batch,
+  "checks" | "puts" | "filesystem_checks" | "filesystem_mutations"
+>;
+export type Save = (extra?: Effects) => Promise<void>;
 
 export function fingerprint(value: unknown): string {
   // Object property order must not change the identity of a replayed request.
@@ -92,6 +144,7 @@ export function agentTools(
     failed: (error: unknown) => void;
   },
 ) {
+  const files = createFilesystemTools(ctx);
   async function receipt(
     name: string,
     input: unknown,
@@ -99,11 +152,7 @@ export function agentTools(
     effect: (
       key: string,
       request: string,
-    ) => Promise<{
-      result: Json;
-      checks?: Record<string, Snapshot>;
-      puts?: Record<string, Json>;
-    }>,
+    ) => Promise<{ result: Json } & Effects>,
   ) {
     try {
       options.check(); // A previous tool in this same SDK step may have failed.
@@ -122,14 +171,27 @@ export function agentTools(
 
       // Effects return local writes rather than committing them independently,
       // so save() can commit the mutation and its receipt together.
-      const { result, ...batch } = await effect(key, request);
+      let { result, ...batch } = await effect(key, request);
       state.tools[key] = {
         name,
         request,
         input: JSON.parse(JSON.stringify(input)),
         result,
       };
-      await save(batch);
+      try {
+        await save(batch);
+      } catch (error) {
+        const refusal =
+          batch.filesystem_checks || batch.filesystem_mutations
+            ? filesystemToolRefusal(error)
+            : null;
+        if (refusal === null) throw error;
+        // The original checked file batch proved no commit. Persist its refusal
+        // with the journal only; keep the same run/state guards in save().
+        result = refusal;
+        state.tools[key].result = result;
+        await save({ checks: batch.checks, puts: batch.puts });
+      }
       options.emit(name, result, false);
       await options.committed();
       return structuredClone(result);
@@ -140,6 +202,84 @@ export function agentTools(
   }
 
   return {
+    readFile: tool({
+      description:
+        "Read a bounded range from this turn's cell filesystem. Returns inode/version and saved bytes; replay returns the original read.",
+      inputSchema: schemas.readFile,
+      execute: (args, { toolCallId }) =>
+        receipt("readFile", args, toolCallId, async () =>
+          files.prepare({ operation: "read", ...schemas.readFile.parse(args) }),
+        ),
+    }),
+    listFiles: tool({
+      description:
+        "List a bounded page in this turn's cell filesystem. Use the opaque continuation cursor to request another page.",
+      inputSchema: schemas.listFiles,
+      execute: (args, { toolCallId }) =>
+        receipt("listFiles", args, toolCallId, async () =>
+          files.prepare({
+            operation: "list",
+            ...schemas.listFiles.parse(args),
+          }),
+        ),
+    }),
+    writeFile: tool({
+      description:
+        "Create or overwrite a bounded text file in this turn's cell filesystem. File contents and the tool receipt commit atomically.",
+      inputSchema: schemas.writeFile,
+      execute: (args, { toolCallId }) =>
+        receipt("writeFile", args, toolCallId, async () =>
+          files.prepare({
+            operation: "write",
+            ...schemas.writeFile.parse(args),
+          }),
+        ),
+    }),
+    editFile: tool({
+      description:
+        "Edit a byte range using the inode/version from a prior read. A conflict is returned as a saved refusal; inspect the current file before a new decision.",
+      inputSchema: schemas.editFile,
+      execute: (args, { toolCallId }) =>
+        receipt("editFile", args, toolCallId, async () =>
+          files.prepare({ operation: "edit", ...schemas.editFile.parse(args) }),
+        ),
+    }),
+    renameFile: tool({
+      description:
+        "Rename a file within this turn's cell filesystem and save its receipt atomically.",
+      inputSchema: schemas.renameFile,
+      execute: (args, { toolCallId }) =>
+        receipt("renameFile", args, toolCallId, async () =>
+          files.prepare({
+            operation: "rename",
+            ...schemas.renameFile.parse(args),
+          }),
+        ),
+    }),
+    deleteFile: tool({
+      description:
+        "Unlink a file in this turn's cell filesystem and save its receipt atomically.",
+      inputSchema: schemas.deleteFile,
+      execute: (args, { toolCallId }) =>
+        receipt("deleteFile", args, toolCallId, async () =>
+          files.prepare({
+            operation: "unlink",
+            ...schemas.deleteFile.parse(args),
+          }),
+        ),
+    }),
+    searchFiles: tool({
+      description:
+        "Search bounded file prefixes for literal text in this turn's cell filesystem. Reports traversal and truncation limits.",
+      inputSchema: schemas.searchFiles,
+      execute: (args, { toolCallId }) =>
+        receipt("searchFiles", args, toolCallId, async () =>
+          files.prepare({
+            operation: "search",
+            ...schemas.searchFiles.parse(args),
+          }),
+        ),
+    }),
     increment: tool({
       description:
         "Add an integer to this turn’s durable counter. At most one distinct increment per turn.",

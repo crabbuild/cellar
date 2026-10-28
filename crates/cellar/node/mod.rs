@@ -14,6 +14,9 @@
 //! work runs on the host runtime so synchronous work cannot starve the core's
 //! monotonic lease timers.
 
+mod sandbox_erasure;
+pub use sandbox_erasure::SandboxErasurePolicy;
+
 use crate::actor::*;
 use crate::bucket::Bucket;
 use crate::cell_dispatch::{
@@ -62,7 +65,6 @@ mod event_inventory;
 mod event_metrics;
 mod event_reply;
 mod event_resources;
-mod event_state;
 mod event_wait;
 mod ingress;
 pub(crate) mod operations;
@@ -70,6 +72,7 @@ mod raft_metrics;
 mod raft_startup;
 mod rpc_deadline;
 mod source_operator;
+mod state_sampling;
 mod stream_operator;
 mod wake_discovery;
 #[cfg(not(cellar_internal_tests))]
@@ -719,6 +722,7 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
     let Some(runtime) = app.runtime.as_ref() else {
         let error = || anyhow::anyhow!("no cell runtime");
         match req {
+            FacetReq::Erase { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Open { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Delete { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::DeleteBatch { reply, .. } => drop(reply.send(Err(error()))),
@@ -727,6 +731,17 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
         return;
     };
     match req {
+        FacetReq::Erase { request, reply } => {
+            let result = async {
+                anyhow::ensure!(
+                    runtime.published_epoch(request.record.evidence.scope()) == Some(request.epoch),
+                    "erasure activation changed"
+                );
+                runtime.retirements.begin(&request.record).await
+            }
+            .await;
+            drop(reply.send(result));
+        }
         FacetReq::Open {
             authority,
             root,
@@ -1655,6 +1670,14 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
         );
+        if let Some(value) = crate::runtime::sandbox_execution::retired_reply(
+            app.runtime.as_ref(),
+            authority.as_ref(),
+        )
+        .await?
+        {
+            return Ok(value);
+        }
         let mut dispatcher = match budget.as_ref() {
             Some(budget) => RemoteRouteRetry::until(budget.deadline_ms()),
             None => match deadline_ms {
@@ -1663,10 +1686,26 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
             },
         };
         loop {
-            let resolving = app.request(scope.clone());
-            let routed = resolving.await;
+            let routed = if authority
+                .as_ref()
+                .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+            {
+                app.native_sandbox_request(scope.clone(), false).await
+            } else {
+                app.request(scope.clone()).await
+            };
             let Routed { request, route } = routed.map_err(|error| {
-                let failure = anyhow::Error::new(RoutedRequestError(error));
+                let failure = if error == RequestError::CapacityExhausted
+                    && authority
+                        .as_ref()
+                        .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+                {
+                    anyhow::Error::new(crate::application::containers::SandboxFailure {
+                        kind: crate::application::containers::SandboxFailureKind::Capacity,
+                    })
+                } else {
+                    anyhow::Error::new(RoutedRequestError(error))
+                };
                 if event_call {
                     event_failure::annotate(failure, event_failure::route_code(error))
                 } else {
@@ -1815,6 +1854,25 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         // Nothing executed. An abort tombstone must not cancel
                         // the safe redispatch of this same request identity.
                         abort.disarm();
+                    }
+                    if epoch == 0
+                        && attempt == cellar_logic::routing::Attempt::NotOwner
+                        && authority
+                            .as_ref()
+                            .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+                    {
+                        dispatcher.invalidate(&app, &scope).await;
+                        match dispatcher.wait_capacity(None).await {
+                            RemoteRetryOutcome::Ready => continue,
+                            RemoteRetryOutcome::Cancelled => {
+                                anyhow::bail!("sandbox placement cancelled")
+                            }
+                            RemoteRetryOutcome::Stop => {
+                                return Err(crate::application::containers::SandboxFailure {
+                                    kind: crate::application::containers::SandboxFailureKind::Capacity,
+                                }.into());
+                            }
+                        }
                     }
                     match dispatcher
                         .retry(&app, &scope, attempt, None, Some("rpc"))
@@ -2727,7 +2785,33 @@ pub(crate) async fn dispatch_forwarded_rpc(
     invocation.request_id = Some(request_id);
     let (cancel, _reply_wait) = runtime.begin_rpc_reply_wait(request_id);
     let dispatch = async {
-        let result = match app.request(scope.clone()).await {
+        match crate::runtime::sandbox_execution::retired_reply(
+            Some(runtime),
+            invocation.authority.as_ref(),
+        )
+        .await
+        {
+            Ok(Some(crate::engine_api::RpcData::Json(value))) => {
+                let mut reply = response(StatusCode::OK, value);
+                reply.headers_mut().insert(
+                    hyper::header::CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_static("application/json"),
+                );
+                return peer_response(reply);
+            }
+            Ok(None) => {}
+            _ => return peer_response(response(StatusCode::GONE, "sandbox has been retired")),
+        }
+        let routed = if invocation
+            .authority
+            .as_ref()
+            .is_some_and(crate::runtime::RpcAuthority::requires_native_capacity)
+        {
+            app.native_sandbox_request(scope.clone(), true).await
+        } else {
+            app.request(scope.clone()).await
+        };
+        let result = match routed {
             Ok(Routed {
                 request,
                 route: Route::Local,
@@ -2773,6 +2857,12 @@ pub(crate) async fn dispatch_forwarded_rpc(
                         event_failure::route_code(error),
                     )),
                 );
+                if error == RequestError::CapacityExhausted {
+                    refusal.headers_mut().insert(
+                        hyper::header::HeaderName::from_static(STALE_ROUTE_HEADER),
+                        hyper::header::HeaderValue::from_static(STALE_ROUTE_VALUE),
+                    );
+                }
                 return refusal;
             }
         };
@@ -3472,7 +3562,10 @@ async fn handle_internal(
             event_inventory::handle(&app, request).await
         }
         _ if path.starts_with("/event-state/") && app.runtime.is_some() => {
-            event_state::handle(&app, request).await
+            state_sampling::handle(&app, request, state_sampling::SampleKind::Events).await
+        }
+        _ if path.starts_with("/filesystem-state/") && app.runtime.is_some() => {
+            state_sampling::handle(&app, request, state_sampling::SampleKind::Filesystem).await
         }
         _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
             source_operator::handle(&app, request).await
@@ -5467,6 +5560,7 @@ async fn async_main(
                 shutdown: shutdown_policy,
                 local_cache_max_bytes,
                 local_cache_prune_period: LOCAL_CACHE_PRUNE_PERIOD,
+                sandbox_erasure: Default::default(),
             },
             #[cfg(all(test, cellar_internal_tests))]
             shutdown_accept_failure_test_active,

@@ -215,7 +215,19 @@ impl FacetOpenAuthority {
     }
 }
 
+/// Sealed, durable erasure intent submitted by framework cleanup.
+#[doc(hidden)]
+pub struct CellErasureRequest {
+    pub(crate) record: crate::cell_runtime::retirement::Record,
+    pub(crate) epoch: u64,
+}
+
 pub enum FacetReq {
+    #[doc(hidden)]
+    Erase {
+        request: CellErasureRequest,
+        reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
     /// Activate the stream of the facet at `names` below `root`, and answer
     /// its database file and whether replication restored it.
     Open {

@@ -10,7 +10,7 @@ pub(super) const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS __sys_work (
     scope TEXT NOT NULL,
     reason TEXT NOT NULL CHECK(reason IN (
-        'outbox', 'stream-maintenance', 'resource-reconciliation'
+        'outbox', 'stream-maintenance', 'resource-reconciliation', 'filesystem-maintenance', 'sandbox-cleanup'
     )),
     generation INTEGER NOT NULL CHECK(
         typeof(generation) = 'integer' AND generation > 0

@@ -668,7 +668,8 @@ async fn accepted_create_owner_loss(
         application(provider.clone(), true, original.clone(), calls.clone())?,
         true,
     )
-    .await?;
+    .await
+    .with_context(|| format!("accepted-create original start: {:?}", trace.snapshot()))?;
     trace.mark("accepted-create original started");
     let owner = first.services();
     let (hold, entered, release) = peer.create_gate();
@@ -719,7 +720,9 @@ async fn accepted_create_owner_loss(
         "expired owner acknowledged an accepted create"
     );
     ensure!(
-        outcome??
+        outcome
+            .context("expired owner did not terminate")?
+            .with_context(|| format!("expired owner termination: {:?}", trace.snapshot()))?
             == NodeOutcome::Fenced {
                 code: 3,
                 reason: FenceReason::NodeLeaseExpired
@@ -748,7 +751,8 @@ async fn accepted_create_owner_loss(
         application(provider, false, witness.clone(), calls.clone())?,
         false,
     )
-    .await?;
+    .await
+    .with_context(|| format!("accepted-create successor start: {:?}", trace.snapshot()))?;
     trace.mark("accepted-create successor started");
     let result = async {
         tokio::time::timeout(Duration::from_secs(15), witness.completed.notified())

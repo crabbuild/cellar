@@ -91,6 +91,84 @@ class Context:
 
 
 class PythonRpc(unittest.TestCase):
+    def test_runner_uses_invocation_limits_before_serializing_provider_response(self):
+        import runner
+        rule = CounterRegistration.methods["example.counter.v1.Counter/Increment"]
+        class Bridge:
+            def __init__(self): self.completed = []
+            def active(self): return True
+            def complete(self, *args): self.completed.append(args)
+        async def increment(target, request, context):
+            return IncrementResponse(count=Count(value=1))
+        module = SimpleNamespace(__cellar_rpc_dispatch__={"Counter":{rule.name:(increment,rule)}})
+        payload = {"kind":"rpc","event":{"method":rule.name},"object":1,"class":"Counter",
+                   "rpc_limits":{rule.digest:dict(max_message_bytes=1048576,max_depth=64,max_elements=100000,max_decoded_slots=7)}}
+        bridge = Bridge()
+        context = SimpleNamespace(_close=lambda **kwargs:None)
+        stats = {"interpreter":dict(handlers_started=0,handlers_failed=0,handlers_completed=0,
+                                    handler_wall_ns_sum=0,handler_wall_ns_max=0)}
+        request = IncrementRequest(delta=1,operation_id="slots").SerializeToString()
+        with patch.object(IncrementResponse,"SerializeToString",side_effect=AssertionError("must not serialize")) as encode:
+            asyncio.run(runner._invoke(module,{1:(object(),None)},payload,request,bridge,context,stats,1))
+            self.assertEqual(encode.call_count,0)
+        self.assertEqual(bridge.completed,[('{"error":"InvalidResponse"}',True)])
+        self.assertEqual(rule.max_decoded_slots,1000000)
+
+    def test_suspended_provider_keeps_policy_when_another_host_runs(self):
+        import runner
+        rule = CounterRegistration.methods["example.counter.v1.Counter/Increment"]
+        class Bridge:
+            def __init__(self): self.completed = []
+            def active(self): return True
+            def complete(self, *args): self.completed.append(args)
+        async def run():
+            release = {name:asyncio.Event() for name in ("strict","loose")}
+            async def increment(target, request, context):
+                await release[context.name].wait()
+                return IncrementResponse(count=Count(value=1))
+            module = SimpleNamespace(__cellar_rpc_dispatch__={"Counter":{rule.name:(increment,rule)}})
+            bridges = {name:Bridge() for name in release}
+            tasks = {}
+            for name, slots in (("strict",7),("loose",1000000)):
+                payload = {"kind":"rpc","event":{"method":rule.name},"object":1,"class":"Counter",
+                           "rpc_limits":{rule.digest:dict(max_message_bytes=1048576,max_depth=64,max_elements=100000,max_decoded_slots=slots)}}
+                context = SimpleNamespace(name=name,_close=lambda **kwargs:None)
+                stats = {"interpreter":dict(handlers_started=0,handlers_failed=0,handlers_completed=0,
+                                            handler_wall_ns_sum=0,handler_wall_ns_max=0)}
+                tasks[name] = asyncio.create_task(runner._invoke(module,{1:(object(),None)},payload,b"",bridges[name],context,stats,1))
+            await asyncio.sleep(0)
+            release["strict"].set(); await tasks["strict"]
+            release["loose"].set(); await tasks["loose"]
+            self.assertEqual(bridges["strict"].completed,[('{"error":"InvalidResponse"}',True)])
+            self.assertEqual(bridges["loose"].completed,[("null",False,IncrementResponse(count=Count(value=1)).SerializeToString())])
+            self.assertEqual(rule.max_decoded_slots,1000000)
+        asyncio.run(run())
+
+    def test_native_context_supplies_host_limits_before_client_serialization(self):
+        from cellar import Context as NativeContext, _current_invocation
+        contract = json.loads((ROOT / "tools/rpc/fixtures/generated/rpc.json").read_text())
+        class Bridge:
+            def active(self): return True
+            def rpc_budget(self): return Budget(Context())
+            def submit(self, *args): raise AssertionError("must not submit")
+        async def run():
+            bridge = Bridge()
+            token = _current_invocation.set(bridge)
+            try:
+                context = NativeContext(bridge,None)
+                context._rpc_codecs = CodecCatalog({contract["digest"]:contract})
+                context._rpc_limits = {contract["digest"]:{**contract["limits"],"max_decoded_slots":4}}
+                client = CounterClient.bind(context,"COUNTERS","alice")
+                with patch.object(IncrementRequest,"SerializeToString",side_effect=AssertionError("must not serialize")) as encode:
+                    with self.assertRaises(ValidationError) as caught:
+                        await client.increment(IncrementRequest(delta=1,operation_id="id"))
+                    self.assertEqual((caught.exception.code,caught.exception.outcome),("ResourceExhausted","not_committed"))
+                    encode.assert_not_called()
+                self.assertEqual(context._rpc_codecs.verify(self.increment)["max_decoded_slots"],1000000)
+            finally:
+                _current_invocation.reset(token)
+        asyncio.run(run())
+
     def test_rpc_control_uses_utf8_without_changing_ordinary_sdk_encoding(self):
         from cellar import Context as NativeContext, _current_invocation
         class Bridge:

@@ -78,29 +78,57 @@ struct Intercept {
     service: ServiceTarget,
 }
 
-fn input(value: Value, maximum: usize) -> Result<Intercept> {
+fn input(value: Value, maximum: usize, https: bool) -> Result<Intercept> {
     let input: Intercept = serde_json::from_value(value)?;
     if !input.target.is_null() {
         let target = input
             .target
             .as_str()
             .context("intercept target must be a string or null")?;
-        cellar::container::HttpInterceptTarget::parse(target)?;
+        if https {
+            cellar::container::HttpInterceptTarget::https(target)?;
+        } else {
+            cellar::container::HttpInterceptTarget::parse(target)?;
+        }
     }
+    ensure!(
+        !https || input.target.is_string(),
+        "HTTPS interception requires an explicit target"
+    );
     input.service.validate(maximum)?;
     Ok(input)
 }
 
 pub(crate) fn validate(value: &Value, maximum: usize) -> Result<()> {
-    input(value.clone(), maximum).map(|_| ())
+    input(value.clone(), maximum, false).map(|_| ())
+}
+
+pub(crate) fn validate_https(value: &Value, maximum: usize) -> Result<()> {
+    input(value.clone(), maximum, true).map(|_| ())
 }
 
 pub(crate) async fn execute(context: &Context, value: Value, maximum: usize) -> Result<Value> {
+    perform(context, value, maximum, false).await
+}
+
+pub(crate) async fn execute_https(
+    context: &Context,
+    value: Value,
+    maximum: usize,
+) -> Result<Value> {
+    perform(context, value, maximum, true).await
+}
+
+async fn perform(context: &Context, value: Value, maximum: usize, https: bool) -> Result<Value> {
     let (input, container, route) = (|| -> Result<_> {
-        let input = input(value, maximum)?;
+        let input = input(value, maximum, https)?;
         let container = context.container()?;
         ensure!(
-            container.supports_outbound_http(context)?,
+            if https {
+                container.supports_outbound_https(context)?
+            } else {
+                container.supports_outbound_http(context)?
+            },
             "native HTTP interception profile is unavailable"
         );
         let route = input.service.resolve(context, maximum)?;
@@ -108,9 +136,15 @@ pub(crate) async fn execute(context: &Context, value: Value, maximum: usize) -> 
     })()
     .context(crate::Validation)?;
     if let Some(target) = input.target.as_str() {
-        container
-            .intercept_outbound_http(context, target, &route)
-            .await?;
+        if https {
+            container
+                .intercept_outbound_https(context, target, &route)
+                .await?;
+        } else {
+            container
+                .intercept_outbound_http(context, target, &route)
+                .await?;
+        }
     } else {
         container
             .intercept_all_outbound_http(context, &route)

@@ -100,6 +100,12 @@ def cookbook(origin, with_cron):
     assert call("/router/beta", method="POST")["count"] == 1
     assert call("/counters/alpha")["count"] == 2
     call("/counters/alpha", method="DELETE", status=405)
+    note = {"id": "first", "text": "native filesystem"}
+    receipt = call("/notebooks/alpha", method="POST", data=note)
+    assert receipt["entries"] == 1
+    assert call("/notebooks/alpha", method="POST", data=note) == receipt
+    assert call("/notebooks/alpha")["text"] == "native filesystem\n"
+    assert call("/notebooks/beta")["entries"] == 0
     assert call("/vectors/palette?rgb=250,20,20")["rows"][0][0] == "red"
     call("/vectors/palette?rgb=bad", status=400)
     call("/sql", method="POST", data={"message": "native guestbook"})
@@ -204,6 +210,8 @@ def main():
                 assert request(origin, "/counters/team")["count"] == 1
             else:
                 assert request(origin, "/counters/alpha")["count"] == 2
+                notebook = request(origin, "/notebooks/alpha")
+                assert notebook["entries"] == 1 and notebook["text"] == "native filesystem\n"
                 assert request(origin, "/agents/demo")["stage"] == "complete"
                 assert request(origin, "/tenants/acme/accounts/main", token="local-acme")["balance"] == 10
                 assert request(origin, "/outbox/shop")["orders"] == [["order1", 1]]

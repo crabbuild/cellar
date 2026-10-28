@@ -22,6 +22,8 @@ struct Batch {
     deletes: Vec<String>,
     alarm_at_ms: Option<i64>,
     delete_alarm: bool,
+    filesystem_checks: Vec<crate::filesystem_batch::Check>,
+    filesystem_mutations: Vec<crate::filesystem_batch::Mutation>,
 }
 
 #[derive(Debug)]
@@ -43,6 +45,8 @@ fn validate(value: Value, maximum: usize) -> Result<Batch> {
             .len()
             .saturating_add(batch.puts.len())
             .saturating_add(batch.deletes.len())
+            .saturating_add(batch.filesystem_checks.len())
+            .saturating_add(batch.filesystem_mutations.len())
             .saturating_add(usize::from(
                 batch.alarm_at_ms.is_some() || batch.delete_alarm
             ))
@@ -79,7 +83,21 @@ fn validate(value: Value, maximum: usize) -> Result<Batch> {
 }
 
 pub fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
-    let batch = validate(value, maximum).context(crate::failure::Validation)?;
+    let mut batch = validate(value, maximum).context(crate::failure::Validation)?;
+    let checks = std::mem::take(&mut batch.filesystem_checks)
+        .into_iter()
+        .map(|check| check.prepare())
+        .collect::<Result<Vec<_>>>()
+        .context(crate::failure::Validation)?;
+    let limit = cellar::asyncrt::services()
+        .cell_limits()
+        .filesystem
+        .max_file_helper_bytes;
+    let mutations = std::mem::take(&mut batch.filesystem_mutations)
+        .into_iter()
+        .map(|mutation| mutation.prepare(limit))
+        .collect::<Result<Vec<_>>>()
+        .context(crate::failure::Validation)?;
     context.storage()?.transaction_sync(|tx| {
         for (key, snapshot) in &batch.checks {
             let current = tx.get_json(key)?;
@@ -87,6 +105,15 @@ pub fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
                 || (snapshot.present && current.as_ref() != Some(&snapshot.value))
             {
                 return Err(Conflict.into());
+            }
+        }
+        if !checks.is_empty() || !mutations.is_empty() {
+            let fs = tx.fs()?;
+            for check in &checks {
+                check.check(&fs)?;
+            }
+            for mutation in &mutations {
+                mutation.apply(&fs)?;
             }
         }
         for (key, value) in &batch.puts {

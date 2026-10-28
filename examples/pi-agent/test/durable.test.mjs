@@ -8,7 +8,8 @@ import {fixtureProvider, completed, message} from '../dist/provider.js';
 function storage() {
   const data = new Map();
   let alarm;
-  const ctx = {now: async () => 1000, storage: {
+  const ctx = {now: async () => 1000,
+    fs: {capabilities: async () => ({transport: {max_value_bytes: 2 * 1024 * 1024}})}, storage: {
     read: async key => data.has(key) ? {present: true, value: structuredClone(data.get(key))} : {present: false, value: null},
     apply: async batch => {
       for (const [key, expected] of Object.entries(batch.checks ?? {})) {
@@ -21,6 +22,33 @@ function storage() {
   }};
   return {ctx, data, alarm: () => alarm};
 }
+
+test('small transport refuses a large decision and still saves retry exhaustion', async () => {
+  const {ctx, data, alarm} = storage();
+  ctx.fs.capabilities = async () => ({transport: {max_value_bytes: 8192}});
+  const apply = ctx.storage.apply;
+  ctx.storage.apply = async batch => {
+    assert.ok(Buffer.byteLength(JSON.stringify(batch)) <= 8192);
+    return apply(batch);
+  };
+  const provider = fixtureProvider();
+  const fixture = provider.stream;
+  provider.stream = async (...args) => {
+    const source = await fixture(...args);
+    const result = await source.result();
+    result.content.push({type: 'text', text: 'x'.repeat(9000)});
+    return completed(result);
+  };
+  await accept(ctx, 'Add three', provider);
+  for (let n = 0; n < 5; n++) await assert.rejects(execute(ctx, provider), {code: 'ValidationError', outcome: 'not_committed'});
+  await execute(ctx, provider);
+  const run = await readRun(ctx);
+  assert.equal(run.status, 'failed');
+  assert.equal(run.attempts, 5);
+  assert.equal(run.models.length, 0);
+  assert.equal(data.has('count'), false);
+  assert.equal(alarm(), undefined);
+});
 
 for (const boundary of ['model', 'tool', 'final-model', 'completed']) {
   test(`replay after interruption at ${boundary} keeps one effect and reuses decisions`, async () => {

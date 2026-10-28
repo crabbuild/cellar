@@ -1,0 +1,5 @@
+{
+  "application": ".",
+  "entry": "app.js",
+  "files": ["app.js", "session.js", "model.js", "package.json", "package-lock.json", "node_modules"]
+}

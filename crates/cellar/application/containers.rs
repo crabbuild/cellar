@@ -11,6 +11,13 @@ pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
     MaintenancePolicy, RetentionExpired, Supervision,
 };
+pub use super::sandbox_catalog::{
+    SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
+    SandboxParent, SandboxParentState, SandboxReservation,
+};
+pub use super::sandbox_catalog::{
+    SandboxExecutor, SandboxFailure, SandboxFailureKind, MAX_SANDBOX_MESSAGE_BYTES,
+};
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
@@ -106,7 +113,10 @@ impl Context {
             "containers must be controlled by their root cell"
         );
         anyhow::ensure!(
-            self.worker_config.container_class(&identity.class),
+            self.worker_config.container_class(&identity.class)
+                || (self.worker_config.source_recovery
+                    && crate::storage::sandbox_children::load(&identity.scope)?
+                        .is_some_and(|record| record.container_spec.is_some())),
             "this cell class has no container"
         );
         let engine =
@@ -151,6 +161,22 @@ impl Container {
         self.install_http_intercept(context, Ok(cellar_egress::HttpTarget::all()), fetcher)
     }
 
+    /// Intercept HTTPS through the run's ephemeral CA. The application must
+    /// trust `HTTPS_CA_PATH`; `*` selects every HTTPS destination on port 443.
+    pub fn intercept_outbound_https(
+        &self,
+        context: &Context,
+        target: &str,
+        fetcher: &super::service::Fetcher,
+    ) -> HandlerFuture<()> {
+        self.install_http_intercept(context, cellar_egress::HttpTarget::https(target), fetcher)
+    }
+
+    pub fn supports_outbound_https(&self, context: &Context) -> Result<bool> {
+        self.check(context)?;
+        Ok(self.engine.https_interception_configured(&self.cell))
+    }
+
     /// Whether this activation's configured engine provides HTTP interception.
     pub fn supports_outbound_http(&self, context: &Context) -> Result<bool> {
         self.check(context)?;
@@ -169,7 +195,13 @@ impl Container {
                 self.supports_outbound_http(context)?,
                 "HTTP interception requires the native runc network-helper profile"
             );
-            Ok((target?, fetcher.persistent(context)?))
+            let target = target?;
+            anyhow::ensure!(
+                target.protocol() != cellar_egress::Protocol::Https
+                    || self.supports_outbound_https(context)?,
+                "native HTTPS interception is not configured"
+            );
+            Ok((target, fetcher.persistent(context)?))
         })();
         let (target, handler) = match prepared {
             Ok(value) => value,

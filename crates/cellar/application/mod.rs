@@ -26,6 +26,7 @@ pub mod cron;
 pub mod event_stream;
 pub mod events;
 pub mod facets;
+pub mod filesystem;
 pub mod html_rewriter;
 pub mod http;
 pub mod kv;
@@ -34,6 +35,7 @@ pub mod loader;
 pub(crate) mod outbox;
 pub mod queue;
 pub mod rpc;
+pub(crate) mod sandbox_catalog;
 pub mod service;
 pub mod sockets;
 pub mod sql;
@@ -183,6 +185,16 @@ pub trait Application: Send + Sync + 'static {
 
     fn supports_cell(&self, class: &str) -> bool;
 
+    /// Dedicated sandbox execution classes accept host-authenticated calls only.
+    fn sandbox_executor(&self, _class: &str) -> Option<Arc<dyn containers::SandboxExecutor>> {
+        None
+    }
+
+    /// Explicit compiled capability for a root-cell filesystem.
+    fn filesystem_policy(&self, _class: &str) -> Option<filesystem::Policy> {
+        None
+    }
+
     /// Startup-owned typed method inventory. The host validates registered RPC
     /// input before constructing a business cell. This hook must perform no I/O.
     fn rpc_catalog(&self) -> Option<&rpc::Catalog> {
@@ -248,6 +260,7 @@ pub struct Registry {
     handler: Handler,
     entrypoints: HashMap<String, Handler>,
     cells: HashMap<String, Factory>,
+    filesystems: HashMap<String, filesystem::Policy>,
     raft_classes: HashMap<String, Arc<consensus::RaftClass>>,
     workflows: HashMap<String, WorkflowHandler>,
 }
@@ -261,6 +274,7 @@ impl Registry {
             handler: Arc::new(handler),
             entrypoints: HashMap::new(),
             cells: HashMap::new(),
+            filesystems: HashMap::new(),
             raft_classes: HashMap::new(),
             workflows: HashMap::new(),
         }
@@ -298,6 +312,27 @@ impl Registry {
             "duplicate native entrypoint {name}"
         );
         self.entrypoints.insert(name, Arc::new(handler));
+        Ok(self)
+    }
+
+    /// Enable the filesystem for a registered cell class. Limits are captured
+    /// separately by the execution domain before cells are admitted.
+    pub fn filesystem(
+        mut self,
+        class: impl Into<String>,
+        policy: filesystem::Policy,
+    ) -> Result<Self> {
+        let class = class.into();
+        policy.validate()?;
+        anyhow::ensure!(
+            self.cells.contains_key(&class),
+            "filesystem class must be registered first"
+        );
+        anyhow::ensure!(
+            !self.filesystems.contains_key(&class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class, policy);
         Ok(self)
     }
 
@@ -465,6 +500,10 @@ impl Application for Registry {
 
     fn supports_cell(&self, class: &str) -> bool {
         self.cells.contains_key(class)
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<filesystem::Policy> {
+        self.filesystems.get(class).copied()
     }
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
@@ -696,6 +735,19 @@ impl Context {
             None,
             self.io.source_generation,
         ))
+    }
+
+    /// Access this root cell's declared POSIX-style filesystem primitive.
+    pub fn fs(&self) -> filesystem::Result<filesystem::Filesystem> {
+        self.storage()
+            .map_err(|error| {
+                let mut error = filesystem::Error::from(error).in_operation("filesystem.acquire");
+                // Acquiring the storage capability performs no filesystem I/O.
+                // Preserve the cause without implying an ambiguous mutation.
+                error.outcome = filesystem::Outcome::NotApplied;
+                error
+            })?
+            .fs()
     }
 
     /// Dispatch through cellar's ordinary routing and output-gate channels.

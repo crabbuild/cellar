@@ -11,6 +11,11 @@ function setup(parent) {
   const ctx = {
     identity: { name: "child" },
     now: async () => 1000,
+    fs: {
+      capabilities: async () => ({
+        transport: { max_value_bytes: 2 * 1024 * 1024 },
+      }),
+    },
     cell: (binding) => ({
       fetch: async () =>
         binding === "CONVERSATIONS"

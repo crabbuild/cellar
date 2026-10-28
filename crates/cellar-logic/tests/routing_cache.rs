@@ -9,10 +9,14 @@ use cellar_logic::{
 use std::collections::VecDeque;
 
 fn capacity_fixture(cache_limit: usize) -> State {
+    capacity_fixture_slots(cache_limit, 1)
+}
+
+fn capacity_fixture_slots(cache_limit: usize, max_resident: usize) -> State {
     use cellar_logic::{LeaseCasOutcome, NodeLeaseSpec};
     let mut limits = config();
     limits.max_cached_routes = cache_limit;
-    limits.max_resident = 1;
+    limits.max_resident = max_resident;
     limits.require_node_lease = true;
     let mut state = State::new("origin", limits);
     let effects = on_event(
@@ -89,6 +93,7 @@ fn capacity_route(state: &mut State, request_id: u64, cell: &str, sample: u64) -
 
 fn capacity_peer(sample: u64) -> cellar_logic::CapacityPeer {
     cellar_logic::CapacityPeer {
+        native_container_slots: None,
         node: "peer".into(),
         addr: "peer:8081".into(),
         expires_ms: 100_000,
@@ -1276,5 +1281,160 @@ fn a_preserved_lineage_keeps_same_name_activation_available() {
         effect,
         Effect::ReadNodeLease { .. } | Effect::RecoverNodeLog { .. }
     )));
+    state.validate().unwrap();
+}
+
+fn native_lookup(state: &mut State, request: u64, cell: &str, handoff: bool) -> Vec<Effect> {
+    let effects = on_event(
+        state,
+        Event::NativeSandboxRequestAt {
+            request,
+            cell: cell.into(),
+            capacity_handoff: handoff,
+            available: 0,
+            now_mono_ms: 300,
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReadOwner { op, .. } => Some(*op),
+            _ => None,
+        })
+        .expect("read ownership before placement");
+    on_event(
+        state,
+        Event::OwnerRead {
+            op,
+            now_ms: 300,
+            result: Ok(None),
+        },
+    )
+}
+
+#[test]
+fn native_placement_uses_class_slots_and_reserves_each_advisory_sample() {
+    let mut state = capacity_fixture_slots(8, 4);
+    let mut room = capacity_peer(200);
+    room.node = "room".into();
+    room.native_container_slots = Some([("Sandbox".into(), 2)].into());
+    let mut full = capacity_peer(200);
+    full.node = "full".into();
+    full.native_container_slots = Some([("Sandbox".into(), 0)].into());
+    full.resident_cells = 0;
+    let mut wrong_class = capacity_peer(200);
+    wrong_class.native_container_slots = Some([("Other".into(), 10)].into());
+    let mut draining = room.clone();
+    draining.node = "draining".into();
+    draining.draining = true;
+    for index in 0..3 {
+        let effects = native_lookup(&mut state, 10 + index, &format!("Sandbox:{index}"), false);
+        let op = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::ReadCapacityPeers { op, .. } => Some(*op),
+                _ => None,
+            })
+            .expect("container exhaustion consults peers even with free cell slots");
+        let effects = on_event(
+            &mut state,
+            Event::CapacityPeersRead {
+                op,
+                now_ms: 300,
+                result: Ok(vec![
+                    capacity_peer(200),
+                    full.clone(),
+                    wrong_class.clone(),
+                    draining.clone(),
+                    room.clone(),
+                ]),
+            },
+        );
+        if index < 2 {
+            assert!(effects.iter().any(|effect|matches!(effect,Effect::Complete {result:Ok(Route::Remote {node,..}),..} if node=="room")));
+        } else {
+            assert!(effects.iter().any(|effect| matches!(
+                effect,
+                Effect::Complete {
+                    result: Err(cellar_logic::RequestError::CapacityExhausted),
+                    ..
+                }
+            )));
+            assert!(!effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::CasOwner { .. })));
+        }
+        state.validate().unwrap();
+    }
+    // Cleanup is ordinary demand, so it can acquire an execution identity on a
+    // full Engine and prove resource absence without needing a creation slot.
+    let op = request(&mut state, 20, "Sandbox:cleanup");
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 300,
+            result: Ok(None),
+        },
+    );
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::CasOwner { .. })));
+}
+
+#[test]
+fn native_capacity_handoff_refuses_before_claim_and_cleanup_can_join_a_start() {
+    let mut state = capacity_fixture_slots(8, 4);
+    let effects = native_lookup(&mut state, 10, "Sandbox:full", true);
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Complete {
+            request: 10,
+            result: Err(cellar_logic::RequestError::CapacityExhausted)
+        }
+    )));
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        Effect::CasOwner { .. } | Effect::ReadCapacityPeers { .. }
+    )));
+    let effects = on_event(
+        &mut state,
+        Event::NativeSandboxRequestAt {
+            request: 11,
+            cell: "Sandbox:joined".into(),
+            capacity_handoff: false,
+            available: 0,
+            now_mono_ms: 300,
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReadOwner { op, .. } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    on_event(
+        &mut state,
+        Event::RequestAt {
+            request: 12,
+            cell: "Sandbox:joined".into(),
+            now_mono_ms: 300,
+        },
+    );
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 300,
+            result: Ok(None),
+        },
+    );
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CasOwner { .. })),
+        "creation capacity must not strand cleanup"
+    );
     state.validate().unwrap();
 }

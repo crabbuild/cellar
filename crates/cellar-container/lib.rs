@@ -6,6 +6,7 @@
 
 mod bindings;
 mod capabilities;
+mod child_executor;
 pub mod e2b;
 mod files;
 mod native;
@@ -23,6 +24,7 @@ use anyhow::{ensure, Context as _, Result};
 pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
+pub use child_executor::ChildExecutor;
 pub use outbound::ServiceTarget;
 pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;
@@ -82,6 +84,7 @@ pub enum Operation {
     Signal,
     SetInactivityTimeout,
     InterceptOutboundHttp,
+    InterceptOutboundHttps,
     Exec,
     ExecOutput,
     ReadFile,
@@ -125,6 +128,7 @@ impl Operation {
         Self::Signal,
         Self::SetInactivityTimeout,
         Self::InterceptOutboundHttp,
+        Self::InterceptOutboundHttps,
         Self::Exec,
         Self::ExecOutput,
         Self::ReadFile,
@@ -168,6 +172,7 @@ impl Operation {
             "container.signal" => Ok(Self::Signal),
             "container.set_inactivity_timeout" => Ok(Self::SetInactivityTimeout),
             "container.intercept_outbound_http" => Ok(Self::InterceptOutboundHttp),
+            "container.intercept_outbound_https" => Ok(Self::InterceptOutboundHttps),
             "container.exec" => Ok(Self::Exec),
             "container.exec_output" => Ok(Self::ExecOutput),
             "container.file.read" => Ok(Self::ReadFile),
@@ -213,6 +218,7 @@ impl Operation {
             Self::Signal => "container.signal",
             Self::SetInactivityTimeout => "container.set_inactivity_timeout",
             Self::InterceptOutboundHttp => "container.intercept_outbound_http",
+            Self::InterceptOutboundHttps => "container.intercept_outbound_https",
             Self::Exec => "container.exec",
             Self::ExecOutput => "container.exec_output",
             Self::ReadFile => "container.file.read",
@@ -359,7 +365,13 @@ impl Native {
     /// configure the native runc network-helper profile. Other providers and
     /// the ordinary native profile refuse this operation before dispatch.
     pub fn with_http_interception(self) -> impl Provider {
-        native_profile::HttpInterception
+        native_profile::HttpInterception { https: false }
+    }
+
+    /// Opt in to HTTP and HTTPS routes; configure upstream trust on the native
+    /// helper and trust the per-run public CA inside the application image.
+    pub fn with_https_interception(self) -> impl Provider {
+        native_profile::HttpInterception { https: true }
     }
 }
 
@@ -406,6 +418,12 @@ impl ProviderSession for native::Resources {
         let container = context.container()?;
         if operation == Operation::Start {
             ensure!(!container.running(context)?, "container is already running");
+        }
+        if operation == Operation::InterceptOutboundHttps {
+            ensure!(
+                container.supports_outbound_https(context)?,
+                "native HTTPS interception is not configured"
+            );
         }
         Ok(())
     }
@@ -708,7 +726,10 @@ mod tests {
         for operation in Operation::ALL {
             assert_eq!(
                 native.provider().operations().contains(operation),
-                *operation != Operation::InterceptOutboundHttp
+                !matches!(
+                    operation,
+                    Operation::InterceptOutboundHttp | Operation::InterceptOutboundHttps
+                )
             );
         }
     }

@@ -337,6 +337,36 @@ hash to `Host::runtime_inventory(FEATURE_NODE_V1, hash)`, as the reference Node
 entry point does. That verifies the build-bound runtime and dependencies before
 import and connects the process inventory to deployment admission.
 
+## Per-cell filesystem
+
+Register the class first, then call
+`Source::filesystem(class, cellar::sdk::filesystem::Policy::default())` before
+starting the runtime. Its invocations receive `ctx.fs`; stateless/facet access
+is refused. The [filesystem guide](../cellar/application/filesystem/README.md)
+describes the bounded POSIX profile and native lifetime/proof contract.
+For reader classes, register `Policy { read_only: true, ..Policy::default() }`;
+`(await ctx.fs.capabilities()).read_only` reports the policy, and filesystem
+mutations return EROFS without restricting local business-state writes.
+`@cellar/sdk` provides declarations and
+[durable file tools](../../packages/cellar-sdk/README.md#per-cell-files-and-durable-file-tools).
+The [session example](../../examples/filesystem-agent/README.md) demonstrates
+saved decisions, file/receipt transactions and follow-up workspace access.
+
+Filesystem-enabled sources require `max_value_bytes >= 4096`. Capabilities
+report transfer/helper/page limits reduced to fit the bridge result envelope;
+large reads return short counts. This primitive does not redirect Node's file
+APIs. Core release qualification is tracked separately from optional mounting.
+Looping `readExact` / `writeAll` errors identify the helper and its confirmed
+`completed_bytes`, including zero for capability/size preflight failures. They
+preserve uncertain outcomes; a failed loop can have a committed write prefix
+or an advanced read offset.
+
+Positional reads and metadata inspection use the guest known-read lane, as do
+bounded whole-file reads, stateless directory pages and `telldir`. They may
+overlap without advancing descriptor offsets. Await handle-state changes and
+mutations sequentially, including `read`, `readdir`, seek, open/close and proof
+barriers; overlapping calls retain the normal `ConcurrentMutation` refusal.
+
 ## Build and deliver
 
 ```text

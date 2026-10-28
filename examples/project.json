@@ -15,7 +15,8 @@
       "Supervisor",
       "Account",
       "Outbox",
-      "Agent"
+      "Agent",
+      "Notebook"
     ],
     "bindings": [
       {
@@ -163,6 +164,11 @@
         "type": "plain_text",
         "name": "TENANT_TOKENS",
         "text": "{\"local-acme\": \"acme\", \"local-beta\": \"beta\"}"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "NOTEBOOKS",
+        "class_name": "Notebook"
       }
     ],
     "queue_consumers": [
@@ -210,7 +216,8 @@
         "/tenants/*",
         "/outbox/*",
         "/agents/*",
-        "/wsclient/*"
+        "/wsclient/*",
+        "/notebooks/*"
       ]
     },
     "compatibility_flags": [

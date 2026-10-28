@@ -33,8 +33,13 @@ pub struct Engine {
     pub destroy_gate: Mutex<Option<watch::Receiver<bool>>>,
     pub destroy_entered: AtomicBool,
     pub fail_next_start: AtomicBool,
+    pub lose_next_create: AtomicBool,
+    pub lose_next_wait: AtomicBool,
+    pub hide_containers: AtomicBool,
+    pub lost_responses: AtomicUsize,
     pub exit_on_sigterm: AtomicBool,
     pub refuse_remove: AtomicBool,
+    pub defer_remove: AtomicBool,
     pub app_image_loaded: AtomicBool,
     pub containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
     pub(super) ids: Mutex<HashMap<String, String>>,
@@ -130,21 +135,21 @@ impl Engine {
                 .map_or((rest, ""), |(target, suffix)| (target, suffix));
             if target.len() == 64 && target.bytes().all(|byte| byte.is_ascii_hexdigit()) {
                 resource_identity = Some(target.to_owned());
-                let name = self
-                    .ids
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .find(|(_, id)| id.as_str() == target)
-                    .map(|(name, _)| name.clone());
-                let resolved = name.and_then(|name| {
-                    self.containers
-                        .lock()
-                        .unwrap()
-                        .get(&name)
-                        .cloned()
-                        .map(|exit| (name, exit))
-                });
+                let resolved = {
+                    // Rename moves both maps under this same lock order. An
+                    // immutable-ID waiter must not observe the old name in one
+                    // map and the new name in the other and invent a 404.
+                    let containers = self.containers.lock().unwrap();
+                    let ids = self.ids.lock().unwrap();
+                    ids.iter()
+                        .find(|(_, id)| id.as_str() == target)
+                        .and_then(|(name, _)| {
+                            containers
+                                .get(name)
+                                .cloned()
+                                .map(|exit| (name.clone(), exit))
+                        })
+                };
                 let Some((name, exit)) = resolved else {
                     return Ok(Response::builder().status(404).body(Full::new(
                         Bytes::from_static(b"{\"message\":\"No such container\"}"),
@@ -188,16 +193,15 @@ impl Engine {
             let containers = self.containers.lock().unwrap();
             json!(containers
                 .keys()
-                .filter(
-                    |name| filters["label"].as_array().unwrap().iter().all(|filter| {
+                .filter(|name| !self.hide_containers.load(Ordering::SeqCst)
+                    && filters["label"].as_array().unwrap().iter().all(|filter| {
                         let (key, value) = filter.as_str().unwrap().split_once('=').unwrap();
                         labels
                             .get(*name)
                             .and_then(|labels| labels.get(key))
                             .and_then(Value::as_str)
                             == Some(value)
-                    })
-                )
+                    }))
                 .map(|name| json!({"Id":self.resource_id(name),"Labels":labels.get(name)}))
                 .collect::<Vec<_>>())
         } else if path == "/images/load" {
@@ -252,6 +256,10 @@ impl Engine {
                         .lock()
                         .unwrap()
                         .insert(name.clone(), watch::channel(None).0);
+                    if self.lose_next_create.swap(false, Ordering::SeqCst) {
+                        self.lost_responses.fetch_add(1, Ordering::SeqCst);
+                        anyhow::bail!("injected lost create acknowledgement");
+                    }
                     json!({"Id":id})
                 }
             }
@@ -299,6 +307,10 @@ impl Engine {
         } else if path == "/containers/fence/wait" {
             json!({"StatusCode":0})
         } else if path.ends_with("/wait") {
+            if self.lose_next_wait.swap(false, Ordering::SeqCst) {
+                self.lost_responses.fetch_add(1, Ordering::SeqCst);
+                anyhow::bail!("injected lost wait response");
+            }
             let name = path
                 .trim_start_matches("/containers/")
                 .trim_end_matches("/wait");
@@ -326,6 +338,7 @@ impl Engine {
                 .lock()
                 .unwrap()
                 .get(name)
+                .filter(|_| !self.hide_containers.load(Ordering::SeqCst))
                 .map(|sender| sender.borrow().is_none());
             match running {
                 Some(running) => {
@@ -369,7 +382,7 @@ impl Engine {
             if method == "DELETE" {
                 if self.refuse_remove.load(Ordering::SeqCst) {
                     status = 500;
-                } else {
+                } else if !self.defer_remove.load(Ordering::SeqCst) {
                     let id = resource_identity.unwrap_or_else(|| self.resource_id(name));
                     self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);

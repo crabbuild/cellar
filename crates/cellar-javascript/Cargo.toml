@@ -27,6 +27,9 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 v8 = { workspace = true, optional = true }
 [dev-dependencies]
+async-trait.workspace = true
+object_store.workspace = true
+sha2.workspace = true
 cellar-container.workspace = true
 tar.workspace = true
 http-body-util.workspace = true
@@ -82,3 +85,8 @@ required-features = ["node"]
 name = "cellar-bindings-javascript"
 path = "../../examples/bindings/javascript.rs"
 required-features = ["embed"]
+
+[[bin]]
+name = "cellar-filesystem-agent-example"
+path = "../../examples/filesystem-agent/main.rs"
+required-features = ["node"]

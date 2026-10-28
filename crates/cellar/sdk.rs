@@ -188,6 +188,7 @@ pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
 pub use crate::application::consensus::{
     CommandContext, OperationContract, OperationKind, QueryContext, RaftClass, RegistrationError,
 };
+pub use crate::application::filesystem::FilesystemLimits;
 pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };
@@ -195,7 +196,9 @@ pub use crate::application::*;
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain, WallClock};
+pub use crate::container::CapacityLimits as ContainerCapacityLimits;
 pub use crate::container::EngineOptions as ContainerEngineOptions;
+pub use crate::container::HttpsInterceptionOptions as ContainerHttpsInterceptionOptions;
 pub use crate::container::NetworkHelperOptions as ContainerNetworkHelperOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
@@ -204,7 +207,7 @@ pub use crate::daemon::{CompiledApplications, NativeRaftCells, NativeRaftNode};
 pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
     NodeInfo, NodeMaintenancePolicy, NodeRaftConfig, NodeRaftListeners, NodeRaftService,
-    NodeServices, NodeStartupPolicy,
+    NodeServices, NodeStartupPolicy, SandboxErasurePolicy,
 };
 pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;

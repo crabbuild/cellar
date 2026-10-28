@@ -145,6 +145,29 @@ pub(crate) async fn cell(
     ))
 }
 
+pub(crate) async fn filesystem(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((id, scope)): Path<(String, String)>,
+) -> Result<Json<Value>, ApiError> {
+    let client = &fleet(&console, &principal, &id, Permission::DataRead)?.client;
+    if !cellar_logic::cell::valid_cell_scope(&scope) || !scope.contains(':') {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "invalid filesystem observation scope".into(),
+        ));
+    }
+    let sample = client.filesystem(&scope).await.map_err(|_| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Filesystem observation unavailable".into(),
+        )
+    })?;
+    Ok(Json(
+        serde_json::to_value(sample).map_err(anyhow::Error::from)?,
+    ))
+}
+
 pub(crate) async fn applications(
     State(console): State<Arc<Console>>,
     Extension(principal): Extension<Principal>,

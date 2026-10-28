@@ -69,6 +69,7 @@ pub struct NodeMaintenancePolicy {
     pub wake_period: Duration,
     pub local_cache_prune_period: Duration,
     pub local_cache_max_bytes: Option<u64>,
+    pub sandbox_erasure: SandboxErasurePolicy,
 }
 
 impl Default for NodeMaintenancePolicy {
@@ -81,6 +82,7 @@ impl Default for NodeMaintenancePolicy {
             wake_period: Duration::from_secs(60),
             local_cache_prune_period: LOCAL_CACHE_PRUNE_PERIOD,
             local_cache_max_bytes: None,
+            sandbox_erasure: Default::default(),
         }
     }
 }
@@ -143,6 +145,7 @@ impl NodeConfig {
         self.cell_limits.validate()?;
         self.loader.validate()?;
         self.shutdown.validate()?;
+        self.maintenance.sandbox_erasure.validate()?;
         crate::machine::validate_node_name(&self.identity.node)?;
         crate::startup::parse_advertise(&self.identity.advertise)?;
         anyhow::ensure!(
@@ -584,6 +587,7 @@ impl Node {
             .services()
             .configure_containers(services.containers.clone().unwrap_or_else(|| {
                 crate::container::EngineOptions {
+                    capacity: None,
                     socket: PathBuf::from("/var/run/docker.sock"),
                     namespace: None,
                     runtime: None,
@@ -738,6 +742,25 @@ impl Node {
 
     pub fn services(&self) -> Arc<HostServices> {
         self.domain.services()
+    }
+
+    /// Observe permanent sandbox-cell erasure outside the retired application.
+    /// `erased` confirms the collector's files and current replica objects were
+    /// removed; offline volumes and shared historical logs have separate GC.
+    pub async fn sandbox_erasure_status(
+        &self,
+        scope: &str,
+    ) -> anyhow::Result<Option<&'static str>> {
+        self.domain
+            .run(async {
+                self.app
+                    .runtime
+                    .as_ref()
+                    .context("node has no cell runtime")?
+                    .sandbox_erasure_status(scope)
+                    .await
+            })
+            .await?
     }
 
     pub fn is_closed(&self) -> bool {
@@ -1101,6 +1124,19 @@ async fn prepare(
             duration_ms("wake period", config.maintenance.wake_period)?,
         )?;
     }
+    if fleet.is_none() {
+        let inventory = runtime.clone();
+        let work = crate::asyncrt::try_blocking(move || inventory.local_sandbox_work())?.await??;
+        for (cell, entry_ms) in work {
+            if runtime.retirements.get(&cell).await?.is_none() {
+                let _ = app.tx.send(Message::WakeHint {
+                    cell,
+                    entry_ms,
+                    scope: cellar_logic::WakeHintScope::Fleet,
+                });
+            }
+        }
+    }
     spawn_cron_arm(app.clone());
     let info = NodeInfo {
         node: node.clone(),
@@ -1128,6 +1164,7 @@ async fn prepare(
             shutdown: config.shutdown,
             local_cache_max_bytes: config.maintenance.local_cache_max_bytes,
             local_cache_prune_period: config.maintenance.local_cache_prune_period,
+            sandbox_erasure: config.maintenance.sandbox_erasure,
         },
     };
     Ok((prepared, info))
