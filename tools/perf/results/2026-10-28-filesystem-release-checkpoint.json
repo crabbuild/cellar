@@ -1,0 +1,440 @@
+{
+  "format": 1,
+  "date": "2026-10-28",
+  "baseline": "542e5e89",
+  "scope": "macOS arm64; pre-5998 integration artifacts; development-store package restoration and private RustFS S3-backed fault/recovery",
+  "native_s3_fault": {
+    "acknowledged": [
+      {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      }
+    ],
+    "ambiguous_response": {
+      "outcome": "unknown",
+      "transport_error": true
+    },
+    "application_constructors": 3,
+    "backend": "s3",
+    "caller_executor_preserved": true,
+    "failed_recovery_http_status": 500,
+    "format": 1,
+    "lease_store_refusals": 45,
+    "mode": "bucket proof; supplied-store fault injection",
+    "owner_fenced": true,
+    "predecessor_local_data_removed": true,
+    "publication_refusals": 11,
+    "recovered_after_outage": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "version": "4"
+    },
+    "recovered_after_takeover": {
+      "generation": 3,
+      "inode": "2",
+      "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+      "version": "6"
+    },
+    "recovery_read_refusals": 2,
+    "remaining_nodes_joined": true,
+    "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+    "stale_descriptor_checks": 1,
+    "successor_local_data_removed": true,
+    "unacknowledged_local_commit": {
+      "generation": 2,
+      "inode": "2",
+      "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+      "version": "6"
+    }
+  },
+  "package_checks": {
+    "baseline": "2e4bc3608eb5dcab9f14c85b713bbfcf59c62d7a",
+    "checks": {
+      "filesystem-agent": {
+        "exit": 0,
+        "seconds": 56.794084457913414,
+        "log_sha256": "e8d1fa7d9a0df9dfb20eb088dd3839537850f4f2f532d661cac22092bf276d35"
+      },
+      "pi-agent": {
+        "exit": 0,
+        "seconds": 211.87895145907532,
+        "log_sha256": "f0f3b90b0d6a7b39e10fd6db9d4daebaf6b70f6ee3071fd10f7c82b439d937a8"
+      },
+      "python-gil": {
+        "exit": 0,
+        "seconds": 251.4616185000632,
+        "log_sha256": "357b44480bfb6e9ccfbcf8f20f015edeeb69bf9d988f0da25a25c53850f9db5c",
+        "runtime_profiles": [
+          {
+            "after": {
+              "framework": "pydantic-ai",
+              "free_threaded": false,
+              "gil_enabled": true,
+              "model": "demo"
+            },
+            "before": {
+              "framework": "pydantic-ai",
+              "free_threaded": false,
+              "gil_enabled": true,
+              "model": "demo"
+            },
+            "case": "file-commit"
+          },
+          {
+            "after": {
+              "framework": "pydantic-ai",
+              "free_threaded": false,
+              "gil_enabled": true,
+              "model": "demo"
+            },
+            "before": {
+              "framework": "pydantic-ai",
+              "free_threaded": false,
+              "gil_enabled": true,
+              "model": "demo"
+            },
+            "case": "saved-read"
+          }
+        ]
+      },
+      "python-freethread": {
+        "exit": 0,
+        "seconds": 216.51145750004798,
+        "log_sha256": "7babb3ce15ee88c9128bfefd79ed2ceb8f921022911e59235e5283cfba4010de",
+        "runtime_profiles": [
+          {
+            "after": {
+              "framework": "pydantic-ai",
+              "free_threaded": true,
+              "gil_enabled": false,
+              "model": "demo"
+            },
+            "before": {
+              "framework": "pydantic-ai",
+              "free_threaded": true,
+              "gil_enabled": false,
+              "model": "demo"
+            },
+            "case": "file-commit"
+          },
+          {
+            "after": {
+              "framework": "pydantic-ai",
+              "free_threaded": true,
+              "gil_enabled": false,
+              "model": "demo"
+            },
+            "before": {
+              "framework": "pydantic-ai",
+              "free_threaded": true,
+              "gil_enabled": false,
+              "model": "demo"
+            },
+            "case": "saved-read"
+          }
+        ]
+      }
+    },
+    "executables": {
+      "node": {
+        "sha256": "c924ea75cc01c5ffdaa9f58632c3f8ebb7328dde468b914343a5b2cd2abb4f9d"
+      },
+      "python": {
+        "sha256": "71b5a8b3050de38948dadc3996ee7c3c73c04b63019e22d662e8d3e3e93deb3c"
+      }
+    },
+    "complete": true
+  },
+  "node_recapture": {
+    "baseline": "2e4bc3608eb5dcab9f14c85b713bbfcf59c62d7a",
+    "node": {
+      "version": "v24.13.1",
+      "sha256": "d36b3d980963d44bd2c5e844fac4cfeee26a167b744287a4e74a9575af9d0559"
+    },
+    "suites": {
+      "filesystem_proof-3a84a05299f74b3f": {
+        "executable_sha256": "6a1e5310435051b37e4e2294606380f31e5e255739f1a58cb2a273f77ef3f246",
+        "exit": 0,
+        "seconds": 574.3558041249635,
+        "reports": {
+          "embedded-dirsync-deadline-handoff.json": {
+            "sha256": "c90c213af87f6cf04be446eec9118cd65da52a28897f0a9f901f1c845a060832"
+          },
+          "embedded-dirsync-deadline-preserve.json": {
+            "sha256": "46054502459d26d8428573362f2a0d57b5f90258bdc68a6438f977857ef4a77f"
+          },
+          "embedded-dirsync-fence-handoff.json": {
+            "sha256": "891783db0ada91082a319868072ffc0ce04a51fb88cc31e74193a7d38b88ab79"
+          },
+          "embedded-dirsync-fence-preserve.json": {
+            "sha256": "e2094d3cfbad5e2c3e412b3052c54afb8865941b9162932ed6f4ad2418a519c2"
+          },
+          "embedded-fdatasync-deadline-handoff.json": {
+            "sha256": "9c398443151e9937354c012d109532ae6d82654e4ee0624bf52f52f71f1cef57"
+          },
+          "embedded-fdatasync-deadline-preserve.json": {
+            "sha256": "a8f3401aab18a31ab7d7b43e28400192bb88527dfc68216f223569eb7b1df037"
+          },
+          "embedded-fdatasync-fence-handoff.json": {
+            "sha256": "301552a1692879bc14f96ff1411efb71ebbe3b2a9465b8448dcd7b53eb91eff0"
+          },
+          "embedded-fdatasync-fence-preserve.json": {
+            "sha256": "445afce15825b5da57ca3b755f5c7b034af0838f572f23d66c2fb03327fd1de5"
+          },
+          "embedded-fsync-deadline-handoff.json": {
+            "sha256": "a68f081d371821834019b838d93201cb6b287863967b62633608832a0a60c27d"
+          },
+          "embedded-fsync-deadline-preserve.json": {
+            "sha256": "66ea962e148445d3f66ad4cfdebfddb37f2849015a23827471cf5030a9c6c1a2"
+          },
+          "embedded-fsync-fence-handoff.json": {
+            "sha256": "c81965e5751b6794b036e6ba2cd272911cb676fc73d1c133f5a3dbc27c268103"
+          },
+          "embedded-fsync-fence-preserve.json": {
+            "sha256": "f421aec293b6849d5f409511ea6d6f8553e1a6b6be8d5a679b7d8abaa05dc7d1"
+          },
+          "embedded-output-deadline-handoff.json": {
+            "sha256": "fb916c4a3981deac4db1119e1786cb5ca79b64c4d1f79648221dd1fa440b1743"
+          },
+          "embedded-output-deadline-preserve.json": {
+            "sha256": "ead0f5cd63e43e44cbf234d0209f6977c0a346123fb780ef66e119c1ec0f7348"
+          },
+          "embedded-output-fence-handoff.json": {
+            "sha256": "8b218ef2b60e9c94035ca14ccd6c136efa08254592587010c3f25757b044827e"
+          },
+          "embedded-output-fence-preserve.json": {
+            "sha256": "2c9a52fb176b46c21d6e1b0bc5dd5994d22fc69ac85c3c06481ecc6b70a3d6af"
+          },
+          "embedded-sync-deadline-handoff.json": {
+            "sha256": "d4606967d6f563bfbac4538f8a649b4163acbffdafcac81ac00ed456e21fc15e"
+          },
+          "embedded-sync-deadline-preserve.json": {
+            "sha256": "54bdcd7bb9350b71b886f6d4cbccb1e11ffa7ed83df656a5425ee1727e4a2220"
+          },
+          "embedded-sync-fence-handoff.json": {
+            "sha256": "3285d5f635456c611eece1bd256756eb6b3d83e54c9c6bcd4abd9f78e60f68f1"
+          },
+          "embedded-sync-fence-preserve.json": {
+            "sha256": "9326500381be0cd23bfbbf98d0a07a043dc2424d5febf68f1c912aeadcaa5bda"
+          },
+          "node-dirsync-deadline-handoff.json": {
+            "sha256": "e418747e1f93879c9f597599ebbd1d640b0d0d5fc287a8e6b7df7fc198c2b68f"
+          },
+          "node-dirsync-deadline-preserve.json": {
+            "sha256": "e23758a7a986d73aa33007620f39dd4a17d3dea3384a762d8e40d269f936acc9"
+          },
+          "node-dirsync-fence-handoff.json": {
+            "sha256": "66cb59317d13e9462b05ddd04a14be47983d0963065f3ce017a7262247f8ed72"
+          },
+          "node-dirsync-fence-preserve.json": {
+            "sha256": "ac21bec7f4bfa987e23ed8ee6cfa9b7206a25701b5dd1e16415f2ab3aa1fe24b"
+          },
+          "node-fdatasync-deadline-handoff.json": {
+            "sha256": "bbc6b20fdc8ce564acc990422e36e1465339a9abddb4d6f00b5cbac3f21a138d"
+          },
+          "node-fdatasync-deadline-preserve.json": {
+            "sha256": "91fefe4acd5b6b51d5b66b0b89ce2a27c02d53ff80c1d5bfba268c18570b9997"
+          },
+          "node-fdatasync-fence-handoff.json": {
+            "sha256": "384ad4842b50d1f6e6ce438b7ed8cbf5e05bcf640dd7ec95a34b2ce52c8fa712"
+          },
+          "node-fdatasync-fence-preserve.json": {
+            "sha256": "87dab79ec38297958d47acb2b41e7449c164647a1674b3d27aeec0307f76a978"
+          },
+          "node-fsync-deadline-handoff.json": {
+            "sha256": "bab748b88ecc78b0ede22a28a10abc4b5ec9cee9d15ea01846fc521548d9485f"
+          },
+          "node-fsync-deadline-preserve.json": {
+            "sha256": "9f1482e4c6c578e62b12ff8de355aa43a4a977f48fb97a0d6f430aedea7d11ab"
+          },
+          "node-fsync-fence-handoff.json": {
+            "sha256": "9daa9406fe1e1abd62f566e09b39a34983413e6989397091df07236fae13ba47"
+          },
+          "node-fsync-fence-preserve.json": {
+            "sha256": "427de13007eaeb3845294c39305b1414026669bae657597732d25628895c11bf"
+          },
+          "node-output-deadline-handoff.json": {
+            "sha256": "1fe799762b6d8546b7902cbc4e58eb0ebb31babf0e757686cab090fdca07238c"
+          },
+          "node-output-deadline-preserve.json": {
+            "sha256": "98b898c21800ff6a0a5cc0e37993ab260b07c095c45e5115679a72ae90144f7e"
+          },
+          "node-output-fence-handoff.json": {
+            "sha256": "17c936eb5a61d7d5882530294639faa5152070f9d30edc23361042b316e9c778"
+          },
+          "node-output-fence-preserve.json": {
+            "sha256": "14cef29d30707edf1ad789fae7b8516e96dc0ccd7dcebeae5017fbf800e0d5cc"
+          },
+          "node-sync-deadline-handoff.json": {
+            "sha256": "fb10c04ea02bccc0368651689408c58b807a6a9fb965f121c02fc183a5663196"
+          },
+          "node-sync-deadline-preserve.json": {
+            "sha256": "8ed198eca09003d4ce98670121b37efd17e8142a4899cce0a8f9bce161f47d20"
+          },
+          "node-sync-fence-handoff.json": {
+            "sha256": "4fc8a62db464262cb543d2d94db731df1c8b320a316e4a88e965da42b6db6d5b"
+          },
+          "node-sync-fence-preserve.json": {
+            "sha256": "a791f14b92325cae6a5fde6df91241868cdeb40a655f4f89717ce571f84fae55"
+          }
+        }
+      },
+      "filesystem_io-aa84af8d30aab769": {
+        "executable_sha256": "107ea5e694da5031c03d06b437fe7254b4c1ed3ec377ac2e4d43a501a457514e",
+        "exit": 0,
+        "seconds": 307.1419212500332,
+        "reports": {
+          "node-io-pread-deadline-handoff.json": {
+            "sha256": "5b06a741409a05aea1b33cdad84511ad095a2ef8028ce4f1d5d455903080450f"
+          },
+          "node-io-pread-deadline-preserve.json": {
+            "sha256": "419b24d0e8da0e1890ec466371afd400a0d5ca3581a8860679a95a668d0aede7"
+          },
+          "node-io-pread-fence-handoff.json": {
+            "sha256": "252783ce1550d9727a01304cd6069c59ba36f9cf1b32b79f95fdfc2b012720ac"
+          },
+          "node-io-pread-fence-preserve.json": {
+            "sha256": "c33ff55613865a74a02808dac7c164929dd38a73cd50facedb97dd96aa0b9fd3"
+          },
+          "node-io-pwrite-deadline-handoff.json": {
+            "sha256": "88db15a9c3e4eccc0f7198301178bd584e7b7a4109fad8dd41f7afeb15058866"
+          },
+          "node-io-pwrite-deadline-preserve.json": {
+            "sha256": "5cee9e455d785d5115284894d6cb160d3ec8bb0bfaef289aae5fbd369a3a4bb6"
+          },
+          "node-io-pwrite-fence-handoff.json": {
+            "sha256": "848efe8a6f34af24cfdf02494549c346f00358bdbceae10745cc8e5992b2b412"
+          },
+          "node-io-pwrite-fence-preserve.json": {
+            "sha256": "c1730b6a58a28614b77f43ac9328244ab426338e50adc4b8ff0eaac683a982a6"
+          },
+          "node-io-read-deadline-handoff.json": {
+            "sha256": "c28574764372120da8577c2bcd629f7f552b6c7493253315ce97faa1f6581c29"
+          },
+          "node-io-read-deadline-preserve.json": {
+            "sha256": "78f8dec56e6d7fd8070cf9ce27cbfa1fd91efd605440da753ac49788239db5b0"
+          },
+          "node-io-read-fence-handoff.json": {
+            "sha256": "1e19929bb66f49da4544aca275f1940497630069eece34d500bd4d730acdbe9f"
+          },
+          "node-io-read-fence-preserve.json": {
+            "sha256": "88ffeae082876d8acd333d045335f5ce4de3d3413074be92940f0e5cd3cd5685"
+          },
+          "node-io-read_exact-deadline-handoff.json": {
+            "sha256": "3bcace3d9cfe4492bf91040c5821463ac0f32a00237c900e49758c2012f8cef1"
+          },
+          "node-io-read_exact-deadline-preserve.json": {
+            "sha256": "7edf421589896830e1a666ae8561c3ecb007b832bb0afee8b4abf9d892392337"
+          },
+          "node-io-read_exact-fence-handoff.json": {
+            "sha256": "2604c3c785a776e6d16727313bfebcd0edb9a53040626eb7a8c337d76b5b8ff8"
+          },
+          "node-io-read_exact-fence-preserve.json": {
+            "sha256": "44682a970b5fa7fbee65d1523dc031d45f2e7869cda1d26ff9c91e117429a9df"
+          },
+          "node-io-write-deadline-handoff.json": {
+            "sha256": "8da602c7a50cbf9ed3786936ac42aa9865ab670dbfe784aefb5114cabcd297bb"
+          },
+          "node-io-write-deadline-preserve.json": {
+            "sha256": "0b3143bc6f16e1a2fcb0a48b443955330ca34a7b06c22528c01ee772a1ec5309"
+          },
+          "node-io-write-fence-handoff.json": {
+            "sha256": "be0d589d62ed9f5a18ed84a43d8b9f9a71402973731d86b15367d5abd0b9f683"
+          },
+          "node-io-write-fence-preserve.json": {
+            "sha256": "30d09dfd873416caad00cf2cf046081cb9bacf743d1e111b7facd5dd99f55bb0"
+          },
+          "node-io-write_all-deadline-handoff.json": {
+            "sha256": "aca199f76da424c8e028295a966513da6ea3417aa8cf7c29bd3f8abece1c061c"
+          },
+          "node-io-write_all-deadline-preserve.json": {
+            "sha256": "91c776b53d9684366cc2c1313ca170d5da9d77be5c6e6eb1abf13675d69bc05f"
+          },
+          "node-io-write_all-fence-handoff.json": {
+            "sha256": "5e51c482ef7876292571cfedab230f5d9d4574f189c863c477545c078aeb44b4"
+          },
+          "node-io-write_all-fence-preserve.json": {
+            "sha256": "635a41b78e3a0e6ae1b774624537892b38e6ef63f71e82778ce411f95f802063"
+          }
+        }
+      }
+    }
+  },
+  "s3_runs": {
+    "vercel-rustfs-short-key": {
+      "host_sha256": "a2df6cb3ab4a38820eca33359a6702541c2fecfd0e4b56fabb6d300edb0b4143",
+      "store": {
+        "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+        "cpus": 2,
+        "memory_bytes": 2147483648
+      },
+      "store_removed": true,
+      "private_credentials_removed": true,
+      "runs": {
+        "build": {
+          "exit": 0,
+          "seconds": 0.6591689579654485
+        },
+        "create-native-bucket": {
+          "exit": 0,
+          "seconds": 0.40271287504583597
+        },
+        "native-dev-fault": {
+          "exit": 0,
+          "seconds": 10.78265279205516
+        },
+        "native-s3-fault": {
+          "exit": 0,
+          "seconds": 14.069927250035107
+        },
+        "recovery": {
+          "exit": 0,
+          "seconds": 132.09274012502283
+        },
+        "tools": {
+          "exit": 1,
+          "seconds": 26.62473308306653
+        }
+      }
+    },
+    "vercel-rustfs-tools-final": {
+      "host_sha256": "a2df6cb3ab4a38820eca33359a6702541c2fecfd0e4b56fabb6d300edb0b4143",
+      "store": {
+        "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+        "cpus": 2,
+        "memory_bytes": 2147483648
+      },
+      "store_removed": true,
+      "private_credentials_removed": true,
+      "runs": {
+        "tools": {
+          "exit": 0,
+          "seconds": 39.423636791994795
+        }
+      }
+    }
+  },
+  "native_s3_executable_sha256": "749d1166dca5c3f204ebb97dc0accd85fb269179fe6ba619ef39b6e8638bec7e",
+  "source_sha256": {
+    "crates/cellar/tests/support/node_filesystem_faults.rs": "3e2b1c041f641b8bfa1519e6e2f3a82094ac99a2ac9ee0b41c24e6a91919cf2b",
+    "examples/vercel-agent/test/recovery-store.mjs": "a388ecad4bc9bc7fe6933762afaa0c55190d73007a7b5c9a7811a0b8c2e7cff0",
+    "examples/vercel-agent/test/store.test.mjs": "c84f7e7c4bd6da429c6410c71359e3c32469f8a673695347d73c9de906b82fdf",
+    ".github/workflows/javascript-sdk.yml": "28b34b8942a9b632cfc5746203b1ca619c12a4d1e64261251bc15e3edb6246b6"
+  },
+  "limits": [
+    "Source integration at 5998b82c requires fresh executable qualification; these results retain their earlier artifact scope.",
+    "S3 fault gates wrap a real S3 client; no physical network/disk partition or credential-expiry drill.",
+    "Package tests cover session files, Pi production-entry tasks, and both Python ABI file/saved-read cuts; Vercel captures are staged and its source-entry S3 drill is separate.",
+    "No production latency or hard resource-bound claim."
+  ],
+  "qualification_status": "selected checks passed; production release remains open"
+}

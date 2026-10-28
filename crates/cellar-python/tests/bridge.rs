@@ -25,7 +25,7 @@ mod cycles;
 mod delivery;
 #[path = "support/durability.rs"]
 mod durability;
-#[path = "support/fault_gates.rs"]
+#[path = "../../cellar/tests/support/proof_fault_gates.rs"]
 mod fault_gates;
 #[path = "support/fencing.rs"]
 mod fencing;
@@ -253,6 +253,21 @@ fn main() -> Result<()> {
     }
     if mode == "--runtime-routing" {
         return routing::child();
+    }
+    if mode == "--runtime-filesystem-proof-failure-fence" {
+        return proof_authority::filesystem_proof_failure_fence();
+    }
+    let filesystem_mode = mode
+        .strip_prefix("--runtime-filesystem-proof-")
+        .map(|mode| (mode, false))
+        .or_else(|| {
+            mode.strip_prefix("--runtime-filesystem-handoff-")
+                .map(|mode| (mode, true))
+        });
+    if let Some((mode, handoff)) = filesystem_mode {
+        let (barrier, outcome) = mode.rsplit_once('-').context("filesystem proof mode")?;
+        ensure!(matches!(outcome, "deadline" | "fence"));
+        return proof_authority::filesystem(barrier, outcome == "fence", handoff);
     }
     if let Some(mode) = mode.strip_prefix("--runtime-proof-authority-") {
         let (kind, outcome) = mode.split_once('-').context("proof authority mode")?;
@@ -502,6 +517,23 @@ fn main() -> Result<()> {
         "--runtime-proof-authority-output-fence",
         "--runtime-proof-authority-failure",
         "--runtime-proof-authority-recovery",
+        "--runtime-filesystem-proof-fsync-deadline",
+        "--runtime-filesystem-proof-fsync-fence",
+        "--runtime-filesystem-proof-fdatasync-deadline",
+        "--runtime-filesystem-proof-fdatasync-fence",
+        "--runtime-filesystem-proof-sync-deadline",
+        "--runtime-filesystem-proof-sync-fence",
+        "--runtime-filesystem-proof-output-deadline",
+        "--runtime-filesystem-proof-output-fence",
+        "--runtime-filesystem-handoff-fsync-deadline",
+        "--runtime-filesystem-handoff-fsync-fence",
+        "--runtime-filesystem-handoff-fdatasync-deadline",
+        "--runtime-filesystem-handoff-fdatasync-fence",
+        "--runtime-filesystem-handoff-sync-deadline",
+        "--runtime-filesystem-handoff-sync-fence",
+        "--runtime-filesystem-handoff-output-deadline",
+        "--runtime-filesystem-handoff-output-fence",
+        "--runtime-filesystem-proof-failure-fence",
         "--runtime-routing",
         "--runtime-privacy",
         "--runtime-lifetimes",
@@ -857,47 +889,55 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .stderr(output.as_file().try_clone()?)
         .spawn()?;
     let deadline = std::time::Instant::now()
-        + Duration::from_secs(if mode == "--runtime-schedule-recovery" {
-            240
-        } else if mode == "--runtime-binding-faults" {
-            90
-        } else if matches!(
-            mode,
-            "--runtime-durability"
-                | "--runtime-cycles"
-                | "--runtime-cycles-fence"
-                | "--runtime-cycles-inner-cancel"
-                | "--runtime-authority"
-                | "--runtime-authority-fence"
-                | "--runtime-proof-authority-sync-deadline"
-                | "--runtime-proof-authority-sync-fence"
-                | "--runtime-proof-authority-output-deadline"
-                | "--runtime-proof-authority-output-fence"
-                | "--runtime-proof-authority-failure"
-                | "--runtime-proof-authority-recovery"
-                | "--runtime-routing"
-                | "--runtime-bindings"
-                | "--runtime-delivery"
-                | "--runtime-delivery-slow-state"
-                | "--runtime-queue-lost-ack"
-                | "--runtime-schedules"
-                | "--runtime-lifetimes"
-                | "--runtime-lifetimes-close"
-                | "--runtime-lifetimes-cancel"
-                | "--runtime-capacity-invocations"
-                | "--runtime-capacity-nested-invocations"
-                | "--runtime-capacity-nested-remote"
-                | "--runtime-capacity-tasks"
-                | "--runtime-capacity-objects"
-                | "--runtime-capacity-bytes"
-                | "--runtime-capacity-replies"
-                | "--runtime-capacity-cleanup-error"
-                | "--runtime-capacity-cleanup-full"
-        ) {
-            60
-        } else {
-            15
-        });
+        + Duration::from_secs(
+            if mode.starts_with("--runtime-filesystem-proof-")
+                || mode.starts_with("--runtime-filesystem-handoff-")
+            {
+                // The new case adds three fresh node directories and a proven
+                // post-recovery write. Existing handler/proof/lease budgets stay.
+                90
+            } else if mode == "--runtime-schedule-recovery" {
+                240
+            } else if mode == "--runtime-binding-faults" {
+                90
+            } else if matches!(
+                mode,
+                "--runtime-durability"
+                    | "--runtime-cycles"
+                    | "--runtime-cycles-fence"
+                    | "--runtime-cycles-inner-cancel"
+                    | "--runtime-authority"
+                    | "--runtime-authority-fence"
+                    | "--runtime-proof-authority-sync-deadline"
+                    | "--runtime-proof-authority-sync-fence"
+                    | "--runtime-proof-authority-output-deadline"
+                    | "--runtime-proof-authority-output-fence"
+                    | "--runtime-proof-authority-failure"
+                    | "--runtime-proof-authority-recovery"
+                    | "--runtime-routing"
+                    | "--runtime-bindings"
+                    | "--runtime-delivery"
+                    | "--runtime-delivery-slow-state"
+                    | "--runtime-queue-lost-ack"
+                    | "--runtime-schedules"
+                    | "--runtime-lifetimes"
+                    | "--runtime-lifetimes-close"
+                    | "--runtime-lifetimes-cancel"
+                    | "--runtime-capacity-invocations"
+                    | "--runtime-capacity-nested-invocations"
+                    | "--runtime-capacity-nested-remote"
+                    | "--runtime-capacity-tasks"
+                    | "--runtime-capacity-objects"
+                    | "--runtime-capacity-bytes"
+                    | "--runtime-capacity-replies"
+                    | "--runtime-capacity-cleanup-error"
+                    | "--runtime-capacity-cleanup-full"
+            ) {
+                60
+            } else {
+                15
+            },
+        );
     loop {
         if let Some(status) = child.try_wait()? {
             let log = std::fs::read_to_string(output.path())?;

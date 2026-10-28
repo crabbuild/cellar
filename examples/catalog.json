@@ -38,6 +38,14 @@
       "guide": "counter/README.md"
     },
     {
+      "name": "filesystem",
+      "project": "filesystem/project.json",
+      "source": "filesystem/main.rs",
+      "route": "/notebooks/alpha",
+      "status": "runnable",
+      "guide": "filesystem/README.md"
+    },
+    {
       "name": "router",
       "project": "router/project.json",
       "source": "counter/main.rs",
@@ -268,6 +276,14 @@
       "route": "/agents/demo",
       "status": "requires-python-runtime",
       "guide": "python-agent/README.md"
+    },
+    {
+      "name": "filesystem-agent",
+      "project": "filesystem-agent/project.json",
+      "source": "filesystem-agent/app.js",
+      "route": "/sessions/alice/turns/one",
+      "status": "requires-node-runtime",
+      "guide": "filesystem-agent/README.md"
     }
   ]
 }

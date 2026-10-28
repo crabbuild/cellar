@@ -1,0 +1,292 @@
+{
+  "format": 1,
+  "status": "passed_selected_profile",
+  "platform": "Darwin arm64",
+  "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "node": "v24.13.1",
+  "profile": "unoptimized; debug=0; independent runtime fixtures serial; unchanged handler budgets",
+  "scope": "mode-option precedence and selected filesystem regressions; not production release qualification",
+  "native": {
+    "baseline": "47de03ec511ab028cd8b8a1b10d5e068d14d12e1",
+    "executable_sha256": "f5d031cd02c137a22fa2278f256d0a6194b40e2453767dce9fff2017d7e94a9e",
+    "regression": "unsupported chmod/fchmod must precede read-only policy but follow descriptor/transaction authority",
+    "before_log_sha256": "02e8ca0c494200e0f288b71a60b55fdb731587f04c4791dc8379fa79b61be143",
+    "after_log_sha256": "508de885df12c26c57baac31a8d6ff49422f086158e98dd553b897bb7ee0fe18",
+    "source_sha256": {
+      "crates/cellar-javascript/tests/support/filesystem.js": "6df21f9b178a268b594c7cde7eea4f5673225e8ad831a6bfafd402570666879f",
+      "crates/cellar-python/tests/filesystem.py": "e2146154ebbfef3171ed8a4a183bddf3d0e04662cd63e4f225a18794bee3a932",
+      "crates/cellar/application/filesystem/handles.rs": "2db84f978713150ce4c4dad22dbf71dae11f6260f35f4fee2e5fd76747cbd104",
+      "crates/cellar/application/filesystem/mod.rs": "fce5346887c8afd00926be789730630ece7811b0192ff14b9f08d9c3dd15f09b",
+      "crates/cellar/application/filesystem/types.rs": "15077540e87c114e083cb1babab7a2257775b23d6695773c268537b270a96bc2",
+      "crates/cellar/storage/sqlite/filesystem/mod.rs": "22f63869fa6fd2898c61fd6fe7d4e30fda1a6b48870df21cf9f054a1484af3b8",
+      "crates/cellar/tests/support/filesystem_contracts.rs": "bcd85343d221abb09ef6a8fb53f042d9f9044d93abcbf50f239a83dc81a22b71",
+      "crates/cellar/tests/support/filesystem_readonly.rs": "10065f3d7c373955e32c35f2889ca7933d1e3360d5d43f020d739fa49f1981c4"
+    },
+    "library_executable_sha256": "97b3efa5e91824d91d8f39855723905738e9aa5e6e714ab6bac7212f06e2754a",
+    "zero_match_probe": {
+      "command": "cargo test --locked -p cellar --lib storage::sqlite::filesystem -- --test-threads=1",
+      "passed": 0,
+      "scope": "physical path did not match public Rust module name; not qualification",
+      "log_sha256": "80af00660400e2f5e7203ddaa5684b6ae45d8d139dae1372042391f3d24a2ccd"
+    },
+    "library": {
+      "command": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/native-library-executable",
+        "filesystem",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 1.4262945000082254,
+      "log_sha256": "632b9b8df6fe9f9f0172f703db9e403a0b8afe13b5390c64c786a2c1b930db65"
+    }
+  },
+  "guest_and_checks": {
+    "baseline": "47de03ec511ab028cd8b8a1b10d5e068d14d12e1",
+    "checks": [
+      {
+        "name": "javascript-build",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar-javascript",
+          "--no-default-features",
+          "--features",
+          "embed,node",
+          "--test",
+          "filesystem",
+          "--no-run"
+        ],
+        "exit": 0,
+        "seconds": 126.23095145798288,
+        "log_sha256": "57877dd6b211806b9219d722c27aa850bb7b724e66df2ce8a0d8f3827c780bc6"
+      },
+      {
+        "name": "javascript",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/javascript-executable",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 35.383597582927905,
+        "log_sha256": "93fdc469751d17d995d16331303eae6e3badb54ba812cd275e9674dd04078cde"
+      },
+      {
+        "name": "gil-build",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar-python",
+          "--features",
+          "embed",
+          "--test",
+          "filesystem",
+          "--no-run"
+        ],
+        "exit": 0,
+        "seconds": 44.642571249976754,
+        "log_sha256": "2af09d4386305fdb58e37759478fc444605c4e083f406bf22bac3b22e2d63f42"
+      },
+      {
+        "name": "gil-linkage",
+        "command": [
+          "otool",
+          "-L",
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/gil-executable"
+        ],
+        "exit": 0,
+        "seconds": 0.02814608404878527,
+        "log_sha256": "ea712a10fc24cef00b9a818e6c572c013c3e83831328feece0964377162ec234"
+      },
+      {
+        "name": "gil-runtime",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/runtimes/cpython-3.14.5-macos-aarch64-none/bin/python3.14",
+          "-c",
+          "import json,sys,sysconfig; print(json.dumps(dict(free_threaded=bool(sysconfig.get_config_var('Py_GIL_DISABLED')),gil_enabled=sys._is_gil_enabled())))"
+        ],
+        "exit": 0,
+        "seconds": 0.02409041696228087,
+        "log_sha256": "682e39946a365f69fd3cf71b5c458cb72f565190e8c0c1435d9859bc10b9245d"
+      },
+      {
+        "name": "gil-readonly",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/gil-executable",
+          "--read-only"
+        ],
+        "exit": 0,
+        "seconds": 0.9142722499091178,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      {
+        "name": "gil-normal",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/gil-executable"
+        ],
+        "exit": 0,
+        "seconds": 4.030943042016588,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      {
+        "name": "freethread-build",
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar-python",
+          "--features",
+          "embed",
+          "--test",
+          "filesystem",
+          "--no-run"
+        ],
+        "exit": 0,
+        "seconds": 36.19336170901079,
+        "log_sha256": "6bed4efbae83ee0b063b8bd3d6536cc01d463a8899d56183fa1883d67d99a032"
+      },
+      {
+        "name": "freethread-linkage",
+        "command": [
+          "otool",
+          "-L",
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/freethread-executable"
+        ],
+        "exit": 0,
+        "seconds": 0.025119457975961268,
+        "log_sha256": "7739ebe8d0c8ca68ade9c9b7b842685ba1794512ba00441b77c0cf424b2bc2c6"
+      },
+      {
+        "name": "freethread-runtime",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/runtimes/cpython-3.14.5+freethreaded-macos-aarch64-none/bin/python3.14t",
+          "-c",
+          "import json,sys,sysconfig; print(json.dumps(dict(free_threaded=bool(sysconfig.get_config_var('Py_GIL_DISABLED')),gil_enabled=sys._is_gil_enabled())))"
+        ],
+        "exit": 0,
+        "seconds": 0.09041558299213648,
+        "log_sha256": "d4cedf82d19ea91a22c3b4ce808bf537ded2a58ef0d1ba9ae1c224cd50835fa1"
+      },
+      {
+        "name": "freethread-readonly",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/freethread-executable",
+          "--read-only"
+        ],
+        "exit": 0,
+        "seconds": 1.0340182080399245,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      {
+        "name": "freethread-normal",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/freethread-executable"
+        ],
+        "exit": 0,
+        "seconds": 4.136958125047386,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      {
+        "name": "clippy",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar",
+          "-p",
+          "cellar-javascript",
+          "-p",
+          "cellar-python",
+          "--all-targets",
+          "--features",
+          "cellar-javascript/embed,cellar-javascript/node,cellar-python/embed",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 100.47994862496853,
+        "log_sha256": "8bfdb317648fa5ca138f90912cf56bfb5d772997bcd283ccfde89ecb29245f2f"
+      },
+      {
+        "name": "format-check",
+        "command": [
+          "cargo",
+          "format",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 62.11020937503781,
+        "log_sha256": "b58e31076777fe8b3069458ee572f951f20086339a956bba60df0ff3ee3423b3"
+      },
+      {
+        "name": "layout",
+        "command": [
+          "cargo",
+          "check-layout"
+        ],
+        "exit": 0,
+        "seconds": 0.14125691691879183,
+        "log_sha256": "ea4309dd8514d47a51570a343ac8fa7e30a48eded59efc55765dd9d0b390bc3f"
+      },
+      {
+        "name": "native-dependencies",
+        "command": [
+          "python3",
+          "tools/check_native_dependencies.py"
+        ],
+        "exit": 0,
+        "seconds": 0.4823565420228988,
+        "log_sha256": "d0c8028b2aefb4f734bf06e5c4e227d903485d207b07c2122a7230d602f4aba5"
+      },
+      {
+        "name": "docs",
+        "command": [
+          "python3",
+          "tools/docs/check.py"
+        ],
+        "exit": 0,
+        "seconds": 0.13877529208548367,
+        "log_sha256": "b2e215b315e148526da38a9d492108fe1444cfea8e7e0292abef7cf703f98060"
+      }
+    ],
+    "executables": {
+      "javascript": {
+        "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/javascript-executable",
+        "sha256": "40633370774989659e059d8adc476f4a298b66cc8190662b99ecdb87f3b3b047"
+      },
+      "gil": {
+        "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/gil-executable",
+        "sha256": "9908e3f05b0f981cd2551522882f1621c0efff834ccd2d0a31b8de3ea5007af4"
+      },
+      "freethread": {
+        "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/mode-preflight/freethread-executable",
+        "sha256": "825dea47c623ecb390868fb9f0c15929131ef6b6efe5c220ab5c2eecee4a9765"
+      }
+    },
+    "source_sha256": {
+      "crates/cellar-javascript/tests/support/filesystem.js": "6df21f9b178a268b594c7cde7eea4f5673225e8ad831a6bfafd402570666879f",
+      "crates/cellar-python/tests/filesystem.py": "e2146154ebbfef3171ed8a4a183bddf3d0e04662cd63e4f225a18794bee3a932",
+      "crates/cellar/application/filesystem/handles.rs": "2db84f978713150ce4c4dad22dbf71dae11f6260f35f4fee2e5fd76747cbd104",
+      "crates/cellar/application/filesystem/mod.rs": "fce5346887c8afd00926be789730630ece7811b0192ff14b9f08d9c3dd15f09b",
+      "crates/cellar/application/filesystem/types.rs": "15077540e87c114e083cb1babab7a2257775b23d6695773c268537b270a96bc2",
+      "crates/cellar/storage/sqlite/filesystem/mod.rs": "22f63869fa6fd2898c61fd6fe7d4e30fda1a6b48870df21cf9f054a1484af3b8",
+      "crates/cellar/tests/support/filesystem_contracts.rs": "bcd85343d221abb09ef6a8fb53f042d9f9044d93abcbf50f239a83dc81a22b71",
+      "crates/cellar/tests/support/filesystem_readonly.rs": "10065f3d7c373955e32c35f2889ca7933d1e3360d5d43f020d739fa49f1981c4"
+    },
+    "gil_profile": {
+      "free_threaded": false,
+      "gil_enabled": true
+    },
+    "freethread_profile": {
+      "free_threaded": true,
+      "gil_enabled": false
+    }
+  },
+  "local_document_references": 106
+}

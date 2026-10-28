@@ -256,6 +256,16 @@ export default async function bootstrap(config) {
         "request.body.cancel",
         "response.closed",
         "container.bindings",
+        "filesystem.capabilities",
+        "filesystem.statvfs",
+        "filesystem.pread",
+        "filesystem.fstat",
+        "filesystem.stat",
+        "filesystem.lstat",
+        "filesystem.fstatat",
+        "filesystem.read_file",
+        "filesystem.read_dir",
+        "filesystem.telldir",
         "container.capabilities",
         "container.running",
         "container.monitor",
@@ -439,7 +449,12 @@ export default async function bootstrap(config) {
       if (operation.invocation === id) {
         pending.delete(key);
         operation.resolve([
-          stringify({ ok: false, code: "ContextExpired", outcome: "unknown" }),
+          stringify({
+            ok: false,
+            error: "ContextExpired",
+            code: "ContextExpired",
+            outcome: "unknown",
+          }),
           undefined,
         ]);
       }

@@ -1,0 +1,180 @@
+{
+  "format": 1,
+  "status": "passed_selected_macos_profiles_linux_build_failed",
+  "baseline": "ec521d6154763998809c10d9502e033d25fcd7d0",
+  "source_sha256": {
+    ".github/workflows/native-sdk.yml": "828e28b12f7812feaefd60ed11fa9e4a8b9c32cbecf3507f4ec542a693c77e6a",
+    "examples/filesystem/main.rs": "290a79a4f0f6c235e4efff02635f2e8b541b7867ce24eb0566f4a3f1ca8782ad",
+    "examples/filesystem/project.json": "b678197c94ae12838c1fd4e4526ab5b80a6bded5fa42f9d22d28fd5676c62112",
+    "examples/main.rs": "e4ec0442f5aef5858d6d61bac2e8bc0540a4f15e98ebb8deafb0132a8d07caa7",
+    "examples/project.json": "e12d16a01dc41f1dc29876f8f1d3f21ecd1d47bdb316e05e5393199491b92860",
+    "examples/catalog.json": "227496c3ee7efa28f95caf5f3e15891fa4ff979612a28f6bc3aafb6dae03e561",
+    "examples/focused_smoke.py": "71e96ee68c15192d886339304087bf14b72bf951023545b52553bcf07316b307",
+    "examples/smoke.py": "c31259413d773e3ba7cb6530ddcfb5ffc91e784d4a1a1539268de4cb06f42b7f"
+  },
+  "development": {
+    "command": [
+      "python3",
+      "examples/focused_smoke.py",
+      "--cellar",
+      "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/debug/cellar",
+      "--example",
+      "filesystem"
+    ],
+    "exit": 0,
+    "seconds": 28.767171500017866,
+    "log_sha256": "898ba05651fceaff468b5d2410ab5f0f07a1529cba14df3e7d75e21d138b4618"
+  },
+  "release": {
+    "command": [
+      "python3",
+      "examples/focused_smoke.py",
+      "--cellar",
+      "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/release/cellar",
+      "--example",
+      "filesystem",
+      "--profile",
+      "release"
+    ],
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+    "release_profile": {
+      "lto": "fat",
+      "codegen-units": 1,
+      "opt-level": "s",
+      "panic": "abort",
+      "strip": true
+    },
+    "executables_before": {
+      "cellar": "a21be58e2eca6d01c11253198daf3c72acda9cb988029617a4efe01483ab4483",
+      "cellar-native-examples": "907009948f1b02f1f3f6cb53469736bbf4e61a40e58d05d3a8a66956c9ad6872"
+    },
+    "exit": 0,
+    "seconds": 3.576569333090447,
+    "log_sha256": "df1616783b8c93aa2f3b3cf96efc7105712fff2e2e16c54dc14fcbfd250b8fa7",
+    "executables_after": {
+      "cellar": "a21be58e2eca6d01c11253198daf3c72acda9cb988029617a4efe01483ab4483",
+      "cellar-native-examples": "907009948f1b02f1f3f6cb53469736bbf4e61a40e58d05d3a8a66956c9ad6872"
+    },
+    "identities_unchanged": true
+  },
+  "checks": [
+    {
+      "name": "build",
+      "exit": 0,
+      "log_sha256": "2571ba26681eafd4644e07b450ffb0badbec2e2f4dfa8d630fb85dd47d6073d7"
+    },
+    {
+      "name": "catalog",
+      "exit": 0,
+      "log_sha256": "0d1dcbb3771ae0d3821f57079c8a9d61e450e6688c58a16e253b9d1e0669846f"
+    },
+    {
+      "name": "cookbook",
+      "exit": 0,
+      "log_sha256": "5584aebca5307fde662e7a7a947986524c91672bc51f3dc10197536a6147573e"
+    },
+    {
+      "name": "clippy",
+      "exit": 0,
+      "log_sha256": "8308fa0f2eec4fa3be586aba3636caaeec5880cdc1f89e6396a43785914d402a"
+    },
+    {
+      "name": "format",
+      "exit": 0,
+      "log_sha256": "49c4bafaa4be6ad5a57974004da5b79c8414b96042aa3670a8156aa502c4a18b"
+    },
+    {
+      "name": "layout",
+      "exit": 0,
+      "log_sha256": "0e44391c696c788425cb58707c996d52d702564b341688531464a00e13fa3189"
+    },
+    {
+      "name": "native_dependencies",
+      "exit": 0,
+      "log_sha256": "a50356fc27711e76573228afb5babbe9a01d7273b0268f16083ccd49ea33a4ff"
+    },
+    {
+      "name": "workflow",
+      "exit": 0,
+      "log_sha256": "fccadbff96a3af1176635a491ad055ac9f66cb2f3e1eb69a633c5a6472a18ab5"
+    },
+    {
+      "name": "release_build",
+      "exit": 0,
+      "log_sha256": "c544770c5c10f8180d0fcbe6294545a9ea29b408c8d747a7e436186751af3bd7"
+    },
+    {
+      "name": "docs",
+      "exit": 0,
+      "log_sha256": "b2e215b315e148526da38a9d492108fe1444cfea8e7e0292abef7cf703f98060"
+    },
+    {
+      "name": "changed_docs",
+      "exit": 0,
+      "log_sha256": "807ffe348e3cff733af61b4b66c36cc95453ef1c3cc3c4de5607a5a314802187"
+    }
+  ],
+  "linux_build": {
+    "environment": {
+      "baseline": "ec521d6154763998809c10d9502e033d25fcd7d0",
+      "archive_sha256": "d5884b3b912c156b5117e8dd699846e378761416567ac3ca078c58dc37a324a7",
+      "image_id": "sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e",
+      "repo_digests": [
+        "rust@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e"
+      ],
+      "architecture": "arm64",
+      "os": "linux",
+      "vm_cpus": 2,
+      "vm_memory_bytes": 2053578752,
+      "cargo_profile": "release",
+      "cargo_build_jobs": 1,
+      "target_directory": "/workspace/target",
+      "volume": "cellar-filesystem-linux-ec521d61",
+      "container": "cellar-fs-linux-arm64-ec521d61",
+      "host_workspace_bind_unavailable": true,
+      "build_volume": "private Linux workspace volume owned only by this checkout"
+    },
+    "state": {
+      "Status": "exited",
+      "Running": false,
+      "Paused": false,
+      "Restarting": false,
+      "OOMKilled": true,
+      "Dead": false,
+      "Pid": 0,
+      "ExitCode": 101,
+      "Error": "",
+      "StartedAt": "2026-10-28T11:50:38.296554615Z",
+      "FinishedAt": "2026-10-28T11:54:31.748590133Z"
+    },
+    "command": [
+      "cargo",
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "cellar",
+      "--lib"
+    ],
+    "log_sha256": "ded94ac974bbf1ff1e7be26a887e62f6e67302734e5ed5ef1891551ddeafeaca",
+    "application_executable_produced": false,
+    "container_removed": true,
+    "cache_volume_retained": true
+  },
+  "ci": {
+    "native_release_targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-apple-darwin"
+    ],
+    "registration_only": true
+  },
+  "limitations": [
+    "Local development infrastructure/store even for optimized executables.",
+    "Graceful preserving restart; not a replacement for separate native crash/empty-store cases.",
+    "Linux compilation OOM; no Linux runtime qualification.",
+    "Other runtime/ABI artifacts, remaining operation/fault/resource audit, sustained load and deployment SLO/RPO/RTO remain open."
+  ]
+}

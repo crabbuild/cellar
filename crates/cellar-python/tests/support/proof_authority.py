@@ -18,13 +18,18 @@ _cancelled = False
 _late_entered = False
 _late_done = False
 _state_reads = 0
+_failure = None
+_barrier_settled = False
+_barrier_failure = None
 
 
 def snapshot():
     with _lock:
         return dict(owner=_owner, attempts=_attempts, committed=_committed, returned=_returned,
                     cancelled=_cancelled, late_entered=_late_entered, late_done=_late_done,
-                    active=_ctx._bridge.active() if _ctx else False, state_reads=_state_reads)
+                    active=_ctx._bridge.active() if _ctx else False, state_reads=_state_reads, failure=_failure,
+                    barrier_settled=_barrier_settled, barrier_failure=_barrier_failure,
+                    filesystem=filesystem_snapshot() if FILESYSTEM_BARRIER else None)
 
 
 def release():
@@ -37,6 +42,8 @@ def clear():
     global _ctx, _loop, _release, _task
     with _lock:
         _ctx = _loop = _release = _task = None
+        if FILESYSTEM_BARRIER:
+            filesystem_clear()
 
 
 async def late(ctx, event):
@@ -60,6 +67,8 @@ async def late(ctx, event):
         assert str(error) == "ContextExpired"
     else:
         raise AssertionError("expired proof sender admitted a mutation")
+    if FILESYSTEM_BARRIER:
+        await filesystem_late(ctx)
     with _lock:
         _late_done = True
 
@@ -86,32 +95,82 @@ async def fetch(request, ctx):
 class Counter:
     async def fetch(self, request, ctx):
         global _owner, _ctx, _loop, _release, _task
-        global _attempts, _committed, _returned, _cancelled
+        global _attempts, _committed, _returned, _cancelled, _failure, _barrier_settled, _barrier_failure
         owner = await ctx.var("DOMAIN_MARKER")
         with _lock:
             _owner = owner
         if request.path == "/seed":
-            await ctx.storage.put_json("seed", 7)
+            if FILESYSTEM_BARRIER:
+                await filesystem_commit(ctx, 1)
+            else:
+                await ctx.storage.put_json("seed", 7)
             await ctx.storage.sync()
             return Response.json(True)
         if request.path == "/state":
-            return Response.json({key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")})
+            values = {key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")}
+            if FILESYSTEM_BARRIER:
+                values["filesystem"] = await filesystem_state(ctx, values)
+            return Response.json(values)
+        if request.path == "/retired-filesystem":
+            assert FILESYSTEM_BARRIER
+            return Response.json(await filesystem_check_retired(ctx, _ctx))
+        if request.path == "/post-recovery":
+            assert FILESYSTEM_BARRIER
+            await filesystem_commit(ctx, 3)
+            values = {key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")}
+            return Response.json(await filesystem_state(ctx, values))
         assert request.path in ("/sync", "/output", "/failure")
         event = asyncio.Event()
         with _lock:
             _attempts += 1
             _ctx, _loop, _release = ctx, asyncio.get_running_loop(), event
-        await ctx.storage.put_json("pending", 1)
+        if FILESYSTEM_BARRIER:
+            await filesystem_commit(ctx, 2)
+            await filesystem_retain(ctx)
+        else:
+            await ctx.storage.put_json("pending", 1)
         with _lock:
             _committed = True
         if request.path == "/sync":
             try:
-                await ctx.storage.sync()
-            except asyncio.CancelledError:
+                if FILESYSTEM_BARRIER:
+                    await filesystem_barrier(ctx)
+                else:
+                    await ctx.storage.sync()
+            except asyncio.CancelledError as error:
                 with _lock:
                     _cancelled = True
+                    _barrier_settled = True
+                    _barrier_failure = dict(type=type(error).__name__, code=getattr(error, "code", None),
+                        errno=getattr(error, "errno", None), outcome=getattr(error, "outcome", None),
+                        operation=getattr(error, "operation", None), completed_bytes=getattr(error, "completed_bytes", None))
+                if FILESYSTEM_BARRIER:
+                    assert (_barrier_failure["code"], _barrier_failure["outcome"], _barrier_failure["operation"], _barrier_failure["completed_bytes"]) == ("Cancelled", "unknown", "filesystem." + FILESYSTEM_BARRIER, 0)
                 await late(ctx, event)
                 return Response.json(False)
+            except SDKError as error:
+                # A real native proof failure can win before the task's
+                # cancellation wakeup. It cannot promise rollback or success.
+                observed = dict(type=type(error).__name__, code=error.code, errno=getattr(error, "errno", None),
+                    outcome=error.outcome, operation=getattr(error, "operation", None), completed_bytes=getattr(error, "completed_bytes", None))
+                valid = FILESYSTEM_BARRIER and (error.code, getattr(error, "errno", None), error.outcome,
+                    observed["operation"], observed["completed_bytes"]) == ("Storage", "EIO", "unknown", "filesystem." + FILESYSTEM_BARRIER, 0)
+                with _lock:
+                    _barrier_failure = observed
+                    _barrier_settled = bool(valid)
+                    if not valid:
+                        _failure = observed
+                assert valid, observed
+                await late(ctx, event)
+                return Response.json(False)
+            except BaseException as error:
+                with _lock:
+                    _failure = dict(type=type(error).__name__, code=getattr(error, "code", None),
+                        errno=getattr(error, "errno", None), outcome=getattr(error, "outcome", None),
+                        operation=getattr(error, "operation", None), completed_bytes=getattr(error, "completed_bytes", None))
+                raise
+            with _lock:
+                _failure = dict(type="UnexpectedSuccess")
             raise AssertionError("sync completed through withheld native proofs")
         task = asyncio.create_task(late(ctx, event))
         with _lock:

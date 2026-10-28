@@ -72,16 +72,34 @@ pub struct StateAuthority {
 enum StateKind {
     #[serde(rename = "event-state-v1")]
     Sample,
+    #[serde(rename = "filesystem-state-v1")]
+    Filesystem,
 }
 
 impl StateAuthority {
     pub(crate) fn mint(scope: String) -> Result<Self> {
-        let authority = Self {
-            kind: StateKind::Sample,
-            scope,
-        };
+        Self::new(scope, StateKind::Sample)
+    }
+
+    pub(crate) fn filesystem(scope: String) -> Result<Self> {
+        Self::new(scope, StateKind::Filesystem)
+    }
+
+    fn new(scope: String, kind: StateKind) -> Result<Self> {
+        let authority = Self { kind, scope };
         authority.validate()?;
         Ok(authority)
+    }
+
+    pub(crate) fn is_filesystem(&self) -> bool {
+        matches!(self.kind, StateKind::Filesystem)
+    }
+
+    pub(crate) fn method(&self) -> &'static str {
+        match self.kind {
+            StateKind::Sample => super::event_state::METHOD,
+            StateKind::Filesystem => super::filesystem_state::METHOD,
+        }
     }
 
     fn validate(&self) -> Result<()> {
@@ -95,7 +113,7 @@ impl StateAuthority {
     pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
         self.validate()?;
         anyhow::ensure!(
-            scope == self.scope && method == super::event_state::METHOD,
+            scope == self.scope && method == self.method(),
             "state authority is scope/method bound"
         );
         Ok(())
@@ -287,6 +305,7 @@ pub(crate) fn validate_target(
                 !event_stream::is_event_scope(scope)
                     && method != super::source_control::METHOD
                     && method != super::event_state::METHOD
+                    && method != super::filesystem_state::METHOD
                     && method != super::event_inventory::METHOD,
                 "framework RPC requires host authority"
             );
@@ -344,6 +363,30 @@ mod tests {
         let round_trip: RpcAuthority = serde_json::from_value(serde_json::to_value(authority)?)?;
         round_trip.validate_target("Order:one", super::super::event_state::METHOD)?;
         assert!(StateAuthority::mint("Order:one/facets/one".into()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn filesystem_sampling_is_scope_bound_and_separate_from_event_sampling() -> Result<()> {
+        let authority = RpcAuthority::State(StateAuthority::filesystem("Account:one".into())?);
+        authority.validate_target("Account:one", super::super::filesystem_state::METHOD)?;
+        for (scope, method) in [
+            ("Account:two", super::super::filesystem_state::METHOD),
+            ("Account:one", super::super::event_state::METHOD),
+            ("Account:one", super::super::source_control::METHOD),
+        ] {
+            assert!(authority.validate_target(scope, method).is_err());
+        }
+        let event = StateAuthority::mint("Account:one".into())?;
+        assert!(event
+            .validate_target("Account:one", super::super::filesystem_state::METHOD)
+            .is_err());
+        assert!(
+            validate_target(None, "Account:one", super::super::filesystem_state::METHOD).is_err()
+        );
+        assert!(StateAuthority::filesystem("Account:one/facets/child".into()).is_err());
+        let decoded: RpcAuthority = serde_json::from_value(serde_json::to_value(authority)?)?;
+        decoded.validate_target("Account:one", super::super::filesystem_state::METHOD)?;
         Ok(())
     }
 

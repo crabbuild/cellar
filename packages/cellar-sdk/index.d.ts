@@ -68,6 +68,8 @@ export interface Snapshot {
  * after applying changes when the response must carry a durability proof.
  */
 export interface Batch {
+  filesystem_checks?: ({ path: string | { bytes_base64: string }; present: false } | { path: string | { bytes_base64: string }; present: true; inode: string; version: string })[];
+  filesystem_mutations?: FilesystemMutation[];
   checks?: Record<string, Snapshot>;
   puts?: Record<string, Json>;
   deletes?: string[];
@@ -280,6 +282,9 @@ export interface Container {
  * Binding names refer to resources configured in the native deployment.
  */
 export interface Context {
+  /** This root cell's explicitly registered transactional filesystem. */
+  readonly fs: Filesystem;
+
   /** Null for application-level handlers outside a cell. */
   readonly identity: Readonly<Identity> | null;
 
@@ -447,7 +452,11 @@ export interface Application {
  */
 export interface CellarError extends Error {
   code: string;
-  outcome: "not_committed" | "unknown";
+  outcome: "not_committed" | "locally_committed" | "unknown";
+  errno?: string;
+  operation?: string;
+  /** Confirmed local helper progress; unknown outcomes can include further work. */
+  completed_bytes?: number;
 }
 
 /** Encode raw bytes using standard padded base64. */
@@ -610,3 +619,158 @@ export function webSocketResponse(
   socket: WebSocket,
   options?: { headers?: Headers; run?: WebSocketResponseData["run"] },
 ): WebSocketResponseData;
+
+/** Byte paths preserve names that cannot be represented as UTF-8. */
+export type FilesystemPath = string | Uint8Array;
+/** Numeric inputs must be safe integers; bigint/decimal strings preserve i64 values. */
+export type FilesystemInteger = number | bigint | string;
+export interface FileOpenOptions {
+  access?: "read" | "write" | "read_write";
+  create?: boolean;
+  create_new?: boolean;
+  truncate?: boolean;
+  append?: boolean;
+  mode?: number;
+}
+export interface FileStat {
+  readonly inode: bigint;
+  readonly kind: "File" | "Directory";
+  readonly mode: number;
+  readonly uid: number;
+  readonly gid: number;
+  readonly size: bigint;
+  readonly nlink: bigint;
+  readonly atime_ns: bigint;
+  readonly mtime_ns: bigint;
+  readonly ctime_ns: bigint;
+  readonly version: bigint;
+  readonly allocated_bytes: bigint;
+}
+export interface File {
+  readonly handle: string;
+  read(count: number): Promise<Uint8Array>;
+  pread(count: number, offset: FilesystemInteger): Promise<Uint8Array>;
+  write(data: Uint8Array): Promise<number>;
+  pwrite(data: Uint8Array, offset: FilesystemInteger): Promise<number>;
+  readExact(count: number): Promise<Uint8Array>;
+  /** May commit a prefix before failing; several writes are not one transaction. */
+  writeAll(data: Uint8Array): Promise<void>;
+  lseek(offset: FilesystemInteger, whence?: "start" | "current" | "end"): Promise<bigint>;
+  fstat(): Promise<FileStat>;
+  ftruncate(size: FilesystemInteger): Promise<null>;
+  fchmod(mode: number): Promise<null>;
+  dup(): Promise<File>;
+  close(): Promise<null>;
+  fsync(): Promise<null>;
+  fdatasync(): Promise<null>;
+}
+export interface DirectoryEntry {
+  readonly name: Uint8Array;
+  readonly inode: bigint;
+  readonly kind: "File" | "Directory";
+}
+export interface Directory {
+  readonly handle: string;
+  readdir(): Promise<DirectoryEntry | null>;
+  readPage(limit: number): Promise<DirectoryEntry[]>;
+  telldir(): Promise<string>;
+  seekdir(cookie: string): Promise<null>;
+  rewinddir(): Promise<null>;
+  closedir(): Promise<null>;
+  fstat(): Promise<FileStat>;
+  fsync(): Promise<null>;
+}
+export interface FilesystemLimits {
+  readonly max_file_bytes: bigint;
+  readonly max_logical_bytes: bigint;
+  readonly max_allocated_bytes: bigint;
+  readonly max_inodes: bigint;
+  readonly max_transfer_bytes: number;
+  readonly max_file_helper_bytes: number;
+  readonly max_handles: number;
+  /** Shared by all cells in this host execution domain. */
+  readonly max_host_handles: number;
+  readonly max_path_bytes: number;
+  readonly max_path_depth: number;
+  readonly max_discarded_ranges: number;
+  readonly gc_batch_chunks: number;
+  readonly max_transaction_operations: number;
+  readonly max_transaction_bytes: number;
+  readonly max_directory_entries: number;
+  readonly max_namespace_directories: number;
+}
+export interface FilesystemCapabilities {
+  /** Guest transport ceilings; transfer/helper/page limits below are effective limits. */
+  readonly transport: {
+    readonly max_value_bytes: number;
+    readonly max_body_bytes: number;
+    readonly max_batch_operations: number;
+  };
+  readonly logical_uid: number;
+  readonly logical_gid: number;
+  readonly creation_mask: number;
+  /** Class policy restricts mutations of this filesystem, independent of KV. */
+  readonly read_only: boolean;
+  readonly regular_files: boolean;
+  readonly directories: boolean;
+  readonly positional_io: boolean;
+  readonly directory_relative: boolean;
+  readonly transactions: boolean;
+  readonly symlinks: boolean;
+  readonly hard_links: boolean;
+  readonly advisory_locks: boolean;
+  readonly atime: boolean;
+  readonly limits: FilesystemLimits;
+}
+export interface FilesystemStatVfs {
+  readonly logical_bytes: bigint;
+  readonly allocated_bytes: bigint;
+  readonly inodes: bigint;
+  readonly available_logical_bytes: bigint;
+  readonly available_allocated_bytes: bigint;
+  readonly available_inodes: bigint;
+  readonly chunk_bytes: number;
+}
+export interface Filesystem {
+  capabilities(): Promise<FilesystemCapabilities>;
+  statvfs(): Promise<FilesystemStatVfs>;
+  open(path: FilesystemPath, options?: FileOpenOptions): Promise<File>;
+  creat(path: FilesystemPath, mode?: number): Promise<File>;
+  openat(directory: Directory, path: FilesystemPath, options?: FileOpenOptions): Promise<File>;
+  stat(path: FilesystemPath): Promise<FileStat>;
+  lstat(path: FilesystemPath): Promise<FileStat>;
+  fstatat(directory: Directory, path: FilesystemPath, no_follow?: boolean): Promise<FileStat>;
+  truncate(path: FilesystemPath, size: FilesystemInteger): Promise<null>;
+  mkdir(path: FilesystemPath, mode?: number): Promise<null>;
+  mkdirat(directory: Directory, path: FilesystemPath, mode?: number): Promise<null>;
+  rmdir(path: FilesystemPath): Promise<null>;
+  unlink(path: FilesystemPath): Promise<null>;
+  unlinkat(directory: Directory, path: FilesystemPath, remove_directory?: boolean): Promise<null>;
+  rename(old: FilesystemPath, path: FilesystemPath): Promise<null>;
+  renameat(old_directory: Directory, old: FilesystemPath, new_directory: Directory, path: FilesystemPath): Promise<null>;
+  chmod(path: FilesystemPath, mode: number): Promise<null>;
+  utimens(path: FilesystemPath, mtime_ns?: FilesystemInteger | null): Promise<null>;
+  opendir(path: FilesystemPath): Promise<Directory>;
+  readFile(path: FilesystemPath, max_bytes?: number | null): Promise<Uint8Array>;
+  writeFile(path: FilesystemPath, data: Uint8Array): Promise<null>;
+  sync(): Promise<null>;
+  collectGarbage(): Promise<number>;
+  replaceFile(path: FilesystemPath, data: Uint8Array): Promise<null>;
+  editFile(path: FilesystemPath, expected: FileVersion, edit: FileEdit): Promise<FileVersion>;
+  readDir(path: FilesystemPath, limit?: number, cursor?: DirectoryCursor | null): Promise<DirectoryPage>;
+}
+
+/** Already encoded, bounded effects committed with the storage batch receipt. */
+export type FilesystemMutation =
+  | { op: "write_file" | "replace_file"; path: string | { bytes_base64: string }; data_base64: string }
+  | { op: "edit_file"; path: string | { bytes_base64: string }; inode: string; version: string; offset: string; delete_bytes: string; data_base64: string }
+  | { op: "mkdir" | "chmod"; path: string | { bytes_base64: string }; mode: number }
+  | { op: "unlink" | "rmdir"; path: string | { bytes_base64: string } }
+  | { op: "rename"; old: string | { bytes_base64: string }; new: string | { bytes_base64: string } }
+  | { op: "truncate"; path: string | { bytes_base64: string }; size: string };
+
+export interface FileVersion { readonly inode: bigint; readonly version: bigint }
+export interface FileEdit { offset: FilesystemInteger; delete_bytes: FilesystemInteger; insert: Uint8Array }
+/** Treat as opaque; the owner validates cell and directory identity. */
+export interface DirectoryCursor { readonly scope: string; readonly inode: string; readonly position: string }
+export interface DirectoryPage { readonly entries: readonly DirectoryEntry[]; readonly next: DirectoryCursor | null }

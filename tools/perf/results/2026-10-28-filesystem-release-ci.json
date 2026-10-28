@@ -1,0 +1,261 @@
+{
+  "format": 1,
+  "source": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+  "run_id": 40686315091,
+  "records": [
+    {
+      "target": "x86_64-unknown-linux-gnu",
+      "job": {
+        "id": 122809906930,
+        "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+        "name": "Filesystem release application (x86_64-unknown-linux-gnu)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      "log_truncated": false,
+      "passes": [
+        "2026-10-28T12:33:24.6776170Z PASS filesystem (release): focused configuration, behavior and graceful stop; restart state retained",
+        "2026-10-28T12:33:24.7007008Z PASS 1 focused Rust projects",
+        "2026-10-28T12:33:24.7916873Z PASS release executable identities unchanged through restart"
+      ],
+      "job_url": "https://github.com/crabbuild/cellar/actions/runs/40686315091/job/122809906930",
+      "artifact": {
+        "id": 12815264654,
+        "name": "filesystem-release-x86_64-unknown-linux-gnu-40686315091-1",
+        "size_in_bytes": 8652,
+        "url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12815264654",
+        "archive_download_url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12815264654/zip",
+        "expired": false,
+        "created_at": "2026-10-28T12:33:25Z",
+        "expires_at": "2026-11-04T12:33:24Z",
+        "updated_at": "2026-10-28T12:33:25Z",
+        "digest": "sha256:ab90e8832a73bc6bb7413f875fa2d84b6e046eb4f501eb564f4316897a5fdcb4",
+        "workflow_run": {
+          "id": 40686315091,
+          "repository_id": 1415120022,
+          "head_repository_id": 1415120022,
+          "head_branch": "codex/per-cell-filesystem-design",
+          "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb"
+        }
+      },
+      "identity": {
+        "source": "a11a0dfb058379b6445117724cb85b83bce161f1",
+        "target": "x86_64-unknown-linux-gnu",
+        "platform": "Linux-6.8.0-1070-azure-x86_64-with-glibc2.35",
+        "profile": "release",
+        "executables": {
+          "cellar": "9af38fd340d2a28b80ecdc1359be4471d431d42d7fc6283acefc05acb49a3921",
+          "cellar-native-examples": "a87a13655f14e223fa7b2d399c74bdb812cd134aa363d551d545801b3012b390"
+        }
+      },
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "download_verified": true,
+      "smoke_log_sha256": "df1616783b8c93aa2f3b3cf96efc7105712fff2e2e16c54dc14fcbfd250b8fa7",
+      "tree": "c77471a114ce1f274f75a77cd6da020643bd4556",
+      "head_tree_matches": true
+    },
+    {
+      "target": "aarch64-unknown-linux-gnu",
+      "job": {
+        "id": 122809907388,
+        "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+        "name": "Filesystem release application (aarch64-unknown-linux-gnu)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      "log_truncated": false,
+      "passes": [
+        "2026-10-28T12:50:30.3210715Z PASS filesystem (release): focused configuration, behavior and graceful stop; restart state retained",
+        "2026-10-28T12:50:30.3331271Z PASS 1 focused Rust projects",
+        "2026-10-28T12:50:30.3998598Z PASS release executable identities unchanged through restart"
+      ],
+      "job_url": "https://github.com/crabbuild/cellar/actions/runs/40686315091/job/122809907388",
+      "artifact": {
+        "id": 12817611209,
+        "name": "filesystem-release-aarch64-unknown-linux-gnu-40686315091-1",
+        "size_in_bytes": 8606,
+        "url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12817611209",
+        "archive_download_url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12817611209/zip",
+        "expired": false,
+        "created_at": "2026-10-28T12:50:31Z",
+        "expires_at": "2026-11-04T12:50:30Z",
+        "updated_at": "2026-10-28T12:50:31Z",
+        "digest": "sha256:4107717d1015624116adb78301f43f79beeb0c2c5cbeccbe924632ec30147f60",
+        "workflow_run": {
+          "id": 40686315091,
+          "repository_id": 1415120022,
+          "head_repository_id": 1415120022,
+          "head_branch": "codex/per-cell-filesystem-design",
+          "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb"
+        }
+      },
+      "identity": {
+        "source": "a11a0dfb058379b6445117724cb85b83bce161f1",
+        "target": "aarch64-unknown-linux-gnu",
+        "platform": "Linux-6.8.0-1070-azure-aarch64-with-glibc2.35",
+        "profile": "release",
+        "executables": {
+          "cellar": "e5a0abb7cffa386c21fc5781beb478cdebd967e57b94321316e14c08f029ac83",
+          "cellar-native-examples": "ac57d6427c856418c4e13c600b71ed8211fa911d5c1540d28595fc1f6312f4a5"
+        }
+      },
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "download_verified": true,
+      "smoke_log_sha256": "df1616783b8c93aa2f3b3cf96efc7105712fff2e2e16c54dc14fcbfd250b8fa7",
+      "tree": "c77471a114ce1f274f75a77cd6da020643bd4556",
+      "head_tree_matches": true
+    },
+    {
+      "target": "aarch64-apple-darwin",
+      "job": {
+        "id": 122809907515,
+        "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+        "name": "Filesystem release application (aarch64-apple-darwin)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      "log_truncated": false,
+      "passes": [
+        "2026-10-28T12:42:45.7985740Z PASS filesystem (release): focused configuration, behavior and graceful stop; restart state retained",
+        "2026-10-28T12:42:45.8063210Z PASS 1 focused Rust projects",
+        "2026-10-28T12:42:45.8985760Z PASS release executable identities unchanged through restart"
+      ],
+      "job_url": "https://github.com/crabbuild/cellar/actions/runs/40686315091/job/122809907515",
+      "artifact": {
+        "id": 12817070744,
+        "name": "filesystem-release-aarch64-apple-darwin-40686315091-1",
+        "size_in_bytes": 8549,
+        "url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12817070744",
+        "archive_download_url": "https://api.github.com/repos/crabbuild/cellar/actions/artifacts/12817070744/zip",
+        "expired": false,
+        "created_at": "2026-10-28T12:42:47Z",
+        "expires_at": "2026-11-04T12:42:46Z",
+        "updated_at": "2026-10-28T12:42:47Z",
+        "digest": "sha256:8f1c383170c99c9a8e2dd7166c726062163a048e8c59f8036043664aede13176",
+        "workflow_run": {
+          "id": 40686315091,
+          "repository_id": 1415120022,
+          "head_repository_id": 1415120022,
+          "head_branch": "codex/per-cell-filesystem-design",
+          "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb"
+        }
+      },
+      "identity": {
+        "source": "a11a0dfb058379b6445117724cb85b83bce161f1",
+        "target": "aarch64-apple-darwin",
+        "platform": "macOS-14.8.9-arm64-arm-64bit-Mach-O",
+        "profile": "release",
+        "executables": {
+          "cellar": "f0125982ec399c03c51db820f39b9d504d330736b0f8fb37a79bdfdfa69b0bfc",
+          "cellar-native-examples": "66fcd53b35e31ef5e133e997f809aab6bd579a493911dcb2eab35988f16394e6"
+        }
+      },
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+      "download_verified": true,
+      "smoke_log_sha256": "df1616783b8c93aa2f3b3cf96efc7105712fff2e2e16c54dc14fcbfd250b8fa7",
+      "tree": "c77471a114ce1f274f75a77cd6da020643bd4556",
+      "head_tree_matches": true
+    }
+  ],
+  "ci_checkout": "GitHub pull-request merge commit; exact tree equality with source verified locally.",
+  "scope": "Focused native release application and graceful preserving restart on local development storage; not full runtime/ABI, external-store or deployment qualification.",
+  "outstanding_javascript_ci_failure": {
+    "job": {
+      "id": 122809451754,
+      "head_sha": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+      "name": "qualify",
+      "status": "completed",
+      "conclusion": "failure"
+    },
+    "job_url": "https://github.com/crabbuild/cellar/actions/runs/40686315126/job/122809451754",
+    "log_truncated": true,
+    "failure_lines": [
+      "2026-10-28T12:34:37.7498767Z test provider_journals_survive_recovery_and_business_clear_without_replaying_creates ... FAILED",
+      "2026-10-28T12:34:37.7499698Z ---- provider_journals_survive_recovery_and_business_clear_without_replaying_creates stdout ----",
+      "2026-10-28T12:34:37.7501122Z Error: superseded: 500 Internal Server Error Worker failed: handler exceeded 250ms budget",
+      "2026-10-28T12:34:37.7501806Z     provider_journals_survive_recovery_and_business_clear_without_replaying_creates"
+    ]
+  },
+  "unchanged_local_journal_diagnostic": {
+    "executable_sha256": "8f45ed3e4d42b9804a057abcc355f9789900c98627d60720c997937fe696fdec",
+    "runs": [
+      {
+        "iteration": 1,
+        "exit": 0,
+        "seconds": 0.5657067920546979,
+        "log_sha256": "39b44c7620197c50483ab35fa0303ae6fe6cfaa8f9031c85eef807710134435b"
+      },
+      {
+        "iteration": 2,
+        "exit": 0,
+        "seconds": 0.5448487909743562,
+        "log_sha256": "7634ff789171402dbf514f228e83a07ad3b6bed3d60359aa2fd6e2b7370f757b"
+      },
+      {
+        "iteration": 3,
+        "exit": 0,
+        "seconds": 0.5419127919012681,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      },
+      {
+        "iteration": 4,
+        "exit": 0,
+        "seconds": 0.5380547500681132,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      },
+      {
+        "iteration": 5,
+        "exit": 0,
+        "seconds": 0.5508415000513196,
+        "log_sha256": "7634ff789171402dbf514f228e83a07ad3b6bed3d60359aa2fd6e2b7370f757b"
+      },
+      {
+        "iteration": 6,
+        "exit": 0,
+        "seconds": 0.5431090840138495,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      },
+      {
+        "iteration": 7,
+        "exit": 0,
+        "seconds": 0.5376713749719784,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      },
+      {
+        "iteration": 8,
+        "exit": 0,
+        "seconds": 0.5288334999931976,
+        "log_sha256": "e54b747d603a9b2bca1dfa587151153e6359c34fbb78428396192a92e26b5dee"
+      },
+      {
+        "iteration": 9,
+        "exit": 0,
+        "seconds": 0.5494990410516039,
+        "log_sha256": "7634ff789171402dbf514f228e83a07ad3b6bed3d60359aa2fd6e2b7370f757b"
+      },
+      {
+        "iteration": 10,
+        "exit": 0,
+        "seconds": 0.5416471660137177,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      },
+      {
+        "iteration": 11,
+        "exit": 0,
+        "seconds": 0.5262841250514612,
+        "log_sha256": "e54b747d603a9b2bca1dfa587151153e6359c34fbb78428396192a92e26b5dee"
+      },
+      {
+        "iteration": 12,
+        "exit": 0,
+        "seconds": 0.5402144589461386,
+        "log_sha256": "9b4ce8e36c4ce5ead6b2f527ca682cf6ba331d184519afb1c4ee8c8e9eb78d5a"
+      }
+    ],
+    "profile": "macOS arm64, Rust 1.98.1; unoptimized, debug=0; twelve fresh serial processes; original 250 ms handler budget",
+    "source_sha256": {
+      "crates/cellar-container/tests/bindings.rs": "6c3f1d5bbf1710976e4281f5e177015048271aed2c24fa20edd8a6fe635be124",
+      "crates/cellar-javascript/tests/support/native.rs": "4d0ab839ff2f92c0eea7b4e28a229cdd2fb1b986e2f2ab43c9891a3e3113ccd6"
+    }
+  }
+}

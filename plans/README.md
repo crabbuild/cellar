@@ -41,11 +41,35 @@ with startup validation, per-call dispatch and language registration sketches.
 | Design | Status | Scope |
 | --- | --- | --- |
 | [002: Transactional outbox and durable event delivery](002-outbox-streams-subscriptions.md) | Proposed | Atomic event emission, durable streams, resumable subscriptions, recovery, retention, and implementation phases |
+| [Per-cell filesystem context primitive](per-cell-filesystem-design.md) | [Implementation in progress](per-cell-filesystem-implementation-status.md) | `context.fs()` / `tx.fs()` with [POSIX-compatible operations](per-cell-filesystem-api.md), transactional SQLite file state and durable-agent file tools; independent [implementation and qualification plan](per-cell-filesystem-implementation.md) |
 
-The primitive design is separate from the completed component organization
+The filesystem primitive is an SDK-only deliverable. Its API, configuration,
+examples and release gates require no mount service or execution environment.
+Start with the POSIX API contract for `context.fs()` / `tx.fs()`; the optional
+host-integration proposal below owns all mounting and command execution details.
+The primitive's capability schema contains file operations and storage limits;
+adapter availability is discovered and configured separately.
+The API contract describes POSIX compatibility through typed SDK operations.
+Agents use those operations and atomic file/receipt batches in their existing
+cell handlers; mounted access and command execution belong to the separate
+extension proposal below.
+The [operation conformance audit](per-cell-filesystem-conformance.md) maps the
+public operations to inspected test assertions and records remaining gaps.
+
+The outbox design is separate from the completed component organization
 work below. Its API sketches describe proposed behavior, not the current SDK.
 Implementation is underway; the [requirement audit and verification status](outbox-implementation-status.md)
 track the full remaining scope.
+
+## Optional host integrations
+
+| Design | Status | Scope |
+| --- | --- | --- |
+| [Optional FUSE adapter and mounted agent execution](per-cell-filesystem-fuse-design.md) | Separate proposal | Linux mounting, kernel translation, adapter sessions, container lifecycle and durable command execution; depends on the core primitive |
+
+This design owns the earlier `context.execution().mount_cell_filesystem(...)`
+proposal and its evaluation. It has independent delivery and qualification
+gates; the filesystem primitive can ship and operate without it.
 
 ## Component organization baseline
 

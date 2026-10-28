@@ -169,6 +169,19 @@ records the live results and their limits.
 | `saveNote` | Local structured write | Note and receipt commit atomically in the cell's SQLite store. |
 | `readState` | State read | Records the counter and previous receipts at this point in the conversation. |
 | `createTicket` | External HTTP write | Saves an intent before dispatch, uses a stable idempotency key, and reconciles unknown outcomes. |
+| `readFile`, `listFiles`, `searchFiles` | Cell filesystem reads | Save the original bounded bytes/page/search result with inode/version checks. Replay returns that result after later edits. |
+| `writeFile`, `editFile`, `renameFile`, `deleteFile` | Cell filesystem mutations | Checked effects and the existing run/tool receipt commit in one transaction; version conflicts become saved refusals. |
+
+Files are owned by this turn's cell. Follow-up turns retain conversation history
+but have independent files. The [session filesystem example](../filesystem-agent/README.md)
+demonstrates a workspace shared across turns. These tools use `ctx.fs`, with no
+mounted path or command runner. File contents are bounded to 32 KiB per read/write;
+write/edit schemas additionally cap text at 8192 characters. Listings cap pages
+at 128 entries; search examines at most 16 files, 16 directories and 128 KiB of
+file prefixes. All tools share the existing 16-receipt and 512 KiB journal bounds.
+Edits require the exact inode/version from a prior read. The tool schema and
+filesystem contract participate in the configuration fingerprint, so old pending
+runs require their original release.
 
 The downstream ticket service has its **own SQLite database**, separate from
 Cellar. Its operation key, request fingerprint and ticket effect commit together.
@@ -181,7 +194,7 @@ ticket vendor. Adapting external tools requires the same downstream guarantee.
 
 All tool input uses strict Zod schemas. Calls execute sequentially to respect
 the bridge's one-mutation rule. Invalid tool arguments cannot silently complete
-a turn. Provider-executed tools, arbitrary shell/code execution, files and
+a turn. Provider-executed tools, arbitrary shell/code execution, provider file output and
 approvals require additional durability contracts and are explicitly refused
 by the text/tool stream collector.
 
@@ -232,6 +245,12 @@ removes the alarm. Follow-ups copy history only from completed durable parents;
 history is bounded to 192 KiB. A cell name permanently identifies one turn.
 A new request with the same ID but a different prompt or parent returns 409.
 
+Checkpoint admission also enforces the configured bridge value budget, including
+the previous checked value, new state and file effects. Pending states reserve
+space for a later terminal update. A smaller bridge budget can therefore reject
+a checkpoint below 512 KiB; refusal happens before file mutation and preserves
+the previously saved decisions and receipts.
+
 ## Repeat the verification
 
 Format the handwritten JavaScript, TypeScript and React code with
@@ -265,7 +284,11 @@ Unfinished tasks must complete through alarms **before any task HTTP request**.
 It also runs 16 concurrent production-entry tasks, cold recovery, and 32 duplicate
 submissions. Timings demonstrate bounded integration, not maximum capacity.
 The tool process suite interrupts after a downstream ticket commit and verifies
-six completed tool receipts with one downstream effect.
+six completed tool receipts with one downstream effect. Two additional offline
+filesystem cases interrupt after a proven file/receipt commit and after an edit.
+They recover on a new node with empty local storage, replay saved read bytes,
+retain one write, record a stale-version refusal, and finish rename/delete with
+nine unchanged receipts. These cases do not call a paid provider.
 
 To repeat the **paid live GPT-6 Luna** qualification:
 
@@ -310,6 +333,34 @@ node tools/javascript/node-package.mjs --runtime \
 cargo run --locked -p cellar -- build examples/vercel-agent/project.json \
   --output .cellar/vercel-agent-package
 ```
+
+Qualify that installed package with its original runtime prefix absent:
+
+```sh
+mv .cellar/vercel-agent-runtime .cellar/vercel-agent-runtime-captured
+CELLAR_VERCEL_PACKAGE="$PWD/.cellar/vercel-agent-package" \
+  cargo test --locked -p cellar-javascript --no-default-features --features node \
+    --test fleet_package vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts \
+    -- --exact --ignored --nocapture
+```
+
+The test publishes and restores the verified archive, then boots the packaged
+production entry without source-entry overrides. A private HTTP model fixture
+supplies decisions through the installed OpenAI provider adapter; it uses no
+paid service or real credentials. Two cells prove their file edit, rename and
+seven tool receipts before the next model response is held. The test kills the
+host, inspects and deletes its local state, then starts an empty replacement.
+Recovery must preserve each edited inode/version/content and all seven original
+receipts, including the saved pre-edit read. Both tasks finish, a new task writes
+under the replacement owner, and twelve duplicate submissions preserve the full
+results without more provider calls. Direct SQLite inspection before shutdown
+also verifies all completed delete receipts have no linked regular files; the
+replacement host and fixture server are then joined.
+`CELLAR_VERCEL_PACKAGE_REPORT` optionally names a JSON evidence file.
+
+This is an installed-package recovery profile on the development bucket. It
+does not qualify a real model service, external storage failures or deployment
+throughput. The source-entry S3 drill above retains its separate scope.
 
 Use a fresh immutable runtime prefix at the same absolute path on build and
 serving machines. The [Node delivery guide](../node/README.md#native-fleet-packaging-and-installation)

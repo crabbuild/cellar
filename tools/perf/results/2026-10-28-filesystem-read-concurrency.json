@@ -1,0 +1,1131 @@
+{
+  "baseline": "ba15b5021ca414ba6e444e3d4244d51fada1888a",
+  "checks": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "format"
+      ],
+      "exit": 0,
+      "seconds": 69.72822949988768,
+      "log_sha256": "8ad524636ad76472d3f407061066e54098f267523f68e96f124356421b969309"
+    },
+    {
+      "name": "javascript-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-javascript",
+        "--no-default-features",
+        "--features",
+        "embed,node",
+        "--test",
+        "filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 13.221691041020676,
+      "log_sha256": "14e1ccda8f9a7573fee2ab99f3f60b79771816abe23102eb0cfdd4b831664ab0"
+    },
+    {
+      "name": "javascript-list",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "--list"
+      ],
+      "exit": 0,
+      "seconds": 0.015745249926112592,
+      "log_sha256": "40701714d04db3e8083b7229d40ec8d8639f320ee39d340c32e098f5ea952d75"
+    },
+    {
+      "name": "embedded_filesystem_empty_helper_refusals_settle",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "embedded_filesystem_empty_helper_refusals_settle",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.3599027079762891,
+      "log_sha256": "633c07ac4eb51ac12cf3c72397221e52ec855d75a29e87f426a5c390c7dbb694"
+    },
+    {
+      "name": "embedded_filesystem_posix_batches_and_recovery",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "embedded_filesystem_posix_batches_and_recovery",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 11.954768375027925,
+      "log_sha256": "82488e32d73f74afb32a5d1f1a052bc70eeb5cb09dfeb221bfbe9b473392397d"
+    },
+    {
+      "name": "embedded_filesystem_readonly_recovers_writer_state",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "embedded_filesystem_readonly_recovers_writer_state",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.2267501660389826,
+      "log_sha256": "4a1efe65a22c94103c20736bd1d17a9f7352f176950d319e45de50da28225f1d"
+    },
+    {
+      "name": "node_filesystem_encoded_budget_preserves_offsets_and_directory_cursors",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "node_filesystem_encoded_budget_preserves_offsets_and_directory_cursors",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.644606165937148,
+      "log_sha256": "988734b96e0d3d1ade0d16fe26512fa03a0ef0aafcc5e777de59a5e1091b27fe"
+    },
+    {
+      "name": "node_filesystem_posix_batches_and_recovery",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "node_filesystem_posix_batches_and_recovery",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 19.48294070805423,
+      "log_sha256": "90c4c01a8e294091f525944f95d61f3994ef41e5a4d1010b06094bac742d929f"
+    },
+    {
+      "name": "node_filesystem_readonly_recovers_writer_state",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+        "node_filesystem_readonly_recovers_writer_state",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.8427841659868136,
+      "log_sha256": "ae759d9e73c7425cb5019164337b33e9f734cca0a146619acef3106ea7486646"
+    },
+    {
+      "name": "gil-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-python",
+        "--features",
+        "embed",
+        "--test",
+        "filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 25.753668957971968,
+      "log_sha256": "1d402d0e3dd1da15a2b03fd110d2d2bdb716e6cb67ca562c6d4112d1b7a24428"
+    },
+    {
+      "name": "gil-linkage",
+      "command": [
+        "otool",
+        "-L",
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/gil-executable"
+      ],
+      "exit": 0,
+      "seconds": 0.025604500086046755,
+      "log_sha256": "2f599993ee83e9f95004b8c11d9a80d4961744977df353a699ed625b3d71695f"
+    },
+    {
+      "name": "gil-runtime",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/runtimes/cpython-3.14.5-macos-aarch64-none/bin/python3.14",
+        "-c",
+        "import json,sys,sysconfig; print(json.dumps(dict(free_threaded=bool(sysconfig.get_config_var('Py_GIL_DISABLED')),gil_enabled=sys._is_gil_enabled())))"
+      ],
+      "exit": 0,
+      "seconds": 0.02408483298495412,
+      "log_sha256": "682e39946a365f69fd3cf71b5c458cb72f565190e8c0c1435d9859bc10b9245d"
+    },
+    {
+      "name": "gil-normal",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/gil-executable"
+      ],
+      "exit": 0,
+      "seconds": 4.91033758292906,
+      "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+    },
+    {
+      "name": "gil-readonly",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/gil-executable",
+        "--read-only"
+      ],
+      "exit": 0,
+      "seconds": 0.8479750000406057,
+      "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+    },
+    {
+      "name": "freethread-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-python",
+        "--features",
+        "embed",
+        "--test",
+        "filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 21.707372584030963,
+      "log_sha256": "bc87227c68013939273774379483bbf8986de8e4956c3e5833b4e860d93f30b9"
+    },
+    {
+      "name": "freethread-linkage",
+      "command": [
+        "otool",
+        "-L",
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/freethread-executable"
+      ],
+      "exit": 0,
+      "seconds": 0.025477749994024634,
+      "log_sha256": "1c173cba990a8804fc97a8cc4c112b17600297fc38342a4f976107d5fae9d1fe"
+    },
+    {
+      "name": "freethread-runtime",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/runtimes/cpython-3.14.5+freethreaded-macos-aarch64-none/bin/python3.14t",
+        "-c",
+        "import json,sys,sysconfig; print(json.dumps(dict(free_threaded=bool(sysconfig.get_config_var('Py_GIL_DISABLED')),gil_enabled=sys._is_gil_enabled())))"
+      ],
+      "exit": 0,
+      "seconds": 0.09002333297394216,
+      "log_sha256": "d4cedf82d19ea91a22c3b4ce808bf537ded2a58ef0d1ba9ae1c224cd50835fa1"
+    },
+    {
+      "name": "freethread-normal",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/freethread-executable"
+      ],
+      "exit": 0,
+      "seconds": 5.32526258402504,
+      "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+    },
+    {
+      "name": "freethread-readonly",
+      "command": [
+        "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/freethread-executable",
+        "--read-only"
+      ],
+      "exit": 0,
+      "seconds": 1.0257180830230936,
+      "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+    },
+    {
+      "name": "javascript-filesystem-library",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-javascript",
+        "--no-default-features",
+        "--features",
+        "embed,node",
+        "--lib",
+        "filesystem",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 1.1537205839995295,
+      "log_sha256": "7222b133d24f7ebd7f76284c4cd845d1f67ba7e37afacca8b9729fde9d3467bb"
+    },
+    {
+      "name": "guest-library",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-guest",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 0.4386510419426486,
+      "log_sha256": "278976196491c651c769bb954aae483c1942d83cdf7b34bb0a170c1c54af994c"
+    }
+  ],
+  "executables": {
+    "javascript": {
+      "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/javascript-executable",
+      "sha256": "fa232d8d4521db6de4083b969bb7c2162c947871e63dce02c3270d1b1ec0bed1"
+    },
+    "gil": {
+      "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/gil-executable",
+      "sha256": "c0b17070702a0fc4401b86bab94645822f99a6ca1298a9dd1f1c49461d43eee2"
+    },
+    "freethread": {
+      "path": "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/concurrency-qualified/freethread-executable",
+      "sha256": "6c532f2c03f21b82dddb566c26c17fabd80e2f1f7f577b697dfc0411aa091ae4"
+    }
+  },
+  "source_sha256": {
+    ".github/workflows/javascript-sdk.yml": "b4c8ecfaa30f0059a486e3140cd82920dc9f49c026063566e81527b4d49613bb",
+    ".github/workflows/native-sdk.yml": "335c3c77bad28dcc120b276b7be65861da3083c477ad929f56e8a73974164f3e",
+    "crates/cellar-guest/operations.rs": "ec0f603e879e96b93f703367ae3317daaab5a669584882d416c75d0b4f4c5b2f",
+    "crates/cellar-javascript/README.md": "6d93fde980f84b7dc80b7953abdc14825624f101508fe3a5343b591f0347227d",
+    "crates/cellar-javascript/runtime/node/worker.mjs": "1205cd3ed052f95c79bba04b343d021b4163fa55e37610be1bdb90b086c25fb3",
+    "crates/cellar-javascript/synchronous_runtime_tests.rs": "a090c832457454dbc3b80f4132ac83d2e487fdd87723e9a415ebee6136636651",
+    "crates/cellar-javascript/tests/filesystem.rs": "35de56b442427f8e1c03e1e5bb35c92ec85c393f7a5e82e77f3eea85235038ba",
+    "crates/cellar-javascript/tests/support/filesystem.js": "547b7cd0502d710d37b44134fa99e5841a00b19ff814720f64b9668f78b80daf",
+    "crates/cellar-python/README.md": "d09cee1c7b14a5521d26761c9abd50fe1f033082d0b2e29b73950fcaa0510b88",
+    "crates/cellar-python/tests/filesystem.py": "775c5661210530cbe274bc36b18fb27511d6812de345f415b86010aa234cb4cf",
+    "crates/cellar-python/tests/filesystem.rs": "203b6f4cde28f7201711408ee5aa9a66beba022bea02a752f622fcaf5199619a",
+    "crates/cellar/tests/support/filesystem_guest.rs": "6e67c3a2ba77b244b0191fa56424816b8ac65b3e8742ba694ae73145d1403af9",
+    "plans/per-cell-filesystem-api.md": "8e5e34eeb237a1d90a13096e916ecbe413e6114bcea8422921e378e45a7f9c68",
+    "plans/per-cell-filesystem-conformance.md": "d4a82aaddcb61dd6042cd95c0de78a9bef4b97cb97e754400190c2240139aea1",
+    "crates/cellar-javascript/tests/support/filesystem-concurrency.js": "73a057569ef027461911477d4d6326e4febb5d69655db2a0fd74ff47bd6db10a",
+    "crates/cellar-python/tests/filesystem_concurrency.py": "840e9412c7e42afd0cfb4b1c9edb2ce4299a4c184b10c9e87fc14dbc416b47cb",
+    "tools/rpc/host/proof/mod.rs": "6afa31426964e6a3bfac251a39e61140deff997c840345c8e5fce6d06037a0fa"
+  },
+  "gil_profile": {
+    "free_threaded": false,
+    "gil_enabled": true
+  },
+  "freethread_profile": {
+    "free_threaded": true,
+    "gil_enabled": false
+  },
+  "observations": {
+    "observations/embedded_filesystem_posix_batches_and_recovery/52283-append-false.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198843934000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198843934000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": false
+    },
+    "observations/embedded_filesystem_posix_batches_and_recovery/52283-directory-false.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198844112000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198844112000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": false
+    },
+    "observations/embedded_filesystem_posix_batches_and_recovery/52283-shared-false.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198843725000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198843725000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": false
+    },
+    "observations/embedded_filesystem_posix_batches_and_recovery/52306-append-true.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198843934000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198843934000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": true
+    },
+    "observations/embedded_filesystem_posix_batches_and_recovery/52306-directory-true.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198844112000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198844112000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": true
+    },
+    "observations/embedded_filesystem_posix_batches_and_recovery/52306-shared-true.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198843725000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198843725000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": true
+    },
+    "observations/freethread/52467-append-false.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928468000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198928468000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": false
+    },
+    "observations/freethread/52467-directory-false.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928616000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198928616000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": false
+    },
+    "observations/freethread/52467-shared-false.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928320000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198928320000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": false
+    },
+    "observations/freethread/52475-append-true.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928468000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198928468000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": true
+    },
+    "observations/freethread/52475-directory-true.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928616000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198928616000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": true
+    },
+    "observations/freethread/52475-shared-true.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198928320000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198928320000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": true
+    },
+    "observations/gil/52420-append-false.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900286000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198900286000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": false
+    },
+    "observations/gil/52420-directory-false.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900422000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198900422000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": false
+    },
+    "observations/gil/52420-shared-false.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900151000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198900151000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": false
+    },
+    "observations/gil/52428-append-true.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900286000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198900286000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": true
+    },
+    "observations/gil/52428-directory-true.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900422000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198900422000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": true
+    },
+    "observations/gil/52428-shared-true.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198900151000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198900151000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": true
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52337-append-false.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863726000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198863726000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": false
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52337-directory-false.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863961000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198863961000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": false
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52337-shared-false.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863434000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198863434000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": false
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52364-append-true.json": {
+      "bytes_base64": "ISEhISEhISEhISEhISEhISEhISEhISEhISEhISEhISEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKiorKysrKysrKysrKysrKysrKysrKysrKysrKysrKysrKywsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCws",
+      "count": 12,
+      "kind": "append",
+      "metadata": {
+        "allocated_bytes": "131072",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863726000000",
+        "gid": "1000",
+        "inode": "3",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198863726000000",
+        "nlink": "1",
+        "size": "65904",
+        "uid": "1000",
+        "version": "43"
+      },
+      "recovered": true
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52364-directory-true.json": {
+      "count": 12,
+      "kind": "directory",
+      "metadata": {
+        "allocated_bytes": "0",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863961000000",
+        "gid": "1000",
+        "inode": "4",
+        "kind": "Directory",
+        "mode": "448",
+        "mtime_ns": "1793198863961000000",
+        "nlink": "2",
+        "size": "0",
+        "uid": "1000",
+        "version": "78"
+      },
+      "names": [
+        "aXRlbS00",
+        "aXRlbS01",
+        "aXRlbS02",
+        "aXRlbS03",
+        "aXRlbS04",
+        "aXRlbS05",
+        "aXRlbS0w",
+        "aXRlbS0x",
+        "aXRlbS0xMA==",
+        "aXRlbS0xMQ==",
+        "aXRlbS0y",
+        "aXRlbS0z"
+      ],
+      "recovered": true
+    },
+    "observations/node_filesystem_posix_batches_and_recovery/52364-shared-true.json": {
+      "bytes_base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQECAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwsLCwwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM",
+      "count": 12,
+      "kind": "shared",
+      "metadata": {
+        "allocated_bytes": "65536",
+        "atime_ns": "0",
+        "ctime_ns": "1793198863434000000",
+        "gid": "1000",
+        "inode": "2",
+        "kind": "File",
+        "mode": "420",
+        "mtime_ns": "1793198863434000000",
+        "nlink": "1",
+        "size": "384",
+        "uid": "1000",
+        "version": "16"
+      },
+      "recovered": true
+    }
+  },
+  "environment": {
+    "os": "macOS arm64",
+    "rust": "1.98.1",
+    "node": "24.13.1",
+    "python": "3.14.5",
+    "profile": "unoptimized dev/test, debug info disabled",
+    "store": "local development",
+    "fixture_scheduling": "serial, bounded concurrent read waves within each invocation"
+  },
+  "observation_count": 24,
+  "prior_runs": {
+    "concurrency/safe-read-before.json": {
+      "source_sha256": {
+        "crates/cellar-javascript/tests/support/filesystem-concurrency.js": "72f865528989f76b37197787eda1df1769afc1722f2657a2a50065dba5f8095d",
+        "crates/cellar-python/tests/filesystem_concurrency.py": "b3a2cda4caba645e11315bc5d31344de70d1e1524594d23ea3529a51072547fc",
+        "crates/cellar-guest/operations.rs": "d7f0988538daec1b96e3d329936ee23bb2b6495423b2bca583a682c421848abc",
+        "crates/cellar-javascript/runtime/node/worker.mjs": "2efcdabeea52e04c9164ec9135679ea0050dfb6750bd5e55dc0550cb0e678cb4"
+      },
+      "executable_sha256": "81473f2746c0242179faa6856756801795ac20bb9d2816c3d23a57992a2e34d6",
+      "log_sha256": "08bf6ea1ef9c0b25e2154b131d6afcde9881f3940891b8777f61715eb5860d6b"
+    },
+    "concurrency-final/quality.json": [
+      {
+        "name": "clippy-guest",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar-guest",
+          "--lib",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 3.280339707969688,
+        "log_sha256": "814f1f636d35a8d4f3120bcf7e768d81a158c1603800f1752272bbe5e499ebf9"
+      },
+      {
+        "name": "clippy-adapters",
+        "command": [
+          "cargo",
+          "clippy",
+          "--locked",
+          "-p",
+          "cellar-javascript",
+          "-p",
+          "cellar-python",
+          "--lib",
+          "--test",
+          "filesystem",
+          "--features",
+          "cellar-javascript/embed,cellar-javascript/node,cellar-python/embed",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 101,
+        "seconds": 4.499637792003341,
+        "log_sha256": "f06c1ecd123e889bfc5aa526b20cc3e3b58459fd94b9e2c1b15d413c24377ae8"
+      }
+    ],
+    "concurrency/safe-read-before.log": {
+      "sha256": "08bf6ea1ef9c0b25e2154b131d6afcde9881f3940891b8777f61715eb5860d6b"
+    },
+    "concurrency/safe-read-after.log": {
+      "sha256": "0f3ea76eb306d8e19c70ef5da8f96acdaac240a48ab30532ad997b494ca537ef"
+    },
+    "concurrency/safe-read-after-enum.log": {
+      "sha256": "6bf574e5aaf8a3a42f76741b1fcc19a8ae3fbbafaddeccfcae9ef44c5638588f"
+    },
+    "concurrency/admission.log": {
+      "sha256": "c05c1d220f5ffe6e84bb1d86659539aae58ee08ba0a724abbc27750a9286a576"
+    }
+  },
+  "limits": [
+    "bounded known-read concurrency only",
+    "sequential guest mutations",
+    "local graceful restart",
+    "development artifacts",
+    "no full-CI or deployment-capacity claim"
+  ],
+  "quality": [
+    {
+      "name": "clippy-guest",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar-guest",
+        "--lib",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 0.8056715830462053,
+      "log_sha256": "13b823fc4db240daa6c9390596c6fc507aec5f2f255dccdd9a58ab5fecd681d0"
+    },
+    {
+      "name": "clippy-adapters",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar-javascript",
+        "-p",
+        "cellar-python",
+        "--lib",
+        "--test",
+        "filesystem",
+        "--features",
+        "cellar-javascript/embed,cellar-javascript/node,cellar-python/embed",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 3.9033713329117745,
+      "log_sha256": "247b2f59fe39d4ba834882f6642ceac5278bae301e2459975e83c5dfe2854b92"
+    },
+    {
+      "name": "clippy-rpc",
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "cellar-rpc-qualification",
+        "--all-targets",
+        "--features",
+        "full",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 8.617009125067852,
+      "log_sha256": "cb2d52f878a3aff29f6d744843634aad76dfe42b5ccd2a981b7458e4feb04614"
+    },
+    {
+      "name": "rpc-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-rpc-qualification",
+        "--features",
+        "full",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 21.45547474990599,
+      "log_sha256": "b322a604fcab7276aee4d01016f8aad484dd1e5684722c972b753b6749923419"
+    },
+    {
+      "name": "format-check",
+      "command": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 70.75470000004862,
+      "log_sha256": "49c4bafaa4be6ad5a57974004da5b79c8414b96042aa3670a8156aa502c4a18b"
+    },
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit": 0,
+      "seconds": 1.4361955829663202,
+      "log_sha256": "0e44391c696c788425cb58707c996d52d702564b341688531464a00e13fa3189"
+    },
+    {
+      "name": "native-dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit": 0,
+      "seconds": 0.37289991695433855,
+      "log_sha256": "d0c8028b2aefb4f734bf06e5c4e227d903485d207b07c2122a7230d602f4aba5"
+    },
+    {
+      "name": "javascript-format",
+      "command": [
+        "node",
+        "tools/javascript/format.mjs",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 0.8270087919663638,
+      "log_sha256": "0e48109db9316963aa4c93aa21f985b5446cab69d8a8dc38daf0d79e5db21bea"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit": 0,
+      "seconds": 0.13335833291057497,
+      "log_sha256": "b2e215b315e148526da38a9d492108fe1444cfea8e7e0292abef7cf703f98060"
+    }
+  ],
+  "captured_at": "2026-10-28T14:52:20.777682+00:00",
+  "supplemental_validation": {
+    "workflow_yaml": "both edited workflows parsed successfully",
+    "changed_document_references": 217,
+    "diff_whitespace": "git diff --check passed",
+    "origin_main": "5998b82cac1b14dbf05b8308b4161144c48252bf"
+  },
+  "final_document_sha256": {
+    "crates/cellar-javascript/README.md": "6d93fde980f84b7dc80b7953abdc14825624f101508fe3a5343b591f0347227d",
+    "crates/cellar-python/README.md": "d09cee1c7b14a5521d26761c9abd50fe1f033082d0b2e29b73950fcaa0510b88",
+    "plans/per-cell-filesystem-api.md": "8e5e34eeb237a1d90a13096e916ecbe413e6114bcea8422921e378e45a7f9c68",
+    "plans/per-cell-filesystem-conformance.md": "d4a82aaddcb61dd6042cd95c0de78a9bef4b97cb97e754400190c2240139aea1",
+    "plans/per-cell-filesystem-implementation-status.md": "6fb209f123a7b5fafd37d74fb0dbb9ea617c4b4dcd348f63773c0abdbad4db2c",
+    "tools/perf/filesystem.md": "5a56da7ca24b24dea4ffcd0a0dc01b3811d025dad9a276742fe99984bf45d8f3"
+  }
+}

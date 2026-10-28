@@ -9,8 +9,8 @@ no Python worker service, container or separate workflow engine is required.
 
 The example includes a deterministic PydanticAI `FunctionModel` so you can run
 and test recovery without credentials. It is a test model, not an LLM. An explicit
-configuration switches the same agent to OpenAI. The model has one tool,
-`save_note`, which writes into its own cell's notebook. It cannot execute shell
+configuration switches the same agent to OpenAI. The model has `save_note` and
+bounded cell filesystem tools. It cannot execute shell
 commands, send messages or make arbitrary business mutations.
 
 ## Run
@@ -63,10 +63,16 @@ The Rust entry point explicitly passes these two values into Python. Credentials
 are not embedded in packages or saved in cell history. Live calls incur provider
 charges. The example configures no provider SDK retries, a ten-second model-step
 deadline, eight durable attempts per job, at most two model requests per attempt,
-16 committed steps, four tool calls per model result, bounded outputs and 128 KiB
-of conversation history. These are example limits, not a billing cap. Choose a
+16 committed steps, four tool calls per model result, 16 tool receipts, a 512 KiB
+checkpoint and 128 KiB of conversation history. These are example limits, not a billing cap. Choose a
 model/provider and timeouts appropriate to your application. No live credentialed
 provider call is required by the automated tests.
+
+The captured bridge value budget also bounds each full checked checkpoint,
+including Python's escaped JSON request and future storage reads. Pending
+journals reserve space for a terminal update. If a file result and even its
+small refusal cannot fit, the agent records `checkpoint_limit` while preserving
+the prior decisions and receipts. No file mutation is submitted for that result.
 
 ## Recovery and tool semantics
 
@@ -74,11 +80,13 @@ provider call is required by the automated tests.
 and [message serialization](https://ai.pydantic.dev/message-history/):
 
 1. POST atomically commits input, the selected model and the first Cellar alarm.
-2. Before model I/O, an alarm charges an attempt and saves a recovery alarm.
-   PydanticAI's `save_note` declaration defers execution; it has no side effect.
+2. Before model I/O, an alarm charges an attempt, saves a recovery alarm and
+   awaits durability proof. All PydanticAI tool declarations defer execution.
 3. The model's conversation and requested tool calls commit with the next alarm.
-4. A later alarm validates every tool call, then commits notebook effects,
-   tool results and the next phase in one checked batch.
+4. A later alarm validates queued calls, then executes one tool. Its local
+   effect, receipt, partial results and next phase/alarm commit together and sync.
+   Later tools observe earlier committed changes without an open transaction
+   across awaits. The remaining calls continue on subsequent alarms.
 5. PydanticAI resumes from saved messages and `DeferredToolResults`, eventually
    checkpointing the final answer and removing the alarm.
 
@@ -87,7 +95,30 @@ Python object from durable state; no coroutine or in-memory agent instance needs
 to survive. Alarm delivery timestamps are not operation identities. Repeated or
 late deliveries use the stored phase and checked snapshot. An interrupted model
 request may repeat and incur another charge; there is no exactly-once LLM-call
-claim. The notebook and its tool receipt are atomic within Cellar.
+claim. Notebook/file effects and their tool receipts are atomic within Cellar.
+The saved format/configuration binds pending runs to the model, pinned SDK,
+instructions, tool schemas and file-tool contract. A changed configuration
+requires recovery with the original release.
+
+### Cell file tools
+
+`read_file`, `list_files`, `search_files`, `write_file`, `edit_file`, `rename_file`
+and `delete_file` use `ctx.fs` through the embedded `cellar_filesystem_tools`
+module. Files belong to this agent's cell; other agent names have independent
+files. The [session example](../filesystem-agent/README.md) demonstrates a
+workspace shared across multiple turns. No mounted path or command runner is
+required. Python built-in `open` still addresses the process environment.
+
+Reads return bounded saved bytes plus inode/version. Edits require that exact
+identity/version; conflicts become recorded refusals. Read replay returns the
+original data after an edit. Payloads cap at 32 KiB; write/edit schemas also cap
+text at 8192 characters. Lists cap pages at 128 entries. Literal searches inspect
+at most 16 files, 16 directories and 128 KiB of file prefixes and report truncation.
+All tools share the receipt, step and checkpoint caps above.
+
+With the offline `demo` model, use a prompt beginning with `files:` to run a
+predefined write/read/list/search/edit/conflict/rename/delete workflow. It uses
+the real PydanticAI deferred tools, with nine receipts and five model decisions.
 
 A Cellar storage error with an unknown outcome is allowed to escape. The next
 invocation reloads durable state instead of blindly replaying a mutation. A
@@ -126,6 +157,24 @@ receipt, and resumes without repeating the committed model or notebook step.
 This process-replacement test does not qualify multi-node failover or production
 provider availability.
 
+The production-package filesystem drill runs both before-result-delivery and
+after-edit crash cases. It SIGKILLs the owned host after a proven checkpoint,
+erases that node's local state and starts a new node against the preserved
+private development bucket. The alarm must finish before any task HTTP request.
+It checks write-version preservation, original/edited reads, the saved conflict,
+nine receipts, namespace deletion, unchanged duplicate acceptance and joined
+native/Python shutdown:
+
+```sh
+CELLAR_PYTHON_AGENT_PACKAGE=/absolute/agent-package \
+  cargo test --locked -p cellar-python --features embed --test agent_filesystem -- --ignored --nocapture
+```
+
+An unpackaged development-runtime build also needs
+`CELLAR_PYTHON_SITE_PACKAGES` pointing to its pinned dependencies. CI runs the
+packaged drill for both supported Python ABI variants; local observations do
+not qualify external S3 or peer-proof failures.
+
 For a manual restart drill, set `"step_delay_ms":10000` in a new job, stop after
 GET reports `"phase":"tools"`, then restart the same project without `--clean`.
 Its persisted alarm completes the job. `--clean` intentionally deletes tutorial
@@ -141,7 +190,7 @@ PydanticAI model and tools:
 | Job input | `Start` | Validate before committing; a name identifies one immutable request. |
 | Agent instructions and tool schemas | `make_agent` | Tools raise `CallDeferred` before doing any business work. |
 | Provider and model settings | `model_step` | Use saved history/results, bound requests, and close the client within the invocation. |
-| Local business tools | The `tools` branch in `DurableAgent.alarm` | Validate the whole batch, then commit effects, receipts and the next alarm together. |
+| Local business tools | The `tools` branch in `DurableAgent.alarm` | Validate queued calls, then commit each tool's effect, receipt and next phase/alarm together. |
 | Status returned to users | `DurableAgent.fetch` | Read durable state; keep provider credentials and internal errors out of responses. |
 
 The execution path is `POST → model → tools → model → complete`; a model may

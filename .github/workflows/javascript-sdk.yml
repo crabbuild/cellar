@@ -13,6 +13,7 @@ on:
       - 'examples/bindings/**'
       - 'examples/pi-agent/**'
       - 'examples/vercel-agent/**'
+      - 'examples/filesystem-agent/**'
       - 'tools/javascript/**'
       - 'tools/sandbox/**'
       - 'tools/rpc/**'
@@ -54,6 +55,7 @@ jobs:
           npm ci --prefix examples/bindings --ignore-scripts
           npm ci --prefix examples/pi-agent --ignore-scripts
           npm ci --prefix examples/vercel-agent --ignore-scripts
+          npm ci --prefix examples/filesystem-agent --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm ci --prefix examples/vercel-agent/ui --ignore-scripts
           npm run --prefix examples/node build
@@ -66,7 +68,7 @@ jobs:
           npm test --prefix examples/vercel-agent
           npm run --prefix examples/vercel-agent format:check
           node --test packages/cellar-sdk/test/streaming.test.mjs
-          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts
+          node tools/javascript/node_modules/typescript/bin/tsc --noEmit --strict --target es2022 --module nodenext packages/cellar-sdk/test/types.ts packages/cellar-sdk/test/filesystem-types.ts
           npm test --prefix tools/javascript
           npm run --prefix examples/javascript build
           npm test --prefix tools/rpc
@@ -91,9 +93,27 @@ jobs:
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
           npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
-        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
+        env:
+          CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-combined
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-combined
+        # Independent native fixtures own short leases and concurrent runtimes.
+        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node -- --test-threads=1
       - name: Node-only feature
-        run: cargo test --locked -p cellar-javascript --no-default-features --features node
+        env:
+          CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-node
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-node
+        run: cargo test --locked -p cellar-javascript --no-default-features --features node -- --test-threads=1
+      - name: Preserve filesystem proof and shutdown ledgers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-filesystem-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/filesystem-proof-combined/*.json
+            ${{ runner.temp }}/filesystem-proof-node/*.json
+            ${{ runner.temp }}/filesystem-concurrency-combined/*.json
+            ${{ runner.temp }}/filesystem-concurrency-node/*.json
+          if-no-files-found: ignore
       - name: Runtime archive and admission boundaries
         run: |
           cargo test --locked -p cellar --lib node_environment
@@ -110,6 +130,10 @@ jobs:
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-vercel-agent-example
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:e2e
           CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example" npm run --prefix examples/vercel-agent test:tools
+      - name: Filesystem agent atomic tools and cold recovery
+        run: |
+          cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-filesystem-agent-example
+          CELLAR_FS_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-filesystem-agent-example" npm run --prefix examples/filesystem-agent test:e2e
       - name: Vercel agent cold recovery from RustFS
         shell: bash
         run: |
@@ -119,7 +143,9 @@ jobs:
           python3 - "$private" <<'PY'
           import os, secrets, sys
           with open(sys.argv[1], 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
-              output.write('AWS_ACCESS_KEY_ID=' + secrets.token_hex(16) + '\n')
+              # This pinned RustFS image accepts the 20-character access-key
+              # profile; a 32-character key fails CreateBucket authentication.
+              output.write('AWS_ACCESS_KEY_ID=' + secrets.token_hex(10) + '\n')
               output.write('AWS_SECRET_ACCESS_KEY=' + secrets.token_hex(32) + '\n')
           PY
           set -a
@@ -138,6 +164,28 @@ jobs:
           done
           curl --fail --silent "$S3_ENDPOINT/health" >/dev/null
           export CELLAR_AI_STORE=s3 AWS_REGION=us-east-1
+          export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export CELLAR_FS_S3_ENDPOINT="$S3_ENDPOINT"
+          aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
+            --bucket "$CELLAR_FS_S3_BUCKET"
+          CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-proof-fault.json" \
+            cargo test --locked -p cellar --test native_node \
+              node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission \
+              -- --ignored --exact --nocapture
+          export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-sockets"
+          aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
+            --bucket "$CELLAR_FS_S3_BUCKET"
+          CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-socket-fault.json" \
+            cargo test --locked -p cellar --test native_node \
+              node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery \
+              -- --ignored --exact --nocapture
+          export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-stalls"
+          aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
+            --bucket "$CELLAR_FS_S3_BUCKET"
+          CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-stall-fault.json" \
+            cargo test --locked -p cellar --test native_node \
+              node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery \
+              -- --ignored --exact --nocapture
           export CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example"
           export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-recovery.json"
           npm run --prefix examples/vercel-agent test:e2e
@@ -151,6 +199,9 @@ jobs:
           path: |
             ${{ runner.temp }}/vercel-rustfs-recovery.json
             ${{ runner.temp }}/vercel-rustfs-tools.json
+            ${{ runner.temp }}/filesystem-s3-proof-fault.json
+            ${{ runner.temp }}/filesystem-s3-socket-fault.json
+            ${{ runner.temp }}/filesystem-s3-stall-fault.json
           if-no-files-found: ignore
       - name: Quality and engine boundaries
         run: |
@@ -194,5 +245,27 @@ jobs:
           cargo run --locked -p cellar -- build examples/pi-agent/project.json --output .cellar/pi-agent-package
           mv .cellar/pi-agent-runtime .cellar/pi-agent-runtime-captured
           CELLAR_PI_PACKAGE="$PWD/.cellar/pi-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package pi_agent_package -- --ignored --nocapture
+      - name: Filesystem agent installed package and session recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/filesystem-agent/runtime.json .cellar/filesystem-agent-runtime
+          cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
+          mv .cellar/filesystem-agent-runtime .cellar/filesystem-agent-runtime-captured
+          CELLAR_FS_PACKAGE="$PWD/.cellar/filesystem-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package filesystem_agent_package -- --ignored --nocapture
+      - name: Vercel installed package and filesystem recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/vercel-agent/runtime.json .cellar/vercel-agent-runtime
+          cargo run --locked -p cellar -- build examples/vercel-agent/project.json --output .cellar/vercel-agent-package
+          mv .cellar/vercel-agent-runtime .cellar/vercel-agent-runtime-captured
+          CELLAR_VERCEL_PACKAGE="$PWD/.cellar/vercel-agent-package" \
+            CELLAR_VERCEL_PACKAGE_REPORT="$RUNNER_TEMP/vercel-installed-filesystem.json" \
+            cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package \
+              vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts -- --exact --ignored --nocapture
+      - name: Preserve installed filesystem recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-installed-filesystem-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/vercel-installed-filesystem.json
+          if-no-files-found: ignore
       - name: SDK archive
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts

@@ -213,3 +213,14 @@ jobs:
           PYTHONPATH="$CELLAR_PYTHON_SITE_PACKAGES" "$PYO3_PYTHON" -B examples/python-agent/test_app.py
           python -B examples/python-agent/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
             --project "$RUNNER_TEMP/agent/environment/project.json" ${{ matrix.smoke_flags }}
+      - name: Recover atomic filesystem tools from the production agent package
+        run: |
+          export PYO3_PYTHON="$(UV_PYTHON_INSTALL_DIR="$RUNNER_TEMP/agent/environment/runtime" uv python find --managed-python '${{ matrix.runtime }}')"
+          agent_python_libdir="$("$PYO3_PYTHON" -I -S -B -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')"
+          LD_LIBRARY_PATH="$agent_python_libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            CELLAR_PYTHON_AGENT_PACKAGE="$RUNNER_TEMP/agent/package" \
+            cargo test --locked -p cellar-python --features embed --test agent_filesystem -- --ignored --nocapture
+          LD_LIBRARY_PATH="$agent_python_libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cargo test --locked -p cellar-python --features embed --test filesystem -- --small-budget
+          LD_LIBRARY_PATH="$agent_python_libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            cargo test --locked -p cellar-python --features embed --test filesystem -- --read-only

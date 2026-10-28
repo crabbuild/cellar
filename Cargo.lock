@@ -496,6 +496,7 @@ name = "cellar-javascript"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "bytes",
  "cellar",
@@ -508,6 +509,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
+ "object_store",
  "reqwest",
  "rusqlite",
  "serde",

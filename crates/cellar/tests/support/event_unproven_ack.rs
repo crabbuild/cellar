@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use tokio::sync::{watch, Semaphore};
 
 #[derive(Debug)]
-pub(super) struct PublicationFault {
+pub(crate) struct PublicationFault {
     store: Arc<dyn ObjectStore>,
     prefix: String,
     extra_prefixes: Vec<String>,
@@ -28,7 +28,7 @@ impl PublicationFault {
         Self::with_prefixes(store, prefix, Vec::new())
     }
 
-    pub(super) fn with_prefixes(
+    pub(crate) fn with_prefixes(
         store: Arc<dyn ObjectStore>,
         prefix: String,
         extra_prefixes: Vec<String>,
@@ -51,7 +51,7 @@ impl PublicationFault {
 
     /// Cut new publications, then wait for already-admitted uploads before
     /// taking a byte-for-byte audit of the original durable prefix.
-    pub(super) async fn block_and_drain(&self) {
+    pub(crate) async fn block_and_drain(&self) {
         self.block();
         drop(self.publications.write().await);
     }
@@ -65,7 +65,7 @@ impl PublicationFault {
         Ok(())
     }
 
-    pub(super) fn refused(&self) -> usize {
+    pub(crate) fn refused(&self) -> usize {
         self.attempts.load(Ordering::Acquire)
     }
 

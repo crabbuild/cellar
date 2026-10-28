@@ -47,6 +47,7 @@ function receive(message, body) {
       invocation: waiting.invocation,
       payload: stringify({
         ok: false,
+        error: "ContextExpired",
         code: "ContextExpired",
         outcome: "unknown",
       }),

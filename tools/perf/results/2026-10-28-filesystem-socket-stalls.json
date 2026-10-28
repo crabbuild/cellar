@@ -1,0 +1,319 @@
+{
+  "format": 1,
+  "status": "passed_selected_profile",
+  "final": {
+    "baseline": "0e986468da6b3ed3229246a24fc245460cd48bcb",
+    "profile": "macOS arm64, Rust 1.98.1; unoptimized; debug=0; serial fixtures",
+    "source_sha256": {
+      "crates/cellar/tests/native_node.rs": "00e3a1d4aa819c1545a63dd82e5de102cb83d84d474c0dcda5b05bb55b6c6866",
+      "crates/cellar/tests/support/node_filesystem_faults.rs": "8fda9f3f73033548b9f44a09a9aafb77aa8e9fc434fcde58c0020c10d3830c95",
+      "crates/cellar/tests/support/filesystem_socket_fault.rs": "d10620576802f6f5d463691eb12361d0cd7d16743265dd938fbcd6b3e8f43126"
+    },
+    "checks": [
+      {
+        "name": "native-filesystem",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "filesystem",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 47.738455791957676,
+        "log_sha256": "7ddd4444aed24a6e408bfd0349b3dff07a712e52acf9d8195b7046c11107efcb"
+      },
+      {
+        "name": "supplied-list",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+          "--exact",
+          "--ignored",
+          "--list"
+        ],
+        "exit": 0,
+        "seconds": 0.013668166007846594,
+        "log_sha256": "20482c321a09de77aba5dd2112a1f6b9de6d2e6f86cbf1c39ff903d278cbdc72"
+      },
+      {
+        "name": "sockets-list",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--list"
+        ],
+        "exit": 0,
+        "seconds": 0.012302416958846152,
+        "log_sha256": "24dba87e7e6313e5b6b721ae31110e9f36d48d2db98ed170d983d13cc9d3bd0c"
+      },
+      {
+        "name": "stalls-list",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--list"
+        ],
+        "exit": 0,
+        "seconds": 0.012326415977440774,
+        "log_sha256": "6819a6355c72a51b7f04c9f408a9f9790dbf39c4c346ed36e09f743b0d640e4a"
+      },
+      {
+        "name": "supplied",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 15.080095542012714,
+        "log_sha256": "66576e992d0568c5b603043a0369543bcadd9f1b9b95f62986281502f9e52bc5"
+      },
+      {
+        "name": "sockets",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 16.031415749923326,
+        "log_sha256": "af0c9dcb89893d3ba5b98f5e8e688f56b48d41b3dcfcdfa5e51bcb3292672644"
+      },
+      {
+        "name": "stalls",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-final/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 45.898025666945614,
+        "log_sha256": "ffa13edc3fb20941af51d101b0f2862db0c76ddb481c4261d3730cfd312e61c8"
+      }
+    ],
+    "executable_sha256": "33f8a6e00c102aa55eb85f912769e83965fa8c384281fe5a94df37f106077217",
+    "store": {
+      "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+      "cpus": 2,
+      "memory_bytes": 2147483648
+    },
+    "supplied_report_sha256": "1a5c4b8234456d7dea1bdd20311c5acf80f24bb5bb268b8161a9f74f63c34348",
+    "sockets_report_sha256": "5bd1f6c770cc89eb317b19a931d438a4f1b9e02d6fa096119eb15a179a0cd77a",
+    "stalls_report_sha256": "db3d4cfdc8e4849fe3a09d6d63efdc44dee10b6496da076b82697fc4b4a55a3b",
+    "complete": true,
+    "store_removed": true
+  },
+  "stall_report": {
+    "acknowledged": [
+      {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      }
+    ],
+    "ambiguous_response": {
+      "http_status": 500,
+      "outcome": "unknown"
+    },
+    "application_constructors": 3,
+    "backend": "s3",
+    "caller_executor_preserved": true,
+    "failed_recovery_elapsed_ms": 30112,
+    "failed_recovery_http_status": 500,
+    "failed_recovery_observation_timeout_ms": 60000,
+    "format": 1,
+    "lease_stalled_connections": 8,
+    "mode": "bucket proof; TCP forwarding stalls",
+    "owner_fenced": true,
+    "predecessor_local_data_removed": true,
+    "publication_stalled_connections": 1,
+    "recovered_after_outage": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "version": "4"
+    },
+    "recovered_after_takeover": {
+      "generation": 3,
+      "inode": "2",
+      "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+      "version": "6"
+    },
+    "recovery_stalled_connections": 2,
+    "remaining_nodes_joined": true,
+    "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+    "socket_proxies": [
+      {
+        "accepted_connections": 8,
+        "cancelled_connections": 8,
+        "connection_io_errors": 0,
+        "denied_connections": 0,
+        "forwarded_connections": 7,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "lease",
+        "stalled_connections": 8
+      },
+      {
+        "accepted_connections": 1,
+        "cancelled_connections": 1,
+        "connection_io_errors": 0,
+        "denied_connections": 0,
+        "forwarded_connections": 1,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "publication",
+        "stalled_connections": 1
+      },
+      {
+        "accepted_connections": 2,
+        "cancelled_connections": 2,
+        "connection_io_errors": 0,
+        "denied_connections": 0,
+        "forwarded_connections": 0,
+        "joined": true,
+        "remaining_connections": 0,
+        "role": "recovery",
+        "stalled_connections": 2
+      }
+    ],
+    "stale_descriptor_checks": 1,
+    "successor_local_data_removed": true,
+    "unacknowledged_local_commit": {
+      "generation": 2,
+      "inode": "2",
+      "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+      "version": "6"
+    }
+  },
+  "initial_failures": [
+    {
+      "campaign": "socket-stalls",
+      "source_sha256": {
+        "crates/cellar/tests/native_node.rs": "00e3a1d4aa819c1545a63dd82e5de102cb83d84d474c0dcda5b05bb55b6c6866",
+        "crates/cellar/tests/support/node_filesystem_faults.rs": "3c1872b5f8d18c9b957cbe5607a8ff51e993ace2e346494314da9bd7bdd303f1",
+        "crates/cellar/tests/support/filesystem_socket_fault.rs": "d10620576802f6f5d463691eb12361d0cd7d16743265dd938fbcd6b3e8f43126"
+      },
+      "executable_sha256": "8c1fca0da15645d245816bdaf60b1b3781b1dd8b4c46749276a6e574c507b09a",
+      "case": {
+        "name": "stalls",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 24.32816887507215,
+        "log_sha256": "b32a2985f4488bd28fe334f129b9e5b84bf1a1bc8cf9da944aa8ebf901c984a2"
+      },
+      "store_removed": true,
+      "observation": "15-second failed-recovery HTTP observer expired before the provider read/retry failure"
+    },
+    {
+      "campaign": "socket-stalls-repro",
+      "source_sha256": {
+        "crates/cellar/tests/native_node.rs": "00e3a1d4aa819c1545a63dd82e5de102cb83d84d474c0dcda5b05bb55b6c6866",
+        "crates/cellar/tests/support/node_filesystem_faults.rs": "b468482a71013d3dbdf46962e458fe52b80001aea18a31d0a9ad403383a368be",
+        "crates/cellar/tests/support/filesystem_socket_fault.rs": "d10620576802f6f5d463691eb12361d0cd7d16743265dd938fbcd6b3e8f43126"
+      },
+      "executable_sha256": "4319b4156f5352467c677d5e6f28d7fee12cd9f581158c247687d41fc8981fcc",
+      "case": {
+        "name": "stalls",
+        "command": [
+          "/Volumes/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-ci/qualification/socket-stalls-repro/native-node-executable",
+          "node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery",
+          "--exact",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 23.304353291983716,
+        "log_sha256": "79f0024346a068ae82eb71959d9edbb18208345c9f1bc9e7fe0b3ca6afbcdf28"
+      },
+      "store_removed": true,
+      "observation": "15-second failed-recovery HTTP observer expired before the provider read/retry failure",
+      "shutdown_observation": {
+        "ingress_drained": true,
+        "application_work_drained": false,
+        "pending_application_events": 0,
+        "cells_drained": false,
+        "pending_dispatches": 0,
+        "log_quiesced": true,
+        "local_durability_closed": true,
+        "clean_reload_prepared": false,
+        "drain_timed_out": true,
+        "deadline_elapsed": false,
+        "application_constructors": 1,
+        "stalled_recovery_connections": 2
+      }
+    }
+  ],
+  "quality_checks": [
+    {
+      "name": "clippy",
+      "exit": 0,
+      "log_sha256": "b5bbdb1b333f7297fd1066323b361fe643c065ad20de38c1325d8cc22c0e92be"
+    },
+    {
+      "name": "format-check",
+      "exit": 0,
+      "log_sha256": "49c4bafaa4be6ad5a57974004da5b79c8414b96042aa3670a8156aa502c4a18b"
+    },
+    {
+      "name": "layout-check",
+      "exit": 0,
+      "log_sha256": "0e44391c696c788425cb58707c996d52d702564b341688531464a00e13fa3189"
+    },
+    {
+      "name": "native-dependencies",
+      "exit": 0,
+      "log_sha256": "d0c8028b2aefb4f734bf06e5c4e227d903485d207b07c2122a7230d602f4aba5"
+    },
+    {
+      "name": "workflow-check",
+      "exit": 0,
+      "log_sha256": "67a91ec893684cce110a7ae376b0c36c0034faddce4e2823324021f909630f13"
+    },
+    {
+      "name": "docs-check",
+      "exit": 0,
+      "log_sha256": "b2e215b315e148526da38a9d492108fe1444cfea8e7e0292abef7cf703f98060"
+    },
+    {
+      "name": "changed-docs-check",
+      "exit": 0,
+      "log_sha256": "8f54570126246c48ac6ea1b16cfcfdcbcf3bed46f4379b7b733fd3e91020c352"
+    }
+  ],
+  "workflow_sha256": "7069fe9eeee8a74fab98cf2bf204c5cfe61d3a1c16b85a6584d5f0b6193b3801",
+  "limits": [
+    "Local macOS development executable and private RustFS; no optimized or remote-target claim.",
+    "Stalls retain accepted TCP sockets but are not a kernel packet-loss or peer-partition simulation.",
+    "Failed-recovery observer is 60 seconds for this case; other observers remain 15 seconds. Runtime/store budgets are unchanged.",
+    "Early shutdown during active stalled recovery reported incomplete drain in the reproduction and is not qualified as graceful by the final passing case.",
+    "Remaining operation/error/resource, credential/disk, sustained-load and deployment SLO/RPO/RTO gates remain open."
+  ]
+}

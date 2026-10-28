@@ -85,10 +85,29 @@ fn encode(value: &Value, limit: usize) -> anyhow::Result<String> {
 pub use cellar_container::Validation;
 
 pub fn envelope(name: &str, error: &Error) -> Value {
+    if let Some(failure) = error.downcast_ref::<cellar::sdk::filesystem::Error>() {
+        use cellar::sdk::filesystem::Outcome;
+        let outcome = match failure.outcome {
+            Outcome::NotApplied => "not_committed",
+            Outcome::LocallyCommitted => "locally_committed",
+            Outcome::Unknown => "unknown",
+        };
+        return json!({"ok":false,"error":failure.code,"code":failure.code,"errno":failure.errno,"operation":name,"outcome":outcome,"completed_bytes":failure.completed_bytes});
+    }
     if let Some(failure) = error.downcast_ref::<cellar::sdk::rpc::Failure>() {
         // This is the outcome of this child SDK operation. An enclosing RPC
         // handler must still sanitize any escaping failure to unknown effects.
         return json!({"ok":false,"error":failure.code(),"code":failure.code(),"outcome":failure.outcome()});
+    }
+    if let Some(validation) = error.downcast_ref::<crate::filesystem::Validation>() {
+        if name.starts_with("filesystem.") || name == "storage.apply" {
+            return json!({"ok":false,"error":"ValidationError","code":"ValidationError",
+                "errno":validation.0,"operation":name,"outcome":"not_committed","completed_bytes":0});
+        }
+        // A wrapping generic validation marker cannot turn a child's refusal
+        // into evidence about an enclosing invocation's earlier effects.
+        let (code, outcome) = submitted(name);
+        return json!({"ok":false,"error":code,"code":code,"outcome":outcome});
     }
     if name == "cell.call"
         && error.is::<crate::rpc_control::Capacity>()
@@ -160,6 +179,33 @@ fn submitted(name: &str) -> (&'static str, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filesystem_preflight_errors_preserve_causes_scope_and_uncertainty() {
+        use crate::filesystem::{integer, Validation};
+        use cellar::sdk::filesystem::{Errno, Error as FilesystemError};
+        let overflow =
+            integer("18446744073709551616").expect_err("overflow must refuse before an SDK effect");
+        assert!(overflow.is::<std::num::ParseIntError>());
+        assert_eq!(
+            envelope("filesystem.pwrite", &overflow),
+            json!({"ok":false,"error":"ValidationError","code":"ValidationError",
+                "errno":"EOVERFLOW","operation":"filesystem.pwrite",
+                "outcome":"not_committed","completed_bytes":0})
+        );
+        let syntax = integer("+1").expect_err("unsigned syntax is strict");
+        assert_eq!(envelope("storage.apply", &syntax)["errno"], "EINVAL");
+        assert_eq!(envelope("cell.fetch", &overflow)["outcome"], "unknown");
+        let propagated = overflow.context(crate::failure::Validation);
+        assert_eq!(envelope("cell.fetch", &propagated)["outcome"], "unknown");
+        let native = FilesystemError::from(anyhow::anyhow!("private storage failure"));
+        let wrapped = anyhow::Error::new(native).context(Validation(Errno::EINVAL));
+        let reply = envelope("filesystem.write", &wrapped);
+        assert_eq!(reply["code"], "Storage");
+        assert_eq!(reply["errno"], "EIO");
+        assert_eq!(reply["outcome"], "unknown");
+        assert!(!reply.to_string().contains("private storage failure"));
+    }
 
     #[test]
     fn container_validation_preserves_proven_refusal() {

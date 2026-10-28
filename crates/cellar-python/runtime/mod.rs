@@ -53,6 +53,7 @@ const FACADE: &str = include_str!("../python/cellar.py");
 const RUNNER: &str = include_str!("../python/runner.py");
 const RPC: &str = include_str!("../python/rpc.py");
 const RPC_SHAPES: &str = include_str!("../python/cellar_rpc_shapes.py");
+const FILESYSTEM_TOOLS: &str = include_str!("../python/cellar_filesystem_tools.py");
 
 /// Finite bridge and body budgets, captured before starting the node.
 #[derive(Clone, Debug)]
@@ -543,6 +544,10 @@ impl PythonRuntime {
     {
         options.validate()?;
         source.validate()?;
+        cellar_guest::filesystem::validate_configuration(
+            !source.filesystems.is_empty(),
+            options.max_value_bytes,
+        )?;
         source.validate_initial_reads(options.max_batch_operations)?;
         source.rpc.validate_bridge(options.max_value_bytes)?;
         initialization::ensure_main_thread()?;
@@ -614,6 +619,13 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let filesystem_tools = PyModule::from_code(
+                py,
+                &CString::new(FILESYSTEM_TOOLS)?,
+                c"cellar_filesystem_tools.py",
+                c"cellar_filesystem_tools",
+            )?;
+            modules.set_item("cellar_filesystem_tools", &filesystem_tools)?;
             let rpc =
                 PyModule::from_code(py, &CString::new(RPC)?, c"cellar_rpc.py", c"cellar_rpc")?;
             modules.set_item("cellar_rpc", &rpc)?;
