@@ -10,7 +10,7 @@ use futures_util::TryStreamExt as _;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::sync::atomic::Ordering;
 
-fn verifier(path: &Path) -> Result<(ArchiveVerifier, GenerationStore)> {
+pub(super) fn verifier(path: &Path) -> Result<(ArchiveVerifier, GenerationStore)> {
     let images = GenerationStore::open(
         path.into(),
         Arc::new(DirectFileSystem),
@@ -22,7 +22,10 @@ fn verifier(path: &Path) -> Result<(ArchiveVerifier, GenerationStore)> {
     ))
 }
 
-fn cut(host: &Host, dependencies: Vec<ArchiveDependency>) -> Result<CommittedArchiveCut> {
+pub(super) fn cut(
+    host: &Host,
+    dependencies: Vec<ArchiveDependency>,
+) -> Result<CommittedArchiveCut> {
     Ok(CommittedArchiveCut::capture_root(
         &host.log.group(&scope())?,
         host.applier.current().context("source image")?,
@@ -32,7 +35,12 @@ fn cut(host: &Host, dependencies: Vec<ArchiveDependency>) -> Result<CommittedArc
     )?)
 }
 
-fn change(before: &[u8], after: &[u8], txid: u64, history: [u8; 32]) -> Result<CellUpdate> {
+pub(super) fn change(
+    before: &[u8],
+    after: &[u8],
+    txid: u64,
+    history: [u8; 32],
+) -> Result<CellUpdate> {
     let mut update = super::update(before, after, txid)?;
     let state = |bytes: &[u8], at| -> Result<LtxImage> {
         image_position(&ExtentManifest::new(

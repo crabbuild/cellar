@@ -243,6 +243,15 @@ select the same public extent path for complete-local recovery campaigns.
 Partial hydration remains implementation work. Existing full-size materialized
 campaigns do not qualify root-stream latency or change either recovery-time target.
 
+Root publication verifies the complete selected previous root and Blob closure
+before uploading replacement material. Within that head-CAS attempt, unchanged
+extent identities can reuse those fresh confirmations. Newly introduced objects
+still require exact PUT read-back. A private receipt binds the confirmed snapshot
+to its actual source inventory; final local sealing, metadata persistence and
+exact-head reconciliation remain required. A retry fetches its selected history
+again. Independent recovery and standalone snapshot storage never substitute an
+older confirmation or local cache for a remote read.
+
 The native root-archive target also exercises overlap at the actual destination
 verification boundary, failed-window draining and immutable remote corruption.
 Run it through the same private qualification package without compiling unrelated

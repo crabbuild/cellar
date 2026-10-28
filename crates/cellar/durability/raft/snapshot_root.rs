@@ -125,6 +125,19 @@ impl RootSnapshotSource {
         &self.manifest
     }
 
+    /// Reuse the sealed source proof only in its actual inventory. This is a
+    /// metadata operation; callers must establish remote confirmation separately.
+    pub(in crate::raft) fn local_image(
+        &self,
+        store: &NodeExtentStore,
+    ) -> Result<Arc<SealedImageRoot>, SnapshotError> {
+        self.validate_owner(&self.group)?;
+        if !store.owns_image(&self.image) {
+            return Err(SnapshotError::Invalid("root source inventory owner"));
+        }
+        Ok(self.image.clone())
+    }
+
     /// A cached source may not be rebound to another open engine instance.
     /// Passing this check does not create a live native source grant.
     pub fn validate_owner(&self, group: &GroupLog) -> Result<(), SnapshotError> {
@@ -334,6 +347,10 @@ impl RootSnapshotSet {
 
     pub fn extents(&self) -> impl Iterator<Item = ExtentId> + '_ {
         self.dependencies.iter().copied()
+    }
+
+    pub(in crate::raft) fn contains_extent(&self, id: ExtentId) -> bool {
+        self.dependencies.contains(&id)
     }
 
     /// Protect the declared closure from node GC while individual imports and

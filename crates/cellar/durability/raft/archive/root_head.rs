@@ -225,6 +225,14 @@ impl CellArchive {
         let root = self
             .load_root_snapshot_at(&metadata.head.snapshot, store)
             .await?;
+        self.assemble_root_material(metadata, root).await
+    }
+
+    async fn assemble_root_material(
+        &self,
+        metadata: RootMetadata,
+        root: RootArchiveSnapshot,
+    ) -> Result<RootRecoverySet, ArchiveError> {
         if root.snapshot() != metadata.snapshot.snapshot() {
             return Err(ArchiveError::Corrupt("root head snapshot binding"));
         }
@@ -259,6 +267,7 @@ impl CellArchive {
         tracing::info!(event = "raft_archive_phase", phase = "root_publish_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image_bytes);
         for _ in 0..8 {
             let previous = self.load_head_metadata().await?;
+            let mut previous_root = None;
             let mode = previous
                 .as_ref()
                 .map_or(PutMode::Create, |(_, _, version)| {
@@ -284,10 +293,16 @@ impl CellArchive {
                 // Never hide corrupt selected history by uploading replacement
                 // objects from the current source before checking the old set.
                 tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_start", cell = %self.scope.cell, index = old.index.get());
-                drop(self.load_root_material(*metadata, &cut.store).await?);
+                // Keep only the verified root for this CAS attempt. Drop the
+                // previous Blob bodies before assembling the new dependency
+                // set, preserving the existing bounded material admission.
+                previous_root = Some(self.load_root_material(*metadata, &cut.store).await?.root);
                 tracing::info!(event = "raft_archive_phase", phase = "root_previous_verify_done", cell = %self.scope.cell, index = old.index.get());
             }
-            let snapshot = self.store_root_snapshot(cut.source.clone()).await?;
+            let confirmed = self
+                .confirm_root_snapshot(cut.source.clone(), previous_root.as_ref())
+                .await?;
+            let snapshot = confirmed.reference().clone();
             let mut dependencies = BTreeMap::new();
             for dependency in &cut.dependencies {
                 let object = self
@@ -323,7 +338,10 @@ impl CellArchive {
                 )
                 .await?;
             let metadata = self.decode_root_metadata(&object, &bytes).await?;
-            let set = self.load_root_material(metadata, &cut.store).await?;
+            let root = confirmed
+                .bind(&metadata.head.snapshot, &cut.store, &self.host)
+                .await?;
+            let set = self.assemble_root_material(metadata, root).await?;
             let desired = manifest::encode(
                 2,
                 &Head {

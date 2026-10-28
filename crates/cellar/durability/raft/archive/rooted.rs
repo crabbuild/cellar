@@ -76,6 +76,60 @@ impl RootArchiveSnapshot {
     }
 }
 
+/// Every remote object was checked in this publication attempt, either by
+/// its exact PUT read-back or by the freshly downloaded previous root. The
+/// source retains the independently sealed local bytes that those checks bind.
+/// This receipt supplies material only, never an archive head or native grant.
+pub(super) struct ConfirmedRootSnapshot {
+    reference: RootArchiveReference,
+    set: RootSnapshotSet,
+    source: Arc<RootSnapshotSource>,
+    _retention: Option<Arc<super::super::budget::Permit>>,
+}
+
+impl ConfirmedRootSnapshot {
+    pub fn reference(&self) -> &RootArchiveReference {
+        &self.reference
+    }
+
+    pub async fn bind(
+        self,
+        expected: &RootArchiveReference,
+        store: &NodeExtentStore,
+        host: &LtxHost,
+    ) -> Result<RootArchiveSnapshot, ArchiveError> {
+        if &self.reference != expected {
+            return Err(ArchiveError::Corrupt("confirmed root archive reference"));
+        }
+        let image = self.source.local_image(store).map_err(root_error)?;
+        if self.set.reference() != image.reference()
+            || self.set.marker() != &crate::raft::rooted::marker::encode(&image)
+        {
+            return Err(ArchiveError::Corrupt("confirmed root source binding"));
+        }
+        let target = store.clone();
+        host.run_blocking(move || {
+            // The producer's source protects all local objects while the
+            // inventory rechecks its metadata, geometry and persistence. Reuse
+            // avoids another remote download, not the destination seal.
+            let _source = self.source;
+            let _retention = self._retention;
+            let image = self
+                .set
+                .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
+                .map_err(root_error)?;
+            Ok(RootArchiveSnapshot {
+                set: self.set,
+                store: target,
+                image: Arc::new(image),
+                _retention,
+            })
+        })
+        .await
+        .map_err(ArchiveError::Worker)?
+    }
+}
+
 impl CellArchive {
     pub(super) async fn root_index(
         &self,
@@ -271,9 +325,24 @@ impl CellArchive {
         &self,
         source: Arc<RootSnapshotSource>,
     ) -> Result<RootArchiveReference, ArchiveError> {
+        Ok(self.confirm_root_snapshot(source, None).await?.reference)
+    }
+
+    /// Reuse only the previous root freshly verified inside the caller's
+    /// current head-CAS attempt. Standalone stores always pass None. A retained
+    /// reference, local filename or earlier publication is not this proof.
+    pub(super) async fn confirm_root_snapshot(
+        &self,
+        source: Arc<RootSnapshotSource>,
+        previous: Option<&RootArchiveSnapshot>,
+    ) -> Result<ConfirmedRootSnapshot, ArchiveError> {
         let (set, metadata) = self.encode_root_index(&source)?;
-        let extents: Vec<_> = set.extents().collect();
-        tracing::info!(event = "raft_archive_phase", phase = "root_upload_start", cell = %self.scope.cell, index = set.snapshot().get_metadata().index, image_bytes = set.marker().length, objects = extents.len());
+        let extents: Vec<_> = set
+            .extents()
+            .filter(|id| !previous.is_some_and(|base| base.set.contains_extent(*id)))
+            .collect();
+        let reused_objects = set.extents().count() - extents.len();
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_start", cell = %self.scope.cell, index = set.snapshot().get_metadata().index, image_bytes = set.marker().length, objects = extents.len(), reused_objects);
         let mut objects = extents.into_iter();
         let mut pending = FuturesOrdered::new();
         let mut failure = None;
@@ -326,7 +395,12 @@ impl CellArchive {
             )
             .await?;
         tracing::info!(event = "raft_archive_phase", phase = "root_upload_confirmed", cell = %self.scope.cell, index = set.snapshot().get_metadata().index);
-        Ok(RootArchiveReference(metadata))
+        Ok(ConfirmedRootSnapshot {
+            reference: RootArchiveReference(metadata),
+            set,
+            source,
+            _retention: self.read_retention.clone(),
+        })
     }
 
     /// Download only this exact reference, authenticate all declared objects,

@@ -1229,6 +1229,50 @@ are not a controlled speedup comparison. The latest passing 10 GB measurement
 remains the preceding `916e7ff5` trial; the pipelined source still needs fresh
 full-size peer/RustFS campaigns.
 
+Root publication now retains a private confirmation receipt instead of fetching
+its own complete root again after PUT read-back. The receipt binds the exact
+snapshot reference and sealed source image to its actual node inventory, then
+runs the ordinary local seal on the physical owner. Missing/corrupt local root
+metadata, geometry failures, quarantine and persistence failures remain refused;
+the receipt does not supply a native grant or publish an archive head.
+
+Before uploading a newer cut, publication still independently fetches and
+verifies the complete selected previous root and Blob closure. Only unchanged
+extent identities from that verification can be reused within the same CAS
+attempt. Previous Blob bodies are dropped before the new dependency set is
+assembled, and a CAS retry reloads the selected history. Standalone storage and
+independent recovery retain full remote reads. No wire format changes.
+
+The operation-count regressions initially fail: first publication of three
+extents performs three PUTs and six GETs, while changing one of those extents
+performs three PUTs and nine GETs. After reuse, the first publication performs
+three PUTs and three GETs; advancement performs one PUT and four GETs, including
+all three previous-history checks. All five focused native publication tests
+pass, including independent recovery, missing/corrupt selected data before any
+replacement upload, successful PUT without confirmation, and missing/corrupt
+local root metadata. This proves bounded work reduction, not a latency result;
+full-size RTO and the remaining M1/M2 gates still need qualification.
+
+The final formatted source passes 52 ordinary native cases (20 large-image
+and 32 root-image), with 15 physical/retained diagnostic cases ignored.
+All-feature production-library and all-feature/all-target qualification release
+Clippy pass with warnings denied. Format/layout (1,253 Rust files), native
+dependency and documentation guards pass. The intermediate format failure and
+test-only image-root encoding correction remain in the retained logs; final
+source inventories and tested executables match.
+
+To provision the next all-internal full-size drill, the preceding successful
+worker trees and object-store prefix are preserved in verified archives on the
+workspace volume, outside the checkout's Cargo target. All 7,188 decoded worker
+files match their source hashes/lengths under the original ownership locks;
+archive and metadata persistence precede directory retirement. The 2,405 object
+bodies match source identities/ETags, including 2,387 domain-separated extent
+identities, and their decoded archive hashes match. The exact inactive fixture
+prefix is retired only after that backup is durable and a fresh listing matches;
+restore instructions and the original evidence remain retained. Other prefixes
+and live data are untouched. This releases capacity for the unchanged 10 GB
+oracle and its existing disk-headroom guard.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775

@@ -47,6 +47,7 @@ pub struct Store {
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
     pub root_extent_reads: AtomicUsize,
+    pub root_extent_puts: AtomicUsize,
     pub root_extent_ready: AtomicUsize,
     pub hold_root_extents_after: AtomicUsize,
     pub fail_root_extent: AtomicUsize,
@@ -135,6 +136,9 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/root-extents/") {
+            self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
+        }
         if path.as_ref().contains("/snapshot-parts/") {
             self.snapshot_part_puts.fetch_add(1, Ordering::AcqRel);
         }

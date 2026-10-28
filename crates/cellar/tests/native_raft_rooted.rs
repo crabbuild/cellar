@@ -19,6 +19,8 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/raft_rooted_publication.rs"]
+mod publication;
 #[path = "support/raft_rooted_install.rs"]
 mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]
