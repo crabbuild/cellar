@@ -41,6 +41,7 @@ pub type WallClock = dyn Fn() -> i64 + Send + Sync;
 thread_local! {
     static SPAWNS: RefCell<Vec<Spawn>> = const { RefCell::new(Vec::new()) };
     static CURRENT_DOMAIN: RefCell<Option<Arc<ProductionDomain>>> = const { RefCell::new(None) };
+    static OWNED_TASK: std::cell::Cell<Option<tokio::task::Id>> = const { std::cell::Cell::new(None) };
 }
 
 struct ProductionDomain {
@@ -325,6 +326,24 @@ impl Drop for DomainScope {
     }
 }
 
+// Only a task submitted with Handle::spawn is known to allow a worker
+// handoff. A caller's LocalSet can report a multi-thread runtime while still
+// forbidding block_in_place. Keep the task identity, not just a thread flag,
+// so nested caller-owned tasks cannot inherit that permission.
+struct OwnedTaskScope(Option<tokio::task::Id>);
+
+impl OwnedTaskScope {
+    fn enter() -> Self {
+        Self(OWNED_TASK.replace(tokio::task::try_id()))
+    }
+}
+
+impl Drop for OwnedTaskScope {
+    fn drop(&mut self) {
+        OWNED_TASK.set(self.0);
+    }
+}
+
 // An executor can reject a blocking closure before its first instruction.
 // Its captures and registration must still be destroyed under their owner.
 struct ScopedBlocking<F> {
@@ -372,6 +391,7 @@ impl<F: Future> Future for ScopedFuture<F> {
             return Poll::Pending;
         }
         let _scope = DomainScope::enter(this.domain.clone());
+        let _task = this.registration.as_ref().map(|_| OwnedTaskScope::enter());
         this.future.as_mut().unwrap().as_mut().poll(context)
     }
 }
@@ -780,6 +800,30 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     current_domain().owner.blocking(operation)
+}
+
+/// Run a borrowed synchronous turn without monopolizing a Tokio worker.
+///
+/// The turn stays on this thread, inside its original domain and task lifetime.
+/// Tokio transfers the async worker to a replacement so independent timers,
+/// replies and lease renewals can progress during SQLite or application work.
+/// This does not detach work, make it cancellable, or extend its deadline.
+///
+/// Current-thread executors have no replacement worker; caller-owned futures
+/// may run inside a LocalSet that prohibits handoff. Preserve their inline
+/// contract. Concurrent timer progress requires a domain-owned task on a
+/// multi-thread executor (even with one async worker).
+pub(crate) fn blocking_region<T>(operation: impl FnOnce() -> T) -> T {
+    let owned_task = OWNED_TASK.get();
+    if owned_task.is_none() || owned_task != tokio::task::try_id() {
+        return operation();
+    }
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(operation)
+        }
+        _ => operation(),
+    }
 }
 
 pub fn block_on<F>(future: F) -> F::Output

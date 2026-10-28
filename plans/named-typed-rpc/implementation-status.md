@@ -34,6 +34,32 @@ Preserve existing durability evidence while addressing these gaps. Further
 recovery-fault variations follow demonstrated correctness risks; expanding the
 Counter fixture alone is not the highest-priority deliverable now.
 
+## Synchronous-turn timer starvation (2026-10-28; release open)
+
+The follow-up starts from `2e68fac2` after PR #151 merged. A real SQLite busy
+wait inside `Slot::turn` reproduces executor starvation with one async worker:
+the timer responsible for releasing the competing writer cannot run. The
+external writer's one-second fallback releases the lock and the regression
+fails. Domain-owned synchronous turns now hand Tokio's worker to a replacement
+while retaining the original turn, context and joined task. The same regression
+passes without changing any handler or lease timeout.
+
+A real fleet fixture shares one async worker between host and core. While an
+application turn blocks, the observed lease expiry advances by at least two
+unchanged 1,000 ms lifetimes. The application then completes, the next durable
+write succeeds, and handoff shutdown completes. A cancellation regression also
+proves domain shutdown waits for a physically running turn to return. A separate regression
+protects caller-owned `LocalSet` execution: runtime flavor alone is insufficient
+to decide whether Tokio permits handoff. Only a currently polled domain-owned
+task may hand off; current-thread and unowned caller turns remain inline.
+
+The preserved instrumented free-threaded executable passes 400 pre-fix contract
+replays: 100 with diagnostics, 100 without, 40 with four concurrent processes,
+and 160 with eight. Those successes do not explain the original first-write
+500. This controlled starvation fix must not be presented as its proven cause,
+or as closure of older storage-phase and V8/Node failures. Existing uncertain
+outcomes, proof requirements and all production budgets remain unchanged.
+
 ## Native wait phases and standalone admission (2026-10-28; release open)
 
 Merged `origin/main` at `ed42c8ed` into the active provider-policy branch. The

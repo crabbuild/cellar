@@ -34,6 +34,16 @@ Earlier hosted lease failures and V8/Node timing failures remain unexplained.
 The latest CI success does not establish their causes. Subsequent changes and
 integration with newer `main` need their own checks.
 
+The `2e68fac2` follow-up reproduces and fixes a separate synchronous-turn
+starvation mechanism: a real SQLite busy wait blocks the only async worker and
+prevents an independent timer from releasing the writer. Domain-owned turns
+now hand that worker back while preserving ownership and joined completion.
+A shared-executor fleet test observes lease progress across two unchanged
+one-second lifetimes during a blocked application turn. The preserved Python
+contract passes 400 pre-fix replays, including concurrent runs; its original
+first-write failure remains unexplained. See the
+[latest implementation evidence](implementation-status.md#synchronous-turn-timer-starvation-2026-10-28-release-open).
+
 ## Remaining work, in delivery order
 
 | Gate | What is delivered | Required closure evidence |
