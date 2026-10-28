@@ -523,7 +523,9 @@ async function wireProfile(fs, ctx, group) {
     refused++;
   };
   try {
-    if (group === "unsigned") {
+    if (group.startsWith("unsigned-")) {
+      const part = Number(group.slice("unsigned-".length));
+      check(Number.isInteger(part) && part >= 0 && part < 3);
       const calls = (value) => [
         [() => file.pread(1, value), "pread"],
         [() => file.pwrite(utf8("x"), value), "pwrite"],
@@ -547,7 +549,7 @@ async function wireProfile(fs, ctx, group) {
           "edit_file",
         ],
       ];
-      for (const value of [
+      const values = [
         "",
         "+1",
         "-1",
@@ -557,14 +559,15 @@ async function wireProfile(fs, ctx, group) {
         "１２",
         "1x",
         "18446744073709551616",
-      ])
+      ];
+      for (const value of values.slice(part * 3, part * 3 + 3))
         for (const [call, operation] of calls(value))
           await refusal(
             call,
             `filesystem.${operation}`,
             value === "18446744073709551616" ? "EOVERFLOW" : "EINVAL",
           );
-      check(refused === 81);
+      check(refused === 27);
     } else if (group === "signed") {
       for (const value of [
         "",

@@ -55,6 +55,89 @@ fn source(body: &str) -> Source {
 }
 
 #[test]
+fn filesystem_replies_preserve_unknown_outcomes_and_prefixes() -> Result<()> {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../cellar/tests/support/filesystem_reply_cases.json"
+    ))?;
+    let cases = fixture["cases"].as_array().unwrap();
+    let code = format!(
+        "{}\ntry {{ return await filesystemReplyProbe(ctx, {}); }} catch (error) {{ return {{probe_failure:error.message}}; }}",
+        include_str!("tests/support/filesystem-replies.js"),
+        fixture["cases"]
+    );
+    JavaScriptRuntime::run(
+        Options {
+            turn_timeout: Duration::from_secs(1),
+            ..Options::default()
+        },
+        source(&code),
+        |app| {
+            let runtime = &app.runtime;
+            let invocation = runtime.id()?;
+            let mut receive = start(runtime, invocation, Arc::new(AtomicBool::new(true)));
+            let setup = [
+                json!({"operation":"open","value":{"handle":"file"}}),
+                json!({"operation":"opendir","value":{"handle":"directory"}}),
+            ];
+            for reply in setup.iter().chain(
+                cases
+                    .iter()
+                    .flat_map(|case| case["replies"].as_array().unwrap()),
+            ) {
+                let next = event(&mut receive);
+                let Event::Operation { id, name, .. } = next else {
+                    if let Event::Complete {
+                        payload, failed, ..
+                    } = next
+                    {
+                        panic!(
+                            "filesystem reply probe completed before {}: {failed} {payload}",
+                            reply["operation"]
+                        );
+                    }
+                    panic!("filesystem reply probe did not submit its expected operation")
+                };
+                assert_eq!(
+                    name,
+                    format!("filesystem.{}", reply["operation"].as_str().unwrap())
+                );
+                let mut value = if let Some(template) = reply["template"].as_str() {
+                    fixture["templates"][template].clone()
+                } else {
+                    reply["value"].clone()
+                };
+                if let Some(patch) = reply["patch"].as_object() {
+                    for (key, field) in patch {
+                        value[key] = field.clone();
+                    }
+                }
+                let metadata = match reply["raw"].as_str() {
+                    Some(raw) => raw.to_owned(),
+                    None => reply
+                        .get("envelope")
+                        .cloned()
+                        .unwrap_or_else(|| json!({"ok":true,"value":value}))
+                        .to_string(),
+                };
+                runtime.reply(invocation, id, metadata)?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receive)
+            else {
+                panic!("filesystem reply failure submitted unexpected work")
+            };
+            assert!(!failed, "filesystem reply probe failed");
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&payload)?,
+                json!({"checked":cases.len()})
+            );
+            Ok(())
+        },
+    )
+}
+
+#[test]
 fn filesystem_helpers_preserve_preflight_failure_outcomes() -> Result<()> {
     let code = r#"
       const file = await ctx.fs.open('/note', {access:'read_write'});
@@ -107,7 +190,7 @@ fn filesystem_helpers_preserve_preflight_failure_outcomes() -> Result<()> {
                 runtime.reply(
                     id,
                     operation,
-                    json!({"ok":false,"code":"Overloaded",
+                    json!({"ok":false,"error":"Overloaded","code":"Overloaded",
                     "errno":"EIO","operation":"filesystem.capabilities", "outcome":outcome,
                     "completed_bytes":0})
                     .to_string(),

@@ -465,6 +465,20 @@ pre-effect refusals retain the outer operation and zero progress; preparation
 of a filesystem batch finishes before its transaction begins. Native backend
 and proof failures retain their own evidenced outcomes.
 
+Guest success acknowledgements are validated before exposing handles, metadata,
+bytes, cookies or counts. Native decimal reply fields are bounded to 20 ASCII
+characters, including a possible sign, before numeric conversion and must fit
+their signed/unsigned type. This does not shorten the public input grammar.
+Binary data must use canonical base64, with read lengths matching their counts.
+Transfer and directory-page results must fit the submitted bounds. A malformed
+reply reports `HostError`, `EIO`, the outer operation and `unknown`, retaining
+the decoding cause. The failed transfer contributes no *confirmed* bytes; it
+may have applied effects. Helpers retain earlier confirmed progress without
+downgrading an unknown final call. Valid native failures retain their original
+code, errno, outcome and progress. Malformed envelope decoding settles the
+Python waiter with an error rather than leaving it pending. None of these
+failures authorizes an automatic retry of a mutation.
+
 If `Context::fs()` cannot acquire a storage view, acquisition reports
 `NotApplied`: it has not entered the filesystem backend. This includes stateless
 and retired-context refusals. A retained filesystem or storage view rejected by

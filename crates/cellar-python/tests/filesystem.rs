@@ -22,10 +22,14 @@ fn main() -> Result<()> {
         include_str!("filesystem_budget.py").to_owned()
     } else {
         format!(
-            "FILESYSTEM_RESERVED_CASES = __import__('json').loads({})\n{}",
+            "FILESYSTEM_RESERVED_CASES = __import__('json').loads({})\nFILESYSTEM_REPLY_CASES = __import__('json').loads({})\n{}\n{}",
             serde_json::to_string(include_str!(
                 "../../cellar/tests/support/filesystem_reserved_paths.json"
             ))?,
+            serde_json::to_string(include_str!(
+                "../../cellar/tests/support/filesystem_reply_cases.json"
+            ))?,
+            include_str!("filesystem_replies.py"),
             include_str!("filesystem.py")
         )
     };
@@ -86,6 +90,15 @@ fn main() -> Result<()> {
                                     conformance::tools_recovered(&address).await
                                 } else {
                                     conformance::initial(&address, &cancellation).await?;
+                                    let reply =
+                                        reqwest::get(format!("{address}/one/reply-protocol"))
+                                            .await?;
+                                    let status = reply.status();
+                                    let body = reply.text().await?;
+                                    ensure!(
+                                        status.is_success() && body == "ok",
+                                        "filesystem reply protocol: {status} {body}"
+                                    );
                                     conformance::tools(&address).await
                                 }
                             }

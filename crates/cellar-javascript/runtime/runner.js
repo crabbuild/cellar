@@ -554,6 +554,7 @@
             const [metadata, replyBody] = await pending;
             if (invalidSignal) throw rpcFailure("InvalidArgument", "unknown");
             const result = parse(metadata);
+            if (name.startsWith("filesystem.")) fsEnvelope(result);
 
             if (!result.ok) {
               const error = rpcFailure(result.code, result.outcome);
@@ -574,7 +575,8 @@
             // Refusing it must not imply that the native mutation rolled back.
             try {
               return json(result.value);
-            } catch {
+            } catch (error) {
+              if (name.startsWith("filesystem.")) throw error;
               const read = [
                 "clock.now",
                 "workers.crypto.random",
@@ -859,7 +861,44 @@
 
     // These objects contain bridge calls, never native storage handles. Binding
     // lookup and effect execution remain in the original Rust invocation.
+    const fsEnvelope = (result) => {
+      if (
+        !result ||
+        typeof result !== "object" ||
+        isArray(result) ||
+        typeof result.ok !== "boolean" ||
+        (result.ok
+          ? !("value" in result)
+          : typeof result.error !== "string" ||
+            typeof result.code !== "string" ||
+            !result.code ||
+            !["not_committed", "locally_committed", "unknown"].includes(
+              result.outcome,
+            ) ||
+            (result.completed_bytes !== undefined &&
+              (!Number.isSafeInteger(result.completed_bytes) ||
+                result.completed_bytes < 0)) ||
+            (result.errno != null && typeof result.errno !== "string") ||
+            (result.operation != null && typeof result.operation !== "string"))
+      )
+        throw new ErrorClass("Invalid filesystem reply envelope");
+    };
     const fsProgress = (error, completed, operation, committed) => {
+      if (
+        !error ||
+        typeof error.code !== "string" ||
+        !["not_committed", "locally_committed", "unknown"].includes(
+          error.outcome,
+        ) ||
+        (error.completed_bytes !== undefined &&
+          (!Number.isSafeInteger(error.completed_bytes) ||
+            error.completed_bytes < 0))
+      ) {
+        const cause = error;
+        error = rpcFailure("HostError", "unknown");
+        error.errno = "EIO";
+        error.cause = cause;
+      }
       if (
         error.code === "ValidationError" &&
         error.outcome === "not_committed" &&
@@ -874,11 +913,165 @@
     };
     const fsCall = async (operation, prepare = () => ({})) => {
       try {
-        return await call(`filesystem.${operation}`, prepare());
+        const request = prepare();
+        const value = await call(`filesystem.${operation}`, request);
+        fsReply(operation, value, request);
+        return value;
       } catch (error) {
         // Caller-scope admission can fail before a native filesystem reply.
         throw fsProgress(error, 0, operation, false);
       }
+    };
+    // A corrupt acknowledgement can follow committed work. Validate before
+    // exposing values or using a count to advance a looping helper.
+    const fsReply = (operation, value, request) => {
+      const require = (valid) => {
+        if (!valid) throw new ErrorClass("Invalid filesystem reply");
+      };
+      const object = (value) =>
+        require(value !== null && typeof value === "object" && !isArray(value));
+      const integer = (value, maximum = Number.MAX_SAFE_INTEGER) =>
+        require(Number.isSafeInteger(value) && value >= 0 && value <= maximum);
+      const decimal = (value, signed = false) => {
+        require(
+          typeof value === "string" &&
+            value.length <= 20 &&
+            (signed ? /^-?[0-9]+$/ : /^[0-9]+$/).test(value),
+        );
+        const number = BigInt(value);
+        require(
+          number >= (signed ? -(1n << 63n) : 0n) &&
+            number <= (signed ? (1n << 63n) - 1n : (1n << 64n) - 1n),
+        );
+      };
+      const binary = (value) => {
+        require(typeof value === "string" && value.length % 4 === 0);
+        const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+        const body = value.slice(0, value.length - padding);
+        require(!/[^A-Za-z0-9+/]/.test(body));
+        require(
+          !padding ||
+            (body.length > 0 &&
+              (alphabet.indexOf(body.at(-1)) & (padding === 2 ? 15 : 3)) === 0),
+        );
+        return (value.length / 4) * 3 - padding;
+      };
+      const entry = (value) => {
+        object(value);
+        const length = binary(value.name_base64);
+        require(length > 0 && length <= 255);
+        decimal(value.inode);
+        require(value.kind === "File" || value.kind === "Directory");
+      };
+      if (["open", "creat", "openat", "opendir", "dup"].includes(operation)) {
+        object(value);
+        require(typeof value.handle === "string" && value.handle.length > 0);
+      } else if (["read", "pread", "read_file"].includes(operation)) {
+        object(value);
+        const count = binary(value.data_base64);
+        if (operation !== "read_file") {
+          integer(value.count, request.count);
+          require(count === value.count);
+        } else if (request.max_bytes !== null)
+          require(count <= request.max_bytes);
+      } else if (operation === "write" || operation === "pwrite") {
+        integer(value, binary(request.data_base64));
+      } else if (operation === "lseek") decimal(value);
+      else if (["stat", "lstat", "fstat", "fstatat"].includes(operation)) {
+        object(value);
+        for (const key of [
+          "inode",
+          "size",
+          "nlink",
+          "version",
+          "allocated_bytes",
+        ])
+          decimal(value[key]);
+        for (const key of ["atime_ns", "mtime_ns", "ctime_ns"])
+          decimal(value[key], true);
+        for (const key of ["mode", "uid", "gid"])
+          integer(value[key], 0xffffffff);
+        require(value.kind === "File" || value.kind === "Directory");
+      } else if (operation === "edit_file") {
+        object(value);
+        decimal(value.inode);
+        decimal(value.version);
+      } else if (operation === "readdir") {
+        if (value !== null) entry(value);
+      } else if (operation === "read_page" || operation === "read_dir") {
+        const values =
+          operation === "read_page" ? value : (object(value), value.entries);
+        require(isArray(values) && values.length <= request.limit);
+        for (const item of values) entry(item);
+        if (operation === "read_dir" && value.next !== null) {
+          object(value.next);
+          require(typeof value.next.scope === "string");
+          decimal(value.next.inode);
+          decimal(value.next.position);
+        }
+      } else if (operation === "telldir") require(binary(value) === 16);
+      else if (operation === "collect_garbage") integer(value);
+      else if (operation === "statvfs") {
+        object(value);
+        for (const key of [
+          "logical_bytes",
+          "allocated_bytes",
+          "inodes",
+          "available_logical_bytes",
+          "available_allocated_bytes",
+          "available_inodes",
+        ])
+          decimal(value[key]);
+        integer(value.chunk_bytes);
+        require(value.chunk_bytes > 0);
+      } else if (operation === "capabilities") {
+        object(value);
+        object(value.limits);
+        object(value.transport);
+        for (const key of ["logical_uid", "logical_gid", "creation_mask"])
+          integer(value[key], 0xffffffff);
+        for (const key of [
+          "read_only",
+          "regular_files",
+          "directories",
+          "positional_io",
+          "directory_relative",
+          "transactions",
+          "symlinks",
+          "hard_links",
+          "advisory_locks",
+          "atime",
+        ])
+          require(typeof value[key] === "boolean");
+        for (const key of [
+          "max_file_bytes",
+          "max_logical_bytes",
+          "max_allocated_bytes",
+          "max_inodes",
+        ])
+          decimal(value.limits[key]);
+        for (const key of [
+          "max_transfer_bytes",
+          "max_file_helper_bytes",
+          "max_handles",
+          "max_host_handles",
+          "max_path_bytes",
+          "max_path_depth",
+          "max_discarded_ranges",
+          "gc_batch_chunks",
+          "max_transaction_operations",
+          "max_transaction_bytes",
+          "max_directory_entries",
+          "max_namespace_directories",
+        ])
+          integer(value.limits[key], 0x7fffffff);
+        for (const key of [
+          "max_value_bytes",
+          "max_body_bytes",
+          "max_batch_operations",
+        ])
+          integer(value.transport[key]);
+      } else require(value === null);
     };
     const fsArgument = () => {
       const error = rpcFailure("ValidationError", "not_committed");

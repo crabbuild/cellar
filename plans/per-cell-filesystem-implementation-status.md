@@ -206,6 +206,7 @@ The final affected-feature matrix and fault/capacity gates remain open.
 | Directory-relative authority profile | All three native filesystem tests, all six Node/V8 filesystem tests and normal CPython mode passed | Eighteen relative/absolute cases refuse a still-live foreign native directory across openat/fstatat/mkdirat/unlinkat/renameat, including both rename parents; two native transactions roll back preceding file/business writes. Original owner metadata/usage remain unchanged before its background continuation. Each guest runtime also passes 54 cases across closed, prior-invocation and wrong-kind tokens, preserving exact errors, metadata/usage/cursors and source/victim bytes. Guest token tests have a different scope from concurrent native cross-cell tests |
 | Live cross-cell guest authority | Six combined Node/V8 filesystem tests and CPython 3.14.5 GIL/free-threaded normal, read-only and small-budget modes passed | Each normal runtime runs 45 refusals while the original owner invocation remains live: 27 retained file/directory/view calls return ContextMismatch and 18 foreign-token *at calls return EBADF. Public operation, not_committed and zero confirmed bytes are checked, with unchanged caller metadata/usage/cursor and owner metadata/usage/offset/cookie/bytes, including a pinned unlinked file. Python verifies actual GIL mode before and after the nested call. Dispatch refusals retain original exception type/cause, errno, outcome and confirmed progress; argument construction, cancellation and closed-domain matrices remain separate |
 | Guest deadline cleanup | Six Node/V8 filesystem cases and normal/read-only/small-budget modes under both CPython 3.14.5 ABIs passed | A native-future observer distinguishes the nested cell's cancellation from its HTTP caller's timeout. Each normal runtime checks 41 retained-wrapper/token refusals, four-slot capacity reuse, reclamation of a pinned 256 KiB unlinked file and removed directory, and file/business-state/receipt recovery. In-flight operation/proof cancellation and closed-domain cases remain separate |
+| Guest reply validation | Shared 181-case protocol profile passes in the Node factory, embedded V8 driver and both Python ABI SDK runs; all 85 JavaScript library and six filesystem cases pass | 129 malformed replies, three valid native failures and 49 successful controls cover reply shapes, bounded decimal fields, binary/counter consistency, page bounds, unit acknowledgements and confirmed helper prefixes. Python corrupt-envelope decoding settles its waiter. Protocol faults do not prove real commit/durability after a production reply loss |
 | Guest argument conversion | All six Node/V8 filesystem cases and normal/read-only/small-budget modes under both Python 3.14.5 ABIs passed | 57 JavaScript and 51 Python refusals check ValidationError/EINVAL, outer operation, not_committed and zero progress, preserving metadata, usage, offsets, cookies and bytes. JavaScript returns rejected promises even for preparation failures. A detached-view regression reproduced successful write_file truncation before the fix; seven detached-input refusals now preserve state, while valid empty writes succeed. Python retains released/noncontiguous-buffer causes through write_all and accepts valid bytearray/memoryview writes. Native wire/decimal/option errors remain separate audit cases |
 | Guest wire validation | All six Node/V8 filesystem cases, 26 guest units and both Python 3.14.5 ABI SDK-mode sets passed | Each normal runtime checks 158 refusals: 81 unsigned-decimal, 30 signed-decimal, 26 option/shape/helper and 21 batch cases. Invalid access previously returned Ambiguous/unknown in a real Node reproduction. Access and seek origins now decode as enums; pre-effect validation reports EINVAL or EOVERFLOW with outer operation and zero progress. Strict batch parsing rejects plus-prefixed identities as well as malformed sizes/data before any file/business effect. Samples preserve metadata, usage, offsets, cookies and bytes. The unit retains typed parse causes, preserves native unknown outcomes and refuses to use a filesystem marker as an enclosing fetch's effect proof |
 | Guest looping-helper preflight and progress | Targeted Node/CPython red reproductions; all six Node/V8 tests, V8 protocol case and CPython normal/read-only/small-budget modes passed after the fix | Retired-context and helper-bound failures report read_exact/write_all with zero bytes and preserve code/errno/outcome. V8 protocol replies and CPython facade injection preserve not_committed/unknown without byte dispatch. Real budget profiles check 4096 consumed bytes/Unknown on EOF, an unchanged observed file version, a 1024-byte locally committed prefix before EFBIG, checked original head bytes and Python inode/version/head/tail after local host restart. Protocol injection is distinct from real overload/fleet fault qualification |
@@ -377,6 +378,60 @@ Cancellation during in-flight byte I/O or durability proof, closed execution
 domains, takeover, overload, final captured agents and the remaining fault/load
 matrix retain their open gates. Completed-operation cancellation evidence does
 not establish rollback or a known outcome for interrupted effects.
+
+### Guest reply validation checkpoint
+
+The [reply-validation profile](per-cell-filesystem-conformance.md#guest-reply-validation-profile)
+adds 181 controlled cases across Node, embedded V8 and both Python ABIs.
+The parent facade accepted a write acknowledgement larger than the supplied
+buffer. Malformed Python stat metadata raised an untyped ValueError, and corrupt
+JSON raised from `Context._reply` while leaving the SDK future pending. These
+reproductions and their original source hashes are retained in the task-local
+`.cellar/filesystem-reply-pr144-artifacts/` directory.
+
+The facades now validate handles, metadata, byte/count consistency, page bounds
+and acknowledgements before returning them. Native integer reply fields are
+bounded to 20 ASCII characters before conversion; public input grammar is
+unchanged. Malformed replies report
+HostError/EIO, the outer operation, unknown and only confirmed prior progress,
+with their decoder cause retained. The helper cases keep a two-byte prefix
+without downgrading the uncertain final call. Valid native errors retain their
+code, errno and outcome, including Python exception type. Python settles invalid
+envelopes as failures instead of stranding the waiter. Valid extra metadata
+fields do not escape as dataclass or integer-conversion exceptions.
+
+All 85 JavaScript library tests, six Node/V8 filesystem cases, 140 JavaScript
+tooling tests and strict SDK declarations pass. Both CPython 3.14.5 ABIs pass
+normal, read-only and small-budget modes, with the protocol profile driven by
+the normal real-host fixture. Separate executables and linkage records preserve
+the ABI identities.
+Strict five-crate all-target Clippy and formatting/layout for 1,342 Rust files
+pass. JavaScript formatting checks 118 sources; documentation and dependency
+checks pass, including 118 filesystem-plan links and the 482-package native
+graph without a JavaScript engine.
+
+| Executable | SHA-256 |
+| --- | --- |
+| Combined Node/V8 filesystem tests | `aa78ed5f4bb85e3943c091db3f3703dcdb526d2a44bc393ade7ba2e65441318f` |
+| CPython 3.14.5 GIL filesystem tests | `f5254def30488534274e06d1f1cc94c3113790fabbb8a73aba96f7574b760a66` |
+| CPython 3.14.5 free-threaded filesystem tests | `c06a9f2e5a4cf4a45c1901685761517d0d281c5615a7dd204dcce3ed7d20d410` |
+
+The old single unsigned-validation invocation made more than 648 bridge calls
+including its state assertions. Full SDK-suite runs exceeded its unchanged
+two-second handler budget on both parent `f892107c` and reply-validation
+executables; the same new Node case passed alone. A Node-only ordering probe
+reproduced the timeout without V8. These observations do not establish a sole
+cause in the new decoder or a V8 cleanup leak.
+The conformance fixture now runs the same 81 unsigned refusals in three groups
+of 27, retaining every state assertion; all 158 wire refusals execute across six
+invocations. The full suite passes with that bounded workload. Deadlines and
+leases are unchanged, and the dense-invocation observations remain part of the
+open performance gate. A debug-only loader-hook attempt failed before reaching
+the unsigned target and is excluded from qualification.
+
+Controlled reply faults do not establish commit or durability after actual
+transport loss. In-flight cancellation/proof failures, closed domains, external
+stores/peers, sustained load and final captured packages retain their open gates.
 
 ### Captured Python ABI checkpoints
 
@@ -583,6 +638,9 @@ independent of these primitive release priorities.
    checkpoint cases have the explicit subcase mappings above. Do not infer full
    group completion from those mappings.
    Facade conversion and wire parsing now have the selected profiles above;
+   post-dispatch reply shape/progress failures have the controlled protocol
+   profile and real-host compatibility runs above. Actual lost replies retain
+   their transport/fleet qualification gate;
    remaining combinations, precedence, lifetimes and resource cases stay open.
 2. Finish final captured-runtime/package qualification across the supported ABI
    matrix. Vercel/Pi/Python tool parity and cold recovery now have local evidence;

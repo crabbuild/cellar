@@ -178,7 +178,7 @@ has the separate profiles below; client-side refusal alone does not prove it.
 
 ## Guest wire-validation profiles
 
-`wireProfile` / `wire_profile` splits the following checks into four invocation
+`wireProfile` / `wire_profile` splits the following checks into six invocation
 groups so each retains the fixture's normal handler budget:
 
 | Group | Cases | Selected assertions |
@@ -187,6 +187,14 @@ groups so each retains the fixture's normal handler budget:
 | Signed | 30 | Current/end seeks and timestamps reject eight malformed forms and both i64 overflow boundaries |
 | Options | 26 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN |
 | Batch | 21 | Strict unsigned checks/edits/truncation, base64/path decoding and inconsistent checks refuse before any file or business put |
+
+Unsigned cases run as three groups of 27. Every one of the original 81
+refusals retains its metadata/usage/offset/cookie/byte comparison. The former
+single unsigned invocation made more than 648 bridge calls including assertions
+and exceeded the unchanged two-second handler budget in full Node-suite runs
+on both the parent and reply-validation sources. The status ledger retains that
+dense-invocation observation; this conformance grouping is not a throughput
+qualification or a longer runtime allowance.
 
 All 158 cases check ValidationError, symbolic errno, outer operation,
 not_committed and zero progress, plus unchanged metadata, usage, offsets,
@@ -198,6 +206,39 @@ marker does not establish the effect outcome of an enclosing cell fetch.
 
 These selected cases do not complete every option/precedence combination or
 post-dispatch result, cancellation, domain and fault profile.
+
+## Guest reply-validation profile
+
+The shared [reply inventory](../crates/cellar/tests/support/filesystem_reply_cases.json)
+contains 181 cases: 132 failures and 49 valid controls. The failures include
+three valid native error envelopes whose classifications must be preserved.
+The [Node factory test](../tools/javascript/filesystem-replies.test.mjs),
+[embedded V8 driver](../crates/cellar-javascript/runtime_tests.rs) and
+[Python protocol profile](../crates/cellar-python/tests/filesystem_replies.py)
+drive the public facades with controlled host replies. Node and V8 share the
+[public-call probe](../crates/cellar-javascript/tests/support/filesystem-replies.js).
+Python also exercises `Context._reply` settlement, including unparseable JSON.
+
+| Reply family | Selected audit IDs | Assertions |
+| --- | --- | --- |
+| Handles and metadata | O03–O05, O11, O14, O18–O19, O27, O33, O35, O37–O38, O45 | Invalid/missing handle fields, decimal syntax/ranges, kinds, modes, identity and capability shapes report structured uncertainty; valid extreme decimal values and extra metadata fields remain usable |
+| Bytes and progress | O06–O10, O42, O47–O48 | Canonical base64, counts and request bounds are checked before returning bytes or advancing a helper; a later malformed reply retains the earlier two-byte confirmed prefix |
+| Directories and reclamation | O28–O32, O40–O41, O46, O49–O50 | Entry/page/cursor/cookie shapes, page bounds and GC counts are checked; valid EOF and empty pages succeed |
+| Unit acknowledgements and failures | O12–O13, O15–O17, O20–O26, O34, O36, O39–O44 | Non-null unit acknowledgements, corrupt JSON, missing fields and invalid failure metadata cannot establish rollback; valid native not_committed/locally_committed/unknown failures retain their code, errno and outcome |
+
+Malformed replies report HostError/EIO, the outer operation and unknown, with
+zero confirmed bytes from that call and the original decoder cause. The helper
+prefix cases report two confirmed bytes and still report unknown. Valid native
+decimal fields fit at most 20 ASCII characters; overlong fields refuse before
+integer conversion, including padded values that would otherwise fit.
+Valid native Overloaded errors retain their type in Python. Invalid JSON settles
+the Python future before it is awaited. The protocol fixtures assert every expected call
+and complete only after consuming the full reply sequence.
+
+These are controlled protocol faults. They do not prove real write commit or
+durability after loss of a production reply; native/fleet fault qualification
+and receipt reconciliation remain separate. Real-host SDK suites check that
+ordinary generated replies still work through the stricter facade boundary.
 
 ## Guest deadline cleanup profile
 
@@ -251,7 +292,9 @@ remains before this inventory can support a complete conformance claim:
    operation/option combinations still need their own assertions. The argument
    profiles cover selected facade conversions. The wire profiles map the
    selected syntax/range, shape and option refusals above; remaining combinations
-   and precedence still need their own assertions.
+   and precedence still need their own assertions. The reply-validation profile
+   adds controlled post-dispatch faults and helper-prefix evidence; real lost
+   replies and production fault outcomes retain their separate gates.
 2. Complete transaction, cancellation and closed-domain cases for each
    handle-bearing family. Extend the selected live cross-cell cases where
    additional operation families require distinct authority assertions. The

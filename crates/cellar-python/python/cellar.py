@@ -322,7 +322,7 @@ class FileStat:
 
     @classmethod
     def _decode(cls, value):
-        value = value.copy()
+        value = {key: value[key] for key in cls.__dataclass_fields__}
         for key in ("inode", "size", "nlink", "atime_ns", "mtime_ns", "ctime_ns", "version", "allocated_bytes"):
             value[key] = int(value[key])
         return cls(**value)
@@ -374,8 +374,9 @@ def _filesystem_handle(directory, operation):
 
 
 def _filesystem_progress(error, completed, operation, committed):
-    if not isinstance(error, SDKError):
-        error = SDKError("Filesystem helper failed", "HostError", "unknown")
+    if not isinstance(error, SDKError) or type(error.code) is not str or not error.code or error.outcome not in ("not_committed", "locally_committed", "unknown") or type(getattr(error, "completed_bytes", 0)) is not int or not 0 <= getattr(error, "completed_bytes", 0) <= 2**53-1:
+        error = SDKError("Filesystem host reply failed", "HostError", "unknown")
+        error.errno = "EIO"
     if error.code == "ValidationError" and error.outcome == "not_committed" and not hasattr(error, "errno"):
         error.errno = "EINVAL"
     error.completed_bytes = completed + getattr(error, "completed_bytes", 0)
@@ -383,6 +384,109 @@ def _filesystem_progress(error, completed, operation, committed):
     if completed and error.outcome == "not_committed":
         error.outcome = "locally_committed" if committed else "unknown"
     return error
+
+
+def _filesystem_reply(operation, value, request):
+    """Validate acknowledgements before exposing values or advancing helpers."""
+    def require(valid):
+        if not valid:
+            raise ValueError("Invalid filesystem reply")
+
+    def record(value):
+        require(type(value) is dict)
+
+    def integer(value, maximum=2**53-1):
+        require(type(value) is int and 0 <= value <= maximum)
+
+    def decimal(value, signed=False):
+        require(type(value) is str and len(value) <= 20)
+        digits = value[1:] if signed and value.startswith("-") else value
+        require(bool(digits) and digits.isascii() and digits.isdecimal())
+        number = int(value)
+        require((-(2**63) if signed else 0) <= number <= (2**63-1 if signed else 2**64-1))
+
+    def binary(value):
+        require(type(value) is str)
+        decoded = base64.b64decode(value, validate=True)
+        require(base64.b64encode(decoded).decode("ascii") == value)
+        return len(decoded)
+
+    def entry(value):
+        record(value)
+        require(0 < binary(value["name_base64"]) <= 255)
+        decimal(value["inode"])
+        require(value["kind"] in ("File", "Directory"))
+
+    if operation in ("open", "creat", "openat", "opendir", "dup"):
+        record(value)
+        require(type(value["handle"]) is str and bool(value["handle"]))
+    elif operation in ("read", "pread", "read_file"):
+        record(value)
+        count = binary(value["data_base64"])
+        if operation != "read_file":
+            integer(value["count"], request["count"])
+            require(count == value["count"])
+        elif request["max_bytes"] is not None:
+            require(count <= request["max_bytes"])
+    elif operation in ("write", "pwrite"):
+        integer(value, binary(request["data_base64"]))
+    elif operation == "lseek":
+        decimal(value)
+    elif operation in ("stat", "lstat", "fstat", "fstatat"):
+        record(value)
+        for key in ("inode", "size", "nlink", "version", "allocated_bytes"):
+            decimal(value[key])
+        for key in ("atime_ns", "mtime_ns", "ctime_ns"):
+            decimal(value[key], True)
+        for key in ("mode", "uid", "gid"):
+            integer(value[key], 2**32-1)
+        require(value["kind"] in ("File", "Directory"))
+    elif operation == "edit_file":
+        record(value)
+        decimal(value["inode"])
+        decimal(value["version"])
+    elif operation == "readdir":
+        if value is not None:
+            entry(value)
+    elif operation in ("read_page", "read_dir"):
+        if operation == "read_dir":
+            record(value)
+        values = value if operation == "read_page" else value["entries"]
+        require(type(values) is list and len(values) <= request["limit"])
+        for item in values:
+            entry(item)
+        if operation == "read_dir" and value["next"] is not None:
+            cursor = value["next"]
+            record(cursor)
+            require(type(cursor["scope"]) is str)
+            decimal(cursor["inode"])
+            decimal(cursor["position"])
+    elif operation == "telldir":
+        require(binary(value) == 16)
+    elif operation == "collect_garbage":
+        integer(value)
+    elif operation == "statvfs":
+        record(value)
+        for key in ("logical_bytes", "allocated_bytes", "inodes", "available_logical_bytes", "available_allocated_bytes", "available_inodes"):
+            decimal(value[key])
+        integer(value["chunk_bytes"])
+        require(value["chunk_bytes"] > 0)
+    elif operation == "capabilities":
+        record(value)
+        record(value["limits"])
+        record(value["transport"])
+        for key in ("logical_uid", "logical_gid", "creation_mask"):
+            integer(value[key], 2**32-1)
+        for key in ("read_only", "regular_files", "directories", "positional_io", "directory_relative", "transactions", "symlinks", "hard_links", "advisory_locks", "atime"):
+            require(type(value[key]) is bool)
+        for key in ("max_file_bytes", "max_logical_bytes", "max_allocated_bytes", "max_inodes"):
+            decimal(value["limits"][key])
+        for key in ("max_transfer_bytes", "max_file_helper_bytes", "max_handles", "max_host_handles", "max_path_bytes", "max_path_depth", "max_discarded_ranges", "gc_batch_chunks", "max_transaction_operations", "max_transaction_bytes", "max_directory_entries", "max_namespace_directories"):
+            integer(value["limits"][key], 2**31-1)
+        for key in ("max_value_bytes", "max_body_bytes", "max_batch_operations"):
+            integer(value["transport"][key])
+    else:
+        require(value is None)
 
 
 class File:
@@ -536,11 +640,14 @@ class Filesystem:
 
     async def _call(self, operation, **value):
         try:
-            return await self._context._call("filesystem." + operation, **value)
-        except SDKError as error:
-            # Caller-scope admission can fail before a native filesystem reply.
-            _filesystem_progress(error, 0, operation, False)
-            raise
+            reply = await self._context._call("filesystem." + operation, **value)
+            _filesystem_reply(operation, reply, value)
+            return reply
+        except Exception as error:
+            failure = _filesystem_progress(error, 0, operation, False)
+            if failure is error:
+                raise
+            raise failure from error
 
     async def capabilities(self):
         value = await self._call("capabilities")
@@ -549,7 +656,10 @@ class Filesystem:
         return value
 
     async def statvfs(self):
-        return {key: int(value) for key, value in (await self._call("statvfs")).items()}
+        value = await self._call("statvfs")
+        for key in ("logical_bytes", "allocated_bytes", "inodes", "available_logical_bytes", "available_allocated_bytes", "available_inodes"):
+            value[key] = int(value[key])
+        return value
 
     async def open(self, path, **options):
         return File(self, (await self._call("open", path=_filesystem_path(path, "open"), options=options))["handle"])
@@ -1196,21 +1306,36 @@ class Context:
         future = self._pending.get(sequence)
         if future is None or future.done():
             return
-        value = _json.loads(payload)
+        try:
+            value = _json.loads(payload)
+            if type(value) is not dict or type(value["ok"]) is not bool:
+                raise ValueError("Invalid Cellar reply")
+            if value["ok"]:
+                result = value["value"] if body is None else (value["value"], body)
+            else:
+                error, code, outcome = value["error"], value["code"], value["outcome"]
+                completed = value.get("completed_bytes", 0)
+                if type(error) is not str or type(code) is not str or not code or outcome not in ("not_committed", "locally_committed", "unknown") or type(completed) is not int or not 0 <= completed < 2**64 or (value.get("errno") is not None and type(value["errno"]) is not str) or (value.get("operation") is not None and type(value["operation"]) is not str):
+                    raise ValueError("Invalid Cellar failure reply")
+                # A valid native envelope owns its evidenced outcome and cause.
+                error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
+                              "Overloaded": Overloaded, "Ambiguous": Ambiguous,
+                              "OwnershipLost": OwnershipLost}.get(code, SDKError)
+                failure = error_type(error, code, outcome)
+                failure.errno = value.get("errno")
+                failure.operation = value.get("operation")
+                failure.completed_bytes = completed
+        except Exception as cause:
+            # Settlement must reach the waiter even when metadata decoding
+            # fails. A corrupt reply cannot establish mutation rollback.
+            failure = SDKError("Invalid Cellar host reply", "HostError", "unknown")
+            failure.errno = "EIO"
+            failure.__cause__ = cause
+            future.set_exception(failure)
+            return
         if value["ok"]:
-            future.set_result(value["value"] if body is None else (value["value"], body))
+            future.set_result(result)
         else:
-            error = value["error"]
-            code = value["code"]
-            # The native envelope carries an explicit outcome. Never infer a
-            # rollback from a submitted mutation's generic backend failure.
-            error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
-                          "Overloaded": Overloaded, "Ambiguous": Ambiguous,
-                          "OwnershipLost": OwnershipLost}.get(code, SDKError)
-            failure = error_type(error, code, value["outcome"])
-            failure.errno = value.get("errno")
-            failure.operation = value.get("operation")
-            failure.completed_bytes = value.get("completed_bytes", 0)
             future.set_exception(failure)
 
     def _close(self, finished=False):

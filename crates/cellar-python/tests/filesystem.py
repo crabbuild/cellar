@@ -326,8 +326,11 @@ async def wire_profile(fs, ctx, group):
         refused += 1
 
     try:
-        if group == "unsigned":
-            for value in ("", "+1", "-1", "1.5", " 1", "1e3", "１２", "1x", "18446744073709551616"):
+        if group.startswith("unsigned-"):
+            part = int(group.removeprefix("unsigned-"))
+            assert 0 <= part < 3
+            values = ("", "+1", "-1", "1.5", " 1", "1e3", "１２", "1x", "18446744073709551616")
+            for value in values[part * 3:part * 3 + 3]:
                 for call, operation in (
                     (lambda: file.pread(1, value), "pread"), (lambda: file.pwrite(b"x", value), "pwrite"),
                     (lambda: file.lseek(value), "lseek"), (lambda: file.ftruncate(value), "ftruncate"),
@@ -338,7 +341,7 @@ async def wire_profile(fs, ctx, group):
                     (lambda: fs.edit_file(path, version, **(edit | dict(delete_bytes=value))), "edit_file"),
                 ):
                     await refusal(call, "filesystem." + operation, "EOVERFLOW" if value == "18446744073709551616" else "EINVAL")
-            assert refused == 81
+            assert refused == 27
         elif group == "signed":
             for value in ("", "+1", "1.5", " 1", "1e3", "--1", "１２", "-", "9223372036854775808", "-9223372036854775809"):
                 for call, operation in (
@@ -712,6 +715,8 @@ class Counter:
                 await cancelled_filesystem_profile(fs, ctx, action)
             except Exception:
                 return Response(__import__("traceback").format_exc(), status=500)
+        elif action == "reply-protocol":
+            assert await filesystem_reply_profile(FILESYSTEM_REPLY_CASES) == len(FILESYSTEM_REPLY_CASES["cases"])
         elif action == "exercise":
             assert not (await fs.capabilities())["symlinks"]
             await fs.mkdir("/dir", 0o700)
