@@ -11,10 +11,9 @@ successful read of its original identity and file**. The acceptance ceiling is
 
 ## Measured profile — 2026-10-28
 
-[Per-sandbox evidence](../../plans/qualification/sandbox-fleet-2026-10-28.json)
-binds this result to source `ee2156e3`, the test executable SHA-256 and the
-recorded settings. One campaign allocated **1,024 sandboxes**, 512 per business
-parent, on macOS arm64 (Apple M2 Max, 12 logical CPUs, 32 GiB RAM, Rust 1.98.1).
+The run used source `ee2156e3` and the settings below. One campaign allocated
+**1,024 sandboxes**, 512 per business parent, on macOS arm64 (Apple M2 Max,
+12 logical CPUs, 32 GiB RAM, Rust 1.98.1).
 
 | Observation | p50 | p95 | Maximum | Acceptance |
 | --- | --- | --- | --- | --- |

@@ -3431,8 +3431,8 @@ one-to-five-minute production recovery guarantee.
 
 The [qualification guide](../crates/cellar-container/fleet-qualification.md)
 contains the failure sequence, reproducible commands and scoped acceptance.
-The [source-bound JSON](qualification/sandbox-fleet-2026-10-28.json) retains all
-1,024 recovery/cleanup samples, executable digest, platform and configuration.
+The results below summarize the 1,024-sandbox campaign. The harness emits
+per-sandbox JSON for separate retention using the guide's reproduction commands.
 
 | Issue found | Delivered correction |
 | --- | --- |
@@ -3478,6 +3478,6 @@ deferred until account configuration is supplied.
 | Documentation | Seven crate examples and documentation link checks |
 | Static checks | Strict all-target Clippy for `cellar`, `cellar-container` and `cellar-logic`; repository formatting/layout and native-only dependency checks |
 
-The qualification report identifies its measured source and executable. The
-later formatter-only change to evidence output does not change runtime behavior
-or its assertions. Full cross-platform CI is separate from these local checks.
+The measurements above refer to source `ee2156e3`. The later formatter-only
+change to evidence output does not change runtime behavior or its assertions.
+Full cross-platform CI is separate from these local checks.
