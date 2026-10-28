@@ -10,7 +10,52 @@ FUSE remains a separate proposal.
 
 ## PR integration baseline
 
-The branch incorporates `origin/main` at
+The branch incorporates freshly fetched `origin/main` at
+`3ffbadcc5e4a7bf938771ee514c2205402e6379e`, including container HTTP and streamed
+backup parts, bounded extent/archive work and RPC codec/buffer ownership. The
+merge preserves both the filesystem handle registry and main's blob spool
+budget in production/scripted host services, plus both JavaScript test
+inventories. The integrated runtime source is
+`703a03e2365b54bf0dea3c31a4b1855b148f20ca`; subsequent documentation and CI
+scheduling changes do not change the qualified runtime sources.
+
+Fresh macOS arm64 / Rust 1.98.1 checks pass: 21 native filesystem units, three
+SDK cases, five serial node/recovery cases, 36 guest units, 88 JavaScript library
+cases, six Node/V8 filesystem integration cases, two synchronous cases and one
+transport-authority case. The dense-capacity case remains opt-in and was ignored.
+All 40 Node/V8 proof cases pass again after the merge, with 40 separately
+preserved reports and the full warm/cold, stale-authority and joined-shutdown
+assertions described below. The integrated proof executable SHA-256 is
+`6a1e5310435051b37e4e2294606380f31e5e255739f1a58cb2a273f77ef3f246`.
+
+The selected single-engine proof case passes in each Node-only/V8-only build.
+CPython 3.14.5 normal/read-only/small-budget filesystem modes pass under both
+GIL and free-threaded ABIs. Each ABI also passes five shared-gate regressions:
+fsync deadline, fsync fence/Handoff, storage proof authority failure/recovery
+and queue lost acknowledgement. The executable/linkage records distinguish
+these fresh selected checks from the earlier full Python proof matrices.
+
+| Integrated Python proof executable | SHA-256 |
+| --- | --- |
+| CPython 3.14.5 GIL | `71eb70c3f4b01b3a97bb2dc3df257a1cc941b7325a51681f2475a83cdae411d1` |
+| CPython 3.14.5 free-threaded | `aac2309899ceffa654bbdb141611f93ce336aea9e69be3639e0c3001d9e90c76` |
+
+Strict combined five-crate all-target Clippy, 150 JavaScript tooling cases and
+SDK TypeScript declarations also pass. Formatting/layout cover 1,383 Rust files;
+125 JavaScript sources need no formatting. The native dependency graph remains
+482 packages without a JavaScript engine. Task-local
+`.cellar/filesystem-javascript-proof-pr144-artifacts/postmerge-3ff/` retains
+frozen executables, source identities, command logs and structured reports.
+The JavaScript CI job now runs independent native fixtures serially and uploads
+distinct combined-engine and Node-only proof/shutdown ledgers.
+
+Final captured packages, supported target/ABI CI, external faults, sustained load
+and capacity qualification retain their open gates. The older checkpoints below
+keep their original source and executable scope.
+
+### Earlier main integration
+
+The earlier baseline incorporated `origin/main` at
 `cd9a968932c81fcfd4a3fe9f03c4ce7c0e57e1b0` on 2026-10-27, including the newer
 sandbox gateways and public Raft extent recovery. Conflict resolution preserves
 the newer guest dispatch/R2 paths, the filesystem value budget in both dispatch

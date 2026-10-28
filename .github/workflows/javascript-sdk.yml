@@ -93,9 +93,23 @@ jobs:
           npm exec --prefix examples/vercel-agent/ui -- playwright install --with-deps chromium
           npm run --prefix examples/vercel-agent/ui test:ui
       - name: Adapter and real-node tests
-        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node
+        env:
+          CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-combined
+        # Independent native fixtures own short leases and concurrent runtimes.
+        run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node -- --test-threads=1
       - name: Node-only feature
-        run: cargo test --locked -p cellar-javascript --no-default-features --features node
+        env:
+          CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-node
+        run: cargo test --locked -p cellar-javascript --no-default-features --features node -- --test-threads=1
+      - name: Preserve filesystem proof and shutdown ledgers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-filesystem-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/filesystem-proof-combined/*.json
+            ${{ runner.temp }}/filesystem-proof-node/*.json
+          if-no-files-found: ignore
       - name: Runtime archive and admission boundaries
         run: |
           cargo test --locked -p cellar --lib node_environment
