@@ -14,8 +14,9 @@ impl LocalStore {
         &self,
         scope: &str,
     ) -> object_store::Result<MultipartGcProgress> {
-        let _writer = self.writer.lock();
+        let writer;
         let mut connection = self.connect()?;
+        writer = self.writer.lock();
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -78,6 +79,7 @@ impl LocalStore {
                  OR EXISTS(SELECT 1 FROM __sys_local_uploads WHERE scope = ?1 AND retired = 0 AND expires_ms <= ?2)",
             params![scope, now], |row| row.get(0),
         ).map_err(db_error)?;
+        drop(writer);
         transaction.commit().map_err(db_error)?;
         Ok(progress)
     }

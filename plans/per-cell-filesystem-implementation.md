@@ -4,7 +4,7 @@
 
 Status: delivery and qualification plan; package completion requires source and
 test evidence in the [status ledger](per-cell-filesystem-implementation-status.md).
-Prepared 2026-10-25; scope revised 2026-10-27. Inspected source baseline:
+Prepared 2026-10-25; scope revised 2026-10-28. Inspected source baseline:
 `d3206c924031a3f2ca3387b542c02877bb91423d`.
 
 Read the [technical design](per-cell-filesystem-design.md) and
@@ -14,6 +14,24 @@ POSIX-compatible SDK operations, guest parity and durable agent file tools.
 The optional [FUSE and execution design](per-cell-filesystem-fuse-design.md)
 owns every mounting, container and command-runner work package. Those packages
 are independent of this primitive's completion criteria.
+
+## Qualification target
+
+Filesystem is a first-class Cellar application primitive alongside KV and SQL.
+Its acceptance target is the framework contract: per-cell isolation, POSIX
+operation semantics within the declared capability profile, atomic file/KV/SQL
+transactions, existing durability proofs and recovery, stale-authority refusal,
+typed failures, bounded admission and cleanup, and native/guest SDK parity.
+Use Cellar's existing storage, fleet and runtime qualification profiles, adding
+file/state/receipt assertions at the filesystem integration boundary.
+
+Primitive completion does not depend on selecting an application's object store,
+cell population, traffic rate or latency/recovery SLO. Publish tested artifact
+identities, configured limits and evidence boundaries. Deployment sizing,
+provider-specific tuning and application SLO/RPO/RTO acceptance use the separate
+[deployment qualification process](../docs/19-testing-qualification.md).
+Performance experiments below inform limits and optimization. Evidence for
+declared resource and progress contracts remains required for primitive acceptance.
 
 ## Delivery sequence
 
@@ -27,7 +45,7 @@ OS mounting library or execution runtime is a prerequisite for any FS-xx gate.
 | FS-02 | Rust context primitive, descriptors and transaction composition | FS-01 | POSIX operation profile, file-plus-state atomicity and authority pass |
 | FS-03 | Guest APIs and durable agent file tools | FS-02 | Native/JS/Python parity and receipt replay survive crashes |
 | FS-04 | Lifecycle, recovery and resource qualification | FS-02; agent cases also FS-03 | Stale capabilities refused, acknowledged state recovers, work/cleanup bounded |
-| FS-05 | Performance, packaging and public release | FS-03/04 | Exact artifact passes declared workload, capacity and feature matrix |
+| FS-05 | Packaging, published bounds and public release | FS-03/04 | Exact artifacts pass the SDK/platform matrix and declared primitive contracts |
 | FS-06 | Additional filesystem capability profiles | Core baseline plus per-profile design | Links/locks/metadata expansion passes its own conformance tests |
 
 FS-02 provides a native primitive; FS-03 adds guest/agent use. FS-04/05 establish
@@ -242,15 +260,18 @@ uses normal owning-cell RPC gates. Inspecting an unused filesystem creates no
 filesystem state. Return unavailable on exceeded work bounds; do not substitute
 zero counters. See the [operator contract](../crates/cellar-admin/README.md#cell-filesystem-usage).
 
-Run the operation, recovery and capacity matrices against an exact artifact.
+Run the operation, recovery and bounded-resource matrices against an exact artifact.
 Record source SHA, toolchain, feature configuration, backend and raw outcomes.
-Choose chunk sizes, transfer limits and supported file/workspace sizes from
-measurements. Dense GB files require measured recovery/resource evidence; a
-large sparse logical offset does not establish dense-file capacity.
+Verify transfer limits, file/workspace admission, quota accounting and recovery
+at the declared boundaries. Dense GB claims require measured recovery/resource
+evidence; a large sparse logical offset does not establish dense-file capacity.
+Chunk-size comparisons and application throughput targets are optimization and
+deployment work, independent of the initial supported operation profile.
 
 Exit: Rust and guest examples use `context.fs()` / `ctx.fs`, survive recovery,
-and publish qualified bounds. Production core completion requires only this
-plan's gates; adapter deployment remains separately tracked.
+publish their capability and resource limits, and pass the affected feature CI.
+Core completion requires this plan's primitive gates; adapter deployment and
+application performance qualification remain separately tracked.
 
 ## FS-06: Expand filesystem capability profiles
 
