@@ -14,9 +14,10 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
 ```
 
-This runs 112 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
+This runs 144 cases: all 16 Rust/Python/V8/Node generated caller/provider pairs,
 source quotas over local/authenticated peer routing, receiving quotas over
-authenticated peer routing, and post-commit reply-byte refusal over peer routes.
+authenticated peer routing, post-commit reply-byte refusal over peer routes,
+and provider response capacity over local/peer routes.
 Source and receiving request admission have independent count and byte cases.
 V8 uses the generated TypeScript binding; Node uses plain JavaScript.
 The byte case retains the default 128-call quota and reduces only the byte
@@ -47,7 +48,7 @@ same-ID retries apply the refused command once; a changed command conflicts.
 Every node joins, including after a failed assertion. Receiving requests,
 reserved input bytes, tunnels and peer entries retire to zero. The separate auditor
 checks coverage, authority, counts, quotas and zero retained reservations and
-rejects seventeen corrupted reports. The suite also runs in the combined qualifier
+rejects twenty corrupted reports. The suite also runs in the combined qualifier
 and Linux lifecycle CI.
 
 The sixteen reply cases hold a generated call from each actual caller runtime.
@@ -674,7 +675,7 @@ cargo run --locked -p cellar-rpc-qualification --features full -- \
 python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
 ```
 
-The **112-case suite** uses generated clients: Rust, Python, embedded V8 and Node callers
+The **128-case suite** uses generated clients: Rust, Python, embedded V8 and Node callers
 against each of the four providers, at each fault below. The owner keeps real
 SQLite state, signed peer authentication and normal fleet durability proof.
 
@@ -690,6 +691,7 @@ generated client -> native source -> relay -> signed owner -> typed handler
 | Fault | Required result | Independent observations |
 | --- | --- | --- |
 | Close a warm RPC tunnel | Fresh signed upgrade; successful generated call | Exact method, request ID, remaining budget, scope and owner epoch; one handler entry |
+| Forward a request header and one body byte, then disconnect | `Unavailable/unknown`; no automatic replay | Real receiving count/byte admission precedes disconnect; zero business entry, unchanged count and zero retained source/receiving reservations |
 | Drop a complete successful owner reply | `Unavailable/unknown`; no automatic replay | Closed mutation transaction and exact stored count; one handler entry before explicit retries |
 | Replace a proven reply with an oversized declared body; withhold its bytes | `InvalidResponse/unknown` before the original deadline | Real owner commit/receipt observed first; no replay, successful explicit receipt retries |
 | Stream beyond the caller's reply ceiling; withhold the terminating chunk | `InvalidResponse/unknown` without waiting for the suffix | Same committed owner evidence; source enforces its limit while the body grows |
@@ -702,8 +704,30 @@ Protobuf occurrences) than the source's default limits. Its real Rust, Python,
 V8 and Node providers retain their generated implementations. The relay changes
 one admitted wire request or one observed, proven reply. It validates the request against the source contract and
 preserves its method, operation ID, request ID, scope and remaining deadline.
-The independent report auditor checks the actual byte/element geometry and
-rejects twelve corrupted-coverage, admission, response-limit, provenance and cleanup reports.
+The independent report auditor checks actual byte/element geometry, partial
+upload admission, cleanup, response limits and failure provenance. Missing or
+forged observations refuse qualification; 23 corrupted reports must be rejected.
+
+```text
+generated call -> signed owner receives header + first body byte
+                                     |
+                           request/byte admission observed
+                                     |
+relay closes before suffix ----------+--> no business dispatch
+             |
+       Unavailable / unknown
+             |
+       source + receiving reservations retire
+             |
+       explicit same-ID retry -> one mutation + saved receipt
+```
+
+The prefix fault observes the actual receiving host before closing its socket;
+it does not substitute an error result. The owner never receives a complete
+business message. The source has submitted bytes, so the caller still receives
+an unknown outcome. The fixture checks that an SDK replay does not enter the
+handler, then makes its own explicit receipt retries. Cleanup is checked before
+fresh work as well as after the full node/relay join.
 
 Host admission borrows the encoded body instead of decoding a clone graph and
 copying its buffer merely to inspect it. It bounds envelope metadata to 1 KiB,
@@ -728,9 +752,10 @@ request signatures, payloads and proof responses retain their production paths.
 These are fixture bounds, not evidence of production-wide memory limits.
 
 Successful reports require both native nodes to drain and every relay task and
-language runtime to join. The independent auditor verifies all 112 unique tuples
-and rejects twelve corrupted reports covering missing/duplicate pairs, forged
-rollback, business execution after refusal, invalid budgets and retained sockets.
+language runtime to join. The independent auditor requires all 128 unique tuples
+and probes missing/duplicate pairs, forged rollback, business execution after
+refusal or prefix loss, invalid budgets, fabricated prefix admission and retained
+source/receiving bytes or sockets.
 This suite runs in `all` and Linux lifecycle CI, which retains its raw report/log.
 
 The described reconnect, reply-loss and receiving-refusal boundaries have both

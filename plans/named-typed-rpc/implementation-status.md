@@ -19,7 +19,7 @@ does not close schema, resource, packaging or performance requirements.
 | --- | --- | --- |
 | P0 — hosted verification | Final hosted gates | Current head `1a2be141` passes both local full matrices and live profiles. Hosted GIL profile and JavaScript container recovery fail on lease expiry; the free-threaded full matrix is still running. Require final SDK, JavaScript, typed-RPC and example gates. Preserve exact failing logs and identities below. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
-| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults have 112 in both observed Python modes. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
+| P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults now have 128 in both observed Python modes, including 16 admitted-prefix disconnects with unknown outcomes, no replay and zero request reservations after cleanup. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
 | P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
 | P1 | Language/profile coverage | The response-pool production source passes all 19 Counter/failure suites in both actual local CPython modes: 1,016 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published native-decoder head `fa1543f1` also passes both hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
@@ -241,6 +241,43 @@ test-dependency edges. This instrumentation is not a causal timing fix.
 This does not close all retained-copy, effective-limit, allocator/RSS, protocol
 or package qualification. The original timing failures and the preserved Axum
 lifecycle 503 still require causal diagnosis.
+
+## Partial request loss through generated clients (2026-10-27; local slice qualified)
+
+The peer relay now includes `request_prefix_loss`: preserve the real signed
+upgrade and exact request metadata, forward the valid inner header and one body
+byte, observe receiving admission, then close both socket halves before the
+suffix. This adds 16 cases and expands the peer matrix from 112 to 128.
+
+| Boundary | Required and observed result |
+| --- | --- |
+| Submission | Relay observes the generated request's exact ID, method, scope, semantic command and remaining deadline; no replay or budget reset |
+| Partial upload | Real owner holds one request and 65,796–65,812 reserved bytes before disconnect; no complete business message reaches dispatch |
+| First result | Every caller receives `Unavailable/unknown`; zero business entries, returns or new factories; stored count unchanged |
+| Cleanup | Source and receiving count/byte reservations return to zero before fresh work; node and relay join checks remain intact |
+| Explicit retry | Two same-ID retries produce one mutation and its saved result; a changed delta with that ID conflicts |
+| Report guard | All 128 unique tuples required; 23 corrupt-report probes rejected, including forged rollback, completed-body/admission claims, Boolean byte counts and retained reservations |
+
+Both actual local CPython modes pass all 128 peer cases, mode checks, independent
+audits, 41 qualifier guards and all-target qualifier Clippy. All 17 checks in
+`peer-prefix-qualification-v1` pass, including formatting/layout, dependencies
+and docs. All 3,859 watched inputs and both copied executables remain unchanged.
+The preceding 112-case report is refused by the expanded auditor, rather than
+silently certifying missing prefix coverage.
+
+| Frozen artifact | SHA-256 |
+| --- | --- |
+| Source manifest | `9c40773df88034d77dc3a2fb077c283e3f932b98249c2c0894ee78b088560e74` |
+| GIL executable | `af8d65c6622d86bb52e7996d2b5a0e7caecc25882f607f9d9c349608b75e62ce` |
+| Free-threaded executable | `91beb55338de3bf9d3085120fe54769b0299f87b1667aa1eb8d2286023d33b28` |
+| GIL peer report | `c668a13808e12f842b915b19f1f8f19088a3198abf60ccf4d6528af215375bf3` |
+| Free-threaded peer report | `076e4919a924256a20fb9da47e1a39440ed0aa51968e2cacc9fe6a4fdf857f0d` |
+
+Only qualification fixtures, auditors, documentation and the container's test
+observer/dependency edges differ from the production source of the preceding
+1,016-case full run. This slice does not close other partial-write/flood and
+effective-limit combinations, retained-copy/RSS qualification, the preserved
+V8/lease failures, package identity, method diagnostics or performance gates.
 
 ## Work packages
 
