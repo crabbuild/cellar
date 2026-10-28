@@ -16,7 +16,9 @@ SQL queues and zero archive lag. After background storage preparation finished,
 the cached cell accepted a write in 38 ms while another cell on that node was
 refused in 1 ms. These observations diagnose admission, not fleet TPS or p99.
 All five native owners subsequently joined shutdown with exit code zero. Their
-backing files, volumes, request identities and failed observations are retained.
+backing files, volumes, request identities and failed observations were retained
+at shutdown. Those resources later disappeared during the fresh deployment retry,
+as described below.
 
 Source `abea384316a32d82340b8f91fcd2a86fd74145bb` releases an idle extent-backed writer when keeping it would leave
 no room for another equally bounded writer. Pending proposals retain their full
@@ -25,7 +27,17 @@ regression failed with the original `Refused(Overloaded)` and now passes across
 two SQL owners sharing one constrained inventory. It also checks active-work
 reservation, committed reads and duplicate receipts. All 13 selected SQL/private
 execution tests and 12 managed-runner tests pass. Documentation and native
-dependency checks pass.
+dependency checks pass. Host library/tests and deployment-binary Clippy,
+formatting of 1,700 Rust files, module layout and ten plan tests also pass.
+
+The source-matched Linux image built successfully at `0388e2c4`. Its fresh
+deployment lost the Colima SSH connection during the initial backing-file write,
+before RustFS or any native node started. Subsequent inspection found the
+dedicated profile, Docker context, backing directory and qualification/target
+directory absent. The passing checks were observed, but their raw local artifacts
+are no longer available. Recreate the lab and retain new primary evidence outside
+the build target before repeating the deployed comparison; do not treat the
+interrupted attempt as a write or recovery pass.
 
 The fresh deployed comparison and recovery-under-traffic campaign remain the
 next gates. This is progress through admission and managed RF3 formation; full
