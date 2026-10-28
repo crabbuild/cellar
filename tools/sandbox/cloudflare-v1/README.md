@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Sandbox 1.0.3: native processes, terminals and Files
+# Sandbox 1.0.3: native processes, files and directory backups
 
 This separate, partial profile preserves the
 [celld/Sandbox 0.12.9 baseline](../compat/README.md).
@@ -227,14 +227,55 @@ cargo test -p cellar-javascript --features node --locked --test workers_r2
 The fixture declares a separate five-second storage handler budget for real
 fsync/fleet bootstrap; existing 250 ms routing tests retain their bounds. See the
 [R2 subset guide](../../../packages/cellar-cloudflare/r2.md) for binding setup,
-byte ownership, supported operations and profile gaps. Full helper backup/restore
-and outbound interception remain unqualified.
+byte ownership, supported operations and profile gaps. The following campaign
+adds the matching helper's directory-backup path.
+
+## Directory backups through native HTTP interception
+
+The [backup fixture](backups.mjs) uses the unchanged published `DirectoryBackup`,
+`DirectoryBackupGateway` and `Files` implementations. Configure an immutable
+native network-helper image containing `cellar-egress` and nftables, as described
+in the [host profile](../../../crates/cellar-container/README.md#optional-native-network-helper-lifecycle).
+
+```mermaid
+flowchart LR
+    Shim[Published sandbox-shim] -->|HTTP port 80| Helper[Owned native network helper]
+    Helper --> Host[Native HTTP router]
+    Host --> Gate[Fresh root ownership gate]
+    Gate --> Gateway[Published DirectoryBackupGateway]
+    Gateway --> Storage[Native resumable Blob storage]
+```
+
+```sh
+CELLAR_SANDBOX_ENGINE_SOCKET=/path/to/private/docker.sock \
+CELLAR_SANDBOX_V1_IMAGE=sha256:YOUR_MATCHING_SANDBOX_IMAGE \
+CELLAR_SANDBOX_FENCE_IMAGE=sha256:YOUR_FENCE_IMAGE \
+CELLAR_SANDBOX_NETWORK_IMAGE=sha256:YOUR_NATIVE_HELPER_IMAGE \
+cargo test --locked -p cellar-javascript --features node \
+  --test sandbox_backups -- --ignored --test-threads=1 --nocapture
+```
+
+| Check | Acceptance |
+| --- | --- |
+| Installation | Register a copied export/props before startup; finish that event before using the route |
+| Retained HTTP connection | One real container connection carries the pre-start handler from a later event, direct traffic, then two live handler versions |
+| Binary streaming | Each request/reply preserves 2 MiB + 17 bytes and SHA-256; native reads remain at most 64 KiB |
+| Published backup | Create an archive through shim HTTP, gateway control RPC and native multipart storage; store its returned record in cell SQLite |
+| Later-event restore | Change the file, restore the stored record with the actual shim, then verify original bytes/SHA-256 |
+| Deletion | Destroy the container, then delete the archive through the published API without starting new compute |
+| Retirement | Join the native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
+
+The host selects `Native.with_http_interception()`, the explicit `runc` network
+helper and `Source::workers_http_streams()`. Incoming HTTP reads retain the
+original invocation and cancellation authority. A reader holds one producer
+chunk, returns bounded frames and pulls again after consuming it. The ordinary
+SDK's buffered-body limit stays unchanged.
 
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
-outbound handlers, S3 mounts,
-directory backups, full cancellation/fault/persistence semantics and hosted
+HTTPS interception, S3 mounts, complete directory-backup failure/restart behavior,
+full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
 requires Node; embedded V8 still lacks that web bootstrap. Shared-framework
 [native supervision](../../../crates/cellar-container/supervision.md) has selected

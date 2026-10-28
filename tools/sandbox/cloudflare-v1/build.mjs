@@ -4,7 +4,7 @@ import { build } from "esbuild";
 import { resolve } from "node:path";
 import { root, verify } from "./inventory.mjs";
 await verify();
-for (const fixture of ["fixture", "gateways", "r2"])
+for (const fixture of ["fixture", "gateways", "r2", "backups"])
   await build({
     absWorkingDir: root,
     entryPoints: [`${fixture}.mjs`],

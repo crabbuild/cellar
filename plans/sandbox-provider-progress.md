@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup | Generation-bound outbound service routing, complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, error/stream/cancellation faults, persistence/restart, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -43,7 +43,7 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
-| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, terminals and Files | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize evidence, actual file operations, explicit handle retirement and original-event authority |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, files and directory backups | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize, actual files and DirectoryBackup backup/restore/delete; fresh ownership gates and handler replacement on a retained HTTP connection |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
@@ -2799,3 +2799,62 @@ establish a cold-first-call performance fix, and the original deadline remains
 unchanged. Fresh SDK/JavaScript CI, cold recovery and heartbeat qualification
 remain required. Positive R2 backup/mount work and the full provider goal remain
 open; no VM or live cloud-account campaign was rerun for this merge.
+
+## Run-owned HTTP routes and published directory backups — 2026-10-27
+
+The optional native `runc` helper profile now routes plain HTTP to a declared
+service or exported Worker entrypoint. It captures immutable deployment/route
+metadata and copied props, retaining no installing event or guest callback.
+Every request obtains a fresh scope/epoch Service gate. A retired generation
+refuses instead of silently selecting the current deployment.
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Provider opt-in | `Native.with_http_interception()`; default native and remote providers omit/refuse the operation before dispatch |
+| Configuration | Before-start routes install before application allocation; live replacements retain rule order and apply per message on an existing connection |
+| Native lifetime | Root-cell/run ownership, explicit cancellation, bounded headers/route metadata, streamed bodies and joined transport retirement |
+| Node incoming bodies | Explicit `Source::workers_http_streams()`; original-invocation reads/cancellation, one retained producer chunk and at most the configured bytes per bridge frame |
+| Shared controls | Native Rust SDK plus portable Python/JavaScript/TypeScript binding-name calls; Workers accepts actual service/export capabilities and copied props |
+| Published helper | Unmodified `DirectoryBackup`, `DirectoryBackupGateway`, `Files` and matching sandbox-shim 1.0.3 |
+
+On updated main `cd9a9689`, the real-image campaign passes in 8.86 s: one
+container TCP connection carries a pre-start handler from a later event, direct,
+intercepted and replacement-handler
+requests/replies, each preserving 2 MiB + 17 bytes and SHA-256. The SDK archives
+a directory, stores its record in cell SQLite, restores modified files in a
+later event and deletes the archive after container destruction. Native node
+and Node runtime join with zero retained bridge bytes/invocations and no owned
+containers; cleanup removes only empty owned networks.
+
+This campaign exposed and corrected two integration gaps: independent facade
+getters now reuse the event's canonical context after the native activation
+check; incoming HTTP reads split coalesced producer chunks without increasing
+the bridge's 64 KiB frame limit. Original buffered request limits remain intact.
+The native route/wire tests additionally cover fresh gates, expired deployment
+refusal, stream bytes, malformed authority and pending-request retirement.
+
+PR #137 merged during delivery, so this follow-up starts from updated main.
+Its last head `7a7644b4` has passing JavaScript/Node and outbound-network CI;
+these controls do not establish the cause of the earlier owner-expiry, GIL
+`NodeLeaseExpired`, free-threaded, cold-call or heartbeat findings.
+
+| Final local checks on this follow-up | Result |
+| --- | --- |
+| Native route/network tests | 10 pass; unchanged 10 s / 45 s overall bounds and production generation reaping |
+| Shared provider / guest tests | 26 / 31 pass, including bounded frame splitting and source cancellation |
+| Node integration | 16 pass; native ownership, published constructors, entrypoints, routing and sleep/wake hooks |
+| Combined Node/V8 mode | 19 pass across containers, ownership transport and Workers activation/callback/storage cases |
+| JavaScript/TypeScript | 145 pass; 116 sources formatted; pinned SDK input/drift tests pass |
+| Python facade | Syntax and binding-name wire checks pass; strict embedded library Clippy passes |
+| Strict core/Node/V8 Clippy | All selected library/test targets pass with `-D warnings`; existing dependency warnings remain |
+| Repository gates | Rust format/layout (1,320 files), native-only graph (482 packages, no JS engine), docs (833 references) and whitespace pass |
+
+The image campaign removed its owned resources and helper tag, preserved the
+preloaded images/default Docker context and original VM configuration, and
+returned the private VM to stopped state.
+
+SP-02–SP-07 remain partial. Next deliver the remaining published helper APIs
+and backup failure/restart cases, then S3 mounts/HTTPS under explicit capability
+profiles, broader provider recovery/physical deletion and additional providers.
+Live E2B/Vercel configuration remains deferred; full SP-08–SP-10 qualification
+and hosted/Dynamic Workers remain open.

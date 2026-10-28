@@ -130,6 +130,56 @@ impl Context {
 }
 
 impl Container {
+    /// Install a run-owned HTTP target backed by a declared service or export.
+    /// The route retains its deployment, not this installing event. Each
+    /// intercepted request obtains fresh root-cell ownership/durability proof.
+    pub fn intercept_outbound_http(
+        &self,
+        context: &Context,
+        target: &str,
+        fetcher: &super::service::Fetcher,
+    ) -> HandlerFuture<()> {
+        self.install_http_intercept(context, cellar_egress::HttpTarget::parse(target), fetcher)
+    }
+
+    /// Intercept all plain HTTP on port 80, preserving prior rule order.
+    pub fn intercept_all_outbound_http(
+        &self,
+        context: &Context,
+        fetcher: &super::service::Fetcher,
+    ) -> HandlerFuture<()> {
+        self.install_http_intercept(context, Ok(cellar_egress::HttpTarget::all()), fetcher)
+    }
+
+    /// Whether this activation's configured engine provides HTTP interception.
+    pub fn supports_outbound_http(&self, context: &Context) -> Result<bool> {
+        self.check(context)?;
+        Ok(self.engine.http_interception_configured(&self.cell))
+    }
+
+    fn install_http_intercept(
+        &self,
+        context: &Context,
+        target: Result<cellar_egress::HttpTarget>,
+        fetcher: &super::service::Fetcher,
+    ) -> HandlerFuture<()> {
+        let prepared = (|| -> Result<_> {
+            self.check(context)?;
+            anyhow::ensure!(
+                self.supports_outbound_http(context)?,
+                "HTTP interception requires the native runc network-helper profile"
+            );
+            Ok((target?, fetcher.persistent(context)?))
+        })();
+        let (target, handler) = match prepared {
+            Ok(value) => value,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
+        self.effect(context, move |engine, cell| async move {
+            engine.intercept_http(&cell, target, handler).await
+        })
+    }
+
     /// Read one regular file. The engine resolves container symlinks; archive
     /// links, directories and oversized/truncated data refuse. No host extraction.
     pub fn read_file(

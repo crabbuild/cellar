@@ -350,6 +350,7 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
     matches!(
         name,
         "response.read"
+            | "request.body.read"
             | "workers.rpc.invoke"
             | "response.closed"
             | "websocket.next"

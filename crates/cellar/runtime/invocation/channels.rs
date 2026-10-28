@@ -62,6 +62,10 @@ impl<T: Clone> HostSlot<T> {
 
     pub(crate) fn get(&self) -> Option<T> {
         let services = crate::asyncrt::services();
+        self.get_in(&services)
+    }
+
+    pub(crate) fn get_in(&self, services: &crate::host_services::HostServices) -> Option<T> {
         if !services.accepts_work() {
             return None;
         }

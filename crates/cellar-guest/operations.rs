@@ -116,7 +116,11 @@ pub async fn execute_with_signal(
     }
     if matches!(
         name,
-        "response.closed" | "response.read" | "websocket.next" | "websocket.closed"
+        "response.closed"
+            | "response.read"
+            | "request.body.read"
+            | "websocket.next"
+            | "websocket.closed"
     ) {
         let call = state.transport.execute(context, name, value, options);
         return match signal {
@@ -213,6 +217,8 @@ pub fn is_read(name: &str) -> bool {
             | "response.read"
             | "response.cancel"
             | "response.closed"
+            | "request.body.read"
+            | "request.body.cancel"
     )
 }
 
@@ -277,6 +283,7 @@ pub async fn execute(
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"
         || name.starts_with("response.")
+        || name.starts_with("request.body.")
         || name.starts_with("websocket.")
     {
         return state.transport.execute(context, name, value, options).await;

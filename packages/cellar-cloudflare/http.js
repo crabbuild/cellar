@@ -105,10 +105,14 @@ export async function encodeRequest(request, context) {
 
 export function decodeRequest(frame) {
   webRuntime();
+  const body =
+    frame.body_stream ?? (frame.body.byteLength ? frame.body : undefined);
   return new Request(frame.url, {
     method: frame.method,
     headers: frame.headers,
-    ...(frame.body.byteLength ? { body: frame.body } : {}),
+    ...(body === undefined
+      ? {}
+      : { body, ...(frame.body_stream ? { duplex: "half" } : {}) }),
     redirect: "manual",
   });
 }

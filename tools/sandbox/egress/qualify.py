@@ -21,7 +21,9 @@ ROOT = Path(__file__).resolve().parents[3]
 ENGINE_INPUTS = (
     "Cargo.toml", "Cargo.lock", "crates/cellar/Cargo.toml",
     "crates/cellar/containers/docker.rs",
-    "crates/cellar/containers/mod.rs", "crates/cellar/containers/network.rs",
+    "crates/cellar/containers/mod.rs", "crates/cellar/containers/network/mod.rs",
+    "crates/cellar/containers/network/http.rs", "crates/cellar/application/service/mod.rs",
+    "crates/cellar/application/service/persistent.rs", "crates/cellar/runtime/invocation/channels.rs",
     "crates/cellar/containers/network_options.rs", "crates/cellar/containers/idle.rs",
     "crates/cellar/containers/ports.rs", "crates/cellar/execution/domain.rs",
     "crates/cellar/execution/services.rs",
