@@ -26,11 +26,51 @@ object windows fit the existing physical allowance, including response/output
 copies; sealing allocates its 4 MiB workspace after the entered reads finish.
 The source engine must remain open while source bytes are read.
 
-This interface transfers immutable data only. It does not select an archive
-head, advance archive coverage, retain remote objects for production GC, or mint
-a learner grant. Native snapshot installation still requires the receiving
-engine's ordinary exact ticket. Root archive-head publication, fresh-learner
-seeding and public backend selection remain under implementation.
+Those two methods transfer immutable data only. The common committed archive
+interface also accepts `CommittedArchiveCut::capture_root`: it publishes a
+conditional head binding that exact native root and its Blob dependencies.
+Before advancing a head it independently checks the selected old closure and
+the new closure. Missing or corrupt selected material refuses publication;
+current source bytes cannot silently repair it. Each root cut is complete and
+does not contain a flat snapshot or an LTX replay tail.
+
+`recovery_metadata` reads only bounded root/native metadata. Complete root
+recovery requires `with_root_store` and authenticates the exact remote closure
+before returning an inventory-owned seal. `recovery_set_at` never substitutes
+a newer head. Physical APIs refuse the other representation instead of
+flattening or converting commitments. Existing-member installation still needs
+the receiving engine's exact ticket. The fresh-learner preparation path uses
+the same authenticated grant, birth, learner/barrier and owner checks as flat
+seeding, then retains the already sealed root. Remote dependency retention/GC,
+demand loading and full-size recovery qualification remain under implementation.
+
+`NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by
+default or explicitly selects `Extents`. The choice is persisted in the immutable
+namespace contract. Extent replicas, standbys and joining members require
+`RaftHostOptions::extents`; startup checks this physical policy before writing
+catalog state. The `/extent-owners-1` protocol capability is a coordinated
+marker-1 hard cutover, with no history conversion or older-state reader.
+`RaftCellsConfig::with_extent_image_limit` configures an extent-only deployment
+up to decimal 10 GB without reserving full-image snapshot spools. Command/delta
+limits remain bounded independently. Its inventory must admit current,
+checkpoint, prepared and receiving roots plus a private workspace; capacity
+checks are admission floors, not a promise that every configured cell fits.
+
+One node owner shares `<raft-cells>/extent-inventory` across every group. Before
+GC starts, it rebuilds references from all durable engine groups, including
+groups omitted from the current registrations. A joined blocking job reclaims
+bounded batches; per-cell receive pins protect in-flight dependency closures.
+Already sealed capabilities update checkpoint retention through metadata only,
+so the async Raft driver does not wait for inventory I/O. Physical mutations
+serialize on blocking owners. Each cell's disposable cache is outside the
+inventory, and the node's shared cache scratch pool bounds those files.
+`RaftCells::resource_usage().extents` reports actual inventory counters through
+a weak observer that releases the directory lock after joined shutdown.
+
+Both representations use the existing physical image owner for committed
+queries, Blob archive capture and the effect scheduler. Extent recovery still
+requires every selected extent to be verified locally before installation;
+public selection alone does not establish the 10 GB recovery-time targets.
 
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
@@ -79,10 +119,11 @@ business/output, control, archive-capture and query-reader usage/capacity withou
 I/O or group enumeration. The internal generation-bound, authenticated
 `/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
 and incoming/outgoing transport and snapshot/metadata banks, without identity
-labels or callback execution. Available sources use 68 fixed sample identities;
-unavailable sources omit their values rather than synthesizing zero. A weak
-transport observer cannot retain the transport/engine after joined shutdown.
-Image, lag, connection concurrency and controller views remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+labels or callback execution. Live SQL, image, group and transport sources use
+111 fixed samples. A configured controller and a live extent inventory each
+add 13 samples. Unavailable sources omit their values rather than synthesizing
+zero. Weak transport and inventory observers cannot retain physical resources
+after joined shutdown. The [operations contract](../../../../plans/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.

@@ -18,7 +18,7 @@ const DIGEST_LEN: usize = 32;
 // Wire markers remain 1. The immutable namespace identity also binds member
 // metadata so incompatible binaries cannot attach to the same namespace.
 const PROTOCOL: &str =
-    "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1";
+    "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1/extent-owners-1";
 
 /// Bounds apply before decoding the header or copying any payload. The LTX
 /// decoder must additionally enforce these bounds on actual decoded pages;

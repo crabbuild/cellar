@@ -86,33 +86,186 @@ enum SeedScenario {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_fresh_learner_peer_seed_resumes_and_catches_up() -> Result<()> {
+    native_seed_drill(
+        false,
+        false,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_fresh_learner_s3_seed_resumes_and_catches_up() -> Result<()> {
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_peer_seed_refuses_missing_quorum() -> Result<()> {
+    native_seed_drill(
+        true,
+        false,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_s3_seed_refuses_missing_quorum() -> Result<()> {
+    native_seed_drill(
+        true,
+        false,
+        true,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_peer_seed_retries_a_partial_body_with_a_fresh_grant() -> Result<()> {
+    native_seed_drill(
+        false,
+        true,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_s3_seed_resumes_a_synced_fence_before_claim() -> Result<()> {
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Before,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_extent_s3_seed_reconciles_lost_claim_confirmation() -> Result<()> {
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Confirmation,
+        RaftImageStorage::Extents,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires isolated RustFS object storage and explicit credentials"]
+async fn native_extent_rustfs_seed_uses_public_grants_and_resumes_the_joined_node() -> Result<()> {
+    let store = object_store::aws::AmazonS3Builder::from_env()
+        .with_bucket_name(std::env::var("CELLAR_LARGE_IMAGE_BUCKET")?)
+        .with_endpoint(std::env::var("CELLAR_LARGE_IMAGE_ENDPOINT")?)
+        .with_allow_http(true)
+        .with_conditional_put(object_store::aws::S3ConditionalPut::ETagMatch)
+        .build()?;
+    let prefix = object_store::path::Path::from(format!(
+        "root-public-qualification/{:032x}",
+        rand::random::<u128>()
+    ));
+    eprintln!("public root qualification prefix={prefix}");
+    native_seed_drill_store(
+        false,
+        false,
+        true,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Extents,
+        Some(Arc::new(object_store::prefix::PrefixStore::new(
+            store, prefix,
+        ))),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_requires_committed_binding_and_resumes_reads() -> Result<()> {
-    native_seed_drill(false, false, false, SeedScenario::Ordinary).await
+    native_seed_drill(
+        false,
+        false,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_peer_seed_reuses_checkpoint_bytes_with_fresh_membership() -> Result<()> {
-    native_seed_drill(false, false, false, SeedScenario::PreparedReuse).await
+    native_seed_drill(
+        false,
+        false,
+        false,
+        SeedScenario::PreparedReuse,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_refuses_missing_quorum() -> Result<()> {
-    native_seed_drill(true, false, false, SeedScenario::Ordinary).await
+    native_seed_drill(
+        true,
+        false,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_retries_partial_body_with_fresh_grant() -> Result<()> {
-    native_seed_drill(false, true, false, SeedScenario::Ordinary).await
+    native_seed_drill(
+        false,
+        true,
+        false,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_s3_seed_replays_tail_and_resumes_reads() -> Result<()> {
-    native_seed_drill(false, false, true, SeedScenario::Ordinary).await
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_s3_seed_refuses_missing_quorum() -> Result<()> {
-    native_seed_drill(true, false, true, SeedScenario::Ordinary).await
+    native_seed_drill(
+        true,
+        false,
+        true,
+        SeedScenario::Ordinary,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
@@ -525,17 +678,38 @@ async fn native_s3_seed_missing_selected_payload_refuses_newer_head_fallback() -
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_reconciles_lost_member_claim_response() -> Result<()> {
-    native_seed_drill(false, false, true, SeedScenario::Response).await
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Response,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_resumes_synced_state_before_member_claim() -> Result<()> {
-    native_seed_drill(false, false, true, SeedScenario::Before).await
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Before,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_s3_seed_resumes_after_lost_claim_confirmation() -> Result<()> {
-    native_seed_drill(false, false, true, SeedScenario::Confirmation).await
+    native_seed_drill(
+        false,
+        false,
+        true,
+        SeedScenario::Confirmation,
+        RaftImageStorage::Materialized,
+    )
+    .await
 }
 
 async fn native_seed_drill(
@@ -543,6 +717,26 @@ async fn native_seed_drill(
     interrupt: bool,
     from_s3: bool,
     scenario: SeedScenario,
+    image_storage: RaftImageStorage,
+) -> Result<()> {
+    native_seed_drill_store(
+        lose_quorum,
+        interrupt,
+        from_s3,
+        scenario,
+        image_storage,
+        None,
+    )
+    .await
+}
+
+async fn native_seed_drill_store(
+    lose_quorum: bool,
+    interrupt: bool,
+    from_s3: bool,
+    scenario: SeedScenario,
+    image_storage: RaftImageStorage,
+    selected_store: Option<Arc<dyn object_store::ObjectStore>>,
 ) -> Result<()> {
     use cellar::sdk::consensus::*;
     use object_store::ObjectStore as _;
@@ -559,14 +753,17 @@ async fn native_seed_drill(
         .collect::<Result<Vec<_>>>()?;
     let mut namespace = native_snapshot_config();
     namespace.schema_digest = definitions[0].schema;
+    namespace.image_storage = image_storage;
     let registration = RaftCellRegistration {
         placement: RaftCellPlacement::Replica,
         namespace: namespace.clone(),
         class: "Counter".into(),
         birth: native_snapshot_birth("Counter:seed", 29),
     };
-    let store = Arc::new(archive_fault::Store::default());
-    let host = if scenario == SeedScenario::PreparedReuse {
+    let faults = Arc::new(archive_fault::Store::default());
+    let store: Arc<dyn object_store::ObjectStore> =
+        selected_store.unwrap_or_else(|| faults.clone());
+    let mut host = if scenario == SeedScenario::PreparedReuse {
         RaftHostOptions {
             checkpoint_entries: 1,
             ..Default::default()
@@ -574,6 +771,9 @@ async fn native_seed_drill(
     } else {
         RaftHostOptions::default()
     };
+    if image_storage == RaftImageStorage::Extents {
+        host.extents = Some(RaftExtentOptions::default());
+    }
     let mut cluster = cluster::Cluster::start_with_standby_store(
         &definitions,
         vec![registration.clone()],
@@ -736,14 +936,30 @@ async fn native_seed_drill(
             break result.context("archive post-join LTX tail")?;
         };
         assert_eq!(tail.result, 5_i64.to_be_bytes());
+        let root_inventory = tempfile::tempdir()?;
+        let archive = if image_storage == RaftImageStorage::Extents {
+            archive.with_root_store(cellar_ltx::internal::NodeExtentStore::open(
+                root_inventory.path().join("extents"),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?)
+        } else {
+            archive
+        };
         let set = archive
             .recovery_set()
             .await?
             .context("S3 seed head missing")?;
-        ensure!(
-            set.tail_entries() > 0,
-            "native S3 seed fixture did not archive an LTX tail"
-        );
+        match image_storage {
+            RaftImageStorage::Materialized => ensure!(
+                set.tail_entries() > 0,
+                "native S3 seed fixture did not archive an LTX tail"
+            ),
+            RaftImageStorage::Extents => ensure!(
+                set.tail_entries() == 0 && set.position().index >= tail.version.position.index,
+                "root cut did not cover the post-admission write"
+            ),
+        }
     }
     let source = if lose_quorum {
         primary
@@ -792,11 +1008,11 @@ async fn native_seed_drill(
         }
     };
     match scenario {
-        SeedScenario::Before => store.fail_join_claim_before.store(true, Ordering::Release),
-        SeedScenario::Response => store.fail_join_claim_after.store(true, Ordering::Release),
+        SeedScenario::Before => faults.fail_join_claim_before.store(true, Ordering::Release),
+        SeedScenario::Response => faults.fail_join_claim_after.store(true, Ordering::Release),
         SeedScenario::Confirmation => {
-            store.fail_join_claim_after.store(true, Ordering::Release);
-            store
+            faults.fail_join_claim_after.store(true, Ordering::Release);
+            faults
                 .fail_join_claim_confirmation
                 .store(true, Ordering::Release);
         }
@@ -1015,6 +1231,13 @@ async fn native_seed_drill(
             );
         }
         let learner = joined.cell(namespace.namespace, &registration.birth.scope.cell)?;
+        if image_storage == RaftImageStorage::Extents {
+            let inventory = joined
+                .resource_usage()
+                .extents
+                .context("missing shared extent inventory")?;
+            ensure!(inventory.roots > 0 && inventory.objects > 0 && !inventory.quarantined);
+        }
         ensure!(
             !learner
                 .status()
@@ -1061,6 +1284,12 @@ async fn native_seed_drill(
             .context("learner token query after replication")?;
         assert_eq!(result.result, 6_i64.to_be_bytes());
         ensure!(joined.close().await?.unfinished.is_empty());
+        if image_storage == RaftImageStorage::Extents {
+            ensure!(
+                joined.resource_usage().extents.is_none(),
+                "closed SDK handle retained the inventory lock"
+            );
+        }
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let log = domain
             .run(ReplicaLog::open(
@@ -1082,33 +1311,84 @@ async fn native_seed_drill(
             group.membership()?.joined(target.member)?,
             Some((target.clone(), admitted.joined_at))
         );
-        let image_path = cluster.nodes[3]
+        let cell_directory = cluster.nodes[3]
             .info()
             .data_dir
             .join("raft-cells")
             .join(hex::encode(namespace.namespace.bytes()))
             .join(hex::encode(registration.birth.scope.group.bytes()))
-            .join(hex::encode(registration.birth.scope.incarnation.bytes()))
-            .join("images");
-        let images = GenerationStore::open(
-            image_path,
-            Arc::new(DirectFileSystem),
-            cellar::sdk::consensus::RaftHostOptions::default().images,
-        )?;
-        let applier = ImageApplier::recover(
-            group,
-            images,
-            definitions[3].schema,
-            EnvelopeLimits::default(),
-        )?;
-        assert_eq!(
-            value(applier.current().context("resumed learner image")?.pin())?,
-            6
-        );
-        drop(applier);
+            .join(hex::encode(registration.birth.scope.incarnation.bytes()));
+        if image_storage == RaftImageStorage::Extents {
+            ensure!(
+                !cell_directory.join("images").exists(),
+                "root learner created materialized images"
+            );
+            let store = cellar_ltx::internal::NodeExtentStore::open_serialized(
+                cluster.nodes[3]
+                    .info()
+                    .data_dir
+                    .join("raft-cells/extent-inventory"),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?;
+            let applier = RootImageApplier::recover(
+                group,
+                store,
+                definitions[3].schema,
+                EnvelopeLimits::default(),
+                SnapshotLimits::default().max_image_bytes,
+                &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
+            )?;
+            let current = applier.current().context("resumed root learner image")?;
+            let scratch = cellar_ltx::stream_snapshot::ScratchPool::default();
+            let cache_directory = cell_directory.join("verify-root");
+            std::fs::create_dir_all(&cache_directory)?;
+            let view =
+                current
+                    .image()
+                    .view()
+                    .image(cache_directory, scratch, Default::default())?;
+            let database = cellar_ltx::internal::open_extent_image(
+                view,
+                cellar_ltx::generation::ReadServices {
+                    now_unix_millis: Arc::new(|| 0),
+                    fill_random: Arc::new(|bytes| bytes.fill(0)),
+                },
+            )?;
+            let value: i64 = database
+                .connection()
+                .query_row("SELECT value FROM counter", [], |row| row.get(0))
+                .context("verify reopened root learner bytes")?;
+            ensure!(value == 6);
+        } else {
+            let image_path = cluster.nodes[3]
+                .info()
+                .data_dir
+                .join("raft-cells")
+                .join(hex::encode(namespace.namespace.bytes()))
+                .join(hex::encode(registration.birth.scope.group.bytes()))
+                .join(hex::encode(registration.birth.scope.incarnation.bytes()))
+                .join("images");
+            let images = GenerationStore::open(
+                image_path,
+                Arc::new(DirectFileSystem),
+                cellar::sdk::consensus::RaftHostOptions::default().images,
+            )?;
+            let applier = ImageApplier::recover(
+                group,
+                images,
+                definitions[3].schema,
+                EnvelopeLimits::default(),
+            )?;
+            assert_eq!(
+                value(applier.current().context("resumed learner image")?.pin())?,
+                6
+            );
+            drop(applier);
+        }
         domain.run(log.close()).await??;
         domain.shutdown().await;
-        if from_s3 && !recovering_claim {
+        if (from_s3 || image_storage == RaftImageStorage::Extents) && !recovering_claim {
             let ns = namespace.namespace;
             let cell_name = registration.birth.scope.cell.clone();
             let get = definitions[3].get.clone();
@@ -1242,7 +1522,11 @@ async fn native_seed_drill(
                     cells: vec![registration],
                     peers: vec![],
                     query_origins: vec![],
-                    host: Default::default(),
+                    host: RaftHostOptions {
+                        extents: (image_storage == RaftImageStorage::Extents)
+                            .then(RaftExtentOptions::default),
+                        ..Default::default()
+                    },
                 },
                 RaftCellsServices {
                     listeners: cellar::sdk::NodeRaftListeners {

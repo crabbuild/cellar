@@ -81,6 +81,7 @@ impl ExtentDownload {
         Ok(ExtentFile {
             storage: Arc::new(Storage {
                 file: Mutex::new(self.file),
+                _pin: None,
                 _reservation: self.reservation,
                 blocks,
             }),
@@ -89,9 +90,10 @@ impl ExtentDownload {
     }
 }
 
-// Fields close the anonymous file before refunding disk/file admission.
+// Close the file before releasing local inventory retention or file admission.
 struct Storage {
     file: Mutex<HostFile>,
+    _pin: Option<super::store::RootView>,
     _reservation: ScratchReservation,
     // Derived from independently verified destination bytes only after their
     // complete extent identity matched. At most 64 digests (2 KiB) per file.
@@ -107,6 +109,34 @@ pub struct ExtentFile {
 }
 
 impl ExtentFile {
+    /// Borrow immutable inventory bytes without copying them into a disposable
+    /// file. Verify the opened descriptor independently; its root pin and
+    /// conservative byte/file charge outlive every clone and in-flight read.
+    pub(crate) fn from_local(
+        file: HostFile,
+        reservation: ScratchReservation,
+        pin: super::store::RootView,
+        id: ExtentId,
+    ) -> Result<Self, Error> {
+        let mut storage = Storage {
+            file: Mutex::new(file),
+            _pin: Some(pin),
+            _reservation: reservation,
+            blocks: Vec::new(),
+        };
+        storage.blocks = verify_file(
+            storage
+                .file
+                .get_mut()
+                .map_err(|_| Error::Invalid("poisoned local extent"))?,
+            id,
+        )?;
+        Ok(Self {
+            storage: Arc::new(storage),
+            id,
+        })
+    }
+
     pub fn identity(&self) -> ExtentId {
         self.id
     }

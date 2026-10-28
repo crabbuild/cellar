@@ -5,6 +5,13 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_rooted_archive.rs"]
 mod archive;
+#[path = "support/raft_rooted_download.rs"]
+mod archive_download;
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod archive_faults;
+#[path = "support/raft_rooted_archive_head.rs"]
+mod archive_heads;
 #[path = "support/raft_rooted_execution.rs"]
 mod execution;
 #[path = "support/raft_storage_fault.rs"]
@@ -12,6 +19,8 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/raft_rooted_publication.rs"]
+mod publication;
 #[path = "support/raft_rooted_install.rs"]
 mod snapshot_installs;
 #[path = "support/raft_rooted_snapshot.rs"]

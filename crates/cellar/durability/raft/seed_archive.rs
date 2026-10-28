@@ -20,6 +20,21 @@ pub(crate) struct ReceivedArchiveSeed {
 }
 
 impl ReceivedArchiveSeed {
+    pub(crate) fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+    ) -> Result<PreparedSeed, SnapshotError> {
+        PreparedSeed::from_root_archive(
+            self.grant,
+            self.set,
+            &self.birth,
+            self.schema,
+            self.limits,
+            store,
+            self.reservation,
+        )
+    }
+
     pub(crate) fn scope(&self) -> &GroupScope {
         &self.grant.local().scope
     }
@@ -76,6 +91,10 @@ impl RaftTransport {
     ) -> anyhow::Result<ReceivedArchiveSeed> {
         let deadline = options.deadline.min(self.seed_deadline()?);
         let limits = options.limits;
+        let archive = match options.extents {
+            Some(store) => archive.with_root_store(store),
+            None => archive,
+        };
         let grant = loop {
             match self
                 .request_archive_seed(local.clone(), source.clone(), schema, deadline)

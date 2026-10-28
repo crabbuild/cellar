@@ -77,6 +77,58 @@ impl From<cellar_ltx::generation::GenerationResources> for RaftImageUsage {
     }
 }
 
+/// Complete shared node inventory, including durable roots kept after a cell
+/// closes and disposable workspaces whose physical owners have not exited.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct RaftExtentUsage {
+    #[serde(serialize_with = "decimal")]
+    pub bytes: u64,
+    #[serde(serialize_with = "decimal")]
+    pub max_bytes: u64,
+    pub objects: usize,
+    pub max_objects: usize,
+    pub roots: usize,
+    pub max_roots: usize,
+    pub root_extents: usize,
+    pub max_root_extents: usize,
+    #[serde(serialize_with = "decimal")]
+    pub workspace_bytes: u64,
+    pub workspaces: usize,
+    pub max_workspaces: usize,
+    pub busy: bool,
+    pub quarantined: bool,
+}
+
+impl
+    From<(
+        cellar_ltx::internal::NodeExtentUsage,
+        cellar_ltx::internal::NodeExtentLimits,
+    )> for RaftExtentUsage
+{
+    fn from(
+        (usage, limits): (
+            cellar_ltx::internal::NodeExtentUsage,
+            cellar_ltx::internal::NodeExtentLimits,
+        ),
+    ) -> Self {
+        Self {
+            bytes: usage.bytes,
+            max_bytes: limits.max_bytes,
+            objects: usage.objects,
+            max_objects: limits.max_objects,
+            roots: usage.roots,
+            max_roots: limits.max_roots,
+            root_extents: usage.root_extents,
+            max_root_extents: limits.max_root_extents,
+            workspace_bytes: usage.workspace_bytes,
+            workspaces: usage.workspaces,
+            max_workspaces: limits.max_workspaces,
+            busy: usage.busy,
+            quarantined: usage.quarantined,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct RaftTransportBanks {
     pub control: RaftBudgetUsage,
@@ -196,6 +248,8 @@ pub struct RaftResourceUsage {
     pub sql: Option<RaftSqlUsage>,
     /// None means image accounting is unavailable or a store was quarantined.
     pub images: Option<RaftImageUsage>,
+    /// None when extent storage is absent, closed or its counters are invalid.
+    pub extents: Option<RaftExtentUsage>,
     /// None until a whole scan completes, or if no valid source is available.
     pub groups: Option<RaftGroupResources>,
     /// None if no controller is configured or no valid source was captured.

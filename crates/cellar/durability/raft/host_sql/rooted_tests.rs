@@ -363,7 +363,17 @@ impl Host {
 }
 
 fn class(calls: Arc<AtomicUsize>) -> anyhow::Result<Arc<RaftClass>> {
-    let class = RaftClass::new("Counter", 1, [40; 32])?
+    class_with_blobs(calls, false)
+}
+
+const ARCHIVE_BLOB_BYTES: usize = 32 * 1024;
+
+fn class_with_blobs(calls: Arc<AtomicUsize>, blobs: bool) -> anyhow::Result<Arc<RaftClass>> {
+    let mut class = RaftClass::new("Counter", 1, [40; 32])?;
+    if blobs {
+        class = class.immutable_blobs(super::super::effects::RaftBlobLimits::default())?;
+    }
+    let class = class
         .command("Increment", [41; 32], move |context, input| {
             calls.fetch_add(1, Ordering::SeqCst);
             let delta = i64::from_be_bytes(input.try_into()?);
@@ -374,6 +384,9 @@ fn class(calls: Arc<AtomicUsize>) -> anyhow::Result<Arc<RaftClass>> {
             context
                 .sql()
                 .execute("UPDATE counter SET value=value+?1", [delta])?;
+            if blobs {
+                context.put_blob(&vec![23; ARCHIVE_BLOB_BYTES])?;
+            }
             let value: i64 = context
                 .sql()
                 .query_row("SELECT value FROM counter", [], |row| row.get(0))?;
@@ -600,6 +613,48 @@ async fn extent_snapshot_crosses_authenticated_tls_and_the_sql_worker_then_reope
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extent_archive_capture_includes_the_committed_blob_closure() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let class = class_with_blobs(Arc::new(AtomicUsize::new(0)), true)?;
+    let mut host = Host::open(directory.path(), class, false).await?;
+    let result = async {
+        let (identity, outcome) = host.stage(1, 1).await?;
+        let StageOutcome::Prepared(prepared) = outcome else {
+            anyhow::bail!("new blob command duplicated")
+        };
+        let (view, _) = host.commit(identity, prepared).await?;
+        let Value::ArchiveCut(Some(cut)) = host
+            .call(Action::CaptureArchive {
+                limits: ArchiveLimits::default(),
+            })
+            .await?
+        else {
+            anyhow::bail!("committed blob root was not captured")
+        };
+        assert_eq!(cut.position(), view.position);
+        assert!(cut.memory_bytes() >= ARCHIVE_BLOB_BYTES);
+        drop(cut);
+        assert!(
+            host.call(Action::CaptureArchive {
+                limits: ArchiveLimits {
+                    max_dependencies: 0,
+                    ..Default::default()
+                },
+            })
+            .await
+            .is_err(),
+            "root capture omitted the committed blob closure"
+        );
+        assert_eq!(host.pins.usage(), (0, 0));
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let closed = host.close().await;
+    result?;
+    closed
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn extent_sql_worker_gates_publication_reconciles_receipts_and_reopens() -> anyhow::Result<()>
 {
     let directory = tempfile::tempdir()?;
@@ -630,13 +685,18 @@ async fn extent_sql_worker_gates_publication_reconciles_receipts_and_reopens() -
     };
     assert_eq!(duplicate.receipt(), receipt.receipt());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    // The root cannot accidentally use an old physical archive/effect contract.
-    assert!(host
+    // Archive capture preserves the committed root without creating a flat
+    // image. The publication job owns this cut until its work has joined.
+    let Value::ArchiveCut(Some(cut)) = host
         .call(Action::CaptureArchive {
-            limits: ArchiveLimits::default()
+            limits: ArchiveLimits::default(),
         })
-        .await
-        .is_err());
+        .await?
+    else {
+        anyhow::bail!("committed root was not captured for archival")
+    };
+    assert_eq!(cut.position(), view.position);
+    drop(cut);
     assert_eq!(host.pins.usage(), (0, 0));
     host.close().await?;
     let mut resumed = Host::open(directory.path(), class, true).await?;

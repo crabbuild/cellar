@@ -17,9 +17,9 @@ pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;
 mod resources;
 pub use resources::{
-    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftGroupResources,
-    RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
-    RaftTransportResources,
+    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftExtentUsage,
+    RaftGroupResources, RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage,
+    RaftTransportBanks, RaftTransportResources,
 };
 pub(crate) mod protocol;
 
@@ -34,15 +34,16 @@ pub use crate::raft::effects::{
 pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
-    BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
+    BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, RaftImageStorage, VoterPolicy,
 };
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
-    RaftInspectionScanOptions, RaftNodeDirectoryOptions, RaftPeerNode,
+    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftExtentCacheLimits,
+    RaftExtentLimits, RaftExtentOptions, RaftHostOptions, RaftInspectionScanOptions,
+    RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
@@ -97,7 +98,7 @@ pub mod verification {
     pub use crate::raft::catalog::{
         BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
         InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
-        NodeView, VoterPolicy,
+        NodeView, RaftImageStorage, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,

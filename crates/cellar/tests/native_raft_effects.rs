@@ -56,6 +56,11 @@ async fn alarm_no_traffic_recovery() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn extent_alarm_uses_the_shared_scheduler_after_leader_loss() -> Result<()> {
+    alarms::no_traffic_recovery_storage(RaftImageStorage::Extents).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
 async fn native_alarm_private_intent_is_not_scheduled() -> Result<()> {
     alarms::private_intent().await
 }
@@ -128,6 +133,15 @@ impl Native {
         store: Arc<faults::Store>,
         calls: Arc<AtomicUsize>,
     ) -> Result<Self> {
+        Self::start_storage(limits, store, calls, RaftImageStorage::Materialized).await
+    }
+
+    async fn start_storage(
+        limits: Option<RaftBlobLimits>,
+        store: Arc<faults::Store>,
+        calls: Arc<AtomicUsize>,
+        image_storage: RaftImageStorage,
+    ) -> Result<Self> {
         let root = tempfile::tempdir()?;
         let definition = definition(limits, calls)?;
         let mut namespace = NamespaceConfig::new(
@@ -137,6 +151,7 @@ impl Native {
             definition.schema,
         );
         namespace.voters = VoterPolicy::SingleVoterDevelopment;
+        namespace.image_storage = image_storage;
         let registration = RaftCellRegistration {
             placement: RaftCellPlacement::Replica,
             namespace,
@@ -157,12 +172,18 @@ impl Native {
             },
         };
         let node = public_node::node(root.path(), definition.application.clone()).await?;
-        let service = match public_node::cells(
+        let service = match public_node::cells_many(
             &node,
             definition.application.clone(),
             store.clone(),
-            registration.clone(),
+            vec![registration.clone()],
             false,
+            RaftHostOptions {
+                extents: (image_storage == RaftImageStorage::Extents)
+                    .then(RaftExtentOptions::default),
+                ..Default::default()
+            },
+            Default::default(),
         )
         .await
         {
@@ -253,6 +274,83 @@ impl Native {
         self.node.shutdown(ShutdownMode::Preserve).await?;
         Ok(self.root)
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extent_blob_archive_keeps_dependencies_after_source_removal() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let native = Native::start_storage(
+        Some(RaftBlobLimits::default()),
+        store.clone(),
+        calls.clone(),
+        RaftImageStorage::Extents,
+    )
+    .await?;
+    let receipt = native
+        .write(
+            1,
+            b"extent-backed immutable bytes",
+            Durability::S3,
+            Duration::from_secs(5),
+        )
+        .await?;
+    let duplicate = native
+        .write(
+            1,
+            b"extent-backed immutable bytes",
+            Durability::S3,
+            Duration::from_secs(5),
+        )
+        .await?;
+    ensure!(receipt.id == duplicate.id && receipt.result == duplicate.result);
+    ensure!(calls.load(Ordering::SeqCst) == 1, "duplicate callback ran");
+    let read = native
+        .cell()?
+        .query(
+            native.definition.read.clone(),
+            receipt.result.clone(),
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    ensure!(read.result == b"extent-backed immutable bytes");
+
+    let receiver = tempfile::tempdir()?;
+    let inventory = cellar_ltx::internal::NodeExtentStore::open(
+        receiver.path().join("inventory"),
+        Arc::new(cellar_ltx::DirectFileSystem),
+        Default::default(),
+    )?;
+    let archive = native.archive().await?.with_root_store(inventory);
+    let selected = archive
+        .recovery_metadata()
+        .await?
+        .context("root archive metadata")?
+        .reference();
+    drop(native.close().await?);
+    let set = archive.recovery_set_at(&selected).await?;
+    let reference = RaftBlobReference::decode(&receipt.result)?;
+    ensure!(set.dependencies().count() == 1);
+    ensure!(set
+        .dependencies()
+        .any(|(digest, body)| digest == reference.digest()
+            && body == b"extent-backed immutable bytes"));
+    let dependency = store
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .find(|object| object.location.as_ref().contains("/dependencies/"))
+        .context("selected root Blob dependency")?;
+    store.delete(&dependency.location).await?;
+    ensure!(
+        archive.recovery_set_at(&selected).await.is_err(),
+        "missing selected root dependency was ignored"
+    );
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

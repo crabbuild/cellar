@@ -4,6 +4,57 @@ use super::inventory::{object_name, root_name};
 use super::*;
 
 impl NodeExtentStore {
+    /// Retain an already sealed image without I/O or waiting for a physical
+    /// mutation. The live exact-owner capability pins its root throughout GC;
+    /// native control loops can therefore publish retention using metadata only.
+    pub fn retain_image_reference(
+        &self,
+        key: [u8; 32],
+        revision: u64,
+        image: &SealedImageRoot,
+    ) -> Result<(), StoreError> {
+        if !self.owns_image(image) || key == [0; 32] || revision == 0 {
+            return Err(StoreError::Layout);
+        }
+        let reference = image.reference();
+        let mut state = self.inner.state()?;
+        if state.quarantined {
+            return Err(StoreError::Quarantined);
+        }
+        let root = state
+            .roots
+            .get(&reference.root)
+            .ok_or(StoreError::Missing)?;
+        if root.bytes != u64::from(reference.length)
+            || !Arc::ptr_eq(&root.token, &image.view()._token)
+        {
+            return Err(StoreError::Integrity);
+        }
+        if let Some(before) = state.references.get(&key) {
+            if revision < before.revision {
+                return Ok(());
+            }
+            if revision == before.revision {
+                return if before.reference == reference && before.active {
+                    Ok(())
+                } else {
+                    Err(StoreError::Integrity)
+                };
+            }
+        } else if state.references.len() >= self.inner.limits.max_references {
+            return Err(StoreError::Limit);
+        }
+        state.references.insert(
+            key,
+            ReferenceEntry {
+                revision,
+                reference,
+                active: true,
+            },
+        );
+        Ok(())
+    }
+
     /// The host supplies the complete authoritative marker/archive reference
     /// set. Validate every selected root before changing any retention flags.
     pub fn retain_only(&self, references: &[ExtentRootReference]) -> Result<(), StoreError> {
@@ -198,23 +249,20 @@ impl NodeExtentStore {
     }
 
     pub fn release_reference(&self, key: [u8; 32], revision: u64) -> Result<(), StoreError> {
-        let operation = self.begin()?;
-        let result = (|| {
-            if key == [0; 32] || revision == 0 {
-                return Err(StoreError::Layout);
-            }
-            let mut state = self.inner.state()?;
-            let entry = state.references.get_mut(&key).ok_or(StoreError::Missing)?;
-            if revision < entry.revision {
-                return Ok(());
-            }
-            if revision != entry.revision {
-                return Err(StoreError::Integrity);
-            }
-            entry.active = false;
-            Ok(())
-        })();
-        operation.finish()?;
-        result
+        if key == [0; 32] || revision == 0 {
+            return Err(StoreError::Layout);
+        }
+        // Releasing metadata cannot add an unpinned root to GC's live set.
+        // It needs no physical-operation admission or filesystem work.
+        let mut state = self.inner.state()?;
+        let entry = state.references.get_mut(&key).ok_or(StoreError::Missing)?;
+        if revision < entry.revision {
+            return Ok(());
+        }
+        if revision != entry.revision {
+            return Err(StoreError::Integrity);
+        }
+        entry.active = false;
+        Ok(())
     }
 }

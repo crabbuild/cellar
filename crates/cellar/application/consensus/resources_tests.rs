@@ -59,6 +59,7 @@ fn unavailable_resource_sources_do_not_emit_zero_budgets() {
         max_items: 1,
     };
     let usage = RaftResourceUsage {
+        extents: None,
         business: empty,
         control: empty,
         archive_capture: empty,
@@ -75,6 +76,8 @@ fn unavailable_resource_sources_do_not_emit_zero_budgets() {
     let text = usage.prometheus();
     assert!(text.contains("cellar_raft_sql_sample_available 0\n"));
     assert!(text.contains("cellar_raft_images_sample_available 0\n"));
+    assert!(text.contains("cellar_raft_extents_sample_available 0\n"));
+    assert!(!text.contains("cellar_raft_extents_bytes"));
     assert!(text.contains("cellar_raft_groups_sample_available 0\n"));
     assert!(!text.contains("cellar_raft_groups_leaders"));
     assert!(!text.contains("cellar_raft_images_bytes"));
