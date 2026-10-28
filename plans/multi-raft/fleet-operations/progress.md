@@ -7,15 +7,134 @@ placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
-isolation, the complete maintenance operator workflow and resize remain
-unfinished. Maintenance prepare/cancel/status now have management SDK/admin/CLI
-adapters and explicit Node-owned periodic execution. Verified intact-return
+isolation, grace/rolling/second-failure maintenance and resize remain unfinished.
+The intact operator sequence now includes separate stop/return/resume grants,
+read-only status and explicit Node-owned execution; successor qualification is
+recorded below. Verified intact-return
 resume closes the SDK capacity/slot boundary. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Intact operator stop, retained return and terminal resume
+
+The current implementation extends preparation/cancellation through separately
+granted stop, return and resume. The Node-owned controller retains bounded SDK
+child references, confirms actual signed join, and preserves the original slot
+and exclusion until fresh M9 terminal proof. A separate operator terminal CAS
+then removes only its own active pointer. GET remains read-only; CLI waits for
+actual offline confirmation, canonical retained-return context or full terminal
+completion according to its command. The platform starts the retained process
+separately under the exact M8 process identity.
+
+A cancellation that loses to signed join is recorded as refused without releasing
+resources; the same operation can continue through return/resume. Return admission
+accepts the M7 proof before the next worker checkpoint. Incorrect unexecuted
+resume-profile grants can be corrected before SDK consent exists; admitted scope
+cannot be rebound. Failed live observations with unchanged metadata and no staged
+mutation back off without Root churn. Maximum-size attestation data stays in its
+own canonical grant; checkpoints retain references under the 4-KiB bound.
+
+Main `cd9a9689` is integrated, including its extent-backed recovery changes.
+Materialized canonical-empty archive and lifecycle deadline behavior are retained
+behind the common representation interface. Fleet enrollment/import and namespace
+Root validation explicitly reject extent-backed images until fleet publication,
+inventory and physical replay proofs support their distinct commitments. Ordinary
+extent host/recovery paths remain available. This is a compatibility gap to
+implement, not extent-backed fleet qualification.
+
+The initial `operator-lifecycle-v1`/`v2` checks retained compile/lint defects.
+`operator-lifecycle-v3` passed all-target host/admin Clippy and built native tests,
+then the first new cancellation race aborted on a default-stack overflow. The
+retained crash trace and generated instructions identify the combined lifecycle
+poll frame (about 1.12 MB) nested under the driver frame (about 0.75 MB), before
+caller frames. Stop, return and resume now use separate boxed phase futures and
+checkpoint calls. No stack, timeout, retry or resource bound was increased.
+`operator-lifecycle-v4` then passed both new cancellation races on default stacks.
+Its full CLI case aborted earlier during initial fixture startup: the combined
+test poll frame contributed about 0.67 MB beneath the host startup chain. The
+test is now split into startup, stop, return and resume helpers, with the same
+assertions and production calls. `operator-lifecycle-v5` reached the returned,
+paused boot but its deliberately wrong digest reused the old capacity revision;
+the SDK correctly refused it as PayloadConflict before live proof. The fixture
+now uses a new intended profile revision, retaining the exact Conflict assertion
+for the actual live mismatch. Later deadline probes are retained separately.
+Service diagnostics showed Ready/Offline while the last HTTP snapshot was still
+Verifying/Stopping; the fixture now polls the result concurrently with Root-driven
+route refresh instead of repeating unchanged all-pairs probes. A controlled CLI
+case independently becomes Ready at 850 ms inside a one-second budget: the old
+fixed 500-ms poll returns WaitTimeout, while all nine candidate CLI cases pass
+with shorter final-window delays and unchanged deadlines/submit-once semantics.
+Temporary HTTP body tracing was removed. Maintenance audit SQLite work now runs
+on the console-owned blocking domain before dispatch and through completion.
+The next full run correctly refused a stale peer hint in the manually driven
+resume walk; that fixture now refreshes current discovery before each Root turn
+without bypassing StalePeer or the live five-second proof envelope. An earlier
+source's one-off cancellation deadline remains unexplained despite an unchanged
+binary passing its diagnostic run. These outcomes are not density or reliability
+qualification. Stop retry investigation then identified `TransportError::StalePeer`
+being collapsed into Conflict during local preflight. The controller interpreted
+discovery lag as invalid Ready and produced new consent/checkpoint cycles.
+Preflight now retains the typed observation error; actual scope/root/epoch
+conflicts remain unchanged. The native RPC future-floor test checks the exact
+stale observation, unchanged Root and live node before valid fencing.
+
+Timestamped retained-binary tracing then showed progress through serialized leader
+checks and the second history starting near the final CLI deadline, rather than
+a permanent second-history deadlock. Restart and resume walks now memoize only
+successful immutable catalog validation at the same Root revision. Every call
+still reads Root and checks relevant pins; revision changes repeat full canonical
+validation. Saved candidates omit the memo and reject injection. Physical state,
+profile, quorum, matched progress, leadership and sample-age checks remain live.
+
+The first memo candidate completed terminal work but its CLI observer missed the
+outer deadline; the unchanged binary passed the complete restart on a diagnostic
+run. An earlier resume cohort had one cleanup-result assertion failure whose cause
+remains unproven; its unchanged isolated case and subsequent complete cohort
+passed. Broader handoff qualification separately reproduced snapshot Overloaded in
+the fixture's leader-polling helper after a requested transfer. That helper now
+waits on typed backpressure within its original five-second deadline and still
+requires an actually observed survivor leader. Other errors fail immediately;
+the final observed-leader, data and proof assertions are unchanged. Stop cleanup
+keeps its original accepted outcomes and now reports the unexpected error.
+
+The subsequent broad operator cohort exposed a default-stack overflow during
+fixture startup in the existing departure-cancellation test. Its retained native
+crash trace and ARM prologues place about 538 KiB in the monolithic test poll frame
+beneath the startup chain. Fixture construction now happens in the thin test
+entry point before the unchanged cancellation/restart body. The previously
+aborting case passes on the rebuilt default-stack binary. No assertion, stack,
+startup, deadline or resource limit was relaxed.
+
+Source `43c080a1` passes **1,054 distinct selected cases in 1,054 executions
+of completed passing cohorts**: 826 library, 110 native fleet, nine CLI, two
+ordinary extent-host, 32 rooted extent, 20 snapshot, 17 admin-console, 13 catalog
+and 25 membership-permit cases. The final native binary passes the full intact
+restart and both cancellation races, all nine existing operator CLI cases and
+the selected restart/controller/service/stop/return/resume regressions. Three
+RustFS-only cases are explicitly ignored; the in-process store and loopback TLS
+supply local correctness evidence. Host/admin all-target Clippy and console
+typecheck pass.
+
+The audit matches all **1,678 frozen Rust/Cargo/configuration inputs**, the changed
+console permission type, executable hashes and passing result hashes to the code
+commit. Only completed executions of bit-identical rebuilt artifacts are reused.
+Artifacts remain outside runtime data under
+`qualification/fleet-operations/operator-lifecycle-v19/` and
+`operator-lifecycle-regressions-v4/`. Earlier failed cohorts, diagnostic runs,
+crash traces and prologues remain retained separately; timing repeatability under
+shared-host load is not qualified. This milestone claims lifecycle correctness
+and less repeated catalog work, not a TPS gain. Format/layout, native dependency rules, docs, ten plan tests, the 445-case
+manifest and preflight with 102 reviewed source anchors pass. Repository
+preflight is retained separately in `operator-lifecycle-checks-v1/`.
+
+Next feature order: extent-aware fleet proof integration and scalable bounded
+verification/convergence, then grace expiry, second-failure recovery, gated rolling
+maintenance and production isolation, followed by workload-aware leaders and
+desired capacity/resize. Empty/retired return and deployed fault/performance/soak
+remain unqualified. FO-07/FO-08 and the full fleet goal remain in progress.
 
 ## Maintenance management and Node-owned preparation
 

@@ -58,7 +58,7 @@ and its shared disruption slot held. Cancellation still owns a synced exact
 process Fence. Stop requires separate consent and fresh receiving-owner proof;
 readiness does not start the repair-delay clock or authorize new boot, capacity
 resume or slot release. The separate stop/join and M8 return boundaries follow;
-M9 verified resume is a separate SDK boundary described below; the complete maintenance operator driver remains required.
+M9 verified resume is a separate SDK boundary described below; the independently granted operator sequence is described below.
 
 ## Separate maintenance stop and joined confirmation
 
@@ -113,9 +113,60 @@ receiving Node still renews current physical/quorum proof, and a synced Fence
 still defeats delayed stop. The protocol adds `/stop-consent-refresh-1`; markers
 stay at 1, with matching binaries/fresh prefixes and no legacy reader.
 The M8/M9 SDK return and verified-resume boundaries below are delivered.
-Grace/rolling/second-failure handling and complete maintenance SDK/admin/CLI
-operation sequencing remain delivery work. Use matching binaries and fresh
+Grace/rolling/second-failure handling remains delivery work. The intact
+maintenance SDK/admin/CLI sequence now composes these boundaries. Use matching binaries and fresh
 data prefixes for the current protocol fingerprint. Numeric markers remain 1.
+
+## Independently granted maintenance operator sequence
+
+The Root-driven operator composes M1–M9 through bounded durable child references.
+The original prepare request fixes its node, full boot, grace and birth decision.
+Separate authenticated human stop, return and resume grants are journaled before
+any corresponding SDK effect. They do not themselves stop, boot, open admission
+or restore capacity. Stop fixes the original process and physical stop child;
+return fixes a distinct process on the retained engine; resume fixes the actual
+returned boot, intended resource profile and resume child.
+
+The Node-owned service repeats fresh Ready/stop proof where necessary, retains
+one immutable physical stop scope across consent refresh and confirms only the
+actual signed joined closure. Canonical offline state admits the next human
+return grant even if the worker has not advanced its next checkpoint. The
+platform starts the retained engine separately under M8; read-only return context
+is deployment data, never startup authority by itself.
+
+The resume driver retains only an ephemeral current-voter proof walk. A stopped
+controller restores canonical child identities from Root and repeats observations.
+M9 consent precedes receiver-owned reopening. Fresh terminal verification then
+restores Active capacity and releases the original shared disruption slot. Only
+after actual M9 completion does a separate terminal operator CAS remove its own
+active pointer. Historical reads neither execute effects nor delete later work.
+Checkpoint records contain bounded references rather than copied attestations or
+samples; the existing 4-KiB value bound and five-second proof envelope remain.
+
+If cancellation wins before stop executes, its exact synced fence blocks delayed
+shutdown. If actual joined stop wins, the driver confirms M7 and journals a
+cancellation refusal bound to that signed closure. Refusal releases nothing and
+permits return/resume to continue. A timeout, closed port or missing reply cannot
+produce this refusal or an offline fact. An incorrect unexecuted resume profile
+can be replaced by a new human request before SDK consent admission; afterward
+the intended scope is immutable. Failed live checks with unchanged metadata and
+no staged mutation back off without churning Root. Root drift or a staged
+uncommitted child is fenced before a new child identity is used.
+
+A stale discovery hint at transport preflight reports the typed
+`Observation(StalePeer)` failure. It has not invalidated Ready or the admitted
+physical scope, so the owned service keeps the exact consent/checkpoint while
+discovery catches up. Actual receiver/root/epoch conflicts still require
+re-verification. Missing responses still retain unknown-outcome semantics.
+
+The protocol adds `/extent-owners-1/operator-lifecycle-1`, with markers still 1,
+matching binaries and fresh data prefixes. Managed namespaces and imported fleet
+histories currently require materialized images. Main's extent-backed image
+commitments cannot substitute for the existing materialized fleet publication
+and physical archive proofs; binding, Root validation and declaration reject
+that unsupported combination. Ordinary extent-backed Raft recovery remains
+available. Extent-aware fleet proof support, grace expiry, rolling orchestration,
+second-failure handling and resize remain required.
 
 ## Retained-engine return and startup exclusion
 
@@ -427,7 +478,7 @@ shares one per-Node service slot across independent clients. It resumes Root
 intent after caller/controller loss. Active rounds share one original deadline,
 a soft quantum and at most sixteen complete steps; idle/blocked work is paced
 separately. No counter or status field restores health evidence. Reads never
-start execution. See the [operator workflow](operator-workflows.md#maintenance-preparation-and-cancellation).
+start execution. See the [operator workflow](operator-workflows.md#intact-maintenance-operator-workflow).
 
 The independently authorized stop/return/resume management sequence, grace expiry
 and rolling operations remain required for the complete workflow. See
@@ -518,3 +569,18 @@ checks lifecycle fences and removal; FO-08 checks operator semantics; FO-09
 checks scaling/profile sequencing; FO-10 checks the deployed workflows and SLO.
 Their named cases in [tasks.json](tasks.json) must exercise these boundaries.
 No package status advances because this contract has been written.
+
+## Same-Root immutable validation reuse
+
+Restart and resume walks may retain successful canonical catalog validation in
+memory for the same Root revision. Every use still reads Root and checks the
+relevant table, inventory, separation and disruption pins. A changed revision
+requires the full canonical gate or returned-cut validation, including settlement
+exclusion. Serialized candidates omit this memo; decoding cannot restore or inject
+it. A recreated controller or receiver repeats validation.
+
+This reuse carries no sample age, physical inventory, current profile, quorum,
+matched-progress or leadership proof. Those observations and their original
+five-second envelope remain live requirements. Same-Root memoization reduces
+repeated immutable journal reconstruction; it does not qualify hundreds of
+histories or allow an expired walk to publish.

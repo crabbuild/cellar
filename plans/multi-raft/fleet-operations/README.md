@@ -4,9 +4,9 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. The current maintenance management source passes 955 distinct selected cases
-in 955 executions of completed passing cohorts. Earlier fixture probes are
-retained; older-source Overloaded and observation causes remain unproven.
+with local verification. Intact operator maintenance now includes independent
+stop/return/resume grants and terminal operator cleanup. The [progress log](progress.md)
+records exact selected test counts, retained failures and qualification limits.
 Deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
 controller are implemented. The operator SDK/admin/CLI now exposes keep-set
@@ -65,8 +65,11 @@ Management SDK/admin/CLI prepare/cancel/status commands and explicit Node-owned
 periodic preparation now have end-to-end coverage, including requester loss,
 Node cancellation/join, unknown admission and independent permissions. Waiting
 polls only read-only status; a cancelled preparation cannot report Ready success.
-The complete management stop/return/resume sequence, rolling/failure/grace policy
-and resize remain delivery targets. Graceful departure now reports typed proof waiting without
+The complete management stop/return/resume sequence now retains exact children
+through controller loss and unknown replies. Actual signed join refuses later
+cancellation without releasing the slot; fresh terminal resume restores capacity
+and clears only its own operator pointer. Rolling/failure/grace policy and resize
+remain delivery targets. Graceful departure now reports typed proof waiting without
 consuming a history or releasing the disruption slot. Status retains local progress
 only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
 native qualification passes, while the underlying intermittent observation cause
@@ -77,11 +80,24 @@ Controller-driven spare selection, admission and settlement after trusted
 isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,
 without releasing that action's debt. Automatic failure
-classification and a production isolation provider remain unfinished. The next
-priorities are the independent stop/return/resume management sequence and its
-terminal operator cleanup, followed by grace/rolling/second-failure handling,
-production isolation, scalable verification/convergence, leader balancing and resize. Empty/retired returned-node and large-fleet qualification remain open. Unconfirmed closure keeps movement
-debt charged.
+classification and a production isolation provider remain unfinished.
+
+The next feature gates are:
+
+1. Support extent-backed fleet publication, inventory and physical replay proofs.
+   Main's ordinary extent recovery is integrated; managed extent namespaces
+   currently refuse because fleet proofs do not yet support their commitments.
+2. Reduce and qualify complete verification/convergence work at hundreds of
+   histories under the existing freshness and foreground resource bounds. The
+   current milestone removes repeated same-Root immutable catalog validation;
+   physical, voter, leadership and sample-age checks remain live.
+3. Deliver grace expiry, second-failure handling, gated rolling maintenance and
+   a production exact-boot isolation provider.
+4. Add workload-aware leader balancing and safe desired capacity/resize.
+
+Empty/retired returned-node and deployed large-fleet qualification remain open.
+Unconfirmed closure keeps movement debt charged. `tasks.json` retains exact
+package status; the intact workflow does not complete FO-07, FO-08 or the goal.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware
 leadership balancing, and operator-controlled node addition, maintenance and

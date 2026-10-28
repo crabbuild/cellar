@@ -231,10 +231,10 @@ cargo test -p cellar --test native_raft_fleet_enrollment --locked \
   fleet_isolated_repair_service_ -- --test-threads=1
 ```
 
-## Maintenance preparation and cancellation
+## Intact maintenance operator workflow
 
-Maintenance preparation, read-only status and cancellation now use the shipped
-CLI and authenticated admin API. The server must explicitly start and retain
+Maintenance preparation, stop, return, verified resume, read-only status and
+cancellation use the CLI and authenticated admin API. The server must explicitly start and retain
 `RaftFleetControl::start_maintenance_service` on an enrolled Node observer, with
 the complete configured namespace handles and movement evidence when needed.
 The Node job set owns execution, cancellation and join, including when the
@@ -282,15 +282,72 @@ activation is a separate operation. Cancellation cannot override accepted stop.
 | `POST /nodes/{node}/prepare-maintenance` | `fleet_maintenance`; audited canonical human intent, HTTP 202 |
 | `GET /maintenance/{operation}` | `metadata_read`; one Root snapshot, no physical or metadata mutation |
 | `POST /nodes/{node}/cancel-maintenance` | `fleet_cancel`; audited cancellation intent, HTTP 202 |
+| `POST /nodes/{node}/maintenance-actions`, action `stop` | `fleet_stop`; separate exact-process/child grant, HTTP 202 |
+| Same endpoint, action `return` | `fleet_maintenance`; distinct retained-return process grant, HTTP 202 |
+| Same endpoint, action `resume` | Both `fleet_maintenance` and `fleet_capacity`; exact profile/boot grant, HTTP 202 |
 
 `operate`, stop, registration and capacity grants do not imply maintenance
 permission. The status reports original boot/process/epoch, human principal,
 Root revisions, durable phase, execution ID and historical Ready/cancellation
 references. It carries no live health lease. The CLI checks the pinned catalog,
 node, operation, request and admission revisions before displaying a confirmed
-command result. Separate maintenance stop, return and resume management commands,
-grace expiry and rolling operations remain unfinished; the SDK backends for
-M6–M9 exist, but this section does not claim their operator workflow is delivered.
+command result. Each command below retains the original operation ID and uses a
+new request ID and the latest observed revision. Keep its exact payload after
+an unknown outcome; retrying with changed IDs does not reconcile that outcome.
+
+```sh
+cellar raft fleet nodes stop-maintenance "$NODE" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$OP" --request-id "$STOP_REQUEST" --expected-revision "$CURRENT_REVISION" \
+  --expected-process "$PROCESS" --stop-id "$STOP_CHILD" --wait --json
+cellar raft fleet nodes return-maintenance "$NODE" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$OP" --request-id "$RETURN_REQUEST" --expected-revision "$CURRENT_REVISION" \
+  --next-process "$NEXT_PROCESS" --wait --json
+```
+
+Stop waiting succeeds only after actual signed Node/domain/engine join has been
+confirmed offline. The Node renews live proof before accepting shutdown. Return
+waiting succeeds when the SDK retained-return consent is canonical; it does not
+start a process. Read `returning` from status or
+`FleetCatalog::restart_operator_return_request` for the deployment handoff.
+The platform/operator restarts the same retained engine with `LogOpenMode::Resume`
+and that exact new `ProcessGeneration`. Managed startup consumes the SDK M8
+consent, syncs the new boot and closed application gate, and publishes endpoints
+while placement capacity stays excluded and the disruption slot remains held.
+
+Obtain the actual returned boot and resource-profile attestation, including the
+intended open profile, before the separate resume grant:
+
+```sh
+cellar raft fleet nodes resume-maintenance "$NODE" --fleet F --catalog-id "$CATALOG" \
+  --operation-id "$OP" --request-id "$RESUME_REQUEST" --expected-revision "$CURRENT_REVISION" \
+  --attestation capacity.json --resume-id "$RESUME_CHILD" --wait --json
+```
+
+The worker repeats the complete returned-inventory/current-voter walk, admits
+M9 consent, invokes receiver-owned resume, then repeats the proof for terminal
+completion. Physical reopening alone releases neither capacity exclusion nor the
+slot. `resume-maintenance --wait` succeeds only at canonical `complete` with its
+terminal operator revision. The terminal checkpoint removes only this operation's
+active pointer after actual M9 completion; historical status cannot clear a later
+operation. Wrong unexecuted profile grants can be corrected with a new human
+request before any SDK resume consent exists. Once that consent exists, its scope
+is fixed. Unchanged failed live observations back off without repeated Root writes.
+
+A cancellation that loses to actual joined stop is recorded as refused, returns
+blocked exit 4 to its waiter, and cannot reopen the stopped process or release its
+slot. Return/resume can continue. Lost SDK confirmations and service recreation
+recover canonical children and repeat ephemeral observations. Polling always uses
+read-only GET after one confirmed mutation; no CLI wait drives the controller.
+Near the deadline, polling leaves room for a final observation instead of
+sleeping through the remaining budget. The deadline and mutation count do not
+increase. Stale peer hints retain the exact SDK consent while discovery refreshes;
+they do not trigger another Ready/consent cycle.
+
+This path covers intact retained-engine maintenance. Automatic grace expiry,
+rolling orchestration, second-failure policy, resize and production isolation
+remain unfinished. Fleet enrollment currently requires materialized images;
+extent-backed fleet publication/lifecycle proofs remain a separate integration
+gap. Existing ordinary extent recovery is independent of this operator flow.
 
 ## Remaining command and API contract
 
@@ -404,8 +461,11 @@ configuration, authenticated routes and required namespace/class capabilities.
 
 ## Restart maintenance on an intact node
 
-Use this for a short process/OS update while preserving its volume. Submit
-`maintenance --mode restart` and wait for the `RestartReady` maintenance receipt.
+Use the delivered [intact maintenance commands](#intact-maintenance-operator-workflow)
+for a short process/OS update while preserving its volume. The remainder of this
+section describes the still-required grace/rolling policy; the older proposed
+`maintenance --mode restart` syntax is not an implemented command. Preparation
+waits for the historical `RestartReady` maintenance receipt.
 It proves the checked groups have two eligible surviving voters and that handoff
 was observed. Submit `nodes stop` with that maintenance operation, readiness digest
 and exact process generation. It revalidates readiness and invokes the guarded

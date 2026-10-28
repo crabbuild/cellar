@@ -1,9 +1,10 @@
 # Maintenance and rebalancing execution protocols
 
-Status: implementation contract for the proposed managed fleet capability.
+Status: implementation contract for the explicitly configured managed fleet capability.
 Read with [capacity and scaling](capacity-and-scaling.md) and the authority rules
 in the [technical design](design.md). These protocols extend the existing repair
-and leadership primitives; they do not describe behavior already enabled today.
+and leadership primitives. Consult [implementation progress](progress.md) for the
+delivered adapters and remaining qualification; services are explicitly enabled.
 The [lifecycle execution contract](lifecycle-execution.md) adds crash/retry
 ownership, shrink admission fencing, prediction-versus-observation rules and
 the exact evidence behind each operator-visible result.
@@ -46,12 +47,14 @@ historical retries cannot reopen a later operation or release its slot. Neither
 a quiescence response nor gate metadata grants RestartReady, stop or new-boot
 authority. Native qualification is separately recorded in [progress](progress.md).
 
-The reversible gate is a prerequisite within M2–M4, not completion of those
-phases. The bounded historical runtime candidate below now verifies both
-survivor publications per voting history. Rightful genesis materialization,
-matched progress and observed handoff/readiness, guarded maintenance stop, intact-engine rejoin,
-grace expiry, rolling execution and SDK/admin/CLI maintenance surfaces remain
-unfinished. The protocol below is still the full delivery contract.
+The reversible gate is a prerequisite within M2–M4. Separate runtime verification
+checks physical inventory, survivor publication and matched progress, materializes
+rightful admitted genesis members, and observes handoff before readiness. Guarded
+joined stop, retained-engine return and terminal verified resume have SDK owners
+and independent operator grants. Grace expiry, rolling execution, resize and
+deployed scale/fault qualification remain unfinished. The protocol below remains
+the full delivery contract; [progress](progress.md) separates implementation from
+qualification.
 
 ## Incoming-action settlement primitives
 
@@ -87,7 +90,7 @@ worker-exit proofs. The authorization carries the reservation's original target
 boot through placement; registration and fresh seeding recheck the still-active
 canonical reservation. Unrelated descriptors and unpinned low-level permits
 grant no managed physical admission. Current runtime configuration inspection
-and the later readiness/stop boundaries remain work to deliver.
+and the separate readiness/stop adapters enforce their own live proof boundaries.
 
 `reconcile_restart_work` now composes one bounded owned turn under the rooted
 reversible gate. The caller explicitly chooses Finish or Cancel for undecided

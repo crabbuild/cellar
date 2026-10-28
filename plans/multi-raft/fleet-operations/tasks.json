@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "777f560f89fd70e87bb0ffad6490923b7c6bd804",
+  "baseline_revision": "43c080a1521e878e6efee136f76b8c561d510a6a",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -3820,7 +3820,10 @@
         "crates/cellar/durability/raft/fleet_catalog/isolation.rs",
         "crates/cellar-admin/nodes.rs",
         "crates/cellar/durability/raft/fleet_catalog/capacity.rs",
-        "crates/cellar/durability/raft/fleet_catalog/nodes.rs"
+        "crates/cellar/durability/raft/fleet_catalog/nodes.rs",
+        "crates/cellar/durability/raft/archive/representation.rs",
+        "crates/cellar/durability/raft/host_sql/images.rs",
+        "crates/cellar/durability/raft/fleet_stop_transport.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
@@ -3899,10 +3902,18 @@
         "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/status.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/service/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/service/worker.rs",
-        "crates/cellar/tests/support/raft_restart_service_native.rs"
+        "crates/cellar/tests/support/raft_restart_service_native.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/records.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/grants.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/terminal.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/work.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/stop.rs",
+        "crates/cellar/durability/raft/fleet_catalog/maintenance/operator/lifecycle/resume.rs",
+        "crates/cellar/tests/support/raft_restart_operator_lifecycle_native.rs"
       ],
       "steps": [
-        "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. In-place certificate refresh, same-identity maintenance/rejoin and resize remain unfinished.",
+        "Graceful operator departure composes completed keep-set redistribution, exclusion, bounded complete replay, exact-boot finalization, independent human stop consent and signed joined removal. Cancellation now owns a synced stop-epoch fence before Ready/slot release, retains all resource charges and invalidates capacity. Unknown responses reconcile exactly; a changed-root retry retains the stable child fence ID. Already accepted stops and permanent isolation refuse. Explicit requalification and a new operation repeat the complete current inventory proof. Intact maintenance/rejoin is delivered by the separate SDK/operator steps below. In-place certificate refresh and resize remain unfinished.",
         "Owned M1 restart preparation and the reversible physical admission gate are implemented. The higher gate epoch fences preparation-only cancellation; accepted application work drains while consensus and control continue. Gate cancellation owns an exact synced process fence before Ready/slot release, resolves compact immutable parent references within the 4-KiB catalog value bound, and reconciles lost confirmations without releasing later slots. It grants no readiness, stop, boot or capacity. Incoming-action inventory, original birth-capability recovery and exact-boot continuation through RestartPending are implemented. Pending-work reports preserve resource-only debt and grant no readiness. Owned bounded settlement turns now journal namespace actions before I/O, retain cancellation ownership across unknown replies, atomically confirm the actual winner, recover historical receipts and advance admitted movements with explicit evidence/resource blockers. CatalogClear grants no runtime proof. The bounded runtime candidate and remaining lifecycle work are tracked separately below. Qualification is separately attributed in progress.",
         "Build complete index/configuration/permit proof and CAS-bind the removal certificate.",
         "Retain identity tombstones, enforce fresh-registration return after evacuation, and reconcile cancellation with partial effects.",
@@ -3916,7 +3927,12 @@
         "M6/M7 SDK backend qualified at 676752f5: independent Root stop consent references exact Ready/process/child identity; receiving Node-owned work renews physical inventory, both-survivor quorum and matched leadership, then submits a maintenance-specific engine update that consumes its exact synced quiescence and original evidence deadline. Missing proof, basis drift and cancellation fences refuse shutdown. Signed Node/domain/engine join can be journal-confirmed offline while retaining the disruption slot and resource charges. Consent/offline lost confirmations reconcile exact identities. New protocol identity ends in /restart-stop-1. Retained-engine fresh-process return, verified resume, maintenance operator surfaces, grace/rolling/second-failure behavior and in-place stale-consent refresh remain required.",
         "M8 retained-engine return SDK backend locally qualified at 05b38d4b: a separate Root consent pins confirmed signed offline closure and a fresh process. The exclusive engine owner validates the actual persisted predecessor stop, retains the boot nonce across unknown startup confirmations, and atomically syncs a maintenance boot with a closed reversible application gate before publishing endpoints. Root stays RestartPending; resource charges, exclusion and disruption slot remain. Generic projections, reused/wrong processes and replacement engines refuse. M9 catch-up certification, resume/slot release and maintenance operator workflow remain required.",
         "M9 SDK backend locally qualified at aab046e5 implements current returned-boot verification, all-current-voter matched handoff, separate resume consent, independent receiver proof and exact synced quiescence consumption. Fresh Resumed-phase completion restores Active capacity and releases only the original disruption slot while retaining resource charges. Root drift requires fresh same-scope consent; exact journal readers resolve lost confirmations. The maintenance operator driver, grace/rolling/second-failure policy, retirement-after-grace qualification and deployed density remain delivery work.",
-        "Deliver explicit default-off Node-owned maintenance execution using the installed catalog backend/domain and bounded control budget. Share one per-Node service slot across independent clients; cancel/join on Node drain/shutdown, retain Root intent after caller/controller loss and repeat ephemeral proof. Active collection is bounded by an original turn deadline, soft quantum and sixteen complete steps; no idle delay is inserted between every history. Large-fleet freshness remains separately qualified."
+        "Deliver explicit default-off Node-owned maintenance execution using the installed catalog backend/domain and bounded control budget. Share one per-Node service slot across independent clients; cancel/join on Node drain/shutdown, retain Root intent after caller/controller loss and repeat ephemeral proof. Active collection is bounded by an original turn deadline, soft quantum and sixteen complete steps; no idle delay is inserted between every history. Large-fleet freshness remains separately qualified.",
+        "Compose separately granted human stop/return/resume intent with bounded Root-journaled SDK children. Confirm only signed actual joined closure, refuse losing cancellation without releasing its slot, admit retained return at the M7 checkpoint boundary, repeat M9 live verification across controller loss and release the operator pointer only after actual SDK terminal completion. Preserve the 4-KiB checkpoint bound, five-second proof envelope and immutable admitted resume scope; unchanged failed live checks must not churn Root. Grace/rolling/second-failure policy remains unfinished.",
+        "Integrate main extent-backed images with representation-specific fleet publication, physical inventory and independently verified archive proof before permitting managed/imported extent histories. Preserve root commitments and activation authority; never substitute a materialized image digest. Current binding, namespace Root and declaration guards reject this unsupported combination. Ordinary extent-backed recovery remains available.",
+        "Preserve transport preflight StalePeer as a typed observation failure. Discovery lag must retain the exact admitted child/checkpoint instead of inducing Ready/consent refresh Root churn. Actual identity, receiver, epoch and rooted-input conflicts still require their existing recovery paths. Native RPC refuses an impossible revision without changing Root or stopping the node, then exercises valid fencing.",
+        "Reuse successful immutable catalog validation only at the same Root revision in memory. Every use still reads Root and checks relevant table/disruption pins; changed revisions revalidate, decoded candidates cannot restore the memo, and physical/profile/quorum/leadership/freshness checks are never cached. Preserve typed stop StalePeer so discovery lag cannot churn admitted consent.",
+        "Next delivery gates: integrate extent-backed fleet publication/inventory/replay commitments and qualify bounded verification at hundreds of histories before enabling rolling maintenance. Then deliver grace expiry/second-failure handling and production isolation, followed by workload-aware leadership and desired capacity/resize. No timeout establishes isolation or permits minority recovery."
       ],
       "acceptance": [
         "Successful process shutdown alone never certifies evacuation.",
@@ -5172,6 +5188,52 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_restart_operator_cancel_fences_held_stop_consent_before_physical_effect",
+          "oracle": "A separately admitted human cancellation wins against a held M6 CAS, prevents physical shutdown and completes only through the actual synced fence and SDK terminal receipt; the live node remains usable.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_restart_operator_joined_stop_refuses_cancel_and_confirms_offline_without_slot_release",
+          "oracle": "Actual signed join precedes cancellation. The controller confirms M7, admits independent return at the intermediate offline checkpoint, journals refusal and preserves the original active operation, exclusion and disruption slot.",
+          "invariants": [
+            "F02",
+            "F03",
+            "F04",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "runtime_catalog_memo_cannot_be_restored_or_injected",
+          "oracle": "A saved catalog candidate omits the ephemeral validation memo; decoding starts empty and attempts to inject the field refuse. Actual Root and live health checks remain mandatory.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "resume_catalog_memo_cannot_be_restored_or_injected",
+          "oracle": "A saved catalog candidate omits the ephemeral validation memo; decoding starts empty and attempts to inject the field refuse. Actual Root and live health checks remain mandatory.",
+          "invariants": [
+            "F03",
+            "F10"
+          ]
+        },
+        {
+          "name": "managed_namespace_refuses_extent_commitments_without_fleet_proof_support",
+          "oracle": "Ordinary extent-backed namespace roots remain valid while managed extent commitments refuse until fleet publication/inventory/replay proofs understand them. Managed materialized roots remain supported.",
+          "invariants": [
+            "F01",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -5334,16 +5396,18 @@
         "crates/cellar/fleet/management/raft/maintenance/records.rs",
         "crates/cellar-admin/raft_maintenance.rs",
         "crates/cellar/cli/raft_cli/maintenance.rs",
-        "crates/cellar/tests/support/raft_operator_maintenance_native.rs"
+        "crates/cellar/tests/support/raft_operator_maintenance_native.rs",
+        "crates/cellar/tests/support/raft_operator_restart_native.rs"
       ],
       "steps": [
-        "Delivered keep-set begin/status/progress/wait/cancel, node add/status/qualify/activate, and graceful evacuate/prepare-removal/exact stop/remove/status through SDK, authenticated admin and CLI. Capacity and replay use explicitly configured native services. Separate lifecycle grants, canonical durable stop consent, complete replay and signed physical closure preserve authority; exact retries recover historical receipts. Maintenance/rejoin, dry-run and resize remain unfinished. Node cancel-evacuation is delivered through the same independent fleet_cancel grant, canonical audit and exact selector validation; it returns excluded Ready and supports explicit cancellation/requalification/restart recovery.",
+        "Delivered keep-set begin/status/progress/wait/cancel, node add/status/qualify/activate, and graceful evacuate/prepare-removal/exact stop/remove/status through SDK, authenticated admin and CLI. Capacity and replay use explicitly configured native services. Separate lifecycle grants, canonical durable stop consent, complete replay and signed physical closure preserve authority; exact retries recover historical receipts. Intact maintenance/rejoin now has independent grants and owned execution; grace/rolling/second-failure orchestration, dry-run and resize remain unfinished. Node cancel-evacuation is delivered through the same independent fleet_cancel grant, canonical audit and exact selector validation; it returns excluded Ready and supports explicit cancellation/requalification/restart recovery.",
         "Implement proposed operator-workflows.md commands and SDK/API phase/error contracts.",
         "Enforce operation-specific permissions, canonical request identity, expected revisions and audit.",
         "Provide dry-run, paginated status, wait and cancel without hidden infrastructure termination.",
         "Expose activate, resize, guarded child stop, rolling maintenance and explicit capacity-only versus balanced completion through the same audit/permission model.",
         "Report exact read-only quorum observation failures as typed nonterminal proof blockers, retaining the pending history and counts. Status exposes only local progress at the same root. Revalidate the root and original deadline before acknowledging waiting; never convert unknown finalization/removal mutations or storage errors into progress. CLI --wait advances acknowledged proof steps under its existing deadline and stops on unknown mutation outcomes.",
-        "Deliver maintenance prepare/cancel/status management SDK/admin/CLI adapters. Require independent fleet_maintenance preparation and fleet_cancel cancellation grants; audit before dispatch, pin catalog/node/process and canonical request identity, submit mutations once and use only read-only GET for waiting. Exact Root status never starts execution or restores health. Separate stop/return/resume management sequencing remains unfinished."
+        "Deliver maintenance prepare/cancel/status management SDK/admin/CLI adapters. Require independent fleet_maintenance preparation and fleet_cancel cancellation grants; audit before dispatch, pin catalog/node/process and canonical request identity, submit mutations once and use only read-only GET for waiting. Exact Root status never starts execution or restores health. Separate stop/return/resume management sequencing is delivered by the following step.",
+        "Expose independent stop/return/resume maintenance grants through SDK, audited admin and CLI. Stop requires fleet_stop, return fleet_maintenance, resume both fleet_maintenance and fleet_capacity. Read-only waits require actual M7, canonical M8 context and M9 plus terminal operator completion respectively; no platform provisioning or hidden mutation retry. Lost confirmation, controller recreation, cancellation refusal and correction of an unexecuted profile retain canonical identities and capacity/slot boundaries."
       ],
       "acceptance": [
         "Future command examples become runnable and tested.",
@@ -5635,6 +5699,28 @@
           "oracle": "After one confirmed preparation POST, a canonical Cancelled status from read-only polling returns blocked exit 4 instead of Ready success; no mutation retry or credential disclosure occurs.",
           "invariants": [
             "F02",
+            "F03",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity",
+          "oracle": "Actual CLI/admin with independent roles prepares a primary, confirms signed shutdown, refuses post-join cancellation, grants retained M8 return, boots paused, corrects an unexecuted wrong profile without Root churn, reconciles a lost M9 consent across service recreation, restores verified capacity and releases only terminal ownership. Both histories preserve SQL values 7 to 12 to 14 and status remains read-only.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_operator_maintenance_prepare_wait_observes_ready_before_deadline",
+          "oracle": "Independent backend readiness at 850 ms is observed within the existing one-second CLI budget, with one mutation and bounded read-only GET. The unchanged fixed 500-ms control sleeps through its last observation and times out; cancellation remains blocked with one POST and one GET.",
+          "invariants": [
             "F03",
             "F08",
             "F10"
