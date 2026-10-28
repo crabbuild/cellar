@@ -112,6 +112,8 @@ async fn recovery_observations_have_distinct_phases_and_minute_scale_buckets() -
         "recovery_install",
         "recovery_archive_wait",
         "snapshot_encode_queue",
+        "archive_physical_admission",
+        "archive_physical_queue",
     ] {
         assert!(
             snapshot.operations.iter().any(|sample| sample.name == name),

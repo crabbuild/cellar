@@ -18,6 +18,11 @@ use std::{
 pub struct Metrics {
     pub max_read: AtomicUsize,
     pub max_write: AtomicUsize,
+    pub random_write_calls: AtomicUsize,
+    pub random_write_window_calls: AtomicUsize,
+    pub native_random_windows: AtomicBool,
+    pub file_sync_calls: AtomicUsize,
+    pub dir_sync_calls: AtomicUsize,
     pub active_handles: AtomicUsize,
     pub fail_append: AtomicBool,
     pub fail_sync: AtomicBool,
@@ -58,6 +63,38 @@ impl File {
         }
         Ok(())
     }
+
+    fn write_at(&mut self, offset: u64, bytes: &[u8], window: bool) -> io::Result<()> {
+        self.metrics
+            .max_write
+            .fetch_max(bytes.len(), Ordering::Relaxed);
+        let bound = if window { 4 * 1024 * 1024 } else { 65536 };
+        if bytes.len() > bound {
+            return Err(io::Error::other("unbounded positional write"));
+        }
+        self.metrics
+            .random_write_calls
+            .fetch_add(1, Ordering::AcqRel);
+        let mut write = |bytes: &[u8]| {
+            if window {
+                self.inner.write_all_at_window(offset, bytes)
+            } else {
+                self.inner.write_all_at(offset, bytes)
+            }
+        };
+        if self.metrics.fail_append.swap(false, Ordering::AcqRel) {
+            write(&bytes[..bytes.len() / 2])?;
+            return Err(io::Error::other("uncertain partial random write"));
+        }
+        if self.metrics.corrupt_output.swap(false, Ordering::AcqRel) {
+            let mut corrupt = bytes.to_vec();
+            if let Some(byte) = corrupt.last_mut() {
+                *byte ^= 1;
+            }
+            return write(&corrupt);
+        }
+        write(bytes)
+    }
 }
 
 impl HostFileIo for File {
@@ -92,19 +129,21 @@ impl HostFileIo for File {
     }
 
     fn write_all_at(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
-        self.write_bound(bytes.len())?;
-        if self.metrics.fail_append.swap(false, Ordering::AcqRel) {
-            self.inner.write_all_at(offset, &bytes[..bytes.len() / 2])?;
-            return Err(io::Error::other("uncertain partial random write"));
-        }
-        if self.metrics.corrupt_output.swap(false, Ordering::AcqRel) {
-            let mut corrupt = bytes.to_vec();
-            if let Some(byte) = corrupt.last_mut() {
-                *byte ^= 1;
+        self.write_at(offset, bytes, false)
+    }
+
+    fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        self.metrics
+            .random_write_window_calls
+            .fetch_add(1, Ordering::AcqRel);
+        if self.metrics.native_random_windows.load(Ordering::Acquire) {
+            self.write_at(offset, bytes, true)
+        } else {
+            for (index, chunk) in bytes.chunks(65536).enumerate() {
+                self.write_all_at(offset + (index * 65536) as u64, chunk)?;
             }
-            return self.inner.write_all_at(offset, &corrupt);
+            Ok(())
         }
-        self.inner.write_all_at(offset, bytes)
     }
 
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
@@ -132,6 +171,7 @@ impl HostFileIo for File {
     }
 
     fn sync_all(&mut self) -> io::Result<()> {
+        self.metrics.file_sync_calls.fetch_add(1, Ordering::AcqRel);
         if self.metrics.fail_sync.swap(false, Ordering::AcqRel) {
             return Err(io::Error::other("uncertain file sync"));
         }
@@ -253,10 +293,11 @@ impl FileSystem for BoundedFiles {
     }
 
     fn sync_all(&self, path: &Path) -> io::Result<()> {
-        if DirectFileSystem.metadata(path)?.is_dir
-            && self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel)
-        {
-            return Err(io::Error::other("injected directory sync failure"));
+        if DirectFileSystem.metadata(path)?.is_dir {
+            self.metrics.dir_sync_calls.fetch_add(1, Ordering::AcqRel);
+            if self.metrics.fail_dir_sync.swap(false, Ordering::AcqRel) {
+                return Err(io::Error::other("injected directory sync failure"));
+            }
         }
         DirectFileSystem.sync_all(path)
     }

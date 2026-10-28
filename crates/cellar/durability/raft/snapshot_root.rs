@@ -9,7 +9,7 @@ use crate::raft::{catalog::GroupBirth, member_state::GroupMembership, rooted::Ro
 use cellar_ltx::internal::{
     ExtentId, ExtentManifest, ExtentRootReference, ImageBinding, NodeExtentStore, SealedImageRoot,
 };
-use std::{collections::BTreeSet, io, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 #[path = "snapshot_root_stream.rs"]
 mod stream;
@@ -376,17 +376,7 @@ impl RootSnapshotSet {
                 "extent outside received root or wrong length",
             ));
         }
-        store.put_extent(id, |offset, count| {
-            let start = usize::try_from(offset)
-                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
-            let end = start
-                .checked_add(count)
-                .ok_or(io::ErrorKind::InvalidInput)?;
-            bytes
-                .get(start..end)
-                .map(<[u8]>::to_vec)
-                .ok_or_else(|| io::ErrorKind::UnexpectedEof.into())
-        })?;
+        store.put_extent_bytes(id, bytes)?;
         Ok(())
     }
 
