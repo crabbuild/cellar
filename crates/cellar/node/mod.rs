@@ -15,6 +15,7 @@
 //! monotonic lease timers.
 
 mod sandbox_erasure;
+pub use sandbox_erasure::SandboxErasurePolicy;
 
 use crate::actor::*;
 use crate::bucket::Bucket;
@@ -5559,6 +5560,7 @@ async fn async_main(
                 shutdown: shutdown_policy,
                 local_cache_max_bytes,
                 local_cache_prune_period: LOCAL_CACHE_PRUNE_PERIOD,
+                sandbox_erasure: Default::default(),
             },
             #[cfg(all(test, cellar_internal_tests))]
             shutdown_accept_failure_test_active,

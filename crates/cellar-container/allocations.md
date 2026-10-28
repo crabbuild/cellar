@@ -303,6 +303,47 @@ barriers when running; an offline disk cannot be erased remotely. Never remove
 `cell-retirement/` metadata or the local `cell-retirement.sqlite` database while
 delayed calls, replicas or historical logs can still exist.
 
+### Bound fleet collection
+
+Each node consumes pending requests and permanent audit records incrementally.
+Provider listing order is not assumed. Discovery and individual records have
+separate validation; a corrupt record cannot prevent its neighbors from running.
+Attempts retain their scope and concurrency slot until entered local filesystem
+work returns, even if the async deadline expires.
+
+```rust,no_run
+use cellar::sdk::{NodeConfig, SandboxErasurePolicy};
+use std::time::Duration;
+
+fn configure(config: &mut NodeConfig) {
+    config.maintenance.sandbox_erasure = SandboxErasurePolicy {
+        concurrency: 8,
+        scan_period: Duration::from_millis(250),
+        attempt_timeout: Duration::from_secs(20),
+    };
+}
+```
+
+| Control | Default / bound |
+| --- | --- |
+| Concurrent attempts | 8 per node; configurable from 1 to 64 |
+| Discovery interval | 250 ms; positive and at most 60 seconds |
+| Discovery / individual attempt deadline | 20 seconds; positive and at most 60 seconds |
+| Pending scan restart after exhaustion | 1 second; local publication wakes discovery immediately |
+| Permanent audit restart after exhaustion | 30 seconds; the scan itself takes additional time |
+| SQLite development-store listing | Indexed pages of 128 objects; read transactions close between pages |
+| One deletion pass | At most 100 replica objects and 100 local entries |
+
+Pending work normally receives three quarters of available discovery slots;
+audits receive the remainder and any unused pending slots. Slow records retain
+their own slots while completed work frees capacity for later batches. Driver
+shutdown joins active dispatches and releases retained listing responses.
+The queue and admission barriers survive cancellation or a failed attempt.
+
+These bounds control per-node work, not the total completion time of an arbitrary
+backlog. Size the fleet against measured provider/store latency and the recovery
+target; preserve the permanent barriers when applying retention policies.
+
 ## Delivery boundary
 
 This development format uses a hard cutover: retained work tables without the

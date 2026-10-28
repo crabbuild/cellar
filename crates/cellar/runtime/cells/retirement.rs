@@ -2,7 +2,7 @@
 
 //! Permanent admission barriers outside the SQLite/replica subtree being erased.
 use anyhow::{ensure, Context as _, Result};
-use futures_util::TryStreamExt;
+use futures_util::{stream::BoxStream, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -109,14 +109,27 @@ pub(crate) async fn read(
     }
 }
 
+pub(crate) struct Candidate {
+    pub scope: String,
+    location: Path,
+    audit: bool,
+}
+
+type Inventory = BoxStream<'static, object_store::Result<object_store::ObjectMeta>>;
+
+#[derive(Default)]
+struct Scan {
+    stream: Option<Inventory>,
+    resume_at_ms: u64,
+}
+
 /// Fleet barriers share the caller's replica store. Local nodes retain a
 /// separate metadata database; removing a cell never removes these records.
 pub(crate) struct Store {
     store: tokio::sync::OnceCell<Arc<dyn ObjectStore>>,
     prefix: String,
     local: PathBuf,
-    cursor: std::sync::Mutex<[Option<Path>; 2]>,
-    audit: std::sync::atomic::AtomicBool,
+    scans: [tokio::sync::Mutex<Scan>; 2],
 }
 
 impl Store {
@@ -132,8 +145,7 @@ impl Store {
             store,
             prefix,
             local: data.join("cell-retirement.sqlite"),
-            cursor: Default::default(),
-            audit: Default::default(),
+            scans: Default::default(),
         }
     }
 
@@ -151,6 +163,14 @@ impl Store {
 
     pub(crate) async fn get(&self, scope: &str) -> Result<Option<Record>> {
         read(self.backend().await?.as_ref(), &self.prefix, scope).await
+    }
+
+    /// Release paginated provider responses after the driver has joined or
+    /// dropped its dispatches, before the owning execution domain closes.
+    pub(crate) async fn close_scans(&self) {
+        for scan in &self.scans {
+            scan.lock().await.stream = None;
+        }
     }
 
     fn pending_key(&self, scope: &str) -> Path {
@@ -201,58 +221,93 @@ impl Store {
         // Discovery comes first. A crash before the admission barrier is
         // published leaves the full validated request available to finish it.
         self.immutable(&self.pending_key(scope), record).await?;
+        // An active provider listing must not delay durable publication. Only
+        // an idle scan needs waking; a racing exhaustion waits at most 1 s.
+        if let Ok(mut scan) = self.scans[0].try_lock() {
+            scan.resume_at_ms = 0;
+        }
         self.immutable(&key(&self.prefix, scope), record).await
     }
 
-    pub(crate) async fn next(&self) -> Result<Option<Record>> {
-        // Alternate pending publication recovery and permanent-barrier audits.
-        // Audits reclaim delayed object-store writes and caches on returning nodes.
-        let audit = self
-            .audit
-            .fetch_xor(true, std::sync::atomic::Ordering::Relaxed);
-        let index = usize::from(audit);
+    /// Consume at most `limit` metadata entries, retaining the provider stream
+    /// between passes. No ordering assumption or full-inventory rescan is needed.
+    pub(crate) async fn discover(
+        &self,
+        audit: bool,
+        limit: usize,
+        now_ms: u64,
+    ) -> Result<Vec<Candidate>> {
+        ensure!((1..=64).contains(&limit), "invalid erasure discovery bound");
         let directory = if audit { "records" } else { "pending" };
-        let prefix = Path::from(format!("{}cell-retirement/{directory}/", self.prefix));
-        let cursor = self.cursor.lock().unwrap()[index].clone();
-        let mut listed = match cursor {
-            Some(cursor) => self
-                .backend()
-                .await?
-                .list_with_offset(Some(&prefix), &cursor),
-            None => self.backend().await?.list(Some(&prefix)),
-        };
-        let mut first = None;
-        while let Some(entry) = listed.try_next().await? {
-            if first
-                .as_ref()
-                .is_none_or(|prior: &object_store::ObjectMeta| entry.location < prior.location)
-            {
-                first = Some(entry);
-            }
+        let prefix = format!("{}cell-retirement/{directory}/", self.prefix);
+        let mut scan = self.scans[usize::from(audit)].lock().await;
+        if now_ms < scan.resume_at_ms {
+            return Ok(Vec::new());
         }
-        let Some(entry) = first else {
-            *self.cursor.lock().unwrap().get_mut(index).unwrap() = None;
-            return Ok(None);
+        if scan.stream.is_none() {
+            scan.stream = Some(
+                self.backend()
+                    .await?
+                    .list(Some(&Path::from(prefix.clone()))),
+            );
+        }
+        let mut selected = Vec::with_capacity(limit);
+        for _ in 0..limit {
+            let entry = match scan.stream.as_mut().unwrap().try_next().await {
+                Ok(Some(entry)) => entry,
+                Ok(None) => {
+                    scan.stream = None;
+                    // Idle fleets avoid continuous full audits. Fresh local
+                    // publication wakes pending discovery immediately.
+                    scan.resume_at_ms = now_ms.saturating_add(if audit { 30_000 } else { 1_000 });
+                    break;
+                }
+                Err(error) => {
+                    scan.stream = None;
+                    return Err(error.into());
+                }
+            };
+            let scope = entry
+                .location
+                .as_ref()
+                .strip_prefix(&prefix)
+                .and_then(|key| key.strip_suffix(".json"));
+            let Some(scope) = scope.filter(|scope| {
+                cellar_logic::cell::valid_cell_scope(scope)
+                    && scope.contains(':')
+                    && !scope.contains('/')
+            }) else {
+                tracing::warn!(key = %entry.location, "invalid sandbox erasure discovery key");
+                continue;
+            };
+            selected.push(Candidate {
+                scope: scope.into(),
+                location: entry.location,
+                audit,
+            });
+        }
+        Ok(selected)
+    }
+
+    /// Validate each discovered object independently. One unreadable record must
+    /// not block unrelated work, and a concurrent collector may remove pending.
+    pub(crate) async fn load(&self, candidate: &Candidate) -> Result<Option<Record>> {
+        let response = match self.backend().await?.get(&candidate.location).await {
+            Ok(response) => response,
+            Err(object_store::Error::NotFound { .. }) => return Ok(None),
+            Err(error) => return Err(error.into()),
         };
-        self.cursor.lock().unwrap()[index] = Some(entry.location.clone());
-        ensure!(entry.size <= 16 * 1024, "retirement request exceeds limit");
-        let record: Record = serde_json::from_slice(
-            &self
-                .backend()
-                .await?
-                .get(&entry.location)
-                .await?
-                .bytes()
-                .await?,
-        )?;
+        ensure!(
+            response.meta.size <= 16 * 1024,
+            "retirement request exceeds limit"
+        );
+        let record: Record = serde_json::from_slice(&response.bytes().await?)?;
         record.validate()?;
-        let expected = if audit {
-            key(&self.prefix, record.evidence.scope())
-        } else {
-            self.pending_key(record.evidence.scope())
-        };
-        ensure!(entry.location == expected, "retirement request key differs");
-        if !audit {
+        ensure!(
+            record.evidence.scope() == candidate.scope,
+            "retirement request key differs"
+        );
+        if !candidate.audit {
             self.immutable(&key(&self.prefix, record.evidence.scope()), &record)
                 .await?;
         }

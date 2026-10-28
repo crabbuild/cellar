@@ -207,10 +207,10 @@ The native [allocation catalog](../crates/cellar-container/allocations.md)
 now reserves named child identities with durable generations and parent
 retirement barriers. Managed allocations use authenticated child RPC, bounded
 provider execution and scheduled cleanup after explicit parent retirement.
-Native resource deletion verifies exact ID absence. Physical parent/child cell
-data deletion, removed-class orphan discovery, four-language allocation facades
-and broader capacity-placement qualification remain required; manual catalog reservations
-alone do not allocate compute.
+Native resource deletion verifies exact ID absence. Child and opt-in parent
+SQLite/replica erasure, removed-class orphan discovery and four-language allocation
+facades are implemented. Broader capacity-placement qualification remains open;
+manual catalog reservations alone do not allocate compute.
 
 Qualification should increase concurrent allocations until the configured host
 capacity is reached, verify bounded queuing/refusal, then inject owner loss and
