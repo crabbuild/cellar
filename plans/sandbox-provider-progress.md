@@ -2986,3 +2986,54 @@ joined native/Node shutdown and zero upload/part rows. Full OS/RSS and concurren
 multipart qualification, remote storage implementations, abrupt crashes,
 verified-swap/lost-create/transport failures, orphan expiry and all remaining
 SP-02–SP-10 requirements stay open. Live E2B/Vercel qualification remains deferred.
+
+## Persisted upload expiry and bounded orphan collection — 2026-10-27
+
+Local resumable uploads now capture a fixed deadline when their allocation
+obtains SQLite writer admission. The default is seven days. A replacement
+client or changed host policy cannot extend a stored deadline. This advances
+the local R2/backup recovery slice; it does not complete provider lifecycle or
+full Sandbox 1.x qualification.
+
+```mermaid
+stateDiagram-v2
+    Open --> Open: reconnect before deadline
+    Open --> Published: valid completion admitted before expiry
+    Open --> Retired: deadline observed and committed
+    Retired --> Retired: one part reclaimed per pass
+    Retired --> Collected: last part gone
+```
+
+| Boundary | Delivered behavior |
+| --- | --- |
+| Admission | Buffered part installation, stage creation, stage publication and object completion refuse expired/retired uploads |
+| Clock rollback | An expiry observation commits terminal retirement before returning failure; rolling the clock back cannot revive it |
+| Policy change | New deadlines use immutable host configuration; disabling new deadlines does not disable existing ones |
+| Scoped maintenance | Persist the exact canonical encoded host bucket scope; index by scope/status/deadline and never use wildcard matching |
+| Bounded pass | At most 64 retirements, 64 retired cleanup headers and one stored part; never materialize part bodies |
+| Lost response | A dropped maintenance waiter leaves one entered atomic pass; a fresh scan converges without replaying application mutations |
+| Host lifecycle | First Blob-bucket installation starts one domain-owned task; duplicate registration cannot start another scope's collector |
+| Shutdown/restart | Cancel the maintenance timer, join entered transactions, and leave durable backlog for the next host |
+| Completed objects | Abort/expiry/collection do not delete or replace public object bytes |
+| Schema cutover | Refuse older local upload layouts before creating replacement tables; preserve their rows and perform no migration |
+
+The [native upload guide](../crates/cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+documents host configuration and limits. The generic backend capability is
+explicit; S3/GCS and supplied providers do not inherit local expiry guarantees.
+One-part passes bound item counts, not disk latency, SQLite WAL size or total
+backlog. Clock rollback before any expiry observation can delay retirement.
+Collection requires a running host or an explicit host maintenance call.
+
+| Evidence | Result |
+| --- | --- |
+| Local object-store boundary | 34 tests pass, including seven new expiry/reconnect, scope, changed-policy, rollback, overflow, lost-waiter and owned-loop cases |
+| Existing resource controls | Original 64 MiB completion and read RSS checks pass without changing their bounds |
+| Published gateway | Passes in 2.69 seconds with the original frame/handler budgets; lost create response leaves real records, a replacement host with changed policy collects both unknown-ID and uploaded orphans, and completed bytes survive |
+| Native SDK | Blob durability/records/streams/multipart integration passes, retaining original invocation and effect-gate assertions |
+| JS/TS and pinned inputs | 149 tests and both Sandbox 1.x package/source identity checks pass; the changed qualification fixture has a new pinned digest |
+| Static/repository gates | Strict core/shared guest/Node/V8 all-target Clippy, Rust/JS formatting, module layout (1,328 Rust files), native-only graph (482 packages without an engine), docs and whitespace pass |
+
+Full image-level lost-create/transport failure, abrupt-crash recovery,
+larger/multipart and verified-swap cancellation, HTTPS, S3 mounts, remote storage
+expiry, broader provider/fleet cleanup and remaining SP-02–SP-10 requirements
+stay open. Live E2B/Vercel qualification still awaits configuration.

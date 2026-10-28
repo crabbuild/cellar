@@ -209,6 +209,13 @@ S3 mounts. Those remain required delivery steps with the actual helper/image.
 
 ## Native R2 gateway storage
 
+The local store also persists upload deadlines. A gateway-only lost-create
+acknowledgement case leaves real upload state behind, then replaces the native
+host/client and advances its supplied wall clock. Host-owned collection removes
+unpublished records without receiving the lost upload ID, preserves the current
+object, and joins shutdown. This is separate from the matching-image campaign
+and does not qualify transport loss or cloud-provider expiry.
+
 The separate [R2 fixture](r2.mjs) drives the same published
 `DirectoryBackupGateway` against a real native SQLite Blob bucket:
 

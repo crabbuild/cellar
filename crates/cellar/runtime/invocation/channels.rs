@@ -495,7 +495,10 @@ pub(crate) static BLOB_STORE: HostSlot<Bucket> = HostSlot::new(|channels| &chann
 
 /// Give the Blob bindings the fleet bucket to live in.
 pub fn set_blob_store(bucket: Bucket) {
-    let _ = BLOB_STORE.set(bucket);
+    if BLOB_STORE.set(bucket.clone()).is_ok() {
+        #[cfg(not(cellar_internal_tests))]
+        bucket.start_multipart_maintenance();
+    }
 }
 
 /// Why the output gate did not release a ticket.

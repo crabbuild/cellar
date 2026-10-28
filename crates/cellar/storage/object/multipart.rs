@@ -6,6 +6,56 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use object_store::{multipart::MultipartStore, path::Path, MultipartId, PutMultipartOptions};
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Host policy for persistent, unpublished uploads. Deadlines are captured at
+/// allocation; changing this policy never extends an existing upload's life.
+#[derive(Clone, Copy, Debug)]
+pub struct MultipartMaintenancePolicy {
+    /// `None` disables deadlines for new uploads, not already stored deadlines.
+    pub upload_ttl: Option<Duration>,
+    pub idle_interval: Duration,
+    pub backlog_interval: Duration,
+}
+
+impl Default for MultipartMaintenancePolicy {
+    fn default() -> Self {
+        Self {
+            upload_ttl: Some(Duration::from_secs(7 * 24 * 60 * 60)),
+            idle_interval: Duration::from_secs(60),
+            backlog_interval: Duration::from_millis(10),
+        }
+    }
+}
+
+impl MultipartMaintenancePolicy {
+    pub(crate) fn validate(self) -> object_store::Result<()> {
+        if self
+            .upload_ttl
+            .is_some_and(|ttl| ttl.as_millis() == 0 || ttl.as_millis() > i64::MAX as u128)
+            || self.idle_interval.is_zero()
+            || self.backlog_interval.is_zero()
+            || self.idle_interval > Duration::from_secs(24 * 60 * 60)
+            || self.backlog_interval > self.idle_interval
+        {
+            return Err(object_store::Error::Generic {
+                store: "multipart maintenance policy",
+                source: "expected positive millisecond TTL, timers at most one day, and backlog interval <= idle interval".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// One atomic pass: at most 64 retirements, 64 cleanup headers and one stored part. Part
+/// deletion can still take time proportional to that backend's maximum part.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MultipartGcProgress {
+    pub retired_uploads: usize,
+    pub deleted_parts: usize,
+    pub deleted_uploads: usize,
+    pub pending: bool,
+}
 
 /// One unpublished part, staged without retaining its complete body in memory.
 /// Dropping it discards its scratch storage, never the existing part or object.
@@ -25,6 +75,31 @@ pub trait StreamedPart: Send {
 /// require it refuse before an upload is allocated.
 #[async_trait]
 pub trait ResumableMultipartStore: MultipartStore {
+    /// `None` leaves expiry/collection to the external provider. It does not
+    /// advertise Cellar-owned cleanup for that provider.
+    fn maintenance_policy(&self) -> Option<MultipartMaintenancePolicy> {
+        None
+    }
+
+    /// Collect only uploads allocated in this exact host bucket scope. This
+    /// convergent maintenance operation may be repeated after a lost response.
+    async fn reap_expired(&self, _scope: &str) -> object_store::Result<MultipartGcProgress> {
+        Err(object_store::Error::NotSupported {
+            source: "host-owned multipart maintenance is unsupported by this backend".into(),
+        })
+    }
+
+    /// Capture the canonical host scope separately from the full object path.
+    /// Existing provider adapters may delegate when lifecycle is provider-owned.
+    async fn create_scoped(
+        &self,
+        path: &Path,
+        options: PutMultipartOptions,
+        _scope: &str,
+    ) -> object_store::Result<MultipartId> {
+        self.create_with_options(path, options).await
+    }
+
     fn supports_streamed_parts(&self) -> bool {
         false
     }

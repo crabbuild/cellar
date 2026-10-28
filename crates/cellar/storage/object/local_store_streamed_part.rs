@@ -39,7 +39,7 @@ pub(super) async fn begin(
     let fs = crate::asyncrt::fs();
     store_blocking!(move || {
         // Refuse an absent/foreign upload before allocating scratch storage.
-        LocalStore::upload_attributes(&store.connect_reader()?, &key, &id)?;
+        store.validate_upload_sync(&key, &id)?;
         let file = fs
             .temporary_file(store.database.parent())
             .map_err(db_error)?;

@@ -447,7 +447,12 @@ and checks allocation-time cancellation, missing/corrupt archives, destination
 preservation and grant revocation. Selected first-chunk cancellation and failed
 completion/deletion acknowledgements also preserve their failure outcomes without
 mutation replay. Abrupt crashes, larger/multi-part and verified-swap cancellation,
-lost create/transport responses and orphan expiry remain qualification work.
+lost transport responses and full image-level lost-create qualification remain
+open. The published gateway separately covers a failed create acknowledgement
+followed by automatic expiry in a replacement native host. Local Blob storage
+uses fixed deadlines and bounded, domain-owned orphan collection; see the
+[expiry contract](../cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+for scope, shutdown, clock and remote-provider limits.
 
 
 ## Understand lifetime and failure outcomes

@@ -5,6 +5,24 @@ import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { workersApplication } from "../../../packages/cellar-cloudflare/index.js";
 
 let savedBody, savedBinding;
+let lostCreate;
+const lostCreateMessage = "qualification lost create acknowledgement";
+
+// The published gateway commits a real native allocation, then loses its
+// control response. No upload ID is returned to the caller for manual cleanup.
+class LostCreateGateway extends DirectoryBackupGateway {
+  async createUpload(name) {
+    lostCreate.creates++;
+    await super.createUpload(name);
+    throw new Error(lostCreateMessage);
+  }
+
+  async abortUpload(id) {
+    lostCreate.aborts++;
+    return super.abortUpload(id);
+  }
+}
+
 const grant = {
   protocolVersion: 1,
   binding: "BACKUPS",
@@ -26,6 +44,7 @@ class Counter extends DurableObject {
 const app = workersApplication(
   {
     DirectoryBackupGateway,
+    LostCreateGateway,
     Counter,
     default: class extends WorkerEntrypoint {
       async fetch(request) {
@@ -34,6 +53,20 @@ const app = workersApplication(
           props: { ...grant, mode: "control" },
         });
         const uploadId = url.searchParams.get("upload");
+        if (url.pathname === "/lost-create") {
+          lostCreate = { creates: 0, aborts: 0 };
+          try {
+            await this.ctx.exports
+              .LostCreateGateway({ props: { ...grant, mode: "control" } })
+              .createUpload("lost creation");
+            throw new Error("lost create was reported as success");
+          } catch (error) {
+            if (!error.message.includes(lostCreateMessage)) throw error;
+            return Response.json({ ...lostCreate, failed: true });
+          } finally {
+            lostCreate = undefined;
+          }
+        }
         if (url.pathname === "/part-admission") {
           const upload =
             await this.env.BACKUPS.createMultipartUpload("backups/refused");
