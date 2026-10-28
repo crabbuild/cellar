@@ -21,6 +21,7 @@ import time
 from raft_run import ROOT, RUSTFS, read_json, request, require, verify_image
 from run import create_bucket
 from raft_topology import members
+from raft_fleet_storage import Storage, TMPFS_BYTES, validate_storage
 
 LABEL = 'io.cellar.fleet.lab'
 
@@ -70,10 +71,7 @@ def validate_policy(policy):
     charge = policy['image_bytes'] * 8
     require(policy['extent_bytes'] >= charge and policy['replay_extent_bytes'] >= charge,
             'extent inventories cannot cover image work')
-    inventory_overhead = max(0, policy['extent_bytes'] - charge * policy['group_capacity']) \
-        + policy['replay_extent_bytes'] + charge
-    require(policy['resources']['durable_overhead_bytes'] >= inventory_overhead,
-            'durable overhead omits extent/replay storage')
+    validate_storage(policy)
     require(policy['durable_bytes'] >= policy['group_capacity'] * policy['image_bytes'] * 8
             + policy['resources']['durable_overhead_bytes'], 'unbacked image reservations')
     owner = policy['owner']
@@ -127,6 +125,9 @@ def provision(args):
     save_new(root / 'intent.json', report)
     docker = engine(args.context, root)
     try:
+        storage = Storage(docker, save_new, root, prefix, label, args.image, policy,
+                          args.backing_disk)
+        storage.prepare()
         # Docker copies bytes from the client host. A host bind mount would
         # instead resolve inside Colima, where external workspace volumes may
         # be absent. This helper is never started and owns only this config.
@@ -144,11 +145,14 @@ def provision(args):
         require(subnet.version == 4 and subnet.prefixlen <= 24, 'unsupported subnet')
         network_prefix = '.'.join(str(subnet.network_address).split('.')[:3])
         store = prefix + '-store'
-        docker('volume', 'create', '--label', label, store)
+        storage.create('store', policy['storage']['object_store_bytes'])
         docker('run', '--rm', '--network', 'none', '--label', label, '-v', store + ':/data',
                '--entrypoint', 'chown', args.image, '10001:10001', '/data')
         store_id = docker('run', '-d', '--name', store, '--label', label, '--restart=no',
+                         '--read-only', '--tmpfs', '/tmp:rw,nosuid,nodev,size=134217728',
+                         '--tmpfs', '/logs:rw,nosuid,nodev,size=33554432,uid=10001,gid=10001',
                          '--network', prefix, '--network-alias', 'rustfs', '--cpus', '2',
+                         '--log-driver', 'local', '--log-opt', 'max-size=8m', '--log-opt', 'max-file=2',
                          '--memory', '4g', '--memory-swap', '4g',
                          '-p', f'127.0.0.1:{args.port_base}:9000', '-v', store + ':/data',
                          '-e', 'RUSTFS_ACCESS_KEY=' + access, '-e', 'RUSTFS_SECRET_KEY=' + secret,
@@ -163,6 +167,8 @@ def provision(args):
                 require(time.monotonic() < deadline, 'RustFS startup deadline')
                 time.sleep(1)
         common = ['--network', prefix, '--cpus', '1', '--memory', '3g', '--memory-swap', '3g',
+                  '--read-only', '--tmpfs', f'/tmp:rw,nosuid,nodev,size={TMPFS_BYTES}',
+                  '--log-driver', 'local', '--log-opt', 'max-size=8m', '--log-opt', 'max-file=2',
                   '-v', config_volume + ':/config:ro', '-e', f'RAFT_NODES={count}',
                   '-e', f'RAFT_CELLS={args.cells}', '-e', 'RAFT_FLEET_CONFIG=/config/fleet.json',
                   '-e', f'RAFT_NETWORK_PREFIX={network_prefix}',
@@ -172,7 +178,7 @@ def provision(args):
         report['bootstrap'] = boot
         for index in range(1, count + 1):
             name = f'{prefix}-node{index}'
-            docker('volume', 'create', '--label', label, name)
+            mounts = storage.node_mounts(index)
             node_id = bytes([index] * 16).hex()
             container = docker('create', '--name', name, '--label', label,
                                '--label', f"io.cellar.fleet.owner={policy['owner']}",
@@ -182,14 +188,14 @@ def provision(args):
                                '--label', 'io.cellar.fleet.workers=contained',
                                '--restart=no', '--ip', f'{network_prefix}.{index+10}', *common,
                                '--ulimit', 'nofile=65536:65536',
-                               '-v', name + ':/data', '-v', '/var/run/docker.sock:/var/run/docker.sock',
+                               *mounts, '-v', '/var/run/docker.sock:/var/run/docker.sock',
                                '-p', f'127.0.0.1:{args.port_base+index}:8082',
                                '-e', f'RAFT_NODE={index}', args.image)
             (config / f'container{index}').write_text(container + '\n')
             (config / f'container{index}').chmod(0o600)
             docker('cp', str(config / f'container{index}'), config_helper + f':/config/container{index}')
             report['containers'].append(container)
-            save_new(root / f'container-{index}.json', {'container': container, 'volume': name})
+            save_new(root / f'container-{index}.json', {'container': container, 'mounts': mounts})
             docker('start', container)
             deadline = time.monotonic() + 120
             while True:
@@ -204,7 +210,9 @@ def provision(args):
                     pass
                 require(time.monotonic() < deadline, f'node {index} startup deadline')
                 time.sleep(1)
+        storage.verify()
         report['registered'] = True
+        report['bounded_storage'] = True
     finally:
         save_new(root / 'report.json', report)
     print(f'Managed nodes Registered; resources retained in {args.context}: {prefix}')
@@ -243,6 +251,8 @@ def main():
     setup.add_argument('--image', required=True)
     setup.add_argument('--policy', type=Path, required=True)
     setup.add_argument('--output', type=Path, required=True)
+    setup.add_argument('--backing-disk', type=Path, default=Path.home()
+                       / '.colima/_lima/_disks/colima-cellar-raft-perf/datadisk')
     setup.add_argument('--cells', type=int, default=15)
     setup.add_argument('--port-base', type=int, default=19800)
     operator = commands.add_parser('apply')

@@ -30,10 +30,19 @@ fn config() -> Config {
         group_capacity: 8,
         image_bytes: 4 * 1024 * 1024,
         extent_bytes: 1024 * 1024 * 1024,
-        replay_extent_bytes: 256 * 1024 * 1024,
-        durable_bytes: 4 * 1024 * 1024 * 1024,
+        replay_extent_bytes: 128 * 1024 * 1024,
+        durable_bytes: 2752 * 1024 * 1024,
+        storage: config::StorageBounds {
+            metadata_bytes: 128 << 20,
+            raft_bytes: 512 << 20,
+            images_bytes: 2048 << 20,
+            replay_bytes: 384 << 20,
+            object_store_bytes: 4 << 30,
+            snapshot_scratch_bytes: 128 << 20,
+            extent_cache_bytes: 64 << 20,
+        },
         resources: FleetDockerResourcePolicy {
-            durable_overhead_bytes: 2 * 1024 * 1024 * 1024,
+            durable_overhead_bytes: 2176 * 1024 * 1024,
             resident: FleetResourceBounds {
                 engine_slots: 1,
                 durable_bytes: 32 * 1024 * 1024,
@@ -136,6 +145,18 @@ fn managed_config_refuses_unbacked_image_reservations_and_unknown_commands() -> 
     input = config();
     input.resources.durable_overhead_bytes = input.replay_extent_bytes;
     ensure!(input.validate().is_err());
+    input = config();
+    input.extent_bytes = 512 << 20;
+    ensure!(input.validate().is_err());
+    input = config();
+    input.storage.images_bytes = 64 << 20;
+    ensure!(input.validate().is_err());
+    input = config();
+    input.storage.snapshot_scratch_bytes = input.storage.raft_bytes;
+    ensure!(input.validate().is_err());
+    input = config();
+    input.replay_extent_bytes = u64::MAX;
+    ensure!(input.validate().is_err());
     ensure!(serde_json::from_value::<Config>(json!({"unexpected":true})).is_err());
     ensure!(serde_json::from_value::<Command>(json!({"action":"RestartContainer"})).is_err());
     Ok(())
@@ -178,6 +199,14 @@ async fn managed_configuration_opens_the_native_runtime_with_its_installed_bound
         },
     };
     m.configure(&mut options, node).await?;
+    ensure!(
+        options.infrastructure.log.snapshot_scratch.max_bytes
+            == config().storage.snapshot_scratch_bytes
+    );
+    // Mounted fresh filesystems exist before startup. Their empty directory is
+    // valid for Create; retained contents must still refuse a fresh admission.
+    std::fs::create_dir(&options.infrastructure.log.directory)?;
+    let retained_options = options.infrastructure.log.clone();
     let log = m
         .domain
         .run(ReplicaLog::open(
@@ -196,6 +225,14 @@ async fn managed_configuration_opens_the_native_runtime_with_its_installed_bound
         runtime.close().await?;
     }
     log.close().await?;
+    ensure!(m
+        .domain
+        .run(ReplicaLog::open(
+            retained_options,
+            Arc::new(cellar_ltx::DirectFileSystem)
+        ))
+        .await?
+        .is_err());
     m.domain.shutdown().await;
     opened?;
     Ok(())

@@ -398,10 +398,12 @@ async fn main() -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
     let log_dir = node.info().data_dir.join("raft");
-    let mode = if log_dir.exists() {
-        LogOpenMode::Resume
-    } else {
+    // A fresh mounted filesystem already has a directory. Create validates its
+    // contents and refuses retained state; managed startup never resumes it.
+    let mode = if managed.is_some() || !log_dir.exists() {
         LogOpenMode::Create
+    } else {
+        LogOpenMode::Resume
     };
     let peer = &peers[i as usize - 1];
     let mut host = RaftHostOptions {

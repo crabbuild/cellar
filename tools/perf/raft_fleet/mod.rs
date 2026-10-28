@@ -169,6 +169,8 @@ impl Managed {
             namespaces: vec![self.declaration.clone()],
         });
         config.infrastructure.log.max_groups = host.max_groups;
+        config.infrastructure.log.snapshot_scratch.max_bytes =
+            self.config.storage.snapshot_scratch_bytes;
         config.infrastructure.consensus.max_groups = host.max_groups;
         Ok(())
     }

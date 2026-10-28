@@ -12,6 +12,8 @@ The existing static `raft.py` and `raft_run.py` modes are unchanged. Setting
 `RAFT_FLEET_CONFIG=/config/fleet.json` selects managed enrollment in the same
 binary. Managed startup refuses retained volumes; intact return must follow the
 separate maintenance protocol. Do not restart a single-use container.
+An empty filesystem mounted before startup is accepted; its existing directory
+does not select resume mode. The native log still rejects any retained contents.
 
 ## Provisioning
 
@@ -32,16 +34,59 @@ The bounded JSON policy is the `Config` type in
 [config.rs](raft_fleet/config.rs). It contains unique nonzero 16-byte arrays
 `incarnation` and `physical_host`, an alphanumeric/hyphen `owner`, `nodes`,
 `group_capacity`, `image_bytes`, `extent_bytes`, `replay_extent_bytes`,
-`durable_bytes`, and the explicit
+`durable_bytes`, `storage`, and the explicit
 `FleetDockerResourcePolicy` under `resources`. Image reservations charge eight
 copies per slot. Capacity must cover those reservations and durable overhead.
 The node and replay extent inventories enforce their separate explicit byte
-ceilings. Overhead must cover replay storage and any node inventory above the
-per-group reservation total; the generic 64-GiB inventory defaults are not used.
+ceilings. Overhead covers the entire metadata, shared-log and replay filesystems,
+the node extent inventory, extent cache, archive replay image work and bounded container logs.
+Private image reservations are charged separately. The generic inventory and
+snapshot scratch defaults are not used.
 The resource policy is a trusted deployment bound, not a measurement. It must
 account for shared logs, replay/extent inventories, temporary files, workers and
 container data before capacity is qualified. Merely passing configuration
 validation does not establish that the deployment can enforce those bounds.
+
+`storage` supplies MiB-aligned byte ceilings for `metadata_bytes`, `raft_bytes`,
+`images_bytes`, `replay_bytes`, `object_store_bytes`, `snapshot_scratch_bytes`,
+and `extent_cache_bytes`. The node inventory must also admit the native private
+workspace's WAL and capture reservations; image size alone is insufficient.
+The runner provisions separate ext4 filesystems backed by exclusively created,
+random-prewritten files on the dedicated VM data disk. It checks host free space
+before allocation and keeps a 4-GiB reserve. It retains loop/backing-file/UUID
+identities, verifies usable capacity, and never retries formatting or deletes
+files after an unknown outcome. Native roots are read-only, `/tmp` is a bounded
+128-MiB tmpfs, and container logs are capped. RustFS data has a separate hard
+filesystem bound, with bounded volatile logs and temporary files.
+
+These loop-backed volumes are for a single VM boot. After a VM restart, their
+recorded device mapping must be re-established and verified before any retained
+volume maintenance; the harness does not perform that recovery automatically.
+A filesystem ceiling bounds space but does not guarantee workload headroom or
+availability after exhaustion. Capacity qualification and traffic testing remain
+separate operations.
+
+For a five-node, 15-cell counter qualification, a conservative starting policy
+uses 14 group slots, 4-MiB images, a 1-GiB node extent inventory and a 128-MiB
+replay inventory. The following hard ceilings consume 19 GiB of backing across
+the fleet; provisioning additionally requires 4 GiB of host free-space reserve.
+
+| Pool | Per-node bound |
+| --- | ---: |
+| Metadata filesystem | 128 MiB |
+| Shared Raft log and snapshot filesystem | 512 MiB |
+| Cell images, inventory and cache filesystem | 2,048 MiB |
+| Recovery replay filesystem | 384 MiB |
+| Snapshot scratch within the Raft filesystem | 128 MiB |
+| Extent cache within the images filesystem | 64 MiB |
+
+RustFS gets a separate 4-GiB filesystem. The placement profile declares 2,752 MiB
+of usable durable capacity and charges 2,176 MiB of non-group overhead. Each
+resident group charges at least 32 MiB; a 64-MiB movement peak and 128-MiB reserve
+leave room for 12 resident groups during single-node repair. Memory must still
+be measured against the native buffer reservation and the actual cgroup usage.
+These are configuration bounds for a small integration workload, not measured
+500-cell capacity or a performance recommendation.
 
 The initializer declares the extent-backed namespace and registers every node
 with stable request IDs and revisions. Exact initializer retries reconcile the
