@@ -95,11 +95,13 @@ jobs:
       - name: Adapter and real-node tests
         env:
           CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-combined
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-combined
         # Independent native fixtures own short leases and concurrent runtimes.
         run: cargo test --locked -p cellar-container -p cellar-guest -p cellar-javascript --features cellar-javascript/embed,cellar-javascript/node -- --test-threads=1
       - name: Node-only feature
         env:
           CELLAR_FS_JS_PROOF_REPORT_DIR: ${{ runner.temp }}/filesystem-proof-node
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-concurrency-node
         run: cargo test --locked -p cellar-javascript --no-default-features --features node -- --test-threads=1
       - name: Preserve filesystem proof and shutdown ledgers
         if: always()
@@ -109,6 +111,8 @@ jobs:
           path: |
             ${{ runner.temp }}/filesystem-proof-combined/*.json
             ${{ runner.temp }}/filesystem-proof-node/*.json
+            ${{ runner.temp }}/filesystem-concurrency-combined/*.json
+            ${{ runner.temp }}/filesystem-concurrency-node/*.json
           if-no-files-found: ignore
       - name: Runtime archive and admission boundaries
         run: |

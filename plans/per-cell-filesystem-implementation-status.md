@@ -40,6 +40,31 @@ remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
 
+## Guest read-concurrency checkpoint
+
+The [read-concurrency report](../tools/perf/results/2026-10-28-filesystem-read-concurrency.md)
+records a reproduced admission defect: concurrent positional filesystem reads
+returned `ConcurrentMutation` because both guest read allowlists omitted every
+filesystem operation. The shared host classifier and Node's pre-IPC classifier
+now admit the ten operations that neither allocate handles nor advance offsets,
+change data or wait for proof. Mutations retain their existing single slot.
+
+A controlled Node/V8 test holds a write unacknowledged while admitting all ten
+reads and refusing 35 mutating or unknown operations. Real-host Node, V8 and
+CPython 3.14.5 GIL/free-threaded fixtures cover bounded read waves, shared and
+independent offsets, append and positional-edit controls, directory cookies and
+exact bytes/metadata after local restart. The committed record distinguishes
+these observations from concurrent mutation, crash and sustained-load claims.
+CI preserves the structured observations from its existing filesystem suites.
+
+The parent `ba15b502` CI run also exposed a stale RPC qualifier source link after
+the fault adapter moved to shared native test support. Its import is corrected
+to the existing shared module; the fault-ordering tests remain enabled. Full CI
+still has separate dense-write lease fencing and extent-GC assertion failures.
+The JavaScript job passed both adapter modes and its S3 recovery step, then
+reached its 90-minute ceiling during Node fleet packaging, before the installed
+filesystem package steps. These outcomes do not qualify the full pipeline.
+
 ## Native Rust example and release-profile checkpoint
 
 The [Rust notebook recipe](../examples/filesystem/README.md) supplies a focused

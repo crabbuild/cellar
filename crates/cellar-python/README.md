@@ -278,6 +278,12 @@ binary filenames; integer offsets/versions are checked native-width values.
 Compose file changes and receipts through `ctx.storage.apply`'s
 `filesystem_checks` and `filesystem_mutations` arguments. Separate awaits are
 separate operations; Python built-in `open` still addresses process files.
+
+`asyncio.gather` may combine positional reads, metadata inspection, bounded
+whole-file reads, stateless directory pages and `telldir`. These do not advance
+descriptor offsets. Await `read`, `readdir`, seek, open/close, writes and proof
+barriers sequentially under the existing one-outstanding-mutation rule. A
+refusal before dispatch does not settle any earlier operation's outcome.
 Sources enabling this capability require `max_value_bytes >= 4096`; capability
 transfer/helper/page limits account for the encoded bridge budget.
 Looping `read_exact` / `write_all` errors identify the helper and its confirmed

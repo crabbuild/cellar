@@ -83,6 +83,41 @@ disk stalls, guest overhead, 4/16 KiB chunk alternatives, small-file density or
 many-cell fairness. Those remain gates in the
 [filesystem implementation plan](../../plans/per-cell-filesystem-implementation.md).
 
+## Guest read concurrency
+
+The ordinary JavaScript and Python filesystem fixtures include bounded
+concurrent reads and sequential offset/append controls, followed by exact local
+restart checks. See the
+[case profile](../../plans/per-cell-filesystem-conformance.md#concurrent-guest-descriptor-profile).
+Use a fresh report directory for each runtime/ABI invocation:
+
+```sh
+CELLAR_FS_CONCURRENCY_REPORT_DIR=/absolute/qualification/javascript-concurrency \
+cargo test --locked -p cellar-javascript --no-default-features \
+  --features embed,node --test filesystem -- --test-threads=1
+
+cargo test --locked -p cellar-javascript --no-default-features \
+  --features embed,node --lib \
+  filesystem_reads_overlap_a_held_mutation_without_releasing_its_slot \
+  -- --test-threads=1
+
+CELLAR_FS_CONCURRENCY_REPORT_DIR=/absolute/qualification/python-concurrency \
+cargo test --locked -p cellar-python --features embed --test filesystem
+```
+
+For Python, set `PYO3_PYTHON` and `CELLAR_PYTHON_SITE_PACKAGES` to the intended
+supported interpreter and its dependencies, following the
+[adapter guide](../../crates/cellar-python/README.md). Run both GIL and
+free-threaded builds; preserve each executable before changing interpreter
+configuration. The Python executable uses `harness=false`. Its fixture checks
+the actual runtime GIL state as well as filesystem behavior. Successful Node,
+V8 and each Python ABI emit six JSON observations apiece. The controlled runtime
+test separately holds the mutation slot until all refusal results settle.
+
+These cases permit overlapping known reads, not concurrent guest mutations or
+a multi-call snapshot. They use local development storage and graceful restart;
+external-store failure and optimized deployment evidence are separate profiles.
+
 ## Native fault qualification on S3-compatible storage
 
 The separate [native fault profile](../../plans/per-cell-filesystem-conformance.md#s3-backed-native-recovery-profile)

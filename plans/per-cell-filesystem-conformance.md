@@ -18,6 +18,7 @@ Executed suites and qualification limits belong in the
 | Read-only | [Writer/reader harness](../crates/cellar/tests/support/filesystem_readonly.rs): recovery, EROFS/EBADF, unchanged metadata/usage and transaction rollback |
 | Admission | [Native descriptor admission](../crates/cellar/tests/support/filesystem_admission.rs): EMFILE/ENFILE before create/truncate and capacity release |
 | Guests | [JavaScript](../crates/cellar-javascript/tests/support/filesystem.js) and [Python](../crates/cellar-python/tests/filesystem.py): real bridge calls driven by the [shared host client](../crates/cellar/tests/support/filesystem_guest.rs) |
+| Guest concurrency | [JavaScript waves](../crates/cellar-javascript/tests/support/filesystem-concurrency.js) and [Python waves](../crates/cellar-python/tests/filesystem_concurrency.py): concurrent known reads with sequential handle-state controls, host record checks and saved restart snapshots |
 | Budget | [Node](../crates/cellar-javascript/tests/support/filesystem-budget.js) and [Python](../crates/cellar-python/tests/filesystem_budget.py): short transfers, encoded pages and receipt/checkpoint admission |
 | Lost replies | [Node IPC harness](../crates/cellar-javascript/tests/filesystem_io.rs): real successful byte replies withheld through native cancellation, reconciliation and cold recovery |
 | Python task cancellation | [Python coroutine fixture](../crates/cellar-python/tests/filesystem_cancellation.py): real native byte calls, cancelled waits, exact confirmed prefixes and local reopen |
@@ -106,6 +107,41 @@ twelve duplicate submissions preserve results and provider-call counts. Direct
 SQLite inspection verifies final deletion before joined shutdown. The recovery
 source is the development bucket. Installed external-store, physical
 fault, streaming-provider and deployment-capacity profiles remain separate.
+
+## Concurrent guest descriptor profile
+
+O03, O06–O11, O14–O15, O18–O19, O28–O29, O33, O35, O38, O42 and O46
+have three dedicated invocation cases. Read waves submit at most twelve calls
+without awaiting individual replies, within the existing admission limits.
+All calls settle before inspection. Mutating and handle-state calls remain
+sequential; handler, lease and runtime budgets are unchanged.
+
+| Case | Assertions |
+| --- | --- |
+| Shared file description | Sequential reads through a file and its duplicate advance both offsets to 384; an independent open retains its own position. Twelve concurrent preads return exact ordered records without changing offsets or version. A mixed wave exercises all ten known-read operations while preserving metadata, usage and a directory cookie. Sequential writes and duplicate cleanup remain usable afterward. |
+| Append and positional writes | Two independently opened append descriptions, each with a duplicate, sequentially append twelve unique 32-byte records starting 16 bytes before a 64 KiB chunk boundary. Each pair shares its last append offset. Sequential pwrites through append-open handles preserve offsets and sparse prefix zeros. Concurrent preads through all four handles return exact patched records without extending the file. |
+| Directory cursor | Sequential readdir returns twelve names and two dot entries exactly once. Twelve concurrent stateless listings return the complete real-name set. Twelve concurrent telldir calls retain the same cookie, and a subsequent EOF preserves it. |
+
+Each case saves its metadata and bytes or names with an exact native
+inode/version check, then awaits filesystem proof. After a preserving node
+restart, a fresh invocation reopens the path and compares full metadata and
+contents against that saved snapshot. The Rust HTTP client independently checks
+record lengths, uniform record bytes, unique IDs, positional ordering, file
+sizes and directory names. Optional `CELLAR_FS_CONCURRENCY_REPORT_DIR` captures
+the responses for qualification reports.
+
+A separate Node/V8 admission test in
+[the shared runtime harness](../crates/cellar-javascript/synchronous_runtime_tests.rs)
+keeps a storage mutation unacknowledged while all ten known reads are admitted.
+Thirty-five mutating or unknown filesystem names must report
+ConcurrentMutation/not_committed without native dispatch. A marker submitted
+after those refusals prevents an early host acknowledgement from hiding a slot
+release. This covers both Node's pre-IPC guard and the native runtime guard.
+
+These cases cover read concurrency within one guest invocation. They do not
+promise concurrent guest mutations, a multi-call snapshot, atomicity for a
+multi-transfer append helper, fairness under sustained load, or process-crash
+recovery. Executed runtime/ABI profiles belong in the status ledger.
 
 ## Mode-option precedence profile
 

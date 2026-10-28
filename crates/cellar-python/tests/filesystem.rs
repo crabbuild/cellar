@@ -73,7 +73,7 @@ fn main() -> Result<()> {
         include_str!("filesystem_budget.py").to_owned()
     } else {
         format!(
-            "FILESYSTEM_RESERVED_CASES = __import__('json').loads({})\nFILESYSTEM_REPLY_CASES = __import__('json').loads({})\n{}\n{}",
+            "FILESYSTEM_RESERVED_CASES = __import__('json').loads({})\nFILESYSTEM_REPLY_CASES = __import__('json').loads({})\n{}\n{}\n{}",
             serde_json::to_string(include_str!(
                 "../../cellar/tests/support/filesystem_reserved_paths.json"
             ))?,
@@ -81,6 +81,7 @@ fn main() -> Result<()> {
                 "../../cellar/tests/support/filesystem_reply_cases.json"
             ))?,
             include_str!("filesystem_replies.py"),
+            include_str!("filesystem_concurrency.py"),
             include_str!("filesystem.py")
         )
     };

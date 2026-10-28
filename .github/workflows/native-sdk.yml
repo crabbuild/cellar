@@ -212,6 +212,7 @@ jobs:
       - name: Test embedded Python adapter
         env:
           CELLAR_FS_PY_CANCELLATION_REPORT: ${{ runner.temp }}/filesystem-python-task-cancellation.json
+          CELLAR_FS_CONCURRENCY_REPORT_DIR: ${{ runner.temp }}/filesystem-python-concurrency
         run: |
           python -m venv .cellar/rpc/python
           .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
@@ -225,7 +226,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: filesystem-python-task-cancellation-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/filesystem-python-task-cancellation.json
+          path: |
+            ${{ runner.temp }}/filesystem-python-task-cancellation.json
+            ${{ runner.temp }}/filesystem-python-concurrency/*.json
           if-no-files-found: ignore
       - name: Verify native and Python baseline harness
         run: |

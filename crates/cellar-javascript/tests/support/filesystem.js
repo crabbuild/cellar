@@ -1266,7 +1266,10 @@ class Counter {
     try {
       const action = req.url.split("/").at(-1);
       const fs = ctx.fs;
-      if (action.startsWith("cancel-")) {
+      if (action.startsWith("concurrent-")) {
+        phase = action;
+        return jsonResponse(await filesystemConcurrency(ctx, action));
+      } else if (action.startsWith("cancel-")) {
         phase = action;
         await cancelledFilesystemProfile(fs, ctx, action);
       } else if (action === "exercise") {

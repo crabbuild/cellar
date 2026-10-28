@@ -679,8 +679,14 @@ against the originating domain/cell/generation on every native call. Do not
 trust a token string as authorization. Public bridge operations include bounded
 `filesystem.open/read/write/pread/pwrite/lseek/fstat/close`, directory operations,
 metadata and barriers, with structured outcomes. Opening/closing/dup and
-offset-changing reads require handle-state serialization; only side-effect-free
-positional reads/metadata may use the guest read concurrency classification.
+offset-changing reads require handle-state serialization. The guest known-read
+lane admits `pread`, `fstat`, `stat`, `lstat`, `fstatat`, `statvfs`, capabilities,
+`read_file`, stateless `read_dir` and `telldir`. These may overlap a pending
+mutation; they do not establish a multi-call snapshot or durability proof.
+All other filesystem bridge operations retain the existing one-outstanding-
+mutation admission rule, including `read`, `readdir`, seek, open, dup, close and
+proof barriers. Await those calls sequentially. Overlap is a pre-dispatch
+refusal, not an implicit queue or permission to replay an unknown earlier call.
 Guest capabilities report effective transfer/helper/page bounds that fit both
 native limits and the encoded bridge envelope; `transport` reports the bridge
 value/body/batch ceilings. Sources enabling the filesystem require at least

@@ -361,6 +361,12 @@ Looping `readExact` / `writeAll` errors identify the helper and its confirmed
 preserve uncertain outcomes; a failed loop can have a committed write prefix
 or an advanced read offset.
 
+Positional reads and metadata inspection use the guest known-read lane, as do
+bounded whole-file reads, stateless directory pages and `telldir`. They may
+overlap without advancing descriptor offsets. Await handle-state changes and
+mutations sequentially, including `read`, `readdir`, seek, open/close and proof
+barriers; overlapping calls retain the normal `ConcurrentMutation` refusal.
+
 ## Build and deliver
 
 ```text

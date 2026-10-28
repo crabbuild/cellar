@@ -718,7 +718,9 @@ class Counter:
     async def fetch(self, req, ctx):
         action = req.url.rsplit("/", 1)[-1]
         fs = ctx.fs
-        if action.startswith("cancel-"):
+        if action.startswith("concurrent-"):
+            return Response(__import__("json").dumps(await filesystem_concurrency(ctx, action)))
+        elif action.startswith("cancel-"):
             try:
                 await cancelled_filesystem_profile(fs, ctx, action)
             except Exception:
