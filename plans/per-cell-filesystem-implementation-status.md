@@ -20,9 +20,21 @@ the filesystem harness.
 
 The wire-validation checkpoint `e43825b06c5c19f6d3a20a38bd3c713654d7f106` was
 verified before this integration. On the updated tree, 21 filesystem library
-cases and 30 guest units pass. Guest-runtime, native SDK/node, recovery and final
-source gates are still being refreshed; the earlier captures below do not
-qualify the updated host.
+cases, 30 guest units, three native SDK cases and five serial node/recovery cases
+pass. The six Node/V8 filesystem cases and all three Python SDK modes pass under
+both 3.14.5 ABIs. The 20 V8 runtime cases, 139 JavaScript tooling cases, SDK
+declarations and strict five-crate all-target Clippy also pass.
+
+Formatting/layout cover 1,341 Rust files. Native dependency checks report 482
+reachable packages without a JavaScript engine. Documentation checks validate
+39 documents, 11 crate READMEs and 839 local references; the filesystem plans
+retain 110 explicit local links. The task-local
+`.cellar/filesystem-main-cd9-artifacts/` records fresh executables, linkage,
+source identities and logs against integration commit `1fb8b0ec`.
+
+The dense node case remains opt-in and was ignored in the serial suite.
+Captured agent packages, Linux, external stores, peer failures, sustained load
+and capacity qualification retain their separate open gates.
 
 Earlier measurements and captured-package results below retain their original
 source/artifact scope. They do not qualify the rebased native host or constitute
@@ -309,16 +321,16 @@ filesystem-plan checks validate 110 local links.
 
 Separate frozen executables and dynamic-library inventories distinguish the
 ABI runs, since Cargo reuses the same Python test-executable path. Task-local
-`.cellar/filesystem-wire-artifacts/` retains the current source hashes,
-failing reproductions, passing logs, executable identities and linkage records.
-Earlier checkpoints remain in `.cellar/filesystem-argument-artifacts/` and
-`.cellar/filesystem-live-authority-artifacts/`.
+`.cellar/filesystem-main-cd9-artifacts/` retains the current integrated
+executables and linkage records. The pre-integration wire checkpoint and failing
+reproduction remain in `.cellar/filesystem-wire-artifacts/`; earlier argument and
+live-authority checkpoints retain their own directories.
 
 | Executable | SHA-256 |
 | --- | --- |
-| Combined Node/V8 filesystem tests | `634ca377c4b9da8536bd7fbaadfedb7343a1bc8308ecb9efd562c85d08f6ca63` |
-| CPython 3.14.5 GIL filesystem tests | `7cdfbbf20da71d83b70867ff5c05b046357af3194832449bb86ae3bfed2e8cf2` |
-| CPython 3.14.5 free-threaded filesystem tests | `9a1397b3594c8b3f35b8efe2350c896f0ac47726f96c2309e47f224e571df958` |
+| Combined Node/V8 filesystem tests | `1f37eec5d024b7b8206fd5e7f3143b3410f4497fbced78dfcb73d4029304745f` |
+| CPython 3.14.5 GIL filesystem tests | `2e913866085ffa9e40fb245d390f7ae78bbeddc343c25c42f22d8967fb0a2c26` |
+| CPython 3.14.5 free-threaded filesystem tests | `f2498a74bc8948162fa4a0b270a4bef7ff14dc4e97acf9044542bf98ccdc955f` |
 
 These SDK checks do not refresh the earlier captured-agent hosts or close the
 remaining operation/error, cancellation, domain, fault or capacity matrices.
