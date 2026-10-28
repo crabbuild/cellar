@@ -436,6 +436,11 @@ uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
 keep SDK/image evidence separate from router and provider tests. S3 mounts and
 complete Sandbox 1.x compatibility remain open.
 
+The directory-backup campaign also restores from fresh native/Node processes
+and checks allocation-time cancellation, missing/corrupt archives, destination
+preservation and grant revocation. Abrupt crash and mid-transfer outcomes remain
+separate qualification work.
+
 
 ## Understand lifetime and failure outcomes
 

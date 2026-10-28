@@ -9,6 +9,12 @@ import {
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import { workersApplication } from "../../../packages/cellar-cloudflare/index.js";
 import { directServer, interceptionProgram } from "./interception-program.mjs";
+import {
+  AbortAfterUploadGateway,
+  cancelAllocatedBackup,
+  failedBackupOperations,
+  preAbortedBackupOperations,
+} from "./backup-failures.mjs";
 
 const length = 2 * 1024 * 1024 + 17;
 function check(condition, message) {
@@ -96,8 +102,21 @@ class Workspace extends DurableObject {
   async qualify(request) {
     const route = new URL(request.url).pathname;
     const container = this.ctx.container;
+    if (route === "/state") {
+      const backup = await this.ctx.storage.get("backup");
+      return Response.json({
+        backup: backup ?? null,
+        running: container.running,
+      });
+    }
     if (route === "/delete") {
-      await this.backups.delete(await this.ctx.storage.get("backup"));
+      const record = await this.ctx.storage.get("backup");
+      await this.backups.delete(record);
+      check(
+        (await this.env.BACKUPS.head(`qualified/${record.id}.tar.zst`)) ===
+          null,
+        "archive survived deletion",
+      );
       return Response.json({ deleted: true });
     }
     if (route === "/destroy") {
@@ -120,6 +139,9 @@ class Workspace extends DurableObject {
     }
     check(container.running, "install the qualification container first");
     if (route === "/routing") return this.routing();
+    if (route === "/pre-abort") return preAbortedBackupOperations(this);
+    if (route === "/cancel-after-create") return cancelAllocatedBackup(this);
+    if (route === "/faults") return failedBackupOperations(this);
     if (route === "/backup") {
       await this.files.mkdir("/workspace/source", { recursive: true });
       await this.files.writeFile("/workspace/source/binary", bytes());
@@ -136,6 +158,7 @@ class Workspace extends DurableObject {
     }
     if (route === "/restore") {
       const record = await this.ctx.storage.get("backup");
+      await this.files.mkdir("/workspace/source", { recursive: true });
       await this.files.writeFile(
         "/workspace/source/binary",
         "changed after backup",
@@ -223,6 +246,7 @@ export default workersApplication(
     Workspace,
     Echo,
     DirectoryBackupGateway,
+    AbortAfterUploadGateway,
     default: {
       fetch(request, env) {
         return env.WORKSPACES.getByName("qualified").fetch(request);

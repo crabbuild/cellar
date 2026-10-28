@@ -262,8 +262,25 @@ cargo test --locked -p cellar-javascript --features node \
 | Binary streaming | Each request/reply preserves 2 MiB + 17 bytes and SHA-256; native reads remain at most 64 KiB |
 | Published backup | Create an archive through shim HTTP, gateway control RPC and native multipart storage; store its returned record in cell SQLite |
 | Later-event restore | Change the file, restore the stored record with the actual shim, then verify original bytes/SHA-256 |
+| Fresh-process recovery | Join the first native/Node processes, start new processes with an empty node directory, recover the identical record from native fleet storage and restore into a new container |
+| Pre-aborted calls | Preserve the exact abort reason for backup and restore; no provider process allocation |
+| Allocation-time cancellation | Invoke the real published gateway allocation, then abort; exactly one allocation, original reason, revoked read/write grants and no upload/part rows |
+| Missing/corrupt input | Published `ENOENT`, `BACKUP_NOT_FOUND` and `BACKUP_INTEGRITY` errors; failed restores preserve the changed destination and revoke grants |
 | Deletion | Destroy the container, then delete the archive through the published API without starting new compute |
-| Retirement | Join the native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
+| Retirement | Explicit process-handle release after every route; join each native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
+
+The campaign runs two separately spawned native processes, each with its own
+Node process and fresh node directory. Only the fleet/object-store database is
+shared. The saved-record JSON is an expected-value check; recovery reads the
+record from cell state. Each process has a 300-second outer bound and is joined;
+the existing 120-second handler and 30-second JS execution budgets stay intact.
+
+The [fault fixture](backup-failures.mjs) uses the published implementations.
+Its allocation-abort gateway subclasses the published gateway solely to abort
+after `super.createUpload()` has committed a real upload. The package's grant,
+shim and abort exchange runs unchanged. The other gateway and helper paths use
+the published classes directly. Valid ranged GET and part PUT requests check
+revocation, so a wrong-method refusal cannot masquerade as grant cleanup.
 
 The host selects `Native.with_http_interception()`, the explicit `runc` network
 helper and `Source::workers_http_streams()`. Incoming HTTP reads retain the
@@ -274,7 +291,8 @@ SDK's buffered-body limit stays unchanged.
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
-HTTPS interception, S3 mounts, complete directory-backup failure/restart behavior,
+HTTPS interception, S3 mounts, abrupt crash/mid-transfer cancellation, uncertain
+mutation responses and complete directory-backup failure/restart behavior,
 full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade
 requires Node; embedded V8 still lacks that web bootstrap. Shared-framework

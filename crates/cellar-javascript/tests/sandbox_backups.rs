@@ -11,6 +11,10 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+#[path = "support/backup_campaign.rs"]
+mod backup_campaign;
+#[path = "support/counting_provider.rs"]
+mod counting_provider;
 #[path = "support/image_cleanup.rs"]
 mod image_cleanup;
 #[path = "support/image_provider.rs"]
@@ -23,6 +27,11 @@ mod native;
 #[test]
 #[ignore = "requires isolated Engine, matching Sandbox 1.0.3 and native network helper image IDs"]
 fn published_directory_backups_use_owned_http_interception_and_native_storage() -> Result<()> {
+    if std::env::var_os(backup_campaign::ROOT).is_none() {
+        return backup_campaign::run(
+            "published_directory_backups_use_owned_http_interception_and_native_storage",
+        );
+    }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tools/sandbox/cloudflare-v1");
     let built = std::process::Command::new("node")
         .arg(root.join("build.mjs"))
@@ -32,6 +41,7 @@ fn published_directory_backups_use_owned_http_interception_and_native_storage() 
         "Sandbox backup build: {}",
         String::from_utf8_lossy(&built.stderr)
     );
+    let counts = Arc::new(counting_provider::Counts::default());
     joined_node::run(
         Options {
             max_body_bytes: 64 * 1024,
@@ -41,9 +51,12 @@ fn published_directory_backups_use_owned_http_interception_and_native_storage() 
         },
         NodeOptions::new(root.join("dist/backups.mjs")),
         Source::module()
-            .container_provider(Arc::new(image_provider::DiagnosticNative(
-                cellar_container::Native.with_http_interception(),
-            )))
+            .container_provider(Arc::new(counting_provider::CountingProvider {
+                inner: Arc::new(image_provider::DiagnosticNative(
+                    cellar_container::Native.with_http_interception(),
+                )),
+                counts: counts.clone(),
+            }))
             .workers_lifetimes()
             .workers_http_streams()
             .events([EventKind::Fetch, EventKind::WorkerRpc])
@@ -52,7 +65,7 @@ fn published_directory_backups_use_owned_http_interception_and_native_storage() 
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()?
-                .block_on(exercise(application))
+                .block_on(exercise(application, counts))
         },
     )
 }
@@ -68,8 +81,20 @@ fn image(name: &str) -> Result<String> {
     Ok(image)
 }
 
-async fn exercise(application: Arc<dyn Application>) -> Result<()> {
-    let directory = tempfile::tempdir()?;
+async fn exercise(
+    application: Arc<dyn Application>,
+    counts: Arc<counting_provider::Counts>,
+) -> Result<()> {
+    use std::sync::atomic::Ordering;
+    let directory =
+        PathBuf::from(std::env::var_os(backup_campaign::ROOT).context("campaign directory")?);
+    let phase = std::env::var(backup_campaign::PHASE)?;
+    ensure!(
+        matches!(phase.as_str(), "create" | "recover"),
+        "unknown campaign phase"
+    );
+    let node_directory = directory.join(format!("node-{phase}"));
+    std::fs::create_dir(&node_directory)?;
     let socket = PathBuf::from(
         std::env::var_os("CELLAR_SANDBOX_ENGINE_SOCKET").context("isolated Engine socket")?,
     );
@@ -96,13 +121,13 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
     );
     let namespace = format!(
         "sandbox-backups-{}",
-        directory.path().file_name().unwrap().to_string_lossy()
+        directory.file_name().unwrap().to_string_lossy()
     );
     let host = format!(
         "{:x}",
         Sha256::digest(format!("javascript-test\0namespace:{namespace}").as_bytes())
     );
-    let bucket = Bucket::open_dev(&directory.path().join("objects.db"))?;
+    let bucket = Bucket::open_dev(&directory.join("objects.db"))?;
     let replica_storage = ReplicaStorage::new(
         bucket.store.clone(),
         ReplicaStorageOptions {
@@ -111,7 +136,7 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
         },
     )?;
     let (node, address) =
-        native::start_configured(directory.path(), application, |config, services, graph| {
+        native::start_configured(&node_directory, application, |config, services, graph| {
             // Image/fsync qualification has a dedicated budget. Small runtime tests
             // retain their original deadlines and operation limits.
             config.runtime.handler_budget = Duration::from_secs(120);
@@ -162,61 +187,135 @@ async fn exercise(application: Arc<dyn Application>) -> Result<()> {
         })
         .await?;
     eprintln!("CELLAR_SANDBOX_BACKUP_OWNER={host}");
-    let result = async {
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .timeout(Duration::from_secs(125))
-            .build()?;
-        for route in [
-            "install", "routing", "backup", "restore", "destroy", "delete",
-        ] {
-            eprintln!("Sandbox 1.0.3 HTTP/backup route: {route}");
-            let response = client.get(format!("{address}/{route}")).send().await?;
-            let status = response.status();
-            let body = response.text().await?;
+    let result =
+        async {
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(125))
+                .build()?;
+            let state = client
+                .get(format!("{address}/state"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json::<Value>()
+                .await?;
             ensure!(
-                status.is_success(),
-                "{route}: {status}: {}",
-                body.chars().take(4096).collect::<String>()
+                state["running"] == false,
+                "fresh process reused a live container"
             );
-            let value: Value = serde_json::from_str(&body)?;
-            if route == "routing" {
+            if phase == "create" {
                 ensure!(
-                    value["replies"]
-                        .as_array()
-                        .is_some_and(|replies| replies.len() == 4),
-                    "retained connection probe"
-                );
-            } else if route == "backup" {
-                ensure!(
-                    value["format"] == "tar+zstd/1"
-                        && value["size"].as_u64().is_some_and(|size| size > 0)
-                        && value["sha256"]
-                            .as_str()
-                            .is_some_and(|hash| hash.len() == 64),
-                    "published archive record"
-                );
-            } else if route == "restore" {
-                let bytes = (0..2 * 1024 * 1024 + 17)
-                    .map(|i| (i % 251) as u8)
-                    .collect::<Vec<_>>();
-                ensure!(
-                    value["bytes"] == bytes.len()
-                        && value["sha256"] == format!("{:x}", Sha256::digest(bytes)),
-                    "restored binary payload"
+                    state["backup"].is_null(),
+                    "create phase reused an existing backup"
                 );
             } else {
+                let expected: Value =
+                    serde_json::from_slice(&std::fs::read(directory.join("record.json"))?)?;
                 ensure!(
-                    value.as_object().is_some_and(
-                        |value| value.len() == 1 && value.values().all(|value| value == true)
-                    ),
-                    "lifecycle acknowledgement"
+                    state["backup"] == expected,
+                    "fresh native process did not recover the saved archive record"
                 );
             }
+            let routes: &[&str] = if phase == "create" {
+                &[
+                    "install",
+                    "routing",
+                    "backup",
+                    "pre-abort",
+                    "cancel-after-create",
+                    "faults",
+                ]
+            } else {
+                &[
+                    "install",
+                    "restore",
+                    "pre-abort",
+                    "cancel-after-create",
+                    "faults",
+                    "restore",
+                    "destroy",
+                    "delete",
+                ]
+            };
+            for &route in routes {
+                eprintln!("Sandbox 1.0.3 HTTP/backup route: {route}");
+                let executions = counts.exec_calls.load(Ordering::SeqCst);
+                let response = client.get(format!("{address}/{route}")).send().await?;
+                let status = response.status();
+                let body = response.text().await?;
+                ensure!(
+                    status.is_success(),
+                    "{route}: {status}: {}",
+                    body.chars().take(4096).collect::<String>()
+                );
+                let value: Value = serde_json::from_str(&body)?;
+                if route == "routing" {
+                    ensure!(
+                        value["replies"]
+                            .as_array()
+                            .is_some_and(|replies| replies.len() == 4),
+                        "retained connection probe"
+                    );
+                } else if route == "backup" {
+                    ensure!(
+                        value["format"] == "tar+zstd/1"
+                            && value["size"].as_u64().is_some_and(|size| size > 0)
+                            && value["sha256"]
+                                .as_str()
+                                .is_some_and(|hash| hash.len() == 64),
+                        "published archive record"
+                    );
+                } else if route == "restore" {
+                    let bytes = (0..2 * 1024 * 1024 + 17)
+                        .map(|i| (i % 251) as u8)
+                        .collect::<Vec<_>>();
+                    ensure!(
+                        value["bytes"] == bytes.len()
+                            && value["sha256"] == format!("{:x}", Sha256::digest(bytes)),
+                        "restored binary payload"
+                    );
+                } else {
+                    let fields = match route {
+                        "pre-abort" => 2,
+                        "cancel-after-create" => 3,
+                        "faults" => 5,
+                        _ => 1,
+                    };
+                    ensure!(
+                        value.as_object().is_some_and(|value| value.len() == fields
+                            && value.values().all(|value| value == true)),
+                        "lifecycle acknowledgement"
+                    );
+                }
+                if route == "pre-abort" {
+                    ensure!(
+                        counts.exec_calls.load(Ordering::SeqCst) == executions,
+                        "pre-aborted SDK operation allocated a process"
+                    );
+                }
+                ensure!(
+                    counts.active.load(Ordering::SeqCst) == 0
+                        && counts.unreleased.load(Ordering::SeqCst) == 0,
+                    "{route}: SDK process handles survived explicit retirement"
+                );
+                if route == "backup" {
+                    let state = client
+                        .get(format!("{address}/state"))
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .json::<Value>()
+                        .await?;
+                    std::fs::write(
+                        directory.join("record.json"),
+                        serde_json::to_vec(&state["backup"])?,
+                    )?;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
         }
-        Ok::<_, anyhow::Error>(())
-    }
-    .await;
+        .await;
     let stopped = node.shutdown(ShutdownMode::Preserve).await;
     let cleanup = image_cleanup::cleanup(&docker, &host).await;
     let outcome = stopped?;

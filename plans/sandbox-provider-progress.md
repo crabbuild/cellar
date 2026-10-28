@@ -19,7 +19,7 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
 | SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
 | SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
-| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, error/stream/cancellation faults, persistence/restart, full versioned acceptance and live/remote profiles |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup; run-owned HTTP routes use fresh epoch gates, and the actual 1.0.3 DirectoryBackup/shim completes backup/restore/delete, fresh-process recovery, allocation-time cancellation and selected failure paths through native HTTP and Blob storage | HTTPS interception, S3 mounts, remaining extended container/helper APIs, abrupt crash/mid-transfer/uncertain-response faults, full persistence/versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -2858,3 +2858,42 @@ and backup failure/restart cases, then S3 mounts/HTTPS under explicit capability
 profiles, broader provider recovery/physical deletion and additional providers.
 Live E2B/Vercel configuration remains deferred; full SP-08–SP-10 qualification
 and hosted/Dynamic Workers remain open.
+
+
+## Directory-backup process recovery and failure qualification — 2026-10-27
+
+The matching 1.0.3 SDK/shim now passes a two-process campaign in 26.53 s.
+The first native process writes an archive and record, then joins its native
+node and Node process. A second native process starts with a different empty
+node directory and a fresh Node process, recovers the identical record through
+native fleet storage, and restores the original 2 MiB + 17 bytes into a new
+container. Only the fleet/object-store database survives; expected-record JSON
+is never used as the restore input.
+
+| Case | Required observation |
+| --- | --- |
+| Pre-aborted backup/restore | Exact caller reason; no provider exec admission |
+| Abort after allocation | Fault-only subclass calls the real published `createUpload` first, then aborts; exactly one allocation and the original reason |
+| Missing source | Published `SandboxFileError` / `ENOENT` |
+| Missing archive | Published `SandboxBackupError` / `BACKUP_NOT_FOUND` |
+| Corrupt archive record | Published `BACKUP_INTEGRITY`; target remains unchanged |
+| Grant revocation | Valid ranged GET and part PUT both return 403 after failures/cancellation |
+| Continued operation | A later valid restore still returns the original bytes/SHA-256 |
+| Retirement | Every provider exec explicitly released; joined native/Node processes and no owned containers/networks |
+| Durable cleanup | Final object head is absent; zero native upload and part rows after both process phases |
+
+Both phases retain the existing 120-second native handler, 30-second JavaScript
+execution and 64 KiB bridge-frame limits. The outer process runner has a
+300-second phase limit, bounded logs and explicit termination/join. The published
+SDK/shim bytes remain pinned and unchanged. The added fault subclass changes only
+the allocation-time abort trigger, without replacing storage or the SDK exchange.
+
+Strict Clippy for the image campaign and the 145-case JS/TS suite pass. The
+`7a7644b4` Python and typed-RPC CI runs have also completed successfully; this is
+additional control evidence, not a demonstrated cause/fix for earlier lifecycle
+or latency findings. PR #146 remains the follow-up delivery branch.
+
+This covers graceful process replacement and selected cancellation/errors.
+Abrupt native-process failure, mid-part/verified-swap cancellation, lost mutation
+responses, orphan expiry, broader provider/fleet cleanup and the other SP-02–SP-10
+requirements remain open. E2B/Vercel live configuration remains deferred.
