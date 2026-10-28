@@ -9,6 +9,42 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Large snapshot lease-progress qualification, 2026-10-28
+
+The follow-up starts from merged `origin/main` at `2e68fac2`. PR #152's three
+JavaScript profiles, four Python example jobs and three native release targets
+pass, but its SDK push jobs fail during dense-file cold recovery. Those failures
+remain recorded; passing repetitions do not establish a fix.
+
+A current-main 100 MiB local reproduction fences the successor while appending
+its first recovered block. The lease write enters its native worker in 39 us,
+connects in 44 ms, then waits until 1.27 seconds for writer admission. This
+isolates the observed delay from executor delivery: an ordinary large snapshot
+body monopolizes the development SQLite store's write transaction. The existing
+checkpoint fix releases admission after body writing and therefore cannot fix
+this interval. The original lease and attempt budgets remain unchanged.
+
+The regression pauses an unfinished ordinary body write after its first 128 KiB.
+Readers must retain the old object, while an independent lease CAS must complete
+within 333 ms. It fails on the original single-transaction implementation in
+0.36 seconds. The follow-up stages immutable chunks in bounded FULL transactions
+and atomically publishes the completed body reference with its ETag. Retirement
+and bounded reclamation cover overwritten, deleted and abandoned bodies.
+This changes the machine-local development bucket's internal format; old object
+layouts refuse admission without modification or migration. Cloud bucket and
+per-cell SQLite formats are unchanged.
+
+All 45 local-store tests pass after the fix. They include the new progress test,
+atomic visibility, CAS-conflict cleanup, cross-chunk ranges, copy/delete and
+multipart replacement, bounded orphan reclamation after reopen, irrevocable
+expiry and hard-cutover refusal. The first follow-up run passed 41 of 42 checks
+but exposed maintenance running before the instrumented writer boundary;
+maintenance now follows publication, and the unchanged timing regression passes.
+Full native/guest/fleet qualification and final CI are still in progress. This
+evidence does not attribute every earlier RPC or container lease failure to the
+large-body interval. Raw logs and frozen before-fix executable identity are in
+the checkout target's `qualification/primitive-release-20261028/` directory.
+
 ## Release disposition
 
 The initial regular-file/directory primitive, Rust and guest APIs, transaction

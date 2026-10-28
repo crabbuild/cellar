@@ -349,6 +349,82 @@ impl ReadGate {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn large_body_keeps_lease_cas_progress_and_atomic_visibility() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = ReadGate::new(&domain);
+    let result = domain
+        .run(async {
+            let mut store = LocalStore::open(directory.path().join("objects.sqlite"))?;
+            let key = Path::from("large");
+            let lease = Path::from("nodes/owner");
+            store
+                .put_opts(
+                    &key,
+                    Bytes::from_static(b"old").into(),
+                    PutOptions::default(),
+                )
+                .await?;
+            let token = store
+                .put_opts(
+                    &lease,
+                    Bytes::from_static(b"old lease").into(),
+                    PutOptions::default(),
+                )
+                .await?;
+            store.body_gate = Some((key.to_string(), gate.clone()));
+            let writer_store = store.clone();
+            let writer_key = key.clone();
+            let writer = crate::asyncrt::try_spawn(async move {
+                writer_store
+                    .put_opts(
+                        &writer_key,
+                        Bytes::from(vec![0x5a; READ_CHUNK_BYTES * 4]).into(),
+                        PutOptions::default(),
+                    )
+                    .await
+            })?;
+            tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+            let before = store.get(&key).await?.bytes().await?;
+            let lease_store = store.clone();
+            let mut renewal = crate::asyncrt::try_spawn(async move {
+                lease_store
+                    .put_opts(
+                        &lease,
+                        Bytes::from_static(b"renewed").into(),
+                        PutMode::Update(object_store::UpdateVersion {
+                            e_tag: token.e_tag,
+                            version: None,
+                        })
+                        .into(),
+                    )
+                    .await
+            })?;
+            let observed = tokio::time::timeout(Duration::from_millis(333), &mut renewal).await;
+            let timely = observed.is_ok();
+            gate.release();
+            writer.await??;
+            match observed {
+                Ok(result) => result??,
+                Err(_) => renewal.await??,
+            };
+            ensure!(before.as_ref() == b"old", "partial object became visible");
+            ensure!(
+                store.get(&key).await?.bytes().await?.as_ref() == vec![0x5a; READ_CHUNK_BYTES * 4]
+            );
+            ensure!(
+                timely,
+                "lease CAS waited for the remainder of an unrelated large body"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    gate.release();
+    domain.shutdown().await;
+    result?
+}
+
 #[cfg(not(cellar_internal_tests))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn body_reads_retain_their_original_domain_and_join_entered_io() -> Result<()> {

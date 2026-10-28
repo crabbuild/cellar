@@ -55,7 +55,7 @@ async fn prefix_listing_does_not_decode_unrelated_metadata() -> Result<()> {
             // A damaged row outside the requested prefix must not be read/decoded by
             // that listing. The unscoped listing still reports its corruption.
             store.connect()?.execute(
-        "INSERT INTO __sys_local_objects VALUES ('unrelated/broken', 'invalid-etag', 0, '[]', X'')",
+        "INSERT INTO __sys_local_objects(key, etag, modified_ms, attributes, body) VALUES ('unrelated/broken', 'invalid-etag', 0, '[]', X'')",
         [],
     )?;
             let prefix = Path::from("selected");
