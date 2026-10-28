@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "40d0ba86d1a747f9f498634f11c81ed4d692e3fd",
+  "revision": "5d48dbabf532a3a6cde24856eabab51615c27339",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -88,7 +88,7 @@
     },
     {
       "path": "crates/cellar/application/consensus/mod.rs",
-      "sha256": "d78a8b7a2fabd13caf281390a17d11f6d12891e280f8dff7f55f7fdfe48c1d03"
+      "sha256": "d5e3b65f7b813a54126a29da43b4347cae4938a117d606de64db3399ca1b7439"
     },
     {
       "path": "crates/cellar/application/consensus/protocol.rs",
@@ -105,6 +105,10 @@
     {
       "path": "crates/cellar/cli/native_deploy/cli.rs",
       "sha256": "972c61fef07947bada79c6ac906acc7006583eec72ee1307ee1e0bdb15152d50"
+    },
+    {
+      "path": "crates/cellar/containers/docker.rs",
+      "sha256": "b076368290d88f507790402047526c8d4a3e19b333a7cf092931d118a2d277fe"
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
@@ -161,6 +165,26 @@
     {
       "path": "crates/cellar/durability/raft/effect_delivery.rs",
       "sha256": "7996368004f4d84f52a5f505881fcc2b44db44cfc35932ceb19df365ce6343d4"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation/engine.rs",
+      "sha256": "24497fcbc637764fca31d2663857b91eebb81a09d7730eafce23e016c8fbe1ec"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation/mod.rs",
+      "sha256": "1f2970645f658b994065043488c4de583c80845d866fa483225cca3a995036f3"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation/records.rs",
+      "sha256": "45d49e18958c9e69d846908b466b381366f2acb483242f67dc2ca7ae7dda8d6e"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation_engine_tests.rs",
+      "sha256": "7b34a350feee0ff1187fded71ff7ae6265acfece5a8035f17475f4dc823f75e0"
+    },
+    {
+      "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation_tests.rs",
+      "sha256": "410b04b72bbee38f45faff4a86fced6db74149660551b0bb9e1808cdfb9936e6"
     },
     {
       "path": "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
@@ -395,6 +419,10 @@
       "sha256": "0d7e53f0c0c1fded8cdc0297b80a8e12479a32d90508369f91f0f8b9b6c41983"
     },
     {
+      "path": "crates/cellar/tests/support/raft_docker_binding.rs",
+      "sha256": "bc0725251cc58b485e6347885cf81d2fd92c8f946b7ed98c4001b61ac4c99c0c"
+    },
+    {
       "path": "crates/cellar/tests/support/raft_failure_recovery_removal.rs",
       "sha256": "7cee300b59b6e7fa4a9d06413f7c14040d95fd7098e3bd76ea299736f97bd823"
     },
@@ -423,6 +451,6 @@
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
     }
   ],
-  "reviewed_from_revision": "e1eccc5c501a823a72f0b8cf9ed4332863b66485",
-  "review_note": "Reviewed automatic isolated-node finalization and terminal removal at 40d0ba86d1a747f9f498634f11c81ed4d692e3fd. Seven recovery cases and 964 existing selected regressions pass, with 1,783 frozen Rust/Cargo/config inputs and retained executable/result hashes audited against this source. Fresh RF3 observations and physical replay precede terminal slot release; unknown acknowledgements reconcile through typed immutable receipts. The new automatic-removal cases use materialized images. Extent-backed automatic removal, production isolation, foreground recovery performance, full CI, repeatability, density and soak remain unqualified. Managed extent namespace support was delivered earlier; the remaining extent gap is qualification of this combined automatic flow. Raw evidence stays outside the PR. Package status and the full goal remain incomplete."
+  "reviewed_from_revision": "40d0ba86d1a747f9f498634f11c81ed4d692e3fd",
+  "review_note": "Reviewed durable Docker isolation at 5d48dbabf532a3a6cde24856eabab51615c27339. All 979 distinct selected tests pass, with 1,789 frozen Rust/Cargo/config inputs and retained executable/result hashes audited against this source. Six fault tests, one native Ready/Active boot binding test, and one real Colima Engine paused-container isolation test cover immutable physical identity, unknown replies, retained data and cancellation. The provider requires exclusive lifecycle ownership, single-use containers and contained workers. The real Engine ran on a 2-CPU/2-GiB VM; its configured 1-CPU/3-GiB container limit does not qualify fleet capacity. Deployment enrollment/recovery wiring, extent-backed automatic removal with foreground writes, full CI, density, TPS/p99, repeatability and soak remain open. Raw evidence stays outside the PR. Package status and the full goal remain incomplete."
 }

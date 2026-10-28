@@ -30,8 +30,9 @@ topology-service, twelve evacuation, two maintenance settlement, two isolation,
 three removal, thirteen catalog and 914 other host library tests. Host/admin/logic
 all-target Clippy, formatting, layout and native dependency checks pass. The
 audit binds 1,789 Rust/Cargo/config inputs and retained executable/result hashes;
-the exact source commit is recorded with the delivery baseline. Documentation,
-ten plan tests and the expanded acceptance inventory validate. Evidence remains
+the exact source commit is `5d48dbabf532a3a6cde24856eabab51615c27339`. Documentation,
+ten plan tests and source preflight pass. The acceptance inventory validates
+483 required cases and 112 source anchors; it does not certify every planned scenario. Evidence remains
 outside runtime data in `docker-isolation-v4`.
 
 Earlier failed probes retain the malformed fixture-ID, Ready-to-evacuation setup
