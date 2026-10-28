@@ -4,8 +4,8 @@ Status: implementation in progress. The design began at source
 `e0035689dd1eaf059fca250f2eaf05b3280899bc`; `baseline.json` tracks the reviewed
 successor for source preflight. The [implementation progress](progress.md) records
 the catalog, durable membership guard, trusted enrollment and terminal removal,
-with local verification. The current stop-refresh/status source passes 933 distinct selected core/SDK
-cases in 934 executions of completed passing cohorts. Earlier fixture probes are
+with local verification. The current maintenance management source passes 955 distinct selected cases
+in 955 executions of completed passing cohorts. Earlier fixture probes are
 retained; older-source Overloaded and observation causes remain unproven.
 Deployed qualification remains open. FO-01 through FO-03 are complete; FO-04, FO-06, FO-07,
 FO-08 and FO-10 are in progress. Healthy assignment and the explicit resumable topology
@@ -61,8 +61,12 @@ cancellation requires the actual SDK fence/receipt and preserves capacity exclus
 SDK stop-consent refresh now retains the original physical selector across fresh
 Ready assessments, lost confirmation and actual joined closure. Read-only operator
 status reports canonical progress without driving work or restoring health proof.
-The complete management SDK/admin/CLI stop/return/resume sequence, owned periodic
-execution, rolling/failure/grace policy and resize remain delivery targets. Graceful departure now reports typed proof waiting without
+Management SDK/admin/CLI prepare/cancel/status commands and explicit Node-owned
+periodic preparation now have end-to-end coverage, including requester loss,
+Node cancellation/join, unknown admission and independent permissions. Waiting
+polls only read-only status; a cancelled preparation cannot report Ready success.
+The complete management stop/return/resume sequence, rolling/failure/grace policy
+and resize remain delivery targets. Graceful departure now reports typed proof waiting without
 consuming a history or releasing the disruption slot. Status retains local progress
 only at the same Root; CLI waiting stops on unknown mutation outcomes. Current
 native qualification passes, while the underlying intermittent observation cause
@@ -74,9 +78,9 @@ isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,
 without releasing that action's debt. Automatic failure
 classification and a production isolation provider remain unfinished. The next
-priorities are the complete management maintenance workflow and owned execution,
-followed by grace/rolling/second-failure handling, scalable convergence
-and resize. Empty/retired returned-node and large-fleet qualification remain open. Unconfirmed closure keeps movement
+priorities are the independent stop/return/resume management sequence and its
+terminal operator cleanup, followed by grace/rolling/second-failure handling,
+production isolation, scalable verification/convergence, leader balancing and resize. Empty/retired returned-node and large-fleet qualification remain open. Unconfirmed closure keeps movement
 debt charged.
 
 Deliver automatic redundancy repair, healthy-replica redistribution, load-aware

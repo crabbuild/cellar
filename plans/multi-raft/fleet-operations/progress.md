@@ -8,12 +8,76 @@ SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
 and activate added capacity. Automatic failure classification, production
 isolation, the complete maintenance operator workflow and resize remain
-unfinished. Verified intact-return resume now closes the SDK capacity/slot boundary. Graceful
+unfinished. Maintenance prepare/cancel/status now have management SDK/admin/CLI
+adapters and explicit Node-owned periodic execution. Verified intact-return
+resume closes the SDK capacity/slot boundary. Graceful
 evacuation, explicit joined stop and terminal removal are now exposed through
 the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Maintenance management and Node-owned preparation
+
+Source `777f560f` delivers audited `prepare-maintenance`, `cancel-maintenance`
+and `maintenance-status` commands through the management SDK, admin API and
+shipped CLI. Preparation requires the independent `fleet_maintenance` grant;
+cancellation requires `fleet_cancel`. Other operating, stop, capacity and
+registration grants cannot admit preparation. Catalog, node, original process,
+operation, request, revision and immutable birth choice retain their canonical
+meaning across an unknown response. GET status reads one Root and never drives
+work. Mutation waiting submits once and then polls only GET; cancellation of a
+preparation returns blocked exit 4, while the cancellation command's own wait
+succeeds only at its canonical terminal receipt.
+
+`RaftFleetControl::start_maintenance_service` explicitly starts the default-off
+preparation/cancellation worker. The enrolled Node job set owns it, selects its
+installed catalog backend/domain and holds the bounded control budget. Independent
+clients share one per-Node service slot. Node drain/shutdown cancels and joins it;
+requester-domain loss does not terminate already-owned work. Recreated workers
+recover Root intent and repeat ephemeral proof. Active rounds share one original
+deadline, a soft quantum and at most sixteen complete steps, separately from
+idle/blocked pacing. This service grants no stop, return, resume or capacity consent.
+
+**955 distinct selected cases pass in 955 executions of completed passing
+cohorts:** 785 library, 107 native fleet, 13 catalog, 25 membership-permit, eight
+CLI and 17 admin-console cases. Five new cases cover actual preparation and
+matched leadership, cancellation through the synced Fence/terminal receipt,
+requester loss, independent-client singleton admission, Node shutdown during a
+held Root CAS, audited unknown replay, permission separation, read-only queued
+status and the cancelled-preparation wait result. Actual SQL remains usable.
+Existing refresh/controller, stop/return/resume, scoped-stop, operator and
+ordinary-boot cohorts pass on default stacks. Host/admin all-target Clippy,
+console typecheck, format/layout, native dependency rules, docs, ten plan tests,
+the 438-case manifest and preflight with 100 reviewed input anchors pass.
+
+The earlier `maintenance-management-v3` cohort passed the shutdown case and failed
+the requester-loss case with Overloaded. The unchanged-binary diagnostic located
+it in the phase reader: the fixture shared the receiving host's serialized
+catalog client. The fixture now uses independent reader/discovery clients,
+matching the management adapter, without increasing retries, deadlines, stacks
+or resource bounds. The CLI probe separately reproduced cancelled preparation
+returning exit 0; the regression now requires blocked exit 4 after exactly one
+POST and one GET. Initial lint probes were corrected without suppressing warnings.
+These are separate from older-source Overloaded and quorum/dispatch causes that
+remain unproven in their retained records.
+
+Audits match all **1,592 frozen Rust/Cargo/configuration inputs**, the changed
+console permission type and retained executable/result hashes to `777f560f`.
+Primary artifacts remain outside runtime data under
+`qualification/fleet-operations/maintenance-management-v4/`,
+`maintenance-management-regressions-v1/` and `maintenance-management-checks-v1/`.
+Earlier probes remain retained separately; raw evidence is excluded from the PR.
+
+**Next priorities:** complete separately authorized maintenance stop, signed
+offline confirmation, retained return and verified resume through management,
+including operator-pointer terminal cleanup and cancellation races. Then deliver
+grace expiry, rolling/second-failure recovery and production isolation, followed
+by scalable live verification/convergence, load-aware leadership and desired
+capacity/resize. Empty/retired return, full CI and loaded language modes, deployed
+RustFS/Colima at enforced 1-vCPU/3-GiB limits, large-fleet freshness, TPS/p99 and
+soak remain unqualified. The complete maintenance workflow and full goal remain
+active; this milestone claims no throughput gain.
 
 ## Stop-consent refresh and read-only operator status
 
