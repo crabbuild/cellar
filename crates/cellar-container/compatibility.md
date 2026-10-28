@@ -13,6 +13,7 @@ a language facade does not grant provider support.
 | Capability discovery | Yes | Yes | Yes |
 | Running / start / destroy | Yes | Yes | Yes |
 | Explicit binding reconciliation | Running snapshot; no remote journal | Recover / observe expiry / pending deletion | Recover pinned session / observe expiry / pending deletion |
+| Concurrent named sandboxes per business cell | One default container per execution cell; named allocation/pool boundary remains required | Host-declared bindings; no dynamic pool yet | Host-declared bindings; no dynamic pool yet |
 | Custom start entrypoint | Yes | No; host template | No; host image |
 | Bounded binary command output | Yes | Yes | Yes; image-local helper |
 | Interactive process streams | Yes | No | No |
@@ -76,6 +77,7 @@ capability discovery and preserve their pre-effect refusal.
 
 | Release requirement | Current boundary |
 | --- | --- |
+| User production targets | Elastic named sandbox allocation, no invented global lifetime, 64/256 MiB transfer qualification and 60–300 second recovery remain acceptance work; see [targets](../../plans/sandbox-provider-compatibility.md#production-targets-supplied-by-the-user) |
 | Exact operation/version/isolation inventory | Input manifests and this matrix exist; complete release results remain open |
 | Local Cloudflare APIs | Selected baseline and 1.0.3 operations pass; full Containers/Workers/Sandbox API and lifecycle qualification remains partial |
 | Storage and ownership failures | Selected native restart, expiry, orphan and lost-response cases pass; broader outage/partition, physical deletion, multipart and takeover acceptance remains open |
