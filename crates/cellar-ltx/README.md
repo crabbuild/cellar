@@ -272,7 +272,12 @@ The unstable verification API also provides `ExtentImage` and
 It shares this read-only VFS, fetching, independently verifying and caching only
 the extents needed by each read. Cache byte/file limits and a shared scratch
 pool bound retained and in-flight files separately. Eviction keeps the root
-fixed; live reads retain their physical files and charges. Sources execute on
+fixed; live reads retain their physical files and charges. Concurrent misses for
+the same extent share one receive and its independently verified file, including
+across residency eviction. Distinct extents can fetch concurrently within the
+shared scratch budget. A failed or panicked producer releases its incomplete
+receive before waking waiting readers to retry; failed bytes are never cached.
+Sources execute on
 the owning blocking domain and append through an already admitted download.
 Verified extent files retain at most 2 KiB of local block digests and check each
 later read against them before exposing bytes, including after cache insertion.
