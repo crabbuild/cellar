@@ -1214,6 +1214,21 @@ qualification-package target with warnings denied. Format/layout (1,252 Rust
 files), native dependency and documentation guards also pass. Tested executable
 copies and the complete matching source inventory are retained.
 
+At `cb1138817241f3d441dbdec357e80862839cbeef`, the matching all-internal
+272 MiB RustFS pilot passes all nine correctness checks and all six phase
+windows. Failure to verified durable write is 9.541490 s, including 3.301136 s
+of archive waiting, 0.958618 s of seed installation, 2.381931 s of promotion
+and 0.171622 s for the first write. Its source inputs are
+`284aa6d8b2a4787ede81d73710e0cca661b49d14f45b348429133162a20742fa`
+and tested release executable is
+`b58a383138d208755421a20697862970562bf929e32864dc8b8efb2fd8908892`.
+The analyzer retains its three-sample pilot minimum and correctly returns
+nonzero for this one-sample smoke run; native recovery and phase diagnostics
+pass, while latency qualification remains false. These contended small pilots
+are not a controlled speedup comparison. The latest passing 10 GB measurement
+remains the preceding `916e7ff5` trial; the pipelined source still needs fresh
+full-size peer/RustFS campaigns.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775
