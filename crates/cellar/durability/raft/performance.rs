@@ -78,9 +78,11 @@ pub(crate) enum Operation {
     SnapshotSeedEncode,
     SnapshotCheckpointEncode,
     SnapshotTransferEncode,
+    ArchivePhysicalAdmission,
+    ArchivePhysicalQueue,
 }
 
-const OPERATIONS: [Operation; 41] = [
+const OPERATIONS: [Operation; 43] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -122,6 +124,8 @@ const OPERATIONS: [Operation; 41] = [
     Operation::SnapshotSeedEncode,
     Operation::SnapshotCheckpointEncode,
     Operation::SnapshotTransferEncode,
+    Operation::ArchivePhysicalAdmission,
+    Operation::ArchivePhysicalQueue,
 ];
 
 impl Operation {
@@ -168,6 +172,8 @@ impl Operation {
             Self::SnapshotSeedEncode => "snapshot_seed_encode",
             Self::SnapshotCheckpointEncode => "snapshot_checkpoint_encode",
             Self::SnapshotTransferEncode => "snapshot_transfer_encode",
+            Self::ArchivePhysicalAdmission => "archive_physical_admission",
+            Self::ArchivePhysicalQueue => "archive_physical_queue",
         }
     }
 }

@@ -50,6 +50,8 @@ OPERATIONS = (
     'snapshot_seed_encode',
     'snapshot_checkpoint_encode',
     'snapshot_transfer_encode',
+    'archive_physical_admission',
+    'archive_physical_queue',
 )
 COUNTERS = (
     'engine_file_read_bytes',

@@ -298,16 +298,20 @@ sparse main file from that exact base, faulting extents through an admitted cach
 and tracking actual main-file changes across checkpoints. WAL and locks stay with
 the injected SQLite VFS. Quota-sized metadata uses one slot per extent; private
 file disk admission and cleanup remain the caller's responsibility. Ordinary
-VFS observations retain their conservative full-image fallback. The public
-native SDK still needs writer/backend selection and remote transfer integration.
+VFS observations retain their conservative full-image fallback. Native namespaces
+can select extent storage and restore complete local closures through peer and
+object-store transfer. Admission with retained remote dependencies and command
+execution before complete hydration still requires the separate recovery proof.
 
 Run `cargo test --locked -p cellar-ltx --test extent_store` for owning-boundary
 restart, actual SQLite demand-read, quota, publication, cleanup and retention
 checks, including an abrupt child-process exit after root-file sync. Sources and
 inventory work belong to the owning blocking domain. Keep the separate anonymous
 read cache outside the inventory directory and give it its own scratch admission.
-This remains a data-access component; native command/archive integration and
-authenticated recovery selection remain open. See the
+This standalone view remains a data-access component; the native host adds
+authenticated selection, complete-local installation and command/archive
+integration. Verified remote retention and admission before complete hydration
+remain open. See the
 [extent image contract](../../plans/multi-raft/extent-root-contract.md).
 
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`

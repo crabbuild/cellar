@@ -676,6 +676,47 @@ lagged archives; waiting for the head must remain in their reported duration.
 If the 10-second replay budget is infeasible, record the measured bound and
 redesign snapshot frequency/catch-up before accepting M1.
 
+### Node-wide local archive work admission
+
+Archive producer count bounds retained cuts but previously let each producer
+submit local encoding/verification work independently. A deterministic owning
+test holds one physical archive job and submits another cell's job through a
+second host clone. Before admission is enforced, both pass the supposed one-job
+boundary; the test fails with two successful admissions against an expected one.
+
+The native owner now shares a separate physical budget across captured
+publication clones and their verifier. `max_blocking_jobs` accepts one to four
+and defaults to one. Foreground archive restoration retains its original host;
+the adapter preserves the actual filesystem, clock and execution domain. A waiting
+job is not submitted to the physical executor; its already admitted publication
+owner and capture reservation remain held. A slot moves into the dispatched job and
+outlives caller cancellation, including while its executor has not begun the
+job. Owner cancellation/drop refuses queued admission, while entered work still
+joins through domain shutdown. Producer and memory admission remain separate.
+
+`archive_physical_admission` and `archive_physical_queue` distinguish the new
+admission delay from executor dispatch delay; both remain in overall publication
+and recovery timing. The physical test runner records the explicit setting and
+refuses continuation with a changed or missing value. This bounds local archive
+work, not object-store bandwidth. Network scheduling, measured foreground
+interference bounds, source freshness/replay-time rotation, verified warm handoff
+and remote-retention/demand-loading proof remain open. No full-size RTO gain or
+percentile qualification follows from the admission tests alone.
+
+The admission implementation passes 13 owning tests and five performance tests.
+Its runtime source passes 76 archive, 20 ordinary large-image and 32 rooted
+integration cases; 14 physical cases remain ignored. The additional public
+operations target passes all 23 cases after its exact metrics inventory is
+updated to 43 operations, 42 counters and 1,291 performance series. Before that
+expectation update, the test refuses the observed 43-operation inventory against
+the old 41-operation assertion. The qualification package now wraps the existing
+public archive and operations suites without requiring the host CLI binaries.
+All-feature Clippy, 246 Python tooling cases (one skipped), formatting/layout
+over 1,314 Rust files and dependency/documentation checks pass. The final
+test-only changes preserve every production runtime input from the archive and
+recovery validation. Source-bound physical preflights and full-size timing remain
+separate gates.
+
 ## RT-04: Connect complete extent recovery end to end
 
 The first implementation uses the existing extent-aware native descriptor,

@@ -19,11 +19,13 @@ cellar-ltx.workspace = true
 futures-util.workspace = true
 hex.workspace = true
 object_store = { workspace = true, features = ["aws"] }
+protobuf.workspace = true
 raft.workspace = true
 rand.workspace = true
 reqwest = { workspace = true, features = ["rustls-tls", "json"] }
 rusqlite = { workspace = true, features = ["backup", "blob", "bundled"] }
 rustls.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
