@@ -12,6 +12,7 @@ publish = false
 # binaries. The tests still use the public SDK and shared fleet fixtures.
 [dev-dependencies]
 anyhow.workspace = true
+async-trait.workspace = true
 cellar.workspace = true
 cellar-logic.workspace = true
 cellar-ltx.workspace = true

@@ -602,6 +602,7 @@ name = "cellar-recovery-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "cellar",
  "cellar-logic",
  "cellar-ltx",

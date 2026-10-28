@@ -1155,8 +1155,64 @@ retains these cases; the temporary fast-feedback entry is retained in evidence.
 The final release target passes 20 ordinary cases, with 12 physical cases
 ignored. All-feature/all-target qualification-package release Clippy,
 format/layout (1,250 Rust files), native dependency and documentation guards
-pass. The failed read-only setup is still recorded; a fresh full-size pass is
-required before accepting native RustFS recovery.
+pass. The failed read-only setup is still recorded; at that revision a fresh
+full-size pass was still required before accepting native RustFS recovery.
+
+The all-internal retry at `916e7ff58847bba37ccd0f15cfec0bb06d01efe1` passes the
+complete 9,999,998,976-byte RustFS native oracle: all nine correctness checks and
+all six phase-observation windows are valid. Failure to first verified durable
+write is 200.704983 s, including 123.620465 s waiting for the archive and
+71.636138 s installing the seed. Promotion takes 0.419161 s and the first write
+0.164724 s. The broad payload oracle passes in 13.967413 s under its unchanged
+60-second deadline; failure to payload verification is 214.695243 s. The whole
+482.89-second fixture includes initial preparation and is not RTO. Source input
+SHA-256 is `7de5605136ba2de4e007c46996762e556410c61d3699d0fcf6d502d12bf1d54c`;
+the release executable is
+`c3c46b61741dbee148e512b14a9789cc1c978d9cc33968ef7f29f1b3e0da03c9`.
+The retained prefix is
+`cold-recovery-qualification/e5e1ef074c4de015d414824848368b5b/`.
+This single embedded joined-domain-loss trial uses an all-internal storage
+layout, uncontrolled caches and shared-host load. Its different layout prevents
+a controlled comparison with preceding trials. The payload repetition caveat
+still applies; no process-kill or percentile qualification is established.
+The native RustFS functional failure is closed for this tested input, while
+the 120-second target, a current-source peer campaign and RT-05/06 remain open.
+
+Phase counters identify amplification before the cold receiver starts: one
+publisher consumes 50,000,734,901 GET body bytes for the approximately 10 GB
+image. Another replica consumes 10,000,078,296 GET body bytes during receiver
+installation, alongside the receiver's 10,000,159,919 bytes. Requested PUT
+payload bytes are not actual wire-upload bytes. Publication coordination already
+applies to rooted cuts; these counters do not establish a missing coordination
+bug. Repeated confirmation/materialization and covering reads motivate reusing
+same-attempt verified material, bounded download/install overlap and foreground
+I/O scheduling. Operation durations overlap and must not be added to RTO.
+
+The archive loader now bounds the complete GET/verify/install lifetime to two
+objects, keeping network polling active while one destination install runs.
+An async gate serializes only disk mutation, preserving the ordinary inventory
+contract that refuses overlapping mutations. The memory admission bound remains
+unchanged. Entered physical installs and final sealing retain their own receive
+pins and memory admission across cancellation. After an observed error, the
+loader admits no more objects and drains its existing window before returning;
+only a complete independently verified local closure can produce the seal.
+
+Two native regressions hold an actual extent's destination verification while
+releasing the second GET. Both fail with the original loader and pass with the
+pipeline. They check the two-object bound and drain an injected GET failure
+before return. A third test cancels the receive while its physical install is
+held, verifies that execution-domain shutdown waits, then checks that GC can
+reclaim the abandoned closure without a leaked pin or quarantined inventory.
+The complete release qualification package passes 20 ordinary large-image cases
+and 27 native root-image cases; 12 large physical, two root RustFS and one
+retained diagnostic case remain explicitly ignored. These owning-boundary tests
+provide no new full-size RTO measurement. Peer source inspection confirms that
+one verified extent is already cached across wire chunks, so repeated full
+extent reads per 1 MiB peer window are not an established bottleneck.
+All-feature release Clippy passes for the production library and every
+qualification-package target with warnings denied. Format/layout (1,252 Rust
+files), native dependency and documentation guards also pass. Tested executable
+copies and the complete matching source inventory are retained.
 
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release

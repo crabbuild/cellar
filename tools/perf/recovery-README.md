@@ -242,3 +242,12 @@ seeding and joined restart have small functional evidence. The runner can now
 select the same public extent path for complete-local recovery campaigns.
 Partial hydration remains implementation work. Existing full-size materialized
 campaigns do not qualify root-stream latency or change either recovery-time target.
+
+The native root-archive target also exercises overlap at the actual destination
+verification boundary, failed-window draining and immutable remote corruption.
+Run it through the same private qualification package without compiling unrelated
+host executables:
+
+```sh
+cargo test --locked --release -p cellar-recovery-tests --test native_raft_rooted -- --test-threads=1
+```

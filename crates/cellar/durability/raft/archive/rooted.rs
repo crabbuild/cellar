@@ -8,7 +8,7 @@ use crate::raft::snapshot::{
     PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotError, SnapshotLimits,
 };
 use cellar_ltx::internal::{ExtentId, NodeExtentStore, SealedImageRoot, EXTENT_BYTES};
-use futures_util::stream::FuturesOrdered;
+use futures_util::stream::{FuturesOrdered, FuturesUnordered};
 
 const MAGIC: &[u8; 8] = b"CLRROT01";
 const HEADER_BYTES: usize = 48;
@@ -352,32 +352,63 @@ impl CellArchive {
             })
             .await
             .map_err(ArchiveError::Worker)??;
-        let extents: Vec<_> = set.extents().collect();
-        let pending = extents
-            .into_iter()
-            .map(|id| async move { self.get_root_extent(id).await.map(|bytes| (id, bytes)) })
-            .collect::<Vec<_>>();
-        let mut reads = futures_util::stream::iter(pending).buffered(ROOT_WINDOW);
-        while let Some((id, bytes)) = reads.try_next().await? {
-            let set = set.clone();
-            let store = store.clone();
-            let retention = self.read_retention.clone();
-            self.host
-                .run_blocking(move || {
-                    let _retention = retention;
-                    set.install_extent(&store, id, &bytes).map_err(root_error)
-                })
-                .await
-                .map_err(ArchiveError::Worker)??;
+        // Bound the complete GET/verify/install lifetime, rather than stopping
+        // network polling whenever one extent enters its destination write.
+        // Serializing only installs also supports inventories whose mutation
+        // contract refuses concurrent operations instead of waiting for them.
+        let install = futures_util::lock::Mutex::new(());
+        let mut objects = set.extents();
+        let mut pending = FuturesUnordered::new();
+        let mut failure = None;
+        loop {
+            while failure.is_none() && pending.len() < ROOT_WINDOW {
+                let Some(id) = objects.next() else { break };
+                let set = set.clone();
+                let store = store.clone();
+                let pin = receive_pin.clone();
+                let retention = self.read_retention.clone();
+                let install = &install;
+                pending.push(async move {
+                    let bytes = self.get_root_extent(id).await?;
+                    let _install = install.lock().await;
+                    self.host
+                        .run_blocking(move || {
+                            // Cancellation may drop the async window while its
+                            // entered physical job still runs. Keep both GC
+                            // protection and admission through that last I/O.
+                            let _pin = pin;
+                            let _retention = retention;
+                            set.install_extent(&store, id, &bytes).map_err(root_error)
+                        })
+                        .await
+                        .map_err(ArchiveError::Worker)?
+                });
+            }
+            let Some(result) = pending.next().await else {
+                break;
+            };
+            if let Err(error) = result {
+                if failure.is_none() {
+                    failure = Some(error);
+                }
+            }
+            // Stop admitting objects after the first observed error, but join
+            // every entered GET and physical install before returning failure.
         }
-        drop(reads);
+        drop(pending);
+        drop(objects);
+        if let Some(error) = failure {
+            return Err(error);
+        }
         let set = Arc::try_unwrap(set)
             .map_err(|_| ArchiveError::Invalid("root archive physical owner retained"))?;
         let target = store.clone();
+        let pin = receive_pin.clone();
         let retention = self.read_retention.clone();
         let image = self
             .host
             .run_blocking(move || {
+                let _pin = pin;
                 let _retention = retention;
                 let image = set
                     .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
