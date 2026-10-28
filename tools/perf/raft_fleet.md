@@ -100,6 +100,13 @@ be measured against the native buffer reservation and the actual cgroup usage.
 These are configuration bounds for a small integration workload, not measured
 500-cell capacity or a performance recommendation.
 
+The 1-GiB extent inventory admits one private counter writer at a time under
+the current 580-MiB main/WAL/capture reservation. The SQL owner releases an idle
+writer when retaining it would prevent another equally bounded writer from
+fitting. Active proposals retain their full reservation, and concurrent admission
+can still return overload. Use measured workload concurrency when sizing a
+throughput profile; group placement capacity is not a concurrent-writer count.
+
 The initializer declares the extent-backed namespace and registers every node
 with stable request IDs and revisions. Exact initializer retries reconcile the
 original journal, even after later catalog writes; conflicting identity changes

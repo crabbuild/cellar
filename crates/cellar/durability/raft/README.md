@@ -464,6 +464,15 @@ refuses new work before opening a transaction or invalidating private capture
 state. It does not require a private-image rebuild. Failures after mutation
 begins retain the existing rebuild requirement.
 
+An extent-backed private writer also holds its main/WAL/capture reservation in
+the shared node inventory. After joined SQL work, the owner closes an idle
+writer if retaining it leaves insufficient bytes or workspace slots for another
+equally bounded writer. Prepared and submitted proposals keep their reservation
+and uncertainty fence. Capacity remains atomically checked when a later writer
+opens; the cache observation grants no admission. With spare capacity, the
+existing hot writer cache remains available. Committed images and receipts
+remain authoritative after the disposable writer closes.
+
 The transaction stores the command ID, operation/contract/request digests,
 bounded encoded result, minimum requested durability and retry deadline beside
 the business mutation. Per-client sequence and expiry floors use canonical

@@ -340,6 +340,27 @@ impl ImageOwner {
         }
     }
 
+    /// Retain an optional idle writer only while another equally bounded
+    /// writer can fit. This observation grants no reservation; opening the
+    /// next writer still uses the inventory's atomic admission.
+    pub fn private_cache_has_headroom(&self) -> Result<bool, ExecutionError> {
+        let Self::Rooted { options, .. } = self else {
+            return Ok(true);
+        };
+        let (usage, limits) = options.storage.store.observer().capture().ok_or_else(|| {
+            super::super::execution::storage(cellar_ltx::internal::StoreError::Quarantined)
+        })?;
+        let reservation = RootPrivateOptions::workspace_bounds(options.limits)?
+            .reservation()
+            .map_err(super::super::execution::storage)?;
+        Ok(!usage.quarantined
+            && usage.workspaces < limits.max_workspaces
+            && usage
+                .bytes
+                .checked_add(reservation)
+                .is_some_and(|bytes| bytes <= limits.max_bytes))
+    }
+
     pub fn open_private(
         &self,
         authority: CommandAuthority,
