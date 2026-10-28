@@ -3464,3 +3464,20 @@ live-provider fencing or SP-02–SP-10 full-profile acceptance. The next product
 qualification work is the intended deployment's provider/store failure matrix,
 capacity saturation and retained-state profile. E2B/Vercel live testing remains
 deferred until account configuration is supplied.
+
+
+### Regression checks for fleet collection
+
+| Boundary | Passing local evidence |
+| --- | --- |
+| Development object store | 39 tests, including paged metadata, literal/encoded prefixes and original execution-domain ownership |
+| Sandbox erasure and authority | 15 tests, including unordered bounded discovery, malformed records, nonblocking publication and permanent barriers |
+| Child lifecycle | Five host tests, including deployment removal, standalone restart, exact deletion proof and capacity-aware two-node routing |
+| Existing remote lifecycle | Eight E2B/replacement/supervision tests covering expiry, uncertain create/delete, backend loss, generation replacement and admitted-operation exclusion |
+| Recovery campaign | 24-child regression and separately run 1,024-child qualification; every original checkpoint/file preserved and all online child directories collected |
+| Documentation | Seven crate examples and documentation link checks |
+| Static checks | Strict all-target Clippy for `cellar`, `cellar-container` and `cellar-logic`; repository formatting/layout and native-only dependency checks |
+
+The qualification report identifies its measured source and executable. The
+later formatter-only change to evidence output does not change runtime behavior
+or its assertions. Full cross-platform CI is separate from these local checks.
