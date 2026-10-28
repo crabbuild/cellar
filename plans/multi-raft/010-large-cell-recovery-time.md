@@ -1273,6 +1273,42 @@ restore instructions and the original evidence remain retained. Other prefixes
 and live data are untouched. This releases capacity for the unchanged 10 GB
 oracle and its existing disk-headroom guard.
 
+At `29a1a9b5d7440eace5be1c212d95e40531340015`, the actual 9,999,998,976-byte
+all-internal RustFS drill passes all nine correctness checks and all six valid
+phase windows. Failure to first verified durable write is **90.867463 s**:
+archive waiting is 42.528691 s, seed installation 44.874555 s, promotion
+0.491075 s and first write 0.234381 s. The full payload oracle passes in
+14.419650 s under the unchanged 60-second deadline; failure to full payload
+verification is 105.315401 s. Whole-fixture duration is 339.57 s, including
+initial preparation, and is not RTO. This is the first retained full-size RustFS
+observation below 120 seconds; it does not qualify M1's p95 gate or M2.
+
+Source inputs are
+`ba1ca8c582f7457b2c62a4bffb06990bd4c0bbfba19a615449028c18ba9b446e`,
+with release executable
+`314d43d8344419bfb2911553b6389b8aec24404e4042aba0b9c030a56d545c4c`.
+The matching 272 MiB preflight passes all nine checks and six valid phase
+windows in 6.851718 s. Full-size objects remain live under
+`cold-recovery-qualification/e7d5b5c02b0ee89861211edb8f3b5bd2/`, and the new
+worker trees and complete source-bound evidence remain retained.
+
+Before seeding, the active publisher consumes 10,000,176,825 completed GET body
+bytes and succeeds at one cut; the preceding 200.704983-second trial consumed
+50,000,734,901 bytes across two successful cuts in that observation window.
+The different cut/coalescing schedule is part of this comparison. It is not a
+controlled fivefold algorithmic speedup. During seeding the cold receiver reads
+10,000,159,912 bytes while another replica consumes 9,983,301,094 bytes.
+Requested PUT payload counters are not actual uploaded wire bytes. Logs also
+show a later metadata-only advancement confirming all 2,385 existing extents
+without new extent PUT attempts. The deterministic native regressions establish
+the per-attempt reuse contract independently of these timing effects.
+
+These remain individual shared-host, uncontrolled-cache, repeated-payload,
+joined-domain-loss pilots. The analyzer correctly returns nonzero for the
+insufficient pilot population and leaves qualification false. Current-source
+full-size peer recovery, repeated/high-entropy and hard-process-loss campaigns,
+verified remote demand loading and durable retention/GC remain open.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775
