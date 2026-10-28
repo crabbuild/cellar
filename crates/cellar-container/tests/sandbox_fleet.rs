@@ -520,7 +520,9 @@ fn exercise(count: usize, outage: u64) -> Result<()> {
         Duration::from_secs(outage),
         core.handle().clone(),
     ))?;
-    println!("SANDBOX_FLEET_REPORT={}", serde_json::to_string(&report)?);
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Text).bytes(
+        format!("SANDBOX_FLEET_REPORT={}\n", serde_json::to_string(&report)?).as_bytes(),
+    )?;
     Ok(())
 }
 
