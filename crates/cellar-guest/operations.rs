@@ -62,6 +62,23 @@ pub async fn call_bytes_in_budget(
     signal: Option<cellar::sdk::web::AbortSignal>,
     budget: Option<cellar::sdk::rpc::CallBudget>,
 ) -> Result<Vec<u8>> {
+    Ok(
+        call_response_bytes_in_budget(context, contract, value, request, signal, budget)
+            .await?
+            .into_parts()
+            .0,
+    )
+}
+
+/// Preserve native response ownership through admission into a language bridge.
+pub async fn call_response_bytes_in_budget(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+    budget: Option<cellar::sdk::rpc::CallBudget>,
+) -> Result<cellar::sdk::rpc::ResponseBytes> {
     let timeout = (|| {
         validate("cell.call", &value)?;
         ensure!(
@@ -81,8 +98,8 @@ pub async fn call_bytes_in_budget(
     let method = field(&value, "method")?;
     let options = cellar::sdk::rpc::CallOptions { timeout, signal };
     let call = match budget {
-        Some(budget) => client.call_bytes_in_budget(method, request, options, budget),
-        None => client.call_bytes(method, request, options),
+        Some(budget) => client.call_response_bytes_in_budget(method, request, options, budget),
+        None => client.call_response_bytes(method, request, options),
     };
     Ok(call.await?)
 }

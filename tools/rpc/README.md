@@ -416,6 +416,23 @@ cargo test --locked -p cellar --test native_rpc_reply_allocation
 This guard covers framework reply conversion. Business-message decoders, queued
 responses, shared backing allocations and process RSS require separate evidence.
 
+Guest responses retain native ownership until their bridge has admitted the
+business byte vector. JavaScript/Node and Python carry the same opaque owner
+through native result encoding and both ready/pending reply paths. Bridge
+refusal and host cancellation release that ownership; successful delivery first
+acquires the bridge's own byte reservation. The public raw-vector SDK methods
+retain their existing return contract.
+
+```sh
+cargo test --locked -p cellar-guest --test rpc_response_ownership
+```
+
+The real-node regression checks plain and pre-codec-budget calls, admission
+refusal, and cancellation while a validated response waits to enter the bridge.
+It requires native and bridge reservations to overlap and native reservations
+to return to zero after joined shutdown. This proves the exercised handoff;
+allocator/RSS and other adapter-retained copies remain separate boundaries.
+
 Ordinary peer value replies also use dense collection and yield after 64 frames
 or 64 KiB, including empty/trailer floods. They retain the generic forwarding
 ceiling; event controls keep their stricter 64 MiB ceiling. Oversize/allocation

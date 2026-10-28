@@ -96,12 +96,36 @@ impl Drop for AdmissionFence {
 }
 
 fn fence_outcome(report: Option<FenceReport>) -> NodeOutcome {
+    // Forced closure aborts monitor owners. EOF in an already-entered driver
+    // poll is cancellation; an actual report still preserves its fence cause.
+    if report.is_none() && crate::asyncrt::services().is_closed() {
+        return NodeOutcome::Cancelled;
+    }
     match report {
         Some(FenceReport { code, reason }) => NodeOutcome::Fenced { code, reason },
         None => NodeOutcome::CoreFailed {
             error: "the core fencing report channel closed without an authority report".into(),
         },
     }
+}
+
+fn core_outcome(report: Option<Result<(), String>>) -> NodeOutcome {
+    // Domain closure can retire the monitor before the root poll notices it.
+    // Its empty channel alone is not evidence that the core actor panicked.
+    if report.is_none() && crate::asyncrt::services().is_closed() {
+        return NodeOutcome::Cancelled;
+    }
+    let error = match report {
+        Some(Err(error)) => error,
+        Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
+        None => "the core actor thread panicked".to_string(),
+    };
+    tracing::error!(
+        event = "core_actor_exit",
+        %error,
+        "SELF-FENCE: the core actor exited unexpectedly"
+    );
+    NodeOutcome::CoreFailed { error }
 }
 
 /// Shared production dispatch and drain path for node adapters.
@@ -431,17 +455,7 @@ where
                 return Ok(fence_outcome(report));
             }
             actor_exit = actor_exit_rx.recv() => {
-                let error = match actor_exit {
-                    Some(Err(error)) => error,
-                    Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                    None => "the core actor thread panicked".to_string(),
-                };
-                tracing::error!(
-                    event = "core_actor_exit",
-                    %error,
-                    "SELF-FENCE: the core actor exited unexpectedly"
-                );
-                return Ok(NodeOutcome::CoreFailed { error });
+                return Ok(core_outcome(actor_exit));
             }
             _ = replication_health.tick() => {
                 if let Some(runtime) = &app.runtime {
@@ -792,13 +806,7 @@ where
                 Some(_) = websockets.next(), if !websockets.is_empty() => {}
                 report = fence_rx.recv() => return Ok(fence_outcome(report)),
                 actor_exit = actor_exit_rx.recv() => {
-                    let error = match actor_exit {
-                        Some(Err(error)) => error,
-                        Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                        None => "the core actor thread panicked".to_string(),
-                    };
-                    tracing::error!(event = "core_actor_exit", %error, "SELF-FENCE during shutdown pre-drain");
-                    return Ok(NodeOutcome::CoreFailed { error });
+                    return Ok(core_outcome(actor_exit));
                 }
             }
         };
@@ -1025,13 +1033,7 @@ where
                 Some(_) = websockets.next(), if !websockets.is_empty() => {}
                 report = fence_rx.recv() => return Ok(fence_outcome(report)),
                 actor_exit = actor_exit_rx.recv() => {
-                    let error = match actor_exit {
-                        Some(Err(error)) => error,
-                        Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                        None => "the core actor thread panicked".to_string(),
-                    };
-                    tracing::error!(event = "core_actor_exit", %error, "SELF-FENCE during shutdown");
-                    return Ok(NodeOutcome::CoreFailed { error });
+                    return Ok(core_outcome(actor_exit));
                 }
             }
         }

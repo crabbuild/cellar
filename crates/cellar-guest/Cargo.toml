@@ -20,3 +20,8 @@ futures-util.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+reqwest.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full"] }

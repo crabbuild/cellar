@@ -3037,3 +3037,48 @@ Full image-level lost-create/transport failure, abrupt-crash recovery,
 larger/multipart and verified-swap cancellation, HTTPS, S3 mounts, remote storage
 expiry, broader provider/fleet cleanup and remaining SP-02–SP-10 requirements
 stay open. Live E2B/Vercel qualification still awaits configuration.
+
+## Published directory-backup hard-crash recovery — 2026-10-27
+
+The separately pinned Sandbox 1.0.3 SDK/image now has selected lost-create and
+hard-crash recovery evidence. This extends the earlier clean-process restart
+campaign; the published SDK, shim, native HTTP routing and local Blob backend
+perform the real operations.
+
+| Phase | Required observation |
+| --- | --- |
+| Create | Publish an incompressible 2 MiB + 17-byte directory, save its record in cell state, then join native/Node shutdown |
+| Lost acknowledgement | The published gateway commits allocation, then a fault-only override throws; the real SDK preserves failure, creates once, performs no unknown-ID abort and revokes both GET/PUT grants |
+| Crash barrier | A second published backup stores a larger-than-frame part; its receipt remains withheld while its SDK process is live. Require two upload headers, one part and zero implicitly dropped handles |
+| Hard kill | Stop the owned native child, verify the recorded Node worker's parent/group while its PID is pinned, then SIGKILL worker/native and observe native exit plus eventual group absence |
+| Before restart | The actual application/helper resources must remain. The controller never aborts uploads, removes these resources or opens/checkpoints SQLite to make positive recovery pass |
+| Cold client | A third native process opens production storage and observes both uploads and the part before installing host maintenance |
+| Expiry | Supply a later wall clock and disable deadlines for new uploads; existing stored deadlines must still drive automatic collection of both orphans |
+| Resource recovery | Startup must remove the exact crashed application/helper IDs before new compute starts |
+| Archive recovery | Read the original record from cell state; the published SDK restores original bytes and SHA-256, then its existing cancellation/error/delete checks still pass |
+| Final cleanup | Join completed native/Node phases, require zero unpublished rows, retained bridge bytes/invocations and owned containers/networks |
+
+The process controller has a real Node-child control and a foreign-worker
+refusal case. A stopped, unreaped native parent pins the worker identity while
+parentage and process-group ownership are verified. The controller never sends
+another mutating signal after reaping that parent. Transient `EPERM` during
+exit observation remains uncertain; it keeps polling the same group within the
+original five seconds and requires `ESRCH`, rather than accepting permission
+denial as death. A test-harness counter mistake was corrected: live handles are
+not the counter for handles dropped without release. Primary campaign errors
+also remain visible when shutdown reports a secondary drain failure.
+
+| Evidence | Result |
+| --- | --- |
+| Matching SDK/image | Three phases pass in 56.25 seconds on updated main `3ffbadcc`; all earlier backup/cancellation/error assertions remain, and successful phases retain joined native/Node checks |
+| Process controls | Real Node-group termination and foreign-worker refusal pass; subprocess fixture retained, with the original five-second observation bound |
+| JS/TS and inputs | 149 tests, 120-source formatting and both pinned package/helper/source drift checks pass |
+| Static/repository gates | Strict Node/V8 all-target Clippy, Rust formatting/layout, native-only dependency guard, docs and whitespace pass |
+
+The native handler (120 seconds), JS turn (30 seconds), bridge frame (64 KiB)
+and per-process campaign (300 seconds) limits are unchanged. This qualifies one
+hard-crash boundary after part commit, local upload expiry and the pinned
+SDK/image. It does not establish power-loss durability, every crash point, cloud
+expiry, full transport-loss reconciliation, concurrent/multipart bounds, HTTPS,
+S3 mounts, verified-swap cancellation or full Sandbox/Workers compatibility.
+SP-02–SP-10 remain partial/outstanding; live E2B/Vercel still awaits configuration.

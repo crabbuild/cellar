@@ -562,8 +562,10 @@ impl JavaScriptApplication {
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("JavaScript runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded, synchronous) = result.expect("nonempty native operation set");
+                    let (id, encoded, synchronous, response_owner) = result.expect("nonempty native operation set");
+                    // Bridge reservation precedes release of the native frame.
                     self.runtime.respond_parts(invocation, id, encoded?, synchronous)?;
+                    drop(response_owner);
                     continue;
                 },
                 event = receive.recv() => event,
@@ -772,16 +774,22 @@ impl JavaScriptApplication {
                                                         .context(
                                                             cellar_guest::failure::Validation,
                                                         )?;
-                                                    let result = operations::call_bytes_in_budget(
-                                                        &scoped_context,
-                                                        contract,
-                                                        payload,
-                                                        bytes,
-                                                        signal,
-                                                        budget,
-                                                    )
-                                                    .await?;
-                                                    return Ok((Value::Null, Some(result)));
+                                                    let result =
+                                                        operations::call_response_bytes_in_budget(
+                                                            &scoped_context,
+                                                            contract,
+                                                            payload,
+                                                            bytes,
+                                                            signal,
+                                                            budget,
+                                                        )
+                                                        .await?;
+                                                    let (bytes, owner) = result.into_parts();
+                                                    return Ok((
+                                                        Value::Null,
+                                                        Some(bytes),
+                                                        Some(owner),
+                                                    ));
                                                 }
                                                 ensure!(
                                                     body.is_none(),
@@ -817,7 +825,7 @@ impl JavaScriptApplication {
                                                             reserve,
                                                         )
                                                         .await?;
-                                                    return Ok((value, None));
+                                                    return Ok((value, None, None));
                                                 }
                                                 if rpc_enabled
                                                     && callback_scope.is_none()
@@ -834,7 +842,7 @@ impl JavaScriptApplication {
                                                             signal,
                                                         )
                                                         .await
-                                                        .map(|value| (value, None))
+                                                        .map(|value| (value, None, None))
                                                 } else if operation_name
                                                     .starts_with("workers.callback.")
                                                 {
@@ -847,7 +855,7 @@ impl JavaScriptApplication {
                                                             options.max_batch_operations,
                                                         )
                                                         .await
-                                                        .map(|value| (value, None))
+                                                        .map(|value| (value, None, None))
                                                 } else {
                                                     operations::execute_with_signal(
                                                         &scoped_context,
@@ -864,7 +872,7 @@ impl JavaScriptApplication {
                                                         signal,
                                                     )
                                                     .await
-                                                    .map(|value| (value, None))
+                                                    .map(|value| (value, None, None))
                                                 }
                                             };
                                             match scope {
@@ -882,12 +890,16 @@ impl JavaScriptApplication {
                                 }
                                 Err(error) => Err(error),
                             };
+                        let (result, response_owner) = match result {
+                            Ok((value, body, owner)) => (Ok((value, body)), owner),
+                            Err(error) => (Err(error), None),
+                        };
                         let encoded = cellar_guest::failure::result_parts(
                             &name,
                             result,
                             runtime.options.max_value_bytes,
                         );
-                        (id, encoded, synchronous)
+                        (id, encoded, synchronous, response_owner)
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -897,9 +909,11 @@ impl JavaScriptApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded, synchronous)) => self
-                            .runtime
-                            .respond_parts(invocation, id, encoded?, synchronous)?,
+                        std::task::Poll::Ready((id, encoded, synchronous, response_owner)) => {
+                            self.runtime
+                                .respond_parts(invocation, id, encoded?, synchronous)?;
+                            drop(response_owner);
+                        }
                         std::task::Poll::Pending => pending.push(operation),
                     }
                 }

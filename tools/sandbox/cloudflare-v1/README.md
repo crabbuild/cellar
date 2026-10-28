@@ -274,15 +274,57 @@ cargo test --locked -p cellar-javascript --features node \
 | Allocation-time cancellation | Invoke the real published gateway allocation, then abort; exactly one allocation, original reason, revoked read/write grants and no upload/part rows |
 | Transfer cancellation | Interrupt the first native upload/range body chunk and abort; preserve the caller's reason, leave the restore destination unchanged and revoke both grants |
 | Failed mutation acknowledgement | Complete/delete in real native storage, then throw from the gateway control call; observe the committed object or deletion and require exactly one mutation call |
+| Lost create acknowledgement | The published SDK's real allocation commits before a fault-only gateway throws; require one create, zero compensating aborts and denied GET/PUT grants |
+| Hard-crash recovery | Kill the native host and its verified Node process group with a real uploaded part awaiting its receipt; recover the saved archive and reclaim expired unknown-ID/part uploads in a third process |
 | Missing/corrupt input | Published `ENOENT`, `BACKUP_NOT_FOUND` and `BACKUP_INTEGRITY` errors; failed restores preserve the changed destination and revoke grants |
 | Deletion | Destroy the container, then delete the archive through the published API without starting new compute |
-| Retirement | Explicit process-handle release after every route; join each native node and Node runtime, require zero retained bridge bytes/invocations and no owned containers; remove only empty owned networks |
+| Retirement | Completed phases retain explicit process-handle release, joined native/runtime drain and zero retained bridge bytes/invocations; the crash phase requires live SDK work at SIGKILL and leaves resources for restart cleanup |
 
-The campaign runs two separately spawned native processes, each with its own
+The campaign runs three separately spawned native processes, each with its own
 Node process and fresh node directory. Only the fleet/object-store database is
 shared. The saved-record JSON is an expected-value check; recovery reads the
-record from cell state. Each process has a 300-second outer bound and is joined;
-the existing 120-second handler and 30-second JS execution budgets stay intact.
+record from cell state. Each phase keeps the 300-second outer bound; the
+existing 120-second handler and 30-second JS execution budgets stay intact.
+
+```mermaid
+sequenceDiagram
+    participant First as First native / Node host
+    participant Crash as Second native / Node host
+    participant Store as Native SQLite store
+    participant Last as Third native / Node host
+    First->>Store: Publish archive + durable cell record
+    Note over First: Join normal shutdown
+    Crash->>Store: Allocate upload; lose create response
+    Crash->>Store: Allocate another upload; publish real part
+    Note over Crash: Withhold part receipt; SDK process remains live
+    Note over Crash: Verified native/Node SIGKILL; no cleanup callbacks
+    Last->>Store: Reconnect with changed policy and later host clock
+    Last->>Store: Retire expired uploads; collect unpublished rows
+    Store-->>Last: Original completed archive + cell record
+    Note over Last: Reap exact crashed application/helper IDs
+    Last->>Last: Restore exact original bytes and SHA-256
+```
+
+The [recovery fixture](backup-recovery.mjs) preserves the published allocation,
+shim, grant exchange and part publication. Only the control acknowledgement or
+part receipt is interrupted. An executable wrapper records the real Node PID,
+then immediately `exec`s Node with the original bootstrap arguments. The outer
+controller stops its owned native child, verifies that the recorded worker is
+still that child's group leader, kills the worker group and native child, and
+waits for termination. A foreign worker identity refuses before any kill.
+
+At the barrier, the native child requires two real uploads, one persisted part
+and a live, unreleased SDK process. After SIGKILL, the controller requires the
+two owned application/helper resources. It never aborts those uploads or
+removes those resources to make the recovery assertion pass. The third host
+opens production storage before observing the two uploads and part; the
+controller never opens/checkpoints SQLite between SIGKILL and this cold client.
+The replacement host
+uses a supplied later wall clock; new uploads disable deadlines, proving old
+stored deadlines remain authoritative. Startup must remove the exact crashed
+resource IDs, collection must remove unpublished records, and the published
+SDK must restore the original completed archive. Forced test cleanup runs only
+after failure and never turns a failed campaign into success.
 
 The [fault fixture](backup-failures.mjs) uses the published implementations.
 Its allocation-abort gateway subclasses the published gateway solely to abort
@@ -329,8 +371,8 @@ for defaults, unsupported backends and remaining memory qualification.
 ## Remaining compatibility
 
 This does not qualify all Sandbox 1.x operations. Image selection, snapshots,
-HTTPS interception, S3 mounts, abrupt crashes, larger/multi-part and
-verified-swap cancellation, lost create/transport responses, orphan expiry and
+HTTPS interception, S3 mounts, broader crash boundaries, larger/multi-part and
+verified-swap cancellation, lost transport responses, cloud-provider expiry and
 complete directory-backup failure/restart behavior,
 full cancellation/fault/persistence semantics and hosted
 Cloudflare remain unsupported or unqualified. The web-stream process facade

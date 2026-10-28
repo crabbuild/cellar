@@ -114,9 +114,26 @@ allocator usable size, application-retained decoded graphs, guest heaps or lease
 untyped capability streams. Native decoder and receiving-peer quotas still
 apply independently. Native typed clients keep the response frame admitted
 through response preflight and decoding, so the owned business-byte copy cannot
-cross that handoff without response ownership. Raw-byte APIs transfer their
-returned vector to their caller; guest adapters retain their separate budgets. Effective cross-adapter limits and further memory
-qualification remain recorded in the typed-RPC implementation ledger.
+cross that handoff without response ownership. Optional language adapters use
+the retained-response API and carry its opaque owner beside the business vector
+through native completion encoding and ready/pending delivery. They release it
+after the JavaScript/Node or Python bridge has acquired its own byte reservation
+and queued the result. Refusal and cancellation drop the owned bytes and return
+their capacity. Existing raw-byte APIs keep their owned-vector return contract.
+
+```text
+native response pool -> validated bytes + native owner
+                                      |
+                           bridge byte admission
+                                      |
+                        queue bytes + bridge reservation
+                                      |
+                           release native owner
+```
+
+The overlapping reservations cover the handoff; each pool retains its own
+limits. Effective cross-adapter limits, other retained copies and further
+memory qualification remain recorded in the typed-RPC implementation ledger.
 
 Native typed clients and Rust service routers also reserve decoder capacity
 before Prost runs. The portable slot profile does not capture Rust's transitive

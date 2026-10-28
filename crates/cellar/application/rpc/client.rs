@@ -34,6 +34,52 @@ struct Received {
     _frame: crate::engine_api::RpcData,
 }
 
+/// Validated response bytes and their shared native memory ownership.
+#[doc(hidden)]
+pub struct ResponseBytes {
+    bytes: Vec<u8>,
+    owner: ResponseOwner,
+}
+
+/// Keep this owner until an adapter has admitted the returned byte vector.
+#[doc(hidden)]
+pub struct ResponseOwner {
+    _frame: crate::engine_api::RpcData,
+}
+
+impl Received {
+    fn into_bytes(self) -> ResponseBytes {
+        ResponseBytes {
+            bytes: self.bytes,
+            owner: ResponseOwner {
+                _frame: self._frame,
+            },
+        }
+    }
+}
+
+impl AsRef<[u8]> for ResponseBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl ResponseBytes {
+    /// Transfer both parts together; queued bytes need an admitted owner.
+    pub fn into_parts(self) -> (Vec<u8>, ResponseOwner) {
+        (self.bytes, self.owner)
+    }
+}
+
+impl std::fmt::Debug for ResponseBytes {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResponseBytes")
+            .field("len", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Client {
     pub fn bind(
         context: &Context,
@@ -142,9 +188,8 @@ impl Client {
         request: Vec<u8>,
         options: CallOptions,
     ) -> HandlerFuture<Vec<u8>> {
-        let deadline = self.deadline(&options, crate::asyncrt::mono_ms());
-        let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|received| received.bytes) })
+        let call = self.call_response_bytes(method, request, options);
+        Box::pin(async move { call.await.map(|received| received.into_parts().0) })
     }
 
     /// Submit guest-encoded bytes under a budget minted before its codecs ran.
@@ -156,12 +201,38 @@ impl Client {
         options: CallOptions,
         budget: super::CallBudget,
     ) -> HandlerFuture<Vec<u8>> {
+        let call = self.call_response_bytes_in_budget(method, request, options, budget);
+        Box::pin(async move { call.await.map(|received| received.into_parts().0) })
+    }
+
+    /// Adapter response ownership, retained until bridge byte admission.
+    #[doc(hidden)]
+    pub fn call_response_bytes(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        options: CallOptions,
+    ) -> HandlerFuture<ResponseBytes> {
+        let deadline = self.deadline(&options, crate::asyncrt::mono_ms());
+        let call = self.start(method, Ok(request), options, deadline);
+        Box::pin(async move { call.await.map(Received::into_bytes) })
+    }
+
+    /// Adapter response ownership under the original pre-codec call budget.
+    #[doc(hidden)]
+    pub fn call_response_bytes_in_budget(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        options: CallOptions,
+        budget: super::CallBudget,
+    ) -> HandlerFuture<ResponseBytes> {
         let deadline = budget.deadline_for(&self.context).and_then(|deadline| {
             self.deadline(&options, crate::asyncrt::mono_ms())
                 .map(|current| deadline.min(current))
         });
         let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|received| received.bytes) })
+        Box::pin(async move { call.await.map(Received::into_bytes) })
     }
 
     fn deadline(&self, options: &CallOptions, started: u64) -> Result<u64, Failure> {
