@@ -1,5 +1,11 @@
 # Fleet operator workflows
 
+For the fresh native Colima/RustFS lab, use the
+[managed deployment harness](../../../tools/perf/raft_fleet.md). It supplies
+explicit enrollment, capacity, managed-birth and recovery operations with retained
+operator requests. Its private lab endpoint is separate from the production admin
+permissions below. Reaching Registered does not qualify capacity or recovery.
+
 ## Delivered keep-set workflow
 
 The dedicated `cellar` binary implements the commands in this section. They use

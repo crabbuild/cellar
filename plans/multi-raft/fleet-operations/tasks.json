@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "2990d411feb71ba45fb0e64111266bda2694469b",
+  "baseline_revision": "7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -2048,6 +2048,16 @@
             "F08",
             "F10"
           ]
+        },
+        {
+          "name": "fleet_capacity_local_node_qualify_and_activate",
+          "oracle": "A real empty managed node qualifies and activates through ordinary local inspection, retaining its admitted boot and no fabricated cell. Native shutdown releases response ownership.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -2170,7 +2180,8 @@
         ".cellar/raft-perf/fleet-operations/implementation/fo03/fenced-movement-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/execution-regression.json",
         ".cellar/raft-perf/fleet-operations/implementation/fo03/owned-service-regression.json",
-        ".cellar/raft-perf/fleet-operations/implementation/fo03/aborted-movement-regression.json"
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/aborted-movement-regression.json",
+        ".cellar/raft-perf/fleet-operations/implementation/fo03/local-inspection-regression.json"
       ]
     },
     {
@@ -3984,6 +3995,17 @@
             "F10",
             "F12"
           ]
+        },
+        {
+          "name": "fleet_docker_resources_observe_local_repair_candidate",
+          "oracle": "The actual Docker resource provider uses the target itself as its observer and supplies both movement and isolated-repair evidence. The same real enrollment, immutable binding, resource accounting and evacuation refusal contract holds. Engine HTTP is a bounded fixture, not deployed fleet qualification.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
         }
       ],
       "verification": [
@@ -4135,6 +4157,18 @@
           "--test",
           "native_raft_fleet_enrollment",
           "fleet_docker_binding_",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "fleet_docker_resources_",
           "--",
           "--test-threads=1"
         ]
@@ -6507,11 +6541,22 @@
         "crates/cellar/tests/support/raft_peer_fleet_observation.rs",
         "crates/cellar/durability/raft/archive/verifier.rs",
         "crates/cellar/durability/raft/archive/verifier_tests.rs",
-        "crates/cellar/durability/raft/manifest_tests.rs"
+        "crates/cellar/durability/raft/manifest_tests.rs",
+        "tools/perf/raft.Dockerfile",
+        "tools/perf/raft_node.rs",
+        "tools/perf/test_raft_run.py"
       ],
       "creates": [
         "tools/perf/raft_fleet_operations.py",
-        "crates/cellar/tests/native_raft_fleet_qualification.rs"
+        "crates/cellar/tests/native_raft_fleet_qualification.rs",
+        "tools/perf/raft_fleet.py",
+        "tools/perf/raft_fleet.md",
+        "tools/perf/raft_fleet/mod.rs",
+        "tools/perf/raft_fleet/config.rs",
+        "tools/perf/raft_fleet/recovery.rs",
+        "tools/perf/raft_fleet_tests.rs",
+        "tools/perf/raft_fleet_capacity_tests.rs",
+        "tools/perf/test_raft_fleet.py"
       ],
       "steps": [
         "Start large-inventory qualification with explicit native stress probes and retained failed outcomes. The first five-node/500-history debug fixture at 20 ms ticks failed during warm-up before collection; it does not establish default-profile capacity. Narrow the failing registration path and compare omitted initial SQL/archive work before changing production scheduling. Deployed traffic/fault/soak and the supported envelope remain unqualified.",
@@ -6655,6 +6700,61 @@
             "F07",
             "F10"
           ]
+        },
+        {
+          "name": "managed_bootstrap_reopens_exact_requests_without_activating_capacity",
+          "oracle": "Reopen a managed extent namespace without object listing. Reconcile exact bootstrap requests after the catalog advances; all nodes remain Registered with zero histories.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "managed_bootstrap_refuses_missing_fleet_and_changed_physical_identity",
+          "oracle": "Non-initializing startup refuses an absent catalog; conflicting physical-host identity refuses an initializer retry without changing the original root.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "managed_config_refuses_unbacked_image_reservations_and_unknown_commands",
+          "oracle": "Reject resource/image/replay policies that omit declared bounds and reject unsupported operator commands. Passing this check does not qualify physical capacity.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "managed_configuration_opens_the_native_runtime_with_its_installed_bounds",
+          "oracle": "Apply the real managed configuration and open the native engine and parked runtime. Host, engine and consensus group limits remain coherent; join and close their owners.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
+        },
+        {
+          "name": "managed_capacity_retry_reconciles_before_platform_or_native_probes",
+          "oracle": "A new activation refuses a missing Engine and retains Ready. After actual native admission and joined shutdown, the lab wrapper reconciles the exact committed request without Engine or native probes. Changed payloads are refused and the root remains unchanged.",
+          "invariants": [
+            "F02",
+            "F06",
+            "F07",
+            "F10",
+            "F12"
+          ]
         }
       ],
       "verification": [
@@ -6687,6 +6787,48 @@
           "qualification",
           "--profile",
           "five-node-500"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--bin",
+          "cellar-perf-raft",
+          "--",
+          "--list"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--bin",
+          "cellar-perf-raft",
+          "--",
+          "--test-threads=1"
+        ],
+        [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tools/perf",
+          "-p",
+          "test_raft_fleet.py"
+        ],
+        [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tools/perf",
+          "-p",
+          "test_raft_run.py"
         ]
       ],
       "evidence": []

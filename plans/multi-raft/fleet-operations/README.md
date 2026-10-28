@@ -92,8 +92,10 @@ terminal transition releases the owning disruption slot; physical storage stays
 retained. A Docker isolation adapter now supplies durable exact-container binding
 and the bounded shutdown effect for exclusively owned, single-use native nodes.
 Real Engine tests verify paused-container isolation, retained data and adapter
-recreation. Deployment startup/recovery wiring and full fleet qualification remain
-unfinished.
+recreation. The [managed Colima harness](../../../tools/perf/raft_fleet.md) now
+wires fresh startup, capacity operations, exact-container binding and opt-in
+recovery into the native deployment. Five nodes reach Registered with verified
+CPU/memory limits. Complete capacity and recovery qualification remain unfinished.
 
 Extent-backed managed namespaces now retain tagged publication cuts and stored
 receipts, exact producer image origins, and independent physical archive proofs.
@@ -107,11 +109,11 @@ terminal-wait/large-fleet qualification limits. These capabilities remain opt-in
 
 The next feature gates are:
 
-1. Wire Docker binding into deployment enrollment and install the isolation
-   adapter with the delivered recovery service. Verify the full
+1. Qualify the managed deployment's enforceable storage/memory envelope, admit
+   Ready/Active capacity and run managed RF3 writes. Verify the full
    detection-to-removal sequence with extent-backed archives and foreground
-   writes. Qualify probe fairness under continuously due work and repeated turn
-   expiry.
+   writes using the wired Docker/resource adapters. Qualify probe fairness under
+   continuously due work and repeated turn expiry.
 2. Finish preparation/resume repeatability within the existing five-second waits,
    then qualify bounded verification/convergence at hundreds of histories.
    Physical, voter, leadership and sample-age checks remain live; historical

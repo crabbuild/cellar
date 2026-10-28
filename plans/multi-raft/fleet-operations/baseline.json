@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "2990d411feb71ba45fb0e64111266bda2694469b",
+  "revision": "7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -428,7 +428,7 @@
     },
     {
       "path": "crates/cellar/tests/support/raft_docker_binding.rs",
-      "sha256": "53f449bb8e2310be55fd62e36ba7949e85de29ec1277c56e14818df02e87989a"
+      "sha256": "2879246923ef5d17f5c1ffc5cb009e028a4bdf80804ce4aa86903a4bfc6105a9"
     },
     {
       "path": "crates/cellar/tests/support/raft_failure_recovery_removal.rs",
@@ -443,6 +443,10 @@
       "sha256": "43941dc26669481b6ffc13af41133c1290d75ac6d944d2f62ad6152d2dc19939"
     },
     {
+      "path": "tools/perf/raft.Dockerfile",
+      "sha256": "5e7516c4e9c7d2cc72945195faba5d905c1539bbe18dec989137faf7325e437e"
+    },
+    {
       "path": "tools/perf/raft_analyze.py",
       "sha256": "32c5f21c2c4dadb5f5f3afc75d9711bcd97cf5179f464789b28978c1b0d11358"
     },
@@ -451,14 +455,22 @@
       "sha256": "b99ed6f3d38670e1e3820527fe9f2582afbbc65c3fc6c37ea3c9dd7a8ec42ff1"
     },
     {
+      "path": "tools/perf/raft_node.rs",
+      "sha256": "8d5a7c3a571a2f1b0b970ce103ca7c96c7c6a404d5dca0d85ef449b19566d2e9"
+    },
+    {
       "path": "tools/perf/raft_run.py",
-      "sha256": "96d5a710dda3df4633db7f0fa18c9a332d484fab38f4d9b981e9972f2588de90"
+      "sha256": "189f32c15fc4f84109f963a19acb9df06ca54650a9ade534664e736cedec5182"
     },
     {
       "path": "tools/perf/raft_topology.py",
       "sha256": "39efd424765814014977cc8a450c84d733b86e733f7407c4145963fea0c05eef"
+    },
+    {
+      "path": "tools/perf/test_raft_run.py",
+      "sha256": "619769e48a7faf6114787d3ff75d641114fb32205952f0e6d7f8c619b012cd0f"
     }
   ],
-  "reviewed_from_revision": "5d48dbabf532a3a6cde24856eabab51615c27339",
-  "review_note": "Reviewed Docker recovery resource evidence at 2990d411feb71ba45fb0e64111266bda2694469b. All 982 distinct selected tests pass against 1,791 frozen Rust/Cargo/config inputs with retained executable/result hashes. Eight adapter cases, two real Engine cases and one native rooted binding/provider-interface case verify memory accounting, immutable evidence, changed-limit/start refusal and Ready/Active resource integration. The default VM correctly exposes a lower effective limit than a configured 3-GiB container; its evidence is refused, while a separate 256-MiB container proves positive sampling. Disk/copy/worker bounds remain explicitly deployment-enforced. Full managed startup, combined five-node RustFS extent recovery with foreground writes, departure/return evidence, multi-failure/rolling policy, desired capacity/resize, full CI, density, TPS/p99 and soak remain open. Raw evidence stays outside the PR and the goal remains active."
+  "reviewed_from_revision": "2990d411feb71ba45fb0e64111266bda2694469b",
+  "review_note": "Reviewed managed Colima bootstrap/operator wiring and packaging, bounded local inspection for capacity/resource callers, and canonical activation receipt reconciliation. Five-node Registered startup is distinct from capacity, RF3 recovery and performance qualification."
 }

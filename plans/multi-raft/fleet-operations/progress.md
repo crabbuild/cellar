@@ -1,5 +1,58 @@
 # Fleet operations implementation progress
 
+## Managed Colima startup and local fleet inspection
+
+Source `7fa8f714fc0f12cb1f6c2a72e66d838df49bee3a` adds the executable
+[managed deployment harness](../../../tools/perf/raft_fleet.md). It provisions
+three to five fresh native containers and RustFS, bootstraps the managed catalog,
+installs extent-backed namespaces, and exposes explicit capacity, managed-birth
+and owned recovery operations. Operator requests are synced before dispatch and
+retain their original identity and revision across unknown responses. The
+initializer also reconciles its exact requests after later catalog changes.
+The existing static benchmark mode remains available.
+
+Ordinary local inspection previously attempted a forbidden self transport route,
+blocking local capacity admission and repair resource collection. It now uses
+the bounded host path with the same boot, trust-revision and delivery checks as
+physical inventory. Native regressions cover local Ready/Active admission,
+local repair candidates, stale revisions, retained replies, overload and shutdown.
+The deployment wrapper also reconciles committed activation receipts before
+requiring a live Engine or process; new activation still requires platform
+evidence. A native regression reproduces the previous unconfirmed retry and
+verifies that changed payloads remain refused.
+
+**65 selected tests pass:** 23 native enrollment/capacity/recovery cases, four
+inspection wire/authentication cases, eleven deployment-binary cases and 27
+Python runner cases. Host tests/binary Clippy passes. Default native stacks,
+timeouts and resource assertions are unchanged. The source manifest covers
+2,368 build-context inputs; native cohort inputs remain unchanged through the
+wrapper correction. Formatting, layout, native dependencies, documentation and
+ten plan tests pass. The manifest validates 493 required cases and 117 source
+anchors; this does not certify every planned scenario. Earlier failed fixtures and deployed attempts remain retained
+outside runtime data. No raw evidence is included in this PR.
+
+The fresh five-node RustFS deployment reaches Registered on all nodes, with
+distinct admitted boot identities and zero histories. Live Engine inspection and
+kernel cgroup reads confirm 1 CPU, 3 GiB memory, swap disabled and restart disabled per node. The
+dedicated VM exposes 8 CPUs and 23,036,559,360 memory bytes; all nodes explicitly
+share one physical host. This verifies managed startup, not capacity admission,
+RF3 traffic, recovery, density or performance. The startup report keeps
+`capacity_qualified=false` and `deployed_recovery_qualified=false`.
+The final `managed-startup-v7` run uses image
+`sha256:8ad00981a02f09ed515f2fd8750c03bee0b8e615daeb4574f1d4ac5146c80f95`,
+with the committed source label and complete source-manifest match. All five
+nodes in the preceding run joined with exit code zero before its fixture
+containers were removed; their volumes and diagnostic records remain retained.
+
+Next: establish the enforceable storage/memory envelope and retained platform
+attestation, admit Ready/Active capacity, then run managed RF3 writes and
+extent-backed automatic recovery/removal under foreground traffic. Shared-log,
+scratch and retained-file bounds must be covered by the deployment resource
+policy; startup configuration alone is insufficient. Intact return, simultaneous
+failure/rolling/grace policy, workload-aware leadership, desired capacity/resize,
+full CI, density, TPS/p99 and soak remain open. FO-10 and the full fleet goal are
+not complete.
+
 ## Docker recovery resource inputs
 
 `FleetDockerResources` implements movement and isolated-repair evidence for bound
