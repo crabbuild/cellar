@@ -15,7 +15,8 @@ provides authenticated bounded child execution and scheduled parent cleanup.
 Native deletion verifies exact container absence. New native children use
 per-class fleet capacity samples before final local admission. Confirmed child
 retirement queues bounded SQLite/replica erasure; parent erasure is explicit.
-Fleet collection and recovery have a separately measured qualification profile.
+Fleet collection and recovery have a separately measured
+[qualification profile](fleet-qualification.md).
 
 ## Native containers, this adapter, or Workers?
 

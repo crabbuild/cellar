@@ -125,6 +125,15 @@ contract defines, all ambiguous commands to be resolved or explicitly retained
 for reconciliation, and new post-takeover writes to succeed. A successful
 process exit does not replace the complete SDK shutdown proof.
 
+### Named sandbox recovery and cleanup
+
+The [sandbox fleet campaign](../crates/cellar-container/fleet-qualification.md)
+measures each original allocation against a 300-second recovery ceiling and
+independently verifies provider retirement, SQLite/replica erasure and returning
+node caches. It uses actual native fleet nodes and a local provider protocol
+peer. Keep its declared workload and provider limits with the per-sandbox JSON;
+repeat with the deployment's real provider and storage before claiming its RTO.
+
 ## Report and acceptance
 
 Record source SHA, image/executable digest, toolchain, store/version,

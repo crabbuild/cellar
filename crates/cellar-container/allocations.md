@@ -344,6 +344,9 @@ These bounds control per-node work, not the total completion time of an arbitrar
 backlog. Size the fleet against measured provider/store latency and the recovery
 target; preserve the permanent barriers when applying retention policies.
 
+See the [fleet qualification guide](fleet-qualification.md) for the measured
+profile, per-sandbox acceptance checks and repeatable commands.
+
 ## Delivery boundary
 
 This development format uses a hard cutover: retained work tables without the
@@ -352,9 +355,9 @@ field, refuse activation/registration. There is no automatic schema migration.
 
 | Available now | Still required before full production qualification |
 | --- | --- |
-| Four-language durable names, generations and parent ownership | Placement saturation, stale samples and measured recovery |
+| Four-language durable names, generations and parent ownership | Deployment-specific placement saturation, stale samples and recovery |
 | Authenticated bounded execution and native capacity refusal | Wider partition and ownership-race campaigns |
-| Explicit retirement and deployment-removal cleanup | Fleet-scale cleanup throughput and retention operations |
+| Explicit retirement and deployment-removal cleanup | Wider fleet/store failure campaigns and operational retention policies |
 | Child and opt-in parent SQLite/replica erasure | Provider-specific persistent filesystem recovery |
 | Provider adapter registration | Separate live/profile qualification of remote providers |
 
