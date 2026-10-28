@@ -43,6 +43,7 @@ use std::time::{Duration, SystemTime};
 
 const STORE: &str = "cellar development store";
 const READ_CHUNK_BYTES: usize = 128 << 10;
+const LIST_PAGE_OBJECTS: usize = 128;
 
 #[path = "local_store_bodies.rs"]
 mod bodies;
@@ -360,6 +361,15 @@ impl LocalStore {
     }
 
     fn metadata(&self, prefix: &str) -> object_store::Result<Vec<StoredObject>> {
+        self.metadata_page(prefix, None, i64::MAX as usize)
+    }
+
+    fn metadata_page(
+        &self,
+        prefix: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> object_store::Result<Vec<StoredObject>> {
         let connection = self.connect_reader()?;
         #[cfg(test)]
         if let Some(gate) = &self.list_gate {
@@ -370,26 +380,32 @@ impl LocalStore {
         // cells and their histories. BINARY ordering preserves literal '%' and
         // '_' characters; LIKE would give those characters wildcard semantics.
         let upper = prefix_upper_bound(prefix);
+        let after = after.filter(|after| *after >= prefix);
+        let lower = after.unwrap_or(prefix);
+        let comparison = if after.is_some() { ">" } else { ">=" };
         let sql = format!(
             "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, COALESCE(body_size, length(body))
-             FROM __sys_local_objects WHERE key >= ?1 {} ORDER BY key",
+             FROM __sys_local_objects WHERE key {comparison} ?1 {} ORDER BY key LIMIT ?{}",
             if upper.is_some() { "AND key < ?2" } else { "" },
+            if upper.is_some() { 3 } else { 2 },
         );
+        let mut parameters = vec![rusqlite::types::Value::Text(lower.into())];
+        if let Some(upper) = upper {
+            parameters.push(upper.into());
+        }
+        parameters.push((limit.min(i64::MAX as usize) as i64).into());
         let mut statement = connection.prepare(&sql).map_err(db_error)?;
         let rows = statement
-            .query_map(
-                rusqlite::params_from_iter(std::iter::once(prefix).chain(upper.as_deref())),
-                |row| {
-                    Ok(StoredObject {
-                        key: row.get(0)?,
-                        body: row.get(1)?,
-                        size: row.get(5)?,
-                        etag: row.get(2)?,
-                        modified_ms: row.get(3)?,
-                        attributes: row.get(4)?,
-                    })
-                },
-            )
+            .query_map(rusqlite::params_from_iter(parameters), |row| {
+                Ok(StoredObject {
+                    key: row.get(0)?,
+                    body: row.get(1)?,
+                    size: row.get(5)?,
+                    etag: row.get(2)?,
+                    modified_ms: row.get(3)?,
+                    attributes: row.get(4)?,
+                })
+            })
             .map_err(db_error)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
     }
@@ -749,44 +765,46 @@ impl ObjectStore for LocalStore {
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
-        let prefix = prefix.cloned();
-        let store = self.clone();
-        // A returned stream may be polled by another domain. Its SQLite work
-        // remains owned by the domain that created it, including after caller
-        // cancellation; a closed original owner refuses new I/O.
+        let prefix = prefix
+            .filter(|path| !path.as_ref().is_empty())
+            .map_or_else(String::new, |path| format!("{path}/"));
+        // Keep the original execution authority for every page. Each indexed
+        // query releases its SQLite read transaction before yielding objects.
         #[cfg(not(cellar_internal_tests))]
         let owner = crate::asyncrt::services().domain_token();
-        let operation = move || {
-            store
-                .metadata(prefix.as_ref().map_or("", |path| path.as_ref()))
-                .and_then(|objects| {
-                    objects
-                        .into_iter()
-                        .map(|object| object_meta(&object))
-                        .filter(|meta| {
-                            meta.as_ref().map_or(true, |meta| {
-                                prefix.as_ref().is_none_or(|prefix| {
-                                    meta.location
-                                        .prefix_match(prefix)
-                                        .is_some_and(|mut remainder| remainder.next().is_some())
-                                })
-                            })
-                        })
-                        .collect::<object_store::Result<Vec<_>>>()
-                })
-        };
-        stream::once(async move {
-            #[cfg(not(cellar_internal_tests))]
-            let result = owner
-                .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?
-                .blocking(operation)
-                .map_err(domain_error)?
-                .await
-                .map_err(db_error)?;
-            #[cfg(cellar_internal_tests)]
-            let result = store_blocking!(operation).await.map_err(db_error)?;
-            result
-        })
+        stream::try_unfold(
+            (self.clone(), prefix, None::<String>, false),
+            move |(store, prefix, after, done)| {
+                #[cfg(not(cellar_internal_tests))]
+                let owner = owner.clone();
+                async move {
+                    if done {
+                        return Ok::<_, object_store::Error>(None);
+                    }
+                    let reader = store.clone();
+                    let selected = prefix.clone();
+                    let operation = move || {
+                        reader.metadata_page(&selected, after.as_deref(), LIST_PAGE_OBJECTS)
+                    };
+                    #[cfg(not(cellar_internal_tests))]
+                    let objects = owner
+                        .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?
+                        .blocking(operation)
+                        .map_err(domain_error)?
+                        .await
+                        .map_err(db_error)??;
+                    #[cfg(cellar_internal_tests)]
+                    let objects = store_blocking!(operation).await.map_err(db_error)??;
+                    let done = objects.len() < LIST_PAGE_OBJECTS;
+                    let after = objects.last().map(|object| object.key.clone());
+                    let objects = objects
+                        .iter()
+                        .map(object_meta)
+                        .collect::<object_store::Result<Vec<_>>>()?;
+                    Ok(Some((objects, (store, prefix, after, done))))
+                }
+            },
+        )
         .map_ok(|objects| stream::iter(objects.into_iter().map(Ok)))
         .try_flatten()
         .boxed()

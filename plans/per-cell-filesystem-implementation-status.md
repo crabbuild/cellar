@@ -9,6 +9,35 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Main integration and evidence retention, 2026-10-28
+
+The release follow-up integrates `origin/main` at `638decc7`, including bounded
+object-list pagination from the sandbox erasure work. The merged query retains
+both the page limit and staged-body size metadata. Its new integration case
+checks large-object sizes on both sides of a page boundary; the upstream
+corrupt-row fixture now names columns explicitly for the expanded development
+store schema. Final qualification must use this integrated source.
+
+Before integration, `3ef18a0d` passed all six Node/V8 filesystem tests, all 40
+proof cases and all 24 Node byte-reply-loss cases. Python 3.14.5 with the GIL
+enabled passed normal, read-only, reduced-budget and task-cancellation modes,
+including 24 cancellation/reopen observations and six concurrency reports.
+Sixteen Python proof scenarios reached their successful cleanup reports,
+including all four new directory-fsync cases. The free-threaded follow-up had
+not started. An early Node attempt during companion-binary linking refused
+startup before reaching the filesystem; the same regression passed after the
+build completed. That startup failure was preserved rather than treated as a
+filesystem pass or assigned an unproven cause.
+
+An external cleanup removed the active checkout target, captured runtimes,
+executables and almost all raw qualification files during that run. The
+qualification driver stopped when its just-written log disappeared. The source
+commits and historical observations above survive, but the deleted raw records
+are no longer independently available. New raw reports and runtimes live outside
+the disposable build-cache tree, with compact evidence retained in the repository.
+The integrated revision's complete local and CI qualification remains pending;
+the historical observations do not certify it.
+
 ## Large snapshot lease-progress qualification, 2026-10-28
 
 The follow-up starts from merged `origin/main` at `2e68fac2`. PR #152's three

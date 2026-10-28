@@ -51,6 +51,7 @@ impl Drop for Streaming {
 #[derive(Default)]
 pub struct State {
     pub unavailable: AtomicBool,
+    pub expected_lifetime_seconds: AtomicUsize,
     pub refused: AtomicUsize,
     pub creates: AtomicUsize,
     pub deletes: AtomicUsize,
@@ -93,6 +94,7 @@ impl Peer {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = format!("http://{}/", listener.local_addr()?);
         let state = Arc::new(State {
+            expected_lifetime_seconds: AtomicUsize::new(60),
             redirect_target: format!("{address}credential-sink"),
             ..Default::default()
         });
@@ -129,6 +131,17 @@ impl Peer {
     }
 
     pub fn provider_binding(&self, binding: &str) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.provider_with_lifetime(binding, 60)
+    }
+
+    pub fn provider_with_lifetime(
+        &self,
+        binding: &str,
+        seconds: u32,
+    ) -> Result<Arc<dyn cellar_container::Provider>> {
+        self.state
+            .expected_lifetime_seconds
+            .store(seconds as usize, Ordering::SeqCst);
         use cellar_container::e2b::{Config, E2b, Ownership};
         Ok(Arc::new(E2b::new(
             Config::new(
@@ -141,7 +154,7 @@ impl Peer {
             .binding(binding)?
             .api_endpoint(&self.address)?
             .envd_gateway(&format!("{}envd/", self.address))?
-            .lifetime_seconds(60)?
+            .lifetime_seconds(seconds)?
             .request_timeout_ms(2000)?,
         )))
     }
@@ -202,6 +215,10 @@ fn info(path: &str, file: &File) -> Value {
 }
 
 impl State {
+    pub fn remaining(&self) -> usize {
+        self.sandboxes.lock().unwrap().len()
+    }
+
     pub fn set_running(&self, running: bool) {
         for info in self.sandboxes.lock().unwrap().values_mut() {
             info["state"] = json!(if running { "running" } else { "paused" });
@@ -247,7 +264,8 @@ impl State {
                 let input: Value = serde_json::from_slice(&bytes)?;
                 ensure!(
                     input["templateID"] == "fixture-template"
-                        && input["timeout"] == 60
+                        && input["timeout"].as_u64()
+                            == Some(self.expected_lifetime_seconds.load(Ordering::SeqCst) as u64)
                         && input["autoPause"] == false
                         && input["autoResume"]["enabled"] == false
                         && input["network"]["allowPublicTraffic"] == false

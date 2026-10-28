@@ -1650,6 +1650,10 @@ impl LtxRepl {
         &self.prefix
     }
 
+    pub(crate) fn retirement_storage(&self) -> (Arc<dyn ObjectStore>, String) {
+        (self.store.clone(), self.prefix.clone())
+    }
+
     pub(crate) fn take_task_owner(&self) -> LtxTaskOwner {
         self.task_owner
             .lock()
@@ -1833,6 +1837,12 @@ impl LtxRepl {
     /// recovery upload that lands after the seal can only repeat rows the
     /// base already holds.
     pub async fn covered_txid(&self, cell: &str, epoch: u64, needed: u64) -> u64 {
+        if matches!(
+            crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell).await,
+            Ok(Some(_))
+        ) {
+            return u64::MAX;
+        }
         let key = (cell.to_string(), epoch);
         // Held is decided by the handle, not its value: a fresh cell that has
         // not reached a drain point holds a zero watermark and must not fall
@@ -1888,6 +1898,12 @@ impl LtxRepl {
     /// this process, and a maximum past an incomplete recovery hole cannot
     /// retire the only remaining bundle. A failed listing preserves the data.
     pub(crate) async fn observed_covered_txid(&self, cell: &str, epoch: u64) -> u64 {
+        if matches!(
+            crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell).await,
+            Ok(Some(_))
+        ) {
+            return u64::MAX;
+        }
         if cellar_logic::epoch_gc::retired(epoch, self.retired_mark(cell).await) {
             return u64::MAX;
         }
@@ -2183,6 +2199,14 @@ impl LtxRepl {
         bytes: &[u8],
         extensions: object_store::Extensions,
     ) -> anyhow::Result<()> {
+        if crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell)
+            .await?
+            .is_some()
+        {
+            // A terminal identity authorizes discarding its historical rows.
+            self.note_covered(cell, epoch, max_txid);
+            return Ok(());
+        }
         self.client_for(cell, epoch)
             .with_upload_extensions(extensions)
             .write_ltx_file(0, TXID(min_txid), TXID(max_txid), bytes)
@@ -2356,6 +2380,12 @@ impl LtxRepl {
                 "managed replica close is incomplete for {cell} epoch {epoch}"
             );
         }
+        anyhow::ensure!(
+            crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell)
+                .await?
+                .is_none(),
+            "cell has been permanently retired"
+        );
         let dst = self.db_path(cell, epoch);
         self.ltx_host.create_dir_all(dst.parent().unwrap())?;
 
@@ -3567,6 +3597,59 @@ impl LtxRepl {
         Ok(false)
     }
 
+    pub(crate) fn ensure_erasure_idle(&self, cell: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self
+                .cells
+                .lock()
+                .unwrap()
+                .keys()
+                .any(|(scope, _)| scope == cell || scope.starts_with(&format!("{cell}/"))),
+            "replica writer remains resident"
+        );
+        Ok(())
+    }
+
+    /// Purge a terminal root after its actor and replica writers have joined.
+    /// The ownership epoch and the external admission barrier remain intact.
+    pub(crate) async fn erase_retired_batch(&self, cell: &str) -> anyhow::Result<bool> {
+        use futures_util::{StreamExt as _, TryStreamExt as _};
+        anyhow::ensure!(
+            crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell)
+                .await?
+                .is_some(),
+            "erasure barrier missing"
+        );
+        self.ensure_erasure_idle(cell)?;
+        self.forget_deleted_tails(cell);
+        let directory = format!("{}cells/{cell}/", self.prefix);
+        let own = format!("{directory}own.json");
+        let base = cellar_ltx::object_store::path::Path::from(directory.clone());
+        let listed = self
+            .store
+            .list(Some(&base))
+            .try_filter(|meta| {
+                futures_util::future::ready(
+                    meta.location.as_ref().starts_with(&directory) && meta.location.as_ref() != own,
+                )
+            })
+            .take(100)
+            .map_ok(|meta| meta.location)
+            .try_collect::<Vec<_>>()
+            .await?;
+        if listed.is_empty() {
+            return Ok(true);
+        }
+        let mut deleted = self
+            .store
+            .delete_stream(futures_util::stream::iter(listed.into_iter().map(Ok)).boxed());
+        while let Some(result) = deleted.next().await {
+            result?;
+        }
+        // Only a later empty listing proves deletion; acknowledgements alone do not.
+        Ok(false)
+    }
+
     /// Drop the undrained tails of a deleted stream and every stream below it.
     /// A tail names rows that the next activation folds into the bucket, so a
     /// kept tail restores deleted rows into a recreated facet of the same
@@ -3950,6 +4033,12 @@ impl LtxRepl {
     /// over the old chain would pick the same deleted objects, because the
     /// chain caches its listings.
     pub async fn restore_snapshot(&self, cell: &str) -> anyhow::Result<Option<RestoredSnapshot>> {
+        anyhow::ensure!(
+            crate::cell_runtime::retirement::read(self.store.as_ref(), &self.prefix, cell)
+                .await?
+                .is_none(),
+            "cell has been permanently retired"
+        );
         let mut attempts_left = RESTORE_SNAPSHOT_ATTEMPTS;
         loop {
             // GC can delete a listed epoch while the chain lists its levels,
@@ -5826,3 +5915,7 @@ mod source_facet_cleanup_tests {
 #[cfg(test)]
 #[path = "backend_coverage_tests.rs"]
 mod coverage_tests;
+
+#[cfg(test)]
+#[path = "backend_erasure_tests.rs"]
+mod erasure_tests;

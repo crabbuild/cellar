@@ -17,7 +17,7 @@ pub use values::{
     SandboxParentState, SandboxReservation,
 };
 
-/// Host-only parent catalog, bound to one original root-cell event. Reopen it in
+/// Native parent catalog, bound to one original root-cell event. Reopen it in
 /// each event; records survive restart and business `delete_all`. This catalog
 /// can manage authenticated children through a host-registered executor. Manual
 /// reservations remain the host controller's responsibility.
@@ -197,8 +197,21 @@ impl SandboxCatalog {
         self.retirement(context, false)
     }
 
+    /// Request irreversible SQLite and replica erasure after every child and
+    /// other owned resource has retired. A permanent external identity barrier
+    /// prevents this cell from being recreated. Completion is asynchronous.
+    pub fn request_erasure(&self, context: &Context) -> HandlerFuture<()> {
+        let prepared = (|| {
+            let scope = self.check(context)?;
+            crate::storage::sandbox_erasure::prepare(scope)?;
+            maintenance::publish(context)?;
+            Ok::<_, anyhow::Error>(context.storage()?.sync())
+        })();
+        Box::pin(async move { prepared?.await })
+    }
+
     /// Finish only after every child has confirmed deletion. The retained parent
-    /// tombstone cannot be reopened; physical cell removal needs host integration.
+    /// tombstone cannot be reopened; request_erasure removes its stored data.
     pub fn finish_retirement(&self, context: &Context) -> HandlerFuture<SandboxParent> {
         self.retirement(context, true)
     }

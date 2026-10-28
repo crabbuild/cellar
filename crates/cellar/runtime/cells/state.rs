@@ -21,6 +21,8 @@ use crate::generation::Generation;
 use crate::generation::GenerationId;
 use crate::ltx_replication::Replication;
 use crate::wake::WakeFlusher;
+#[path = "retirement.rs"]
+pub(crate) mod retirement;
 
 /// The generations a node can resolve a call against: the one it serves and
 /// the superseded ones whose isolates are still draining.
@@ -49,6 +51,7 @@ impl Generations {
 
 #[derive(Clone)]
 pub struct CellRuntime {
+    pub(crate) retirements: Arc<retirement::Store>,
     /// The generations a call can resolve against. A reader takes one
     /// snapshot and never holds the lock across an await.
     pub(crate) generations: Arc<std::sync::RwLock<Generations>>,
@@ -74,6 +77,12 @@ impl CellRuntime {
     ) -> anyhow::Result<Self> {
         require_cell_scope_capacity(&data_dir)?;
         Ok(Self {
+            retirements: Arc::new(retirement::Store::new(
+                replication
+                    .as_ref()
+                    .map(|replication| replication.ltx().retirement_storage()),
+                &data_dir,
+            )),
             generations: Arc::new(std::sync::RwLock::new(Generations {
                 current: generation,
                 draining: Vec::new(),
@@ -192,6 +201,47 @@ impl CellRuntime {
             .replication
             .as_ref()
             .map_or_else(Vec::new, |replication| replication.local_cells()))
+    }
+
+    /// Recover sandbox work on a standalone node before application admission.
+    /// Its directory lock is the sole ownership authority; it has no fleet wake
+    /// index or replica inventory. Only framework rows are inspected.
+    pub(crate) fn local_sandbox_work(&self) -> anyhow::Result<Vec<(String, i64)>> {
+        let mut pending = Vec::new();
+        let filesystem = crate::asyncrt::fs();
+        for entry in filesystem.read_dir(&self.data_dir)? {
+            let Some(scope) = entry.file_name.to_str() else {
+                continue;
+            };
+            if !entry.is_dir || !cellar_logic::cell::valid_cell_scope(scope) || !scope.contains(':')
+            {
+                continue;
+            }
+            let path = self.db_path(scope, 1);
+            match filesystem.metadata(&path) {
+                Ok(metadata) if metadata.is_file => {}
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            }
+            let connection = rusqlite::Connection::open_with_flags(
+                path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+            )?;
+            let table: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_work')", [], |row| row.get(0))?;
+            if table {
+                let at: Option<i64> = connection.query_row(
+                    "SELECT MIN(at_ms) FROM __sys_work WHERE scope=?1 AND reason='sandbox-cleanup'",
+                    [scope],
+                    |row| row.get(0),
+                )?;
+                if let Some(at) = at {
+                    pending.push((scope.into(), at));
+                }
+            }
+        }
+        Ok(pending)
     }
 
     pub fn replication_status(&self) -> std::io::Result<Option<std::process::ExitStatus>> {

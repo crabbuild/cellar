@@ -903,6 +903,34 @@
           }),
       });
     };
+    // Checkpoints contain decimal-string generations and revisions. Keep the
+    // full checkpoint on every mutation so a stale name cannot select a successor.
+    const sandboxes = freeze({
+      start: async (name, binding, parameters = { options: {} }) =>
+        freeze(await call("sandbox.start", { name, binding, parameters })),
+      get: async (name) => {
+        const value = await call("sandbox.get", { name });
+        return value === null ? null : freeze(value);
+      },
+      list: async ({ after = null, limit = 100 } = {}) => {
+        const page = await call("sandbox.list", { after, limit });
+        return freeze({
+          allocations: freeze(page.allocations.map(freeze)),
+          next: page.next,
+        });
+      },
+      inspect: (allocation) => call("sandbox.inspect", { allocation }),
+      execute: (allocation, operation, input = {}) =>
+        call("sandbox.execute", { allocation, command: operation, input }),
+      destroy: async (allocation) =>
+        freeze(await call("sandbox.destroy", { allocation })),
+      parent: async () => {
+        const value = await call("sandbox.parent");
+        return value === null ? null : freeze(value);
+      },
+      retire: async () => freeze(await call("sandbox.retire")),
+      requestErasure: () => call("sandbox.erase"),
+    });
     const container = makeContainer();
     const containers = freeze({
       get: (name) => {
@@ -1870,6 +1898,7 @@
       variable: (name) => call("var", { name }),
       container,
       containers,
+      sandboxes,
 
       fs: filesystem,
 
