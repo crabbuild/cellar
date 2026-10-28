@@ -40,6 +40,38 @@ remain, and recovered executable identities are checked before recapturing
 selected reports. New raw evidence is stored in the checkout-specific workspace
 target's `qualification/` directory, outside that removed workspace directory.
 
+## CI repair checkpoint
+
+[PR #152](https://github.com/crabbuild/cellar/pull/152) follows the merged
+filesystem implementation from `dde97cbc`. The JavaScript workflow now assigns
+its existing checks to independent adapter, example and package jobs. Every
+qualification step remains present, native fixtures remain serial within each
+job, and the 90-minute job ceiling is unchanged.
+
+The extent-GC assertion counted private SQL callbacks from refused staging
+attempts as committed operations. An eight-root profile reproduced 51 callbacks
+with two typed `Overloaded` refusals, then 58 with nine refusals. The fixture now
+accounts for those pre-proposal attempts per cell while requiring exactly 49
+committed callbacks, unchanged receipt replay and exact recovered values. Both
+the original twelve-root and tighter eight-root profiles pass locally.
+
+The development object store also retained writer admission during multipart
+checkpoints. Holding a real main-database checkpoint reproduced a lease CAS
+missing its existing 333 ms bound. Multipart writes, completion, abort and expiry
+now release admission before COMMIT, matching ordinary puts and deletes. SQLite
+continues to serialize transactions and FULL WAL commits remain enabled. All 35
+local-store tests pass, including the checkpoint gate across six mutation paths,
+multipart atomicity, expiry and cancellation ownership.
+Clippy over the crate's tests, 10/100 MiB dense cold recovery and all five
+container supervision fleet cases also pass locally with the storage change.
+
+These reproductions do not establish the cause of both earlier Linux fleet
+lease-expiry failures. Repeated isolated macOS cases and the complete five-case
+container supervision suite pass; current-head CI remains required. The local
+2 GiB Linux VM again killed the compiler before producing a test executable.
+Raw repair logs are in the checkout-specific target's `qualification/ci-fixes/`.
+No lease TTL, application deadline or durable-state assertion was relaxed.
+
 ## Guest read-concurrency checkpoint
 
 The [read-concurrency report](../tools/perf/results/2026-10-28-filesystem-read-concurrency.md)
