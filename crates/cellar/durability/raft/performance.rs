@@ -10,7 +10,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-pub(super) const BOUNDS_US: [u64; 16] = [
+pub(super) const BOUNDS_US: [u64; 22] = [
     50,
     100,
     250,
@@ -26,6 +26,12 @@ pub(super) const BOUNDS_US: [u64; 16] = [
     1_000_000,
     5_000_000,
     30_000_000,
+    60_000_000,
+    120_000_000,
+    300_000_000,
+    900_000_000,
+    1_800_000_000,
+    3_600_000_000,
     u64::MAX,
 ];
 
@@ -58,10 +64,26 @@ pub(crate) enum Operation {
     ArchiveAdmissionWait,
     ArchivePublicationBatch,
     SnapshotEncode,
+    RecoveryAuthorize,
+    RecoveryPeerFetch,
+    RecoveryPeerReceive,
+    RecoveryAppendQueue,
+    RecoveryAppend,
+    RecoveryArchiveFetch,
+    RecoveryPeerVerify,
+    RecoveryArchiveReplay,
+    RecoveryInstall,
+    RecoveryArchiveWait,
+    SnapshotEncodeQueue,
+    SnapshotSeedEncode,
+    SnapshotCheckpointEncode,
+    SnapshotTransferEncode,
+    ArchivePhysicalAdmission,
+    ArchivePhysicalQueue,
     EnginePurge,
 }
 
-const OPERATIONS: [Operation; 28] = [
+const OPERATIONS: [Operation; 44] = [
     Operation::EngineQueue,
     Operation::EngineFileSync,
     Operation::EngineDirectorySync,
@@ -89,6 +111,22 @@ const OPERATIONS: [Operation; 28] = [
     Operation::ArchiveAdmissionWait,
     Operation::ArchivePublicationBatch,
     Operation::SnapshotEncode,
+    Operation::RecoveryAuthorize,
+    Operation::RecoveryPeerFetch,
+    Operation::RecoveryPeerReceive,
+    Operation::RecoveryAppendQueue,
+    Operation::RecoveryAppend,
+    Operation::RecoveryArchiveFetch,
+    Operation::RecoveryPeerVerify,
+    Operation::RecoveryArchiveReplay,
+    Operation::RecoveryInstall,
+    Operation::RecoveryArchiveWait,
+    Operation::SnapshotEncodeQueue,
+    Operation::SnapshotSeedEncode,
+    Operation::SnapshotCheckpointEncode,
+    Operation::SnapshotTransferEncode,
+    Operation::ArchivePhysicalAdmission,
+    Operation::ArchivePhysicalQueue,
     Operation::EnginePurge,
 ];
 
@@ -122,6 +160,22 @@ impl Operation {
             Self::ArchiveAdmissionWait => "archive_admission_wait",
             Self::ArchivePublicationBatch => "archive_publication_batch",
             Self::SnapshotEncode => "snapshot_encode",
+            Self::RecoveryAuthorize => "recovery_authorize",
+            Self::RecoveryPeerFetch => "recovery_peer_fetch",
+            Self::RecoveryPeerReceive => "recovery_peer_receive",
+            Self::RecoveryAppendQueue => "recovery_append_queue",
+            Self::RecoveryAppend => "recovery_append",
+            Self::RecoveryArchiveFetch => "recovery_archive_fetch",
+            Self::RecoveryPeerVerify => "recovery_peer_verify",
+            Self::RecoveryArchiveReplay => "recovery_archive_replay",
+            Self::RecoveryInstall => "recovery_install",
+            Self::RecoveryArchiveWait => "recovery_archive_wait",
+            Self::SnapshotEncodeQueue => "snapshot_encode_queue",
+            Self::SnapshotSeedEncode => "snapshot_seed_encode",
+            Self::SnapshotCheckpointEncode => "snapshot_checkpoint_encode",
+            Self::SnapshotTransferEncode => "snapshot_transfer_encode",
+            Self::ArchivePhysicalAdmission => "archive_physical_admission",
+            Self::ArchivePhysicalQueue => "archive_physical_queue",
             Self::EnginePurge => "engine_purge",
         }
     }
@@ -163,9 +217,17 @@ pub(crate) enum Counter {
     ArchiveCoverageRejected,
     ArchiveCoverageUnchanged,
     ArchiveCoverageMissingCell,
+    RecoveryPeerReceivedBytes,
+    RecoveryPeerAppendedBytes,
+    SnapshotSeedEncodedBytes,
+    SnapshotCheckpointEncodedBytes,
+    SnapshotTransferEncodedBytes,
+    SnapshotPreparedHits,
+    SnapshotPreparedMisses,
+    SnapshotPreparedReusedBytes,
 }
 
-const COUNTERS: [Counter; 34] = [
+const COUNTERS: [Counter; 42] = [
     Counter::EngineReadBytes,
     Counter::EngineWriteRequestedBytes,
     Counter::EngineWriteCompletedBytes,
@@ -200,6 +262,14 @@ const COUNTERS: [Counter; 34] = [
     Counter::ArchiveCoverageRejected,
     Counter::ArchiveCoverageUnchanged,
     Counter::ArchiveCoverageMissingCell,
+    Counter::RecoveryPeerReceivedBytes,
+    Counter::RecoveryPeerAppendedBytes,
+    Counter::SnapshotSeedEncodedBytes,
+    Counter::SnapshotCheckpointEncodedBytes,
+    Counter::SnapshotTransferEncodedBytes,
+    Counter::SnapshotPreparedHits,
+    Counter::SnapshotPreparedMisses,
+    Counter::SnapshotPreparedReusedBytes,
 ];
 
 impl Counter {
@@ -247,6 +317,14 @@ impl Counter {
             Self::ArchiveCoverageRejected => "archive_coverage_rejected",
             Self::ArchiveCoverageUnchanged => "archive_coverage_unchanged",
             Self::ArchiveCoverageMissingCell => "archive_coverage_missing_cell",
+            Self::RecoveryPeerReceivedBytes => "recovery_peer_received_bytes",
+            Self::RecoveryPeerAppendedBytes => "recovery_peer_appended_bytes",
+            Self::SnapshotSeedEncodedBytes => "snapshot_seed_encoded_bytes",
+            Self::SnapshotCheckpointEncodedBytes => "snapshot_checkpoint_encoded_bytes",
+            Self::SnapshotTransferEncodedBytes => "snapshot_transfer_encoded_bytes",
+            Self::SnapshotPreparedHits => "snapshot_prepared_hits",
+            Self::SnapshotPreparedMisses => "snapshot_prepared_misses",
+            Self::SnapshotPreparedReusedBytes => "snapshot_prepared_reused_bytes",
         }
     }
 }
@@ -259,7 +337,7 @@ struct Samples {
     abandoned: u64,
     unavailable: u64,
     sum: u64,
-    buckets: [u64; 16],
+    buckets: [u64; BOUNDS_US.len()],
 }
 
 pub(crate) struct Registry {
@@ -329,6 +407,19 @@ impl Registry {
             start,
             outcome: None,
         }
+    }
+
+    /// The timer follows the future's lifetime. Errors count as failures;
+    /// cancellation drops the timer as abandoned rather than inventing success.
+    pub(crate) async fn measure<T, E>(
+        self: &Arc<Self>,
+        operation: Operation,
+        future: impl std::future::Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        let timer = self.timer(operation);
+        let result = future.await;
+        timer.finish(result.is_ok());
+        result
     }
 
     fn record(&self, operation: Operation, outcome: Option<bool>, elapsed: Option<u64>) {

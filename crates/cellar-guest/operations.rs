@@ -9,6 +9,26 @@ use cellar::sdk::{kv, queue, Context};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
+/// Reserve RPC decode ownership before parsing. Keep the returned lease until
+/// native work settles, including after a language task cancels its wait.
+/// Ordinary SDK operation values retain their own limits and need no RPC lease.
+pub fn decode_metadata_with<R>(
+    name: &str,
+    payload: &str,
+    reserve: impl FnOnce(usize) -> Result<R>,
+) -> Result<(Value, Option<R>)> {
+    if name != "cell.call" {
+        return Ok((
+            serde_json::from_str(payload).context(crate::failure::Validation)?,
+            None,
+        ));
+    }
+    let bytes = crate::rpc_control::allocation(payload).context(crate::failure::Validation)?;
+    let lease = reserve(bytes).map_err(|_| anyhow::Error::new(crate::rpc_control::Capacity))?;
+    let value = crate::rpc_control::decode(payload).context(crate::failure::Validation)?;
+    Ok((value, Some(lease)))
+}
+
 /// Invoke a registered Protobuf contract through the original native context.
 /// The runtime selects `contract` from its immutable startup inventory, never
 /// from a descriptor supplied by application call metadata.
@@ -42,6 +62,23 @@ pub async fn call_bytes_in_budget(
     signal: Option<cellar::sdk::web::AbortSignal>,
     budget: Option<cellar::sdk::rpc::CallBudget>,
 ) -> Result<Vec<u8>> {
+    Ok(
+        call_response_bytes_in_budget(context, contract, value, request, signal, budget)
+            .await?
+            .into_parts()
+            .0,
+    )
+}
+
+/// Preserve native response ownership through admission into a language bridge.
+pub async fn call_response_bytes_in_budget(
+    context: &Context,
+    contract: Arc<cellar::sdk::rpc::Contract>,
+    value: Value,
+    request: Vec<u8>,
+    signal: Option<cellar::sdk::web::AbortSignal>,
+    budget: Option<cellar::sdk::rpc::CallBudget>,
+) -> Result<cellar::sdk::rpc::ResponseBytes> {
     let timeout = (|| {
         validate("cell.call", &value)?;
         ensure!(
@@ -61,8 +98,8 @@ pub async fn call_bytes_in_budget(
     let method = field(&value, "method")?;
     let options = cellar::sdk::rpc::CallOptions { timeout, signal };
     let call = match budget {
-        Some(budget) => client.call_bytes_in_budget(method, request, options, budget),
-        None => client.call_bytes(method, request, options),
+        Some(budget) => client.call_response_bytes_in_budget(method, request, options, budget),
+        None => client.call_response_bytes(method, request, options),
     };
     Ok(call.await?)
 }
@@ -96,7 +133,11 @@ pub async fn execute_with_signal(
     }
     if matches!(
         name,
-        "response.closed" | "response.read" | "websocket.next" | "websocket.closed"
+        "response.closed"
+            | "response.read"
+            | "request.body.read"
+            | "websocket.next"
+            | "websocket.closed"
     ) {
         let call = state.transport.execute(context, name, value, options);
         return match signal {
@@ -120,6 +161,9 @@ pub async fn execute_with_signal(
         "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.exec.read_stdout"
+            | "container.exec.read_stderr"
+            | "container.exec.wait"
             | "container.port.connect_websocket"
             | "container.websocket.receive"
             | "workers.container.fetch"
@@ -142,6 +186,9 @@ pub async fn execute_with_signal(
                         crate::containers::Operation::FetchStream
                     }
                     "container.response.read" => crate::containers::Operation::ReadResponse,
+                    "container.exec.read_stdout" => crate::containers::Operation::ReadStdout,
+                    "container.exec.read_stderr" => crate::containers::Operation::ReadStderr,
+                    "container.exec.wait" => crate::containers::Operation::WaitExec,
                     "container.port.connect_websocket" => {
                         crate::containers::Operation::ConnectWebSocket
                     }
@@ -187,6 +234,8 @@ pub fn is_read(name: &str) -> bool {
             | "response.read"
             | "response.cancel"
             | "response.closed"
+            | "request.body.read"
+            | "request.body.cancel"
     )
 }
 
@@ -222,6 +271,15 @@ pub async fn execute(
     value: Value,
     options: &Limits,
 ) -> Result<Value> {
+    if name.starts_with("workers.r2.") {
+        ensure!(state.workers_lifetimes, crate::failure::Validation);
+        return state
+            .workers
+            .r2_with_capacity(context, name, value, options, &state.transport, |_| {
+                anyhow::bail!("R2 upload requires a host byte reservation")
+            })
+            .await;
+    }
     if name == "workers.fetch_stream" {
         return state
             .workers
@@ -242,6 +300,7 @@ pub async fn execute(
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"
         || name.starts_with("response.")
+        || name.starts_with("request.body.")
         || name.starts_with("websocket.")
     {
         return state.transport.execute(context, name, value, options).await;
@@ -398,6 +457,9 @@ pub async fn execute(
 /// Validate the bridge protocol before entering SDK code. This marker must not
 /// wrap a backend result: a backend error can follow a committed mutation.
 fn validate(name: &str, value: &Value) -> Result<()> {
+    if name == "cell.call" {
+        return crate::rpc_control::validate(value);
+    }
     values::check_depth(value)?;
     ensure!(value.is_object(), "operation payload must be an object");
     let fields: &[&str] = match name {
@@ -406,7 +468,6 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         "var" => &["name"],
         "storage.sql" => &["sql"],
         "cell.fetch" => &["binding", "name"],
-        "cell.call" => &["binding", "name", "method", "contract_digest"],
         "kv.get" | "kv.put" | "kv.delete" => &["binding", "key"],
         "kv.list" => &["binding", "prefix"],
         "sql.query" => &["binding", "sql"],
@@ -419,22 +480,6 @@ fn validate(name: &str, value: &Value) -> Result<()> {
         field(value, name)?;
     }
     match name {
-        "cell.call" => {
-            ensure!(!field(value, "binding")?.is_empty(), "empty RPC binding");
-            ensure!(
-                field(value, "method")?.len() <= 256,
-                "RPC method exceeds limit"
-            );
-            ensure!(
-                field(value, "contract_digest")?.len() == 64,
-                "invalid RPC contract digest"
-            );
-            ensure!(
-                serde_json::to_vec(value)?.len() <= 16 * 1024,
-                "RPC control metadata exceeds limit"
-            );
-            optional::<u32>(value, "timeout_ms")?;
-        }
         "storage.sql" | "sql.query" => {
             ensure!(value["params"].is_array(), "SQL params must be an array");
         }

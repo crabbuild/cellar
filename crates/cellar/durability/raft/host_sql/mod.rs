@@ -3,7 +3,7 @@
 //! A fixed node-wide blocking pool owns SQLite and image directories. Domain
 //! cancellation joins a running callback before these owners release locks.
 
-use super::apply::{ImageApplier, PublishedImage};
+use super::apply::ImageApplier;
 mod images;
 use super::archive::{ArchiveLimits, CommittedArchiveCut};
 use super::budget::{Budget, Permit};
@@ -61,13 +61,6 @@ pub(crate) struct ImageView {
 }
 
 impl ImageView {
-    fn of(image: &PublishedImage) -> Self {
-        Self {
-            position: image.position(),
-            image: super::apply::marker(&image.pin()),
-        }
-    }
-
     fn execution(image: &PublishedExecutionImage) -> Self {
         Self {
             position: image.position(),
@@ -484,6 +477,8 @@ impl Pool {
                                 Measured::SqlQuery
                             }
                             Action::CaptureArchive { .. } => Measured::SqlArchiveCapture,
+                            Action::SealSeed { .. } => Measured::RecoveryPeerVerify,
+                            Action::SealArchiveSeed { .. } => Measured::RecoveryArchiveReplay,
                             _ => Measured::SqlOther,
                         };
                         let timer = performance.timer(measured);
@@ -666,10 +661,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            if storage.rooted.is_some() {
-                return Err(ExecutionError::Invalid(
-                    "extent seed transport is not installed",
-                ));
+            if let Some(rooted) = &storage.rooted {
+                let seed = received
+                    .finish_root(&rooted.store)
+                    .map_err(super::execution::storage)?;
+                return Ok(Value::Seeded(Box::new(seed)));
             }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
@@ -694,10 +690,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            if storage.rooted.is_some() {
-                return Err(ExecutionError::Invalid(
-                    "extent seed transport is not installed",
-                ));
+            if let Some(rooted) = &storage.rooted {
+                let seed = received
+                    .finish_root(&rooted.store)
+                    .map_err(super::execution::storage)?;
+                return Ok(Value::Seeded(Box::new(seed)));
             }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
@@ -983,22 +980,9 @@ impl Cell {
                 })
             }
             Action::CaptureArchive { limits } => {
-                let (options, applier) = self.images.materialized()?;
-                let cut = applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                    .map(|image| {
-                        let dependencies = super::effects::capture_dependencies(
-                            &image,
-                            self.class.blob_limits(),
-                            options.query_services.clone(),
-                            limits,
-                        )
-                        .map_err(super::execution::storage)?;
-                        CommittedArchiveCut::capture(&self.group, image, dependencies, limits)
-                            .map_err(super::execution::storage)
-                    })
-                    .transpose()?;
+                let cut = self
+                    .images
+                    .capture_archive(&self.group, &self.class, limits)?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
             }
             Action::ScanEffects {
@@ -1006,40 +990,22 @@ impl Cell {
                 prefer_delivery,
                 reservation,
             } => {
-                let (options, applier) = self.images.materialized()?;
-                let scan = applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                    .map(|image| {
-                        super::effects::scan::scan(
-                            image,
-                            &self.class,
-                            options.query_services.clone(),
-                            now,
-                            prefer_delivery,
-                            reservation,
-                        )
-                    })
-                    .transpose()
-                    .map_err(super::execution::storage)?;
+                let scan =
+                    self.images
+                        .scan_effects(&self.class, now, prefer_delivery, reservation)?;
                 Ok(Value::EffectScan(scan.map(Box::new)))
             }
             Action::CaptureSeed {
                 limits,
                 reservation,
             } => {
-                let (_options, applier) = self.images.materialized()?;
-                let package = match applier.queryable().map_err(super::execution::storage)? {
-                    Some(image) => SnapshotCapture::capture(&self.group, image, limits),
-                    None => SnapshotCapture::capture_empty(
-                        &self.group,
-                        self.class.schema_digest(),
-                        limits,
-                    ),
-                }
-                .map_err(super::execution::storage)?;
+                let capture = self.images.capture_snapshot(
+                    &self.group,
+                    self.class.schema_digest(),
+                    limits,
+                )?;
                 Ok(Value::SnapshotCapture {
-                    capture: Box::new(package),
+                    capture: Box::new(capture),
                     reservation,
                 })
             }
@@ -1048,21 +1014,16 @@ impl Cell {
                 reservation,
                 archived,
             } => {
-                let (_options, applier) = self.images.materialized()?;
-                let package = match applier.queryable().map_err(super::execution::storage)? {
-                    Some(image) => SnapshotCapture::capture(&self.group, image, limits),
-                    None => SnapshotCapture::capture_empty(
-                        &self.group,
-                        self.class.schema_digest(),
-                        limits,
-                    ),
-                }
-                .map_err(super::execution::storage)?;
-                if archived.is_some_and(|index| package.position() > index) {
+                let capture = self.images.capture_snapshot(
+                    &self.group,
+                    self.class.schema_digest(),
+                    limits,
+                )?;
+                if archived.is_some_and(|index| capture.position() > index) {
                     return Err(ExecutionError::Refused(CommandFailure::Overloaded));
                 }
                 Ok(Value::SnapshotCapture {
-                    capture: Box::new(package),
+                    capture: Box::new(capture),
                     reservation,
                 })
             }
@@ -1071,30 +1032,29 @@ impl Cell {
                 limits,
                 reservation,
             } => {
-                let (options, _applier) = self.images.materialized()?;
-                let package = SnapshotCapture::retained(
+                let package = self.images.retained_snapshot(
                     &self.group,
-                    &options.images,
                     self.class.schema_digest(),
                     &snapshot,
                     limits,
-                )
-                .map_err(super::execution::storage)?;
+                )?;
                 Ok(Value::SnapshotCapture {
                     capture: Box::new(package),
                     reservation,
                 })
             }
             Action::PrepareSnapshot { ticket, received } => {
-                let (options, _applier) = self.images.materialized()?;
                 if self.snapshot.is_some() {
                     return Err(ExecutionError::Invalid("snapshot already prepared"));
                 }
                 let (prepared, reservation) =
-                    received
-                        .finish(&options.images)
+                    self.images
+                        .receive_snapshot(*received)
                         .map_err(|error| match error {
                             super::snapshot::SnapshotError::Limit
+                            | super::snapshot::SnapshotError::Extents(
+                                cellar_ltx::internal::StoreError::Limit,
+                            )
                             | super::snapshot::SnapshotError::Images(
                                 cellar_ltx::generation::GenerationError::Limit,
                             ) => ExecutionError::Refused(CommandFailure::Overloaded),
@@ -1110,31 +1070,17 @@ impl Cell {
                 Ok(Value::SnapshotPrepared(Box::new(completion)))
             }
             Action::PublishSnapshot { ticket } => {
-                let (_options, applier) = self.images.materialized()?;
                 let Some((expected, prepared, _reservation)) = self.snapshot.take() else {
                     return Err(ExecutionError::Invalid("missing prepared snapshot"));
                 };
                 if expected != ticket {
                     return Err(ExecutionError::Invalid("snapshot publication ticket"));
                 }
-                let current = if self
-                    .group
-                    .applied()
-                    .map_err(super::execution::storage)?
-                    .image
-                    .is_some()
-                {
-                    Some(ImageView::of(
-                        &prepared
-                            .publish(applier)
-                            .map_err(super::execution::storage)?,
-                    ))
-                } else {
-                    prepared
-                        .publish_empty(applier)
-                        .map_err(super::execution::storage)?;
-                    None
-                };
+                let current = self
+                    .images
+                    .publish_snapshot(&self.group, prepared)?
+                    .as_ref()
+                    .map(ImageView::execution);
                 Ok(Value::SnapshotPublished(current))
             }
             Action::Query {

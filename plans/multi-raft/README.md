@@ -8,6 +8,12 @@ MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 The [zero-quorum disaster protocol](disaster-recovery.md) documents the S3 operator
 API, required infrastructure fencing authority and destructive RustFS fixture.
 
+The [10 GB recovery-time strategy](010-large-cell-recovery-time.md) defines
+RT-01 through RT-06: stage measurements, bounded bulk transfer, archive freshness,
+public extent recovery, verified demand loading and fault/performance qualification.
+RT-01 is in progress; the other five packages remain proposed. No recovery-time
+target is qualified.
+
 The [TiKV performance comparison](tikv-performance.md) records the current
 batching and storage investigation, its regression evidence and remaining
 end-to-end qualification.

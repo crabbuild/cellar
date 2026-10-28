@@ -20,6 +20,7 @@ console-audit.sqlite*
 !/examples/javascript/package-lock.json
 !/tools/javascript/package-lock.json
 !/tools/sandbox/compat/package-lock.json
+!/tools/sandbox/cloudflare-v1/package-lock.json
 !/tools/rpc/package-lock.json
 /tools/rpc/dist/
 /examples/node/dist/
@@ -43,6 +44,7 @@ console-audit.sqlite*
 
 # Optional published sandbox runtime conformance bundles.
 /tools/sandbox/compat/dist/
+/tools/sandbox/cloudflare-v1/dist/
 
 # Reproducible binding example builds.
 /examples/bindings/app.bundle.js*

@@ -12,23 +12,28 @@ use crate::application::consensus::{CellUpdate, EnvelopeLimits};
 use ::raft::prelude::{ConfState, Entry, EntryType};
 use cellar_logic::consensus::{GroupScope, LogPosition};
 use cellar_ltx::apply::{ApplyLimits, ImageState};
-use cellar_ltx::generation::{GenerationError, GenerationStore, ImageId};
+use cellar_ltx::generation::GenerationError;
 use cellar_ltx::{host::IoActivity, ltx, stream_snapshot, LtxHost};
 use futures_util::{StreamExt, TryStreamExt};
 use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 pub(crate) mod bundle;
+mod configuration;
 mod physical;
 mod publication;
 mod replay;
+mod representation;
+mod root_head;
+mod rooted;
+mod verifier;
+
+pub use representation::{ArchiveMetadata, ArchiveRecoverySet, CommittedArchiveCut};
+pub use rooted::{RootArchiveReference, RootArchiveSnapshot};
+pub use verifier::ArchiveVerifier;
 
 const READ_WINDOW: usize = 4;
 
@@ -54,6 +59,7 @@ pub enum ArchiveError {
     Log(super::storage::LogError),
     Images(GenerationError),
     Physical(stream_snapshot::Error),
+    Root(Box<super::snapshot::SnapshotError>),
     Storage(object_store::Error),
     Worker(cellar_ltx::host::HostTaskError),
 }
@@ -74,7 +80,7 @@ impl ArchiveError {
                 | Self::Images(GenerationError::Snapshot(
                     stream_snapshot::Error::ScratchFull
                 ))
-        )
+        ) || matches!(self, Self::Root(error) if error.scratch_full())
     }
 }
 
@@ -152,86 +158,10 @@ impl ArchiveLimits {
 #[derive(Clone)]
 pub struct ArchiveDependency(pub Vec<u8>);
 
-/// One bounded scratch owner may verify many cells. The exclusively opened
-/// store must initially be empty; no pin from it is exposed outside this owner.
-/// A failed replay quarantines it until its directory owner performs recovery.
-#[derive(Clone)]
-pub struct ArchiveVerifier {
-    inner: Arc<Mutex<VerifierState>>,
-}
-
-struct VerifierState {
-    images: GenerationStore,
-    nonce: ImageId,
-    sequence: u64,
-    failed: bool,
-}
-
-impl ArchiveVerifier {
-    pub fn new(images: GenerationStore, nonce: ImageId) -> Result<Self, ArchiveError> {
-        if images.usage().map_err(ArchiveError::Images)?.generations != 0 {
-            return Err(ArchiveError::Invalid("archive verifier store is not empty"));
-        }
-        Ok(Self {
-            inner: Arc::new(Mutex::new(VerifierState {
-                images,
-                nonce,
-                sequence: 0,
-                failed: false,
-            })),
-        })
-    }
-
-    fn verify(&self, set: &ArchiveRecoverySet) -> Result<(), ArchiveError> {
-        let mut state = self
-            .inner
-            .lock()
-            .map_err(|_| ArchiveError::Invalid("archive verifier owner is poisoned"))?;
-        if state.failed {
-            return Err(ArchiveError::Invalid("archive verifier requires recovery"));
-        }
-        state.sequence = state.sequence.checked_add(1).ok_or(ArchiveError::Limit)?;
-        let mut hash = Sha256::new();
-        hash.update(b"cellar-archive-verifier-1");
-        hash.update(state.nonce.bytes());
-        hash.update(state.sequence.to_be_bytes());
-        let digest: [u8; 32] = hash.finalize().into();
-        let nonce = ImageId::new(
-            digest[..16]
-                .try_into()
-                .map_err(|_| ArchiveError::Invalid("archive verification nonce"))?,
-        )
-        .map_err(ArchiveError::Images)?;
-        // Set before any filesystem work. An interrupted/panicking verifier
-        // cannot silently reuse partially restored scratch state.
-        state.failed = true;
-        let pin = set.restore(&state.images, nonce)?;
-        state
-            .images
-            .retire(pin.id())
-            .map_err(ArchiveError::Images)?;
-        drop(pin);
-        state.images.reclaim(8).map_err(ArchiveError::Images)?;
-        if state
-            .images
-            .usage()
-            .map_err(ArchiveError::Images)?
-            .generations
-            != 0
-        {
-            return Err(ArchiveError::Invalid(
-                "archive verifier retained scratch images",
-            ));
-        }
-        state.failed = false;
-        Ok(())
-    }
-}
-
 /// Constructed only from an exact durable engine/image pair. Holding this value
 /// pins the image even if a newer image replaces it or the archive is unavailable.
 #[derive(Clone)]
-pub struct CommittedArchiveCut {
+struct MaterializedCut {
     image: PublishedImage,
     birth_digest: [u8; 32],
     position: LogPosition,
@@ -241,7 +171,7 @@ pub struct CommittedArchiveCut {
     dependencies: Vec<ArchiveDependency>,
 }
 
-impl CommittedArchiveCut {
+impl MaterializedCut {
     pub fn capture(
         group: &GroupLog,
         image: PublishedImage,
@@ -367,6 +297,8 @@ pub struct CellArchive {
     io_domain: Option<crate::asyncrt::DomainToken>,
     read_retention: Option<Arc<super::budget::Permit>>,
     bundle_client: Option<bundle::Client>,
+    root_store: Option<cellar_ltx::internal::NodeExtentStore>,
+    image_storage: super::catalog::RaftImageStorage,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -408,7 +340,7 @@ impl ArchiveReference {
 
 /// Bounded head/manifest metadata without downloading any image, tail or Blob.
 /// Payload existence and physical replay remain separate verification gates.
-pub struct ArchiveMetadata {
+struct MaterializedMetadata {
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
     scope: GroupScope,
@@ -416,36 +348,11 @@ pub struct ArchiveMetadata {
     manifest: Manifest,
 }
 
-impl ArchiveMetadata {
-    pub fn reference(&self) -> ArchiveReference {
-        self.reference.clone()
-    }
-
-    pub fn scope(&self) -> &GroupScope {
-        &self.scope
-    }
-
-    pub fn position(&self) -> LogPosition {
-        self.position
-    }
-
-    pub fn schema_digest(&self) -> [u8; 32] {
-        self.manifest.schema_digest
-    }
-
-    pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.snapshot.conf_state)
-    }
-
-    pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.snapshot.membership.clone()
-    }
-}
-
 /// Fully downloaded and hash-checked recovery material. This is not a Raft
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
-pub struct ArchiveRecoverySet {
+struct MaterializedSet {
+    validated: Option<verifier::Validated>,
     activity: Option<IoActivity>,
     _retention: Option<Arc<super::budget::Permit>>,
     reference: ArchiveReference,
@@ -506,6 +413,8 @@ impl CellArchive {
             io_domain: crate::asyncrt::runtime_services().domain_token(),
             read_retention: None,
             bundle_client: None,
+            root_store: None,
+            image_storage: super::catalog::RaftImageStorage::Materialized,
         }
     }
 
@@ -547,6 +456,16 @@ impl CellArchive {
         cancellation: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
         self.cancellation = Some(cancellation);
+        self
+    }
+
+    /// Only the captured publication clone joins this node-wide queue. The
+    /// resident archive retains its original host for foreground restoration.
+    pub(crate) fn with_publication_budget(
+        mut self,
+        budget: &super::host_archive::PhysicalBudget,
+    ) -> Self {
+        self.host = budget.host(self.host);
         self
     }
 
@@ -597,8 +516,9 @@ impl CellArchive {
     }
 
     /// Refuse a cut from another history or application before advisory I/O.
-    fn validate_cut(&self, cut: &CommittedArchiveCut) -> Result<(), ArchiveError> {
-        if cut.image.scope() != &self.scope
+    fn validate_materialized_cut(&self, cut: &MaterializedCut) -> Result<(), ArchiveError> {
+        if self.image_storage != super::catalog::RaftImageStorage::Materialized
+            || cut.image.scope() != &self.scope
             || cut.image.application_digest() != self.schema
             || cut.birth_digest != self.birth
             || !cut.membership.same_birth(&self.initial_membership)
@@ -608,14 +528,14 @@ impl CellArchive {
         Ok(())
     }
 
-    async fn publish_inner(
+    async fn publish_materialized_inner(
         &self,
-        cut: CommittedArchiveCut,
+        cut: MaterializedCut,
         verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.validate_cut(&cut)?;
+    ) -> Result<MaterializedSet, ArchiveError> {
+        self.validate_materialized_cut(&cut)?;
         for _ in 0..8 {
-            let previous = self.load_head_metadata().await?;
+            let previous = self.load_materialized_head_metadata().await?;
             if let Some((metadata, _, _)) = &previous {
                 let old = metadata.manifest.position;
                 if old.index >= cut.position.index.get() {
@@ -623,8 +543,8 @@ impl CellArchive {
                         || old.index == cut.position.index.get()
                             && (old.term != cut.position.term.get()
                                 || metadata.manifest.image != Image::from(cut.image.pin().state())
-                                || metadata.manifest.snapshot.conf_state != cut.conf_state
-                                || metadata.manifest.snapshot.membership != cut.membership)
+                                || metadata.manifest.conf_state != cut.conf_state
+                                || metadata.manifest.membership != cut.membership)
                     {
                         return Err(ArchiveError::Conflict);
                     }
@@ -689,11 +609,6 @@ impl CellArchive {
                     && entries
                         .last()
                         .is_some_and(|e| e.index == cut.position.index.get())
-                    && entries
-                        .iter()
-                        .all(|e| e.get_entry_type() == EntryType::EntryNormal)
-                    && metadata.manifest.snapshot.conf_state == cut.conf_state
-                    && metadata.manifest.snapshot.membership == cut.membership
                     && metadata.manifest.tails.len() < self.limits.max_tails
                     && bytes <= self.limits.max_set_bytes as u64
                     && count <= self.limits.max_entries)
@@ -752,6 +667,8 @@ impl CellArchive {
                     });
                     manifest.position = cut.position.into();
                     manifest.image = cut.image.pin().state().into();
+                    manifest.conf_state = cut.conf_state.clone();
+                    manifest.membership = cut.membership.clone();
                     PreparedManifest {
                         manifest,
                         confirmed_snapshot: None,
@@ -826,7 +743,7 @@ impl CellArchive {
                 .await?;
             // Do not expose a head with a missing dependency, broken coverage
             // or an invalid LTX mapping, even if all PUTs reported success.
-            let metadata = self.load_metadata(&object).await?;
+            let metadata = self.load_materialized_metadata(&object).await?;
             let set = match confirmed_snapshot {
                 Some(snapshot) => self.load_confirmed_material(metadata, snapshot).await?,
                 None => self.load_material(metadata).await?,
@@ -869,7 +786,7 @@ impl CellArchive {
 
     async fn snapshot_manifest(
         &self,
-        cut: &CommittedArchiveCut,
+        cut: &MaterializedCut,
     ) -> Result<PreparedManifest, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "encode_start", cell = %self.scope.cell, index = cut.position.index.get(), image_bytes = cut.image.pin().state().length, io_profile = ?physical::io_profile(cut.image.pin().state().length));
         let input = cut.clone();
@@ -903,7 +820,7 @@ impl CellArchive {
         })
     }
 
-    fn full_manifest(&self, cut: &CommittedArchiveCut, object: ObjectRef) -> Manifest {
+    fn full_manifest(&self, cut: &MaterializedCut, object: ObjectRef) -> Manifest {
         Manifest {
             scope: (&self.scope).into(),
             root_digest: self.root,
@@ -919,32 +836,39 @@ impl CellArchive {
             tails: Vec::new(),
             position: cut.position.into(),
             image: cut.image.pin().state().into(),
+            conf_state: cut.conf_state.clone(),
+            membership: cut.membership.clone(),
             dependencies: Vec::new(),
         }
     }
 
     async fn verify_extension(
         &self,
-        mut previous: ArchiveRecoverySet,
+        mut previous: MaterializedSet,
         entries: Vec<Entry>,
-        cut: &CommittedArchiveCut,
+        cut: &MaterializedCut,
         verifier: &ArchiveVerifier,
     ) -> Result<(), ArchiveError> {
         let position = cut.position;
         let image = Image::from(cut.image.pin().state());
+        let conf = cut.conf_state.clone();
+        let membership = cut.membership.clone();
         let verifier = verifier.clone();
         self.host
             .run_blocking(move || {
                 // This private replay input is consumed here. Its old object
                 // reference is never returned as a proof for the new position.
                 // The planner already bounded total encoded bytes/entries and
-                // required contiguous normal entries and identical membership.
+                // required contiguous entries. Validation replays both SQL
+                // updates and configuration changes to the exact captured tip.
                 previous.entries.extend(entries);
                 previous.position = position;
                 previous.manifest.position = position.into();
                 previous.manifest.image = image;
+                previous.manifest.conf_state = conf;
+                previous.manifest.membership = membership;
                 previous.validate_payloads()?;
-                verifier.verify(&previous)
+                verifier.verify(&previous).map(|_| ())
             })
             .await
             .map_err(ArchiveError::Worker)?
@@ -952,59 +876,26 @@ impl CellArchive {
 
     async fn verify_set(
         &self,
-        set: ArchiveRecoverySet,
+        set: MaterializedSet,
         verifier: &ArchiveVerifier,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    ) -> Result<MaterializedSet, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "replay_start", cell = %self.scope.cell, index = set.position.index.get());
         let verifier = verifier.clone();
-        let set = self
+        let (set, replay) = self
             .host
             .run_blocking(move || {
-                verifier.verify(&set)?;
-                Ok::<_, ArchiveError>(set)
+                let replay = verifier.verify(&set)?;
+                Ok::<_, ArchiveError>((set, replay))
             })
             .await
             .map_err(ArchiveError::Worker)??;
-        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get());
+        tracing::info!(event = "raft_archive_phase", phase = "replay_complete", cell = %self.scope.cell, index = set.position.index.get(), reused = replay == verifier::Replay::Reused, image_bytes = set.manifest.image.length);
         Ok(set)
     }
 
-    pub async fn recovery_set(&self) -> Result<Option<ArchiveRecoverySet>, ArchiveError> {
-        Ok(self.load_head().await?.map(|(set, _, _)| set))
-    }
-
-    /// Select the immutable head reference without downloading its payloads.
-    /// A caller authorizing later recovery must bind this exact reference into
-    /// its own live-quorum operation; rereading head could select another cut.
-    pub async fn recovery_metadata(&self) -> Result<Option<ArchiveMetadata>, ArchiveError> {
-        Ok(self
-            .load_head_metadata()
-            .await?
-            .map(|(metadata, _, _)| metadata))
-    }
-
-    /// Download the exact history-bound immutable set. This never falls back
-    /// to a newer mutable head if the reference is missing, corrupt or stale.
-    /// It supplies no voting, activation, or quorum proof.
-    pub async fn recovery_set_at(
+    async fn load_materialized_head_metadata(
         &self,
-        reference: &ArchiveReference,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.load_manifest(&reference.0).await
-    }
-
-    async fn load_head(
-        &self,
-    ) -> Result<Option<(ArchiveRecoverySet, Vec<u8>, UpdateVersion)>, ArchiveError> {
-        let Some((metadata, bytes, version)) = self.load_head_metadata().await? else {
-            return Ok(None);
-        };
-        Ok(Some((self.load_material(metadata).await?, bytes, version)))
-    }
-
-    async fn load_head_metadata(
-        &self,
-    ) -> Result<Option<(ArchiveMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
+    ) -> Result<Option<(MaterializedMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
         let Some((bytes, version)) = self.read(&self.key("head"), 4096, None).await? else {
             return Ok(None);
         };
@@ -1014,19 +905,30 @@ impl CellArchive {
             ));
         }
         let head: Head = manifest::decode(2, &bytes, 4096)?;
-        let metadata = self.load_metadata(&head.manifest).await?;
+        let metadata = self.load_materialized_metadata(&head.manifest).await?;
         if metadata.manifest.position != head.position {
             return Err(ArchiveError::Corrupt("archive head/cut binding"));
         }
         Ok(Some((metadata, bytes, version)))
     }
 
-    async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
+    async fn load_materialized_metadata(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<MaterializedMetadata, ArchiveError> {
+        let bytes = self.get_object(object).await?;
+        self.decode_materialized_metadata(object, &bytes)
+    }
+
+    fn decode_materialized_metadata(
+        &self,
+        object: &ObjectRef,
+        bytes: &[u8],
+    ) -> Result<MaterializedMetadata, ArchiveError> {
         if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
-        let bytes = self.get_object(object).await?;
-        let manifest: Manifest = manifest::decode(1, &bytes, self.limits.max_manifest_bytes)?;
+        let manifest: Manifest = manifest::decode(1, bytes, self.limits.max_manifest_bytes)?;
         manifest.validate(
             &self.scope,
             self.root,
@@ -1043,7 +945,7 @@ impl CellArchive {
         {
             return Err(ArchiveError::Corrupt("archive manifest object range"));
         }
-        Ok(ArchiveMetadata {
+        Ok(MaterializedMetadata {
             _retention: self.read_retention.clone(),
             reference: ArchiveReference(object.clone()),
             scope: self.scope.clone(),
@@ -1052,14 +954,10 @@ impl CellArchive {
         })
     }
 
-    async fn load_manifest(&self, object: &ObjectRef) -> Result<ArchiveRecoverySet, ArchiveError> {
-        self.load_material(self.load_metadata(object).await?).await
-    }
-
     async fn load_material(
         &self,
-        metadata: ArchiveMetadata,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        metadata: MaterializedMetadata,
+    ) -> Result<MaterializedSet, ArchiveError> {
         tracing::info!(event = "raft_archive_phase", phase = "material_read_start", cell = %self.scope.cell, index = metadata.manifest.position.index);
         let manifest = &metadata.manifest;
         // Metadata bounds the retained bodies; physical image parts have
@@ -1086,9 +984,9 @@ impl CellArchive {
 
     async fn load_confirmed_material(
         &self,
-        metadata: ArchiveMetadata,
+        metadata: MaterializedMetadata,
         confirmed: physical::ConfirmedSnapshot,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+    ) -> Result<MaterializedSet, ArchiveError> {
         let manifest = &metadata.manifest;
         if !manifest.tails.is_empty()
             || manifest.position != manifest.snapshot.position
@@ -1116,11 +1014,11 @@ impl CellArchive {
 
     async fn finish_material(
         &self,
-        metadata: ArchiveMetadata,
+        metadata: MaterializedMetadata,
         snapshot: stream_snapshot::SnapshotFile,
         bodies: Vec<Vec<u8>>,
-    ) -> Result<ArchiveRecoverySet, ArchiveError> {
-        let ArchiveMetadata {
+    ) -> Result<MaterializedSet, ArchiveError> {
+        let MaterializedMetadata {
             reference,
             manifest,
             _retention,
@@ -1159,7 +1057,8 @@ impl CellArchive {
                     entries.extend(decoded);
                 }
                 let position = manifest.position.decode()?;
-                let set = ArchiveRecoverySet {
+                let mut set = MaterializedSet {
+                    validated: None,
                     activity,
                     _retention,
                     reference,
@@ -1366,74 +1265,38 @@ impl CellArchive {
     }
 }
 
-impl ArchiveRecoverySet {
-    pub(crate) fn birth_digest(&self) -> [u8; 32] {
-        self.manifest.birth_digest
-    }
-
-    pub fn reference(&self) -> ArchiveReference {
-        self.reference.clone()
-    }
-
-    pub fn scope(&self) -> &GroupScope {
-        &self.scope
-    }
-
-    pub fn position(&self) -> LogPosition {
-        self.position
-    }
-
-    pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
-        manifest::decode_conf(&self.manifest.snapshot.conf_state)
-    }
-
-    pub fn membership(&self) -> super::member_state::GroupMembership {
-        self.manifest.snapshot.membership.clone()
-    }
-
-    pub fn schema_digest(&self) -> [u8; 32] {
-        self.manifest.schema_digest
-    }
-
-    pub fn tail_entries(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn dependencies(&self) -> impl Iterator<Item = ([u8; 32], &[u8])> {
-        self.dependencies
-            .iter()
-            .map(|(r, bytes)| (r.digest, bytes.as_slice()))
-    }
-
-    fn validate_payloads(&self) -> Result<(), ArchiveError> {
+impl MaterializedSet {
+    fn validate_payloads(&mut self) -> Result<(), ArchiveError> {
+        self.validated = None;
         let mut state = self.manifest.snapshot.image.decode()?;
         if self.snapshot.metadata().image != state {
             return Err(ArchiveError::Corrupt("archive snapshot/image binding"));
         }
         self.snapshot.verify().map_err(ArchiveError::Physical)?;
-        let mut position = self.manifest.snapshot.position;
+        let mut configuration = configuration::Configuration::new(
+            self.manifest.snapshot.position,
+            &self.manifest.snapshot.conf_state,
+            self.manifest.snapshot.membership.clone(),
+        )?;
         for entry in &self.entries {
-            if position.index.checked_add(1) != Some(entry.index)
-                || entry.term < position.term
-                || entry.get_entry_type() != EntryType::EntryNormal
-            {
-                return Err(ArchiveError::Corrupt("archive entry coverage/domain"));
-            }
-            if !entry.data.is_empty() {
+            configuration.step(entry)?;
+            if entry.get_entry_type() == EntryType::EntryNormal && !entry.data.is_empty() {
                 let update = self.update(entry, state)?;
                 state = result_state(&update)?;
                 if state.length > self.max_image_bytes {
                     return Err(ArchiveError::Limit);
                 }
             }
-            position = Position {
-                index: entry.index,
-                term: entry.term,
-            };
         }
-        if position != self.manifest.position || Image::from(state) != self.manifest.image {
+        if !configuration.matches(
+            self.manifest.position,
+            &self.manifest.conf_state,
+            &self.manifest.membership,
+        )? || Image::from(state) != self.manifest.image
+        {
             return Err(ArchiveError::Corrupt("archive final image/cut"));
         }
+        self.validated = Some(verifier::Validated::record(self)?);
         Ok(())
     }
 

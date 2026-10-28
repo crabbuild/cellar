@@ -48,7 +48,7 @@ pub type HostDirIterator = Box<dyn Iterator<Item = io::Result<HostDirEntry>> + S
 /// Retains an exclusive OS/virtual-filesystem lock until its owner drops it.
 pub type HostFileLock = Box<dyn Send + Sync>;
 
-/// Largest caller-owned sequential window accepted by the file adapter.
+/// Largest caller-owned read/write window accepted by the file adapter.
 /// This is independent of logical image size and grants no data proof.
 pub const MAX_IO_WINDOW_BYTES: usize = 4 * 1024 * 1024;
 const FALLBACK_IO_BYTES: usize = 64 * 1024;
@@ -91,6 +91,17 @@ pub trait HostFileIo: Send {
         window_range(0, bytes.len())?;
         for chunk in bytes.chunks(FALLBACK_IO_BYTES) {
             self.write_all(chunk)?;
+        }
+        Ok(())
+    }
+
+    /// Write a caller-owned window at an explicit offset. Providers that do
+    /// not override this operation retain 64 KiB random writes; no sequential
+    /// cursor behavior is required. An error may follow an uncertain prefix.
+    fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        window_range(offset, bytes.len())?;
+        for (index, chunk) in bytes.chunks(FALLBACK_IO_BYTES).enumerate() {
+            self.write_all_at(offset + (index * FALLBACK_IO_BYTES) as u64, chunk)?;
         }
         Ok(())
     }
@@ -191,6 +202,17 @@ impl HostFile {
             return Ok(());
         }
         let result = self.inner.write_all_window(bytes);
+        self.record_activity(result)
+    }
+
+    /// Write one bounded positional window without relying on a file cursor.
+    /// The caller retains admission and handles uncertain partial failures.
+    pub fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        window_range(offset, bytes.len())?;
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let result = self.inner.write_all_at_window(offset, bytes);
         self.record_activity(result)
     }
 
@@ -447,6 +469,11 @@ impl HostFileIo for DirectFile {
     fn write_all_window(&mut self, bytes: &[u8]) -> io::Result<()> {
         window_range(0, bytes.len())?;
         std::io::Write::write_all(&mut self.file, bytes)
+    }
+
+    fn write_all_at_window(&mut self, offset: u64, bytes: &[u8]) -> io::Result<()> {
+        window_range(offset, bytes.len())?;
+        self.write_all_at(offset, bytes)
     }
 
     fn advise_streaming(&mut self) -> io::Result<()> {

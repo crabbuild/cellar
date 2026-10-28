@@ -2,7 +2,7 @@
 
 //! Native Blob calls cross real cell turns and output gates, without engine initialization.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::application::blob::{
     Algorithm, Checksum, Conditional, GetOptions, GetResult, HttpMetadata, ListOptions, Multipart,
     Range, StorageClass, UploadedPart, WriteOptions,
@@ -35,6 +35,7 @@ struct Signals {
     held: AtomicBool,
     refuse: AtomicBool,
     upload: Mutex<Option<Multipart>>,
+    staged_part: Mutex<Option<cellar::sdk::blob::ResumablePart>>,
     stream_started: Notify,
     stream_dropped: AtomicBool,
 }
@@ -524,6 +525,150 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
             retained.upload_part(&context, 2, b"beta".to_vec()).await?;
             *signals.upload.lock().unwrap() = Some(retained);
         }
+        "/stage-owned" => {
+            let upload = bucket
+                .create_resumable_multipart(&context, "staged", WriteOptions::default())
+                .await?;
+            assert!(upload.supports_streamed_parts()?);
+            let refused = upload.begin_part(&context, 1, 256 * 1024 * 1024 + 1).await;
+            assert!(refused
+                .err()
+                .unwrap()
+                .is::<cellar::sdk::blob::PartRefused>());
+            let mut part = upload.begin_part(&context, 1, 2).await?;
+            part.write(&context, bytes::Bytes::from_static(&[1]))
+                .await?;
+            context
+                .storage()?
+                .put_json("staged", &json!(upload.upload_id()))?;
+            *signals.staged_part.lock().unwrap() = Some(part);
+        }
+        "/stage-foreign" => {
+            let mut part = signals.staged_part.lock().unwrap().take().unwrap();
+            let before = signals.gates.lock().unwrap().len();
+            assert!(part
+                .write(&context, bytes::Bytes::from_static(&[2]))
+                .await
+                .is_err());
+            assert!(part.complete(&context).await.is_err());
+            assert_eq!(
+                signals.gates.lock().unwrap().len(),
+                before,
+                "foreign stage entered a new effect gate"
+            );
+            let saved = context.storage()?.get_json("staged")?.unwrap();
+            let upload = bucket.resume_resumable_multipart("staged", saved.as_str().unwrap())?;
+            let mut fresh = upload.begin_part(&context, 1, 2).await?;
+            fresh
+                .write(&context, bytes::Bytes::from_static(&[7, 8]))
+                .await?;
+            let receipt = fresh.complete(&context).await?;
+            assert_eq!(upload.complete(&context, &[receipt]).await?.size, 2);
+            assert_eq!(
+                body(&context, "staged").await?.bytes(&context).await?,
+                vec![7, 8]
+            );
+            upload.abort(&context).await?;
+        }
+        "/resumable-create" => {
+            assert!(bucket.supports_resumable_multipart()?);
+            bucket
+                .put(
+                    &context,
+                    "resumable",
+                    b"previous".to_vec(),
+                    WriteOptions::default(),
+                )
+                .await?;
+            let upload = bucket
+                .create_resumable_multipart(
+                    &context,
+                    "resumable",
+                    WriteOptions {
+                        http_metadata: HttpMetadata {
+                            content_type: Some("application/zstd".into()),
+                            ..Default::default()
+                        },
+                        custom_metadata: std::collections::BTreeMap::from([(
+                            "name".into(),
+                            "backup 雪".into(),
+                        )]),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            let two = upload.upload_part(&context, 2, b"beta".to_vec()).await?;
+            let obsolete = upload
+                .upload_part(&context, 1, b"obsolete".to_vec())
+                .await?;
+            let one = upload.upload_part(&context, 1, b"alpha".to_vec()).await?;
+            assert!(!one.etag.is_empty() && one.etag != obsolete.etag);
+            assert!(upload
+                .complete(&context, &[obsolete, two.clone()])
+                .await
+                .is_err());
+            assert_eq!(
+                body(&context, "resumable").await?.text(&context).await?,
+                "previous"
+            );
+            context.storage()?.put_json(
+                "resumable",
+                &json!({"id":upload.upload_id(), "one":one.etag, "two":two.etag}),
+            )?;
+        }
+        "/resumable-finish" => {
+            let saved = context
+                .storage()?
+                .get_json("resumable")?
+                .context("saved resumable upload missing")?;
+            let id = saved["id"].as_str().context("upload ID missing")?;
+            let upload = bucket.resume_resumable_multipart("resumable", id)?;
+            let parts = [
+                UploadedPart {
+                    part_number: 1,
+                    etag: saved["one"]
+                        .as_str()
+                        .context("first receipt missing")?
+                        .into(),
+                },
+                UploadedPart {
+                    part_number: 2,
+                    etag: saved["two"]
+                        .as_str()
+                        .context("second receipt missing")?
+                        .into(),
+                },
+            ];
+            let foreign = context
+                .blob("OTHER")?
+                .resume_resumable_multipart("resumable", id)?;
+            assert!(foreign
+                .upload_part(&context, 1, b"foreign".to_vec())
+                .await
+                .is_err());
+            assert!(bucket
+                .resume_resumable_multipart("resumable", "invalid\0id")
+                .is_err());
+            signals.refuse.store(true, Ordering::SeqCst);
+            assert!(upload.complete(&context, &parts).await.is_err());
+            signals.refuse.store(false, Ordering::SeqCst);
+            assert_eq!(
+                body(&context, "resumable").await?.text(&context).await?,
+                "previous"
+            );
+            let object = upload.complete(&context, &parts).await?;
+            assert_eq!(object.size, 9);
+            assert_eq!(
+                object.http_metadata.content_type.as_deref(),
+                Some("application/zstd")
+            );
+            assert_eq!(object.custom_metadata["name"], "backup 雪");
+            assert_eq!(
+                body(&context, "resumable").await?.text(&context).await?,
+                "alphabeta"
+            );
+            upload.abort(&context).await?;
+        }
         "/resume" => {
             let retained = signals.upload.lock().unwrap().clone().unwrap();
             let wrong = context
@@ -772,9 +917,17 @@ async fn run() -> Result<()> {
     signals.refuse.store(false, Ordering::SeqCst);
     call(&runtime, "list").await?;
     call(&runtime, "multipart").await?;
+    call(&runtime, "stage-owned").await?;
+    call(&runtime, "stage-foreign").await?;
+    call(&runtime, "resumable-create").await?;
     runtime.swap_out_cell(SCOPE, 1).await?;
     runtime.start_cell(SCOPE.into(), 1, false).await?;
     runtime.publish_cell(SCOPE, 1)?;
+    // Reconstruct the configured backend as well as the cell activation.
+    cellar::host_channels::set_blob_store(cellar::bucket::Bucket::open_dev(
+        &directory.path().join("bucket.sqlite"),
+    )?);
+    call(&runtime, "resumable-finish").await?;
     call(&runtime, "resume").await?;
     call(&runtime, "finish-resume").await?;
     let reply = call(&runtime, "stream").await?;

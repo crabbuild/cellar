@@ -114,6 +114,14 @@ struct Exec {
     cwd: Option<String>,
     user: Option<String>,
     combined: bool,
+    pty: Option<Terminal>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Terminal {
+    cols: u16,
+    rows: u16,
 }
 
 fn start(value: &Value) -> Result<containers::StartOptions> {
@@ -141,7 +149,11 @@ fn exec(value: &Value) -> Result<containers::ExecOptions> {
         env: options.env,
         cwd: options.cwd,
         user: options.user,
-        combined: options.combined,
+        combined: options.combined || options.pty.is_some(),
+        pty: options
+            .pty
+            .map(|size| containers::TerminalSize::new(size.cols, size.rows))
+            .transpose()?,
     })
 }
 
@@ -151,6 +163,13 @@ fn integer(value: &Value, field: &str, max: u64) -> Result<u64> {
         .context("expected nonnegative integer")?;
     ensure!(n <= max, "integer exceeds limit");
     Ok(n)
+}
+
+fn terminal_size(value: &Value) -> Result<containers::TerminalSize> {
+    containers::TerminalSize::new(
+        integer(value, "cols", u16::MAX.into())? as u16,
+        integer(value, "rows", u16::MAX.into())? as u16,
+    )
 }
 
 fn signal(value: &Value) -> Result<u32> {
@@ -198,8 +217,14 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         "container.start" => {
             start(value)?;
         }
+        "container.intercept_outbound_http" => {
+            crate::outbound::validate(value, limits.max_body_bytes)?
+        }
         "container.signal" | "container.exec.kill" => {
             signal(value)?;
+        }
+        "container.exec.resize" => {
+            terminal_size(value)?;
         }
         "container.set_inactivity_timeout" => {
             timeout(value)?;
@@ -255,6 +280,7 @@ pub(crate) fn validate(name: &str, value: &Value, limits: &Limits) -> Result<()>
         | "container.exec.read_stderr"
         | "container.exec.close_stdin"
         | "container.exec.wait"
+        | "container.exec.info"
         | "container.socket.read"
         | "container.socket.close_write"
         | "container.socket.close"
@@ -285,6 +311,9 @@ pub(crate) async fn execute(
     validate(name, &value, limits).context(Validation)?;
     if name.starts_with("container.file.") {
         return crate::files::execute(context, crate::Operation::parse(name)?, value).await;
+    }
+    if name == "container.intercept_outbound_http" {
+        return crate::outbound::execute(context, value, limits.max_body_bytes).await;
     }
     // Root-cell, class declaration, current turn and activation authority are
     // resolved afresh on every call, including reads of invocation resources.
@@ -373,6 +402,16 @@ pub(crate) async fn execute(
                 .wait(context)
                 .await?
         )),
+        "container.exec.info" => Ok(serde_json::to_value(
+            resources.exec(&value).context(Validation)?.info(context)?,
+        )?),
+        "container.exec.resize" => {
+            let size = terminal_size(&value)?;
+            let process = resources.exec(&value).context(Validation)?;
+            ensure!(process.info(context)?.is_pty, Validation);
+            process.resize(context, size.cols(), size.rows()).await?;
+            Ok(Value::Null)
+        }
         "container.exec.kill" => {
             resources
                 .exec(&value)

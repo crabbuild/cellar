@@ -24,6 +24,62 @@ pub struct Client {
     contract: Arc<Contract>,
 }
 
+/// The wire frame owns response capacity while its business copy crosses
+/// native preflight/decoder admission. Raw-byte APIs hand that copy to their
+/// caller; native typed APIs keep this owner through response decoding.
+struct Received {
+    bytes: Vec<u8>,
+    deadline: u64,
+    method: super::Method,
+    _frame: crate::engine_api::RpcData,
+}
+
+/// Validated response bytes and their shared native memory ownership.
+#[doc(hidden)]
+pub struct ResponseBytes {
+    bytes: Vec<u8>,
+    owner: ResponseOwner,
+}
+
+/// Keep this owner until an adapter has admitted the returned byte vector.
+#[doc(hidden)]
+pub struct ResponseOwner {
+    _frame: crate::engine_api::RpcData,
+}
+
+impl Received {
+    fn into_bytes(self) -> ResponseBytes {
+        ResponseBytes {
+            bytes: self.bytes,
+            owner: ResponseOwner {
+                _frame: self._frame,
+            },
+        }
+    }
+}
+
+impl AsRef<[u8]> for ResponseBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl ResponseBytes {
+    /// Transfer both parts together; queued bytes need an admitted owner.
+    pub fn into_parts(self) -> (Vec<u8>, ResponseOwner) {
+        (self.bytes, self.owner)
+    }
+}
+
+impl std::fmt::Debug for ResponseBytes {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ResponseBytes")
+            .field("len", &self.bytes.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl Client {
     pub fn bind(
         context: &Context,
@@ -105,13 +161,22 @@ impl Client {
             }
         };
         let signal = options.signal.clone();
+        let contract = self.contract.clone();
+        let context = self.context.clone();
         let call = self.start(method, result, options, deadline);
         Box::pin(async move {
-            let (bytes, deadline) = call.await?;
-            let response = Response::decode(bytes.as_slice())
-                .map_err(|_| Failure::new(Code::InvalidResponse))?;
-            check_completion(deadline, signal.as_ref())?;
-            Ok(response)
+            let received = call.await?;
+            let admission =
+                super::DecodeReservation::new(&contract, &received.method.output, &received.bytes);
+            check_completion(received.deadline, signal.as_ref())?;
+            let _admission = admission?;
+            let response = Response::decode(received.bytes.as_slice())
+                .map_err(|_| Failure::new(Code::InvalidResponse));
+            check_completion(received.deadline, signal.as_ref())?;
+            context
+                .check_turn()
+                .map_err(|_| Failure::new(Code::ContextExpired))?;
+            response
         })
     }
 
@@ -123,9 +188,8 @@ impl Client {
         request: Vec<u8>,
         options: CallOptions,
     ) -> HandlerFuture<Vec<u8>> {
-        let deadline = self.deadline(&options, crate::asyncrt::mono_ms());
-        let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
+        let call = self.call_response_bytes(method, request, options);
+        Box::pin(async move { call.await.map(|received| received.into_parts().0) })
     }
 
     /// Submit guest-encoded bytes under a budget minted before its codecs ran.
@@ -137,12 +201,38 @@ impl Client {
         options: CallOptions,
         budget: super::CallBudget,
     ) -> HandlerFuture<Vec<u8>> {
+        let call = self.call_response_bytes_in_budget(method, request, options, budget);
+        Box::pin(async move { call.await.map(|received| received.into_parts().0) })
+    }
+
+    /// Adapter response ownership, retained until bridge byte admission.
+    #[doc(hidden)]
+    pub fn call_response_bytes(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        options: CallOptions,
+    ) -> HandlerFuture<ResponseBytes> {
+        let deadline = self.deadline(&options, crate::asyncrt::mono_ms());
+        let call = self.start(method, Ok(request), options, deadline);
+        Box::pin(async move { call.await.map(Received::into_bytes) })
+    }
+
+    /// Adapter response ownership under the original pre-codec call budget.
+    #[doc(hidden)]
+    pub fn call_response_bytes_in_budget(
+        &self,
+        method: &str,
+        request: Vec<u8>,
+        options: CallOptions,
+        budget: super::CallBudget,
+    ) -> HandlerFuture<ResponseBytes> {
         let deadline = budget.deadline_for(&self.context).and_then(|deadline| {
             self.deadline(&options, crate::asyncrt::mono_ms())
                 .map(|current| deadline.min(current))
         });
         let call = self.start(method, Ok(request), options, deadline);
-        Box::pin(async move { call.await.map(|(bytes, _)| bytes) })
+        Box::pin(async move { call.await.map(Received::into_bytes) })
     }
 
     fn deadline(&self, options: &CallOptions, started: u64) -> Result<u64, Failure> {
@@ -166,7 +256,7 @@ impl Client {
         request: Result<Vec<u8>, Failure>,
         options: CallOptions,
         deadline: Result<u64, Failure>,
-    ) -> HandlerFuture<(Vec<u8>, u64)> {
+    ) -> HandlerFuture<Received> {
         let context = self.context.clone();
         let stub = self.stub.clone();
         let contract = self.contract.clone();
@@ -222,12 +312,16 @@ impl Client {
             let response_signal = options.signal.clone();
             let operation = async {
                 let result = stub
-                    .rpc_with_deadline(
+                    .rpc_scoped(
                         &context,
                         &method.name,
                         args,
-                        Some(deadline),
-                        response_signal.clone(),
+                        crate::host_rpc::CallScope::in_context(
+                            &context,
+                            Some(deadline),
+                            response_signal.clone(),
+                        )
+                        .with_reply_limit(envelope::response_transport_limit(contract.limits())),
                     )
                     .await;
                 check_completion(deadline, response_signal.as_ref())?;
@@ -246,7 +340,12 @@ impl Client {
                     .validate_message(&method.output, &bytes)
                     .map_err(|_| Failure::new(Code::InvalidResponse))?;
                 check_completion(deadline, response_signal.as_ref())?;
-                Ok((bytes, deadline))
+                Ok(Received {
+                    bytes,
+                    deadline,
+                    method,
+                    _frame: data,
+                })
             };
             let cancellation = async {
                 match options.signal {

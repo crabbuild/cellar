@@ -58,6 +58,13 @@ impl Startup<'_> {
         let mut definitions = Vec::new();
         for cell in &config.cells {
             anyhow::ensure!(
+                cell.namespace.image_storage
+                    != crate::application::consensus::RaftImageStorage::Extents
+                    || matches!(cell.placement, RaftCellPlacement::QueryRouter { .. })
+                    || config.host.extents.is_some(),
+                "extent namespace requires node extent storage"
+            );
+            anyhow::ensure!(
                 !services.application.supports_cell(&cell.class)
                     && !services.application.supports_workflow(&cell.class),
                 RegistrationError::UnsupportedFactory(cell.class.clone())

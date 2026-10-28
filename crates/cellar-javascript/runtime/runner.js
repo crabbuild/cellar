@@ -285,13 +285,61 @@
 
   // Both incoming requests and nested-cell responses use this decoded view.
   // text() deliberately rejects invalid UTF-8 instead of replacing bad bytes.
-  function request(value) {
+  function incomingBody(context) {
+    if (typeof ReadableStream !== "function")
+      throw new ErrorClass("Incoming HTTP streams require the web runtime");
+    let released = false;
+    let remove;
+    const release = async () => {
+      if (released) return;
+      released = true;
+      remove?.();
+      await context._call("request.body.cancel", {});
+    };
+    remove = context._rpcCleanup(release);
+    return new ReadableStream(
+      {
+        type: "bytes",
+        async pull(controller) {
+          try {
+            const chunk = await context._call("request.body.read", {});
+            if (chunk.done) {
+              await release();
+              controller.close();
+            } else {
+              const body = context._decode(chunk.body);
+              if (body.byteLength) controller.enqueue(body);
+            }
+          } catch (error) {
+            await release().catch(() => {});
+            controller.error(error);
+          }
+        },
+        cancel: release,
+      },
+      { highWaterMark: 0 },
+    );
+  }
+
+  function request(value, context) {
     const body = decode(value.body);
     const text = () =>
       decodeURIComponent(
         Array.from(body, (b) => "%" + b.toString(16).padStart(2, "0")).join(""),
       );
 
+    if (value.body_stream) {
+      const refuse = () => {
+        throw new TypeError("Consume the incoming HTTP byte stream");
+      };
+      return freeze({
+        ...value,
+        body,
+        body_stream: incomingBody(context),
+        text: refuse,
+        json: refuse,
+      });
+    }
     return freeze({ ...value, body, text, json: () => json(parse(text())) });
   }
 
@@ -427,6 +475,8 @@
           "workers.sql.size",
           "workers.kv.get",
           "workers.kv.list",
+          "workers.r2.head",
+          "workers.r2.get",
           "storage.read",
           "alarm.get",
           "var",
@@ -436,6 +486,7 @@
           "container.capabilities",
           "container.running",
           "container.monitor",
+          "container.exec.info",
           "container.exec.read_stdout",
           "container.exec.read_stderr",
           "container.exec.wait",
@@ -516,12 +567,16 @@
                   "cell.call",
                   "workers.rpc.invoke",
                   "response.read",
+                  "request.body.read",
                   "response.closed",
                   "websocket.next",
                   "websocket.closed",
                   "container.port.fetch",
                   "container.port.fetch_stream",
                   "container.response.read",
+                  "container.exec.read_stdout",
+                  "container.exec.read_stderr",
+                  "container.exec.wait",
                   "container.port.connect_websocket",
                   "container.websocket.receive",
                   "workers.fetch",
@@ -575,6 +630,8 @@
                 "workers.sql.size",
                 "workers.kv.get",
                 "workers.kv.list",
+                "workers.r2.head",
+                "workers.r2.get",
                 "storage.read",
                 "alarm.get",
                 "var",
@@ -584,6 +641,7 @@
                 "container.capabilities",
                 "container.running",
                 "container.monitor",
+                "container.exec.info",
                 "container.exec.read_stdout",
                 "container.exec.read_stderr",
                 "container.exec.wait",
@@ -634,6 +692,8 @@
           kind === "exec"
             ? {
                 ...common,
+                info: async () => freeze(await operation("info")),
+                resize: (cols, rows) => operation("resize", { cols, rows }),
                 readStdout: async () => decode(await operation("read_stdout")),
                 readStderr: async () => decode(await operation("read_stderr")),
                 write: (bytes) => operation("write", { data: encode(bytes) }),
@@ -682,6 +742,11 @@
         signal: (signal) => containerCall("container.signal", { signal }),
         setInactivityTimeout: (timeout_ms) =>
           containerCall("container.set_inactivity_timeout", { timeout_ms }),
+        interceptOutboundHttp: (target, binding) =>
+          containerCall("container.intercept_outbound_http", {
+            target,
+            service: { kind: "binding", binding },
+          }),
         exec: async (options) =>
           resource("exec", await containerCall("container.exec", { options })),
         execOutput: async (options, max_bytes = 1048576) => {
@@ -1108,7 +1173,12 @@
           }
           if (invocation !== cachedId) {
             cachedId = invocation;
-            cached = context(invocation, identity, activation, contracts);
+            // Independent facade getters share the native event's canonical
+            // context. currentHost(activation) above still verifies that this
+            // continuation belongs to the original, live activation.
+            cached =
+              lifetimes.get(invocation)?.context ??
+              context(invocation, identity, activation, contracts);
           }
           return cached;
         };
@@ -1173,6 +1243,11 @@
         );
       },
       _serialize: (value) => encode(encodeClone(value)),
+      _rpcValue: (value) =>
+        delegates.valueOnly(
+          value,
+          context(id, identity, activation, contracts),
+        ),
       _deserialize: (value) => decodeClone(decode(value)),
       _rpcResult: (value, closed) =>
         delegates.result(
@@ -1396,7 +1471,7 @@
 
       let event =
         invocation.kind === "fetch"
-          ? request(invocation.event)
+          ? request(invocation.event, ctx)
           : json(invocation.event);
 
       if (invocation.kind === "websocket_message") {
@@ -1406,10 +1481,15 @@
         });
       }
 
-      if (invocation.kind === "cell_rpc") {
-        const args = ctx._deserialize(event.args);
-        if (!isArray(args)) throw new ErrorClass("Invalid RPC arguments");
-        if (event.method === "__cellar_workers_rpc_inputs") {
+      if (invocation.kind === "cell_rpc" || invocation.kind === "worker_rpc") {
+        const workerRpc = invocation.kind === "worker_rpc";
+        const args =
+          workerRpc && event.operation.kind === "get"
+            ? undefined
+            : ctx._deserialize(workerRpc ? event.operation.args : event.args);
+        if ((!workerRpc || event.operation.kind !== "get") && !isArray(args))
+          throw new ErrorClass("Invalid RPC arguments");
+        if (!workerRpc && event.method === "__cellar_workers_rpc_inputs") {
           return stringify(
             await delegates.accept(args, ctx, (method, args) =>
               target.cell_rpc(freeze({ method, args }), ctx),
@@ -1418,10 +1498,18 @@
         }
         let value;
         try {
-          value = await target.cell_rpc(
-            freeze({ method: event.method, args }),
-            ctx,
-          );
+          value = workerRpc
+            ? await target.worker_rpc(
+                freeze({
+                  ...event,
+                  operation: freeze({ ...event.operation, args }),
+                }),
+                ctx,
+              )
+            : await target.cell_rpc(
+                freeze({ method: event.method, args }),
+                ctx,
+              );
         } catch (error) {
           // Remote throws are successful native RPC responses. Preserve the
           // thrown value and own data properties, without leaking its stack.
@@ -1433,13 +1521,19 @@
             }
           }
           return stringify({
-            value: ctx._serialize([error, properties]),
+            value: workerRpc
+              ? ctx._rpcValue([error, properties])
+              : ctx._serialize([error, properties]),
             error: true,
           });
         }
         // Encoding can fail after the handler committed writes. Such a
         // failure is a lost result, not a business exception from the method.
-        return stringify(await ctx._rpcResult(value));
+        return stringify(
+          workerRpc
+            ? { value: ctx._rpcValue(value), error: false }
+            : await ctx._rpcResult(value),
+        );
       }
 
       let result = await target[invocation.kind](event, ctx);

@@ -52,16 +52,46 @@ fn domain(visits: &[Visit], class: &str, identity: &(String, u64)) -> Result<usi
     Ok(increments)
 }
 
+async fn partial_request_retired(
+    relay: &Relay,
+    source: &cellar::host_services::HostServices,
+) -> Result<Value> {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let receiving = relay.receiving_usage()?;
+            let sending = source.outbound_rpc_usage();
+            if receiving.active_requests == 0
+                && receiving.reserved_request_bytes == 0
+                && sending == Default::default()
+            {
+                return Ok::<_, anyhow::Error>(json!({
+                    "receiving_requests":receiving.active_requests,
+                    "receiving_bytes":receiving.reserved_request_bytes,
+                    "source_requests":sending.active_requests,
+                    "source_bytes":sending.reserved_request_bytes,
+                }));
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .context("partial request retained source/receiving admission")?
+}
+
 async fn cases(
     app: &Composite,
     client: &reqwest::Client,
     base: &str,
     relay: &Relay,
     owners: &BTreeMap<String, (String, u64)>,
+    source: &cellar::host_services::HostServices,
 ) -> Result<Value> {
     let mut cases = Vec::new();
     let mut counts = BTreeMap::<&str, i64>::new();
     for fault in [
+        Fault::RequestPrefixLoss,
+        Fault::DeclaredReplyOverflow,
+        Fault::StreamedReplyOverflow,
         Fault::Reconnect,
         Fault::ReplyLoss,
         Fault::MethodRefusal,
@@ -71,6 +101,9 @@ async fn cases(
         for (target, _, class) in fleet::CLASSES {
             let identity = owners.get(class).context("provider identity missing")?;
             for (caller, _, _) in fleet::CLASSES {
+                if fault == Fault::RequestPrefixLoss {
+                    partial_request_retired(relay, source).await?;
+                }
                 let before = *counts.get(target).unwrap_or(&0);
                 let expected = json!({"value":(before + 1).to_string()});
                 let id = format!("{}-{caller}-{target}", fault.name());
@@ -102,7 +135,16 @@ async fn cases(
                     app.audit.factories().len() == factories,
                     "peer refusal or reconnect ran a new factory"
                 );
-                if let Some(code) = fault.refusal_code() {
+                if fault == Fault::RequestPrefixLoss {
+                    ensure!(
+                        first == json!({"code":"Unavailable","outcome":"unknown"}),
+                        "partial submission claimed a known outcome: {first}"
+                    );
+                    ensure!(
+                        first_handlers == 0 && app.audit.returned_since(returned).is_empty(),
+                        "partial upload entered business code or was automatically replayed"
+                    );
+                } else if let Some(code) = fault.refusal_code() {
                     ensure!(
                         first == json!({"code":code,"outcome":"not_committed"}),
                         "call-specific refusal changed: {first}"
@@ -130,6 +172,11 @@ async fn cases(
                             first == json!({"code":"Unavailable","outcome":"unknown"}),
                             "lost committed reply claimed a known outcome: {first}"
                         );
+                    } else if fault.reply_overflow() {
+                        ensure!(
+                            first == json!({"code":"InvalidResponse","outcome":"unknown"}),
+                            "oversized committed reply was not refused before its withheld suffix: {first}"
+                        );
                     } else {
                         ensure!(
                             first == expected && relay.handshakes() > handshakes,
@@ -137,7 +184,12 @@ async fn cases(
                         );
                     }
                 }
-                let current = if fault.refusal_code().is_some() {
+                let prefix_cleanup = if fault == Fault::RequestPrefixLoss {
+                    partial_request_retired(relay, source).await?
+                } else {
+                    Value::Null
+                };
+                let current = if first_handlers == 0 {
                     before
                 } else {
                     before + 1
@@ -186,11 +238,12 @@ async fn cases(
                     "first_reply":first,"first_handler_count":first_handlers,"total_handler_count":total_handlers,
                     "factory_count_change":0,"counter_before":before.to_string(),"counter_after":(before+1).to_string(),
                     "explicit_receipt_retries":2,"changed_command_refused":true,"automatic_replay":false,
-                    "peer":proof,"new_signed_handshakes":relay.handshakes()-handshakes}));
+                    "peer":proof,"request_prefix_cleanup":prefix_cleanup,
+                    "new_signed_handshakes":relay.handshakes()-handshakes}));
             }
         }
     }
-    ensure!(cases.len() == 80, "peer fault matrix is incomplete");
+    ensure!(cases.len() == 128, "peer fault matrix is incomplete");
     Ok(
         json!({"format":1,"contract_digest":app.contract.digest(),"topology":"signed-peer-fault-relay",
         "case_count":cases.len(),"cases":cases,"fleet_durability":true,
@@ -223,6 +276,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
             },
         )
         .await?;
+        relay.receiving(node.services());
         owner = Some(node);
         let seeded = app.audit.cursor();
         for (target, _, _) in fleet::CLASSES {
@@ -264,6 +318,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
             bucket,
         )
         .await?;
+        let source_services = node.services();
         source = Some(node);
         for (target, _, _) in fleet::CLASSES {
             ensure!(
@@ -272,7 +327,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
                 "warm remote read changed state"
             );
         }
-        cases(&app, &client, &base, &relay, &owners).await
+        cases(&app, &client, &base, &relay, &owners, &source_services).await
     }
     .await;
     // Cleanup runs after a failed assertion as well as a successful matrix.

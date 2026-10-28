@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-import type { DurableObjectState } from "./index.js";
+import type { DurableObjectState, WorkerExecutionContext } from "./index.js";
 export class RpcTarget {
   private readonly __rpcTarget: never;
 }
@@ -11,12 +11,12 @@ export class DurableObject<
   ctx: DurableObjectState;
   env: E;
 }
-/** Only the module base is present; Worker entrypoint RPC dispatch is pending. */
 export class WorkerEntrypoint<
   E extends object = Record<string, unknown>,
+  P = unknown,
 > extends RpcTarget {
-  constructor(ctx: unknown, env: E);
-  ctx: unknown;
+  constructor(ctx: WorkerExecutionContext<P>, env: E);
+  ctx: WorkerExecutionContext<P>;
   env: E;
 }
 export const tracing: undefined;

@@ -31,6 +31,7 @@ type Head = oneshot::Sender<Result<Output>>;
 /// every use still passes the native activation/turn checks.
 #[derive(Default)]
 pub struct Session {
+    request_body: crate::request_body::Reader,
     authority: OnceLock<InvocationAuthority>,
     head: Mutex<Option<Head>>,
     pipe: Option<(ByteReadable, ByteWriter)>,
@@ -158,6 +159,18 @@ where
 }
 
 impl Session {
+    /// Admit one native incoming body without consuming it. Per-read bounds,
+    /// invocation checks and cancellation apply before every source pull.
+    pub fn request(&self, context: &Context, request: cellar::sdk::Request) -> Result<Value> {
+        self.check(context)?;
+        values::headers(&request.headers)?;
+        self.request_body
+            .install(context.take_body(request.body)?)?;
+        Ok(
+            json!({"url":request.url,"method":request.method,"headers":request.headers,"body":"","body_stream":true}),
+        )
+    }
+
     fn check(&self, context: &Context) -> Result<()> {
         let candidate = context.invocation_authority()?;
         self.authority.get_or_init(|| candidate).check(context)
@@ -175,11 +188,14 @@ impl Session {
     pub(crate) fn retain_response(
         &self,
         context: &Context,
-        response: cellar::engine_api::HttpResponse,
+        mut response: cellar::engine_api::HttpResponse,
         limits: &Limits,
     ) -> Result<Value> {
         self.check(context)?;
         values::headers(&response.headers)?;
+        if let Some(source) = response.stream.take() {
+            response.stream = Some(crate::chunk_stream::bounded(source, limits.max_body_bytes)?);
+        }
         let mut cancellations = self.cancellations.lock().unwrap();
         let mut responses = self.responses.lock().unwrap();
         ensure!(
@@ -305,6 +321,20 @@ impl Session {
         limits: &Limits,
     ) -> Result<Value> {
         match name {
+            "request.body.read" | "request.body.cancel" => {
+                ensure!(
+                    value.as_object().is_some_and(serde_json::Map::is_empty),
+                    Validation
+                );
+                if name == "request.body.cancel" {
+                    self.request_body.cancel()?;
+                    return Ok(Value::Null);
+                }
+                let bytes = self.request_body.read(limits.max_body_bytes).await?;
+                Ok(
+                    json!({"done":bytes.is_none(),"body":STANDARD.encode(bytes.unwrap_or_default())}),
+                )
+            }
             "cell.fetch_stream" | "http.fetch_stream" => {
                 self.response_capacity(context, limits)?;
                 let request =

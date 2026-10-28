@@ -10,7 +10,7 @@ publish = false
 
 [features]
 default = []
-full = ["dep:cellar-javascript", "dep:cellar-python"]
+full = ["dep:cellar-javascript", "dep:cellar-python", "dep:pyo3"]
 
 [[bin]]
 name = "cellar-rpc-qualification"
@@ -27,6 +27,7 @@ cellar-python = { workspace = true, optional = true, features = ["embed"] }
 libc.workspace = true
 futures-util.workspace = true
 object_store.workspace = true
+pyo3 = { workspace = true, optional = true }
 reqwest.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

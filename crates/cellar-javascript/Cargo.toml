@@ -11,7 +11,7 @@ description = "Optional V8 and Node.js backends for Cellar JavaScript and TypeSc
 path = "lib.rs"
 [features]
 default = []
-embed = ["dep:v8", "dep:cellar-guest"]
+embed = ["dep:v8", "dep:cellar-guest", "dep:libc"]
 node = ["dep:cellar-guest", "dep:getrandom", "dep:libc", "dep:sha2"]
 [dependencies]
 anyhow.workspace = true
@@ -37,6 +37,7 @@ url.workspace = true
 fastwebsockets.workspace = true
 tempfile.workspace = true
 reqwest.workspace = true
+rusqlite.workspace = true
 [[bin]]
 name = "cellar-javascript-example"
 path = "../../examples/javascript/main.rs"

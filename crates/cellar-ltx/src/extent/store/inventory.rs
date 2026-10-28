@@ -40,15 +40,27 @@ impl NodeExtentStore {
         filesystem: Arc<dyn FileSystem>,
         limits: NodeExtentLimits,
     ) -> Result<Self, StoreError> {
-        if limits.max_bytes == 0
-            || limits.max_objects == 0
-            || limits.max_roots == 0
-            || limits.max_root_extents == 0
-            || limits.max_references == 0
-            || !(1..=1024).contains(&limits.max_workspaces)
-        {
-            return Err(StoreError::Limit);
-        }
+        Self::open_with_admission(directory, filesystem, limits, false)
+    }
+
+    /// Serialize physical operations from bounded blocking owners sharing one
+    /// node inventory. Waiting operations retain their caller's admission and
+    /// must be joined at shutdown. Never call this mode on an async executor.
+    pub fn open_serialized(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: NodeExtentLimits,
+    ) -> Result<Self, StoreError> {
+        Self::open_with_admission(directory, filesystem, limits, true)
+    }
+
+    fn open_with_admission(
+        directory: PathBuf,
+        filesystem: Arc<dyn FileSystem>,
+        limits: NodeExtentLimits,
+        serialized: bool,
+    ) -> Result<Self, StoreError> {
+        limits.validate()?;
         create_dir_all_durable(filesystem.as_ref(), &directory)?;
         let lock_path = directory.join("extents.lock");
         match filesystem.symlink_metadata(&lock_path) {
@@ -155,6 +167,8 @@ impl NodeExtentStore {
                 filesystem,
                 limits,
                 state: Mutex::new(state),
+                idle: Condvar::new(),
+                serialized,
                 _lock: lock,
             }),
         })

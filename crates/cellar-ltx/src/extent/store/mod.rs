@@ -7,6 +7,7 @@
 mod image;
 mod inventory;
 mod publication;
+mod read;
 mod reclaim;
 mod workspace;
 
@@ -26,7 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard, Weak},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +52,21 @@ impl Default for NodeExtentLimits {
             max_references: 16384,
             max_workspaces: 256,
         }
+    }
+}
+
+impl NodeExtentLimits {
+    pub fn validate(self) -> Result<(), StoreError> {
+        if self.max_bytes == 0
+            || self.max_objects == 0
+            || self.max_roots == 0
+            || self.max_root_extents == 0
+            || self.max_references == 0
+            || !(1..=1024).contains(&self.max_workspaces)
+        {
+            return Err(StoreError::Limit);
+        }
+        Ok(())
     }
 }
 
@@ -168,6 +184,8 @@ struct Inner {
     filesystem: Arc<dyn FileSystem>,
     limits: NodeExtentLimits,
     state: Mutex<State>,
+    idle: Condvar,
+    serialized: bool,
     _lock: HostFileLock,
 }
 
@@ -204,6 +222,37 @@ pub struct NodeExtentStore {
     inner: Arc<Inner>,
 }
 
+/// Counter metadata only. Keeping an observer cannot retain the node's files
+/// or exclusive inventory lock after all physical owners have exited.
+#[derive(Clone)]
+pub struct NodeExtentObserver(Weak<Inner>);
+
+impl NodeExtentObserver {
+    pub fn capture(&self) -> Option<(NodeExtentUsage, NodeExtentLimits)> {
+        let store = NodeExtentStore {
+            inner: self.0.upgrade()?,
+        };
+        Some((store.usage().ok()?, store.inner.limits))
+    }
+}
+
+impl NodeExtentStore {
+    pub fn observer(&self) -> NodeExtentObserver {
+        NodeExtentObserver(Arc::downgrade(&self.inner))
+    }
+
+    /// Compare exact open inventory owners without granting access or doing I/O.
+    pub fn same_inventory(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// Check the physical owner of a complete image seal without doing I/O.
+    /// A matching root identity in another inventory is not a local seal.
+    pub fn owns_image(&self, image: &SealedImageRoot) -> bool {
+        Arc::ptr_eq(&self.inner, &image.view().inner)
+    }
+}
+
 struct Operation {
     inner: Arc<Inner>,
     complete: bool,
@@ -213,6 +262,7 @@ impl Operation {
     fn finish(mut self) -> Result<(), StoreError> {
         self.inner.state()?.busy = false;
         self.complete = true;
+        self.inner.idle.notify_all();
         Ok(())
     }
 }
@@ -227,6 +277,8 @@ impl Drop for Operation {
                 .unwrap_or_else(|error| error.into_inner());
             state.quarantined = true;
             state.busy = false;
+            drop(state);
+            self.inner.idle.notify_all();
         }
     }
 }
@@ -242,11 +294,23 @@ impl NodeExtentStore {
 
     fn start(&self, allow_quarantine: bool) -> Result<Operation, StoreError> {
         let mut state = self.inner.state()?;
-        if state.quarantined && !allow_quarantine {
-            return Err(StoreError::Quarantined);
-        }
-        if state.busy {
-            return Err(StoreError::Busy);
+        loop {
+            if state.quarantined && !allow_quarantine {
+                return Err(StoreError::Quarantined);
+            }
+            if !state.busy {
+                break;
+            }
+            if !self.inner.serialized {
+                return Err(StoreError::Busy);
+            }
+            // A bounded native blocking owner may wait for another physical
+            // operation. No state mutex remains held during its I/O or wait.
+            state = self
+                .inner
+                .idle
+                .wait(state)
+                .map_err(|_| StoreError::Quarantined)?;
         }
         state.busy = true;
         Ok(Operation {
@@ -308,6 +372,30 @@ impl RootView {
         &self.data.manifest
     }
 
+    /// Read one complete dependency on the caller's blocking owner. The caller
+    /// admits its at-most-4-MiB output before calling. No bytes escape until
+    /// their full extent identity has matched; inventory membership alone is
+    /// insufficient, including after this view was sealed or reopened.
+    pub fn read_extent(&self, id: ExtentId) -> Result<Vec<u8>, StoreError> {
+        if !self.data.objects.contains(&id) {
+            return Err(StoreError::Missing);
+        }
+        let mut bytes = Vec::with_capacity(id.length() as usize);
+        publication::read_object(&self.inner, id, |offset, chunk| {
+            if offset != bytes.len() as u64
+                || bytes
+                    .len()
+                    .checked_add(chunk.len())
+                    .is_none_or(|end| end > id.length() as usize)
+            {
+                return Err(StoreError::Integrity);
+            }
+            bytes.extend_from_slice(chunk);
+            Ok(())
+        })?;
+        Ok(bytes)
+    }
+
     /// The caller owns this separate cache directory and scratch budget. Keep
     /// cache directories outside the durable inventory's flat namespace.
     pub fn image(
@@ -316,9 +404,8 @@ impl RootView {
         scratch: ScratchPool,
         limits: CacheLimits,
     ) -> Result<ExtentImage, StoreError> {
-        Ok(ExtentImage::new(
-            self.data.manifest.clone(),
-            Arc::new(self.clone()),
+        Ok(ExtentImage::from_local(
+            self.clone(),
             self.inner.filesystem.clone(),
             cache_directory,
             scratch,

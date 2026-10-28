@@ -3,14 +3,16 @@
 //! Cross the old logical image ceiling through real execution, quorum apply,
 //! warm takeover and a fresh learner's object-store recovery.
 #![allow(clippy::disallowed_methods)]
-#[path = "support/raft_cluster.rs"]
+#[path = "../../../crates/cellar/tests/support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
-#[path = "support/raft_full_capacity.rs"]
+#[path = "../../../crates/cellar/tests/support/raft_full_capacity.rs"]
 mod full_capacity;
-#[path = "support/raft_node.rs"]
+#[path = "../../../crates/cellar/tests/support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "../../../crates/cellar/tests/support/raft_recovery.rs"]
+mod recovery;
 
 use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::Catalog;

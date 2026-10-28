@@ -66,6 +66,58 @@ fn request(source: &GroupBirth, archive: ArchiveReference) -> Result<DisasterRec
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disaster_extent_storage_refuses_before_intent_or_fence() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let cut = fixture.commit(7, vec![]).await?;
+    let reference = fixture.publish(cut).await?.reference();
+    let store = Arc::new(faults::Store::default());
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    let mut config = fixture.namespace.config().clone();
+    config.image_storage = RaftImageStorage::Extents;
+    let namespace = catalog.open_namespace(config).await?;
+    let birth = namespace
+        .resolve_birth(BirthProposal {
+            scope: fixture.birth.scope().clone(),
+            voters: fixture.birth.voters().to_vec(),
+            learners: vec![],
+        })
+        .await?;
+    let before = store.inner.list(None).try_collect::<Vec<_>>().await?;
+    let fence = Fence::new(true);
+    let request = request(&birth, reference)?;
+    ensure!(matches!(
+        namespace.disaster_fence_request(request.clone()).await,
+        Err(CatalogError::Invalid(
+            "disaster recovery requires materialized image storage"
+        ))
+    ));
+    ensure!(matches!(
+        namespace
+            .recover_from_disaster(
+                request,
+                &fence,
+                LtxHost::default(),
+                ArchiveLimits::default()
+            )
+            .await,
+        Err(CatalogError::Invalid(
+            "disaster recovery requires materialized image storage"
+        ))
+    ));
+    ensure!(fence.calls.load(Ordering::SeqCst) == 0);
+    ensure!(store.inner.list(None).try_collect::<Vec<_>>().await? == before);
+    ensure!(
+        namespace
+            .birth(&birth.scope().cell)
+            .await?
+            .context("birth")?
+            .digest()
+            == birth.digest()
+    );
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn disaster_fence_failure_is_closed_and_same_intent_resumes() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let cut = fixture.commit_payload(7, vec![], false).await?;

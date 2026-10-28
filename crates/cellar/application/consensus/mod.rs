@@ -17,9 +17,9 @@ pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;
 mod resources;
 pub use resources::{
-    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftGroupResources,
-    RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
-    RaftTransportResources,
+    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftExtentUsage,
+    RaftGroupResources, RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage,
+    RaftTransportBanks, RaftTransportResources,
 };
 pub(crate) mod protocol;
 
@@ -37,7 +37,7 @@ pub use crate::raft::archive::ArchiveReference;
 pub use crate::raft::catalog::CatalogError;
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, DisasterFenceAuthority, DisasterFenceRequest,
-    DisasterRecoveryRequest, InitialMember, NamespaceConfig, VoterPolicy,
+    DisasterRecoveryRequest, InitialMember, NamespaceConfig, RaftImageStorage, VoterPolicy,
 };
 pub use crate::raft::disaster::S3DisasterRecovery;
 pub use cellar_logic::raft_leadership::LeaderPolicy;
@@ -45,8 +45,9 @@ pub use cellar_logic::raft_placement::PlacementPolicy;
 
 pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
-    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftHostOptions,
-    RaftInspectionScanOptions, RaftNodeDirectoryOptions, RaftPeerNode,
+    RaftCellsServices, RaftControllerOptions, RaftControllerStatus, RaftExtentCacheLimits,
+    RaftExtentLimits, RaftExtentOptions, RaftHostOptions, RaftInspectionScanOptions,
+    RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
@@ -92,7 +93,8 @@ pub mod verification {
     pub use crate::raft::apply::{ImageApplier, ImageApplyError, PublishedImage};
     pub use crate::raft::archive::{
         ArchiveDependency, ArchiveError, ArchiveLimits, ArchiveMetadata, ArchiveRecoverySet,
-        ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut,
+        ArchiveReference, ArchiveVerifier, CellArchive, CommittedArchiveCut, RootArchiveReference,
+        RootArchiveSnapshot,
     };
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
@@ -100,7 +102,7 @@ pub mod verification {
     pub use crate::raft::catalog::{
         BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
         InitialMember, NamespaceCatalog, NamespaceConfig, NodePublication, NodeRegistration,
-        NodeView, VoterPolicy,
+        NodeView, RaftImageStorage, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
@@ -124,8 +126,8 @@ pub mod verification {
     };
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};
     pub use crate::raft::snapshot::{
-        PreparedSnapshot, SnapshotCheckpoint, SnapshotDownload, SnapshotError, SnapshotLimits,
-        SnapshotPackage, SnapshotReference,
+        PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotCheckpoint,
+        SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
     pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
     pub use crate::raft::transport::{

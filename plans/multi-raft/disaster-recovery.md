@@ -6,6 +6,10 @@ The operator API restores a cell from a selected S3 recovery set into a new Raft
 history after permanent loss of its voters. It is distinct from learner seeding,
 which still requires a fresh ReadIndex from a surviving quorum.
 
+This recovery path supports `RaftImageStorage::Materialized`. Extent-backed
+namespaces refuse before intent publication or infrastructure fencing; their
+disaster seeding path is not implemented.
+
 ## Authority and durable decisions
 
 `S3DisasterRecovery::open` takes explicit object storage, catalog/namespace

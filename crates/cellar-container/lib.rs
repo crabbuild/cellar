@@ -9,6 +9,8 @@ mod capabilities;
 pub mod e2b;
 mod files;
 mod native;
+mod native_profile;
+mod outbound;
 mod queued;
 mod reconciliation;
 mod remote_http;
@@ -21,6 +23,7 @@ use anyhow::{ensure, Context as _, Result};
 pub use bindings::{BindingCapabilities, BindingSessions, Bindings};
 pub use capabilities::{Capabilities, Environment, Fencing, Ownership};
 use cellar::sdk::{containers::ProviderAuthority, Context};
+pub use outbound::ServiceTarget;
 pub use reconciliation::{Reconciliation, ReconciliationState};
 use serde_json::Value;
 use std::{
@@ -78,6 +81,7 @@ pub enum Operation {
     Destroy,
     Signal,
     SetInactivityTimeout,
+    InterceptOutboundHttp,
     Exec,
     ExecOutput,
     ReadFile,
@@ -90,6 +94,8 @@ pub enum Operation {
     CloseStdin,
     WaitExec,
     KillExec,
+    ExecInfo,
+    ResizeExec,
     WaitPort,
     Fetch,
     FetchStream,
@@ -118,6 +124,7 @@ impl Operation {
         Self::Destroy,
         Self::Signal,
         Self::SetInactivityTimeout,
+        Self::InterceptOutboundHttp,
         Self::Exec,
         Self::ExecOutput,
         Self::ReadFile,
@@ -130,6 +137,8 @@ impl Operation {
         Self::CloseStdin,
         Self::WaitExec,
         Self::KillExec,
+        Self::ExecInfo,
+        Self::ResizeExec,
         Self::WaitPort,
         Self::Fetch,
         Self::FetchStream,
@@ -158,6 +167,7 @@ impl Operation {
             "container.destroy" => Ok(Self::Destroy),
             "container.signal" => Ok(Self::Signal),
             "container.set_inactivity_timeout" => Ok(Self::SetInactivityTimeout),
+            "container.intercept_outbound_http" => Ok(Self::InterceptOutboundHttp),
             "container.exec" => Ok(Self::Exec),
             "container.exec_output" => Ok(Self::ExecOutput),
             "container.file.read" => Ok(Self::ReadFile),
@@ -170,6 +180,8 @@ impl Operation {
             "container.exec.close_stdin" => Ok(Self::CloseStdin),
             "container.exec.wait" => Ok(Self::WaitExec),
             "container.exec.kill" => Ok(Self::KillExec),
+            "container.exec.info" => Ok(Self::ExecInfo),
+            "container.exec.resize" => Ok(Self::ResizeExec),
             "container.port.wait_ready" => Ok(Self::WaitPort),
             "container.port.fetch" => Ok(Self::Fetch),
             "container.port.fetch_stream" => Ok(Self::FetchStream),
@@ -200,6 +212,7 @@ impl Operation {
             Self::Destroy => "container.destroy",
             Self::Signal => "container.signal",
             Self::SetInactivityTimeout => "container.set_inactivity_timeout",
+            Self::InterceptOutboundHttp => "container.intercept_outbound_http",
             Self::Exec => "container.exec",
             Self::ExecOutput => "container.exec_output",
             Self::ReadFile => "container.file.read",
@@ -212,6 +225,8 @@ impl Operation {
             Self::CloseStdin => "container.exec.close_stdin",
             Self::WaitExec => "container.exec.wait",
             Self::KillExec => "container.exec.kill",
+            Self::ExecInfo => "container.exec.info",
+            Self::ResizeExec => "container.exec.resize",
             Self::WaitPort => "container.port.wait_ready",
             Self::Fetch => "container.port.fetch",
             Self::FetchStream => "container.port.fetch_stream",
@@ -242,6 +257,7 @@ impl Operation {
                 | Self::ReadStdout
                 | Self::ReadStderr
                 | Self::WaitExec
+                | Self::ExecInfo
                 | Self::ReadSocket
                 | Self::ReceiveWebSocket
                 | Self::ReadResponse
@@ -256,6 +272,12 @@ pub type ProviderFuture<'a> = Pin<Box<dyn Future<Output = Result<Value>> + Send 
 /// Host-selected backend. Credentials and backend selection never come from guests.
 /// Implementations declare supported operations and allocate invocation resources.
 pub trait Provider: Send + Sync {
+    /// Optional host-owned lifecycle backend, separate from event sessions.
+    /// Registration does not create or contact remote compute.
+    fn maintenance_backend(&self) -> Option<Arc<dyn cellar::sdk::containers::MaintenanceBackend>> {
+        None
+    }
+
     fn name(&self) -> &str;
 
     /// Host-configured durable slot identity. Named registration requires an
@@ -279,6 +301,12 @@ pub trait Provider: Send + Sync {
     /// Maximum live handles enforced by the provider, when declared.
     fn max_resources(&self) -> Option<usize> {
         None
+    }
+
+    /// Whether exec/exec_output accept terminal allocation. Unsupported
+    /// providers refuse this option before any provider call.
+    fn exec_pty(&self) -> bool {
+        false
     }
 
     /// Whether sessions implement an immediate, I/O-free running snapshot.
@@ -326,7 +354,20 @@ pub trait ProviderSession: Send + Sync {
 #[derive(Default)]
 pub struct Native;
 
+impl Native {
+    /// Opt in to run-owned Worker HTTP handlers. The host must separately
+    /// configure the native runc network-helper profile. Other providers and
+    /// the ordinary native profile refuse this operation before dispatch.
+    pub fn with_http_interception(self) -> impl Provider {
+        native_profile::HttpInterception
+    }
+}
+
 impl Provider for Native {
+    fn exec_pty(&self) -> bool {
+        true
+    }
+
     fn fencing(&self) -> Fencing {
         Fencing::NativeCell
     }
@@ -352,7 +393,7 @@ impl Provider for Native {
     }
 
     fn operations(&self) -> &[Operation] {
-        Operation::ALL
+        native_profile::base_operations()
     }
 
     fn open(&self) -> Box<dyn ProviderSession> {
@@ -468,7 +509,7 @@ impl Session {
         }
     }
 
-    /// Accept immutable lifecycle inputs without starting provider work.
+    /// Accept immutable void-control inputs without starting provider work.
     /// The returned event-owned ticket can be consumed exactly once.
     pub fn admit_queued(
         &self,
@@ -485,9 +526,17 @@ impl Session {
             ensure!(
                 matches!(
                     operation,
-                    Operation::Start | Operation::Signal | Operation::Destroy
+                    Operation::Start
+                        | Operation::Signal
+                        | Operation::Destroy
+                        | Operation::KillExec
+                        | Operation::ResizeExec
                 ),
                 "not a queued container control"
+            );
+            ensure!(
+                self.provider.operations().contains(&operation),
+                "unsupported queued provider operation"
             );
             values::check_depth(&input)?;
             ensure!(input.is_object(), "container input must be an object");
@@ -561,7 +610,18 @@ impl Session {
                     || self.provider.operations().contains(&operation),
                 "unsupported provider operation"
             );
-            native::validate(operation.name(), &input, limits)
+            native::validate(operation.name(), &input, limits)?;
+            if matches!(operation, Operation::Exec | Operation::ExecOutput)
+                && input["options"]
+                    .get("pty")
+                    .is_some_and(|value| !value.is_null())
+            {
+                ensure!(
+                    self.provider.exec_pty(),
+                    "provider does not support terminal exec"
+                );
+            }
+            Ok(())
         })()
         .context(Validation)?;
         let candidate = context.container_provider_authority()?;
@@ -578,6 +638,25 @@ impl Session {
             None
         } else {
             Some(self.control.lock().await)
+        };
+        // Event-local sessions and native maintenance share the activation's
+        // lifecycle admission. Data operations remain concurrent so a retiring
+        // generation can fence their late results without waiting for them.
+        let _lifecycle = if matches!(
+            operation,
+            Operation::Start | Operation::Destroy | Operation::Reconcile
+        ) {
+            if let Some(binding) = self.provider.binding_name() {
+                Some(
+                    cellar::sdk::containers::BindingJournal::open(context, binding)?
+                        .lock_lifecycle(context)
+                        .await?,
+                )
+            } else {
+                None
+            }
+        } else {
+            None
         };
         authority.check(context)?;
         if !operation.is_read() {
@@ -625,6 +704,12 @@ mod tests {
             assert_eq!(Operation::parse(operation.name()).unwrap(), *operation);
         }
         assert!(Operation::parse("container.inspect").is_err());
-        assert_eq!(Adapter::default().provider().operations(), Operation::ALL);
+        let native = Adapter::default();
+        for operation in Operation::ALL {
+            assert_eq!(
+                native.provider().operations().contains(operation),
+                *operation != Operation::InterceptOutboundHttp
+            );
+        }
     }
 }

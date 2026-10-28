@@ -2,7 +2,7 @@
 
 //! Bounded marker-1 catalog records; independent domains for each immutable key.
 
-use super::catalog::{CatalogError, InitialMember, NamespaceConfig, VoterPolicy};
+use super::catalog::{CatalogError, InitialMember, NamespaceConfig, RaftImageStorage, VoterPolicy};
 use crate::application::consensus::protocol::WireScope;
 use cellar_logic::consensus::{ClusterId, MemberId, NamespaceId, NodeId};
 use cellar_logic::NamespaceMode;
@@ -115,6 +115,7 @@ pub(super) struct Root {
     pub storage_prefix: String,
     pub minimum_s3: bool,
     pub single_voter_development: bool,
+    pub image_storage: RaftImageStorage,
 }
 
 impl Root {
@@ -128,12 +129,16 @@ impl Root {
             storage_prefix: prefix,
             minimum_s3: config.minimum_durability == cellar_logic::consensus::Durability::S3,
             single_voter_development: config.voters == VoterPolicy::SingleVoterDevelopment,
+            image_storage: config.image_storage,
         }
     }
 
     pub fn validate(&self) -> Result<(), CatalogError> {
         ClusterId::new(self.cluster).map_err(|_| CatalogError::Corrupt("root cluster"))?;
         NamespaceId::new(self.namespace).map_err(|_| CatalogError::Corrupt("root namespace"))?;
+        if self.mode == Mode::Fleet && self.image_storage != RaftImageStorage::Materialized {
+            return Err(CatalogError::Invalid("extent storage requires Raft mode"));
+        }
         if self.schema_digest == [0; 32]
             || self.protocol_digest != crate::application::consensus::protocol::protocol_identity()
         {
@@ -164,6 +169,9 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();

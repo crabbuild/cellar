@@ -25,7 +25,7 @@
 //! never talks to a registry.
 
 use crate::asyncrt;
-use crate::docker::{frame_header, Docker, Stream};
+use crate::docker::{frame_header, ContainerId, Docker, Stream};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use serde_json::{json, Value};
@@ -34,11 +34,20 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, watch};
+mod exec_identity;
+mod exec_options;
+mod exec_stream;
+pub use exec_options::{ExecParams, TerminalSize};
 mod files;
+mod idle;
+mod network;
+mod network_options;
 mod ports;
+pub use cellar_egress::HttpTarget as HttpInterceptTarget;
 pub use files::{FileKind, FileMetadata, FilePath, MAX_FILE_ENTRIES};
+pub use network_options::NetworkHelperOptions;
 pub use ports::validate_exposed_ports;
 
 /// One `containers[]` entry of a deployment, as the node sees it.
@@ -205,6 +214,7 @@ table inet __TABLE__ {
     iifname { "__OPEN__", "__INTERNAL__" } ip6 daddr { fe80::/10, fc00::/7 } reject
   }
 }
+list table inet __TABLE__
 "#;
 
 /// Docker's bridge option that forbids traffic between two containers on
@@ -212,9 +222,10 @@ table inet __TABLE__ {
 /// speaks from the host side of the bridge.
 const ICC_OPTION: &str = "com.docker.network.bridge.enable_icc";
 
-// nft caches daemon-wide rules while applying a host's fence. A 16 MiB helper
-// can be OOM-killed after repeated host namespaces, before installing any rules.
-// Keep the one-shot helper bounded, with room for that existing ruleset.
+// The terminal own-table observation keeps nft's transaction cache scoped to
+// this host. Without it, nft 1.0.9 caches other hosts' chains/sets too, exhausting
+// this bound after repeated namespaces. Replacement remains one atomic batch;
+// neither the isolation rules nor the memory limit depend on foreign tables.
 const FENCE_MEMORY_BYTES: u64 = 64 * 1024 * 1024;
 
 /// How a cell stop treats its container.
@@ -256,11 +267,27 @@ struct CellState {
     /// the published loopback ports elsewhere.
     address: Address,
     inactivity: Option<Duration>,
-    /// The pending destroy after an idle eviction. Dropping it cancels.
-    sweeper: Option<asyncrt::TaskHandle<()>>,
+    /// Cooperative removal after idle eviction; dropped owners signal cancel.
+    sweeper: Option<idle::Sweeper>,
     /// Bumped per start so a wait from a previous run cannot report for
     /// this one.
     run: u64,
+    /// Retain a stopped/previous run's exact resource for owned cleanup.
+    /// Ordinary operations require this resource's run to be current.
+    resource: Option<EngineResource>,
+    network: Option<Arc<network::Run>>,
+    pending_http: Vec<network::Pending>,
+}
+
+#[derive(Clone)]
+struct EngineResource {
+    run: u64,
+    id: ContainerId,
+}
+
+struct StartedContainer {
+    id: ContainerId,
+    address: Address,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -318,7 +345,13 @@ pub struct CellContainer {
 impl CellContainer {
     fn publish_exit(&self, run: u64, result: Result<i64, String>) {
         if let Ok(exit) = self.exit_for(run) {
-            exit.send_replace(Some(result));
+            exit.send_if_modified(|current| {
+                if current.is_some() {
+                    return false;
+                }
+                *current = Some(result);
+                true
+            });
         }
     }
 
@@ -344,11 +377,37 @@ impl CellContainer {
         self.state.lock().unwrap().running
     }
 
+    fn engine_id(&self, run: u64) -> anyhow::Result<ContainerId> {
+        let state = self.state.lock().unwrap();
+        let resource = state
+            .resource
+            .as_ref()
+            .ok_or_else(|| anyhow!("container has no Engine resource"))?;
+        anyhow::ensure!(
+            state.running
+                && state.run == run
+                && resource.run == run
+                && state
+                    .network
+                    .as_ref()
+                    .is_none_or(|network| network.run == run && network.active()),
+            "container has no active Engine resource for this run"
+        );
+        Ok(resource.id.clone())
+    }
+
     /// `host:port` for `getTcpPort(port)`.
     pub fn address(&self, port: u16) -> Result<String, String> {
         let state = self.state.lock().unwrap();
         if !state.running {
             return Err("the container is not running".to_string());
+        }
+        if state
+            .network
+            .as_ref()
+            .is_some_and(|network| network.run != state.run || !network.active())
+        {
+            return Err("the container network is not ready or has retired".into());
         }
         match &state.address {
             Address::Ip(ip) => Ok(format!("{ip}:{port}")),
@@ -376,6 +435,9 @@ impl CellContainer {
     /// report the new container dead on arrival.
     pub fn begin_run(&self) -> u64 {
         let mut state = self.state.lock().unwrap();
+        if let Some(network) = &state.network {
+            network.retire();
+        }
         state.run += 1;
         state.running = true;
         state.address = Address::None;
@@ -398,6 +460,7 @@ pub struct ContainerEngine {
     runtime: Option<String>,
     /// See `Config::dns`.
     dns: Vec<String>,
+    network_helper: Option<NetworkHelperOptions>,
     /// The absolute path of the container resolv.conf this engine wrote and
     /// bind-mounts; `None` when it could not be written.
     resolv_conf: Option<PathBuf>,
@@ -429,6 +492,7 @@ struct Config {
     /// `DEFAULT_CONTAINER_DNS`. Empty takes the default when a runtime is in
     /// use and the daemon's otherwise.
     dns: Vec<String>,
+    network_helper: Option<NetworkHelperOptions>,
     /// The node's state directory. cellar writes the container resolv.conf
     /// here and bind-mounts it, so the path must be the same on the host as
     /// cellar sees it; a self-hosted node runs cellar as a host process, and
@@ -450,6 +514,9 @@ pub struct EngineOptions {
     pub runtime: Option<String>,
     /// Resolvers; an empty list uses the daemon's default or the runtime default.
     pub dns: Vec<String>,
+    /// Optional run-owned Linux helper namespace. No public interception
+    /// capability is enabled by selecting the lifecycle profile alone.
+    pub network_helper: Option<NetworkHelperOptions>,
 }
 
 #[derive(Default)]
@@ -515,6 +582,9 @@ impl ContainerService {
                 .is_none_or(|namespace| !namespace.is_empty()),
             "container namespace is empty"
         );
+        if let Some(network) = &options.network_helper {
+            network.validate()?;
+        }
         settings.options = Some(options);
         Ok(())
     }
@@ -558,6 +628,10 @@ impl ContainerService {
             bucket,
             runtime,
             dns,
+            network_helper: settings
+                .options
+                .as_ref()
+                .and_then(|options| options.network_helper.clone()),
             data_dir: std::path::absolute(data_dir)?,
         });
         Ok(())
@@ -759,6 +833,7 @@ impl ContainerEngine {
             bucket,
             runtime,
             dns,
+            network_helper,
             data_dir,
             namespace,
             ..
@@ -802,6 +877,7 @@ impl ContainerEngine {
             bucket,
             runtime,
             dns,
+            network_helper,
             resolv_conf,
             images: Mutex::new(HashMap::new()),
             cells: Mutex::new(HashMap::new()),
@@ -814,6 +890,11 @@ impl ContainerEngine {
 
     pub fn socket(&self) -> &std::path::Path {
         self.docker.socket()
+    }
+
+    /// Stable host resource identity used by Engine ownership labels.
+    pub fn namespace(&self) -> &str {
+        &self.names.key
     }
 
     async fn reap(&self) -> anyhow::Result<()> {
@@ -834,19 +915,42 @@ impl ContainerEngine {
             )
             .await?;
         let list = reply.json()?;
-        for entry in list.as_array().into_iter().flatten() {
-            if let Some(id) = entry.get("Id").and_then(Value::as_str) {
-                let removed = self
-                    .docker
-                    .call("DELETE", &format!("/containers/{id}?force=true"), None)
-                    .await?;
-                anyhow::ensure!(
-                    removed.status.is_success() || removed.status.as_u16() == 404,
-                    "reap container failed with [{}] {}",
-                    removed.status.as_u16(),
-                    removed.message()
-                );
-            }
+        let mut resources = list
+            .as_array()
+            .context("engine container list is not an array")?
+            .iter()
+            .collect::<Vec<_>>();
+        // Applications must stop before removing the namespace they share.
+        resources.sort_by_key(|entry| {
+            entry
+                .pointer("/Labels/cellar.network.role")
+                .and_then(Value::as_str)
+                == Some("helper")
+        });
+        for entry in resources {
+            let id = ContainerId::new(
+                entry
+                    .get("Id")
+                    .and_then(Value::as_str)
+                    .context("engine container list omitted an immutable ID")?,
+            )?;
+            anyhow::ensure!(
+                entry.pointer("/Labels/cellar.node").and_then(Value::as_str)
+                    == Some(self.node.as_str())
+                    && entry.pointer("/Labels/cellar.host").and_then(Value::as_str)
+                        == Some(self.names.key.as_str()),
+                "container reaper received a foreign or unlabelled resource"
+            );
+            let removed = self
+                .docker
+                .call("DELETE", &format!("/containers/{id}?force=true"), None)
+                .await?;
+            anyhow::ensure!(
+                removed.status.is_success() || removed.status.as_u16() == 404,
+                "reap container failed with [{}] {}",
+                removed.status.as_u16(),
+                removed.message()
+            );
         }
         Ok(())
     }
@@ -864,11 +968,11 @@ impl ContainerEngine {
         Ok(service)
     }
 
-    fn check_cell(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
+    fn check_cell(&self, cell: &CellContainer) -> anyhow::Result<()> {
         self.check_owner()?;
         anyhow::ensure!(
             self.cell(&cell.scope)
-                .is_some_and(|current| Arc::ptr_eq(&current, cell)),
+                .is_some_and(|current| std::ptr::eq(current.as_ref(), cell)),
             "container belongs to another or retired host activation"
         );
         Ok(())
@@ -881,6 +985,9 @@ impl ContainerEngine {
             state.running = false;
             state.address = Address::None;
             state.sweeper = None;
+            if let Some(network) = &state.network {
+                network.retire();
+            }
             let run = state.run;
             drop(state);
             cell.publish_exit(run, Err("container host is closed".into()));
@@ -1195,7 +1302,11 @@ impl ContainerEngine {
     /// The cell's container handle, adopting a container a previous
     /// activation on this node left running. Called at cell start for a
     /// class with a spec; the object's `running` reads the answer.
-    pub async fn attach(&self, scope: &str, class: &str) -> anyhow::Result<Arc<CellContainer>> {
+    pub async fn attach(
+        self: &Arc<Self>,
+        scope: &str,
+        class: &str,
+    ) -> anyhow::Result<Arc<CellContainer>> {
         let service = self.check_owner()?;
         let spec = service
             .deployment
@@ -1213,10 +1324,11 @@ impl ContainerEngine {
             None => None,
         };
         if let Some(cell) = &previous {
-            // Cancel idle cleanup only after any cleanup already executing has
-            // finished. Cancelling it halfway through removal loses that fence.
-            cell.state.lock().unwrap().sweeper = None;
             if cell.spec.as_ref() != spec.as_ref() {
+                let sweeper = cell.state.lock().unwrap().sweeper.take();
+                if let Some(sweeper) = sweeper {
+                    sweeper.cancel_and_join().await?;
+                }
                 self.forget_locked(cell).await?;
             }
         }
@@ -1234,8 +1346,6 @@ impl ContainerEngine {
                     exits: Default::default(),
                 })
             });
-            // A returning cell cancels the destroy its eviction armed.
-            cell.state.lock().unwrap().sweeper = None;
             cell.clone()
         };
         let _new_control = if previous
@@ -1251,15 +1361,49 @@ impl ContainerEngine {
         // earlier owner of the name: give it a run so `monitor()` has an
         // exit to wait for. The run opens before the address lands, because
         // opening one clears it.
-        let adopted = running.is_some() && !cell.running();
-        if adopted {
-            let run = cell.begin_run();
-            self.watch_exit(&cell, run)?;
+        match running {
+            Some(started) => {
+                let adopted = !cell.running();
+                let run = if adopted {
+                    cell.begin_run()
+                } else {
+                    cell.current_run()
+                };
+                {
+                    let mut state = cell.state.lock().unwrap();
+                    if !adopted {
+                        anyhow::ensure!(
+                            state
+                                .resource
+                                .as_ref()
+                                .is_some_and(|resource| resource.id == started.id),
+                            "container Engine identity changed during its run"
+                        );
+                    }
+                    state.running = true;
+                    state.address = started.address;
+                    state.resource = Some(EngineResource {
+                        run,
+                        id: started.id.clone(),
+                    });
+                }
+                if adopted {
+                    self.watch_exit(&cell, run, started.id)?;
+                }
+            }
+            None => {
+                let mut state = cell.state.lock().unwrap();
+                state.running = false;
+                state.address = Address::None;
+            }
         }
-        let mut state = cell.state.lock().unwrap();
-        state.running = running.is_some();
-        state.address = running.unwrap_or_default();
-        drop(state);
+        // Adoption must succeed before cancelling the backstop. The SDK lock
+        // guarantees any removal already executing has finished; a queued or
+        // sleeping sweeper observes cancellation and joins without effects.
+        let sweeper = cell.state.lock().unwrap().sweeper.take();
+        if let Some(sweeper) = sweeper {
+            sweeper.cancel_and_join().await?;
+        }
         drop(_new_control);
         Ok(cell)
     }
@@ -1276,17 +1420,19 @@ impl ContainerEngine {
         self.cells.lock().unwrap().get(scope).cloned()
     }
 
-    /// The memory the node's running containers reserve, summed over their
-    /// instance-type caps. A cell whose container is not running reserves
-    /// nothing: a stopped container holds no memory, and an idle eviction
-    /// stops it before the sample would count it.
+    /// Running application caps plus each allocated helper's cap. Retain the
+    /// helper reservation until owned removal is confirmed, including failed
+    /// startup or cleanup whose outcome remains uncertain.
     pub fn reserved_memory_bytes(&self) -> u64 {
         self.cells
             .lock()
             .unwrap()
             .values()
-            .filter(|cell| cell.running())
-            .map(|cell| instance_memory_bytes(cell.spec.instance_type.as_deref()))
+            .map(|cell| {
+                let state = cell.state.lock().unwrap();
+                u64::from(state.running) * instance_memory_bytes(cell.spec.instance_type.as_deref())
+                    + u64::from(state.network.is_some()) * network::MEMORY_BYTES
+            })
             .sum()
     }
 
@@ -1336,7 +1482,7 @@ impl ContainerEngine {
         Ok(())
     }
 
-    async fn inspect_running(&self, cell: &CellContainer) -> anyhow::Result<Option<Address>> {
+    async fn inspect_owned(&self, cell: &CellContainer) -> anyhow::Result<Option<Value>> {
         let reply = self
             .docker
             .call("GET", &format!("/containers/{}/json", cell.name), None)
@@ -1352,11 +1498,114 @@ impl ContainerEngine {
             ));
         }
         let info = reply.json()?;
+        for (label, expected) in [
+            ("cellar.node", self.node.as_str()),
+            ("cellar.host", self.names.key.as_str()),
+            ("cellar.cell", cell.scope.as_str()),
+            ("cellar.class", cell.spec.class_name.as_str()),
+        ] {
+            anyhow::ensure!(
+                info.get("Config")
+                    .and_then(|config| config.get("Labels"))
+                    .and_then(|labels| labels.get(label))
+                    .and_then(Value::as_str)
+                    == Some(expected),
+                "named container has foreign or missing ownership labels"
+            );
+        }
+        ContainerId::new(
+            info["Id"]
+                .as_str()
+                .context("container inspection omitted its immutable ID")?,
+        )?;
+        Ok(Some(info))
+    }
+
+    async fn inspect_running(
+        &self,
+        cell: &CellContainer,
+    ) -> anyhow::Result<Option<StartedContainer>> {
+        let Some(info) = self.inspect_owned(cell).await? else {
+            return Ok(None);
+        };
         let running = info
             .pointer("/State/Running")
             .and_then(Value::as_bool)
-            .unwrap_or(false);
-        Ok(running.then(|| address_of(&info)))
+            .context("container inspection omitted its running state")?;
+        if !running {
+            return Ok(None);
+        }
+        Ok(Some(StartedContainer {
+            id: ContainerId::new(
+                info["Id"]
+                    .as_str()
+                    .context("container inspection omitted its immutable ID")?,
+            )?,
+            address: if self.network_helper.is_some() {
+                let network = cell
+                    .state
+                    .lock()
+                    .unwrap()
+                    .network
+                    .clone()
+                    .context("network container has no live host session")?;
+                anyhow::ensure!(
+                    info.pointer("/HostConfig/NetworkMode")
+                        .and_then(Value::as_str)
+                        == Some(
+                            format!(
+                                "container:{}",
+                                network
+                                    .id
+                                    .get()
+                                    .context("network helper has no recorded ID")?
+                            )
+                            .as_str()
+                        ),
+                    "container network identity changed during adoption"
+                );
+                self.network_address(&network).await?
+            } else {
+                address_of(&info)
+            },
+        }))
+    }
+
+    async fn remove_id(&self, id: &ContainerId) -> anyhow::Result<()> {
+        let reply = self
+            .docker
+            .call("DELETE", &format!("/containers/{id}?force=true"), None)
+            .await?;
+        anyhow::ensure!(
+            reply.status.is_success() || reply.status.as_u16() == 404,
+            "destroy container failed with [{}] {}",
+            reply.status.as_u16(),
+            reply.message()
+        );
+        Ok(())
+    }
+
+    async fn owned_id(&self, cell: &CellContainer) -> anyhow::Result<Option<ContainerId>> {
+        if let Some(id) = cell
+            .state
+            .lock()
+            .unwrap()
+            .resource
+            .as_ref()
+            .map(|resource| resource.id.clone())
+        {
+            return Ok(Some(id));
+        }
+        self.inspect_owned(cell)
+            .await?
+            .map(|info| {
+                ContainerId::new(
+                    info["Id"]
+                        .as_str()
+                        .context("container inspection omitted its immutable ID")?,
+                )
+            })
+            .transpose()
     }
 
     /// Start the cell's container. The object's `start()` returns before
@@ -1366,16 +1615,35 @@ impl ContainerEngine {
     /// object's `start()` returns before this completes, as on Cloudflare;
     /// a failure surfaces through `monitor()`.
     pub async fn start(
-        &self,
+        self: &Arc<Self>,
         cell: &Arc<CellContainer>,
         run: u64,
         params: StartParams,
     ) -> anyhow::Result<()> {
         self.check_cell(cell)?;
-        let started = self.create_and_start(cell, params).await;
-        let address = match started {
-            Ok(address) => address,
+        let mut startup = network::StartGuard::new(self, cell, run);
+        let started = self.create_and_start(cell, run, params).await;
+        let started = match started {
+            Ok(started) => started,
             Err(error) => {
+                let network = cell
+                    .state
+                    .lock()
+                    .unwrap()
+                    .network
+                    .clone()
+                    .filter(|network| network.run == run);
+                let error = if let Some(network) = network {
+                    match self.cleanup_network(cell, &network).await {
+                        Ok(()) => error,
+                        Err(cleanup) => {
+                            error.context(format!("network startup cleanup failed: {cleanup:#}"))
+                        }
+                    }
+                } else {
+                    error
+                };
+                startup.armed = false;
                 // `start()` is fire-and-forget for the object, and its
                 // `monitor()` sees this error only if it was already
                 // waiting; say it here too, or a start that fails fast
@@ -1387,7 +1655,10 @@ impl ContainerEngine {
                     "the container did not start"
                 );
                 let mut state = cell.state.lock().unwrap();
-                state.running = false;
+                if state.run == run {
+                    state.running = false;
+                    state.address = Address::None;
+                }
                 drop(state);
                 cell.publish_exit(run, Err(format!("{error:#}")));
                 return Err(error);
@@ -1395,22 +1666,37 @@ impl ContainerEngine {
         };
         {
             let mut state = cell.state.lock().unwrap();
+            anyhow::ensure!(
+                state.run == run
+                    && state
+                        .resource
+                        .as_ref()
+                        .is_some_and(|resource| resource.id == started.id && resource.run == run),
+                "container startup belongs to a superseded run"
+            );
             state.running = true;
-            state.address = address;
+            state.address = started.address;
         }
-        self.watch_exit(cell, run)?;
+        self.watch_exit(cell, run, started.id)?;
+        startup.armed = false;
         Ok(())
     }
 
     /// Wait for the container's root process to end and publish the exit
     /// for `run`; a later run's start has already replaced the state.
-    fn watch_exit(&self, cell: &Arc<CellContainer>, run: u64) -> anyhow::Result<()> {
+    fn watch_exit(
+        self: &Arc<Self>,
+        cell: &Arc<CellContainer>,
+        run: u64,
+        id: ContainerId,
+    ) -> anyhow::Result<()> {
         let docker = self.docker.clone();
         let cell_ = cell.clone();
         let exit = cell.exit_for(run).map_err(anyhow::Error::msg)?;
+        let engine = Arc::downgrade(self);
         asyncrt::spawn(async move {
             let result = docker
-                .call("POST", &format!("/containers/{}/wait", cell_.name), None)
+                .call("POST", &format!("/containers/{id}/wait"), None)
                 .await
                 .and_then(|reply| {
                     if !reply.status.is_success() {
@@ -1427,38 +1713,68 @@ impl ContainerEngine {
                         .ok_or_else(|| anyhow!("wait answered without a status code"))
                 })
                 .map_err(|error| format!("{error:#}"));
-            let mut state = cell_.state.lock().unwrap();
-            if state.run == run {
-                state.running = false;
-                state.address = Address::None;
+            {
+                let mut state = cell_.state.lock().unwrap();
+                if state.run == run {
+                    state.running = false;
+                    state.address = Address::None;
+                }
             }
-            drop(state);
-            exit.send_replace(Some(result));
+            exit.send_if_modified(|current| {
+                if current.is_some() { return false; }
+                *current = Some(result);
+                true
+            });
+            let network = cell_.state.lock().unwrap().network.clone().filter(|network| network.run == run);
+            if let (Some(engine), Some(network)) = (engine.upgrade(), network) {
+                network.retire();
+                let _control = cell_.sdk_control.lock().await;
+                if let Err(error) = engine.cleanup_network(&cell_, &network).await {
+                    tracing::warn!(cell = %cell_.scope, %error, "exited container network requires owned cleanup");
+                }
+            }
         })
         .detach();
         Ok(())
     }
 
     async fn create_and_start(
-        &self,
-        cell: &CellContainer,
+        self: &Arc<Self>,
+        cell: &Arc<CellContainer>,
+        run: u64,
         params: StartParams,
-    ) -> anyhow::Result<Address> {
+    ) -> anyhow::Result<StartedContainer> {
+        self.validate_network_runtime(cell)?;
         self.ensure_fence().await?;
         self.enforce_instance_ceiling(cell).await?;
         self.ensure_image(&cell.spec.image).await?;
         let (open, internal) = self.networks().await?;
-        // A previous run's container may still be named: the wait task
-        // observed its exit but nothing removed it, or a restart adopted a
-        // stopped one. The name is the cell's, so it is ours to remove.
-        let _ = self
-            .docker
-            .call(
-                "DELETE",
-                &format!("/containers/{}?force=true", cell.name),
-                None,
-            )
-            .await;
+        // Resolve unknown create outcomes by owned labels, then remove only
+        // the captured immutable resource. A reusable name is not authority.
+        anyhow::ensure!(
+            cell.current_run() == run,
+            "container start belongs to a superseded run"
+        );
+        let previous_network = cell.state.lock().unwrap().network.clone();
+        if let Some(network) = previous_network {
+            self.cleanup_network(cell, &network).await?;
+        }
+        if let Some(id) = self.owned_id(cell).await? {
+            self.check_cell(cell)?;
+            anyhow::ensure!(
+                cell.current_run() == run,
+                "container start belongs to a superseded run"
+            );
+            self.remove_id(&id).await?;
+            let mut state = cell.state.lock().unwrap();
+            if state
+                .resource
+                .as_ref()
+                .is_some_and(|resource| resource.id == id)
+            {
+                state.resource = None;
+            }
+        }
         let mut env: Vec<String> = DEFAULT_ENV.iter().map(|entry| entry.to_string()).collect();
         env.push(format!("CELLAR_CELL_ID={}", cell.scope));
         env.push(format!("CELLAR_CELL_CLASS={}", cell.spec.class_name));
@@ -1482,8 +1798,9 @@ impl ContainerEngine {
         // ports, and Docker publishes nothing on an internal network, so
         // `enableInternet: false` would make the container unreachable.
         // Development there keeps egress and reports the limitation below.
-        let offline = !params.enable_internet && cfg!(target_os = "linux");
-        if !params.enable_internet && !offline {
+        let offline =
+            !params.enable_internet && cfg!(target_os = "linux") && self.network_helper.is_none();
+        if !params.enable_internet && !offline && self.network_helper.is_none() {
             tracing::warn!(
                 cell = %cell.scope,
                 "enableInternet: false is not enforced on this platform; the container keeps egress"
@@ -1525,7 +1842,10 @@ impl ContainerEngine {
         // keeps that address in resolv.conf whatever `--dns` says, so the
         // file itself must name a reachable resolver. An operator who set
         // `CELLAR_CONTAINER_DNS` gets it for every container.
-        let wants_resolver = runtime.is_some() || !self.dns.is_empty();
+        // The helper intercepts namespace DNS and owns its explicit upstream;
+        // it must not depend on a host path mounted into a remote daemon.
+        let wants_resolver =
+            self.network_helper.is_none() && (runtime.is_some() || !self.dns.is_empty());
         if wants_resolver {
             if let Some(resolv) = &self.resolv_conf {
                 let bind = format!("{}:/etc/resolv.conf:ro", resolv.display());
@@ -1555,6 +1875,28 @@ impl ContainerEngine {
             &cell.spec.exposed_ports,
             !cfg!(target_os = "linux"),
         )?;
+        let network = if self.network_helper.is_some() {
+            let ports = self.network_ports(cell).await?;
+            self.prepare_network(cell, run, params.enable_internet, &open, &ports)
+                .await?
+        } else {
+            None
+        };
+        if let Some(network) = &network {
+            anyhow::ensure!(network.active(), "network helper is not ready");
+            body.as_object_mut().unwrap().remove("ExposedPorts");
+            body["HostConfig"]["NetworkMode"] =
+                json!(format!("container:{}", network.id.get().unwrap()));
+            body["HostConfig"]
+                .as_object_mut()
+                .unwrap()
+                .remove("PublishAllPorts");
+            body["HostConfig"]
+                .as_object_mut()
+                .unwrap()
+                .remove("PortBindings");
+            self.network_application_labels(&mut body, network);
+        }
         if let Some(entrypoint) = params.entrypoint {
             body["Cmd"] = json!(entrypoint);
         }
@@ -1574,14 +1916,23 @@ impl ContainerEngine {
                 break;
             }
             asyncrt::sleep(Duration::from_millis(100)).await;
-            let _ = self
-                .docker
-                .call(
-                    "DELETE",
-                    &format!("/containers/{}?force=true", cell.name),
-                    None,
-                )
-                .await;
+            anyhow::ensure!(
+                cell.current_run() == run,
+                "container start belongs to a superseded run"
+            );
+            if let Some(info) = self.inspect_owned(cell).await? {
+                self.check_cell(cell)?;
+                anyhow::ensure!(
+                    cell.current_run() == run,
+                    "container start belongs to a superseded run"
+                );
+                let id = ContainerId::new(
+                    info["Id"]
+                        .as_str()
+                        .context("container inspection omitted its immutable ID")?,
+                )?;
+                self.remove_id(&id).await?;
+            }
             reply = self
                 .docker
                 .call(
@@ -1601,10 +1952,37 @@ impl ContainerEngine {
                 reply.message()
             ));
         }
+        let created = reply.json()?;
+        let id = ContainerId::new(
+            created["Id"]
+                .as_str()
+                .context("container creation omitted its immutable ID")?,
+        )?;
+        let current = {
+            let mut state = cell.state.lock().unwrap();
+            if state.run == run && network.as_ref().is_none_or(|network| network.active()) {
+                state.resource = Some(EngineResource {
+                    run,
+                    id: id.clone(),
+                });
+                true
+            } else {
+                false
+            }
+        };
+        if !current {
+            self.remove_id(&id).await?;
+            anyhow::bail!("container start belongs to a superseded run");
+        }
+        self.check_cell(cell)?;
+        anyhow::ensure!(
+            network.as_ref().is_none_or(|network| network.active()),
+            "network helper retired before application startup"
+        );
         self.docker
             .expect(
                 "POST",
-                &format!("/containers/{}/start", cell.name),
+                &format!("/containers/{id}/start"),
                 None,
                 "start container",
             )
@@ -1613,13 +1991,24 @@ impl ContainerEngine {
             .docker
             .expect(
                 "GET",
-                &format!("/containers/{}/json", cell.name),
+                &format!("/containers/{id}/json"),
                 None,
                 "inspect container",
             )
             .await?
             .json()?;
-        Ok(address_of(&info))
+        anyhow::ensure!(
+            info["Id"].as_str() == Some(id.as_str()),
+            "container inspection changed its immutable ID"
+        );
+        Ok(StartedContainer {
+            id,
+            address: if let Some(network) = network {
+                self.network_address(&network).await?
+            } else {
+                address_of(&info)
+            },
+        })
     }
 
     /// Wait for the current run to end. `Ok(code)` is the root process's
@@ -1651,42 +2040,65 @@ impl ContainerEngine {
 
     pub async fn destroy(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let (network, pending) = {
+            let mut state = cell.state.lock().unwrap();
+            (
+                state.network.clone(),
+                std::mem::take(&mut state.pending_http),
+            )
+        };
+        drop(pending);
+        if let Some(network) = network {
+            return self.cleanup_network(cell, &network).await;
+        }
+        let run = cell.current_run();
+        let id = self.owned_id(cell).await?;
+        self.check_cell(cell)?;
+        anyhow::ensure!(
+            cell.current_run() == run,
+            "container destroy belongs to a superseded run"
+        );
+        let Some(id) = id else {
+            let mut state = cell.state.lock().unwrap();
+            if state.run == run {
+                state.running = false;
+                state.address = Address::None;
+            }
+            return Ok(());
+        };
         // Kill first so the wait task reports 137 before the removal makes
         // the name disappear under it.
         let _ = self
             .docker
             .call(
                 "POST",
-                &format!("/containers/{}/kill?signal=SIGKILL", cell.name),
+                &format!("/containers/{id}/kill?signal=SIGKILL"),
                 None,
             )
             .await;
-        let removed = self
-            .docker
-            .call(
-                "DELETE",
-                &format!("/containers/{}?force=true", cell.name),
-                None,
-            )
-            .await?;
-        anyhow::ensure!(
-            removed.status.is_success() || removed.status.as_u16() == 404,
-            "destroy container failed with [{}] {}",
-            removed.status.as_u16(),
-            removed.message()
-        );
+        self.remove_id(&id).await?;
         let mut state = cell.state.lock().unwrap();
-        state.running = false;
-        state.address = Address::None;
+        if state.run == run {
+            state.running = false;
+            state.address = Address::None;
+            if state
+                .resource
+                .as_ref()
+                .is_some_and(|resource| resource.id == id)
+            {
+                state.resource = None;
+            }
+        }
         Ok(())
     }
 
     pub async fn signal(&self, cell: &Arc<CellContainer>, signal: u32) -> anyhow::Result<()> {
         self.check_cell(cell)?;
+        let id = cell.engine_id(cell.current_run())?;
         self.docker
             .expect(
                 "POST",
-                &format!("/containers/{}/kill?signal={signal}", cell.name),
+                &format!("/containers/{id}/kill?signal={signal}"),
                 None,
                 "signal container",
             )
@@ -1704,29 +2116,31 @@ impl ContainerEngine {
         let Some(cell) = self.cell(scope) else {
             return Ok(());
         };
+        if release == Release::Destroy {
+            if let Some(network) = cell.state.lock().unwrap().network.as_ref() {
+                network.retire();
+            }
+        }
         match release {
             Release::Keep => {
+                let _control = cell.sdk_control.lock().await;
+                if !self
+                    .cell(scope)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &cell))
+                {
+                    return Ok(());
+                }
                 let window = cell
                     .state
                     .lock()
                     .unwrap()
                     .inactivity
                     .unwrap_or(DEFAULT_INACTIVITY);
-                let engine = self.clone();
-                let cell_ = cell.clone();
-                let sweeper = asyncrt::spawn(async move {
-                    asyncrt::sleep(window).await;
-                    loop {
-                        match engine.forget(&cell_).await {
-                            Ok(()) => break,
-                            Err(error) => {
-                                tracing::warn!(cell = %cell_.scope, %error, "idle container removal failed; retrying")
-                            }
-                        }
-                        asyncrt::sleep(Duration::from_secs(30)).await;
-                    }
-                });
-                cell.state.lock().unwrap().sweeper = Some(sweeper);
+                let sweeper = idle::Sweeper::start(self.clone(), cell.clone(), window);
+                let previous = cell.state.lock().unwrap().sweeper.replace(sweeper);
+                if let Some(previous) = previous {
+                    previous.cancel_and_join().await?;
+                }
             }
             Release::Destroy => self.forget(&cell).await?,
         }
@@ -1735,6 +2149,10 @@ impl ContainerEngine {
 
     async fn forget(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
         let _control = cell.sdk_control.lock().await;
+        let sweeper = cell.state.lock().unwrap().sweeper.take();
+        if let Some(sweeper) = sweeper {
+            sweeper.cancel_and_join().await?;
+        }
         self.forget_locked(cell).await
     }
 
@@ -1772,13 +2190,46 @@ impl ContainerEngine {
         if !cell.running() {
             return Err(anyhow!("exec() requires a running container."));
         }
+        let container = cell.engine_id(cell.current_run())?;
+        if params.pty.is_some() {
+            self.docker.check_exec_terminal().await?;
+        }
+        // A shell handshake supplies a PID in the same namespace as a later
+        // signal. Images without /bin/sh retain direct argv execution, but no
+        // verified PID: kill must refuse rather than use Docker's daemon PID.
+        let shell = self
+            .docker
+            .call(
+                "HEAD",
+                &format!("/containers/{container}/archive?path=/bin/sh"),
+                None,
+            )
+            .await?;
+        let tracked = if shell.status.is_success() {
+            true
+        } else {
+            anyhow::ensure!(
+                shell.status.as_u16() == 404,
+                "inspect exec shell failed: {}",
+                shell.message()
+            );
+            false
+        };
+        let command = if tracked {
+            exec_identity::command(&params.cmd)?
+        } else {
+            params.cmd
+        };
         let mut body = json!({
             "AttachStdin": true,
             "AttachStdout": true,
             "AttachStderr": true,
-            "Tty": false,
-            "Cmd": params.cmd,
+            "Tty": params.pty.is_some(),
+            "Cmd": command,
         });
+        if let Some(size) = params.pty {
+            body["ConsoleSize"] = json!([size.rows(), size.cols()]);
+        }
         if !params.env.is_empty() {
             body["Env"] = json!(params
                 .env
@@ -1796,7 +2247,7 @@ impl ContainerEngine {
             .docker
             .expect(
                 "POST",
-                &format!("/containers/{}/exec", cell.name),
+                &format!("/containers/{container}/exec"),
                 Some(body),
                 "create exec",
             )
@@ -1807,45 +2258,58 @@ impl ContainerEngine {
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("exec create answered without an id"))?
             .to_string();
+        let mut start = json!({ "Detach": false, "Tty": params.pty.is_some() });
+        if let Some(size) = params.pty {
+            start["ConsoleSize"] = json!([size.rows(), size.cols()]);
+        }
         let stream = self
             .docker
-            .hijack(
-                &format!("/exec/{exec_id}/start"),
-                json!({ "Detach": false, "Tty": false }),
-            )
+            .hijack(&format!("/exec/{exec_id}/start"), start)
             .await?;
-        // Docker reports `Running: false` with no pid before it has spawned
-        // the process, and a finished exec keeps its pid, so a pid of zero
-        // is the one answer that means "not yet": retry it briefly, as
-        // workerd does. Breaking on `Running: false` here lost the pid of a
-        // short command whenever the inspect landed in that window.
-        let mut pid = 0;
-        for _ in 0..20 {
-            let info = self
-                .docker
-                .expect(
-                    "GET",
-                    &format!("/exec/{exec_id}/json"),
-                    None,
-                    "inspect exec",
-                )
-                .await?
-                .json()?;
-            pid = info.get("Pid").and_then(Value::as_i64).unwrap_or(0);
-            if pid != 0 {
-                break;
-            }
-            asyncrt::sleep(Duration::from_millis(50)).await;
-        }
-        let (read, write) = tokio::io::split(stream);
+        let (mut read, write) = tokio::io::split(stream);
+        let identity = if tracked {
+            Some(if params.pty.is_some() {
+                exec_identity::receive_terminal(&mut read).await?
+            } else {
+                exec_identity::receive(&mut read).await?
+            })
+        } else {
+            None
+        };
+        let pid = identity.as_ref().map_or(0, |identity| identity.pid);
         let (stdout_tx, stdout_rx) = mpsc::channel(16);
         let (stderr_tx, stderr_rx) = mpsc::channel(16);
         let combined = params.combined;
         let ended = watch::channel(false).0;
         let completion = ExecCompletion(ended.clone());
+        let failure = Arc::new(Mutex::new(None));
+        let reader_failure = failure.clone();
+        let terminal = params.pty.is_some();
+        if let Some(identity) = identity {
+            // Admission retained at most 15 stderr chunks and one stdout
+            // remainder, so these sends cannot wait for a future consumer.
+            for chunk in identity.stderr {
+                let target = if combined { &stdout_tx } else { &stderr_tx };
+                target
+                    .try_send(chunk)
+                    .context("exec prelude channel capacity")?;
+            }
+            if !identity.stdout.is_empty() {
+                stdout_tx
+                    .try_send(identity.stdout)
+                    .context("exec prelude channel capacity")?;
+            }
+        }
         let reader = asyncrt::spawn(async move {
             let _completion = completion;
-            demux(read, stdout_tx, stderr_tx, combined).await;
+            // Publish read failure before closing either channel or signalling
+            // completion. Consumers must not observe a successful partial EOF.
+            let _channels = (stdout_tx.clone(), stderr_tx.clone());
+            if let Err(error) =
+                exec_stream::pump(read, stdout_tx, stderr_tx, combined, terminal).await
+            {
+                *reader_failure.lock().unwrap() = Some(format!("{error:#}"));
+            }
         });
         let process = Arc::new(ExecProcess {
             id: service.processes.next.fetch_add(1, Ordering::Relaxed),
@@ -1853,8 +2317,10 @@ impl ContainerEngine {
             closed: AtomicBool::new(false),
             reader: Mutex::new(Some(reader)),
             exec_id,
-            container: cell.name.clone(),
+            container,
             pid,
+            terminal,
+            failure,
             docker: self.docker.clone(),
             stdin: tokio::sync::Mutex::new(Some(write)),
             stdout: tokio::sync::Mutex::new(stdout_rx),
@@ -1868,15 +2334,6 @@ impl ContainerEngine {
     }
 }
 
-pub struct ExecParams {
-    pub cmd: Vec<String>,
-    pub env: Vec<(String, String)>,
-    pub cwd: Option<String>,
-    pub user: Option<String>,
-    /// stderr folded into stdout.
-    pub combined: bool,
-}
-
 type WriteHalf = tokio::io::WriteHalf<Box<dyn Stream>>;
 
 pub struct ExecProcess {
@@ -1885,8 +2342,12 @@ pub struct ExecProcess {
     closed: AtomicBool,
     reader: Mutex<Option<asyncrt::TaskHandle<()>>>,
     exec_id: String,
-    container: String,
+    container: ContainerId,
+    /// Container namespace PID verified by the exec prelude, or zero when the
+    /// image has no POSIX shell. Docker daemon PIDs are never used for signals.
     pub pid: i64,
+    pub terminal: bool,
+    failure: Arc<Mutex<Option<String>>>,
     docker: Docker,
     stdin: tokio::sync::Mutex<Option<WriteHalf>>,
     stdout: tokio::sync::Mutex<mpsc::Receiver<Bytes>>,
@@ -2014,15 +2475,45 @@ impl ExecProcess {
     }
 
     /// One chunk of stdout (`1`) or stderr (`2`); empty at end of stream.
-    pub async fn read(&self, which: u8) -> Bytes {
-        if self.check_open().is_err() {
-            return Bytes::new();
-        }
+    pub async fn read(&self, which: u8) -> anyhow::Result<Bytes> {
+        self.check_open()?;
         let mut receiver = match which {
             1 => self.stdout.lock().await,
             _ => self.stderr.lock().await,
         };
-        receiver.recv().await.unwrap_or_default()
+        if let Some(bytes) = receiver.recv().await {
+            return Ok(bytes);
+        }
+        self.check_open()?;
+        self.check_output()?;
+        Ok(Bytes::new())
+    }
+
+    fn check_output(&self) -> anyhow::Result<()> {
+        if let Some(failure) = self.failure.lock().unwrap().as_ref() {
+            return Err(anyhow!("exec output failed: {failure}"));
+        }
+        Ok(())
+    }
+
+    pub async fn resize(&self, size: TerminalSize) -> anyhow::Result<()> {
+        self.check_open()?;
+        anyhow::ensure!(self.terminal, "exec process has no pseudo-terminal");
+        anyhow::ensure!(!*self.ended.borrow(), "exec process has exited");
+        self.docker
+            .expect(
+                "POST",
+                &format!(
+                    "/exec/{}/resize?h={}&w={}",
+                    self.exec_id,
+                    size.rows(),
+                    size.cols()
+                ),
+                None,
+                "resize exec terminal",
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn write(&self, bytes: &[u8]) -> Result<(), String> {
@@ -2068,6 +2559,7 @@ impl ExecProcess {
         self.check_open()?;
         // The stream closes when the process exits, but the daemon records
         // the exit code a moment later.
+        self.check_output()?;
         let mut code = None;
         for _ in 0..40 {
             let info = self
@@ -2095,17 +2587,38 @@ impl ExecProcess {
         Ok(code)
     }
 
-    /// The Engine API has no exec kill, so the signal is delivered by a
-    /// second exec of `kill`, as workerd does.
+    /// Signal only a PID verified inside this container. The Engine API has no
+    /// exec kill; the image's POSIX shell delivers the signal in its namespace.
     pub async fn kill(&self, signal: u32) -> anyhow::Result<()> {
         self.check_open()?;
+        anyhow::ensure!((1..=64).contains(&signal), "invalid exec signal");
         if *self.ended.borrow() {
             return Ok(());
         }
-        anyhow::ensure!(self.pid > 0, "exec process has no live PID");
+        anyhow::ensure!(
+            self.pid > 0,
+            "exec signalling requires /bin/sh and a verified container PID"
+        );
+        let info = self
+            .docker
+            .expect(
+                "GET",
+                &format!("/exec/{}/json", self.exec_id),
+                None,
+                "inspect exec before signal",
+            )
+            .await?
+            .json()?;
+        if !info
+            .get("Running")
+            .and_then(Value::as_bool)
+            .context("exec running observation missing")?
+        {
+            return Ok(());
+        }
         let body = json!({
             "AttachStdin": false, "AttachStdout": false, "AttachStderr": false,
-            "Cmd": ["kill", format!("-{signal}"), self.pid.to_string()],
+            "Cmd": ["/bin/sh", "-c", "kill -\"$1\" \"$2\"", "cellar-exec-signal", signal.to_string(), self.pid.to_string()],
         });
         let created = self
             .docker
@@ -2130,37 +2643,6 @@ impl ExecProcess {
             )
             .await?;
         Ok(())
-    }
-}
-
-/// Split Docker's multiplexed stream into stdout and stderr chunks until
-/// the daemon closes it.
-async fn demux(
-    mut read: tokio::io::ReadHalf<Box<dyn Stream>>,
-    stdout: mpsc::Sender<Bytes>,
-    stderr: mpsc::Sender<Bytes>,
-    combined: bool,
-) {
-    let mut header = [0u8; 8];
-    loop {
-        if read.read_exact(&mut header).await.is_err() {
-            return;
-        }
-        let (stream, length) = frame_header(&header);
-        let mut payload = vec![0u8; length];
-        if read.read_exact(&mut payload).await.is_err() {
-            return;
-        }
-        let target = if stream == 2 && !combined {
-            &stderr
-        } else {
-            &stdout
-        };
-        if target.send(Bytes::from(payload)).await.is_err() {
-            // The reader went away; keep draining so the process is not
-            // blocked on a full pipe.
-            continue;
-        }
     }
 }
 

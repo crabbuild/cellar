@@ -12,7 +12,7 @@ use std::{
     },
 };
 use tokio::{
-    io::{AsyncWriteExt, BufReader},
+    io::{AsyncWrite, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
     sync::{watch, Notify},
     task::{JoinHandle, JoinSet},
@@ -25,9 +25,12 @@ const METHOD_HEADER: &str = "x-cells-rpc-method";
 pub(super) enum Fault {
     Reconnect,
     ReplyLoss,
+    RequestPrefixLoss,
     MethodRefusal,
     ElementRefusal,
     ByteRefusal,
+    DeclaredReplyOverflow,
+    StreamedReplyOverflow,
 }
 
 impl Fault {
@@ -35,9 +38,12 @@ impl Fault {
         match self {
             Self::Reconnect => "reconnect",
             Self::ReplyLoss => "reply_loss",
+            Self::RequestPrefixLoss => "request_prefix_loss",
             Self::MethodRefusal => "method_refusal",
             Self::ElementRefusal => "element_refusal",
             Self::ByteRefusal => "byte_refusal",
+            Self::DeclaredReplyOverflow => "declared_reply_overflow",
+            Self::StreamedReplyOverflow => "streamed_reply_overflow",
         }
     }
 
@@ -47,6 +53,13 @@ impl Fault {
             Self::ElementRefusal | Self::ByteRefusal => Some(rpc::Code::ResourceExhausted),
             _ => None,
         }
+    }
+
+    pub fn reply_overflow(self) -> bool {
+        matches!(
+            self,
+            Self::DeclaredReplyOverflow | Self::StreamedReplyOverflow
+        )
     }
 }
 
@@ -61,6 +74,7 @@ struct Arm {
 struct Control {
     contract: Arc<rpc::Contract>,
     destination: Mutex<Option<SocketAddr>>,
+    receiving: Mutex<Option<Arc<cellar::host_services::HostServices>>>,
     arm: Mutex<Option<Arm>>,
     observations: Mutex<Vec<Value>>,
     last_request: Mutex<Option<(String, String)>>,
@@ -83,6 +97,7 @@ impl Relay {
         let control = Arc::new(Control {
             contract,
             destination: Mutex::default(),
+            receiving: Mutex::default(),
             arm: Mutex::default(),
             observations: Mutex::default(),
             last_request: Mutex::default(),
@@ -145,6 +160,14 @@ impl Relay {
 
     pub fn destination(&self, address: SocketAddr) {
         *self.control.destination.lock().unwrap() = Some(address);
+    }
+
+    pub fn receiving(&self, services: Arc<cellar::host_services::HostServices>) {
+        *self.control.receiving.lock().unwrap() = Some(services);
+    }
+
+    pub fn receiving_usage(&self) -> Result<cellar::host_services::InboundRpcUsage> {
+        Ok(self.control.receiver()?.inbound_rpc_usage())
     }
 
     pub fn arm(&self, fault: Fault, class: &str, id: &str, expected: i64) -> Result<()> {
@@ -339,6 +362,12 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     head.replace(METHOD_HEADER, "example.counter.v1.Counter/PrivateHelper")?;
                 }
                 control.arm.lock().unwrap().take();
+                if arm.fault == Fault::RequestPrefixLoss {
+                    control
+                        .lose_request_prefix(&mut owner_write, &head, &body, proof)
+                        .await?;
+                    return Ok::<_, anyhow::Error>(());
+                }
                 ensure!(
                     sending.lock().unwrap().replace((arm, proof)).is_none(),
                     "overlapping relay actions"
@@ -369,7 +398,7 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
             }
         }
         let _live = Live(&control.live);
-        while let Some(head) = framing::head(&mut owner_read).await? {
+        while let Some(mut head) = framing::head(&mut owner_read).await? {
             let body = framing::body(&head, &mut owner_read).await?;
             let selected = action.lock().unwrap().take();
             if let Some((arm, mut proof)) = selected {
@@ -401,6 +430,27 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                     proof["successful_owner_reply_observed"] = json!(true);
                 }
                 proof["reply_lost"] = json!(arm.fault == Fault::ReplyLoss);
+                let reply_limit = control.contract.limits().max_message_bytes + 2 * 1024;
+                if arm.fault.reply_overflow() {
+                    // Preserve the real committed owner result above, then
+                    // withhold a replacement response's end. Correct native
+                    // collection must refuse the caller's declared byte limit
+                    // before waiting for completion or decoding business data.
+                    proof["response_byte_limit"] = json!(reply_limit);
+                    proof["reply_suffix_withheld"] = json!(true);
+                    proof["declared_reply_bytes"] =
+                        json!(if arm.fault == Fault::DeclaredReplyOverflow {
+                            reply_limit + 1
+                        } else {
+                            0
+                        });
+                    proof["streamed_reply_bytes"] =
+                        json!(if arm.fault == Fault::StreamedReplyOverflow {
+                            reply_limit + 1
+                        } else {
+                            0
+                        });
+                }
                 {
                     let mut observations = control.observations.lock().unwrap();
                     ensure!(observations.is_empty(), "relay proof bound exceeded");
@@ -408,6 +458,29 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
                 }
                 if arm.fault == Fault::ReplyLoss {
                     return Ok::<_, anyhow::Error>(());
+                }
+                if arm.fault.reply_overflow() {
+                    if arm.fault == Fault::DeclaredReplyOverflow {
+                        head.replace("content-length", &(reply_limit + 1).to_string())?;
+                        client_write.write_all(&head.raw).await?;
+                    } else {
+                        head.chunked()?;
+                        client_write.write_all(&head.raw).await?;
+                        let fragment = [0; 4096];
+                        let mut remaining = reply_limit + 1;
+                        while remaining != 0 {
+                            let count = remaining.min(fragment.len());
+                            client_write
+                                .write_all(format!("{count:x}\r\n").as_bytes())
+                                .await?;
+                            client_write.write_all(&fragment[..count]).await?;
+                            client_write.write_all(b"\r\n").await?;
+                            remaining -= count;
+                        }
+                    }
+                    // Owned by the connection's select and the relay join set.
+                    // Never send the declared body or the final chunk marker.
+                    return std::future::pending().await;
                 }
             }
             framing::write(&mut client_write, &head, &body).await?;
@@ -418,5 +491,65 @@ async fn connection(stream: TcpStream, control: Arc<Control>) -> Result<()> {
         _ = control.close_idle.notified() => Ok(()),
         result = send => result,
         result = receive => result,
+    }
+}
+
+impl Control {
+    fn receiver(&self) -> Result<Arc<cellar::host_services::HostServices>> {
+        self.receiving
+            .lock()
+            .unwrap()
+            .clone()
+            .context("relay has no receiving host observer")
+    }
+
+    /// Lose a genuinely submitted upload after its real owner admits it. No
+    /// complete business message or owner reply is fabricated by this fault.
+    async fn lose_request_prefix(
+        &self,
+        writer: &mut (impl AsyncWrite + Unpin),
+        head: &framing::Head,
+        body: &[u8],
+        mut proof: Value,
+    ) -> Result<()> {
+        let receiver = self.receiver()?;
+        let baseline = receiver.inbound_rpc_usage();
+        ensure!(
+            baseline.active_requests == 0 && baseline.reserved_request_bytes == 0,
+            "another request obscures partial-upload admission: {baseline:?}"
+        );
+        ensure!(body.len() > 1, "partial upload requires a nonempty suffix");
+        writer.write_all(&head.raw).await?;
+        writer.write_all(&body[..1]).await?;
+        let admitted = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let usage = receiver.inbound_rpc_usage();
+                if usage.active_requests == 1 && usage.reserved_request_bytes > 0 {
+                    return usage;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .context("receiving host did not admit the partial upload")?;
+        let policy = receiver.runtime_policy();
+        proof["declared_request_bytes"] = json!(body.len());
+        proof["forwarded_request_bytes"] = json!(1);
+        // No complete business-message bytes/elements reach dispatch.
+        proof["forwarded_message_bytes"] = json!(0);
+        proof["forwarded_elements"] = json!(0);
+        proof["request_body_completed"] = json!(false);
+        proof["receiving_active_after_prefix"] = json!(admitted.active_requests);
+        proof["receiving_reserved_after_prefix"] = json!(admitted.reserved_request_bytes);
+        proof["receiving_max_requests"] = json!(policy.max_inbound_rpc_requests);
+        proof["receiving_max_bytes"] = json!(policy.max_inbound_rpc_bytes);
+        proof["successful_owner_reply_observed"] = json!(false);
+        proof["reply_lost"] = json!(false);
+        let mut observations = self.observations.lock().unwrap();
+        ensure!(observations.is_empty(), "relay proof bound exceeded");
+        observations.push(proof);
+        // Returning completes the connection's select and drops both socket
+        // halves, including the withheld suffix. Its join set owns cleanup.
+        Ok(())
     }
 }

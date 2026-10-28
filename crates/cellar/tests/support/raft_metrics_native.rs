@@ -34,7 +34,7 @@ async fn fetch(node: &Node, query: &str, key: u8) -> Result<(reqwest::StatusCode
     let status = response.status();
     let body = response.text().await?;
     let limit = if query.contains("view=performance") {
-        64
+        128
     } else {
         16
     };
@@ -123,7 +123,8 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 110);
+    ensure!(identities.len() == 111);
+    ensure!(text.contains("cellar_raft_extents_sample_available 0\n"));
     for identity in &identities {
         ensure!(
             identity.starts_with("cellar_raft_")
@@ -239,14 +240,19 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let observed = service.performance();
         ensure!(observed.available && !observed.saturated && observed.source.len() == 32);
         ensure!(
-            observed.operations.len() == 28 && observed.counters.len() == 34,
+            observed.operations.len() == 44 && observed.counters.len() == 42,
             "performance inventory changed: {} operations, {} counters",
             observed.operations.len(), observed.counters.len()
         );
         ensure!(observed.operations.iter().any(|operation| operation.name == "engine_purge"));
         let snapshot_operations = observed.operations.iter().map(|operation| operation.name)
             .filter(|name| name.starts_with("snapshot_")).collect::<BTreeSet<_>>();
-        ensure!(snapshot_operations == BTreeSet::from(["snapshot_encode"]));
+        ensure!(snapshot_operations == BTreeSet::from(["snapshot_encode", "snapshot_encode_queue", "snapshot_seed_encode", "snapshot_checkpoint_encode", "snapshot_transfer_encode"]));
+        let prepared_counters = observed.counters.iter().map(|counter| counter.name)
+            .filter(|name| name.starts_with("snapshot_prepared_")).collect::<BTreeSet<_>>();
+        ensure!(prepared_counters == BTreeSet::from([
+            "snapshot_prepared_hits", "snapshot_prepared_misses", "snapshot_prepared_reused_bytes",
+        ]));
         // Archive admission/publication observations are fixed vocabulary,
         // just like engine and transport metrics. Check their identities as
         // well as the total so a missing series cannot hide behind another.
@@ -254,6 +260,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             .filter(|name| name.starts_with("archive_")).collect::<BTreeSet<_>>();
         ensure!(archive_operations == BTreeSet::from([
             "archive_admission_check", "archive_admission_wait", "archive_publication_batch",
+            "archive_physical_admission", "archive_physical_queue",
         ]));
         let archive_counters = observed.counters.iter().map(|counter| counter.name)
             .filter(|name| name.starts_with("archive_")).collect::<BTreeSet<_>>();
@@ -266,6 +273,18 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             "archive_coverage_image_pending", "archive_coverage_rejected",
             "archive_coverage_unchanged", "archive_coverage_missing_cell",
         ]));
+        let recovery_operations = observed.operations.iter().map(|operation| operation.name)
+            .filter(|name| name.starts_with("recovery_")).collect::<BTreeSet<_>>();
+        ensure!(recovery_operations == BTreeSet::from([
+            "recovery_authorize", "recovery_peer_fetch", "recovery_peer_receive", "recovery_append_queue",
+            "recovery_append", "recovery_archive_fetch", "recovery_peer_verify", "recovery_archive_replay",
+            "recovery_install", "recovery_archive_wait",
+        ]));
+        let recovery_counters = observed.counters.iter().map(|counter| counter.name)
+            .filter(|name| name.starts_with("recovery_")).collect::<BTreeSet<_>>();
+        ensure!(recovery_counters == BTreeSet::from([
+            "recovery_peer_received_bytes", "recovery_peer_appended_bytes",
+        ]));
         let mut perf_ids = BTreeSet::new();
         for line in text.lines().filter(|line| !line.starts_with('#') && !line.is_empty()) {
             let mut fields = line.split_whitespace();
@@ -274,10 +293,10 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value.is_finite() && value >= 0.0 && fields.next().is_none());
             ensure!(perf_ids.insert(name.to_owned()));
         }
-        // Two gauges, 34 counters, and 23 samples per operation (five outcome
-        // counters, 16 buckets, a sum and a count). This remains independent
+        // Two gauges, 42 counters, and 29 samples per operation (five outcome
+        // counters, 22 buckets, a sum and a count). This remains independent
         // of the observed inventory and of the group population.
-        ensure!(perf_ids.len() == 680);
+        ensure!(perf_ids.len() == 1320);
         let expected = observed.prometheus().lines().filter(|line| !line.starts_with('#') && !line.is_empty()).map(|line| line.split_whitespace().next().unwrap().to_owned()).collect::<BTreeSet<_>>();
         ensure!(perf_ids == expected && perf_ids.is_disjoint(&identities));
         identities.extend(perf_ids);
@@ -290,7 +309,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             ensure!(value["value"].as_str().context("decimal counter")?.parse::<u64>()? > 0);
         }
         for operation in &observed.operations {
-            ensure!(operation.buckets.len() == 16 && operation.buckets.last().unwrap().count == operation.count);
+            ensure!(operation.buckets.len() == 22 && operation.buckets.last().unwrap().count == operation.count);
             ensure!(operation.count + operation.timing_unavailable == operation.succeeded + operation.failed + operation.abandoned);
             ensure!(operation.started >= operation.succeeded + operation.failed + operation.abandoned);
         }
@@ -306,7 +325,8 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let (status, json) = fetch(&node, &format!("{query}&format=json"), 11).await?;
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
-        ensure!(json.as_object().context("resource object")?.len() == 9);
+        ensure!(json.as_object().context("resource object")?.len() == 10);
+        ensure!(json.get("extents") == Some(&serde_json::Value::Null));
         let actual = serde_json::to_value(service.resource_usage())?;
         for budget in ["business", "control", "archive_capture"] {
             for capacity in ["max_bytes", "max_items"] {

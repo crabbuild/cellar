@@ -17,6 +17,12 @@ pub(crate) struct SeedDownload {
 }
 
 impl SeedDownload {
+    /// Transport admission covers codec buffers until sealing or discard.
+    pub(crate) fn with_io_profile(mut self, profile: stream_snapshot::IoProfile) -> Self {
+        self.payload.set_io_profile(profile);
+        self
+    }
+
     pub(crate) fn scope(&self) -> &GroupScope {
         &self.grant.local().scope
     }
@@ -26,9 +32,7 @@ impl SeedDownload {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: SnapshotLimits,
-        filesystem: &dyn cellar_ltx::FileSystem,
-        directory: &std::path::Path,
-        scratch: &stream_snapshot::ScratchPool,
+        storage: DownloadStorage<'_>,
     ) -> Result<Self, SnapshotError> {
         let mut initial = ::raft::prelude::ConfState::default();
         initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
@@ -58,16 +62,27 @@ impl SeedDownload {
         {
             return Err(SnapshotError::Invalid("seed learner/barrier binding"));
         }
+        let payload = if let Some(store) = storage.extents.filter(|_| descriptor.image.is_some()) {
+            SnapshotPayload::in_extents(&descriptor, limits, store)?
+        } else {
+            SnapshotPayload::new(
+                &descriptor,
+                limits,
+                storage.filesystem,
+                storage.directory,
+                storage.scratch,
+            )?
+        };
         Ok(Self {
             grant,
-            payload: SnapshotPayload::new(&descriptor, limits, filesystem, directory, scratch)?,
+            payload,
             descriptor,
             initial,
         })
     }
 
-    pub(crate) fn encoded_length(&self) -> usize {
-        self.descriptor.encoded_length
+    pub(crate) fn transfer_length(&self) -> usize {
+        self.descriptor.transfer_length
     }
 
     pub(crate) fn append(&mut self, offset: usize, bytes: &[u8]) -> Result<(), SnapshotError> {
@@ -80,6 +95,24 @@ impl SeedDownload {
         reservation: crate::raft::budget::Permit,
     ) -> Result<PreparedSeed, SnapshotError> {
         let pin = seal_image(&self.descriptor, self.payload.finish()?, images)?;
+        Ok(PreparedSeed {
+            grant: SeedPermit::Peer(self.grant),
+            descriptor: self.descriptor,
+            initial: self.initial,
+            pin: pin.map(SnapshotPin::Materialized),
+            _reservation: std::sync::Arc::new(reservation),
+        })
+    }
+
+    pub(crate) fn finish_root(
+        self,
+        store: &cellar_ltx::internal::NodeExtentStore,
+        reservation: crate::raft::budget::Permit,
+    ) -> Result<PreparedSeed, SnapshotError> {
+        let pin = self.payload.finish_root(store)?;
+        if pin.as_ref().map(SnapshotPin::marker) != self.descriptor.image {
+            return Err(SnapshotError::Invalid("seed root marker binding"));
+        }
         Ok(PreparedSeed {
             grant: SeedPermit::Peer(self.grant),
             descriptor: self.descriptor,
@@ -125,11 +158,51 @@ pub(crate) struct PreparedSeed {
     grant: SeedPermit,
     descriptor: Descriptor,
     initial: ::raft::prelude::ConfState,
-    pin: Option<GenerationPin>,
+    pin: Option<SnapshotPin>,
     _reservation: std::sync::Arc<crate::raft::budget::Permit>,
 }
 
 impl PreparedSeed {
+    pub(crate) fn from_root_archive(
+        grant: crate::raft::transport::seeds::ArchiveSeedGrant,
+        set: crate::raft::archive::ArchiveRecoverySet,
+        birth: &crate::raft::catalog::GroupBirth,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+        store: &cellar_ltx::internal::NodeExtentStore,
+        reservation: std::sync::Arc<crate::raft::budget::Permit>,
+    ) -> Result<Self, SnapshotError> {
+        let binding = validate_archive_seed(&grant, &set, birth, schema, limits)?;
+        let (snapshot, image) = set.into_root(store).map_err(SnapshotError::Archive)?;
+        let descriptor = Descriptor::decode_bound(
+            birth.scope(),
+            birth.digest(),
+            &crate::raft::member_state::GroupMembership::initial(&binding.initial),
+            schema,
+            &snapshot,
+            limits,
+        )?;
+        if descriptor.index != binding.position.index.get()
+            || descriptor.term != binding.position.term.get()
+            || descriptor.membership != binding.membership
+            || descriptor.conf != manifest::encode_conf(&binding.conf)?
+            || descriptor.image.as_ref() != Some(&crate::raft::rooted::marker::encode(&image))
+            || !store.owns_image(&image)
+        {
+            return Err(SnapshotError::Invalid("archive root seed binding"));
+        }
+        Ok(Self {
+            grant: SeedPermit::S3(grant),
+            descriptor,
+            initial: binding.initial,
+            pin: Some(SnapshotPin::Rooted {
+                image,
+                store: store.clone(),
+            }),
+            _reservation: reservation,
+        })
+    }
+
     pub(crate) fn local(&self) -> &cellar_logic::consensus::ReplicaIdentity {
         self.grant.local()
     }
@@ -188,24 +261,29 @@ impl PreparedSeed {
                     index: LogIndex::new(self.descriptor.index),
                     term: Term::new(self.descriptor.term),
                 },
-                image: self.pin.as_ref().map(marker),
+                image: self.pin.as_ref().map(SnapshotPin::marker),
             },
         })
     }
 
     pub(crate) fn retain_pending(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.descriptor.index)? {
-                return Err(SnapshotError::Invalid("stale seed image"));
-            }
+            pin.retain_pending_for(
+                &self.local().scope,
+                self.descriptor.birth,
+                self.descriptor.index,
+            )?;
         }
         Ok(())
     }
 
     pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
         if let Some(pin) = &self.pin {
-            pin.retain_reference(SNAPSHOT_REFERENCE, self.descriptor.index)?;
-            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.descriptor.index)?;
+            pin.retain_for(
+                &self.local().scope,
+                self.descriptor.birth,
+                self.descriptor.index,
+            )?;
         }
         Ok(())
     }
@@ -221,45 +299,12 @@ impl PreparedSeed {
         images: &GenerationStore,
         reservation: std::sync::Arc<crate::raft::budget::Permit>,
     ) -> Result<Self, SnapshotError> {
-        limits.validate()?;
-        if set.reference() != *grant.reference()
-            || set.scope() != birth.scope()
-            || set.schema_digest() != schema
-            || set.birth_digest() != birth.digest()
-            || grant.local().scope != *birth.scope()
-        {
-            return Err(SnapshotError::Invalid(
-                "archive seed reference/history/schema",
-            ));
-        }
-        let position = set.position();
-        let conf = set
-            .configuration()
-            .map_err(|_| SnapshotError::Invalid("archive seed configuration"))?;
-        let membership = set.membership();
-        membership.validate(&conf, position.index.get())?;
-        if position.index < grant.barrier()
-            || !membership.permits(grant.local())
-            || membership
-                .joined(grant.local().member)?
-                .is_none_or(|(_, at)| at > grant.barrier())
-            || !conf.learners.contains(&grant.local().member.get())
-            || conf.voters.contains(&grant.local().member.get())
-            || conf.voters_outgoing.contains(&grant.local().member.get())
-            || conf.learners_next.contains(&grant.local().member.get())
-        {
-            return Err(SnapshotError::Invalid(
-                "archive seed learner/barrier binding",
-            ));
-        }
-        let mut initial = ::raft::prelude::ConfState::default();
-        initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
-        initial.set_learners(birth.learners().iter().map(|m| m.member.get()).collect());
-        if !membership.same_birth(&crate::raft::member_state::GroupMembership::initial(
-            &initial,
-        )) {
-            return Err(SnapshotError::Invalid("archive seed birth members"));
-        }
+        let ArchiveSeedBinding {
+            position,
+            conf,
+            membership,
+            initial,
+        } = validate_archive_seed(&grant, &set, birth, schema, limits)?;
         let mut hash = Sha256::new();
         hash.update(b"cellar-archive-seed-image-1");
         hash.update(
@@ -276,7 +321,7 @@ impl PreparedSeed {
                 .map_err(|_| SnapshotError::Invalid("archive seed image nonce"))?,
         )?;
         let pin = set.restore(images, nonce).map_err(SnapshotError::Archive)?;
-        let bytes = encode_image(&pin, limits)?;
+        let bytes = encode_image(&pin, limits, stream_snapshot::IoProfile::Compact)?;
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(birth.scope()),
@@ -290,6 +335,7 @@ impl PreparedSeed {
             image: Some(marker(&pin)),
             encoded_length: bytes.metadata().encoded_length as usize,
             encoded_digest: bytes.metadata().encoded_digest,
+            transfer_length: bytes.metadata().encoded_length as usize,
         };
         Descriptor::decode_bound(
             birth.scope(),
@@ -303,8 +349,69 @@ impl PreparedSeed {
             grant: SeedPermit::S3(grant),
             descriptor,
             initial,
-            pin: Some(pin),
+            pin: Some(SnapshotPin::Materialized(pin)),
             _reservation: reservation,
         })
     }
+}
+
+struct ArchiveSeedBinding {
+    position: LogPosition,
+    conf: ::raft::prelude::ConfState,
+    membership: crate::raft::member_state::GroupMembership,
+    initial: ::raft::prelude::ConfState,
+}
+
+fn validate_archive_seed(
+    grant: &crate::raft::transport::seeds::ArchiveSeedGrant,
+    set: &crate::raft::archive::ArchiveRecoverySet,
+    birth: &crate::raft::catalog::GroupBirth,
+    schema: [u8; 32],
+    limits: SnapshotLimits,
+) -> Result<ArchiveSeedBinding, SnapshotError> {
+    limits.validate()?;
+    if set.reference() != *grant.reference()
+        || set.scope() != birth.scope()
+        || set.schema_digest() != schema
+        || set.birth_digest() != birth.digest()
+        || grant.local().scope != *birth.scope()
+    {
+        return Err(SnapshotError::Invalid(
+            "archive seed reference/history/schema",
+        ));
+    }
+    let position = set.position();
+    let conf = set
+        .configuration()
+        .map_err(|_| SnapshotError::Invalid("archive seed configuration"))?;
+    let membership = set.membership();
+    membership.validate(&conf, position.index.get())?;
+    if position.index < grant.barrier()
+        || !membership.permits(grant.local())
+        || membership
+            .joined(grant.local().member)?
+            .is_none_or(|(_, at)| at > grant.barrier())
+        || !conf.learners.contains(&grant.local().member.get())
+        || conf.voters.contains(&grant.local().member.get())
+        || conf.voters_outgoing.contains(&grant.local().member.get())
+        || conf.learners_next.contains(&grant.local().member.get())
+    {
+        return Err(SnapshotError::Invalid(
+            "archive seed learner/barrier binding",
+        ));
+    }
+    let mut initial = ::raft::prelude::ConfState::default();
+    initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
+    initial.set_learners(birth.learners().iter().map(|m| m.member.get()).collect());
+    if !membership.same_birth(&crate::raft::member_state::GroupMembership::initial(
+        &initial,
+    )) {
+        return Err(SnapshotError::Invalid("archive seed birth members"));
+    }
+    Ok(ArchiveSeedBinding {
+        position,
+        conf,
+        membership,
+        initial,
+    })
 }

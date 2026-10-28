@@ -316,7 +316,10 @@ async fn get(client: &reqwest::Client, address: &str, path: &str) -> Result<serd
     let response = client.get(format!("{address}{path}")).send().await?;
     let status = response.status();
     let text = response.text().await?;
-    ensure!(status.is_success(), "typed RPC failed: {status}: {text}");
+    ensure!(
+        status.is_success(),
+        "typed RPC failed at {path}: {status}: {text}"
+    );
     Ok(serde_json::from_str(&text)?)
 }
 

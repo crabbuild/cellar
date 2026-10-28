@@ -35,12 +35,16 @@ where
                 collecting.await
             }
         } else {
-            body.collect()
-                .await
-                .map(|body| body.to_bytes())
-                .map_err(|error| {
-                    remote_rpc_failure(anyhow::Error::new(error)).context("remote RPC body")
-                })
+            // Ordinary values need the same dense accumulation and scheduling
+            // fairness as event replies. Keep the generic forwarding ceiling
+            // so existing untyped values retain their supported sizes; typed
+            // message limits remain an independent validation boundary.
+            accumulate(
+                body,
+                super::MAX_PEER_FORWARD_BODY_BYTES,
+                ReplyKind::Ordinary,
+            )
+            .await
         }
     };
     let result = match cancel {
@@ -66,14 +70,55 @@ fn timed_out() -> anyhow::Error {
     .into()
 }
 
-fn too_large() -> anyhow::Error {
-    // Execution can have committed. A protocol budget refusal is not a
-    // network failure and must not enter activation's transport retry loop.
-    DeliveryError::new(
-        ErrorCode::Ambiguous,
-        "event RPC result exceeds its byte budget",
+#[derive(Clone, Copy)]
+enum ReplyKind {
+    Event,
+    Ordinary,
+    Typed,
+}
+
+impl ReplyKind {
+    fn allocation(self, failure: crate::application::rpc::Failure) -> anyhow::Error {
+        match self {
+            Self::Event => DeliveryError::new(
+                ErrorCode::Ambiguous,
+                "event RPC result allocation refused after submission",
+            )
+            .into(),
+            Self::Ordinary | Self::Typed => failure.into(),
+        }
+    }
+
+    fn exhausted(self, message: &'static str) -> anyhow::Error {
+        // Execution can have committed. A protocol/allocation refusal never
+        // receives the transport retry tag or claims that effects rolled back.
+        match self {
+            Self::Event => DeliveryError::new(ErrorCode::Ambiguous, message).into(),
+            Self::Ordinary => crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::ResourceExhausted,
+            )
+            .into(),
+            Self::Typed => crate::application::rpc::Failure::new(
+                crate::application::rpc::Code::InvalidResponse,
+            )
+            .into(),
+        }
+    }
+}
+
+/// Typed clients carry their immutable application allowance through routing.
+/// The caller's cancellation/deadline owner surrounds this entire collection.
+pub(super) async fn receive_typed<B>(body: B, limit: usize) -> Result<Bytes>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    accumulate(
+        body,
+        limit.min(super::MAX_PEER_FORWARD_BODY_BYTES),
+        ReplyKind::Typed,
     )
-    .into()
+    .await
 }
 
 async fn bounded<B>(body: B, limit: usize) -> Result<Bytes>
@@ -81,11 +126,25 @@ where
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: std::error::Error + Send + Sync + 'static,
 {
+    accumulate(body, limit, ReplyKind::Event).await
+}
+
+async fn accumulate<B>(body: B, limit: usize, kind: ReplyKind) -> Result<Bytes>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     if body.size_hint().lower() > limit as u64 {
-        return Err(too_large());
+        return Err(kind.exhausted("event RPC result exceeds its byte budget"));
     }
     let mut body = std::pin::pin!(body);
-    let mut bytes = Vec::new();
+    let admission = crate::asyncrt::services()
+        .reserve_rpc_response(crate::rpc_response::Buffer::initial_weight())
+        .map_err(|failure| kind.allocation(failure))?;
+    let mut bytes = crate::rpc_response::Buffer::new(admission);
+    bytes
+        .anticipate(body.size_hint().lower() as usize)
+        .map_err(|failure| kind.allocation(failure))?;
     let mut frames = 0usize;
     let mut copied = 0usize;
     while let Some(frame) = body.frame().await {
@@ -94,27 +153,15 @@ where
         })?;
         frames += 1;
         if let Ok(data) = frame.into_data() {
-            let length = bytes
+            bytes
                 .len()
                 .checked_add(data.len())
                 .filter(|length| *length <= limit)
-                .ok_or_else(too_large)?;
-            if length > bytes.capacity() {
-                let capacity = length
-                    .max(bytes.capacity().saturating_mul(2))
-                    .max(4096)
-                    .min(limit);
-                bytes
-                    .try_reserve_exact(capacity - bytes.len())
-                    .map_err(|_| {
-                        anyhow::Error::new(DeliveryError::new(
-                            ErrorCode::Ambiguous,
-                            "event RPC result buffer could not be allocated",
-                        ))
-                    })?;
-            }
+                .ok_or_else(|| kind.exhausted("event RPC result exceeds its byte budget"))?;
             copied = copied.saturating_add(data.len());
-            bytes.extend_from_slice(&data);
+            bytes
+                .extend(&data, limit)
+                .map_err(|failure| kind.allocation(failure))?;
         }
         // Do not retain unused trailer maps or one allocation per tiny frame.
         // Yield even for empty/trailer frames so readiness cannot starve the
@@ -125,7 +172,7 @@ where
             copied = 0;
         }
     }
-    Ok(Bytes::from(bytes))
+    bytes.finish().map_err(|failure| kind.allocation(failure))
 }
 
 async fn cooperate() {

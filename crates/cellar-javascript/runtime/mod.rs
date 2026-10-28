@@ -315,11 +315,24 @@ pub(crate) fn supports_synchronous(name: &str) -> bool {
 // failures retain uncertain effect provenance. Container WebSocket output is
 // likewise independent: a received frame may trigger a storage write before
 // its matching send acknowledgement arrives. Native socket output gates remain.
+// Existing process I/O and resource retirement likewise use the provider's
+// control queue and output proofs, independently of SQLite mutation admission.
+// Staged R2 part I/O likewise owns native file/Blob gates. A short source may
+// publish its handled error while accepted scratch allocation/cleanup drains.
 pub(crate) fn requires_mutation_slot(name: &str) -> bool {
     !name.starts_with("workers.rpc.")
         && !matches!(
             name,
             "storage.sync"
+                | "container.exec.write"
+                | "container.exec.close_stdin"
+                | "container.exec.kill"
+                | "container.exec.resize"
+                | "container.release"
+                | "workers.r2.part_begin"
+                | "workers.r2.part_write"
+                | "workers.r2.part_finish"
+                | "workers.r2.part_cancel"
                 | "container.websocket.send_text"
                 | "container.websocket.send_binary"
                 | "container.websocket.close"
@@ -343,6 +356,7 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
     matches!(
         name,
         "response.read"
+            | "request.body.read"
             | "workers.rpc.invoke"
             | "response.closed"
             | "websocket.next"
@@ -351,6 +365,9 @@ pub(crate) fn supports_operation_cancellation(name: &str) -> bool {
             | "container.port.fetch"
             | "container.port.fetch_stream"
             | "container.response.read"
+            | "container.exec.read_stdout"
+            | "container.exec.read_stderr"
+            | "container.exec.wait"
             | "container.port.connect_websocket"
             | "container.websocket.receive"
             | "workers.fetch"

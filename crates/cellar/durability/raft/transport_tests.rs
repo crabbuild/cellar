@@ -129,17 +129,17 @@ async fn partial_frame_writes_preserve_header_and_body_boundaries() -> anyhow::R
     Ok(())
 }
 
-struct Fixture {
-    domain: crate::asyncrt::ExecutionDomain,
+pub(super) struct Fixture {
+    pub(super) domain: crate::asyncrt::ExecutionDomain,
     log: ReplicaLog,
     runtime: RaftRuntime,
-    transport: RaftTransport,
+    pub(super) transport: RaftTransport,
     _events: crate::raft::runtime::RuntimeEvents,
     _directory: tempfile::TempDir,
 }
 
 impl Fixture {
-    async fn start(
+    pub(super) async fn start(
         options: TransportOptions,
         groups: Vec<crate::raft::storage::GroupBootstrap>,
     ) -> anyhow::Result<Self> {
@@ -194,7 +194,7 @@ impl Fixture {
         })
     }
 
-    async fn close(self) -> anyhow::Result<()> {
+    pub(super) async fn close(self) -> anyhow::Result<()> {
         self.transport.close().await;
         self.runtime.close().await?;
         self.log.close().await?;

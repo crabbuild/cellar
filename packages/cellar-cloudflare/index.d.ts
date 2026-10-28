@@ -1,6 +1,15 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 /// <reference lib="esnext.disposable" />
+export type {
+  R2Bucket,
+  R2Object,
+  R2ObjectBody,
+  R2MultipartUpload,
+  R2MultipartOptions,
+  R2UploadedPart,
+  R2HTTPMetadata,
+} from "./r2.js";
 
 /** The implemented partial profile. This is not the full Cloudflare API. */
 declare const durableObjectId: unique symbol;
@@ -89,8 +98,8 @@ export interface DurableObjectTransaction extends DurableObjectStorage {
 export interface DurableObjectState {
   readonly id: DurableObjectId;
   readonly storage: DurableObjectStorage;
-  readonly container: unknown;
-  readonly exports: never;
+  readonly container: DurableObjectContainer | undefined;
+  readonly exports: WorkerExports;
   blockConcurrencyWhile<T>(callback: () => T | Promise<T>): Promise<T>;
   /** Requires Source.workers_lifetimes() in the native host. */
   waitUntil(promise: Promise<unknown>): void;
@@ -99,6 +108,28 @@ export interface DurableObjectState {
 /** Event-owned controls. Concurrency callbacks join controls; transactions refuse them. */
 export interface DurableObjectContainer {
   readonly running: boolean;
+  /** Run-owned deployment routes; requires the native HTTP-helper profile. */
+  interceptOutboundHttp(
+    target: string,
+    handler: ServiceBinding<object>,
+  ): Promise<void>;
+  interceptAllOutboundHttp(handler: ServiceBinding<object>): Promise<void>;
+  /** Node web-stream profile; image selection remains native host configuration. */
+  exec(
+    cmd: string[],
+    options?: {
+      stdin?: "pipe" | ReadableStream<Uint8Array>;
+      stdout?: "pipe" | "ignore";
+      stderr?: "pipe" | "ignore" | "combined";
+      cwd?: string;
+      env?: Record<string, string>;
+      /** Numeric UID:GID, for example "1000:1000". */
+      user?: string;
+      signal?: AbortSignal;
+      pty?: boolean | { cols?: number; rows?: number };
+    },
+  ): Promise<ContainerExecProcess>;
+  setInactivityTimeout(timeoutMs: number): Promise<void>;
   start(options?: {
     entrypoint?: string[];
     env?: Record<string, string>;
@@ -115,6 +146,25 @@ export interface DurableObjectContainer {
       init?: RequestInit,
     ): Promise<WorkerResponse>;
   };
+}
+/** Invocation-owned native process and optional terminal. */
+export interface ContainerExecProcess {
+  /** Verified container PID; unavailable for images without the shell handshake. */
+  readonly pid: number | undefined;
+  readonly isPty: boolean;
+  readonly stdin: WritableStream<Uint8Array> | null;
+  readonly stdout: ReadableStream<Uint8Array> | null;
+  readonly stderr: ReadableStream<Uint8Array> | null;
+  readonly exitCode: Promise<number>;
+  /** Queue a signal; defaults to SIGTERM (15). Observe completion with exitCode. */
+  kill(signal?: number): void;
+  /** Queue a terminal resize under the original callback's native admission. */
+  resize(cols: number, rows: number): void;
+  output(): Promise<{
+    stdout: ArrayBuffer;
+    stderr: ArrayBuffer;
+    exitCode: number;
+  }>;
 }
 /** Event-style socket owned by its original native event. */
 export interface WorkerCloseEvent extends Event {
@@ -244,6 +294,31 @@ export interface Activation<T> {
   invoke<R>(callback: (target: T) => R | Promise<R>): Promise<R>;
   rpc(method: string, args: unknown[]): Promise<unknown>;
 }
+
+/** Augment with the entrypoints/namespaces exposed by the selected module. */
+export interface WorkerExports {}
+export interface WorkerExecutionContext<P = unknown> {
+  readonly props: P;
+  readonly exports: WorkerExports;
+  waitUntil(promise: Promise<unknown>): void;
+}
+type ServiceProperty<T> = Promise<Awaited<T>> & {
+  [K in keyof T]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : ServiceProperty<T[K]>;
+};
+/** Value RPC only; callable/stream capabilities in arguments/results are pending. */
+export type ServiceBinding<T extends object> = {
+  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+} & {
+  [
+    K in keyof T as K extends Reserved | "ctx" | "env" ? never : K
+  ]: T[K] extends (...args: infer A) => infer R
+    ? (...args: A) => Promise<Awaited<R>>
+    : ServiceProperty<T[K]>;
+};
+export type LoopbackService<T extends object, P = unknown> = ServiceBinding<T> &
+  ((options: { props: P }) => ServiceBinding<T>);
 export function activateDurableObject<T, E extends object>(
   Target: new (state: DurableObjectState, env: E) => T,
   nativeContext: object,
@@ -251,17 +326,19 @@ export function activateDurableObject<T, E extends object>(
 ): Activation<T>;
 
 /** Bounded uploads, incremental HTTP replies and value RPC module dispatch. */
-export function workersApplication<
-  M extends { default: { fetch: (...args: never[]) => unknown } },
->(
+export function workersApplication<M extends { default: unknown }>(
   module: M,
-  options: {
-    namespaces: Record<string, Exclude<keyof M, "default"> & string>;
+  options?: {
+    namespaces?: Record<string, Exclude<keyof M, "default"> & string>;
     containers?: readonly (Exclude<keyof M, "default"> & string)[];
     variables?: readonly string[];
+    services?: readonly string[];
+    /** Explicitly declared native Blob bindings; backup-gateway R2 subset. */
+    r2?: readonly string[];
   },
 ): {
   cells: Record<string, unknown>;
+  worker_rpc(request: unknown, nativeContext: object): Promise<unknown>;
   fetch(
     request: unknown,
     nativeContext: object,

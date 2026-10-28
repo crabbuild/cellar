@@ -1,6 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 import { containerPort } from "./port.js";
+import { containerExec, execControls } from "./exec.js";
+import { containerServiceTarget } from "./service.js";
 
 function startOptions(options) {
   if (options === undefined) return {};
@@ -78,7 +80,65 @@ export function durableObjectContainer(nativeContext) {
     return pending;
   }
 
+  function intercept(context, target, handler) {
+    const service = containerServiceTarget(handler, context);
+    const record = event(context);
+    const previous = record.tail;
+    const work = (async () => {
+      if (record.failure) throw record.failure;
+      if (previous) await previous;
+      await context._call("container.intercept_outbound_http", {
+        target,
+        service,
+      });
+    })();
+    record.tail = work;
+    work.then(undefined, (error) => {
+      record.failure = error;
+    });
+    context._containerControl(work);
+    return work;
+  }
+
   const container = {
+    interceptOutboundHttp(target, handler) {
+      const context = current();
+      if (typeof target !== "string")
+        throw new TypeError("HTTP intercept target must be a string");
+      return intercept(context, target, handler);
+    },
+    interceptAllOutboundHttp(handler) {
+      const context = current();
+      return intercept(context, null, handler);
+    },
+    exec(cmd, options) {
+      const context = current();
+      const record = event(context);
+      const controls = (record.execControls ??= execControls());
+      const pending = record.tail;
+      const work = containerExec(context, cmd, options, (make, cleanup) =>
+        controls(async () => {
+          if (pending) await pending;
+          return make();
+        }, cleanup),
+      );
+      context._containerControl(work);
+      return work;
+    },
+    setInactivityTimeout(timeoutMs) {
+      const context = current();
+      const record = event(context);
+      const controls = (record.execControls ??= execControls());
+      const work = (async () => {
+        const pending = record.tail;
+        if (pending) await pending;
+        return controls(() =>
+          context.container.setInactivityTimeout(timeoutMs),
+        );
+      })();
+      context._containerControl(work);
+      return work;
+    },
     getTcpPort(port) {
       return containerPort(current, port, async (context) => {
         const pending = event(context).tail;

@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 LANGUAGES = {"rust": "RustCounter", "python": "PythonCounter", "v8": "V8Counter", "node": "NodeCounter"}
-SCENARIOS = ("reconnect", "reply_loss", "method_refusal", "element_refusal", "byte_refusal")
+SCENARIOS = ("reconnect", "reply_loss", "method_refusal", "element_refusal", "byte_refusal",
+             "declared_reply_overflow", "streamed_reply_overflow", "request_prefix_loss")
 
 
 def audit(report):
@@ -22,7 +23,7 @@ def audit(report):
     assert report["remote_fleet_qualified"] is report["abrupt_crash_qualified"] is False
     assert re.fullmatch(r"[0-9a-f]{64}", report["contract_digest"])
     cases = report["cases"]
-    assert len(cases) == report["case_count"] == 80
+    assert len(cases) == report["case_count"] == 128
     expected = set(itertools.product(SCENARIOS, LANGUAGES, LANGUAGES))
     keys = [(c["scenario"], c["caller"], c["provider"]) for c in cases]
     assert len(set(keys)) == len(keys) and set(keys) == expected
@@ -45,7 +46,9 @@ def audit(report):
         assert case["explicit_receipt_retries"] == 2 and case["changed_command_refused"] is True
         assert case["automatic_replay"] is False and case["factory_count_change"] == 0
         refused = scenario.endswith("_refusal")
-        first_handlers = 0 if refused else 1
+        prefix_lost = scenario == "request_prefix_loss"
+        first_handlers = 0 if refused or prefix_lost else 1
+        assert type(case["first_handler_count"]) is int and type(case["total_handler_count"]) is int
         assert case["first_handler_count"] == first_handlers
         assert case["total_handler_count"] == first_handlers + 3
         peer = case["peer"]
@@ -58,7 +61,9 @@ def audit(report):
         assert peer["receiver_max_message_bytes"] == 128 and peer["receiver_max_elements"] == 4
         original, forwarded = peer["original_message_bytes"], peer["forwarded_message_bytes"]
         assert type(original) is int and 0 < original <= 128
-        if scenario == "element_refusal":
+        if prefix_lost:
+            assert forwarded == peer["forwarded_elements"] == 0
+        elif scenario == "element_refusal":
             assert forwarded == original + 9 and forwarded <= 128
             assert peer["forwarded_elements"] == 5
         elif scenario == "byte_refusal":
@@ -70,7 +75,22 @@ def audit(report):
         assert re.fullmatch(r"[0-9a-f]{32}", request_id) and request_id not in seen_ids
         seen_ids.add(request_id)
         assert peer["reply_lost"] is (scenario == "reply_loss")
-        if refused:
+        if prefix_lost:
+            assert case["first_reply"] == {"code": "Unavailable", "outcome": "unknown"}
+            assert peer["successful_owner_reply_observed"] is False
+            assert peer["request_body_completed"] is False
+            declared = peer["declared_request_bytes"]
+            assert type(declared) is int and original < declared <= 65536
+            assert type(peer["forwarded_request_bytes"]) is int and peer["forwarded_request_bytes"] == 1 < declared
+            assert type(peer["receiving_max_requests"]) is int and peer["receiving_max_requests"] == 128
+            assert type(peer["receiving_max_bytes"]) is int and peer["receiving_max_bytes"] == 256 * 1024 * 1024
+            assert type(peer["receiving_active_after_prefix"]) is int and peer["receiving_active_after_prefix"] == 1
+            held = peer["receiving_reserved_after_prefix"]
+            assert type(held) is int and 64 * 1024 <= held <= peer["receiving_max_bytes"]
+            cleanup = case["request_prefix_cleanup"]
+            assert set(cleanup) == {"receiving_requests", "receiving_bytes", "source_requests", "source_bytes"}
+            assert all(type(value) is int and value == 0 for value in cleanup.values())
+        elif refused:
             assert peer["trusted_refusal"] is True
             code = "MethodNotFound" if scenario == "method_refusal" else "ResourceExhausted"
             assert case["first_reply"] == {"code": code, "outcome": "not_committed"}
@@ -78,10 +98,19 @@ def audit(report):
             assert peer["successful_owner_reply_observed"] is True
             if scenario == "reply_loss":
                 assert case["first_reply"] == {"code": "Unavailable", "outcome": "unknown"}
+            elif scenario.endswith("_reply_overflow"):
+                assert case["first_reply"] == {"code": "InvalidResponse", "outcome": "unknown"}
+                limit = peer["source_max_message_bytes"] + 2 * 1024
+                assert peer["response_byte_limit"] == limit
+                assert peer["reply_suffix_withheld"] is True
+                assert peer["declared_reply_bytes"] == (limit + 1 if scenario == "declared_reply_overflow" else 0)
+                assert peer["streamed_reply_bytes"] == (limit + 1 if scenario == "streamed_reply_overflow" else 0)
             else:
                 assert case["first_reply"] == {"value": after}
                 assert case["new_signed_handshakes"] > 0
-    assert all(values == set(range(20)) for values in totals.values())
+        if not prefix_lost:
+            assert case["request_prefix_cleanup"] is None
+    assert all(values == set(range(32)) for values in totals.values())
 
 
 def main():
@@ -102,6 +131,19 @@ def main():
         lambda r: next(c for c in r["cases"] if c["scenario"] == "element_refusal")["peer"].update(forwarded_elements=4),
         lambda r: r["cases"][0]["peer"].update(source_message_valid=False),
         lambda r: r["cases"][0]["peer"].update(receiver_max_message_bytes=1048576),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "declared_reply_overflow")["peer"].update(declared_reply_bytes=0),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "streamed_reply_overflow")["peer"].update(reply_suffix_withheld=False),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["first_reply"].update(outcome="not_committed"),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss").update(first_handler_count=1),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(forwarded_request_bytes=0),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(forwarded_request_bytes=65536),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(request_body_completed=True),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(receiving_active_after_prefix=0),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(receiving_reserved_after_prefix=0),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(receiving_reserved_after_prefix=1),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["peer"].update(forwarded_request_bytes=True),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["request_prefix_cleanup"].update(source_bytes=1),
+        lambda r: next(c for c in r["cases"] if c["scenario"] == "request_prefix_loss")["request_prefix_cleanup"].update(receiving_bytes=1),
     )
     for mutate in probes:
         changed = copy.deepcopy(report)
@@ -111,7 +153,7 @@ def main():
         except AssertionError:
             continue
         raise AssertionError("peer report auditor accepted corrupted evidence")
-    print(json.dumps({"cases": 80, "negative_audit_probes": len(probes),
+    print(json.dumps({"cases": 128, "negative_audit_probes": len(probes),
                       "sha256": hashlib.sha256(data).hexdigest(), "release_qualified": False}, indent=2))
 
 

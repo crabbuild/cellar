@@ -219,7 +219,7 @@ class Qualification:
             body = {'kind': 'initialize', 'database_bytes': 32768} if sequence == 1 else {
                 'kind': 'set' if sequence % 2 else 'transfer', 'expected_revision': state['revision'],
                 'value': 100 + cell + sequence, 'payload': hashlib.shake_256(f'{cell}:{sequence}'.encode()).hexdigest(4096)}
-            headers = {'x-command-id': f'{client}:{sequence}', 'x-retry-until-ms': str(int(time.time()*1000) + 3600000)}
+            headers = {'x-command-id': f'{client}:{sequence}', 'x-retry-until-ms': str(int(time.time()*1000) + 540000)}
             reply = self.write(cell, body, headers)
             state, changed = model(state, body)
             require(reply['state'] == state and reply['changed'] == changed, 'source differs from independent model')

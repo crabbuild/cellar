@@ -7,7 +7,7 @@ The default `Native` provider uses Cellar's existing Docker/Podman integration;
 Rust hosts can supply another backend without changing the guest API.
 
 [Quick start](#quick-start) · [Provider matrix](compatibility.md) · [Capabilities](#discover-capabilities) ·
-[Lifecycle](#two-lifecycle-interfaces) · [Files](files.md) · [Add a provider](#add-a-provider) ·
+[Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](supervision.md) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [HTTP streams](streams.md) · [Wire reference](#bridge-protocol-version-1)
 
 ## Native containers, this adapter, or Workers?
@@ -43,6 +43,11 @@ Hosts can also declare [named provider slots](bindings.md#select-a-host-declared
 All four language paths share their operations and discovery. Use
 `ctx.containers.get("builds")` in Python/JS/TS; `ctx.container` retains the default.
 Selection never falls back to a different provider when a slot is missing.
+
+For remote resources that outlive requests, enable
+[host-managed cleanup](supervision.md). Native internal work observes the original
+resource and retires it at its configured maximum/idle deadline, independently
+of application alarms. E2B and Vercel supply optional maintenance backends.
 
 For durable remote resources, all four language facades expose
 [`reconcile()`](bindings.md#reconcile-from-a-later-invocation): recover a matching
@@ -173,12 +178,57 @@ flowchart TD
 | Set idle timeout | `set_inactivity_timeout(ms)` | `setInactivityTimeout(ms)` |
 | Binary files / metadata | `read_file`, `write_file`, `stat_file`, `list_files` | `readFile`, `writeFile`, `statFile`, `listFiles` |
 | Interactive process I/O | `exec(cmd)` | `exec({ cmd })` |
+| Terminal allocation | `exec(cmd, pty=(80, 24))` | `exec({ cmd, pty: { cols: 80, rows: 24 } })` |
+| Process identity / terminal size | `process.info()` / `await process.resize(cols, rows)` | Same async names |
 | Bounded stdout + stderr | `exec_output(cmd, max_bytes=n)` | `execOutput({ cmd }, n)` |
 | Port readiness / buffered HTTP | `port(n).wait_ready` / `.fetch` | `port(n).waitReady` / `.fetch` |
 | Raw TCP / WebSocket | `port(n).connect` / `.connect_websocket` | `port(n).connect` / `.connectWebSocket` |
 
 Here `c = ctx.container`. Lifecycle, port and streaming examples are in the
 [integration guide](../../docs/09-integrations.md#apis-in-each-language).
+
+## Terminal execution
+
+Check `exec_pty` before requesting a terminal. Dimensions are character cells,
+from 1 to 65,535; the native engine requires Docker API 1.42 or newer. Terminal
+discipline combines stdout/stderr and can transform input and line endings.
+Use ordinary pipes for binary file transfers.
+
+```javascript
+const process = await ctx.container.exec({
+  cmd: ["sh"],
+  pty: { cols: 80, rows: 24 },
+});
+const { pid, is_pty } = await process.info();
+await process.resize(132, 40);
+await process.write(Uint8Array.of(101, 120, 105, 116, 10)); // "exit" then Enter
+await process.closeStdin();
+async function discard(read) {
+  while ((await read()).length) {}
+}
+try {
+  await Promise.all([
+    discard(() => process.readStdout()),
+    discard(() => process.readStderr()),
+    process.wait(),
+  ]);
+} finally {
+  await process.release();
+}
+```
+
+| Boundary | Contract |
+| --- | --- |
+| Rust native SDK | `ExecOptions::pty` takes a validated `TerminalSize`; `Exec::info(context)` and `resize(context, cols, rows)` check cell/run authority |
+| Portable Rust | `Operation::ExecInfo` and `Operation::ResizeExec` use the original event's resource handle |
+| PID | Verified inside the container by the shell handshake; `None`/`null` when unavailable, never Docker's daemon-host PID |
+| Resize | Original handle and run checks, required durability/output proof, then an acknowledged engine request; no retry after an uncertain reply |
+| Workers void controls | `kill` and `resize` reserve one-shot native tickets synchronously, before queued execution; transaction/foreign-callback refusal precedes effects and failed acknowledgements remain event failures |
+| Capability refusal | E2B/Vercel declare `exec_pty: false`; terminal requests refuse before provider dispatch |
+| Output failure | Truncated or malformed framed output is an error; one large frame is read in bounded 64 KiB chunks |
+
+PID metadata grants no new authority. Guest handles remain invocation-owned;
+native Rust handles retain their existing cell/activation/run lifetime.
 
 ## Discover capabilities
 
@@ -209,6 +259,7 @@ authority, but does not start a container or call the provider's effect dispatch
 | `max_resources` | Provider-declared live-handle cap; `null` means unknown, not unlimited |
 | `synchronous_running` | Opt-in, authoritative running observation with no backend I/O; required by the Workers property |
 | `queued_lifecycle` | Opt-in to bounded, synchronous lifecycle admission followed by asynchronous provider execution |
+| `exec_pty` | Explicit terminal-allocation support; independent of a provider's Linux environment declaration |
 
 `Native` declares Linux and enforces 64 live handles per invocation. JS and Python
 return immutable metadata. The `worker_isolate` enum value describes a possible
@@ -257,6 +308,154 @@ uploads over container-port upgrades/local WebSocket pairs. Selected Worker/DO
 upgrades also forward to clients; complete lifecycle/fault acceptance remains pending. See the
 [Cloudflare execution evidence](../../packages/cellar-cloudflare/README.md#execution-evidence).
 
+The separately pinned [Sandbox 1.0.3 profile](../../tools/sandbox/cloudflare-v1/README.md)
+adds Node Workers `exec(argv)`, automatic byte-source stdin, byte output streams
+and bounded output collection over the same native process operations. Its
+published `Files` package runs the matching helper; full 1.x lifecycle, persistence and cloud qualification remain
+open. Native process signalling requires a POSIX `/bin/sh` in the image; direct
+exec remains available without it, while signalling refuses an unverified PID.
+See the [native exec contract](../../docs/09-integrations.md#apis-in-each-language).
+The optional [R2 backup gateway subset](../../packages/cellar-cloudflare/r2.md)
+adds native resumable object storage for published gateway operations; complete
+helper backup/restore has a separate matching-image qualification campaign.
+The native [outbound transport and network helper](../cellar-egress/README.md)
+now supply bounded streams, acknowledged firewall rules, persistent DNS and
+joined process retirement. An explicit native host profile also starts an owned
+helper before its application and removes the pair together. The optional HTTP
+profile below routes those streams to native services.
+
+### Optional native network-helper lifecycle
+
+The hosting Rust process selects this profile for any handler language. Supply
+an immutable Linux image containing `cellar-egress` and nftables; image packaging
+and release qualification remain separate work. Existing hosts use
+`network_helper: None`.
+
+```rust,no_run
+use cellar::sdk::{ContainerEngineOptions, ContainerNetworkHelperOptions};
+
+fn engine(
+    socket: std::path::PathBuf,
+    helper_image: String,
+) -> anyhow::Result<ContainerEngineOptions> {
+    Ok(ContainerEngineOptions {
+        socket,
+        namespace: Some("my-native-host".into()),
+        runtime: Some("runc".into()),
+        dns: Vec::new(),
+        network_helper: Some(ContainerNetworkHelperOptions::new(
+            helper_image, // full sha256: ID or verified cellar-image: identity
+            "/opt/cellar-egress/bin/cellar-egress".into(),
+            "1.1.1.1:53".parse()?,
+        )),
+    })
+}
+```
+
+| Boundary | Native behavior |
+| --- | --- |
+| Startup | Attach the exact helper ID, await readiness, then create/start the application |
+| Runtime | Explicit `runc`; other runtimes refuse this profile before allocation |
+| Namespace | Application joins its run's helper; the application retains no `NET_ADMIN` capability |
+| Ports / DNS | Helper owns at most 64 combined image/class TCP publications and its explicit DNS upstream |
+| Capacity | Reserve another 256 MiB for each allocated helper until removal is confirmed |
+| Idle reconnect | Preserve the same application/helper IDs and join the old inactivity timer |
+| Ownership loss | Retire private transport before waiting for SDK control; remove the application before the helper |
+| Helper loss | Refuse usable routing, publish the failure and clean up both owned resources |
+
+On macOS, the helper selects available local port candidates and holds them
+through container creation. It releases those reservations before daemon startup
+so the VM forwarder can bind. This is not an atomic port handoff; a working
+daemon forwarder remains required.
+
+The lifecycle option and HTTP provider opt-in are separate. See the
+[real Engine campaign](../../tools/sandbox/egress/README.md) for evidence and gaps.
+
+### Route outbound HTTP to a native service
+
+Enable `Native.with_http_interception()` in the host's provider configuration
+and configure the `runc` network helper above. Ordinary `Native`, E2B and Vercel
+omit this operation from capability discovery and refuse it before dispatch.
+
+```mermaid
+sequenceDiagram
+    participant DO as Root cell
+    participant H as Native host
+    participant C as Container/helper
+    participant A as Ownership actor
+    participant S as Declared service
+    DO->>H: Install target + service/export + copied props
+    Note over DO,H: Installing event can end
+    C->>H: HTTP message on intercepted connection
+    H->>A: Fresh scope/epoch Service gate
+    A-->>H: Ownership and durability proof
+    H->>S: Captured deployment and entrypoint
+    S-->>C: Streamed HTTP response
+```
+
+The Workers facade accepts a declared service binding or an exported entrypoint:
+
+```ts
+await this.ctx.container.interceptOutboundHttp(
+  "backups.internal",
+  this.ctx.exports.Gateway({ props: { binding: "BACKUPS" } }),
+);
+await this.ctx.container.interceptAllOutboundHttp(this.env.OUTBOUND_GATEWAY);
+```
+
+Portable facades select a host-declared service binding by name:
+
+| Language | Install a target |
+| --- | --- |
+| Rust native SDK | `ctx.container()?.intercept_outbound_http(&ctx, "*.example.test", &ctx.service("API")?).await?` |
+| JavaScript / TypeScript | `await ctx.container.interceptOutboundHttp("*.example.test", "API")` |
+| Python | `await ctx.container.intercept_outbound_http("*.example.test", "API")` |
+| Common bridge | `container.intercept_outbound_http`, input `{"target":"*.example.test","service":{"kind":"binding","binding":"API"}}` |
+
+| Boundary | HTTP profile behavior |
+| --- | --- |
+| Targets | Hostname, wildcard, IP/CIDR or catch-all; plain HTTP on port 80 |
+| Before start | Hold bounded native route metadata; acknowledge helper rules before allocating the application |
+| After start | Replace the same target in its original position; resolve the current handler for each message, including retained TCP connections |
+| Route lifetime | Container run; no installing event, activation, guest closure or guest environment is retained |
+| Authority | Host-minted scope, epoch and exact nonzero deployment generation; fresh Service gate per request; retired deployments refuse |
+| Unmatched traffic | Marked direct connection through the helper's configured network policy |
+| Resource bounds | 128 interceptor entries; hostnames and catch-all cost two, IP/CIDR one; 64 KiB captured route; 128 / 64 KiB headers; 8 KiB URL |
+| Bodies | Stream with backpressure; buffered response prefix at most 1 MiB; stop transport and joined handlers on retirement |
+| Refusal | Fixed 502 before response publication; later body failure closes the stream; no replay |
+| Gaps | HTTPS interception, upgrades, trailers and full persistence/fault qualification |
+
+Node Workers gateways opt in to incoming body streaming with
+`Source::workers_http_streams()`. Each source pull uses the original invocation
+and the configured per-chunk body limit; EOF, cancellation and errors release
+the native reader. The ordinary SDK retains its buffered request limit.
+
+The matching-image [Sandbox 1.0.3 fixture](../../tools/sandbox/cloudflare-v1/backups.mjs)
+uses the published `DirectoryBackup` and `DirectoryBackupGateway`; its
+[qualification instructions](../../tools/sandbox/cloudflare-v1/README.md)
+keep SDK/image evidence separate from router and provider tests. S3 mounts and
+complete Sandbox 1.x compatibility remain open.
+
+Known-length R2 uploads use native anonymous-file part staging with bounded
+bridge chunks, host scratch byte/file limits and atomic receipt replacement.
+The [native upload contract](../cellar/application/blob/README.md#stage-a-large-part-with-bounded-memory)
+also exposes this path to Rust applications. It requires a separately declared
+backend capability.
+
+The directory-backup campaign also restores from fresh native/Node processes
+and checks allocation-time cancellation, missing/corrupt archives, destination
+preservation and grant revocation. Selected first-chunk cancellation and failed
+completion/deletion acknowledgements also preserve their failure outcomes without
+mutation replay. The published SDK and matching image also cover a failed create
+acknowledgement and a hard crash with a stored part awaiting its receipt. A third
+host reclaims expired uploads, reaps the exact crashed application/helper IDs and
+restores the original archive. Broader crash boundaries, larger/multi-part and
+verified-swap cancellation and lost transport responses remain open. Local Blob storage
+uses fixed deadlines and bounded, domain-owned orphan collection; see the
+[expiry contract](../cellar/application/blob/README.md#expiry-and-abandoned-uploads)
+for scope, shutdown, clock and remote-provider limits.
+
+
 ## Understand lifetime and failure outcomes
 
 | Resource | Lifetime / cleanup |
@@ -272,6 +471,30 @@ its inactivity window. Ownership transfer, reset, node restart or shutdown can
 destroy it. Persist job progress in cell state and expect a fresh process after
 takeover.
 
+| Native idle transition | Cleanup behavior |
+| --- | --- |
+| Idle eviction | Arm removal for the configured inactivity window |
+| Successful reconnect | Cancel and join the previous timer before returning |
+| Failed discovery/adoption | Retain the original cleanup deadline |
+| Another idle eviction | Replace and join the prior timer; use the new window |
+| Explicit ownership release | Cancel and join the timer before owned removal |
+| Removal already admitted | Finish exact-resource removal before reconnect or replacement |
+
+Native daemon operations retain the resource selected for that run:
+
+| Identity | Native behavior |
+| --- | --- |
+| Cell scope | Application identity across events and activations |
+| Container name | Creation/discovery key; discovery verifies node, host, cell and class labels |
+| Full Engine ID | Captured at creation or owned adoption; used by wait, exec, files, signals and removal |
+| Run counter | New process/file operations require the current run; older waiters retain their original ID |
+| Host restart cleanup | Validates full IDs and host/node labels before removing each owned resource |
+
+Renaming an owned container does not redirect its captured operations. A foreign
+container that later occupies the old name cannot be adopted or removed by those
+operations. A lost create response still needs owned discovery or reconciliation;
+it does not authorize replay.
+
 Remote provider bindings retain their journal across host configuration changes.
 Changing the provider or its durable configuration identity requires confirmed
 retirement of the previous resource:
@@ -285,7 +508,10 @@ retirement of the previous resource:
 This supports host-controlled E2B/Vercel replacement without clearing cell state.
 Changing a provider does not resolve a lost outcome or revoke work already
 accepted remotely. Keep the original configuration available until cleanup is
-confirmed. Background orphan cleanup and remote fencing remain separate work.
+confirmed. Optional [native supervision](supervision.md) schedules expiry and
+cleanup. Selected cold-restart, removed-class and owner-expiry paths pass native
+fleet tests with protocol peers. Live-account qualification, wider fault cases
+and remote fencing remain separate work.
 
 ![For a control call, the session validates inputs and authority, waits for the required durability proof, invokes the provider, then checks authority and reply limits before returning.](diagram/control-call.svg)
 

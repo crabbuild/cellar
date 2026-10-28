@@ -158,6 +158,88 @@ async fn race(transition: Transition) -> Result<()> {
     )
     .await?;
     super::super::ready(&destination).await?;
+    let client = client()?;
+    // Prepare the original lease locally before starting its remote callers.
+    // Their peer tunnels must not age alongside the 30s delivery lease.
+    for worker in ["projection", "competitor"] {
+        ensure!(
+            call(
+                &client,
+                &destination,
+                reqwest::Method::GET,
+                &format!("/?source={worker}")
+            )
+            .await?
+                == "destination:0"
+        );
+    }
+    ensure!(
+        call(
+            &client,
+            &destination,
+            reqwest::Method::POST,
+            "/write?source=producer"
+        )
+        .await?
+            == "destination:1"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while status(&client, &destination).await?["end"] != "2" {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("wait for original event")??;
+    let original = fetch(&client, &destination, FIRST, "projection").await?;
+    ensure!(original["processed"] == 1);
+    let receipt = Receipt::decode(
+        original["batch"]["receipt"]
+            .as_str()
+            .context("original receipt missing")?,
+    )?;
+    let original_state = status(&client, &destination).await?;
+    ensure!(
+        original_state["checkpoint"] == "0"
+            && original_state["observation"]["lease_active"] == true
+    );
+    ensure!(
+        fetch(&client, &destination, COMPETING, "competitor").await?
+            == json!({"error":"LeaseBusy"})
+    );
+    ensure!(status(&client, &destination).await?["lease"] == original_state["lease"]);
+    let target = number(&original["batch"]["issued_ms"])? + 60_000;
+    if matches!(transition, Transition::Acknowledge) {
+        let extension = number(&original["batch"]["expires_ms"])? + 1_000;
+        for _ in 0..2 {
+            ensure!(
+                settle(
+                    &client,
+                    &destination,
+                    "projection",
+                    "extend",
+                    &receipt,
+                    extension
+                )
+                .await?
+                    == json!({"expires_ms":extension.to_string()})
+            );
+        }
+        ensure!(
+            status(&client, &destination).await?["lease"]["expires_ms"].as_str()
+                == Some(extension.to_string().as_str())
+        );
+    }
+    // Start the consumer late enough that even startup RPC connections remain
+    // younger than their idle limit through the original settlement budget.
+    // Initialization remains outside those calls and their submission barrier.
+    if matches!(transition, Transition::Expire) {
+        let remaining = number(&original["batch"]["expires_ms"])? - wall_ms()? - 10_000;
+        if remaining > 0 {
+            tokio::time::sleep(Duration::from_millis(remaining as u64)).await;
+        }
+    }
+    let consumer_started = Instant::now();
     let (mut config, services) = inputs(
         "settlement-consumer",
         &directory.path().join("consumer"),
@@ -177,12 +259,10 @@ async fn race(transition: Transition) -> Result<()> {
     );
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
+    let tunnel_idle = config.runtime.rpc_tunnel_idle_timeout;
     let consumer = Node::start(config, services, external, applications("consumer")?).await?;
     super::super::ready(&consumer).await?;
-    let client = client()?;
-    // Place separate acknowledgment/extension callers on the consumer node so
-    // both signed requests must cross the real destination peer proxy.
-    for worker in ["projection", "lease-ack", "lease-extend", "competitor"] {
+    for worker in ["lease-ack", "lease-extend"] {
         ensure!(
             call(
                 &client,
@@ -194,62 +274,6 @@ async fn race(transition: Transition) -> Result<()> {
                 == "consumer:0"
         );
     }
-    ensure!(
-        call(
-            &client,
-            &consumer,
-            reqwest::Method::POST,
-            "/write?source=producer"
-        )
-        .await?
-            == "consumer:1"
-    );
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while status(&client, &destination).await?["end"] != "2" {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        Ok::<_, anyhow::Error>(())
-    })
-    .await
-    .context("wait for original event")??;
-    let original = fetch(&client, &consumer, FIRST, "projection").await?;
-    ensure!(original["processed"] == 1);
-    let receipt = Receipt::decode(
-        original["batch"]["receipt"]
-            .as_str()
-            .context("original receipt missing")?,
-    )?;
-    let original_state = status(&client, &destination).await?;
-    ensure!(
-        original_state["checkpoint"] == "0"
-            && original_state["observation"]["lease_active"] == true
-    );
-    ensure!(
-        fetch(&client, &consumer, COMPETING, "competitor").await? == json!({"error":"LeaseBusy"})
-    );
-    ensure!(status(&client, &destination).await?["lease"] == original_state["lease"]);
-    let target = number(&original["batch"]["issued_ms"])? + 60_000;
-    if matches!(transition, Transition::Acknowledge) {
-        let extension = number(&original["batch"]["expires_ms"])? + 1_000;
-        for _ in 0..2 {
-            ensure!(
-                settle(
-                    &client,
-                    &consumer,
-                    "projection",
-                    "extend",
-                    &receipt,
-                    extension
-                )
-                .await?
-                    == json!({"expires_ms":extension.to_string()})
-            );
-        }
-        ensure!(
-            status(&client, &destination).await?["lease"]["expires_ms"].as_str()
-                == Some(extension.to_string().as_str())
-        );
-    }
     if matches!(transition, Transition::Expire) {
         // Preserve the ordinary 30s lease and 3s operation budget. Wait outside
         // the calls, then hold both original requests across actual expiry.
@@ -258,6 +282,10 @@ async fn race(transition: Transition) -> Result<()> {
             tokio::time::sleep(Duration::from_millis(remaining as u64)).await;
         }
     }
+    ensure!(
+        consumer_started.elapsed().saturating_add(budget) < tunnel_idle,
+        "remote caller setup exhausted the fresh-tunnel window"
+    );
     proxy
         .capture
         .hold_requests(&["__streamAck", "__streamExtend"]);
@@ -347,7 +375,7 @@ async fn race(transition: Transition) -> Result<()> {
                     "/write?source=producer"
                 )
                 .await?
-                    == "consumer:2"
+                    == "destination:2"
             );
             tokio::time::timeout(budget, async {
                 while status(&client, &destination).await?["end"] != "3" {

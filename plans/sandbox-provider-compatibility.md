@@ -63,10 +63,10 @@ revisions. Package drift must invalidate the corresponding compatibility result.
 | Target | Application contract | Execution path | Status |
 | --- | --- | --- | --- |
 | Docker/compatible Podman | Existing Cellar container facades | Existing local native engine | Implemented |
-| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices; full profile pending |
+| Cloudflare Workers/Durable Objects | Versioned modules, web APIs, bindings, lifecycle/storage/alarms and required RPC | Optional language runtime adapter above native Cellar | Partial runtime slices, including Node native service/loopback entrypoints, props and value RPC; full profile pending |
 | Cloudflare Containers | `ctx.container` and published `@cloudflare/containers` profile | Local provider first; capable remote providers later | Partial local package profile |
 | Cloudflare Sandbox 0.12.9 | Published Sandbox class and matching control-server image | Local provider first; package requirements govern other providers | Basic routes, in-object/HTTP/direct-RPC incremental execStream, RPC binary SDK upload and selected HTTP/WebSocket preview paths pass; complete lifetime/fault qualification pending |
-| Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Planned next profile |
+| Cloudflare Sandbox 1.x | Direct container API plus matching package helpers/shim | Independently versioned profile | Selected Node exec/Files operations and automatic byte-source stdin pass with the pinned 1.0.3 helper/image; full profile partial |
 | Vercel Sandbox / E2B | Portable Cellar sandbox operations; selected Cloudflare surface where capabilities permit | Provider adapters and durable remote bindings | Experimental bounded exec/files; live-account qualification pending |
 | Daytona / Modal | Same portable operations plus declared extensions | Provider adapters and durable remote bindings | Planned |
 | Dynamic Workers | Isolated module execution with explicit bindings and limits | Separate optional runtime capability; hosted Worker gateway if selected | Planned extension |
@@ -198,13 +198,14 @@ qualification remains open.
 
 | Order | Remaining delivery | Why next |
 | --- | --- | --- |
-| 1 — qualification | Cold-first-call investigation and remaining callback failure/cancellation/timeouts | The 250 ms module timeout and alarm-start failure reproduced in this campaign; a fresh full module run passes unchanged. Timing narrows the delay to native routing/activation before the DO's JS handler, but does not establish a fix |
-| 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer failure qualification | Explicit reconciliation, named slots and replacement after confirmed retirement now work through the shared boundary. Background controllers still need host-owned authority, completion fencing and recoverable cleanup |
-| 3 | Separately pinned Sandbox 1.x; additional providers and Dynamic Workers | Extend only with explicit operation/version and failure evidence |
+| 1 — qualification | Free-threaded typed RPC, peer-proxy lifetime, cold recovery, cold-first-call and heartbeat | Current main's RPC admission/idle-reuse protection is merged. At head `9dc616ec`, Linux JavaScript/Node fails accepted-create owner-expiry recovery; its exact local test and full five-case fleet suite pass, with new bounded failure observations at unchanged budgets. The same head's outbound workflow and free-threaded typed RPC pass, while GIL typed RPC fails with a closed owner and `NodeLeaseExpired`. The renewal cause, earlier free-threaded finding, intermittent local 250 ms dispatch failure and heartbeat finding remain unproven; successful controls do not repair those qualification gaps. The later `7a7644b4` JavaScript/Node, outbound, Python and typed-RPC workflows pass; those controls do not establish the earlier failures’ causes |
+| 2 — feature delivery | Faulted fleet recovery, physical cell deletion and stronger provider lifecycle guarantees | Running-node and native fleet peers now cover expiry, lost responses, backend loss, cold restart, removed classes and accepted-create owner expiry. Provider API outage through repeated cold replacement and owner-specific store isolation now have native peer coverage; broader outages, partitions, physical deletion and provider-enforced fencing remain open |
+| 3 | Complete the separately pinned Sandbox 1.0.3 profile; additional providers and Dynamic Workers | Known-length native part staging and persisted local expiry are delivered. The matching published SDK/image now covers selected lost-create acknowledgement and hard-crash recovery: a replacement process reclaims unpublished rows, reaps the exact crashed application/helper resources and restores the earlier archive. Next deliver HTTPS and S3 mounts, and qualify lost transport responses, larger/multi-part and verified-swap cancellation and broader crash boundaries. Remote-provider expiry, additional providers and Dynamic Workers remain open; the evidence ledger preserves the detailed operation/profile inventory |
 
 Live E2B/Vercel qualification waits for the user's configuration. Local
 Cloudflare and shared-framework delivery can continue independently. SP-02–SP-06
-remain partial; SP-07–SP-09 and full SP-10 release qualification remain open.
+and the selected SP-07 delivery remain partial; SP-08–SP-09 and full SP-10
+release qualification remain open.
 
 ## Sources and implementation entry points
 

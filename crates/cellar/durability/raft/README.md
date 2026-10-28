@@ -14,6 +14,64 @@ under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
+The verification archive interface can store an exact committed extent snapshot
+through `CellArchive::store_root_snapshot` and load its immutable
+`RootArchiveReference` through `load_root_snapshot_at`. A bounded metadata object
+binds the namespace, canonical native snapshot and extent manifest. Distinct
+domain-separated extent objects are conditionally created and independently
+read back before that metadata reference is returned. Loading reads every exact
+remote dependency even when local objects exist, independently verifies/syncs
+the destination and retains its complete image seal through preparation. Two
+object windows fit the existing physical allowance, including response/output
+copies; sealing allocates its 4 MiB workspace after the entered reads finish.
+The source engine must remain open while source bytes are read.
+
+Those two methods transfer immutable data only. The common committed archive
+interface also accepts `CommittedArchiveCut::capture_root`: it publishes a
+conditional head binding that exact native root and its Blob dependencies.
+Before advancing a head it independently checks the selected old closure and
+the new closure. Missing or corrupt selected material refuses publication;
+current source bytes cannot silently repair it. Each root cut is complete and
+does not contain a flat snapshot or an LTX replay tail.
+
+`recovery_metadata` reads only bounded root/native metadata. Complete root
+recovery requires `with_root_store` and authenticates the exact remote closure
+before returning an inventory-owned seal. `recovery_set_at` never substitutes
+a newer head. Physical APIs refuse the other representation instead of
+flattening or converting commitments. Existing-member installation still needs
+the receiving engine's exact ticket. The fresh-learner preparation path uses
+the same authenticated grant, birth, learner/barrier and owner checks as flat
+seeding, then retains the already sealed root. Remote dependency retention/GC,
+demand loading and full-size recovery qualification remain under implementation.
+
+`NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by
+default or explicitly selects `Extents`. The choice is persisted in the immutable
+namespace contract. Extent replicas, standbys and joining members require
+`RaftHostOptions::extents`; startup checks this physical policy before writing
+catalog state. The `/extent-owners-1` protocol capability is a coordinated
+marker-1 hard cutover, with no history conversion or older-state reader.
+`RaftCellsConfig::with_extent_image_limit` configures an extent-only deployment
+up to decimal 10 GB without reserving full-image snapshot spools. Command/delta
+limits remain bounded independently. Its inventory must admit current,
+checkpoint, prepared and receiving roots plus a private workspace; capacity
+checks are admission floors, not a promise that every configured cell fits.
+
+One node owner shares `<raft-cells>/extent-inventory` across every group. Before
+GC starts, it rebuilds references from all durable engine groups, including
+groups omitted from the current registrations. A joined blocking job reclaims
+bounded batches; per-cell receive pins protect in-flight dependency closures.
+Already sealed capabilities update checkpoint retention through metadata only,
+so the async Raft driver does not wait for inventory I/O. Physical mutations
+serialize on blocking owners. Each cell's disposable cache is outside the
+inventory, and the node's shared cache scratch pool bounds those files.
+`RaftCells::resource_usage().extents` reports actual inventory counters through
+a weak observer that releases the directory lock after joined shutdown.
+
+Both representations use the existing physical image owner for committed
+queries, Blob archive capture and the effect scheduler. Extent recovery still
+requires every selected extent to be verified locally before installation;
+public selection alone does not establish the 10 GB recovery-time targets.
+
 `RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
 changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
 against their pinned committed image. Actual bytes share the command transaction
@@ -61,10 +119,11 @@ business/output, control, archive-capture and query-reader usage/capacity withou
 I/O or group enumeration. The internal generation-bound, authenticated
 `/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
 and incoming/outgoing transport and snapshot/metadata banks, without identity
-labels or callback execution. Available sources use 68 fixed sample identities;
-unavailable sources omit their values rather than synthesizing zero. A weak
-transport observer cannot retain the transport/engine after joined shutdown.
-Image, lag, connection concurrency and controller views remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+labels or callback execution. Live SQL, image, group and transport sources use
+111 fixed samples. A configured controller and a live extent inventory each
+add 13 samples. Unavailable sources omit their values rather than synthesizing
+zero. Weak transport and inventory observers cannot retain physical resources
+after joined shutdown. The [operations contract](../../../../plans/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
@@ -395,6 +454,53 @@ Its private `images` module selects physical command/read adapters beneath the
 shared controller. The extent branch is exercised by the worker integration
 fixtures; public node configuration retains the materialized backend until the
 extent recovery and effect contracts are integrated.
+
+The verification facade now has `RootSnapshotSource` and `RootSnapshotSet` for
+complete local extent-closure transfer. Capture pins a coherent durable root
+and emits the existing native snapshot descriptor plus its canonical manifest;
+it does not encode or spool the full SQLite image. Group/birth/schema, exact
+Raft cut and configuration, LTX state, geometry, manifest length and digest all
+remain bound. A cached source checks the exact live engine owner before reuse.
+Each declared dependency is independently rehashed before source bytes escape,
+including after an earlier local seal. Foreign objects remain inaccessible
+through that root even if present elsewhere in the shared inventory.
+
+Receivers decode against either a local group or a catalog birth, import only
+declared exact-length extents through the node store's independent destination
+verification and sync barriers, and seal only after the entire local closure is
+verified. Exact existing objects are verified and reused without being
+overwritten. The caller admits the 4 MiB object buffer and sealing workspace
+and runs their I/O on a registered blocking owner. These are data/metadata
+capabilities; they do not create a seed grant or applied engine marker.
+`RootSnapshotSet::prepare` revalidates the receiving group and seals its complete
+local closure into the ordinary `PreparedSnapshot`. Its completion requires the
+exact runtime ticket, engine owner, replica, cut and snapshot digest. Pending
+root retention precedes engine persistence; post-sync retention selects the
+snapshot root before releasing the pending reference. `publish_root` then
+observes the matching durable engine marker and independently adopts the image
+through the publishing applier's own inventory. Metadata, another inventory's
+root or a successful completion request cannot make an image queryable early.
+The ordinary member-only TLS transport now carries canonical root streams:
+the manifest followed by each unique extent in sorted identity order. Its
+required `transfer_length` binds their exact aggregate byte count separately
+from the manifest length/digest; no flat SQLite digest or full-image spool is
+invented. A source caches at most one verified extent across wire windows, and
+a joined physical receiver imports one complete object at a time. It drops that
+object buffer before sealing allocates its separate workspace. Source capture,
+retained checkpoints, receiver preparation and post-sync publication select the
+same physical backend through the SQL owner. A newer applied root cannot replace
+a requested older checkpoint. Fresh-learner physical seeding reuses the existing
+opaque live grant, birth/learner/barrier checks and atomic engine/member fence.
+It is not a grant reconstructed from a manifest or cached membership.
+
+This is an internal marker-1 hard cutover: canonical descriptors require the
+transfer length, and peer/control and snapshot/seed authentication identities
+refuse the older protocol. Use fresh experimental native state and matching
+workers; there is no legacy descriptor reader or migration. RustFS root archival,
+node-wide inventory recovery/GC, public backend selection and full fresh-learner
+root qualification remain unfinished. Partial residency still cannot produce a
+`SealedImageRoot`.
+
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
@@ -407,6 +513,38 @@ and any application work until encoding exits. The same source admission bounds
 checkpoints and transfers. Queries and commands can continue while a snapshot is
 encoded; an encoding completion cannot clear a newer SQL operation's busy flag.
 The `snapshot_encode` performance timer records this work separately from SQL.
+Source observations also distinguish seed, checkpoint and transfer encoders,
+with completed encoded-byte counters and a separate blocking-queue timer.
+The host keeps one prepared encoded peer/checkpoint body under the shared
+snapshot scratch byte/file limits. Reuse requires the same engine owner, complete
+replica identity, birth, schema and immutable generation marker, plus compatible
+consumer limits. Each request independently rebuilds its durable cut,
+configuration, membership and authorization. The fixed
+`snapshot_prepared_hits`, `snapshot_prepared_misses` and
+`snapshot_prepared_reused_bytes` counters report reuse; purpose-specific encoded
+bytes count only new encoding.
+
+A node-wide registered blocking owner alone reads, evicts and closes the cached
+file. Consumer handles own metadata/mailboxes only. One operation slot, one key
+slot and two handle slots bound additional metadata to 256 KiB. Source admission
+continues to cover codec/wire work. Replacement or incoming peer/archive recovery
+can evict an idle body; live consumers prevent replacement. A physical archive
+publisher also trims idle bytes on scratch exhaustion before its ordinary retry,
+so the cache cannot strand publication on a small bank. Cancellation retains
+admission through physical work, and transport shutdown joins the owner even
+with held handles or an unpolled stop observer. The outgoing complete-stream
+digest invalidates corrupt cached bytes before the final chunk. Independent
+destination sealing remains required. Standalone capture and archive publication
+keep their existing file/proof paths.
+
+Recovery observations separate authorization, peer receive/append, archive fetch,
+physical verification/replay and durable installation. Source archive-wait timing
+includes retries until coverage reaches the fresh ReadIndex; outcomes preserve
+failure and abandonment. Duration buckets resolve recovery costs through one
+hour. These are node-wide bounded observations, not publication proofs or exact
+recovery percentiles. The [cold-recovery campaign](../../../../tools/perf/recovery-README.md)
+measures owner-loss through the first local verified read and durable write;
+its embedded pilots do not qualify hard OS-process crashes or an RTO.
 Physical verification and runtime checkpoint/install authorization still precede
 publication, and shutdown joins the encoder before releasing its owners.
 
@@ -716,6 +854,19 @@ for request admission and Raft work. The existing producer limit bounds worker
 count; capture reservations remain charged through physical cleanup, and the
 driver joins publication workers before releasing their slots during shutdown.
 
+`RaftArchiveOptions::max_blocking_jobs` separately bounds local archive
+encoding/verification jobs across every producer on the node (one to four,
+default one). Captured publication clones and the verifier share this admission;
+resident archive instances retain their original host for foreground recovery.
+The adapter preserves the injected filesystem, clock and executor. It submits a
+physical job only after admission and moves the slot into that job, so canceling
+its waiter cannot refund an executor-queued or running operation. Shutdown
+refuses queued admission, then joins entered work through the ordinary domain
+owner. `archive_physical_admission` reports the new admission wait, and
+`archive_physical_queue` reports the subsequent executor wait. Existing producer
+and memory bounds still apply. This does not cap object-store bandwidth or
+guarantee foreground latency under a saturated shared filesystem.
+
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is
 persisted in the receipt; stronger retries wait without executing or proposing
@@ -777,13 +928,14 @@ root, birth, schema, object kind, exact term/index range, offset, length and
 payload checksum. Ordered, non-overlapping members partition the body exactly.
 Recovery verifies the complete bounded bundle and selected member before replay;
 a foreign member or corrupt byte cannot supply a successful recovery set. Each
-cell physically replays its own complete snapshot/tail/dependency set before its
-head CAS. Partial publication across members is allowed; no cross-cell atomic
+cell supplies its own verified physical replay projection before its head CAS.
+A node-owned memo may reuse an earlier successful replay of identical inputs,
+as described below. Partial publication across members is allowed; no cross-cell atomic
 commit or shared durability proof is claimed. Batching can retain two complete
 recovery sets; resource reservations are not a physical RSS qualification.
 
-This archive reference change is a marker-1 hard cutover with protocol identity
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`. Use a fresh
+The current marker-1 protocol identity is
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`. Use a fresh
 experimental namespace/prefix and local state. Earlier measurement evidence keeps
 its original executable and storage format; no migration reader is provided.
 
@@ -807,6 +959,34 @@ replay without downloading the producer's own parts again. It remains bound to
 the exact snapshot reference and complete image state. Source scratch admission
 stays charged until the recovery set's last physical owner drops; failed
 confirmation or replay returns no new head proof.
+
+The verifier keeps one fixed SHA-256 key for its last successful physical
+replay. It binds scope/root/birth/schema, the actual encoded base identity,
+base/final image states, policy bounds, all ordered data-bearing entries and
+verified dependencies. Configuration-only entries and logical cuts are excluded
+from this SQL projection. They still undergo complete current configuration and
+member-binding validation.
+
+A recovery-set constructor records two private fingerprints only after its full
+source decode, object checks and metadata validation succeed. One is the physical
+projection; the other binds the complete manifest/reference, current cut and every
+entry, including configuration/context bytes. Before lookup, the verifier
+recomputes these fingerprints over bounded resident material and rejects changes
+since validation. Metadata streams into the hash without another serialization
+buffer. A hit needs no new destination or repeated full snapshot scan; the
+current set's constructor already verified its source. Each publication still
+reloads and authenticates its exact remote dependency closure. Missing/corrupt
+objects cannot be hidden or repaired by the memo.
+
+First use or changed physical inputs still require full independent destination
+replay, sealing, retirement and cleanup before the key is recorded. The scratch
+store stays empty between successful verifications; any physical failure
+quarantines it before lookup on later calls. New verifier owners start empty, and
+only one history's key is retained. The key owns no image, file, grant, remote
+retention capability or activation authority. Receiver restoration always
+performs its own physical seal. The existing `replay_complete` trace adds
+`reused` and `image_bytes` to distinguish the performed work. This optimization
+changes no wire marker or namespace protocol identity.
 
 Part publication overlaps at most two conditional writes/read-back confirmations
 per producer. Source reads and the whole-stream hash remain ordered; the index
@@ -848,6 +1028,20 @@ configuration/member bindings. No image parts are uploaded on this path.
 Missing or corrupt prior material remains a refusal. Full physical validation,
 independent destination sealing and head CAS still gate publication; ordinary
 recovery continues to download and verify every selected part.
+
+Bounded tails may also contain committed Raft configuration entries between
+ordinary SQLite updates. The manifest carries separate base and final
+configuration/member states. Recovery uses Raft's configuration changer and the
+same revision-bound member intents as live apply to replay simple changes,
+joint consensus and joint leave; its exact final state must match the manifest.
+Learner node/disk identities, join positions and retired-ID watermarks remain
+bound to the committed entries. A data update followed by learner admission can
+therefore retain the existing snapshot instead of uploading another full image.
+Tail count, byte and image-ratio limits still force checkpoints. Prior payload
+verification, complete image replay and independent destination sealing remain
+required, so this change alone does not eliminate full-image recovery work.
+Missing final-state fields are refused; this is a format-1 hard cutover under
+the protocol identity above, without an earlier-format reader.
 
 `archive/replay.rs` materializes bounded batches into a private image and seals
 only each batch's final generation. Every intermediate image still passes its
@@ -963,15 +1157,17 @@ The entry-count and cache-pressure triggers retain their local-snapshot contract
 even when S3 is unavailable. `checkpoint_entries = 0` disables all automatic
 compaction. The host pins and registers
 the exact requested source cut before sending `MsgSnapshot`. The receiver validates
-the descriptor against its local ticket, fetches ordered chunks and seals on its
-SQL owner. It waits for `SnapshotInstalled` before publishing the image and
+the descriptor against its local ticket and fetches ordered chunks. The SQL
+owner requests sealing from the receiver's registered file worker. It waits for
+`SnapshotInstalled` before publishing the image and
 releasing waiting reads. A snapshot arriving during older physical apply is
 aborted so that owner can complete before a fresh transfer. Late completions cannot
 authorize the new ticket. An authorized install must instead be joined.
 
 Snapshot bodies have separate node admission: one source capture/lease and one
-receiver, each charged for encoded bytes plus four maximum-image working copies.
-Neither consumes command/query output budgets. Defaults allow 128 MiB encoded,
+receiver. RAM admission covers bounded codec/wire windows; file-backed bodies
+and image generations have separate disk admission. Neither consumes command/query
+output budgets. Defaults allow 128 MiB encoded,
 1 MiB chunks, a 30-second whole-transfer deadline and the existing five-second I/O
 idle deadline. Source leases also bind the current member/process route; source
 pins survive checkpoint replacement until the lease completes or expires. Empty
@@ -980,6 +1176,25 @@ source lease; it never proves install. TLS framing authenticates both directions
 the descriptor digest, full physical route, transfer/offset and payload digest.
 Revisions and membership are rechecked throughout a transfer. Public status
 includes the durable checkpoint boundary without granting any authority.
+
+Peer snapshot and fresh-learner downloads reserve two payload windows before
+reading bodies, allowing the next authenticated chunk to arrive while the
+previous chunk is written. One registered blocking worker owns the scratch file
+through assembly, sealing and discard. Network buffers and file work share the
+same memory charge; cancellation refunds it only after their last owner drops.
+The transport joins that worker and its stop observer, including when a caller
+retains an unpolled download or an assembled handle. The SQL owner still owns
+installation/publication authority. No image-sized buffer or worker per cell is
+introduced. Native file adapters read and append each admitted window directly; injected
+providers retain their bounded fallback and uncertain writes poison the download.
+
+Transports configured for images of at least 256 MiB select Buffered codec I/O
+for admitted source encoding and destination verification. With 1 MiB wire chunks,
+the codec and wire allowance is 16.25 MiB per active transfer; smaller transports
+retain Compact and a 9 MiB allowance, including the one-extent/metadata floor. These are bounded reservations,
+not eager allocations or image-sized buffers. Standalone snapshot helpers retain
+Compact defaults. Both profiles produce identical encoded identities and require
+the same complete physical verification before installation.
 
 The native recovery drills isolate a follower until its leader has compacted the
 missing prefix, then require physical snapshot installation and an AtLeast query.
@@ -996,10 +1211,13 @@ descriptor and re-encoded payload; a replaced checkpoint is refused. A captured
 package pins its bytes through subsequent checkpoint replacement and reclamation.
 Empty checkpoints retain no image or payload.
 
-The 64-MiB database limit remains unchanged. Full LTX framing, index entries and
-compression overhead can exceed that size, so snapshot, native image-restore and
-archive object budgets allow 128 MiB of encoded bytes. Configuration refuses
-budgets below a conservative full-snapshot bound before member storage opens.
+The default logical image ceiling remains 64 MiB; configured quotas extend to
+decimal 10 GB independently of command/delta limits. Full LTX framing, index
+entries and compression overhead can exceed the logical size, so the default
+snapshot, native image-restore and archive object budgets allow 128 MiB of encoded
+bytes. Larger cells need explicit image, snapshot, memory and disk admission.
+Configuration refuses budgets below a conservative full-snapshot bound before
+member storage opens.
 The component fixture transfers an exact 64-MiB incompressible SQLite database
 and restores its newer archived state after deleting both local node directories.
 It uses the in-memory object-store adapter; it does not qualify physical S3 or
@@ -1045,7 +1263,7 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
 
 
@@ -1090,6 +1308,8 @@ calls an explicit `DisasterFenceAuthority` before publishing a replacement birth
 The request preserves the logical cell, namespace and schema while selecting
 fresh group, incarnation and node identities. There is no permissive authority
 implementation or force flag. An S3 intent alone cannot stop a running quorum.
+This path supports `RaftImageStorage::Materialized`; extent-backed namespaces
+refuse before intent publication or infrastructure fencing.
 
 The authority must permanently stop the entire old deployment, including members
 absent from the selected archive, routers and effect workers, and revoke restart
@@ -1189,7 +1409,7 @@ during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
 This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1`; numeric format markers stay 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; numeric format markers stay 1.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

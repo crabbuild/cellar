@@ -53,15 +53,38 @@ impl Driver {
         // Source admission bounds every encoder, including checkpoints. The
         // blocking owner retains the pin, scratch charges and application work
         // even if its network/request waiter is cancelled. Shutdown joins jobs.
+        use super::super::performance::{Counter, Operation};
+        let observation = match &purpose {
+            SqlPurpose::Seed(_) => Some((
+                Operation::SnapshotSeedEncode,
+                Counter::SnapshotSeedEncodedBytes,
+            )),
+            SqlPurpose::Checkpoint => Some((
+                Operation::SnapshotCheckpointEncode,
+                Counter::SnapshotCheckpointEncodedBytes,
+            )),
+            SqlPurpose::SnapshotSource(_) => Some((
+                Operation::SnapshotTransferEncode,
+                Counter::SnapshotTransferEncodedBytes,
+            )),
+            _ => None,
+        };
         let checkpoint = matches!(&purpose, SqlPurpose::Checkpoint);
         let performance = self.local.performance.clone();
+        let prepared = self.transport.prepared_snapshot_cache();
+        let queued = performance.timer(super::super::performance::Operation::SnapshotEncodeQueue);
         let job = self.log.domain().blocking(move || {
+            queued.finish(true);
             let _work = work;
-            let timer = performance.timer(super::super::performance::Operation::SnapshotEncode);
+            let timer = performance.timer(Operation::SnapshotEncode);
+            let purpose_timer = observation.map(|(operation, _)| performance.timer(operation));
             let result = capture
-                .encode()
+                .encode_prepared(&prepared, reservation.io_profile())
                 .map_err(super::super::execution::storage)
-                .map(|package| {
+                .map(|(package, reused)| {
+                    if let Some((_, counter)) = observation.filter(|_| !reused) {
+                        performance.increment(counter, package.encoded_file_bytes() as u64);
+                    }
                     let value = if checkpoint {
                         let material = Box::new(package.checkpoint_material());
                         drop(package);
@@ -79,6 +102,9 @@ impl Driver {
                     }
                 });
             timer.finish(result.is_ok());
+            if let Some(timer) = purpose_timer {
+                timer.finish(result.is_ok());
+            }
             result
         });
         self.jobs.push(Box::pin(async move {
@@ -177,11 +203,12 @@ impl Driver {
         });
         self.refuse(&scope, CommandFailure::Unavailable);
         if !abort {
+            let extents = self.cells.get(&scope).and_then(|cell| cell.extents.clone());
             let transport = self.transport.clone();
             let limits = self.snapshot_limits;
             self.jobs.push(Box::pin(async move {
                 let result = transport
-                    .fetch_snapshot(&ticket, source, snapshot, limits)
+                    .fetch_snapshot(&ticket, source, snapshot, limits, extents)
                     .await;
                 Job::SnapshotFetched {
                     ticket,

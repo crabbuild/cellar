@@ -26,6 +26,7 @@ pub const FAIL_SYNC_HOLD_LOCK_DROP: u8 = 9;
 pub const HOLD_LOCK_DROP: u8 = 10;
 pub const HOLD_IMAGE_READ: u8 = 11;
 pub const HOLD_SNAPSHOT_TEMP: u8 = 12;
+pub const HOLD_EXTENT_READ: u8 = 13;
 
 pub struct Gate {
     pub mode: AtomicU8,
@@ -158,12 +159,18 @@ impl HostFileIo for FaultFile {
             let paths = self.gate.image_read_paths.lock().unwrap();
             paths.is_empty() || self.image && paths.contains(&self.path)
         };
+        let mode = self.gate.mode.load(Ordering::Acquire);
+        let extent = mode == HOLD_EXTENT_READ
+            && self
+                .path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("e-"));
         if !self.log
-            && selected
+            && (mode == HOLD_IMAGE_READ && selected || extent)
             && self
                 .gate
                 .mode
-                .compare_exchange(HOLD_IMAGE_READ, OFF, Ordering::AcqRel, Ordering::Acquire)
+                .compare_exchange(mode, OFF, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
         {
             self.gate.pause()?;
@@ -252,6 +259,10 @@ impl FileSystem for FaultFileSystem {
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata> {
         DirectFileSystem.metadata(path)
+    }
+
+    fn symlink_metadata(&self, path: &Path) -> io::Result<HostMetadata> {
+        DirectFileSystem.symlink_metadata(path)
     }
 
     fn create(&self, path: &Path) -> io::Result<HostFile> {

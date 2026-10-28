@@ -61,8 +61,27 @@ pub(crate) fn scan(
             sqlite_vec: false,
         },
     )?;
-    let connection = database.connection();
-    let client = super::system_client(image.scope())?;
+    scan_connection(
+        database.connection(),
+        image.scope(),
+        image.position(),
+        class,
+        now,
+        prefer_delivery,
+        reservation,
+    )
+}
+
+pub(crate) fn scan_connection(
+    connection: &rusqlite::Connection,
+    scope: &cellar_logic::consensus::GroupScope,
+    position: LogPosition,
+    class: &RaftClass,
+    now: u64,
+    prefer_delivery: bool,
+    reservation: Permit,
+) -> Result<EffectScan> {
+    let client = super::system_client(scope)?;
     let last:Option<Vec<u8>>=connection.query_row("SELECT CASE WHEN typeof(last_sequence)='blob' AND length(last_sequence)=8 THEN last_sequence ELSE NULL END FROM __sys_raft_clients WHERE client_id=?1",[client.bytes().as_slice()],|row|row.get(0)).optional()?;
     let last = last
         .map(|bytes| {
@@ -104,7 +123,7 @@ pub(crate) fn scan(
         CommandFailure::CorruptState
     );
     Ok(EffectScan {
-        position: image.position(),
+        position,
         next,
         due,
         _reservation: reservation,

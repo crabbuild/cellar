@@ -233,6 +233,11 @@ impl NamespaceCatalog {
         mut request: DisasterRecoveryRequest,
     ) -> Result<(GroupBirth, Intent, DisasterRecoveryRequest), CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
+        if self.config.image_storage != RaftImageStorage::Materialized {
+            return Err(CatalogError::Invalid(
+                "disaster recovery requires materialized image storage",
+            ));
+        }
         self.check_scope(&request.source)?;
         request.replacement.voters.sort_by_key(|m| m.member);
         request.replacement.learners.sort_by_key(|m| m.member);

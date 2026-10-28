@@ -335,12 +335,17 @@ impl NativeWorker {
                 self.config.compat.sqlite_vec,
             )?;
             if self.config.source_recovery {
-                let present = storage::outbox::retained_source(scope);
+                let present = (|| -> Result<bool> {
+                    Ok(storage::outbox::retained_source(scope)?
+                        || storage::container_bindings::list(scope)?
+                            .iter()
+                            .any(|(_, checkpoint)| !checkpoint.record.is_retired()))
+                })();
                 if !matches!(present, Ok(true)) {
                     storage::close(scope);
                     present?;
                     return Err(anyhow!(
-                        "removed class has no retained source identity: {scope}"
+                        "removed class has no retained source identity or provider obligation: {scope}"
                     ));
                 }
             }
@@ -422,6 +427,7 @@ impl NativeWorker {
             });
         }
         Ok(Context {
+            container_supervision: self.application.container_supervision(),
             rpc_catalog: self.rpc_catalog.clone(),
             event_authority: None,
             catalog_authority: None,
@@ -718,9 +724,13 @@ impl NativeWorker {
             source_authority.is_some()
                 || state_authority.is_some()
                 || inventory_authority.is_some()
-                || work
-                    .as_ref()
-                    .is_some_and(|work| work.reason == cellar_logic::work::Reason::Outbox),
+                || work.as_ref().is_some_and(|work| {
+                    matches!(
+                        work.reason,
+                        cellar_logic::work::Reason::Outbox
+                            | cellar_logic::work::Reason::ResourceReconciliation
+                    )
+                }),
             Ordering::Release,
         );
         if scope
@@ -776,6 +786,7 @@ impl NativeWorker {
                         crate::runtime::source_control::invoke(context, invocation, authority).await
                     }));
                 }
+                crate::application::container_supervision::recover(&context)?;
                 if let Some(installation) = work {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
@@ -791,11 +802,21 @@ impl NativeWorker {
                                 .await
                             }
                             cellar_logic::work::Reason::ResourceReconciliation => {
-                                crate::application::event_stream::catalog::maintain(
-                                    context,
-                                    installation,
-                                )
-                                .await
+                                if context.identity().is_some_and(|id| {
+                                    id.class == crate::deploy::EVENT_CATALOG_CLASS
+                                }) {
+                                    crate::application::event_stream::catalog::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await
+                                } else {
+                                    crate::application::container_supervision::maintain(
+                                        context,
+                                        installation,
+                                    )
+                                    .await
+                                }
                             }
                         }
                     }));
@@ -806,6 +827,7 @@ impl NativeWorker {
                         Err(crate::runtime::source_recovery::unavailable())
                     }));
                 }
+                let mut entered = crate::application::rpc::Entered::new(&invocation);
                 match &context.identity {
                     Some(identity) => {
                         if let Invocation::CellRpc { method, args } = &invocation {
@@ -816,6 +838,17 @@ impl NativeWorker {
                                     return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
                                 }
                             }
+                        }
+                        let limits = match &invocation {
+                            Invocation::CellRpc { method, .. } => self
+                                .rpc_catalog
+                                .as_deref()
+                                .and_then(|catalog| catalog.limits(&identity.class, method))
+                                .unwrap_or_default(),
+                            _ => Default::default(),
+                        };
+                        if let Some(refusal) = entered.admit_response(limits)? {
+                            return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
                         }
                         let cell = match self.instances.entry(identity.scope.clone()) {
                             std::collections::hash_map::Entry::Occupied(entry) => {
@@ -861,15 +894,20 @@ impl NativeWorker {
                             }
                         };
                         let context = context.clone();
-                        Ok(Box::pin(
-                            async move { cell.invoke(context, invocation).await },
-                        ))
+                        Ok(Box::pin(async move {
+                            let output = cell.invoke(context, invocation).await?;
+                            Ok(entered.finish(output)?)
+                        }))
                     }
                     None => {
+                        if let Some(refusal) = entered.admit_response(Default::default())? {
+                            return Ok(Box::pin(async move { Ok(Output::Rpc(refusal)) }));
+                        }
                         let application = self.application.clone();
                         let context = context.clone();
                         Ok(Box::pin(async move {
-                            application.invoke(context, invocation).await
+                            let output = application.invoke(context, invocation).await?;
+                            Ok(entered.finish(output)?)
                         }))
                     }
                 }
@@ -1903,8 +1941,7 @@ pub(crate) fn rpc_cell(
     name: Option<String>,
     method: String,
     args: RpcData,
-    deadline_ms: Option<u64>,
-    signal: Option<cellar_native::web::AbortSignal>,
+    call_scope: crate::host_rpc::CallScope,
 ) -> HandlerFuture<RpcData> {
     if crate::application::event_stream::is_event_scope(&scope) {
         return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
@@ -1917,13 +1954,7 @@ pub(crate) fn rpc_cell(
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
     Box::pin(crate::host_rpc::call_scoped(
-        gate,
-        scope,
-        name,
-        method,
-        args,
-        None,
-        crate::host_rpc::CallScope::in_context(context, deadline_ms, signal),
+        gate, scope, name, method, args, None, call_scope,
     ))
 }
 

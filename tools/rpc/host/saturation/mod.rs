@@ -14,10 +14,15 @@ use crate::{application::Composite, fleet};
 const SOURCE: &str = "saturation-source";
 const OWNER: &str = "saturation-owner";
 
+// Exactly one default provider peak, including both envelope allowances.
+const RESPONSE_ENCODING_BYTES: usize = 4 * (1024 * 1024 + 2048) + 64 * 1024;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Side {
     Source,
     Receiver,
+    ReceiverReply,
+    ProviderResponse,
 }
 
 impl Side {
@@ -25,6 +30,8 @@ impl Side {
         match self {
             Self::Source => "source",
             Self::Receiver => "receiver",
+            Self::ReceiverReply => "receiver-reply",
+            Self::ProviderResponse => "provider-response",
         }
     }
 
@@ -38,7 +45,8 @@ impl Side {
                 config.max_outbound_rpc_requests = requests;
                 config.max_outbound_rpc_bytes = bytes;
             }
-            Self::Receiver => {
+            Self::ProviderResponse => config.max_rpc_response_bytes = RESPONSE_ENCODING_BYTES,
+            Self::Receiver | Self::ReceiverReply => {
                 config.max_inbound_rpc_requests = requests;
                 config.max_inbound_rpc_bytes = bytes;
             }
@@ -52,6 +60,12 @@ impl Side {
     ) -> cellar::host_services::OutboundRpcUsage {
         if self == Self::Source {
             source.outbound_rpc_usage()
+        } else if self == Self::ProviderResponse {
+            let usage = owner.rpc_response_usage();
+            cellar::host_services::OutboundRpcUsage {
+                active_requests: usage.active_buffers,
+                reserved_request_bytes: usage.reserved_response_bytes,
+            }
         } else {
             let usage = owner.inbound_rpc_usage();
             cellar::host_services::OutboundRpcUsage {
@@ -123,7 +137,7 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -
             bucket.clone(),
             None,
             |config, _| {
-                if !remote || side == Side::Receiver {
+                if !remote || side != Side::Source {
                     side.configure(&mut config.runtime, limit);
                 }
                 Ok(())
@@ -176,6 +190,8 @@ async fn topology(app: Arc<Composite>, remote: bool, limit: Limit, side: Side) -
     for services in gate.observed_services() {
         if services.outbound_rpc_usage() != Default::default()
             || services.inbound_rpc_usage() != Default::default()
+            || services.native_rpc_decode_usage() != Default::default()
+            || services.rpc_response_usage() != Default::default()
         {
             cleanup.push("node retained SDK or peer RPC reservations after drain".into());
         }
@@ -194,8 +210,16 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
         (Side::Source, false),
         (Side::Source, true),
         (Side::Receiver, true),
+        (Side::ReceiverReply, true),
+        (Side::ProviderResponse, false),
+        (Side::ProviderResponse, true),
     ] {
         for limit in [Limit::Requests, Limit::Bytes] {
+            if matches!(side, Side::ReceiverReply | Side::ProviderResponse)
+                && matches!(limit, Limit::Requests)
+            {
+                continue;
+            }
             let report = topology(app.clone(), remote, limit, side).await?;
             cases.extend(
                 report
@@ -207,7 +231,7 @@ pub async fn run(app: Arc<Composite>) -> Result<Value> {
         }
     }
     ensure!(
-        cases.len() == 96,
+        cases.len() == 144,
         "source/receiver saturation matrix incomplete"
     );
     Ok(

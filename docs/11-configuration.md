@@ -20,7 +20,10 @@ when you select the unrestricted profile.
 | `max_outbound_rpc_requests` | 128 | SDK namespace RPCs retained across all host generations |
 | `max_outbound_rpc_bytes` | 256 MiB | Length-weighted SDK request/copy/control allowance; minimum 128 KiB |
 | `max_inbound_rpc_requests` | 128 | Receiving peer RPCs, including upload, native work, output waits and retained replies |
-| `max_inbound_rpc_bytes` | 256 MiB | Dense receiving input capacity, one possible copy and control allowance; minimum 128 KiB |
+| `max_inbound_rpc_bytes` | 256 MiB | Shared dense input, possible copy, control and published reply payload allowance; minimum 128 KiB |
+| `max_rpc_response_bytes` | 256 MiB | Shared host response encoding, collection, copy and retained-byte allowance; minimum 64 KiB |
+| `max_native_rpc_decode_bytes` | 256 MiB | Shared conservative native Protobuf decoder allowances across host generations |
+| `max_native_rpc_stack_bytes` | 1 MiB | Per-decode active-stack estimate; the caller-owned executor needs sufficient stack and runtime headroom |
 | `max_inbound_rpc_tunnels` / `max_rpc_tunnels_per_peer` | 256 / 64 | Receiving RPC connections across the host / per authenticated peer name |
 | `rpc_tunnel_idle_timeout` | 30 s | Receiving RPC upgrade/idle/ready-reply write interval; caller deadlines can shorten writes |
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
@@ -54,12 +57,125 @@ caller cancellation. Reply and shutdown control paths do not acquire this quota.
 
 The byte allowance is twice the encoded payload length, four times the combined
 scope/name/method UTF-8 length, plus 64 KiB for bounded control/frame copies.
-It is not an RSS or exact allocator measurement: shared backing allocations,
-spare capacity, response buffers, guest heaps and peer ingress retain separate
-limits. Trusted direct host control requests use their existing admission.
+After admission and before a source gate or queue wait, the SDK copies payloads
+and routing strings into dense storage and relinquishes its original references.
+A one-byte view therefore cannot make the host retain an arbitrarily large
+caller-owned buffer; a short JSON/routing string cannot keep spare capacity.
+Structured input aliases and JSON peer-body copies retain the shared ticket
+even after their caller/dispatch retires, including after domain closure.
+
+```text
+reserve count + bytes -> dense payload / routing strings -> drop originals
+                                      |
+                          source proof gate -> queue -> native / peer
+                                      |
+                     driver and byte aliases retire -> refund
+```
+
+This is not an RSS or allocator-usable-size measurement. Caller-retained
+application data, decoded graphs, response buffers, guest heaps and peer ingress
+retain separate limits. Trusted direct host control requests use their existing admission.
 `domain.services().outbound_rpc_usage()` exposes the two sampled counters for
 cleanup checks. Configure quotas with `NodeConfig.runtime` or
 `domain.services().configure_runtime(...)` before the first submission.
+
+Host response capacity is separate from request admission. Typed providers
+reserve four times their configured transport ceiling (business limit plus
+both 1-KiB envelope allowances), plus 64 KiB of controls, before constructing
+business code. That covers native response encoding, Protobuf control, clone
+encoding and dense normalization. Guest heaps and bridge copies still own their
+adapter reservations. A host configured below one provider's peak allowance
+refuses that provider immediately.
+
+```text
+typed admission -> encoding reservation -> factory / handler / codecs
+                                                |
+                                      dense owned response
+                                                |
+                           durability proof -> local / peer delivery
+                                                |
+                                     last byte alias drops -> refund
+
+peer result -> reserve before collector growth -> dense owned response
+                                                |
+                                   caller codecs / byte aliases -> refund
+```
+
+Finite peer collectors share this pool for typed, ordinary and event replies.
+They reserve before buffer growth, including old/new allocation overlap, then
+retain twice the dense capacity plus 64 KiB for one possible copy and controls.
+Provider normalization replaces unknown external backing before retaining a
+result for output proof. Clones and even tiny slices keep the original capacity
+charged until their last owner drops, including after domain shutdown. A pool
+refusal after submission is `ResourceExhausted/unknown`; it grants no automatic
+retry or rollback proof. Individual protocol-size refusals retain their existing
+codes. Reply and shutdown progress never waits for this pool.
+
+`domain.services().rpc_response_usage()` samples active owners and reserved
+bytes across host generations. This conservative allowance is not measured RSS,
+allocator usable size, application-retained decoded graphs, guest heaps or leased
+untyped capability streams. Native decoder and receiving-peer quotas still
+apply independently. Native typed clients keep the response frame admitted
+through response preflight and decoding, so the owned business-byte copy cannot
+cross that handoff without response ownership. Optional language adapters use
+the retained-response API and carry its opaque owner beside the business vector
+through native completion encoding and ready/pending delivery. They release it
+after the JavaScript/Node or Python bridge has acquired its own byte reservation
+and queued the result. Refusal and cancellation drop the owned bytes and return
+their capacity. Existing raw-byte APIs keep their owned-vector return contract.
+
+```text
+native response pool -> validated bytes + native owner
+                                      |
+                           bridge byte admission
+                                      |
+                        queue bytes + bridge reservation
+                                      |
+                           release native owner
+```
+
+The overlapping reservations cover the handoff; each pool retains its own
+limits. Effective cross-adapter limits, other retained copies and further
+memory qualification remain recorded in the typed-RPC implementation ledger.
+
+Native typed clients and Rust service routers also reserve decoder capacity
+before Prost runs. The portable slot profile does not capture Rust's transitive
+inline layout: an absent optional child or oneof alternative can still enlarge
+every native value in a repeated list. Native preflight accounts for that
+layout, container growth, wire occurrences and payload copies separately.
+
+```text
+descriptor -> transitive native inline layouts (cycles remain boxed)
+                         |
+wire -> portable limits + native byte/active-stack allowance
+                         |
+                 shared host decoder admission
+                         |
+                    Prost decode
+                         |
+             handler / response encoding -> refund
+```
+
+The initial reservation uses 64 bytes per layout unit, a fourfold capacity
+allowance, four times the wire length and 64 KiB of fixed scratch. Active stack
+accounting adds 4 KiB per nested message and restores its parent allowance
+between siblings. The stack setting does not grow executor threads: configure
+it below their available stack with runtime/application headroom.
+
+Saturation refuses immediately with `ResourceExhausted/unknown`. Provider
+factories may already have run; decoder refusal grants no rollback or replay
+authority. Request admission stays owned through the handler and response
+encoding, including cancellation. Native callers retain response admission
+until conversion returns the message to application code. Refusal controls do
+not acquire decoder admission. `domain.services().native_rpc_decode_usage()`
+reports active ownership and reserved allowances, including after shutdown
+until the last owner drops.
+
+These allowances model the pinned generated Prost representation. They do not
+measure allocator internals, process RSS, arbitrary custom `Message` code or
+application-retained values. Guest decoders and transport buffers keep their
+separate budgets. Exhaustive `RuntimePolicy` struct literals must supply the new
+fields or use `..Default::default()`.
 
 Receiving RPC tunnels reserve a host and per-peer slot before upgrade. The peer
 name comes from the verified fleet signature. Entries retire with their last
@@ -68,6 +184,17 @@ its existing deadline. Once a handler/proof result is ready, reply delivery is
 bounded by this transport interval and the original caller deadline, whichever
 is earlier. A stalled writer cannot keep its slots indefinitely. Ordinary
 HTTP/fetch tunnels use their existing policies.
+
+RPC upgrades advertise the receiving idle interval. A source caches the tunnel
+only during the first half of that interval, measured from its original dial
+with the source domain's clock. Clean reply retirement never renews this window;
+an expired window retires the idle sender before another call is submitted.
+Active exchanges can still finish normally. Missing, repeated or invalid idle
+metadata refuses the upgrade before it can produce a business-call sender.
+Receivers require exactly one compatible reuse-version capability before
+reserving admission; mixed peers use a hard cutover under protocol marker 1.
+This cache hint provides no retry or rollback authority: a lost submitted reply
+still has an unknown outcome.
 
 Each receiving RPC reserves request/control capacity before decoding authority
 or reading its body. Uploads accumulate into one dense buffer: capacity is
@@ -82,14 +209,28 @@ frame, without copying the payload. Cleanup uses the receiving domain's clock
 even when a buffer retires in another domain or after its owner stops. Reply
 write expiry closes the transport; a lost response still proves no rollback.
 
+Published reply payloads share the same receiving byte allowance. An exact or
+upper body length reserves capacity before response headers are sent. Actual
+frame totals are checked too, so an absent or inaccurate length cannot bypass
+admission. One merged reservation follows all frame clones and slices until
+the final owner drops, including after domain shutdown. New frames also check
+the original owner and delivery deadline. No extra payload copy is introduced.
+
+A reply-capacity refusal can occur after a handler commits. Before headers it
+returns `ResourceExhausted/unknown`; after headers the body fails instead of
+ending successfully. Neither result permits automatic replay or establishes
+rollback. Size the host allowance for concurrent input and reply ownership.
+
 Receiver overload returns a fixed `ResourceExhausted/unknown` category over the
 authenticated transport, without automatic replay. Its status/header pair does
 not establish rollback; event calls preserve their ambiguous outcome. Refused
 uploads close the connection so unread bytes cannot become another request.
-`inbound_rpc_usage()` reports calls, reserved input bytes, tunnels and peers;
-all retire after node drain. These input allowances do not measure decoded
-graphs, response buffers, adapter copies, allocator overhead or RSS. Durability
-acknowledgements and cancellation endpoints retain their independent paths.
+`inbound_rpc_usage()` reports calls, per-request reserved bytes, tunnels and
+peers. `reserved_request_bytes` includes input/copy/control and published reply
+payload reservations; all retire after their final owners drop. These length
+allowances do not measure shared backing allocations, decoded graphs, adapter
+copies, allocator overhead or RSS. Durability acknowledgements and cancellation
+endpoints retain their independent paths.
 
 Install `ActorOptions` with `domain.services().configure_actor(&options)` before
 building generations to select a different operation deadline. Queue leases and
@@ -118,7 +259,7 @@ use different limits. Fleet owners should agree on limits for shared resources.
 | --- | --- | --- |
 | KV | 512-byte keys; 25-MiB values; 1-KiB metadata; 100 bulk keys; 1,000-entry list pages; 60-second TTL floor | Removes these compatibility ceilings and the TTL floor |
 | SQL | Restricted SQLite connection; 100,000 materialized rows; 32-MiB result budget | SQLite's native compiled ceilings; removes materialized row/byte budgets |
-| Blob | 1,000-entry list pages; 256-MiB multipart backlog | Removes the page/backlog ceilings; object size already depends on the backend |
+| Blob | 1,000-entry list pages; 256-MiB multipart backlog; staged parts: 256 MiB each, 1 GiB aggregate scratch and 64 files | Removes these compatibility ceilings; object size and scratch support still depend on the backend |
 | Queue | 128,000-byte messages; 256,000-byte sends; 100-message batches; 60-second batch timeout; 100 retries; 250 concurrent batches; one-day delay; four-day retention; 100-entry operator batches | Removes byte caps and age-based expiry; expands batches, delays and consumer settings to their numeric ranges |
 | Workflow | 1-MiB values; 1-GiB aggregate captured streams per instance; 100-instance batches; 100-byte IDs/event types; 256-unit step names; 30-day retention maximum; one-year sleeps/event waits; 10,000 retries | Removes size/name/batch/duration ceilings; permits up to `u32::MAX` step retries |
 | Cron / alarms | No trigger-count quota; cron uses minute resolution and one durable alarm multiplexes deadlines | No additional quota to remove; scheduling and retry semantics continue to apply |
@@ -167,7 +308,10 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_STATELESS_ISOLATES` | Stateless worker count; CLI defaults to available parallelism |
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
 | `CELLAR_MAX_OUTBOUND_RPC_REQUESTS` / `CELLAR_MAX_OUTBOUND_RPC_BYTES` | Host SDK submission count / length-weighted byte allowance; defaults 128 / 268435456 |
-| `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / input capacity allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_INBOUND_RPC_REQUESTS` / `CELLAR_MAX_INBOUND_RPC_BYTES` | Receiving RPC count / shared input and reply payload allowance; defaults 128 / 268435456 |
+| `CELLAR_MAX_RPC_RESPONSE_BYTES` | Shared host response allowance; default 268435456 |
+| `CELLAR_MAX_NATIVE_RPC_DECODE_BYTES` | Shared native decoder allowance; default 268435456 |
+| `CELLAR_MAX_NATIVE_RPC_STACK_BYTES` | Per-decode native stack estimate; default 1048576; does not grow executor stacks |
 | `CELLAR_MAX_INBOUND_RPC_TUNNELS` / `CELLAR_MAX_RPC_TUNNELS_PER_PEER` | Receiving RPC tunnel count across the host / per verified peer; defaults 256 / 64 |
 | `CELLAR_RPC_TUNNEL_IDLE_MS` | Receiving RPC upgrade/idle/ready-reply write budget; default 30000; valid 1..=4294967295 |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |

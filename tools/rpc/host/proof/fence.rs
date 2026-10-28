@@ -42,6 +42,17 @@ pub(super) async fn owner(bucket: &Bucket, node: &mut Node) -> Result<Value> {
         "owner stopped without the required observed fence: {outcome:?}"
     );
     // Node::finished returns only after the domain and its owned work join.
+    let services = node.services();
+    ensure!(
+        services.native_rpc_decode_usage() == Default::default(),
+        "fenced RPC node retained decoder admission: {:?}",
+        services.native_rpc_decode_usage()
+    );
+    ensure!(
+        services.rpc_response_usage() == Default::default(),
+        "RPC node retained response admission after join: {:?}",
+        services.rpc_response_usage()
+    );
     Ok(json!({"code":3,"reason":"NodeLeaseMismatch","domain_joined":true}))
 }
 

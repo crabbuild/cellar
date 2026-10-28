@@ -12,6 +12,8 @@ async fn drained(gate: &Gate) -> Result<()> {
         while gate.observed_services().iter().any(|services| {
             let receiver = services.inbound_rpc_usage();
             services.outbound_rpc_usage() != Default::default()
+                || services.native_rpc_decode_usage() != Default::default()
+                || services.rpc_response_usage() != Default::default()
                 || receiver.active_requests != 0
                 || receiver.reserved_request_bytes != 0
         }) {
@@ -43,6 +45,8 @@ pub(super) async fn cases(
             policy.max_outbound_rpc_requests,
             policy.max_outbound_rpc_bytes,
         )
+    } else if side == Side::ProviderResponse {
+        (1, policy.max_rpc_response_bytes)
     } else {
         (
             policy.max_inbound_rpc_requests,
@@ -50,8 +54,12 @@ pub(super) async fn cases(
         )
     };
     ensure!(
-        max_requests == limit.policy().max_outbound_rpc_requests
-            && max_bytes == limit.policy().max_outbound_rpc_bytes,
+        (side == Side::ProviderResponse
+            && max_requests == 1
+            && max_bytes == super::RESPONSE_ENCODING_BYTES)
+            || (side != Side::ProviderResponse
+                && max_requests == limit.policy().max_outbound_rpc_requests
+                && max_bytes == limit.policy().max_outbound_rpc_bytes),
         "source policy was not installed"
     );
     let owner = if remote { OWNER } else { SOURCE };
@@ -74,7 +82,17 @@ pub(super) async fn cases(
                 side.name(),
                 limit.name()
             );
-            let held_id = format!("held-{id}");
+            let held_id = if side == Side::ReceiverReply {
+                format!("held-reply-quota-{id}")
+            } else {
+                format!("held-{id}")
+            };
+            let held_retry_id = held_id.clone();
+            let holder_caller = if side == Side::ReceiverReply {
+                caller
+            } else {
+                "rust"
+            };
             let (entered, release) = gate.arm(class, &held_id)?;
             let cursor = app.audit.cursor();
             let returned = app.audit.returned_cursor();
@@ -84,7 +102,7 @@ pub(super) async fn cases(
                 request(
                     &held_client,
                     &held_base,
-                    &format!("/rust/increment?target={target}&delta=1&id={held_id}"),
+                    &format!("/{holder_caller}/increment?target={target}&delta=1&id={held_id}"),
                 )
                 .await
             });
@@ -100,6 +118,7 @@ pub(super) async fn cases(
                     "held request entered wrong state/domain: {evidence}"
                 );
                 let held = side.usage(&services, &owner_services);
+                let response_held = owner_services.rpc_response_usage();
                 ensure!(
                     held.active_requests == 1
                         && held.reserved_request_bytes > 64 * 1024
@@ -127,7 +146,7 @@ pub(super) async fn cases(
                         && app.audit.factories().len() == factories,
                     "saturated submission entered a factory or business handler"
                 );
-                Ok::<_, anyhow::Error>((evidence, held, refused))
+                Ok::<_, anyhow::Error>((evidence, held, refused, response_held))
             }
             .await;
             // Always release and join the owned request, including assertion failure.
@@ -141,11 +160,17 @@ pub(super) async fn cases(
                     Err(error.into())
                 }
             };
-            let (evidence, held, refused) = checks?;
+            let (evidence, held, refused, response_held) = checks?;
             let first = completion??;
+            let holder_expected = if side == Side::ReceiverReply {
+                json!({"code":"ResourceExhausted","outcome":"unknown"})
+            } else {
+                json!({"value":(before+1).to_string()})
+            };
             ensure!(
-                first == json!({"value":(before+1).to_string()}),
-                "held business result changed: {first}"
+                first == holder_expected,
+                "{} {caller}->{provider} held business result changed: {first}",
+                side.name()
             );
             drained(gate).await?;
             ensure!(
@@ -162,6 +187,18 @@ pub(super) async fn cases(
                     == 1,
                 "saturated request detached an automatic replay"
             );
+            if side == Side::ReceiverReply {
+                let replay = request(
+                    client,
+                    base,
+                    &format!("/{caller}/increment?target={provider}&delta=1&id={held_retry_id}"),
+                )
+                .await?;
+                ensure!(
+                    replay == json!({"value":(before+1).to_string()}),
+                    "explicit post-commit reply retry changed the saved receipt: {replay}"
+                );
+            }
             let path = format!("/{caller}/increment?target={provider}&delta=1&id={id}");
             let expected = json!({"value":(before+2).to_string()});
             for _ in 0..2 {
@@ -203,28 +240,48 @@ pub(super) async fn cases(
                 .iter()
                 .filter(|v| v.method.ends_with("/Increment"))
                 .count();
+            let expected_handlers = if side == Side::ReceiverReply { 5 } else { 4 };
             ensure!(
-                handlers == 4 && app.audit.factories().len() == factories,
+                handlers == expected_handlers && app.audit.factories().len() == factories,
                 "replay or extra factory observed"
             );
             let results = app.audit.returned_since(returned);
             let first_result = results.first().context("held handler result missing")?;
             ensure!(
-                first_result.count_matching_storage.as_deref()
-                    == Some((before + 1).to_string().as_str())
+                first_result.stored_count.as_deref() == Some((before + 1).to_string().as_str())
                     && first_result.transaction_open == Some(false)
                     && first_result.write_position.is_some(),
-                "held result did not match its closed native transaction"
+                "held result did not preserve its closed native transaction"
             );
+            if side == Side::ReceiverReply {
+                ensure!(
+                    first_result
+                        .valid_reply_message_bytes
+                        .is_some_and(|length| length > 64 * 1024),
+                    "post-commit refusal did not observe a valid large generated reply"
+                );
+            } else {
+                ensure!(
+                    first_result.count_matching_storage == first_result.stored_count,
+                    "held result did not match the stored count"
+                );
+            }
             counts.insert(provider, before + 2);
             cases.push(json!({"side":side.name(),"route":if remote {"signed-peer"} else {"local"},"limit":limit.name(),
                 "caller":caller,"provider":provider,"class":class,"source":SOURCE,"owner":owner,
                 "scope":identity.scope,"epoch":identity.epoch,"held":evidence,"usage_while_held":held,
+                "response_usage_while_held":response_held,"response_usage_after_case":owner_services.rpc_response_usage(),
                 "max_rpc_requests":max_requests,
                 "max_rpc_bytes":max_bytes,
                 "first_refusal":refused,"refused_handler_count":0,"factory_count_change":0,
                 "counter_before":before.to_string(),"counter_after":(before+2).to_string(),
-                "total_handler_count":handlers,"automatic_replay":false,"explicit_receipt_retries":2,
+                "holder_caller":holder_caller,"holder_first_reply":first,
+                "holder_stored_count":first_result.stored_count,
+                "holder_valid_message_bytes":first_result.valid_reply_message_bytes,
+                "holder_transaction_open":first_result.transaction_open,
+                "holder_write_position":first_result.write_position,
+                "holder_receipt_replayed":side == Side::ReceiverReply,
+                "total_handler_count":handlers,"automatic_replay":false,"explicit_receipt_retries":if side == Side::ReceiverReply {3} else {2},
                 "changed_command_refused":true,"usage_after_case":side.usage(&services, &owner_services)}));
         }
     }

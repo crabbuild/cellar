@@ -60,7 +60,7 @@ impl DisasterSeed {
         let mut initial = ::raft::prelude::ConfState::default();
         initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
         initial.set_learners(birth.learners().iter().map(|m| m.member.get()).collect());
-        let bytes = encode_image(&pin, self.limits)?;
+        let bytes = encode_image(&pin, self.limits, stream_snapshot::IoProfile::Compact)?;
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(birth.scope()),
@@ -76,6 +76,7 @@ impl DisasterSeed {
             image: Some(marker(&pin)),
             encoded_length: bytes.metadata().encoded_length as usize,
             encoded_digest: bytes.metadata().encoded_digest,
+            transfer_length: bytes.metadata().encoded_length as usize,
         };
         Descriptor::decode_bound(
             birth.scope(),
@@ -89,7 +90,7 @@ impl DisasterSeed {
             grant: SeedPermit::Disaster(self.permit),
             descriptor,
             initial,
-            pin: Some(pin),
+            pin: Some(SnapshotPin::Materialized(pin)),
             _reservation: self.reservation,
         })
     }

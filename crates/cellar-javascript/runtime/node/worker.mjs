@@ -195,11 +195,22 @@ export default async function bootstrap(config) {
     // their mutation failure provenance, without the local storage mutation slot.
     // Body/socket output can await acknowledgement while independent jobs and
     // received-message handlers mutate storage. Native output gates still apply.
+    // Existing process I/O and retirement use the native provider control queue,
+    // independently of SQLite mutation admission and with effect provenance.
     // Ordinary SQL and fetch operations remain conservative mutations.
     const mutation =
       !name.startsWith("workers.rpc.") &&
       ![
         "storage.sync",
+        "container.exec.write",
+        "container.exec.close_stdin",
+        "container.exec.kill",
+        "container.exec.resize",
+        "container.release",
+        "workers.r2.part_begin",
+        "workers.r2.part_write",
+        "workers.r2.part_finish",
+        "workers.r2.part_cancel",
         "container.websocket.send_text",
         "container.websocket.send_binary",
         "container.websocket.close",
@@ -241,11 +252,14 @@ export default async function bootstrap(config) {
         "websocket.closed",
         "response.read",
         "response.cancel",
+        "request.body.read",
+        "request.body.cancel",
         "response.closed",
         "container.bindings",
         "container.capabilities",
         "container.running",
         "container.monitor",
+        "container.exec.info",
         "container.exec.read_stdout",
         "container.exec.read_stderr",
         "container.exec.wait",
@@ -322,12 +336,16 @@ export default async function bootstrap(config) {
         "cell.call",
         "workers.rpc.invoke",
         "response.read",
+        "request.body.read",
         "response.closed",
         "websocket.next",
         "websocket.closed",
         "container.port.fetch",
         "container.port.fetch_stream",
         "container.response.read",
+        "container.exec.read_stdout",
+        "container.exec.read_stderr",
+        "container.exec.wait",
         "container.port.connect_websocket",
         "container.websocket.receive",
         "workers.fetch",

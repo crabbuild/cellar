@@ -5,7 +5,10 @@
 //! Unchanged conditional versions age on each observer's monotonic clock.
 
 use super::*;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 const MAX_BYTES: usize = 4096;
 const MAX_VERSION_BYTES: usize = 8192;
@@ -276,6 +279,15 @@ impl CellArchive {
     /// Publish only after every object has been read back and checked. CAS
     /// failures (including lost success responses) are reconciled with exact
     /// head reads; bounded contention never falls back to unconditional writes.
+    #[tracing::instrument(
+        name = "raft_archive_publication",
+        skip_all,
+        fields(
+            publisher = ?self.coordination.as_ref().map(|coordination| coordination.owner),
+            cell = %self.scope.cell,
+            index = cut.position().index.get(),
+        )
+    )]
     pub async fn publish(
         &self,
         cut: CommittedArchiveCut,
@@ -285,7 +297,7 @@ impl CellArchive {
         let Some(coordination) = &self.coordination else {
             return self.publish_inner(cut, verifier).await;
         };
-        if cut.image.pin().state().length < coordination.min_image_bytes {
+        if cut.image_bytes() < coordination.min_image_bytes {
             return self.publish_inner(cut, verifier).await;
         }
         // Covering heads remain independently downloaded and physically
@@ -295,18 +307,18 @@ impl CellArchive {
             .load_head_metadata()
             .await?
             .as_ref()
-            .is_some_and(|(head, _, _)| head.position.index >= cut.position.index)
+            .is_some_and(|(head, _, _)| head.position().index >= cut.position().index)
         {
             return self.publish_inner(cut, verifier).await;
         }
         match coordination.acquire(self).await {
             Acquisition::Acquired(claim) => {
-                tracing::info!(event = "raft_archive_phase", phase = "publication_acquired", cell = %self.scope.cell, index = cut.position.index.get());
+                tracing::info!(event = "raft_archive_phase", phase = "publication_acquired", cell = %self.scope.cell, index = cut.position().index.get());
                 coordination.run(self, cut, verifier, claim).await
             }
             Acquisition::Deferred => Err(ArchiveError::Unconfirmed),
             Acquisition::Uncoordinated => {
-                tracing::info!(event = "raft_archive_phase", phase = "publication_uncoordinated", cell = %self.scope.cell, index = cut.position.index.get());
+                tracing::info!(event = "raft_archive_phase", phase = "publication_uncoordinated", cell = %self.scope.cell, index = cut.position().index.get());
                 self.publish_inner(cut, verifier).await
             }
         }

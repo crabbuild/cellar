@@ -23,8 +23,13 @@ pub(super) fn verify(
         return Err(Error::Invalid("snapshot file length"));
     }
     let mut destination = ImageWriter {
+        buffer: if destination.is_some() {
+            Vec::with_capacity(profile.buffer_bytes())
+        } else {
+            Vec::new()
+        },
         file: destination,
-        buffer: Vec::with_capacity(BUFFER_BYTES),
+        window_bytes: profile.buffer_bytes(),
         offset: 0,
     };
     let image = metadata.image;
@@ -160,12 +165,15 @@ pub(super) fn verify(
     Ok(())
 }
 
-/// Batch sequential decoded pages into 64 KiB writes, including the canonical
-/// reserved lock-page hole. Destination ownership remains with the generation
-/// publisher, and no success proof escapes before all integrity checks pass.
+/// Batch decoded pages within the caller-admitted codec profile, including the
+/// canonical reserved lock-page hole. Native files accept each positional
+/// window directly; injected providers retain their 64 KiB fallback. Ownership
+/// stays with the generation publisher and all integrity checks still gate
+/// success. This buffer is included in IoProfile::max_working_bytes().
 struct ImageWriter<'a> {
     file: Option<&'a mut HostFile>,
     buffer: Vec<u8>,
+    window_bytes: usize,
     offset: u64,
 }
 
@@ -175,7 +183,7 @@ impl ImageWriter<'_> {
             return Ok(());
         }
         self.buffer.extend_from_slice(bytes);
-        if self.buffer.len() == BUFFER_BYTES {
+        if self.buffer.len() == self.window_bytes {
             self.flush()?;
         }
         Ok(())
@@ -184,7 +192,7 @@ impl ImageWriter<'_> {
     fn flush(&mut self) -> Result<(), Error> {
         if let Some(target) = &mut self.file {
             if !self.buffer.is_empty() {
-                target.write_all_at(self.offset, &self.buffer)?;
+                target.write_all_at_window(self.offset, &self.buffer)?;
                 self.offset += self.buffer.len() as u64;
                 self.buffer.clear();
             }

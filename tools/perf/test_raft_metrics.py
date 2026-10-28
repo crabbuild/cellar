@@ -2,6 +2,8 @@
 
 """Measurement evidence must fail closed on reset, loss or impossible samples."""
 import copy
+from pathlib import Path
+import re
 import unittest
 from raft_metrics import BOUNDS, COUNTERS, FIELDS, OPERATIONS, delta, phases, periodic, samples, snapshot
 
@@ -31,6 +33,16 @@ def rows(stamp, node_count=3):
 
 
 class Measurements(unittest.TestCase):
+    def test_metric_contract_matches_the_native_owner(self):
+        rust = (Path(__file__).resolve().parents[2] / 'crates/cellar/durability/raft/performance.rs').read_text()
+        operations = rust.split('impl Operation {', 1)[1].split('#[derive', 1)[0]
+        counters = rust.split('impl Counter {', 1)[1].split('#[derive', 1)[0]
+        self.assertEqual(OPERATIONS, tuple(re.findall(r'"([a-z_]+)"', operations)))
+        self.assertEqual(COUNTERS, tuple(re.findall(r'"([a-z_]+)"', counters)))
+        bounds = rust.split('const BOUNDS_US:', 1)[1].split('= [', 1)[1].split('];', 1)[0]
+        values = [value.strip().replace('_', '') for value in bounds.split(',') if value.strip()]
+        self.assertEqual(BOUNDS, tuple(None if value == 'u64::MAX' else int(value) for value in values))
+
     def test_integer_precision_and_bucket_upper_bounds(self):
         before, after = observation(), observation(stamp=2)
         before['counters'][0]['value'] = str(2**63)
@@ -51,7 +63,7 @@ class Measurements(unittest.TestCase):
         operation = delta(before, after)['operations']['engine_file_sync']
         self.assertEqual((operation['started'], operation['failed'], operation['succeeded']), (0, 1, 0))
         self.assertEqual((operation['inflight_before'], operation['inflight_after']), (1, 0))
-        self.assertIsNone(operation['quantile_upper_us']['p99'])
+        self.assertEqual(operation['quantile_upper_us']['p99'], 60_000_000)
 
     def test_missing_unavailable_saturated_and_clock_samples_refuse(self):
         for field, value in [('available', False), ('saturated', True), ('sampled_at_us', None),
@@ -153,8 +165,10 @@ class Measurements(unittest.TestCase):
 
 class ReclamationVocabulary(unittest.TestCase):
     def extended(self, purge):
-        from raft_metrics import ARCHIVE_COUNTERS, ARCHIVE_OPERATIONS
+        from raft_metrics import ARCHIVE_COUNTERS, ARCHIVE_OPERATIONS, LEGACY_BOUNDS
         raw = observation(); template = copy.deepcopy(raw['operations'][0])
+        template['buckets'] = [{'upper_us': None if upper is None else str(upper), 'count': '0'}
+                               for upper in LEGACY_BOUNDS]
         raw['operations'] = [{**copy.deepcopy(template), 'name': name}
                              for name in ARCHIVE_OPERATIONS + (('engine_purge',) if purge else ())]
         raw['counters'] = [{'name': name, 'value': '0'} for name in ARCHIVE_COUNTERS]

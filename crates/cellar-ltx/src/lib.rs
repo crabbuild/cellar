@@ -50,9 +50,9 @@ pub mod internal {
         file::{ExtentDownload, ExtentFile},
         image::{open_extent_image, CacheLimits, CacheUsage, ExtentImage, ExtentSource},
         store::{
-            ExtentRootReference, ImageRootUpdate, NodeExtentLimits, NodeExtentStore,
-            NodeExtentUsage, NodeWorkspace, PreparedImageRoot, RootApplyWork, RootView,
-            SealedImageRoot, SealedRoot, StoreError, WorkspaceBounds,
+            ExtentRootReference, ImageRootUpdate, NodeExtentLimits, NodeExtentObserver,
+            NodeExtentStore, NodeExtentUsage, NodeWorkspace, PreparedImageRoot, RootApplyWork,
+            RootView, SealedImageRoot, SealedRoot, StoreError, WorkspaceBounds,
         },
         tree::{
             ExtentId, ExtentManifest, Geometry, ImageBinding, ImageRoot, RootError, EXTENT_BYTES,

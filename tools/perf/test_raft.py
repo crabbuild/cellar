@@ -154,6 +154,25 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.run_evidence(changed)
 
+    def test_archive_physical_limit_requires_matching_node_observations(self):
+        evidence = self.fixture()
+        report = evidence['report.json']
+        report['archive_blocking_jobs'] = 1
+        for phase in ('initial_resources', 'final_resources'):
+            report[phase] = [{'archive_blocking_jobs': 1} for _ in range(3)]
+        self.assertTrue(self.run_evidence(evidence)['verified'])
+        for phase in ('initial_resources', 'final_resources'):
+            for wrong in (None, 0, 2, 5, True):
+                changed = copy.deepcopy(evidence)
+                changed['report.json'][phase][1]['archive_blocking_jobs'] = wrong
+                with self.subTest(phase=phase, wrong=wrong), self.assertRaises(AssertionError):
+                    self.run_evidence(changed)
+        for wrong in (0, 5, True):
+            changed = copy.deepcopy(evidence)
+            changed['report.json']['archive_blocking_jobs'] = wrong
+            with self.subTest(wrong=wrong), self.assertRaises(AssertionError):
+                self.run_evidence(changed)
+
 
 class PlacementTests(unittest.TestCase):
     def test_cached_readiness_requires_a_fresh_complete_scan(self):

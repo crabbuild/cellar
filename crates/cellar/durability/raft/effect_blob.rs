@@ -202,7 +202,14 @@ pub(crate) fn capture_dependencies(
             sqlite_vec: false,
         },
     )?;
-    let connection = database.connection();
+    capture_connection_dependencies(database.connection(), limits, archive)
+}
+
+pub(crate) fn capture_connection_dependencies(
+    connection: &Connection,
+    limits: RaftBlobLimits,
+    archive: ArchiveLimits,
+) -> Result<Vec<ArchiveDependency>> {
     if !exists(connection)? {
         return Ok(vec![]);
     }

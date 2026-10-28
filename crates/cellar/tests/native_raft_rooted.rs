@@ -3,6 +3,15 @@
 //! Real engine markers, runtime tickets and SQLite extent images. This owning
 //! boundary does not qualify the unfinished SDK writer or remote-root transport.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_rooted_archive.rs"]
+mod archive;
+#[path = "support/raft_rooted_download.rs"]
+mod archive_download;
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod archive_faults;
+#[path = "support/raft_rooted_archive_head.rs"]
+mod archive_heads;
 #[path = "support/raft_rooted_execution.rs"]
 mod execution;
 #[path = "support/raft_storage_fault.rs"]
@@ -10,6 +19,14 @@ mod fault;
 #[path = "support/raft_ltx_fixture.rs"]
 #[allow(dead_code)]
 mod images;
+#[path = "support/raft_rooted_publication.rs"]
+mod publication;
+#[path = "support/raft_rooted_install.rs"]
+mod snapshot_installs;
+#[path = "support/raft_rooted_snapshot.rs"]
+mod snapshots;
+#[path = "support/raft_rooted_stream.rs"]
+mod streams;
 
 use anyhow::{bail, Result};
 use cellar::{
@@ -114,6 +131,28 @@ impl Host {
     }
 
     async fn open_schema(root: &Path, resume: bool, process: u8, schema: [u8; 32]) -> Result<Self> {
+        Self::open_history(root, resume, process, schema, [7; 32]).await
+    }
+
+    async fn open_history(
+        root: &Path,
+        resume: bool,
+        process: u8,
+        schema: [u8; 32],
+        history: [u8; 32],
+    ) -> Result<Self> {
+        Self::open_members(root, resume, process, schema, history, 1, vec![]).await
+    }
+
+    async fn open_members(
+        root: &Path,
+        resume: bool,
+        process: u8,
+        schema: [u8; 32],
+        history: [u8; 32],
+        member: u64,
+        learners: Vec<MemberId>,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let gate = fault::Gate::new(None);
         let log = domain
@@ -135,10 +174,10 @@ impl Host {
         if !resume {
             log.create_group(GroupBootstrap {
                 scope: scope(),
-                member: MemberId::new(1)?,
-                birth_digest: [7; 32],
+                member: MemberId::new(member)?,
+                birth_digest: history,
                 voters: vec![MemberId::new(1)?],
-                learners: vec![],
+                learners,
             })
             .await?;
         }

@@ -5,12 +5,9 @@
 //! Fresh learner recovery still requires live quorum grants and member claims.
 
 use super::*;
-use cellar::application::consensus::verification::{
-    CommittedImage, DurableApply, GroupWrite, ReplicaLog,
-};
+use cellar::application::consensus::verification::{DurableApply, GroupWrite, ReplicaLog};
 use cellar_logic::consensus::OperationId;
 use cellar_ltx::apply::ImageState;
-use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId};
 use cellar_ltx::{DirectFileSystem, FileSystem, TXID};
 use raft::{prelude::Entry, Storage as _};
 use sha2::{Digest, Sha256};
@@ -20,9 +17,14 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+#[path = "raft_image_preload.rs"]
+mod baseline;
+#[path = "raft_template_copy.rs"]
+mod template_copy;
+
 const QUOTA: u64 = 10_000_000_000;
 
-fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
+fn definition_class(calls: Arc<AtomicUsize>) -> Result<RaftClass> {
     let class = RaftClass::new("Counter", 1, [91; 32])?
         .command("Change", [92; 32], move |context, input| {
             calls.fetch_add(1, Ordering::SeqCst);
@@ -69,10 +71,39 @@ fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
             }
             Ok(output)
         })?;
+    Ok(class)
+}
+
+fn definition(calls: Arc<AtomicUsize>) -> Result<public_node::Counter> {
+    counter(definition_class(calls)?, "Read")
+}
+
+pub(super) fn recovery_definition(
+    calls: Arc<AtomicUsize>,
+) -> Result<(public_node::Counter, OperationContract)> {
+    let class = definition_class(calls)?.query("Hot", [94; 32], |context, input| {
+        ensure!(input.len() == 8, "hot read requires one exact row ID");
+        let id = u64::from_be_bytes(input.try_into()?);
+        let value: u64 = context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+        let payload: Vec<u8> =
+            context.query_row("SELECT value FROM items WHERE id=?1", [id], |row| {
+                row.get(0)
+            })?;
+        let mut result = value.to_be_bytes().to_vec();
+        result.extend_from_slice(&Sha256::digest(payload));
+        Ok(result)
+    })?;
+    let verify = class
+        .contract("Read")
+        .context("payload verification contract")?;
+    Ok((counter(class, "Hot")?, verify))
+}
+
+fn counter(class: RaftClass, query: &str) -> Result<public_node::Counter> {
     Ok(public_node::Counter {
         schema: class.schema_digest(),
         increment: class.contract("Change").unwrap(),
-        get: class.contract("Read").unwrap(),
+        get: class.contract(query).unwrap(),
         application: Arc::new(
             Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?,
         ),
@@ -102,9 +133,9 @@ fn image_state(path: &Path) -> Result<ImageState> {
 }
 
 #[derive(Clone)]
-struct PayloadSamples {
-    ids: [u64; 3],
-    hashes: [[u8; 32]; 3],
+pub(super) struct PayloadSamples {
+    pub(super) ids: [u64; 3],
+    pub(super) hashes: [[u8; 32]; 3],
 }
 
 impl PayloadSamples {
@@ -114,19 +145,14 @@ impl PayloadSamples {
     }
 }
 
-fn prepared_template(
+pub(super) fn prepared_template(
     source: &Path,
     directory: &Path,
     quota: u64,
     receipt_reserve: u64,
 ) -> Result<(PathBuf, ImageState, u64, PayloadSamples)> {
     let path = directory.join("template.sqlite");
-    match DirectFileSystem.clone_read_write(source, &path)? {
-        Some(file) => drop(file),
-        None => {
-            std::fs::copy(source, &path)?;
-        }
-    }
+    template_copy::prepare(source, &path)?;
     let db = rusqlite::Connection::open(&path)?;
     // Retain the exact physical high-water size, but leave the configured
     // virtual receipt allowance and a small schema margin unused by payloads.
@@ -183,7 +209,7 @@ fn prepared_template(
     Ok((path, state, bytes, samples))
 }
 
-fn preload(
+pub(super) fn preload(
     template: PathBuf,
     state: ImageState,
     registration: RaftCellRegistration,
@@ -191,6 +217,8 @@ fn preload(
 ) -> cluster::PreloadReplicas {
     Box::new(move |logs, store| {
         Box::pin(async move {
+            let image_storage = registration.namespace.image_storage;
+            let schema = registration.namespace.schema_digest;
             let namespace = Catalog::new(
                 store,
                 CatalogOptions {
@@ -212,68 +240,62 @@ fn preload(
                 let log = domain
                     .run(ReplicaLog::open(options, filesystem.clone()))
                     .await??;
-                // Real permanent initial-member claims precede the fixture's
-                // template installation. No runtime has started or acknowledged a
-                // command; all three replicas receive exactly the same baseline.
-                let permit = namespace.bootstrap_member(&birth, &log).await?;
-                let group = log.group(birth.scope())?;
-                let image_directory = data
-                    .join("raft-cells")
-                    .join(hex::encode(birth.scope().namespace.bytes()))
-                    .join(hex::encode(birth.scope().group.bytes()))
-                    .join(hex::encode(birth.scope().incarnation.bytes()))
-                    .join("images");
-                let template = template.clone();
-                let (images, pin) = domain
-                    .blocking(move || {
-                        let mut limits = GenerationLimits::default();
-                        limits.apply.decode.max_image_bytes = quota;
-                        limits.max_bytes = limits.max_bytes.max(8 * quota);
-                        let images = GenerationStore::open(image_directory, filesystem, limits)?;
-                        let pin =
-                            images.prepare_image_file(ImageId::new([1; 16])?, &template, state)?;
-                        Ok::<_, anyhow::Error>((images, pin))
-                    })?
-                    .await??;
-                let mut write = GroupWrite::new(&group);
-                write.entries.push(Entry {
-                    index: 2,
-                    term: 2,
-                    ..Default::default()
-                });
-                let mut hard = group.initial_state()?.hard_state;
-                hard.term = 2;
-                hard.vote = 0;
-                hard.commit = 2;
-                write.hard_state = Some(hard);
-                write.applied = Some(DurableApply {
-                    position: LogPosition {
-                        index: LogIndex::new(2),
-                        term: Term::new(2),
-                    },
-                    image: Some(CommittedImage {
-                        name: format!("{}.sqlite", hex::encode(pin.id().bytes())),
-                        commitment: state.digest.into(),
-                        length: state.length,
-                        ltx_epoch: state.epoch,
-                        txid: state.txid.0,
-                        checksum: state.checksum,
-                        page_size: state.page_size,
-                    }),
-                });
-                log.persist(OperationId::new(1), vec![write]).await?;
-                drop(permit);
-                drop(pin);
-                drop(images);
-                log.close().await?;
+                let result = async {
+                    // Real permanent initial-member claims precede the fixture's
+                    // template installation. No runtime has started or acknowledged a
+                    // command; all three replicas receive exactly the same baseline.
+                    let permit = namespace.bootstrap_member(&birth, &log).await?;
+                    let group = log.group(birth.scope())?;
+                    let mut write = GroupWrite::new(&group);
+                    write.entries.push(Entry {
+                        index: 2,
+                        term: 2,
+                        ..Default::default()
+                    });
+                    let mut hard = group.initial_state()?.hard_state;
+                    hard.term = 2;
+                    hard.vote = 0;
+                    hard.commit = 2;
+                    write.hard_state = Some(hard);
+                    let options = baseline::Options {
+                        directory: data,
+                        template: template.clone(),
+                        state,
+                        quota,
+                        scope: birth.scope().clone(),
+                        storage: image_storage,
+                        history: birth.digest(),
+                        schema,
+                    };
+                    let image = domain
+                        .blocking(move || baseline::prepare(options, filesystem))?
+                        .await??;
+                    write.applied = Some(DurableApply {
+                        position: LogPosition {
+                            index: LogIndex::new(2),
+                            term: Term::new(2),
+                        },
+                        image: Some(image.marker.clone()),
+                    });
+                    let persisted = log.persist(OperationId::new(1), vec![write]).await;
+                    let dropped = domain.blocking(move || drop(image))?.await;
+                    drop(permit);
+                    persisted?;
+                    dropped?;
+                    Ok::<_, anyhow::Error>(())
+                }
+                .await;
+                let closed = log.close().await;
                 domain.shutdown().await;
+                result?;
+                closed?;
             }
             Ok(())
         })
     })
 }
 
-fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
+pub(super) fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
     let mut options = public_node::options(sequence)?;
     options.id = CommandId::new(ClientId::new([client; 16])?, sequence)?;
     options.retry_until_ms = std::time::SystemTime::now()
@@ -284,7 +306,7 @@ fn command_options(client: u8, sequence: u64) -> Result<CommandOptions> {
     Ok(options)
 }
 
-async fn ready(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
+pub(super) async fn ready(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
     Ok(tokio::time::timeout(Duration::from_secs(1800), async {
         loop {
             for (index, handle) in handles.iter().enumerate() {
@@ -326,7 +348,7 @@ async fn read(
     Ok(result)
 }
 
-async fn repair_step(
+pub(super) async fn repair_step(
     handle: &RaftCellHandle,
     id: cellar_logic::consensus::ProposalId,
     step: RepairStep,
@@ -349,7 +371,7 @@ async fn repair_step(
     .await?
 }
 
-async fn verify_payloads(
+pub(super) async fn verify_payloads(
     handle: &RaftCellHandle,
     contract: OperationContract,
     value: u64,
@@ -467,6 +489,7 @@ async fn drill(
     store: Arc<dyn object_store::ObjectStore>,
     from_s3: bool,
     secondary_workdir: Option<PathBuf>,
+    storage: RaftImageStorage,
 ) -> Result<()> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::archive=info")
@@ -494,12 +517,13 @@ async fn drill(
         .cloned()
         .map(definition)
         .collect::<Result<Vec<_>>>()?;
-    let namespace = NamespaceConfig::new(
+    let mut namespace = NamespaceConfig::new(
         ClusterId::new([81; 16])?,
         NamespaceId::new([82; 16])?,
         cellar_logic::NamespaceMode::Raft,
         definitions[0].schema,
     );
+    namespace.image_storage = storage;
     let registration = RaftCellRegistration {
         placement: RaftCellPlacement::Replica,
         class: "Counter".into(),
@@ -535,6 +559,7 @@ async fn drill(
     host.execution.max_image_bytes = quota;
     host.execution.receipt_reserve_bytes = receipt_reserve;
     host.execution.max_retry_window_ms = 86_400_000;
+    host.extents = (storage == RaftImageStorage::Extents).then(RaftExtentOptions::default);
     let mut cluster = cluster::Cluster::start_with_preloaded_images(
         &definitions,
         vec![registration.clone()],
@@ -836,6 +861,36 @@ async fn drill(
         "full-native stage=cold-local-read duration_s={:.3}",
         cold_started.elapsed().as_secs_f64()
     );
+    // These must observe the actual replacement path, including physical
+    // verification and durable installation, rather than synthetic timers.
+    let performance = joined.performance();
+    let phases: &[&str] = if from_s3 {
+        &[
+            "recovery_authorize",
+            "recovery_archive_fetch",
+            "recovery_archive_replay",
+            "recovery_install",
+        ]
+    } else {
+        &[
+            "recovery_authorize",
+            "recovery_peer_fetch",
+            "recovery_peer_receive",
+            "recovery_append_queue",
+            "recovery_append",
+            "recovery_peer_verify",
+            "recovery_install",
+        ]
+    };
+    for phase in phases {
+        ensure!(
+            performance
+                .operations
+                .iter()
+                .any(|sample| sample.name == *phase && sample.succeeded > 0),
+            "replacement did not observe successful phase {phase}"
+        );
+    }
     ensure!(calls[3].load(Ordering::SeqCst) == 0);
     verify_payloads(
         &learner,
@@ -1126,7 +1181,7 @@ async fn drill(
     cluster.close().await
 }
 
-fn make_template(directory: &Path, quota: u64, incompressible: bool) -> Result<PathBuf> {
+pub(super) fn make_template(directory: &Path, quota: u64, incompressible: bool) -> Result<PathBuf> {
     let path = directory.join("source.sqlite");
     let db = rusqlite::Connection::open(&path)?;
     db.execute_batch("PRAGMA page_size=4096;PRAGMA synchronous=OFF;CREATE TABLE items(id INTEGER PRIMARY KEY,value BLOB);CREATE TABLE quota_tail(value BLOB);")?;
@@ -1178,6 +1233,22 @@ async fn preloaded_template_exercises_native_quota_failover_peer_seed_and_restar
 }
 
 async fn small_drill(from_s3: bool) -> Result<()> {
+    small_drill_storage(from_s3, RaftImageStorage::Materialized).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn preloaded_extent_template_exercises_native_quota_failover_seed_and_restart() -> Result<()>
+{
+    small_drill_storage(true, RaftImageStorage::Extents).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn preloaded_extent_template_exercises_native_quota_failover_peer_seed_and_restart(
+) -> Result<()> {
+    small_drill_storage(false, RaftImageStorage::Extents).await
+}
+
+async fn small_drill_storage(from_s3: bool, storage: RaftImageStorage) -> Result<()> {
     let root = tempfile::tempdir()?;
     let quota = 12 * 1024 * 1024;
     let source = make_template(root.path(), quota, false)?;
@@ -1188,6 +1259,7 @@ async fn small_drill(from_s3: bool) -> Result<()> {
         Arc::new(object_store::memory::InMemory::new()),
         from_s3,
         None,
+        storage,
     )
     .await
 }
@@ -1263,6 +1335,7 @@ async fn rustfs_drill_at_quota(
         Arc::new(object_store::prefix::PrefixStore::new(store, prefix)),
         from_s3,
         std::env::var_os("CELLAR_LARGE_IMAGE_SECONDARY_WORKDIR").map(PathBuf::from),
+        RaftImageStorage::Materialized,
     )
     .await
 }

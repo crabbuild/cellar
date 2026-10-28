@@ -14,6 +14,8 @@ const tsc = fileURLToPath(new URL("node_modules/typescript/bin/tsc", import.meta
 const result = spawnSync(process.execPath, [tsc, "--project", "tsconfig.json", "--noEmitOnError"], {cwd:root, stdio:"inherit"});
 if (result.error || result.status !== 0) throw Error("RPC fixture typecheck/build failed");
 await cp(new URL("fixtures/generated/javascript/", import.meta.url), new URL("dist/node/fixtures/generated/javascript/", import.meta.url), {recursive:true});
+await cp(new URL("fixtures/profile-generated/javascript/", import.meta.url), new URL("dist/node/fixtures/profile-generated/javascript/", import.meta.url), {recursive:true});
 await bundle(fileURLToPath(new URL("javascript.json", import.meta.url)));
 await bundle(fileURLToPath(new URL("javascript-stale.json", import.meta.url)));
 await bundle(fileURLToPath(new URL("javascript-worker.json", import.meta.url)));
+await bundle(fileURLToPath(new URL("javascript-profile.json", import.meta.url)));

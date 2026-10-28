@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Replay every entry proof while sealing bounded batches of private images.
-use super::{result_state, ArchiveError, ArchiveRecoverySet};
+use super::{result_state, ArchiveError, MaterializedSet};
 use crate::application::consensus::CellUpdate;
 use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId};
@@ -123,7 +123,7 @@ impl Batch<'_> {
     }
 }
 
-impl ArchiveRecoverySet {
+impl MaterializedSet {
     /// Run on the owning blocking domain with an exclusively opened destination.
     /// A failed restore leaves no activation authority. Its retained temporary
     /// images may be inspected or removed by that directory's recovery owner.
@@ -145,7 +145,11 @@ impl ArchiveRecoverySet {
         };
         let limits = images.apply_limits();
         for entry in &self.entries {
-            if entry.data.is_empty() {
+            // The recovery-set constructor already replayed and matched every
+            // configuration and member binding. They change no SQLite pages.
+            if entry.get_entry_type() != ::raft::prelude::EntryType::EntryNormal
+                || entry.data.is_empty()
+            {
                 continue;
             }
             // Flush before decoding the next envelope, so a large entry cannot

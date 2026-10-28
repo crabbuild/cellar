@@ -90,3 +90,100 @@ fn snapshot_image_quota_is_independent_of_bounded_transfer_memory() {
         before
     );
 }
+
+#[test]
+fn extent_profiles_keep_full_image_spools_out_of_scratch_admission() {
+    for bytes in [64 * 1024 * 1024, 256 * 1024 * 1024, 10_000_000_000] {
+        let initial = config();
+        let scratch_bytes = initial.infrastructure.log.snapshot_scratch.max_bytes;
+        let scratch_files = initial.infrastructure.log.snapshot_scratch.max_files;
+        let config = initial
+            .with_extent_image_limit(bytes, RaftExtentOptions::default())
+            .unwrap();
+        config.host.validate().unwrap();
+        assert_eq!(config.host.execution.max_image_bytes, bytes);
+        assert_eq!(config.host.images.apply.decode.max_image_bytes, bytes);
+        assert_eq!(config.host.archive.limits.max_image_bytes, bytes);
+        assert_eq!(
+            config.infrastructure.log.snapshot_scratch.max_bytes,
+            scratch_bytes
+        );
+        assert_eq!(
+            config.infrastructure.log.snapshot_scratch.max_files,
+            scratch_files
+        );
+        assert!(config.host.execution.envelope.max_payload_bytes <= 64 * 1024 * 1024);
+        assert!(config.host.images.apply.decode.max_decoded_bytes <= 64 * 1024 * 1024);
+        let physical = config.host.extents.unwrap();
+        let workspace = RootPrivateOptions::workspace_bounds(config.host.execution)
+            .unwrap()
+            .reservation()
+            .unwrap();
+        assert!(physical.inventory.max_bytes >= workspace + 4 * bytes);
+        config
+            .infrastructure
+            .transport
+            .snapshot_limits(bytes)
+            .unwrap();
+    }
+}
+
+#[test]
+fn extent_profile_refuses_inadequate_shared_inventory() {
+    let small = RaftExtentOptions {
+        inventory: RaftExtentLimits {
+            max_bytes: 10_000_000_000,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(config()
+        .with_extent_image_limit(10_000_000_000, small)
+        .is_err());
+    let few_objects = RaftExtentOptions {
+        inventory: RaftExtentLimits {
+            max_objects: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert!(config()
+        .with_extent_image_limit(10_000_000_000, few_objects)
+        .is_err());
+    assert!(config()
+        .with_extent_image_limit(10_000_000_512, Default::default())
+        .is_err());
+}
+
+#[test]
+fn extent_profile_requires_an_explicit_namespace_choice() {
+    let mut configured = config();
+    let scope = GroupScope {
+        cluster: ClusterId::new([1; 16]).unwrap(),
+        namespace: NamespaceId::new([2; 16]).unwrap(),
+        cell: "Counter:policy".into(),
+        group: GroupId::new([4; 16]).unwrap(),
+        incarnation: IncarnationId::new([5; 16]).unwrap(),
+    };
+    configured.cells.push(RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: NamespaceConfig::new(
+            scope.cluster,
+            scope.namespace,
+            cellar_logic::NamespaceMode::Raft,
+            [6; 32],
+        ),
+        class: "Counter".into(),
+        birth: BirthProposal {
+            scope,
+            voters: vec![InitialMember {
+                member: MemberId::new(1).unwrap(),
+                node: NodeId::new([1; 16]).unwrap(),
+            }],
+            learners: vec![],
+        },
+    });
+    assert!(configured
+        .with_extent_image_limit(10_000_000_000, Default::default())
+        .is_err());
+}

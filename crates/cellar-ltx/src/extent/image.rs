@@ -5,6 +5,7 @@
 
 use super::{
     file::{ExtentDownload, ExtentFile},
+    store::RootView,
     tree::{ExtentId, ExtentManifest, EXTENT_BYTES},
 };
 use crate::{
@@ -93,11 +94,16 @@ impl Cache {
 struct Inner {
     cache: Mutex<Cache>,
     manifest: ExtentManifest,
-    source: Arc<dyn ExtentSource>,
+    source: Source,
     filesystem: Arc<dyn FileSystem>,
     directory: PathBuf,
     scratch: ScratchPool,
     limits: CacheLimits,
+}
+
+enum Source {
+    Download(Arc<dyn ExtentSource>),
+    Local(RootView),
 }
 
 /// One immutable root and a bounded, replaceable set of verified local extents.
@@ -113,6 +119,43 @@ impl ExtentImage {
     pub fn new(
         manifest: ExtentManifest,
         source: Arc<dyn ExtentSource>,
+        filesystem: Arc<dyn FileSystem>,
+        directory: PathBuf,
+        scratch: ScratchPool,
+        limits: CacheLimits,
+    ) -> Result<Self, Error> {
+        Self::with_source(
+            manifest,
+            Source::Download(source),
+            filesystem,
+            directory,
+            scratch,
+            limits,
+        )
+    }
+
+    /// Only a pinned inventory view can select the local read path. Generic
+    /// sources retain anonymous receives and independent destination proofs.
+    pub(crate) fn from_local(
+        view: RootView,
+        filesystem: Arc<dyn FileSystem>,
+        directory: PathBuf,
+        scratch: ScratchPool,
+        limits: CacheLimits,
+    ) -> Result<Self, Error> {
+        Self::with_source(
+            view.manifest().clone(),
+            Source::Local(view),
+            filesystem,
+            directory,
+            scratch,
+            limits,
+        )
+    }
+
+    fn with_source(
+        manifest: ExtentManifest,
+        source: Source,
         filesystem: Arc<dyn FileSystem>,
         directory: PathBuf,
         scratch: ScratchPool,
@@ -191,14 +234,19 @@ impl ExtentImage {
         }
         // No cache mutex crosses source I/O, file verification or sync. The
         // shared pool bounds duplicate concurrent misses and live reader pins.
-        let mut download = ExtentDownload::new(
-            self.inner.filesystem.as_ref(),
-            Some(&self.inner.directory),
-            &self.inner.scratch,
-            id,
-        )?;
-        self.inner.source.read_into(id, &mut download)?;
-        let file = download.finish()?;
+        let file = match &self.inner.source {
+            Source::Local(view) => view.cached_extent(id, &self.inner.scratch)?,
+            Source::Download(source) => {
+                let mut download = ExtentDownload::new(
+                    self.inner.filesystem.as_ref(),
+                    Some(&self.inner.directory),
+                    &self.inner.scratch,
+                    id,
+                )?;
+                source.read_into(id, &mut download)?;
+                download.finish()?
+            }
+        };
         self.validate_at(&file, index)?;
         let (selected, retired) = {
             let mut cache = self

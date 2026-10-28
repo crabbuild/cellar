@@ -709,6 +709,51 @@ async fn run(stage: Arc<Mutex<&'static str>>) -> Result<Arc<Signals>> {
             }
         }
     });
+    signals.stage("unknown service generation refusal");
+    let unknown_generation = runtime.next_generation_id();
+    let before = signals.services.load(Ordering::SeqCst);
+    let route_props = encode(&props())?;
+    let service = |generation| cellar::engine_api::ServiceFetch {
+        generation,
+        script: "target".into(),
+        entrypoint: Some(cellar::WorkerFetchEntrypoint {
+            name: "entry".into(),
+            props: route_props.clone(),
+        }),
+        url: "http://service/service".into(),
+        method: "POST".into(),
+        body: Vec::new().into(),
+        headers: Vec::new(),
+        cancel: None,
+    };
+    let refused = runtime.fetch_service(service(unknown_generation)).await;
+    anyhow::ensure!(
+        refused.is_err() && signals.services.load(Ordering::SeqCst) == before,
+        "an unknown generation entered the current service Worker instead of refusing before effects"
+    );
+    let refused = runtime
+        .rpc_service(
+            unknown_generation,
+            "target",
+            "entry".into(),
+            encode(&props())?,
+            cellar::WorkerRpcOperation::Call {
+                path: vec!["echo".into()],
+                args: encode(&props())?,
+            },
+        )
+        .await;
+    anyhow::ensure!(
+        refused.is_err() && signals.services.load(Ordering::SeqCst) == before,
+        "an unknown generation entered the current RPC Worker instead of refusing before effects"
+    );
+    for generation in [0, runtime.generation().id()] {
+        let result = runtime.fetch_service(service(generation)).await?;
+        assert_eq!(
+            result.body, b"target",
+            "valid and explicit unversioned routes remain available"
+        );
+    }
     let scope = "Root:first";
     signals.stage("activation");
     runtime

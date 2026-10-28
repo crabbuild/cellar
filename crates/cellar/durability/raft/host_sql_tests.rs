@@ -95,6 +95,7 @@ async fn committed_publication_advances_without_releasing_its_reservation() {
     publish.action = Action::Publish {
         ticket: ApplyTicket {
             owner: Arc::new(()),
+            engine_owner: Arc::new(()),
             replica: ReplicaIdentity {
                 scope: scope(2),
                 node: NodeId::new([4; 16]).unwrap(),

@@ -44,6 +44,9 @@ Pass the result to `Adapter::new(provider)` for Rust or
 `Source::container_provider(provider)` before starting the Python/JS/TS adapter.
 No local Docker image or JavaScript engine is needed by this backend.
 
+For automatic expiry inspection and deletion after application events end,
+register the provider's [maintenance backend](supervision.md) with the native host.
+
 | Setting | Default / constraint |
 | --- | --- |
 | Account + namespace + binding | Stable host identities; binding defaults to `container` |
@@ -123,7 +126,8 @@ sequenceDiagram
 The stable idempotency key is defense in depth. Its retention window cannot
 justify replaying a create. Unresolved reservations require operator/provider
 reconciliation; an empty or delayed listing is insufficient evidence to forget
-them. A fixed lifetime bounds the requested run, but automatic orphan scanning,
+them. [Host supervision](supervision.md) covers retained-resource obligations in
+running-node protocol peers. Account-wide orphan scanning, fleet restart,
 ownership-loss cleanup and live expiry behavior remain unqualified.
 
 ## Evidence and remaining qualification

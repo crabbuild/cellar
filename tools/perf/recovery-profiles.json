@@ -1,0 +1,57 @@
+{
+  "format": 1,
+  "profiles": {
+    "reference-10gb": {
+      "image_bytes": 9999998976,
+      "logical_quota_bytes": 10000000000,
+      "backends": ["peer", "rustfs"],
+      "fixture": "decimal_ten_gb",
+      "ignored": true,
+      "target_seconds": 120,
+      "maximum_hot_bytes": 268435456,
+      "maximum_replay_seconds": 10,
+      "minimum_source_megabytes_per_second": 250,
+      "minimum_local_megabytes_per_second": 500,
+      "replacement_cache": "empty",
+      "source_cache": "not_controlled",
+      "failure_mode": "joined_domain_loss",
+      "reference_profile_verified": false
+    },
+    "buffered-archive-272mib": {
+      "image_bytes": 285212672,
+      "logical_quota_bytes": 285212672,
+      "backends": ["rustfs"],
+      "fixture": "buffered_archive",
+      "ignored": true,
+      "target_seconds": 120,
+      "replacement_cache": "empty",
+      "source_cache": "not_controlled",
+      "failure_mode": "joined_domain_loss",
+      "reference_profile_verified": false
+    },
+    "gigabyte-archive-1280mib": {
+      "image_bytes": 1342177280,
+      "logical_quota_bytes": 1342177280,
+      "backends": ["rustfs"],
+      "fixture": "gigabyte_archive",
+      "ignored": true,
+      "target_seconds": 120,
+      "replacement_cache": "empty",
+      "source_cache": "not_controlled",
+      "failure_mode": "joined_domain_loss",
+      "reference_profile_verified": false
+    },
+    "small-peer-regression": {
+      "image_bytes": 12582912,
+      "logical_quota_bytes": 12582912,
+      "backends": ["peer"],
+      "fixture": "small",
+      "ignored": false,
+      "target_seconds": 120,
+      "replacement_cache": "empty",
+      "source_cache": "not_controlled",
+      "failure_mode": "joined_domain_loss",
+      "reference_profile_verified": false
+    }
+  }
+}

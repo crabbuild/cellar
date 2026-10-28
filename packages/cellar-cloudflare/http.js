@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-import { installWebExtensions } from "./streams.js";
+import { fixedLength, installWebExtensions, streamRequest } from "./streams.js";
 
 export function httpLimit(context) {
   return context._sync("workers.http.limits").max_body_bytes;
@@ -45,6 +45,15 @@ export function headerPairs(headers) {
   return pairs;
 }
 
+/** Infer framing only from the private FixedLengthStream brand. */
+export function messageHeaders(message) {
+  const length = fixedLength(message.body);
+  if (length === undefined) return headerPairs(message.headers);
+  const headers = new Headers(message.headers);
+  headers.set("content-length", String(length));
+  return headerPairs(headers);
+}
+
 // Consume at most the declared body limit, including streaming uploads/replies.
 // The caller determines whether effects have already occurred before this read.
 export async function bodyBytes(message, limit, signal = message.signal) {
@@ -84,7 +93,7 @@ export async function bodyBytes(message, limit, signal = message.signal) {
 }
 
 export async function encodeRequest(request, context) {
-  const headers = headerPairs(request.headers);
+  const headers = messageHeaders(request);
   const body = await bodyBytes(request, httpLimit(context));
   return {
     url: request.url,
@@ -96,10 +105,14 @@ export async function encodeRequest(request, context) {
 
 export function decodeRequest(frame) {
   webRuntime();
+  const body =
+    frame.body_stream ?? (frame.body.byteLength ? frame.body : undefined);
   return new Request(frame.url, {
     method: frame.method,
     headers: frame.headers,
-    ...(frame.body.byteLength ? { body: frame.body } : {}),
+    ...(body === undefined
+      ? {}
+      : { body, ...(frame.body_stream ? { duplex: "half" } : {}) }),
     redirect: "manual",
   });
 }
@@ -124,7 +137,7 @@ export async function encodeResponse(response, context) {
   }
   return {
     status: response.status,
-    headers: headerPairs(response.headers),
+    headers: messageHeaders(response),
     body: context._encode(await bodyBytes(response, httpLimit(context))),
   };
 }
@@ -138,7 +151,7 @@ export async function fetchRequest(
   decode = decodeResponse,
 ) {
   webRuntime();
-  const request = new Request(input, init);
+  const request = streamRequest(input, init);
   request.signal.throwIfAborted();
   await beforeDispatch();
   const frame = await encodeRequest(request, context);

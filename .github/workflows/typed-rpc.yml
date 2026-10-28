@@ -25,13 +25,27 @@ concurrency:
   cancel-in-progress: true
 jobs:
   lifecycle:
+    name: Typed RPC (${{ matrix.python }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    # The full combined matrix adds about 24 minutes to the existing cold
+    # fixture checks. Only the CI job ceiling changes; RPC budgets stay fixed.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.14'
+            mode: gil
+          - python: '3.14t'
+            mode: free-threaded
     env:
       CARGO_TARGET_DIR: '${{ github.workspace }}/.cellar/target-rpc'
       CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_PROFILE_TEST_DEBUG: '0'
       CARGO_INCREMENTAL: '0'
+      CELLAR_RPC_PYTHON_MODE: '${{ matrix.mode }}'
+      # Preserve existing lease timing evidence without logging RPC payloads.
+      RUST_LOG: 'warn,cellar::actor::effects=info'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -39,14 +53,14 @@ jobs:
           node-version: '24'
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.14'
+          python-version: '${{ matrix.python }}'
       - name: Rust toolchain
         run: |
-          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
           rustup default 1.98.1
       - name: Locked guest fixtures
         run: |
-          python -c "import sysconfig; assert not sysconfig.get_config_var('Py_GIL_DISABLED')"
+          python -c "import os, sysconfig; assert bool(sysconfig.get_config_var('Py_GIL_DISABLED')) == (os.environ['CELLAR_RPC_PYTHON_MODE'] == 'free-threaded')"
           python -m venv .cellar/rpc/python
           .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
           echo "PYO3_PYTHON=$PWD/.cellar/rpc/python/bin/python" >> "$GITHUB_ENV"
@@ -54,39 +68,73 @@ jobs:
           npm ci --prefix tools/javascript --ignore-scripts
           npm ci --prefix tools/rpc --ignore-scripts
           npm run --prefix tools/rpc build
+          node tools/rpc/profile/vectors.mjs --check
+          node --test tools/rpc/profile-vectors.test.mjs
+          .cellar/rpc/python/bin/python tools/rpc/profile/check_vectors.py
+          .cellar/rpc/python/bin/python tools/rpc/test_profile_vectors.py
+          .cellar/rpc/python/bin/python tools/rpc/test_python_rpc.py
       - name: Qualifier checks
         run: |
-          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store
-          cargo test --locked -p cellar-rpc-codegen --test descriptor_admission
+          cargo test --locked -p cellar-guest
+          cargo test --locked -p cellar --lib local_store:: -- --test-threads=1
+          cargo test --locked -p cellar --lib daemon::event_reply::tests:: -- --test-threads=1
+          cargo test --locked -p cellar --bin cellar --test native_rpc_check --test native_local_store --test native_rpc_failure_provenance --test native_rpc_reply_allocation --test native_rpc_decode_allocation
+          cargo test --locked -p cellar-rpc-codegen -- --test-threads=1
           python3 tools/python/test_bridge_report.py
           python3 -m unittest discover -s tools/perf -p test_python_fleet.py
           cargo clippy --locked -p cellar-rpc-qualification --all-targets --features full -- -D warnings
           cargo test --locked -p cellar-rpc-qualification --features full -- --test-threads=1
+      - name: Live portable Protobuf profile
+        run: |
+          mkdir -p .cellar/rpc
+          if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+            --suite profile --python-mode "$CELLAR_RPC_PYTHON_MODE" \
+            --report .cellar/rpc/profile.json > .cellar/rpc/profile.log 2>&1; then
+            tail -n 100 .cellar/rpc/profile.log
+            exit 1
+          fi
+          python3 tools/rpc/check_profile.py .cellar/rpc/profile.json
+          python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/profile.json
       - name: Owned Node, V8 and Python lifecycle matrices
         run: |
           if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
-            --suite lifecycle --report .cellar/rpc/lifecycle.json \
+            --suite lifecycle --python-mode "$CELLAR_RPC_PYTHON_MODE" --report .cellar/rpc/lifecycle.json \
             > .cellar/rpc/lifecycle.log 2>&1; then
             tail -n 100 .cellar/rpc/lifecycle.log
             exit 1
           fi
-          for rpc_suite in python-cancellation python-supervision peer-faults saturation; do
+          python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/lifecycle.json
+          for rpc_suite in python-cancellation python-supervision peer-faults saturation guest-control; do
             if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
-              --suite "$rpc_suite" --report ".cellar/rpc/$rpc_suite.json" \
+              --suite "$rpc_suite" --python-mode "$CELLAR_RPC_PYTHON_MODE" --report ".cellar/rpc/$rpc_suite.json" \
               > ".cellar/rpc/$rpc_suite.log" 2>&1; then
               tail -n 100 ".cellar/rpc/$rpc_suite.log"
               exit 1
             fi
+            python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" ".cellar/rpc/$rpc_suite.json"
           done
           python3 tools/rpc/check_peer_faults.py .cellar/rpc/peer-faults.json
           python3 tools/rpc/check_saturation.py .cellar/rpc/saturation.json
+          python3 tools/rpc/check_guest_control.py .cellar/rpc/guest-control.json
+      - name: Full generated RPC and failure matrix
+        run: |
+          if ! cargo run --locked -p cellar-rpc-qualification --features full -- \
+            --suite all --python-mode "$CELLAR_RPC_PYTHON_MODE" --report .cellar/rpc/all.json \
+            > .cellar/rpc/all.log 2>&1; then
+            tail -n 100 .cellar/rpc/all.log
+            exit 1
+          fi
+          python3 tools/rpc/check_python_mode.py --expected "$CELLAR_RPC_PYTHON_MODE" .cellar/rpc/all.json
+          python3 tools/rpc/check_provenance.py .cellar/rpc/all.json
       - name: Retain lifecycle evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: typed-rpc-lifecycle
+          name: typed-rpc-${{ matrix.python }}
           path: |
             .cellar/rpc/lifecycle.json
+            .cellar/rpc/profile.json
+            .cellar/rpc/profile.log
             .cellar/rpc/lifecycle.log
             .cellar/rpc/python-cancellation.json
             .cellar/rpc/python-cancellation.log
@@ -96,3 +144,7 @@ jobs:
             .cellar/rpc/peer-faults.log
             .cellar/rpc/saturation.json
             .cellar/rpc/saturation.log
+            .cellar/rpc/guest-control.json
+            .cellar/rpc/guest-control.log
+            .cellar/rpc/all.json
+            .cellar/rpc/all.log

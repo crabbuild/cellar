@@ -455,7 +455,9 @@ async fn lifecycle_round(
     application: Arc<cellar_javascript::JavaScriptApplication>,
     previous_cycles: u64,
 ) -> Result<()> {
-    let peer = peer::Peer::start().await?;
+    // The published lifecycle fixture declares 8080. Linux connects directly
+    // to that container port; a random listener only works with host mapping.
+    let peer = peer::Peer::start_with_http_port(8080).await?;
     // Model a process which handles SIGTERM and exits successfully. Other peer
     // users retain the default signal behavior; no production hook is replaced.
     peer.engine
@@ -471,15 +473,24 @@ async fn lifecycle_round(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5))
         .build()?;
+    let started = std::time::Instant::now();
+    let mut stage = String::from("before first wake");
     let result = async {
         for cycle in previous_cycles + 1..=previous_cycles + 2 {
-            let response = client.get(format!("{address}/wake")).send().await?;
+            stage = format!("wake {cycle}: response head");
+            let response = client
+                .get(format!("{address}/wake"))
+                .send()
+                .await
+                .with_context(|| format!("{stage}, elapsed={:?}", started.elapsed()))?;
             let status = response.status();
+            stage = format!("wake {cycle}: response body");
             let body = response.text().await?;
             ensure!(
                 status == 302 && body == "container response",
                 "wake {cycle}: {status} {body}"
             );
+            stage = format!("sleep {cycle}: stop hook and cleared alarm");
             tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
                     let response = client
@@ -525,10 +536,27 @@ async fn lifecycle_round(
         Ok::<_, anyhow::Error>(())
     }
     .await;
+    // Capture the failing boundary before cleanup changes engine observations.
+    // The peer is private to this test; omit bodies and cap the trace length.
+    let failed = result.as_ref().err().map(|_| {
+        let calls = peer.engine.calls.lock().unwrap();
+        let tail: Vec<_> = calls
+            .iter()
+            .rev()
+            .take(24)
+            .map(|(method, path, _)| format!("{method} {path}"))
+            .collect();
+        (application.bridge_usage(), tail)
+    });
     let cleanup = client.get(format!("{address}/destroy")).send().await;
     let shutdown = node.shutdown(ShutdownMode::Preserve).await;
     let usage = application.bridge_usage();
-    result.with_context(|| format!("lifecycle bridge={usage:?}, shutdown={shutdown:?}"))?;
+    result.with_context(|| {
+        format!(
+            "lifecycle previous_cycles={previous_cycles}, stage={stage}, elapsed={:?}, failed={failed:?}, bridge={usage:?}, shutdown={shutdown:?}",
+            started.elapsed()
+        )
+    })?;
     ensure!(cleanup?.status().is_success(), "lifecycle cleanup failed");
     ensure!(
         peer.engine.containers.lock().unwrap().is_empty(),

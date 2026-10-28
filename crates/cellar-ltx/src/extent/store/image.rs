@@ -417,9 +417,7 @@ impl NodeExtentStore {
             }
             let id = ExtentId::of(&buffer[..length])?;
             let exists = self.inner.state()?.objects.contains_key(&id);
-            self.put_extent_inner(id, &mut |offset, count| {
-                Ok(buffer[offset as usize..offset as usize + count].to_vec())
-            })?;
+            self.put_extent_bytes_inner(id, &buffer[..length])?;
             work.extents_prepared = work
                 .extents_prepared
                 .checked_add(1)

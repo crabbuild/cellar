@@ -55,12 +55,45 @@ fn budget(text: &mut Text, prefix: &str, labels: &str, usage: RaftBudgetUsage) {
 }
 
 impl RaftResourceUsage {
-    /// Bounded label vocabularies, with 110 samples when SQL, image, group and
+    /// Bounded label vocabularies, with 111 samples when SQL, image, group and
     /// transport sources are live, plus 13 for a configured controller.
+    /// A live extent inventory adds 13 samples.
     /// Unavailable sources expose only their availability gauge,
     /// never invented zero budgets. No identity enters a metric label.
     pub fn prometheus(&self) -> String {
         let mut text = Text::default();
+        sample(
+            &mut text,
+            "cellar_raft_extents_sample_available",
+            "",
+            "gauge",
+            usize::from(self.extents.is_some()),
+        );
+        if let Some(extents) = self.extents {
+            for (suffix, value) in [
+                ("bytes", extents.bytes),
+                ("capacity_bytes", extents.max_bytes),
+                ("objects", extents.objects as u64),
+                ("capacity_objects", extents.max_objects as u64),
+                ("roots", extents.roots as u64),
+                ("capacity_roots", extents.max_roots as u64),
+                ("root_extents", extents.root_extents as u64),
+                ("capacity_root_extents", extents.max_root_extents as u64),
+                ("workspace_bytes", extents.workspace_bytes),
+                ("workspaces", extents.workspaces as u64),
+                ("capacity_workspaces", extents.max_workspaces as u64),
+                ("busy", u64::from(extents.busy)),
+                ("quarantined", u64::from(extents.quarantined)),
+            ] {
+                sample(
+                    &mut text,
+                    &format!("cellar_raft_extents_{suffix}"),
+                    "",
+                    "gauge",
+                    value,
+                );
+            }
+        }
         sample(
             &mut text,
             "cellar_raft_controller_sample_available",

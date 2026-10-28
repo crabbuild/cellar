@@ -14,7 +14,7 @@ pub(crate) async fn call(
     body: Option<Vec<u8>>,
     signal: Option<cellar::sdk::web::AbortSignal>,
     budget: Option<cellar::sdk::rpc::CallBudget>,
-) -> anyhow::Result<Output> {
+) -> anyhow::Result<(Output, cellar::sdk::rpc::ResponseOwner)> {
     use anyhow::Context as _;
     let digest = value
         .get("contract_digest")
@@ -28,11 +28,12 @@ pub(crate) async fn call(
     let body = body
         .context("RPC call requires a byte attachment")
         .context(crate::failure::Validation)?;
-    let bytes = cellar_guest::operations::call_bytes_in_budget(
+    let bytes = cellar_guest::operations::call_response_bytes_in_budget(
         context, contract, value, body, signal, budget,
     )
     .await?;
-    Ok(Output::Value(serde_json::Value::Null, Some(bytes)))
+    let (bytes, owner) = bytes.into_parts();
+    Ok((Output::Value(serde_json::Value::Null, Some(bytes)), owner))
 }
 
 pub(crate) async fn execute(

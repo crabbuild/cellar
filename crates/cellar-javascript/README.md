@@ -106,8 +106,11 @@ now provides activation-owned DO storage, native sync/async transaction and
 critical-section callbacks, constructor admission and event-owned
 namespace/method RPC above the native operation boundary. Native CellRpc calls
 retain structured graphs and typed remote errors in both engines, with explicit
-visibility and clone limits. This partial profile includes TypeScript declarations;
-automatic environment bindings and returned RPC targets remain required.
+visibility and clone limits. Node Worker modules additionally dispatch named
+and default entrypoint classes through native service/loopback routes, with
+copied props, value RPC, HTTP and retained callee background work. This partial
+profile includes TypeScript declarations; additional binding kinds, transferable
+service capabilities and returned RPC targets remain required.
 Published Containers 0.3.7 constructor/scheduling
 methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
 and metadata recovery execute in Node. These are constructor/storage fixtures
@@ -540,6 +543,30 @@ child. Node processes one bounded IPC receive pass before its heartbeat decision
 so queued valid heartbeats are observed after a native observer delay. New guest
 starts wait while heartbeats are overdue; invocation deadlines and retired SDK
 authority retain their original checks.
+
+An expired V8 budget adds a fixed phase and timing observation to the error
+chain. The original execution-budget error remains its root cause.
+
+```text
+startup
+   |
+   v
+replies -> admission -> microtasks -> completion -> cancellation -> retirement
+   ^                                                                  |
+   +------------------------- next pump pass ---------------------------+
+```
+
+| Error field | Observation |
+| --- | --- |
+| `phase` | Fixed pump phase observed by the watchdog. |
+| `observed_wall_us` / `phase_wall_us` | Wall time since this pass / phase began, sampled at expiry. |
+| `report_wall_us` | Wall time when the engine reports the error. |
+| `engine_thread_cpu_us` | Engine-thread CPU since the pass began, sampled before reporting; includes unwind work. |
+
+CPU time is available on Linux and macOS; an unavailable sample is explicit.
+These observations contain no application payload, method text or source code.
+They help distinguish CPU work from scheduling or blocking delays while keeping
+the existing startup, pump and invocation deadlines.
 
 The Node pump partitions socket work into turns. Each turn reads at most 1 MiB
 and writes at most 1 MiB, with independent quotas for each direction. Decoding

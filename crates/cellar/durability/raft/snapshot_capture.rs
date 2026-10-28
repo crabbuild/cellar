@@ -12,6 +12,10 @@ pub(crate) struct SnapshotCapture {
     pin: Option<GenerationPin>,
     limits: SnapshotLimits,
     expected_payload: Option<(usize, [u8; 32])>,
+    root: Option<(
+        rooted::RootSnapshotSource,
+        cellar_ltx::internal::NodeExtentStore,
+    )>,
 }
 
 impl SnapshotCapture {
@@ -50,6 +54,7 @@ impl SnapshotCapture {
             pin,
             limits,
             expected_payload,
+            root: None,
         })
     }
 
@@ -110,6 +115,7 @@ impl SnapshotCapture {
             image: pin.as_ref().map(marker),
             encoded_length: 0,
             encoded_digest: Sha256::digest([]).into(),
+            transfer_length: 0,
         };
         Ok(Self {
             group: group.clone(),
@@ -117,35 +123,157 @@ impl SnapshotCapture {
             pin,
             limits,
             expected_payload: None,
+            root: None,
         })
     }
 
-    pub(crate) fn encode(mut self) -> Result<SnapshotPackage, SnapshotError> {
+    pub(crate) fn encode(self) -> Result<SnapshotPackage, SnapshotError> {
+        self.encode_with_io_profile(stream_snapshot::IoProfile::Compact)
+    }
+
+    /// The host's source reservation covers this profile through physical
+    /// encoding and all consumers. Standalone capture retains Compact defaults.
+    pub(crate) fn encode_with_io_profile(
+        mut self,
+        profile: stream_snapshot::IoProfile,
+    ) -> Result<SnapshotPackage, SnapshotError> {
+        if let Some((root, store)) = self.root.take() {
+            return root.into_package(
+                &store,
+                &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
+            );
+        }
         let bytes = self
             .pin
             .as_ref()
-            .map(|pin| encode_image(pin, self.limits))
+            .map(|pin| encode_image(pin, self.limits, profile))
             .transpose()?;
-        let identity = payload_identity(bytes.as_ref());
+        self.finish(bytes.map(SourcePayload::Local))
+    }
+
+    pub(crate) fn encode_prepared(
+        mut self,
+        cache: &prepared::Cache,
+        profile: stream_snapshot::IoProfile,
+    ) -> Result<(SnapshotPackage, bool), SnapshotError> {
+        if let Some((root, store)) = self.root.take() {
+            return Ok((
+                root.into_package(
+                    &store,
+                    &mut vec![0; cellar_ltx::internal::EXTENT_BYTES as usize],
+                )?,
+                false,
+            ));
+        }
+        let Some(pin) = self.pin.as_ref() else {
+            return Ok((self.finish(None)?, false));
+        };
+        let key = prepared::Key::new(
+            &self.group,
+            self.descriptor.schema,
+            marker(pin),
+            self.limits,
+        )?;
+        let pin = pin.clone();
+        let limits = self.limits;
+        let result = cache.prepare(key, move || encode_image(&pin, limits, profile))?;
+        let reused = result.reused;
+        Ok((
+            self.finish(Some(SourcePayload::Shared(result.payload)))?,
+            reused,
+        ))
+    }
+
+    fn finish(mut self, bytes: Option<SourcePayload>) -> Result<SnapshotPackage, SnapshotError> {
+        let identity = bytes.as_ref().map_or_else(
+            || (0, Sha256::digest([]).into()),
+            |body| {
+                (
+                    body.metadata().encoded_length as usize,
+                    body.metadata().encoded_digest,
+                )
+            },
+        );
         if self
             .expected_payload
             .is_some_and(|expected| expected != identity)
         {
+            if let Some(body) = &bytes {
+                body.invalidate();
+            }
             return Err(SnapshotError::Invalid(
                 "retained checkpoint payload binding",
             ));
         }
         self.descriptor.encoded_length = identity.0;
         self.descriptor.encoded_digest = identity.1;
+        self.descriptor.transfer_length = identity.0;
         let snapshot = self.descriptor.snapshot()?;
         Descriptor::decode(&self.group, self.descriptor.schema, &snapshot, self.limits)?;
         Ok(SnapshotPackage {
             group: self.group,
             snapshot,
             bytes,
-            pin: self.pin,
+            root: None,
+            pin: self.pin.map(SnapshotPin::Materialized),
             limits: self.limits,
             membership: self.descriptor.membership,
+        })
+    }
+
+    pub(crate) fn capture_rooted(
+        group: &GroupLog,
+        image: super::super::rooted::RootPublishedImage,
+        store: cellar_ltx::internal::NodeExtentStore,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let root = rooted::RootSnapshotSource::capture(group, image, limits)?;
+        Self::from_root(group, root, store, limits)
+    }
+
+    pub(crate) fn retained_rooted(
+        group: &GroupLog,
+        schema: [u8; 32],
+        expected: &Snapshot,
+        image: Option<std::sync::Arc<cellar_ltx::internal::SealedImageRoot>>,
+        store: cellar_ltx::internal::NodeExtentStore,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        if group.read()?.snapshot != *expected {
+            return Err(SnapshotError::Invalid("requested checkpoint replaced"));
+        }
+        let descriptor = Descriptor::decode(group, schema, expected, limits)?;
+        let Some(image) = image else {
+            if descriptor.image.is_some() {
+                return Err(SnapshotError::Invalid("missing retained root"));
+            }
+            return Ok(Self {
+                group: group.clone(),
+                descriptor,
+                pin: None,
+                limits,
+                expected_payload: Some((0, Sha256::digest([]).into())),
+                root: None,
+            });
+        };
+        let root = rooted::RootSnapshotSource::retained(group, image, schema, expected, limits)?;
+        Self::from_root(group, root, store, limits)
+    }
+
+    fn from_root(
+        group: &GroupLog,
+        root: rooted::RootSnapshotSource,
+        store: cellar_ltx::internal::NodeExtentStore,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let descriptor = Descriptor::decode(group, root.schema(), &root.snapshot(), limits)?;
+        Ok(Self {
+            group: group.clone(),
+            descriptor,
+            pin: None,
+            limits,
+            expected_payload: None,
+            root: Some((root, store)),
         })
     }
 }

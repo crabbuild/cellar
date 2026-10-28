@@ -5,6 +5,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/stream_snapshot_files.rs"]
 mod bounded_files;
+#[path = "support/extent_buffered_import.rs"]
+mod buffered_import;
 
 use bounded_files::BoundedFiles;
 use cellar_ltx::{
@@ -194,6 +196,149 @@ fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() 
     store.seal_root(f.manifest.clone()).unwrap();
     assert!(f.files.metrics.max_read.load(Ordering::Acquire) <= 65536);
     assert!(f.files.metrics.max_write.load(Ordering::Acquire) <= 65536);
+}
+
+#[test]
+fn local_sqlite_reads_do_not_copy_durable_extents_into_scratch_files() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    f.files.metrics.max_write.store(0, Ordering::Release);
+    assert_eq!(f.query(sealed.view()), 7);
+    assert_eq!(
+        f.files.metrics.max_write.load(Ordering::Acquire),
+        0,
+        "a local read rewrote already durable, pinned extent bytes"
+    );
+}
+
+#[test]
+fn local_reads_refuse_scratch_exhaustion_before_opening_any_extent() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let scratch = ScratchPool::new(ScratchLimits {
+        max_bytes: 1,
+        max_files: 1,
+    })
+    .unwrap();
+    let image = sealed
+        .view()
+        .image(
+            f.root.path().join("cache"),
+            scratch.clone(),
+            CacheLimits::default(),
+        )
+        .unwrap();
+    f.files.metrics.max_read.store(0, Ordering::Release);
+    assert!(matches!(
+        image.read_exact_at(0, 100),
+        Err(cellar_ltx::stream_snapshot::Error::ScratchFull)
+    ));
+    assert_eq!(f.files.metrics.max_read.load(Ordering::Acquire), 0);
+    assert_eq!(f.files.metrics.active_handles.load(Ordering::Acquire), 0);
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+}
+
+#[test]
+fn local_descriptor_verification_refuses_corruption_before_and_after_caching() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let scratch = f.scratch();
+    let image = sealed
+        .view()
+        .image(
+            f.root.path().join("cache"),
+            scratch.clone(),
+            CacheLimits::default(),
+        )
+        .unwrap();
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    assert!(image.read_exact_at(0, 100).is_err());
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+    assert_eq!(image.read_exact_at(0, 16).unwrap(), b"SQLite format 3\0");
+    f.files
+        .metrics
+        .corrupt_read_countdown
+        .store(1, Ordering::Release);
+    assert!(
+        image.read_exact_at(0, 100).is_err(),
+        "cached bytes escaped block re-verification"
+    );
+    drop(image);
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+}
+
+#[test]
+fn reopened_local_read_requires_file_and_directory_persistence_proofs() {
+    for directory_sync in [false, true] {
+        let f = Fixture::new(0);
+        let store = f.store();
+        f.fill(&store);
+        let sealed = store.seal_root(f.manifest.clone()).unwrap();
+        let reference = sealed.view().reference();
+        drop(sealed);
+        drop(store);
+        let store = f.store();
+        let view = store.open_root(reference).unwrap();
+        let scratch = f.scratch();
+        let image = view
+            .image(
+                f.root.path().join("cache"),
+                scratch.clone(),
+                CacheLimits::default(),
+            )
+            .unwrap();
+        if directory_sync {
+            f.files.metrics.fail_dir_sync.store(true, Ordering::Release);
+        } else {
+            f.files.metrics.fail_sync.store(true, Ordering::Release);
+        }
+        assert!(image.read_exact_at(0, 100).is_err());
+        assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+        assert!(matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ));
+        assert_eq!(image.read_exact_at(0, 16).unwrap(), b"SQLite format 3\0");
+        store.seal_root(f.manifest.clone()).unwrap();
+    }
+}
+
+#[test]
+fn whole_extent_reads_are_bound_to_the_pinned_root_and_bounded_file_windows() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let mut source = DirectFileSystem.open(&f.source).unwrap();
+    for (id, offset) in &f.objects {
+        let bytes = sealed.view().read_extent(*id).unwrap();
+        assert_eq!(
+            bytes,
+            source.read_exact_at(*offset, id.length() as usize).unwrap()
+        );
+        assert_eq!(ExtentId::of(&bytes).unwrap(), *id);
+    }
+    let foreign = vec![55; 512];
+    let id = ExtentId::of(&foreign).unwrap();
+    store
+        .put_extent(id, |offset, count| {
+            Ok(foreign[offset as usize..offset as usize + count].to_vec())
+        })
+        .unwrap();
+    assert!(matches!(
+        sealed.view().read_extent(id),
+        Err(StoreError::Missing)
+    ));
+    assert!(f.files.metrics.max_read.load(Ordering::Acquire) <= 65536);
 }
 
 #[test]
@@ -611,6 +756,182 @@ fn entered_import_owns_its_capacity_and_lock_until_joined() {
     store.verify_extent(id).unwrap();
     store.retain_only(&[]).unwrap();
     assert_eq!(store.reclaim(1).unwrap(), 1);
+}
+
+#[test]
+fn serialized_owners_wait_for_entered_io_and_wake_after_quarantine() {
+    for panic_source in [false, true] {
+        let f = Fixture::new(0);
+        let store = NodeExtentStore::open_serialized(
+            f.root.path().join("store"),
+            f.files.clone(),
+            f.limits(),
+        )
+        .unwrap();
+        let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = store.clone();
+        let first = std::thread::spawn(move || {
+            worker.put_extent(ExtentId::of(&[3; 4096]).unwrap(), |offset, count| {
+                if offset == 0 {
+                    entered_tx.send(()).map_err(io::Error::other)?;
+                    release_rx.recv().map_err(io::Error::other)?;
+                    assert!(!panic_source, "injected source panic");
+                }
+                Ok(vec![3; count])
+            })
+        });
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (read_tx, read_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = store.clone();
+        let second = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            worker.put_extent(ExtentId::of(&[4; 4096]).unwrap(), |_, count| {
+                read_tx.send(()).map_err(io::Error::other)?;
+                Ok(vec![4; count])
+            })
+        });
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        assert!(read_rx
+            .recv_timeout(std::time::Duration::from_millis(30))
+            .is_err());
+        release_tx.send(()).unwrap();
+        let first = first.join();
+        let second = second.join().unwrap();
+        if panic_source {
+            assert!(first.is_err());
+            assert!(matches!(second, Err(StoreError::Quarantined)));
+            assert!(store.usage().unwrap().quarantined);
+        } else {
+            first.unwrap().unwrap();
+            second.unwrap();
+            assert_eq!(store.usage().unwrap().objects, 2);
+        }
+    }
+}
+
+#[test]
+fn sealed_image_retention_never_waits_for_another_physical_operation() {
+    let f = Fixture::new(0);
+    let store =
+        NodeExtentStore::open_serialized(f.root.path().join("store"), f.files.clone(), f.limits())
+            .unwrap();
+    f.fill(&store);
+    let image = Arc::new(
+        store
+            .seal_image_root(f.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+            .unwrap(),
+    );
+    let observer = store.observer();
+    let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(1);
+    let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+    let worker = store.clone();
+    let physical = std::thread::spawn(move || {
+        worker.put_extent(ExtentId::of(&[9; 4096]).unwrap(), |_, count| {
+            entered_tx.send(()).map_err(io::Error::other)?;
+            release_rx.recv().map_err(io::Error::other)?;
+            Ok(vec![9; count])
+        })
+    });
+    entered_rx
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let worker = store.clone();
+    let root = image.clone();
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+    let metadata = std::thread::spawn(move || {
+        let result = worker
+            .retain_image_reference([3; 32], 1, &root)
+            .and_then(|()| worker.release_reference([3; 32], 1));
+        done_tx.send(result).unwrap();
+    });
+    let completed = done_rx.recv_timeout(std::time::Duration::from_secs(5));
+    release_tx.send(()).unwrap();
+    physical.join().unwrap().unwrap();
+    metadata.join().unwrap();
+    completed
+        .expect("controller retention waited for physical I/O")
+        .unwrap();
+    drop(image);
+    drop(store);
+    assert!(
+        observer.capture().is_none(),
+        "counter observer retained the inventory owner"
+    );
+}
+
+#[test]
+fn transient_receive_root_pins_imported_objects_until_a_marker_or_view_retains_them() {
+    let f = Fixture::new(EXTENT_BYTES as usize + 4096);
+    let store = f.store();
+    store.retain_only(&[]).unwrap();
+    let receiving = store.stage_transient_root(f.manifest.clone()).unwrap();
+    f.fill(&store);
+    assert_eq!(store.reclaim(32).unwrap(), 0);
+    let reference = receiving.reference();
+    store.retain_reference([1; 32], 1, reference).unwrap();
+    drop(receiving);
+    assert_eq!(store.reclaim(32).unwrap(), 0);
+    store.release_reference([1; 32], 1).unwrap();
+    assert_eq!(store.reclaim(32).unwrap(), f.objects.len() + 1);
+    assert_eq!(store.usage().unwrap().bytes, 0);
+}
+
+#[test]
+fn sealed_retention_requires_this_owner_live_revision_and_healthy_inventory() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let image = store
+        .seal_image_root(f.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    let other = Fixture::new(0);
+    let foreign = other.store();
+    other.fill(&foreign);
+    let foreign_image = foreign
+        .seal_image_root(other.manifest.clone(), &mut vec![0; EXTENT_BYTES as usize])
+        .unwrap();
+    assert_eq!(image.reference(), foreign_image.reference());
+    assert!(matches!(
+        store.retain_image_reference([1; 32], 1, &foreign_image),
+        Err(StoreError::Layout)
+    ));
+    store.retain_image_reference([1; 32], 2, &image).unwrap();
+    store.release_reference([1; 32], 2).unwrap();
+    store.retain_image_reference([1; 32], 1, &image).unwrap();
+    assert!(matches!(
+        store.retain_image_reference([1; 32], 2, &image),
+        Err(StoreError::Integrity)
+    ));
+    store.retain_image_reference([1; 32], 3, &image).unwrap();
+    f.files.metrics.fail_remove.store(true, Ordering::Release);
+    assert!(store
+        .put_extent(ExtentId::of(&[9; 4096]).unwrap(), |_, _| Err(
+            io::Error::other("injected source failure")
+        ))
+        .is_err());
+    assert!(store.usage().unwrap().quarantined);
+    assert!(matches!(
+        store.retain_image_reference([1; 32], 4, &image),
+        Err(StoreError::Quarantined)
+    ));
+}
+
+#[test]
+fn a_transient_view_cannot_clear_an_existing_retained_root() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    store.retain_only(&[]).unwrap();
+    let retained = store.seal_root(f.manifest.clone()).unwrap();
+    drop(retained);
+    drop(store.stage_transient_root(f.manifest.clone()).unwrap());
+    assert_eq!(store.reclaim(32).unwrap(), 0);
 }
 
 #[test]

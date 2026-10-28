@@ -148,22 +148,24 @@ impl Stub {
         method: impl Into<String>,
         args: RpcData,
     ) -> HandlerFuture<RpcData> {
-        self.rpc_with_deadline(
+        self.rpc_scoped(
             context,
             method,
             args,
-            context.io.rpc_deadline_ms.get().copied(),
-            None,
+            crate::host_rpc::CallScope::in_context(
+                context,
+                context.io.rpc_deadline_ms.get().copied(),
+                None,
+            ),
         )
     }
 
-    pub(crate) fn rpc_with_deadline(
+    pub(crate) fn rpc_scoped(
         &self,
         context: &Context,
         method: impl Into<String>,
         args: RpcData,
-        deadline_ms: Option<u64>,
-        signal: Option<cellar_native::web::AbortSignal>,
+        call_scope: crate::host_rpc::CallScope,
     ) -> HandlerFuture<RpcData> {
         if let Err(error) = self.check(context) {
             return Box::pin(async move { Err(error) });
@@ -174,8 +176,7 @@ impl Stub {
             self.name.as_deref().map(str::to_string),
             method.into(),
             args,
-            deadline_ms,
-            signal,
+            call_scope,
         );
         let context = context.clone();
         let stub = self.clone();
@@ -196,12 +197,15 @@ impl Stub {
         if let Err(reason) = signal.throw_if_aborted() {
             return Box::pin(async move { Err(reason.into()) });
         }
-        let call = self.rpc_with_deadline(
+        let call = self.rpc_scoped(
             context,
             method,
             args,
-            context.io.rpc_deadline_ms.get().copied(),
-            Some(signal.clone()),
+            crate::host_rpc::CallScope::in_context(
+                context,
+                context.io.rpc_deadline_ms.get().copied(),
+                Some(signal.clone()),
+            ),
         );
         Box::pin(async move {
             crate::asyncrt::select_biased! { "a cell RPC abort wins an undelivered reply";

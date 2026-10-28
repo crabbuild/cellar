@@ -58,6 +58,9 @@ class PythonCounter:
             await cycles.after_commit(ctx, request.operation_id)
             await provenance.after_commit(ctx, request.operation_id)
             await python_lifecycle.after(ctx, request.operation_id)
+            if request.operation_id.startswith("held-reply-quota-"):
+                # Valid output after the receipt commits, before transport quota.
+                return IncrementResponse(out_of_range=OutOfRange(reason="x" * (64 * 1024)))
             if request.operation_id == "invalid-reply":
                 # Intentionally wrong after commit. Retry must use its receipt.
                 return GetCountResponse(count=Count(value=value))
@@ -75,6 +78,20 @@ async def fetch(request, ctx):
     global retained
     url = urlsplit(request.url)
     query = dict(parse_qsl(url.query))
+    if url.path.endswith("/metadata-control"):
+        binding = {"rust": "RUST", "python": "PYTHON", "v8": "V8", "node": "NODE"}[query["target"]]
+        try:
+            if query["mode"] == "oversize":
+                await CounterClient.bind(ctx, binding, "x" * (32 * 1024)).get_count(GetCountRequest())
+            elif query["mode"] == "unknown":
+                rule = CounterRegistration.methods["example.counter.v1.Counter/GetCount"]
+                await ctx._call("cell.call", _body=b"", binding=binding, name="alice",
+                                method=rule.name, contract_digest=rule.digest, extra={"items": [1, 2]})
+            else:
+                raise AssertionError("Unknown metadata-control probe")
+            return Response.json({"admitted": True})
+        except SDKError as error:
+            return Response.json({"code": error.code, "outcome": error.outcome})
     if url.path.endswith("/python-lifecycle-control"):
         return Response.json(python_lifecycle.control(query))
     if url.path.endswith("/cycle-control"):
@@ -155,7 +172,7 @@ async def fetch(request, ctx):
         return await deadline.call(ctx, binding, query["name"], query.get("timeout"))
     if url.path.endswith("/codec-budget"):
         return await deadline.codec_budget(ctx, binding, query["phase"], query["id"])
-    counter = CounterClient.bind(ctx, binding, "alice")
+    counter = CounterClient.bind(ctx, binding, query.get("cell", "alice"))
     if url.path.endswith("/capture"):
         retained = counter
         return Response.json({"captured": True})

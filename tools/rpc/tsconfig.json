@@ -3,7 +3,9 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023"],
+    "lib": [
+      "ES2023"
+    ],
     "strict": true,
     "allowJs": true,
     "checkJs": true,
@@ -11,5 +13,19 @@
     "outDir": "dist/node",
     "skipLibCheck": false
   },
-  "include": ["app.ts", "v8.ts", "worker-v8.ts", "stale.ts", "node.mjs", "worker.mjs", "stale-node.mjs", "fixtures/generated/typescript/**/*.ts", "fixtures/generated/javascript/**/*.d.ts"]
+  "include": [
+    "app.ts",
+    "v8.ts",
+    "worker-v8.ts",
+    "stale.ts",
+    "node.mjs",
+    "worker.mjs",
+    "stale-node.mjs",
+    "fixtures/generated/typescript/**/*.ts",
+    "fixtures/generated/javascript/**/*.d.ts",
+    "profile/**/*.ts",
+    "profile/node.mjs",
+    "fixtures/profile-generated/typescript/**/*.ts",
+    "fixtures/profile-generated/javascript/**/*.d.ts"
+  ]
 }

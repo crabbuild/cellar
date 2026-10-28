@@ -126,10 +126,14 @@ pub mod host_services;
 pub mod http_policy;
 #[path = "execution/inbound_rpc.rs"]
 mod inbound_rpc;
+#[path = "execution/native_rpc_decode.rs"]
+mod native_rpc_decode;
 #[path = "execution/outbound_rpc.rs"]
 mod outbound_rpc;
 #[path = "execution/rpc_reservation.rs"]
 mod rpc_reservation;
+#[path = "execution/rpc_response.rs"]
+mod rpc_response;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
 #[path = "transport/tcp/mod.rs"]
@@ -166,6 +170,8 @@ pub mod memory;
 pub mod native_deploy;
 #[path = "runtime/workers/native/mod.rs"]
 pub(crate) mod native_worker;
+#[path = "storage/object/multipart.rs"]
+mod object_multipart;
 #[path = "durability/raft/mod.rs"]
 mod raft;
 #[path = "cli/supervise/mod.rs"]

@@ -22,6 +22,17 @@ fn binary(value: &Value, limit: usize) -> Result<usize> {
 pub(crate) fn validate(operation: Operation, value: &Value, limit: usize) -> Result<()> {
     use Operation::*;
     match operation {
+        ExecInfo => {
+            ensure!(value.get("pid").is_some(), "missing process namespace PID");
+            let info: cellar::sdk::containers::ExecInfo = serde_json::from_value(value.clone())?;
+            ensure!(
+                info.pid
+                    .is_none_or(|pid| (2..=i32::MAX as u32).contains(&pid)),
+                "invalid process namespace PID"
+            );
+        }
+        ResizeExec => ensure!(value.is_null(), "terminal resize result must be null"),
+        InterceptOutboundHttp => ensure!(value.is_null(), "HTTP intercept result must be null"),
         Reconcile => {
             ensure!(
                 value.get("generation").is_some(),
@@ -105,6 +116,27 @@ mod tests {
     use super::*;
     use crate::Validation;
     use serde_json::json;
+
+    #[test]
+    fn process_metadata_never_accepts_a_forged_pid_or_extra_authority() {
+        for value in [
+            json!({"pid":null,"is_pty":false}),
+            json!({"pid":42,"is_pty":true}),
+        ] {
+            assert!(validate(Operation::ExecInfo, &value, 256).is_ok());
+        }
+        for value in [
+            json!({"is_pty":false}),
+            json!({"pid":0,"is_pty":true}),
+            json!({"pid":1,"is_pty":true}),
+            json!({"pid":2147483648u64,"is_pty":true}),
+            json!({"pid":null,"is_pty":1}),
+            json!({"pid":42,"is_pty":true,"exec_id":"foreign"}),
+        ] {
+            let error = validate(Operation::ExecInfo, &value, 256).unwrap_err();
+            assert!(!error.is::<Validation>());
+        }
+    }
 
     #[test]
     fn reconciliation_rejects_forged_or_unbounded_generation_results() {

@@ -42,7 +42,15 @@ where
     }
 }
 
-async fn peer_roundtrip(revoke: bool) -> Result<()> {
+#[derive(Clone, Copy)]
+enum PeerClose {
+    CallerDrop,
+    ServerRevocation,
+    RejectAtHead,
+}
+
+async fn peer_roundtrip(close: PeerClose) -> Result<()> {
+    let revoke = matches!(close, PeerClose::ServerRevocation);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let lease = Lease::new();
@@ -77,24 +85,30 @@ async fn peer_roundtrip(revoke: bool) -> Result<()> {
     assert!(is_leased(reply.headers())?);
     // The real pooled body owns its request sender. When both the body and
     // sender disappear, the HTTP/1 connection must release the server lease.
-    let result = receive(OwnedBody {
+    let body = OwnedBody {
         body: reply.into_body(),
         _sender: sender,
-    })
-    .await
-    .context("decode leased RPC value")?;
-    let RpcData::Leased { value, lease } = result else {
-        panic!("lease was discarded")
     };
-    assert!(matches!(*value, RpcData::Structured(ref bytes) if bytes.as_ref() == b"value"));
-    assert!(!lease.is_closed());
-    if revoke {
-        let closed = lease.closed();
-        control.close();
-        crate::asyncrt::timeout(Duration::from_secs(2), closed.wait()).await?;
-        assert!(lease.is_closed());
+    if matches!(close, PeerClose::RejectAtHead) {
+        // Typed unary callers refuse resource replies before consuming a
+        // value or spawning the client lease reader. Unread transport ownership
+        // must still close the real server lease and join both HTTP drivers.
+        drop(body);
+    } else {
+        let result = receive(body).await.context("decode leased RPC value")?;
+        let RpcData::Leased { value, lease } = result else {
+            panic!("lease was discarded")
+        };
+        assert!(matches!(*value, RpcData::Structured(ref bytes) if bytes.as_ref() == b"value"));
+        assert!(!lease.is_closed());
+        if revoke {
+            let closed = lease.closed();
+            control.close();
+            crate::asyncrt::timeout(Duration::from_secs(2), closed.wait()).await?;
+            assert!(lease.is_closed());
+        }
+        drop(lease);
     }
-    drop(lease);
     crate::asyncrt::timeout(Duration::from_secs(2), released.wait()).await?;
     let client = crate::asyncrt::timeout(Duration::from_secs(2), client).await??;
     if let Err(error) = client {
@@ -121,10 +135,18 @@ async fn caller_drop_and_server_revocation_close_actual_http1_leases() -> Result
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain
         .run(async {
-            peer_roundtrip(false).await?;
-            peer_roundtrip(true).await
+            peer_roundtrip(PeerClose::CallerDrop).await?;
+            peer_roundtrip(PeerClose::ServerRevocation).await
         })
         .await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
+async fn refusal_at_response_head_releases_the_server_lease_and_joins_http_drivers() -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(peer_roundtrip(PeerClose::RejectAtHead)).await;
     domain.shutdown().await;
     result?
 }

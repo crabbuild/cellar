@@ -90,6 +90,18 @@ pub fn envelope(name: &str, error: &Error) -> Value {
         // handler must still sanitize any escaping failure to unknown effects.
         return json!({"ok":false,"error":failure.code(),"code":failure.code(),"outcome":failure.outcome()});
     }
+    if name == "cell.call"
+        && error.is::<crate::rpc_control::Capacity>()
+        && error.downcast_ref::<RoutedRequestError>().is_none()
+    {
+        return json!({"ok":false,"error":"ResourceExhausted","code":"ResourceExhausted","outcome":"not_committed"});
+    }
+    if name == "cell.call"
+        && error.is::<Validation>()
+        && error.downcast_ref::<RoutedRequestError>().is_none()
+    {
+        return json!({"ok":false,"error":"InvalidArgument","code":"InvalidArgument","outcome":"not_committed"});
+    }
     let (code, outcome) = if let Some(cancelled) =
         error.downcast_ref::<cellar_container::Cancelled>()
     {
@@ -101,9 +113,13 @@ pub fn envelope(name: &str, error: &Error) -> Value {
                 "unknown"
             },
         )
+    } else if error.is::<cellar::sdk::containers::RetentionExpired>() {
+        ("ResourceExpired", "not_committed")
     } else if error.is::<crate::storage::Conflict>() {
         ("Conflict", "not_committed")
-    } else if error.is::<Validation>() {
+    } else if name != "cell.call"
+        && (error.is::<Validation>() || error.is::<cellar::sdk::blob::PartRefused>())
+    {
         ("ValidationError", "not_committed")
     } else if let Some(RoutedRequestError(verdict)) = error.downcast_ref::<RoutedRequestError>() {
         match verdict {
@@ -342,6 +358,15 @@ mod tests {
         assert_eq!(
             envelope("cell.fetch", &anyhow::anyhow!("cell overload"))["code"],
             "Ambiguous"
+        );
+    }
+
+    #[test]
+    fn resource_expiry_is_a_typed_pre_effect_refusal() {
+        let error = anyhow::Error::new(cellar::sdk::containers::RetentionExpired);
+        assert_eq!(
+            super::envelope("container.exec_output", &error),
+            serde_json::json!({"ok":false,"error":"ResourceExpired","code":"ResourceExpired","outcome":"not_committed"})
         );
     }
 }

@@ -16,6 +16,7 @@ pub(crate) enum SeedKind {
 pub(crate) struct SeedOptions {
     pub limits: crate::raft::snapshot::SnapshotLimits,
     pub deadline: u64,
+    pub extents: Option<cellar_ltx::internal::NodeExtentStore>,
 }
 
 pub(crate) enum SeedMaterial {
@@ -75,8 +76,50 @@ use std::sync::Arc;
 pub(super) const REQUEST_MAGIC: &[u8; 4] = b"CLJG";
 const RESPONSE_MAGIC: &[u8; 4] = b"CLJR";
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-seed-1";
-const REQUEST_PURPOSE: &[u8] = b"cellar-seed-grant-request-1";
-const RESPONSE_PURPOSE: &[u8] = b"cellar-seed-grant-response-1";
+const REQUEST_PURPOSE: &[u8] = b"cellar-seed-grant-request-1:extent-stream";
+const RESPONSE_PURPOSE: &[u8] = b"cellar-seed-grant-response-1:extent-stream";
+
+#[cfg(test)]
+mod authentication_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_seed_authentication_cannot_mint_a_current_grant() -> anyhow::Result<()> {
+        let auth = PeerAuth::new([8; 32], "node-1")?;
+        let options = TransportOptions::default();
+        let wire = Wire {
+            auth: &auth,
+            exporter: &[9; 32],
+            options: &options,
+            max_body: 1024,
+        };
+        let value = serde_json::json!({"probe": 1});
+        for (magic, old, current) in [
+            (
+                REQUEST_MAGIC,
+                b"cellar-seed-grant-request-1".as_slice(),
+                REQUEST_PURPOSE,
+            ),
+            (
+                RESPONSE_MAGIC,
+                b"cellar-seed-grant-response-1".as_slice(),
+                RESPONSE_PURPOSE,
+            ),
+        ] {
+            let legacy = wire.encode(magic, old, &[], &value, &[])?;
+            assert!(matches!(
+                wire.decode::<serde_json::Value>(magic, current, &legacy, None),
+                Err(TransportError::Authentication)
+            ));
+            let current_head = wire.encode(magic, current, &[], &value, &[])?;
+            assert_eq!(
+                wire.decode::<serde_json::Value>(magic, current, &current_head, None)?,
+                value
+            );
+        }
+        Ok(())
+    }
+}
 
 // Worst-case 1-MiB manifest, decoder/verification copies and RPC metadata.
 pub(super) const META_BYTES: usize = 4 * 1024 * 1024;
@@ -224,6 +267,7 @@ impl RaftTransport {
         birth: &crate::raft::catalog::GroupBirth,
         schema: [u8; 32],
         limits: crate::raft::snapshot::SnapshotLimits,
+        extents: Option<cellar_ltx::internal::NodeExtentStore>,
     ) -> Result<super::snapshots::ReceivedSeed, TransportError> {
         self.seed_from_peer_until(
             local,
@@ -233,6 +277,7 @@ impl RaftTransport {
             SeedOptions {
                 limits,
                 deadline: self.seed_deadline()?,
+                extents,
             },
         )
         .await
@@ -248,12 +293,14 @@ impl RaftTransport {
     ) -> Result<super::snapshots::ReceivedSeed, TransportError> {
         let deadline = options.deadline.min(self.seed_deadline()?);
         let limits = options.limits;
+        let extents = options.extents;
         loop {
             let result = async {
                 let grant = self
                     .request_seed(local.clone(), source.clone(), schema, deadline)
                     .await?;
-                self.fetch_seed(grant, birth, schema, limits).await
+                self.fetch_seed(grant, birth, schema, limits, extents.clone())
+                    .await
             }
             .await;
             match result {
@@ -292,24 +339,33 @@ impl RaftTransport {
         schema: [u8; 32],
         deadline: u64,
     ) -> Result<SeedGrant, TransportError> {
-        let (authorization, body, lease) = self
-            .request_seed_authorization(local, source, schema, deadline, SeedKind::Peer)
-            .await?;
-        let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
-            .map_err(|_| TransportError::Protocol)?;
-        if snapshot.get_metadata().index < authorization.barrier.get()
-            || snapshot
-                .write_to_bytes()
-                .map_err(|_| TransportError::Protocol)?
-                != body
-        {
-            return Err(TransportError::Authentication);
-        }
-        Ok(SeedGrant {
-            authorization,
-            snapshot,
-            lease,
-        })
+        self.handle
+            .0
+            .performance
+            .measure(
+                crate::raft::performance::Operation::RecoveryAuthorize,
+                async move {
+                    let (authorization, body, lease) = self
+                        .request_seed_authorization(local, source, schema, deadline, SeedKind::Peer)
+                        .await?;
+                    let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
+                        .map_err(|_| TransportError::Protocol)?;
+                    if snapshot.get_metadata().index < authorization.barrier.get()
+                        || snapshot
+                            .write_to_bytes()
+                            .map_err(|_| TransportError::Protocol)?
+                            != body
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    Ok(SeedGrant {
+                        authorization,
+                        snapshot,
+                        lease,
+                    })
+                },
+            )
+            .await
     }
 
     pub(crate) async fn request_archive_seed(
@@ -319,22 +375,32 @@ impl RaftTransport {
         schema: [u8; 32],
         deadline: u64,
     ) -> Result<ArchiveSeedGrant, TransportError> {
-        let (authorization, body, lease) = self
-            .request_seed_authorization(local, source, schema, deadline, SeedKind::S3)
-            .await?;
-        let reference: crate::raft::archive::ArchiveReference =
-            serde_json::from_slice(&body).map_err(|_| TransportError::Protocol)?;
-        let position = reference.position().map_err(|_| TransportError::Protocol)?;
-        if lease != 0
-            || position.index < authorization.barrier
-            || serde_json::to_vec(&reference).map_err(|_| TransportError::Protocol)? != body
-        {
-            return Err(TransportError::Authentication);
-        }
-        Ok(ArchiveSeedGrant {
-            authorization,
-            reference,
-        })
+        self.handle
+            .0
+            .performance
+            .measure(
+                crate::raft::performance::Operation::RecoveryAuthorize,
+                async move {
+                    let (authorization, body, lease) = self
+                        .request_seed_authorization(local, source, schema, deadline, SeedKind::S3)
+                        .await?;
+                    let reference: crate::raft::archive::ArchiveReference =
+                        serde_json::from_slice(&body).map_err(|_| TransportError::Protocol)?;
+                    let position = reference.position().map_err(|_| TransportError::Protocol)?;
+                    if lease != 0
+                        || position.index < authorization.barrier
+                        || serde_json::to_vec(&reference).map_err(|_| TransportError::Protocol)?
+                            != body
+                    {
+                        return Err(TransportError::Authentication);
+                    }
+                    Ok(ArchiveSeedGrant {
+                        authorization,
+                        reference,
+                    })
+                },
+            )
+            .await
     }
 
     async fn request_seed_authorization(
