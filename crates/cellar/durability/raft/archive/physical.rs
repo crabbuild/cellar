@@ -212,7 +212,7 @@ impl CellArchive {
     /// snapshot whose complete image state equals the new durable cut.
     pub(super) async fn rebind_snapshot(
         &self,
-        previous: ArchiveRecoverySet,
+        previous: MaterializedSet,
         image: ImageState,
         position: Position,
     ) -> Result<ConfirmedSnapshot, ArchiveError> {

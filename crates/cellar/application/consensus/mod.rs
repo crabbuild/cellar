@@ -17,9 +17,9 @@ pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
 mod resource_metrics;
 mod resources;
 pub use resources::{
-    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftGroupResources,
-    RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
-    RaftTransportResources,
+    RaftBudgetUsage, RaftConnectionReservations, RaftControllerResources, RaftExtentUsage,
+    RaftGroupResources, RaftImageUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage,
+    RaftTransportBanks, RaftTransportResources,
 };
 pub(crate) mod protocol;
 
@@ -36,7 +36,7 @@ pub use crate::raft::receipt_maintenance::ReceiptMaintenanceLimits;
 
 pub use crate::raft::catalog::{
     BirthDisposition, BirthProposal, CatalogOptions, InitialMember, ManagedBirthOwner,
-    NamespaceConfig, VoterPolicy,
+    NamespaceConfig, RaftImageStorage, VoterPolicy,
 };
 pub use cellar_logic::raft_leadership::LeaderPolicy;
 pub use cellar_logic::raft_placement::PlacementPolicy;
@@ -76,10 +76,10 @@ pub use crate::raft::host::{
     FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
     FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
     RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
-    RaftHostEnrollmentObservation, RaftHostObservation, RaftHostOptions, RaftHostStartupBounds,
-    RaftInspectionScanOptions, RaftManagedHostOptions, RaftNamespaceRegistration,
-    RaftNodeDirectoryOptions, RaftPeerFleetMembershipObservation, RaftPeerNode,
-    RaftPeerNodeObservation,
+    RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions, RaftHostEnrollmentObservation,
+    RaftHostObservation, RaftHostOptions, RaftHostStartupBounds, RaftInspectionScanOptions,
+    RaftManagedHostOptions, RaftNamespaceRegistration, RaftNodeDirectoryOptions,
+    RaftPeerFleetMembershipObservation, RaftPeerNode, RaftPeerNodeObservation,
 };
 pub use crate::raft::inspection::{
     CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
@@ -136,7 +136,7 @@ pub mod verification {
         BirthDisposition, BirthInventoryCursor, BirthInventoryEntry, BirthInventoryPage,
         BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions,
         FrozenBirthInventory, GroupBirth, InitialMember, NamespaceCatalog, NamespaceConfig,
-        NodePublication, NodeRegistration, NodeView, VoterPolicy,
+        NodePublication, NodeRegistration, NodeView, RaftImageStorage, VoterPolicy,
     };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,

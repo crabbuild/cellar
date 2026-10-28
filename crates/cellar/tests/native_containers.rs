@@ -122,6 +122,42 @@ impl Cell for Root {
                         .is_err());
                     json!(true)
                 }
+                "/terminal-refused" => {
+                    let error = container
+                        .exec(
+                            &context,
+                            ExecOptions {
+                                cmd: vec!["echo-stdin".into()],
+                                pty: Some(TerminalSize::new(80, 24)?),
+                                ..Default::default()
+                            },
+                        )
+                        .await
+                        .err()
+                        .context("old engine accepted a terminal")?;
+                    anyhow::ensure!(format!("{error:#}").contains("1.42"));
+                    json!(true)
+                }
+                "/terminal" => {
+                    let process = container
+                        .exec(
+                            &context,
+                            ExecOptions {
+                                cmd: vec!["echo-stdin".into()],
+                                pty: Some(TerminalSize::new(80, 24)?),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                    let info = process.info(&context)?;
+                    anyhow::ensure!(info.is_pty && info.pid.is_none());
+                    anyhow::ensure!(process.resize(&context, 0, 24).await.is_err());
+                    process.resize(&context, 132, 40).await?;
+                    process.write(&context, [0, 255, 42]).await?;
+                    process.close_stdin(&context).await?;
+                    let output = process.output(&context, 1024).await?;
+                    json!({"is_pty":info.is_pty,"pid":info.pid,"code":output.exit_code,"stdout":output.stdout,"stderr":output.stderr})
+                }
                 "/exec" => {
                     let process = container
                         .exec(
@@ -485,6 +521,22 @@ async fn run() -> Result<()> {
         call(&host, "Sandbox:test", "/exec").await?,
         json!({"code":7,"stdout":"hello exec","stderr":"stderr"})
     );
+    peer.api_minor.store(41, Ordering::SeqCst);
+    let allocated = peer.execs.lock().unwrap().len();
+    assert_eq!(
+        call(&host, "Sandbox:test", "/terminal-refused").await?,
+        true
+    );
+    assert_eq!(
+        peer.execs.lock().unwrap().len(),
+        allocated,
+        "unsupported terminal API allocated compute"
+    );
+    peer.api_minor.store(43, Ordering::SeqCst);
+    assert_eq!(
+        call(&host, "Sandbox:test", "/terminal").await?,
+        json!({"is_pty":true,"pid":null,"code":7,"stdout":[0,255,42,115,116,100,101,114,114],"stderr":[]})
+    );
     assert_eq!(call(&host, "Sandbox:test", "/limit").await?, true);
     assert_eq!(
         call(&host, "Sandbox:test", "/http").await?,
@@ -573,6 +625,7 @@ async fn run() -> Result<()> {
     engine
         .release("Sandbox:test", cellar::container::Release::Destroy)
         .await?;
+    peer.assert_immutable_effects()?;
     gate_task.abort();
     http_task.abort();
     tcp_task.abort();
@@ -595,6 +648,7 @@ async fn embedded_container_host(
             namespace: None,
             runtime: Some(runtime.into()),
             dns: vec!["192.0.2.53".into()],
+            network_helper: None,
         })?;
     domain
         .run(async move {
@@ -879,6 +933,7 @@ async fn owned_container_domains() -> Result<()> {
             namespace: None,
             runtime: None,
             dns: Vec::new(),
+            network_helper: None,
         })?;
     restarted
         .run(async {
@@ -918,5 +973,411 @@ async fn owned_container_domains() -> Result<()> {
     second.shutdown().await;
     assert!(peer.containers.lock().unwrap().is_empty());
     server.abort();
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn renamed_resource_and_foreign_name_reuse_preserve_run_identity() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::NameReuse),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_name_adoption_preserves_owned_idle_cleanup() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::FailedAdoptionExpiry),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn successful_reactivation_cancels_only_its_previous_idle_cleanup() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::Reactivation),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replacing_inactivity_window_retires_the_old_timer() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::ReplacementWindow),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reactivation_joins_idle_removal_already_admitted_by_the_engine() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::AdmittedRemoval),
+    )
+    .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn explicit_release_joins_a_pending_idle_timer() -> Result<()> {
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        immutable_resource_identity(IdentityScenario::ExplicitRelease),
+    )
+    .await?
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum IdentityScenario {
+    NameReuse,
+    FailedAdoptionExpiry,
+    Reactivation,
+    ReplacementWindow,
+    AdmittedRemoval,
+    ExplicitRelease,
+}
+
+fn completed_identity_peer_connection(
+    outcome: std::result::Result<std::result::Result<(), hyper::Error>, tokio::task::JoinError>,
+    stopping: bool,
+) -> Result<()> {
+    match outcome {
+        Ok(Ok(())) => Ok(()),
+        Err(error) if stopping && error.is_cancelled() => Ok(()),
+        Err(error) => Err(error).context("identity peer task failed"),
+        Ok(Err(error)) => {
+            // macOS reports ENOTCONN when HTTP shutdown follows the caller's
+            // completed response and socket close. Every request/result is
+            // still checked by the client; other protocol failures remain fatal.
+            let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+            while let Some(current) = cause {
+                if current
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|io| io.raw_os_error() == Some(libc::ENOTCONN))
+                {
+                    return Ok(());
+                }
+                cause = current.source();
+            }
+            Err(error).context("identity peer protocol failed")
+        }
+    }
+}
+
+async fn immutable_resource_identity(scenario: IdentityScenario) -> Result<()> {
+    let directory = tempfile::tempdir_in("/tmp")?;
+    let socket = directory.path().join("engine.sock");
+    let listener = tokio::net::UnixListener::bind(&socket)?;
+    let peer = Arc::new(Engine::default());
+    let serving = peer.clone();
+    let (stop, mut stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        loop {
+            cellar::asyncrt::select_biased! { "the identity peer stops admission before cancelling its connections";
+                _ = &mut stopped => break,
+                joined = connections.join_next(), if !connections.is_empty() => { completed_identity_peer_connection(joined.unwrap(), false)?; }
+                accepted = listener.accept() => {
+                    let (stream, _) = accepted?;
+                    let engine = serving.clone();
+                    connections.spawn(async move {
+                        let service = hyper::service::service_fn(move |request| engine.clone().answer(request));
+                        hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(stream), service).with_upgrades().await
+                    });
+                }
+            }
+        }
+        connections.abort_all();
+        while let Some(joined) = connections.join_next().await {
+            completed_identity_peer_connection(joined, true)?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let docker = cellar::docker::Docker::new(&socket);
+    let mut foreign = None;
+    let result = async {
+        let scope = "Sandbox:same-business-id";
+        let probe = Arc::new(Probe::default());
+        let host = embedded_container_host(
+            &domain,
+            &directory.path().join("cells"),
+            &socket,
+            &cellar::container::image_reference(&"c".repeat(64)),
+            "runc",
+            probe.clone(),
+        )
+        .await?;
+        let started = domain.run(call(&host, scope, "/start")).await??;
+        anyhow::ensure!(
+            started["run"] == 1,
+            "owned fixture failed to start: {started}"
+        );
+        let engine = domain
+            .run(async { cellar::container::engine_if_ready().unwrap() })
+            .await?;
+        let cell = engine.cell("Sandbox:same-business-id").unwrap();
+        let name = peer
+            .containers
+            .lock()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap()
+            .clone();
+        let original = peer.resource_id(&name);
+        if scenario == IdentityScenario::ExplicitRelease {
+            cell.set_inactivity(Duration::from_secs(60));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            let retired = Arc::downgrade(&cell);
+            domain
+                .run(engine.release(scope, cellar::container::Release::Destroy))
+                .await??;
+            domain.run(host.swap_out_cell(scope, 1)).await??;
+            probe.container.lock().unwrap().take();
+            probe.context.lock().unwrap().take();
+            drop(cell);
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while retired.upgrade().is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("explicit release retained the removed cell until its idle deadline")?;
+            anyhow::ensure!(!peer.containers.lock().unwrap().contains_key(&name));
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        if scenario == IdentityScenario::AdmittedRemoval {
+            let (release, waiting) = watch::channel(false);
+            *peer.destroy_gate.lock().unwrap() = Some(waiting);
+            cell.set_inactivity(Duration::ZERO);
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !peer.destroy_entered.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("idle removal did not enter the Engine")?;
+            let mut adoption = Box::pin(domain.run(engine.attach(scope, "Sandbox")));
+            anyhow::ensure!(
+                tokio::time::timeout(Duration::from_millis(100), adoption.as_mut())
+                    .await
+                    .is_err(),
+                "reactivation interrupted an entered idle removal"
+            );
+            release.send_replace(true);
+            let adopted = tokio::time::timeout(Duration::from_secs(2), adoption).await???;
+            anyhow::ensure!(
+                !Arc::ptr_eq(&adopted, &cell)
+                    && !adopted.running()
+                    && engine
+                        .cell(scope)
+                        .is_some_and(|current| Arc::ptr_eq(&current, &adopted))
+                    && !peer.containers.lock().unwrap().contains_key(&name),
+                "reactivation reused the resource after its joined removal"
+            );
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        if matches!(
+            scenario,
+            IdentityScenario::Reactivation | IdentityScenario::ReplacementWindow
+        ) {
+            cell.set_inactivity(Duration::from_millis(500));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+            if scenario == IdentityScenario::Reactivation {
+                let reactivated = domain.run(engine.attach(scope, "Sandbox")).await??;
+                anyhow::ensure!(
+                    Arc::ptr_eq(&cell, &reactivated),
+                    "reactivation changed the cell handle"
+                );
+            } else {
+                cell.set_inactivity(Duration::from_secs(2));
+                domain
+                    .run(engine.release(scope, cellar::container::Release::Keep))
+                    .await??;
+            }
+            // Observe beyond the old deadline; the successful reactivation
+            // must leave no timer that can delete its live resource.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            anyhow::ensure!(
+                engine
+                    .cell(scope)
+                    .is_some_and(|current| Arc::ptr_eq(&current, &cell))
+                    && cell.running()
+                    && peer.containers.lock().unwrap().contains_key(&name),
+                "the previous idle timer removed a successfully reactivated container"
+            );
+            if scenario == IdentityScenario::Reactivation {
+                domain
+                    .run(engine.release(scope, cellar::container::Release::Keep))
+                    .await??;
+            }
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while engine.cell(scope).is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("the current inactivity window did not remove the resource")?;
+            anyhow::ensure!(!peer.containers.lock().unwrap().contains_key(&name));
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        // Capture authority in this host, then poll the waiter after rename.
+        let monitoring = domain
+            .run(std::future::poll_fn(|_| {
+                std::task::Poll::Ready(engine.monitor(&cell, 1))
+            }))
+            .await?;
+        docker
+            .expect(
+                "POST",
+                &format!("/containers/{original}/rename?name={name}-renamed"),
+                None,
+                "rename owned fixture resource",
+            )
+            .await?;
+        let created = docker
+            .expect(
+                "POST",
+                &format!("/containers/create?name={name}"),
+                Some(json!({
+                    "Image": "foreign",
+                    "Labels": {"cellar.host": "foreign", "cellar.node": "foreign"}
+                })),
+                "create foreign fixture resource",
+            )
+            .await?
+            .json()?;
+        let replacement = created["Id"].as_str().context("replacement ID")?.to_owned();
+        foreign = Some((name.clone(), replacement.clone()));
+        anyhow::ensure!(original != replacement, "fixture reused an immutable ID");
+        if scenario == IdentityScenario::FailedAdoptionExpiry {
+            cell.set_inactivity(Duration::from_secs(1));
+            domain
+                .run(engine.release(scope, cellar::container::Release::Keep))
+                .await??;
+        }
+        anyhow::ensure!(
+            domain.run(engine.attach(scope, "Sandbox")).await?.is_err(),
+            "name discovery must refuse foreign labels before adoption"
+        );
+        if scenario == IdentityScenario::FailedAdoptionExpiry {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while engine.cell(scope).is_some() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .context("failed adoption disarmed the original idle cleanup")?;
+            anyhow::ensure!(
+                !peer
+                    .containers
+                    .lock()
+                    .unwrap()
+                    .contains_key(&format!("{name}-renamed")),
+                "idle cleanup leaked its original immutable resource"
+            );
+            anyhow::ensure!(
+                monitoring.await.map_err(anyhow::Error::msg)? == 137,
+                "idle cleanup did not finish the original run"
+            );
+            peer.assert_immutable_effects()?;
+            return Ok(());
+        }
+        anyhow::ensure!(domain.run(call(&host, scope, "/files")).await?? == true);
+        let query = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("path", "/tmp/cellar-?é.bin")
+            .finish();
+        let untouched = docker
+            .call(
+                "HEAD",
+                &format!("/containers/{replacement}/archive?{query}"),
+                None,
+            )
+            .await?;
+        anyhow::ensure!(
+            untouched.status.as_u16() == 404,
+            "owned file writes reached the replacement resource"
+        );
+        domain.run(call(&host, scope, "/exec")).await??;
+        anyhow::ensure!(domain.run(call(&host, scope, "/signal")).await?? == true);
+        anyhow::ensure!(domain.run(call(&host, scope, "/destroy")).await?? == true);
+        let observed = tokio::time::timeout(Duration::from_secs(2), monitoring)
+            .await?
+            .map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            observed == 137,
+            "the old run monitor observed the replacement resource"
+        );
+        anyhow::ensure!(
+            peer.containers
+                .lock()
+                .unwrap()
+                .get(&name)
+                .is_some_and(|exit| exit.borrow().is_none()),
+            "owned cleanup stopped the foreign replacement"
+        );
+        let refused = domain.run(call(&host, scope, "/start")).await??;
+        anyhow::ensure!(
+            refused["error"]
+                .as_str()
+                .is_some_and(|error| error.contains("ownership labels")),
+            "restart must refuse an occupied foreign name"
+        );
+        anyhow::ensure!(peer
+            .containers
+            .lock()
+            .unwrap()
+            .get(&name)
+            .is_some_and(|exit| exit.borrow().is_none()));
+        peer.assert_immutable_effects()?;
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    domain.shutdown().await;
+    let processes = tokio::time::timeout(Duration::from_secs(2), peer.join_processes()).await;
+    let preserved = foreign.as_ref().is_none_or(|(name, id)| {
+        peer.containers
+            .lock()
+            .unwrap()
+            .get(name)
+            .is_some_and(|exit| exit.borrow().is_none())
+            && peer.resource_id(name) == *id
+    });
+    let cleanup = match foreign {
+        Some((_, id)) => docker
+            .expect(
+                "DELETE",
+                &format!("/containers/{id}?force=true"),
+                None,
+                "remove foreign test fixture",
+            )
+            .await
+            .map(|_| ()),
+        None => Ok(()),
+    };
+    let _ = stop.send(());
+    let joined = server.await;
+    result.with_context(|| format!("identity campaign server outcome={joined:?}, processes={processes:?}, cleanup={cleanup:?}"))?;
+    anyhow::ensure!(
+        preserved,
+        "domain shutdown removed a foreign name replacement"
+    );
+    cleanup?;
+    processes??;
+    joined??;
     Ok(())
 }

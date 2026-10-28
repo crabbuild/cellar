@@ -1,8 +1,8 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 //! Physical dispatch beneath the SQL worker's existing command/read controller.
-//! Extent selection is internal until snapshot, seed and archive transport share
-//! this owner. An unsupported physical operation refuses rather than falling
+//! Snapshot, seed, archive and effect discovery share this physical owner.
+//! An unsupported physical operation refuses rather than falling
 //! back to a different commitment or opening a second private writer.
 
 use super::*;
@@ -33,6 +33,31 @@ pub(super) struct RootOwnerOptions {
     limits: ExecutionLimits,
 }
 
+impl RootOwnerOptions {
+    fn database(
+        &self,
+        image: &crate::raft::rooted::RootPublishedImage,
+    ) -> Result<crate::storage::ImmutableQuery, ExecutionError> {
+        let view = image
+            .image()
+            .view()
+            .image(
+                self.storage.cache_directory.clone(),
+                self.storage.cache_pool.clone(),
+                self.storage.cache,
+            )
+            .map_err(super::super::execution::storage)?;
+        crate::storage::open_immutable_extent_image(
+            view,
+            crate::storage::ImmutableQueryOptions {
+                services: self.query_services.clone(),
+                sqlite_vec: false,
+            },
+        )
+        .map_err(super::super::execution::storage)
+    }
+}
+
 pub(super) enum ImageOwner {
     Materialized {
         options: Box<PrivateOptions>,
@@ -45,6 +70,64 @@ pub(super) enum ImageOwner {
 }
 
 impl ImageOwner {
+    pub fn capture_archive(
+        &self,
+        group: &GroupLog,
+        class: &RaftClass,
+        limits: super::super::archive::ArchiveLimits,
+    ) -> Result<Option<super::super::archive::CommittedArchiveCut>, ExecutionError> {
+        use super::super::{archive::CommittedArchiveCut, effects};
+        match self {
+            Self::Materialized { options, applier } => {
+                let cut = match applier
+                    .queryable()
+                    .map_err(super::super::execution::storage)?
+                {
+                    Some(image) => {
+                        let dependencies = effects::capture_dependencies(
+                            &image,
+                            class.blob_limits(),
+                            options.query_services.clone(),
+                            limits,
+                        )
+                        .map_err(super::super::execution::storage)?;
+                        CommittedArchiveCut::capture(group, image, dependencies, limits)
+                    }
+                    None => {
+                        CommittedArchiveCut::capture_empty(group, class.schema_digest(), limits)
+                    }
+                }
+                .map_err(super::super::execution::storage)?;
+                Ok(Some(cut))
+            }
+            Self::Rooted { options, applier } => applier
+                .queryable()
+                .map_err(super::super::execution::storage)?
+                .map(|image| {
+                    let dependencies = if let Some(blobs) = class.blob_limits() {
+                        let database = options.database(&image)?;
+                        effects::capture_connection_dependencies(
+                            database.connection(),
+                            blobs,
+                            limits,
+                        )
+                        .map_err(super::super::execution::storage)?
+                    } else {
+                        vec![]
+                    };
+                    CommittedArchiveCut::capture_root(
+                        group,
+                        image,
+                        options.storage.store.clone(),
+                        dependencies,
+                        limits,
+                    )
+                    .map_err(super::super::execution::storage)
+                })
+                .transpose(),
+        }
+    }
+
     pub fn capture_snapshot(
         &self,
         group: &GroupLog,
@@ -365,12 +448,47 @@ impl ImageOwner {
         }
     }
 
-    pub fn materialized(&mut self) -> Result<(&PrivateOptions, &mut ImageApplier), ExecutionError> {
+    pub fn scan_effects(
+        &self,
+        class: &RaftClass,
+        now: u64,
+        prefer_delivery: bool,
+        reservation: Permit,
+    ) -> Result<Option<super::super::effects::scan::EffectScan>, ExecutionError> {
+        use super::super::{effects::scan, execution::storage};
         match self {
-            Self::Materialized { options, applier } => Ok((options, applier)),
-            Self::Rooted { .. } => Err(ExecutionError::Invalid(
-                "extent transport/effects are not installed",
-            )),
+            Self::Materialized { options, applier } => applier
+                .queryable()
+                .map_err(storage)?
+                .map(|image| {
+                    scan::scan(
+                        image,
+                        class,
+                        options.query_services.clone(),
+                        now,
+                        prefer_delivery,
+                        reservation,
+                    )
+                })
+                .transpose()
+                .map_err(storage),
+            Self::Rooted { options, applier } => applier
+                .queryable()
+                .map_err(storage)?
+                .map(|image| {
+                    let database = options.database(&image)?;
+                    scan::scan_connection(
+                        database.connection(),
+                        image.scope(),
+                        image.position(),
+                        class,
+                        now,
+                        prefer_delivery,
+                        reservation,
+                    )
+                    .map_err(storage)
+                })
+                .transpose(),
         }
     }
 }

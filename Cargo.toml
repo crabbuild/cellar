@@ -5,7 +5,7 @@
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]
 resolver = "2"
-members = ["crates/*", "examples/axum-counter", "examples/fleetcare", "tools/xtask", "tools/cellar-rpc-codegen", "tools/rpc/host"]
+members = ["crates/*", "examples/axum-counter", "examples/fleetcare", "tools/xtask", "tools/cellar-rpc-codegen", "tools/cellar-recovery-tests", "tools/rpc/host"]
 exclude = ["vendor/raft-engine", "vendor/raft-proto", "vendor/raft"]
 
 # Size-tuned: fat LTO prunes unused dependency code, panic=abort drops
@@ -56,6 +56,7 @@ cellar-native = { path = "crates/cellar-native" }
 cellar-python = { path = "crates/cellar-python" }
 cellar-guest = { path = "crates/cellar-guest" }
 cellar-container = { path = "crates/cellar-container" }
+cellar-egress = { path = "crates/cellar-egress" }
 cellar-javascript = { path = "crates/cellar-javascript" }
 # Optional embedded adapter; never enabled by the Rust host itself.
 v8 = "=152.2.0"
@@ -99,6 +100,7 @@ hyper = { version = "1", features = ["client", "server", "http1"] }
 httpdate = "1"
 lol_html = "3.0"
 hyper-util = { version = "0.1", features = ["tokio"] }
+hickory-proto = "=0.26.3"
 indexmap = "2"
 libc = "0.2"
 lz4_flex = { version = "0.11", features = ["frame"] }
@@ -188,6 +190,7 @@ tokio = "1"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 tokio-stream = "0.1"
 tokio-util = { version = "0.7", features = ["io", "time"] }
+yamux = "=0.14.1"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

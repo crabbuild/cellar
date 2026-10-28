@@ -8,7 +8,9 @@ use serde_json::Value;
 use std::sync::OnceLock;
 mod kv;
 mod namespace;
+mod r2;
 pub mod rpc;
+pub mod service;
 mod sql;
 
 #[derive(Default)]
@@ -34,6 +36,8 @@ pub fn is_read(name: &str) -> bool {
             | "workers.sql.size"
             | "workers.kv.get"
             | "workers.kv.list"
+            | "workers.r2.get"
+            | "workers.r2.head"
     )
 }
 
@@ -63,6 +67,26 @@ pub fn supports_synchronous(name: &str) -> bool {
 }
 
 impl State {
+    /// Execute native object storage with a host-owned decoded-byte reservation.
+    /// The reservation follows entered backend work even after the guest stops.
+    pub async fn r2_with_capacity(
+        &self,
+        context: &Context,
+        name: &str,
+        input: Value,
+        options: &Limits,
+        transport: &crate::transport::Session,
+        reserve: impl FnOnce(usize) -> Result<std::sync::Arc<dyn Send + Sync>>,
+    ) -> Result<Value> {
+        crate::values::check_depth(&input).context(crate::failure::Validation)?;
+        let candidate = context.invocation_authority()?;
+        let authority = self.authority.get_or_init(|| candidate);
+        authority.check(context)?;
+        let result = r2::execute(context, name, input, options, transport, reserve).await;
+        authority.check(context)?;
+        result
+    }
+
     pub(crate) async fn fetch_stream(
         &self,
         context: &Context,
@@ -166,6 +190,9 @@ impl State {
             return namespace::identity(context, input);
         }
         if name == "workers.rpc" {
+            if input.get("service").is_some() {
+                return service::call(context, input, options).await;
+            }
             return namespace::call(context, input, options).await;
         }
         if name == "workers.crypto.random" {

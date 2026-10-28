@@ -17,9 +17,9 @@ does not narrow that objective or turn fixture passes into full compatibility.
 | SP-02 | Native-backed DO SQL/KV/clone facade, activation-bound authority, object identity, value/returned-function namespace RPC and Node returned readable/writable byte streams and byte-stream input sessions, Request/Response results and HTTP-message arguments, and bounded default-source byte streams, event-style port WebSockets/local pairs, constructor admission, native input gates/reset, sync/async transactions and retained event/background drivers execute in Node/V8; actual published constructors are exercised; Node module HTTP dispatch, namespace bindings and activation-owned env execute against native cells | Complete loader/bootstrap, embedded web globals, other binding kinds, property/target RPC and lifetimes, full versioned lifetime/deadline qualification and profile/version admission; retain native-only dependency boundary |
 | SP-03 | Actual published `@cloudflare/containers@0.3.7` constructor, state and SQL scheduling run in both engines; root-event/concurrency-block queued lifecycle and run-bound monitors; native callback admission remains held through void-control completion, with nested transaction/late-continuation refusal; Node runs published readiness with native HTTP ports, `onStart` controls, readiness `onError`, nonzero monitor/`onStop` parameters, idle SIGTERM sleep/wake cycles and persisted hook state; unchanged pinned module named/singleton/random routes execute against the engine peer; async alarm controls yield across overlapping native callback gates; Worker/DO/container WebSocket forwarding passes selected native paths | Embedded web globals, complete continuation/hook/timeout behavior, callback failure/cancellation and image lifecycle/upgrade/fault qualification |
 | SP-04 | Actual `@cloudflare/sandbox@0.12.9` constructor/configuration and metadata recovery run in Node; matching upstream app/Dockerfile and `linux/amd64` image digest are pinned; unchanged application exec/file/background-process assertions pass against the real image, including later process discovery, in-object/DO HTTP/direct-RPC execStream, SDK destroy, a gated 2 MiB binary SDK RPC upload and exact binary download through Cap'n Web/local WS proxy, HTTP/WebSocket preview token/runtime routing and drained shutdown | Complete SDK HTTP/RPC/helper coverage and full RPC transport fault/lifetime semantics, complete process-helper/preview coverage, persistence/restart/fencing and failure cases |
-| SP-05 | Four-language per-slot discovery and named host configuration; bounded binary files; protected revisioned journals across business clear/recovery; explicit event-driven reconnect/expiry/deletion observations, confirmed-retirement provider replacement and independent named E2B/Vercel resources in native/runtime peers | Richer operations, remote fencing, supervised expiry/orphan cleanup, provider loss/takeover and live failure qualification |
-| SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; other framework/provider work continues |
-| SP-07 | Separate 1.x contract identified in the design; it is not the 0.12.9 baseline | Pin and run exact current package/helper/image, extended container API, errors, streams, cancellation and supported persistence |
+| SP-05 | Four-language per-slot discovery and named host configuration; bounded files and protected revisioned journals; explicit reconnect/replacement; optional native scheduled expiry/cleanup with durable deadlines and fresh event authority; native fleet peers cover cold restart, removed classes, accepted-create owner expiry, handoff, provider API outage through repeated cold replacement and owner-specific object-store isolation; shared lifecycle admission prevents application/maintenance overlap; explicit terminal capability, metadata and resize controls pass the four-language native boundary | Richer operations, broader outages and partitions, physical cell deletion, remote fencing and live failure qualification |
+| SP-06 | Experimental native E2B/Vercel providers implement bounded exec/files with durable binding reconciliation; protocol/restart/failure peers and CPython/Node/V8 fixtures pass; native fleet cleanup preserves the original generation without creation replay; operation and fencing gaps are declared | Live account/image, expiry, takeover and orphan qualification deferred until user configurations; broader framework/provider faults remain open |
+| SP-07 | Separate 1.0.3 SDK/helper/base-image inputs; Node native exec and automatic byte-source stdin, callback-independent process observations and actual published Files operations execute against the matching helper, including cross-event binary files, explicit handle retirement and typed errors; native PTY/PID/resize now have matching-image kernel evidence; an optional native host profile owns helper-first startup, warm reconnect, failure retirement and paired cleanup | Generation-bound outbound service routing, complete remaining extended container API, all helper operations, error/stream/cancellation faults, persistence, full versioned acceptance and live/remote profiles |
 | SP-08 | No Daytona/Modal implementation yet | Provider implementations and individual process/files/storage/PTY/GPU/snapshot qualification |
 | SP-09 | No Dynamic Worker or hosted Cloudflare provider yet | Actual isolate loader/limits/capability isolation; optional authenticated hosted gateway, outbound policy and cleanup qualification |
 | SP-10 | Initial input manifest explicitly reports `conformance: not_run` | Publish operation/version compatibility results only after actual four-language, lifecycle, fault, resource, fencing and shutdown qualification |
@@ -40,15 +40,503 @@ independent of the optional Workers runtime.
 | Delivered Node slice | Worker/DO/container upgrade forwarding and published Sandbox WebSocket previews | Native network tests, held-receiver disconnect and exact-image text/binary round trips with joined cleanup |
 | Delivered selected slice | Concurrency-block controls and published error/exit hooks | Void controls join before native admission releases; nested blocks execute; transactions, inherited transaction views and late continuation admission refuse. Node exercises published readiness errors and nonzero exit/stop parameters |
 | Delivered Linux startup fix | Large Node runtime bootstrap | Transfer source/configuration over the private pipe; bounded argv, no credential-bearing module URLs and fixed private initialization errors |
-| 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The 250 ms module and alarm-start failures reproduced in this campaign; a fresh full module run passes unchanged. Native routing/activation before DO JS entry is the next investigation boundary; no fix is established |
+| 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
-| 2 — feature delivery | Supervised expiry/orphan cleanup and ownership-transfer faults | Host-owned controllers, completion fencing and recoverable cleanup; never retain an application Context as perpetual authority |
-| Following milestones | Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent pinned profiles and the SP-07–SP-10 acceptance requirements |
+| Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
+| Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, terminals and Files | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize evidence, actual file operations, explicit handle retirement and original-event authority |
+| Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
 Failure, lifetime and resource checks belong to each delivered feature. E2B and
 Vercel live qualification remains deferred until configuration is supplied; it
 does not block the local Cloudflare or common-framework milestones. This order
 does not mark any partial SP profile complete.
+
+## Native resumable upload foundation — 2026-10-27
+
+The native Blob API now exposes backend-owned multipart identities separately
+from the existing process-owned append pipeline. The local SQLite backend
+persists replaceable indexed parts and current receipts across client/process
+replacement. Completion validates receipts and publishes bytes/metadata while
+retiring the upload in one transaction; abort preserves the current object.
+Mutations retain native event authority and the Blob durability gate.
+
+| Evidence | Result |
+| --- | --- |
+| Local object-store tests | 24 pass, including fresh-process resume, stale/foreign receipt refusal and concurrent completion/abort |
+| Metadata capability refusal | 1 pass; unsupported metadata refuses before backend allocation |
+| Native Blob integration | 1 pass at the existing 30 s budget; cell eviction, rebuilt bucket client, durable receipts, gate refusal and exact completed bytes/metadata |
+| Fresh-process 64 MiB completion | Peak RSS growth 5,980,160 bytes, below the unchanged 16 MiB bound; exact streaming readback and upload-row retirement |
+| Core Clippy | All library/test targets pass with `-D warnings` |
+| Repository gates | Rust formatting/layout, native-only dependency guard, docs and whitespace checks pass |
+
+See the [API and backend guide](../crates/cellar/application/blob/README.md).
+This is a local native storage foundation: Workers R2 bindings,
+`FixedLengthStream`, positive published backup/mount gateway tests and outbound
+interception remain next. Automatic upload expiry/orphan cleanup and cloud
+metadata initiation/qualification remain open. The pinned S3/GCS low-level API
+cannot initiate metadata-bearing resumable uploads; that profile refuses before
+allocation. No live account or container-image campaign is claimed here.
+
+## Counted Workers byte streams — 2026-10-27
+
+`FixedLengthStream` now provides the byte-count validation needed by the
+published 1.0.3 directory-backup part gateway. It accepts safe integer number or
+bigint lengths, preserves BYOB/backpressure and caller buffers, and propagates
+short-write, overflow, producer-abort and consumer-cancellation failures. The
+facade infers request/reply head lengths from privately branded streams, and
+retains a request source's length through native body conversion without
+reading option accessors twice or changing their receiver.
+
+The native fixture caught a bundler collision: an upstream use of the global
+name renamed the local constructor, making installation by `Function.name`
+incorrect. Global installation now uses explicit API names, and the actual
+pinned-package bundle passes its original native Worker test with binary
+stream output and length-bearing routed requests. External streaming replies
+retain the host's existing chunked framing policy; fixed-length external
+response framing and cloned/teed length inference remain gaps.
+
+| Check | Evidence |
+| --- | --- |
+| JavaScript/TypeScript suite | 137 pass, including count mismatches, cancellation, native request conversion, response-head inference, accessor behavior and package delivery |
+| Native pinned Worker entrypoints | Initial full pass and five fresh-process repeats pass at original budgets; one intervening rerun reaches both stream checks, then fails the existing object route at its unchanged 250 ms deadline |
+| Strict Node adapter Clippy | Library and Worker-entrypoint test targets pass with `-D warnings` |
+
+The intervening cold-dispatch failure remains open; successful repeats do not
+establish its cause or repair. On the preceding pushed head `274af242`, the full
+Linux JavaScript/Node workflow `40529046449` now passes, including cold recovery,
+archive/admission and fleet delivery. The SDK workflow `40529046736` is still
+running, so the two new feature commits remain local to avoid cancelling that
+qualification run.
+
+This stream delivery does not qualify Workers R2 storage or the positive
+backup/mount gateway paths. The native resumable storage foundation above and
+these streams enable the next R2 binding slice.
+
+## Native R2 gateway delivery — 2026-10-27
+
+Explicit Workers `r2` bindings now call the native Blob backend. The supported
+subset implements head, streamed/ranged get, single-key delete and resumable
+multipart create/part/complete/abort. The native bridge validates fields/options
+before effects; decoded part bytes retain their own runtime reservation through
+entered backend work. Transaction callbacks refuse R2 I/O before dispatch.
+
+The separately pinned `r2.mjs` fixture imports the unmodified published
+`DirectoryBackupGateway`. It drives actual control RPC and HTTP operations
+against native SQLite storage, rebuilding the node/client between the first part
+and completion. No JavaScript bucket substitute supplies successful results.
+
+| Qualification boundary | Evidence |
+| --- | --- |
+| Published gateway | Create, binary upload/replacement, stale-receipt refusal, short-part failure, oversized source cancellation, completion and exact ranged reads |
+| Metadata and lifetime | Actual HTTP/custom metadata and uploaded date, direct body consumption, saved-binding/body refusal in later events and transaction refusal |
+| Cleanup | Explicit abort/delete, drained nodes/runtime and zero remaining upload/part rows |
+| Native capacity | A cancelled waiter retains its byte reservation while an independent SQLite writer blocks admission; the accepted part remains after backend completion |
+| Current Rust tests | 89 unique cases: 28 shared guest, 57 Node library, two Worker integration fixtures, native Blob integration and the entered-I/O capacity control |
+| JavaScript/TypeScript | 139 tooling/contract tests; both SDK input-identity suites and fixture builds pass |
+| Quality | Strict core/guest and combined Node/V8 library/new-integration Clippy; 1,255-file Rust format/layout, 110-source JavaScript formatting, 466-package native-only dependency guard, docs and whitespace checks |
+
+The initial direct `get()` fixture found an undefined optional `range` in a
+strict JSON frame; omitted fields are now omitted before native submission.
+The local compiler also reported an incremental-cache ICE. Validation reruns
+with incremental compilation disabled; no test assertion or existing deadline
+was relaxed. The dedicated storage fixture declares its own five-second handler
+budget; the older 250 ms routing fixture remains unchanged and passes its final
+campaign. Its separately recorded intermittent cold-dispatch failure is still
+open.
+
+All four Linux workflows for the preceding pushed head `274af242` are green,
+including SDK runs for both standard/free-threaded Python ABIs and the complete
+JavaScript/Node campaign. The new feature commits require fresh head CI after
+push; prior-head green results are not qualification of these changes.
+
+See the [R2 subset guide](../packages/cellar-cloudflare/r2.md). Full helper
+backup/restore now requires outbound interception and complete grant lifetime.
+S3 mounts, full R2 options/part-size semantics, large unbuffered uploads, automatic
+expiry/orphan cleanup and cloud qualification remain outstanding. Additional
+providers and SP-08–SP-10 work remain in the original plan; E2B/Vercel live
+configuration is still deferred by the user.
+
+## Updated main qualification — 2026-10-27
+
+Merged `a9da48ac` cleanly after the feature commits. This includes verified
+object-store extent snapshots and actual loaded Python ABI qualification.
+The merged-head campaign passes 88 Rust tests: native Blob integration,
+28 shared guest cases, 57 Node library cases and both Worker integration
+fixtures. The entered-I/O capacity and earlier storage resource controls remain
+separately recorded above. Combined core/guest/Node/V8 Clippy passes for all
+library/test targets with `-D warnings`; Rust formatting/layout now cover 1,259
+files. Native-only dependency, JavaScript formatting, docs and whitespace gates
+also pass. Fresh CI is required for the resulting PR head.
+
+## Native outbound transport and rule control — 2026-10-27
+
+The new `cellar-egress` crate implements the private transport and rule-control
+boundary needed for published Sandbox outbound gateways. It is not wired into
+container startup and does not advertise `interceptOutboundHttp()` support.
+The full SP-07 acceptance criteria and original provider goal remain open.
+
+| Delivered component | Evidence |
+| --- | --- |
+| Canonical HTTP targets and rules | Host/glob, IP, IP:port, CIDR and catch-all matching; shared 128-entry budget; registration order; canonical default-port replacement; stale/foreign candidate and revision-exhaustion refusal |
+| Bounded Yamux transport | 129 live streams, eight pending opens, explicit aggregate window; half-close, binary traffic, saturation, cancellation and retirement checks |
+| Private Engine attach codec | Incremental Docker stdout framing with raw stdin; one-MiB frame ceiling; malformed/truncated/stderr frames poison both directions without frame-sized allocation |
+| Acknowledged rule controller | Eight pending commands; queued cancellation skips effects; entered installation survives waiter cancellation; same-revision ack precedes visibility; missing/wrong ack, idle disconnect and controller drop retire rules |
+| Helper control protocol | Session identity, monotonic revisions and acknowledgement only after the supplied network installer finishes; no claim that the callback itself installs kernel rules |
+| DNS policy | Pinned Hickory parser; section-count checks before allocation; bounded single-question A/AAAA replies, zero-TTL placeholders, family-specific `/0` grants and explicit offline drop/online forward decisions |
+| Current component campaign | 32 unit tests and one compiled README example pass; no existing deadline or assertion was relaxed |
+| Repository gates | All-target/all-feature crate Clippy passes with `-D warnings`; Rust format/layout cover 1,274 files; native-only graph has 480 packages and no JavaScript engine; docs validate 825 references and 11 crate guides; whitespace check passes |
+
+Two fault controls caught defects during implementation. A retained stream could
+release buffered bytes before its driver observed closure; it now checks the
+shared revocation flag on every I/O poll. An idle controller originally missed
+peer EOF and exceeded its unchanged three-second test deadline; it now keeps
+the control decoder polled while waiting for commands, without discarding a
+partially read frame. Both regressions pass after their fixes.
+
+Next connect DNS policy to UDP/TCP listeners in the helper's network namespace,
+install and acknowledge firewall rules, capture actual socket destinations and
+keep direct fallback inside the existing container fence. Then wire helper-first
+startup, run ownership and joined removal into the engine, and route requests
+through host-minted generation-bound Fetchers. Only after that integration should
+the public capability be exposed and the unmodified helper backup/restore and
+mount operations be positively qualified. HTTPS/CA handling, independent
+intercept/fallback connection budgets and full profile fault qualification remain
+required. E2B/Vercel live configuration remains deferred by the user.
+
+The [outbound transport guide](../crates/cellar-egress/README.md) contains the
+connection/installation diagrams, resource table and implementation boundaries.
+
+## Linux outbound kernel qualification — 2026-10-27
+
+The optional `cellar-egress` helper feature now supplies kernel original
+destination lookup and marked TCP/UDP sockets. A validated nftables program
+atomically replaces only its own namespace-local table, redirects HTTP and
+UDP/TCP DNS, and enforces explicit offline output policy. HTTP registrations
+that collide with DNS or helper listener ports refuse before installation;
+the full profile must account for this limitation.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Actual kernel, Linux 6.8.0-117 | IPv4/IPv6 TCP port-80/8080 redirection, exact bytes and original destination; marked TCP bypass |
+| DNS routing | IPv4/IPv6 UDP queries/replies, reverse-NAT source identity, marked UDP bypass and TCP port-53 byte/destination forwarding |
+| Offline policy | A verified live external peer is refused through a new unmarked connection; marked access and inbound connection replies succeed |
+| Replacement | The same namespace changes offline → online → offline; fresh unmarked connections follow each committed policy |
+| Input identity and cleanup | Locked native build with repository version/checksum comparison; actual Rust/Node/qualifier image IDs and source hashes recorded; uniquely owned containers, network and image removed after success/failure |
+| Local checks | 33 unit tests and one documentation test pass; Linux aarch64 all-target checks and strict all-feature/all-target Clippy pass |
+
+The first actual-kernel run rejected an unquoted reserved chain name. Renaming
+the chain fixed the syntax error; the unchanged behavioral campaign then passed,
+and the expanded TCP DNS campaign also passed. No test was replaced with string
+matching or an SDK substitute. The
+[reproducible runner](../tools/sandbox/egress/README.md) and
+[dedicated CI workflow](../.github/workflows/container-egress.yml)
+retain build/runtime evidence; fresh GitHub execution remains required.
+
+Rust format/layout cover 1,278 files, JavaScript formatting covers 111 sources,
+and the native-only dependency guard reports 481 packages without a JavaScript
+engine. Documentation and whitespace checks pass. The private VM's original
+configuration and unrelated stopped container are preserved; its owned test
+resources were removed and the VM returned to its stopped state.
+
+The full helper control/data loop, persistent DNS TCP handling, bounded HTTP
+routing, generation-bound Fetchers, helper-first engine startup and joined
+ownership-loss teardown remain next. This kernel evidence does not enable the
+public interception capability or establish published helper backup/restore,
+mount, TLS or cloud compatibility. SP-07 and the original provider goal remain
+partial.
+
+## Owned Linux network-helper process — 2026-10-27
+
+The optional `cellar-egress` binary now joins the native transport, real firewall
+installation, DNS policy and connection relays in one dedicated process. It uses
+nonblocking owned stdin/stdout pipe descriptors, independent 64-slot
+intercept/direct limits and a separate 64-slot DNS budget. No detached Rust
+tasks are spawned. Engine lifecycle and native Worker dispatch are still pending;
+the public interception capability remains unavailable.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Actual process and control | The production binary starts over private pipes, applies actual nftables rules before readiness/installation acknowledgement, and exits successfully after joined retirement |
+| DNS | UDP A/AAAA, persistent TCP observing later registrations, forwarded-answer identity, exercised forged-ID refusal and malformed-query isolation |
+| Relay and replacement | Native protocol-peer HTTP bytes use the current committed handler across two requests on one live connection; marked direct fallback remains in the namespace |
+| Pre-effect refusal | Typed offline, hostname and reserved-listener refusals; the external peer's connection and request counters prove no upstream effect |
+| Installer faults | A fault-only wrapper stalls startup or an entered update; readiness/unacknowledged routes refuse, and timeout/retirement kills and reaps the tracked installer PID before process exit |
+| Current local tests | 34 unit tests plus one documentation example pass; Linux aarch64 all-target checks and strict all-target/all-feature Clippy pass |
+
+Broader kernel checks found two defects missed by loopback-only probes.
+An offline connection to a non-loopback HTTP destination timed out at the
+unchanged outer budget, while the same redirect succeeded with online policy.
+The fence now explicitly admits DNATed traffic to the proxy listeners. A
+separate pre-fix regression resolved the owned peer through Docker's private
+loopback DNS socket, bypassing the port-53 redirect. Offline policy now drops
+that unmarked access before the loopback/established allowances; marked helper
+access remains available. The negative probe accepts only timeout or the
+specific kernel `EPERM` send refusal, and requires a live marked DNS control.
+
+Both regressions and the kernel/helper/retirement campaigns pass after the fixes.
+The native protocol route peer does not replace the published SDK for positive
+Sandbox qualification: no full Worker routing, engine startup/ownership teardown,
+Sandbox backup/restore, mount or cloud claim follows from these tests. Per-class
+saturation and additional kernel/runtime profiles also remain open.
+
+The [network qualification guide](../tools/sandbox/egress/README.md) records the
+three reproducible campaigns and source/image evidence. Build caches are scoped
+to this checkout; the crate is recompiled from the captured source snapshot.
+The full SP-02–SP-10 requirements and original goal remain active.
+
+## Free-threaded typed-RPC qualification failure — 2026-10-27
+
+The pushed `32e15e11` Linux typed-RPC run `40549293705` fails the portable
+profile for CPython 3.14.10 free-threaded at `python->python/timestamp-min`.
+The request reports a generic handler failure; later cleanup reports
+`NodeLeaseExpired`. Their causal relationship is not established. The standard
+Python profile, complete JavaScript/Node workflow, all four Python example jobs
+and both standard/free-threaded SDK jobs pass. The typed-RPC free-threaded failure
+remains a separate qualification gap.
+
+Both local profile campaigns pass all 576 cases and their report/cleanup guards:
+CPython 3.14.6 with the GIL and CPython 3.14.5 free-threaded on macOS, both using
+protobuf 7.34.2. These different platform/patch controls do not repair or qualify
+the Linux failure. The synthetic Python fixture now reports only a fixed failure
+stage; the native matrix records bounded readiness observations before cleanup.
+Exception details remain private, and request, lease, handler and shutdown
+budgets and success assertions are unchanged. Diagnose the next failing Linux
+observation before claiming a correction; this qualification priority stays open.
+
+## Native Engine attach and helper topology — 2026-10-27
+
+The native Docker client now attaches private stdin/stdout by full immutable
+Engine ID before helper startup. Names and partial IDs refuse before connecting.
+The actual helper and a separate Node application share one `runc` network
+namespace only after readiness and acknowledged route installation. This is
+qualified Engine transport/topology, not production cell lifecycle integration
+or an enabled `interceptOutboundHttp()` capability.
+
+| Boundary | Evidence |
+| --- | --- |
+| Raw Engine connection | Buffered upgrade bytes, raw stdin and half-close survive; malformed IDs refuse before connection |
+| Refusal bounds | A declared oversized daemon error refuses before reading; actual received error bytes remain bounded to 64 KiB |
+| Complete versus lost response | The pre-fix 404 control loses its complete daemon reply to macOS shutdown `ENOTCONN`. One final nonblocking response poll now preserves buffered completion; a truncated 200 reply still fails, without waiting or replay |
+| Real application startup | Actual native attach precedes helper start; the separately started application resolves the registered hostname and completes an exact HTTP byte round-trip through real namespace rules |
+| Startup failure | Missing installer produces the expected helper failure, refuses readiness and allocates no application container |
+| In-flight retirement | After a real request arrives, transport retirement refuses further response writes, delivers zero response bytes to the application and joins the helper successfully |
+| Native test campaign | Five Docker-client regressions, both existing native-container ownership/exec/port/restart cases and the Engine integration pass; all three real startup/retirement scenarios join successfully |
+| Linux campaign | Kernel, helper, installer-retirement and native Engine campaigns all pass with explicit `runc`, Engine 29.5.2 and kernel 6.8.0-117-generic; source/image hashes and Engine build/runtime logs are retained |
+| Environment | Both campaign owner labels are empty after cleanup; VM configuration checksum and Docker's default context are unchanged |
+| Quality | Strict core/egress library/test Clippy with all features and `-D warnings`, 1,287-source Rust format/layout, 112-source JavaScript formatting, the 481-package native-only engine guard, docs and whitespace checks pass |
+
+The two client regressions above were reproduced before correction and pass
+with their original two-second bounds afterward. The Engine scenarios retain
+their original 30-second per-case budget. Three additional fresh-process
+free-threaded CPython 3.14.5/macOS controls also pass all 576 RPC cases and
+runtime/report guards; they do not repair the separately recorded Linux
+3.14.10 failure. No guest exception details or existing qualification assertions
+were exposed or weakened.
+
+See the [reproducible Engine campaign](../tools/sandbox/egress/README.md).
+The next feature step is integrating this topology with production
+`CellContainer` start/stop, ownership loss and generation-bound Worker dispatch,
+then exercising the unmodified published Sandbox helper's backup/restore and
+mount operations. Physical provider deletion, hard remote fencing, other runtime
+profiles and the remaining SP-02–SP-10 acceptance work remain open; the original
+goal is active. E2B/Vercel live configuration remains deferred.
+
+## Immutable production container run resources — 2026-10-27
+
+Production `CellContainer` state now records a typed full Engine ID with its run.
+Waiters, exec handles, archive I/O, signals and removal use that captured ID.
+Creation/name discovery validates ownership labels; restart cleanup checks full
+IDs and host/node labels. Native invocation, activation, output/durability and
+run checks remain in place. A lost create response is not automatically replayed.
+
+| Boundary | Evidence |
+| --- | --- |
+| Name reuse | Rename the owned resource, occupy its old name with a foreign resource, then exercise files, exec, signals, monitoring and removal against the original ID |
+| Foreign resource protection | Discovery refuses foreign labels; old-run cleanup, a subsequent refused start and domain shutdown preserve the live replacement and its identity |
+| Process/file identity | The original monitor observes its original exit; the foreign replacement has none of the original file writes; native effect requests must contain immutable IDs |
+| Rust | All three native container cases pass, including existing durability/activation/handle checks, host isolation, spec replacement and restart cleanup |
+| Node/V8 | Both container capability cases and all five published module/restart/sleep-wake/hook cases pass at their existing budgets |
+| Python | The CPython 3.14.6 GIL native-container facade campaign passes, including original event ownership, terminal, cancellation and joined runtime assertions |
+| Actual Sandbox 1.0.3 | Matching unchanged image/helper campaign passes in 39.80 seconds: stdin, late reads, PTY/PID/resize, binary files, faults and destroy |
+| Client regressions | All five private attach, bounded refusal, completed-response, truncated-response and half-close cases pass |
+| Quality | Strict core/Node/V8/Python all-feature library/test Clippy with `-D warnings`; 1,287-file Rust format/layout, the 481-package native-only dependency guard, docs and whitespace checks pass |
+
+The shared Engine peer now supplies distinct full IDs, preserves archive data
+and waiters across rename, reports name conflicts and rejects deleted IDs. The
+new identity campaign joins HTTP and exec peer tasks on its result path. Its
+initial server shutdown failure was isolated to macOS `ENOTCONN`; only that
+specific completed-peer shutdown and explicit cleanup cancellation are accepted.
+Unexpected protocol failures and task panics remain failures. The new campaign
+uses its declared 30-second outer budget and unchanged two-second monitor bound.
+
+No public interception capability is enabled. The next feature step remains
+production helper/application lifetime integration, ownership-loss retirement
+and generation-bound Worker dispatch, followed by actual published helper
+backup/restore and mounts. Native immutable resource identity supports that
+integration; it does not complete provider hard fencing, physical deletion or
+the remaining SP-02–SP-10 profiles. Live E2B/Vercel configuration remains deferred.
+
+## Outbound CI image-input correction — 2026-10-27
+
+Linux run `40583157657` completed the actual kernel, helper, installer-retirement
+and native Engine campaigns, then failed while inspecting the Rust source tag
+for its final report. BuildKit had used the base without loading that tag into
+the daemon image store. The functional assertions and budgets were unchanged.
+
+The runner now resolves the base before building, pulls only after a specific
+missing-image response, and records its immutable Engine identity and platform.
+It builds through a unique owned alias with pulling disabled, then removes only
+that alias. Report generation uses the captured input. Locally built containerd
+images may also report digests that are unavailable in a registry; those inputs
+use the same alias path rather than assuming every reported digest is fetchable.
+
+| Check | Evidence |
+| --- | --- |
+| Fresh-daemon CLI boundary | Missing image triggers one pull and reinspection; unrelated daemon failures propagate |
+| Real default image | All four campaigns pass with the captured Rust image and exact native/helper source evidence |
+| Real locally built image | All four campaigns pass through the owned alias; temporary aliases and campaign resources are absent afterward |
+| Regression checks | Seven image identity/cleanup cases pass; Python compilation, documentation and whitespace checks pass |
+| Environment | Original Rust image, VM configuration checksum and Docker default context are preserved |
+| Linux follow-up | Fresh head CI remains required for the corrected runner |
+
+At preceding head `7ba5ffa1`, Linux JavaScript/Node, all four Python-example jobs
+and both standard/free-threaded typed-RPC campaigns pass. Both SDK jobs are
+still running. These new passes
+do not establish the cause or repair of the earlier Linux free-threaded
+failure. The full provider profiles and original goal remain active.
+
+## Joined native inactivity cleanup — 2026-10-27
+
+A native regression reproduced an idle-lifetime defect: reconnect cleared the
+stored task handle, but dropping that handle detached the timer. Its old deadline
+later deleted the successfully reactivated container. The new cooperative
+sweeper signals cancellation and joins before successful reconnect returns.
+Cancellation is admitted while sleeping or waiting for SDK control; an entered
+Engine deletion finishes before a reconnect or timer replacement can proceed.
+
+| Native boundary | Evidence |
+| --- | --- |
+| Successful reconnect | Resource remains live beyond its previous idle deadline; a later idle eviction still removes it |
+| Replacement inactivity window | Old timer retires; removal follows the new window |
+| Entered deletion | Hold the actual Engine peer's delete acknowledgement; reconnect waits, then returns a new nonrunning handle after removal completes |
+| Failed adoption | Foreign name discovery refuses while the original immutable resource's deadline still removes it; the foreign replacement survives |
+| Explicit release | A separate pre-fix regression retains the removed cell through a pending 60-second timer; after cancellation/join, the weak resource handle retires before shutdown |
+| Original contracts | Ownership/durability, exec/files/ports, host isolation, restart cleanup and renamed-resource identity cases all pass |
+| Current native campaign | Eight tests pass; original assertions and budgets remain unchanged |
+| Language adapters | Both Node/V8 container capability cases and all five published module/routing/sleep-wake/hook/restart cases pass after the final release correction |
+| Quality | Strict native all-feature library/test Clippy; 1,288-file Rust format/layout, 481-package native-only dependency guard, docs and whitespace checks pass |
+
+This fixes native inactivity ownership; it does not complete production network
+helper integration, remote hard fencing, physical provider deletion or any
+remaining versioned provider profile. The next feature priority remains owned
+helper/application lifetime and generation-bound routing, then actual published
+Sandbox helper backup/restore and mounts.
+
+## Exact service deployment routing — 2026-10-27
+
+A native regression confirmed that an absent generation silently selected the
+current service Worker. HTTP, RPC and Queue service dispatch now use checked
+lookup under the same current/draining snapshot. An absent nonzero generation
+refuses before Worker admission. The public general-purpose lookup retains its
+existing behavior, and the explicit unversioned host route (`0`) remains current.
+
+| Boundary | Evidence |
+| --- | --- |
+| HTTP/RPC refusal | Unknown generation returns failure with no target-handler entry |
+| Valid routes | Explicit current generation and unversioned host calls still reach the expected service |
+| Queue refusal | Unknown generation leaves the consumer event uncreated; the original grouping, lease, settlement and transfer campaign passes |
+| Shared native contracts | All five HTTP/service tests and the Queue integration case pass, including stream, cancellation, host policy and proof-gate controls |
+| Published Worker/gateway paths | WorkerEntrypoint routing/props and the unchanged published DirectoryBackupGateway native resumable-storage fixture pass |
+| Contract documentation | The routing guide distinguishes exact, absent and explicit unversioned routes |
+| Quality | Strict native all-feature library/test Clippy, Rust formatting and documentation/whitespace checks pass; module layout and the native-only dependency graph are unchanged |
+
+This closes the fallback that would invalidate a persistent container handler's
+generation binding. It does not implement persistent Fetchers, production
+helper/application lifetime, per-request ownership gates or HTTP interception;
+those remain the next feature delivery. The full provider goal remains active.
+
+## Production helper/application lifetime — 2026-10-27
+
+An optional native host profile now gives each application run its own immutable
+helper identity, private Engine transport and shared network namespace. The host
+awaits helper readiness before creating the application. The application drops
+all capabilities; only the helper receives `NET_ADMIN`. Selecting this profile
+requires explicit `runc` and an immutable helper image with nftables.
+
+```mermaid
+sequenceDiagram
+    participant Host as Native host
+    participant Helper as Run-owned helper
+    participant App as Application container
+    Host->>Helper: Create exact ID and attach private transport
+    Host->>Helper: Start and await acknowledged readiness
+    Host->>App: Create in helper namespace and start
+    Note over Host,App: Warm reconnect preserves both IDs
+    Host->>Helper: Retire authority on release or failure
+    Host->>App: Stop and remove exact owned ID
+    Host->>Helper: Join transport, verify exit and remove
+```
+
+| Boundary | Evidence / behavior |
+| --- | --- |
+| Actual production API | The real Engine campaign configures an execution domain and `ContainerEngine`, then starts the actual helper and separate Node HTTP application |
+| Port ownership | Docker initially refused application `ExposedPorts` in shared-container network mode with HTTP 400; publications now belong entirely to the helper |
+| Warm reconnect | The same application/helper IDs survive past the cancelled idle deadline; explicit release removes both |
+| Failure | Missing installer allocates no application; killing the actual helper invalidates routing, preserves its original monitor error and removes the owned pair |
+| Ownership | Native release retires authority synchronously before waiting for SDK serialization; full resource IDs and node/host/cell/class/run labels bound cleanup |
+| Uncertain create | An empty Engine inventory cannot discharge a submitted create whose response/ID is unresolved; retain the cleanup obligation and helper capacity rather than replay creation |
+| Startup races | Late readiness cannot restore failed transport authority; abandoning startup before helper allocation terminates its monitor and clears running state |
+| Joined transport | Cancellation returns the task handle to its run; timeout aborts and joins it; repeated cleanup after confirmed removal is idempotent |
+| Capacity | Each pending/allocated helper reserves another 256 MiB until removal is confirmed |
+| Runner recovery | The test publishes ownership before allocation; timeout output is retained and recovery validates exact labels before removing containers, networks and that owner's nft table |
+
+The completed source snapshot passes all real-image campaigns with Engine
+29.5.2, Linux 6.8.0-117-generic, arm64 and explicit `runc`. The three production
+scenarios finish in 4.62 seconds; existing kernel, helper, installer-retirement
+and private Engine scenarios also pass. All three campaign owner filters are
+empty after cleanup. Nine selected native configuration/lifecycle/port tests,
+eight native container regressions and strict native all-feature library/test
+Clippy pass. Both Node/V8 container cases and all five published module,
+routing, sleep/wake, hook and restart cases also pass. The actual matching
+Sandbox 1.0.3 image passes stdin, late reads, PTY/resize, files, faults and destroy
+in 37.63 seconds. JavaScript tooling passes 139 cases, and the qualification
+runner passes 13 input/ownership/timeout-recovery cases. Original case and
+process budgets remain unchanged.
+
+Selected quality gates also pass: strict Node/V8/provider library/test Clippy,
+Rust format/layout for 1,292 files, JavaScript formatting for 113 sources, the
+481-package native-only dependency guard, docs and whitespace checks. Qualified
+source hashes still match the completed snapshot. Original base/Sandbox/fence
+images, the VM configuration checksum and Docker default context are preserved;
+the private VM is stopped after qualification.
+
+Before the final pass, bounded HTTP diagnostics reproduce
+a 403 without the owned fixture header at a VM-selected loopback publication.
+A local bind after cleanup refuses that same port: Docker's VM allocator cannot
+see occupied Mac host ports. The helper profile now selects and temporarily
+holds available host-port candidates through creation, releasing them immediately
+before helper startup so the VM forwarder can bind. A local reservation test
+checks existing occupancy, unique selections, held capacity and release. This
+reduces the host/VM allocation collision; it is not an atomic port handoff, and
+macOS still requires a working daemon forwarder.
+
+At pushed head `9dc616ec`, Linux JavaScript/Node CI fails the accepted-create
+owner-expiry successor test. The exact local test passes, and new failure-only
+readiness, witness, peer and shutdown observations preserve its original
+15-second deadline. This is diagnostic progress, not a claimed Linux correction.
+The same head's Linux outbound workflow passes, qualifying the earlier runner
+image-input/report correction. Its typed-RPC free-threaded job passes, while the
+GIL profile fails at `rust->node/empty-message`: pre-cleanup observations show the
+owner already closed/unready and cleanup reports `NodeLeaseExpired`. Why renewal
+was lost remains unproven; the earlier free-threaded finding is not repaired by
+a later pass. SDK and Python-example workflows remain queued at this observation.
+
+This profile enables native lifecycle ownership, not public outbound
+interception. Persistent generation-bound Worker service routes, bounded HTTP
+message dispatch, full published Sandbox backup/restore and mounts remain next.
+Other runtime/provider profiles and broader ownership-transfer faults need their
+own qualification. E2B/Vercel live configuration remains deferred, and the full
+SP-02–SP-10 goal stays active.
 
 ## Verified implementation details
 
@@ -1659,3 +2147,655 @@ tests. All four protected-journal storage tests, strict all-target Clippy for
 also pass. The original configuration must remain available until its resource is
 confirmed retired. These are local protocol/native recovery tests, not live
 cloud expiry, two-owner fencing or supervised orphan-sweep qualification.
+
+
+### Sandbox 1.0.3 native exec / Files and qualification follow-ups
+
+This is a separate partial profile, not a replacement for the celld/Sandbox
+0.12.9 baseline. The [profile guide](../tools/sandbox/cloudflare-v1/README.md)
+records exact SDK/helper/base-image inputs, commands, limits and gaps.
+
+| Delivery | Contract / evidence |
+| --- | --- |
+| Node process facade | Literal argv; pipe/ignore/combined byte streams, bounded stdin writes and output collection, nonzero exit codes, inactivity timeout and explicit signals |
+| Native admission | Per-event bounded control/cleanup queues; captured original invocation; no mutation replay after unknown results |
+| Observation cancellation | stdout/stderr reads and wait use private native cancellation controls; Node/V8 regressions exhaust ordinary quotas and join cleanup under the original authority |
+| Published Files | Unmodified `@cloudflare/sandbox@1.0.3` and matching `sandbox-shim`; streamed binary write/read, mkdir, rename, stat, remove and typed missing-file errors |
+| Qualification inputs | Immutable amd64 helper/base references, SDK integrity/source/license and lock hashes; fixture/Dockerfile hashes verified before bundle build; CI builds this independent profile |
+
+The live-abort fixture reproduced a native signalling error. Docker exec inspect
+reported daemon PID 61235 while the actual process reported container PID 8.
+Installing a standalone `kill` tool did not fix the failure. Native exec now
+captures a private PID header from `/bin/sh` before replacing it with the literal
+argv. Only that namespace PID is signalled using the shell builtin; a fresh exec
+inspection refuses to signal after a known exit. No standalone `kill` executable
+is required. Images without `/bin/sh` retain direct exec but signalling refuses
+an unverified PID. The header is stripped before guest output; malformed/oversize
+identity and pre-header stderr refuse within bounded admission. No reader task
+is spawned while waiting for identity. Full PID-reuse/fault fencing remains
+unqualified.
+
+The merged PR's Linux JS job [121944660488](https://github.com/crabbuild/cellar/actions/runs/40429870362/job/121944660488)
+then exposed `ValueLimit` on an RPC source error after its accepted 4 KiB prefix.
+V8 included the entire bootstrap data URL in runtime stack frames before native
+stack stripping. A fixed `cellar:node-bootstrap` source name preserves the error and
+original limits without embedding configuration in source or URLs. The launcher
+regression fails before this fix and passes afterward. Updated `main` independently
+added the production source label in PR #132. Integration keeps that exact label,
+places it at the private launcher boundary and preserves its native regression;
+there is one label assignment for the loaded module. A network-disabled Linux
+Node 24.13.1 probe serializes its 256 KiB-source error in 188 bytes. Full native
+RPC verification and this slice's final campaign results are recorded below.
+
+The integrated exact-image rerun exposed a second bounded-resource failure:
+0.12.9 preview/RPC startup waited on a firewall helper that Docker confirmed was
+OOM-killed. The isolated daemon held 119 existing nftables tables. The original
+transaction, and a `destroy table` alternative, both exhausted the existing
+64 MiB limit. Neither script was committed during the differential dry runs.
+
+| Firewall qualification | Evidence |
+| --- | --- |
+| Reproduction | nft 1.0.9, Linux 6.8.0-117, immutable fence image `sha256:1273323abb9e3116bd6a0f605e6340b2c0e050d1c32e6c90ebaa477b98494933`; original dry run exits 137, OOM true, peak 67,108,864 bytes |
+| Fix | Final `list table inet` names only this host's table; nft's cache evaluator then loads that table instead of unrelated hosts' chains/sets. Atomic replacement and all isolation rules remain intact |
+| Same limits | Production dry run exits 0, OOM false, peak 3,637,248 bytes under the unchanged 64 MiB / 0.0625 CPU limits |
+| Kernel application | Apply and reapply to a fresh probe table both retain two input rules and two forward rules, hooks at priority -10; remove exactly that probe table afterward |
+| Reproducibility | [Read-only cache probe](../tools/sandbox/fence-cache-probe.py) reads the actual production rules, compares the old control and current transaction, and verifies ownership before removing probe containers |
+
+The cache behavior was checked against the official
+[nftables 1.0.9 source](https://www.netfilter.org/pub/nftables/nftables-1.0.9.tar.xz),
+`src/cache.c` (`nft_cache_evaluate` and `evaluate_cache_list`). The apply/reapply probe
+touched only its newly allocated table and removed it afterward. Per-host firewall
+retirement and supervised provider orphan cleanup remain separate work.
+
+| Final integrated campaign | Result |
+| --- | --- |
+| Native SDK and Node/V8 integrations | 50 pass across 20 test binaries; includes all four Sandbox 0.12.9 image scenarios and the separate 1.0.3 image scenario |
+| Guest / Node / V8 runtime libraries | 16 guest and 82 JS runtime tests pass; process observation cancellation and original authority remain covered |
+| RPC inputs / HTTP messages | Accepted 4 KiB prefix and original source error survive the unchanged 2 KiB clone limit; producer stack stripping, request/response bodies, cancellation and joined resource accounting pass |
+| Sandbox 1.0.3 image | Matching helper, binary exec/exit 7, missing executable/exit 127, 2 MiB + 17-byte Files SHA-256 round trip across events, two parallel/70 sequential stats, typed errors, stale refusal, quota failure and live abort pass; host and Node bridge join with zero retained bytes |
+| PID identity parser | Five unit cases pass for fragmented identity, exact binary remainder, literal argv, malformed/bounded identity and bounded pre-header stderr; this unchanged pure module was tested before main integration and is exercised by the final native image campaign |
+| JS/tool/type and inventory | 104 JS/tool/type checks, two inventory/drift tests and the published SDK fixture build pass |
+| Final quality | Strict all-target Clippy for cellar/container/guest and Node/V8; 1,205-file Rust format/layout, 102-source JS format, docs/references and 466-package native dependency guard pass |
+
+The integrated campaign includes `main` commit `927d3f34` (PR #132). The isolated
+engine is Docker 29.5.2; the built 1.x image is
+`sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40`.
+SDK/helper/base source identities remain in the separate profile manifest.
+Native tests run serially with their existing assertions and deadlines. The
+initial image run also had a 2-second heartbeat failure; the later integrated
+run exposed the concrete fence OOM. The final four-case baseline run
+passes after the cache fix, but does not establish that the earlier intermittent
+heartbeat or cold 250 ms module failures are fixed. The Homebrew Node 26 package
+path, full Linux/native-host CI, supervised cleanup, ownership takeover and full
+1.x/provider/release profiles remain open. Live E2B/Vercel still awaits user
+configuration; these provider integrations use local protocol peers.
+
+## Host-managed retained-provider maintenance
+
+The optional [native supervision contract](../crates/cellar-container/supervision.md)
+registers host-owned backends independently from invocation-owned provider
+sessions. E2B and Vercel implement this contract below the language adapters.
+The host remains independent of `cellar-container` and JavaScript engines.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Durable reservation | Binding, immutable generation policy and internal deadline share one SQLite savepoint before external creation |
+| Scheduling | Existing `resource-reconciliation` work and native wake projection; no application-alarm takeover |
+| Authority | Fresh finite native events, output proof before effects, exact checkpoint checks and bounded attempts |
+| Retention | Maximum lifetime from reservation; optional idle deadline from successful command/file interactions; polling and late completions cannot renew expiry |
+| Replacement | Old task completion/activity cannot update a replacement generation |
+| Late command/file results | Require the original confirmed running generation before and after activity durability; replacement or retirement refuses publication with uncertain effects |
+| Cleanup | Verified original provider/configuration/resource; uncertain creates are never replayed; uncertain deletes default to inspection |
+| Backend loss | Keep the obligation and back off without dispatching a substitute configuration |
+| Recovery | Protected records survive business clear and SQLite reopen; unaged unmanaged reservations become immediately due when adopted |
+
+The first native integration run failed before business clear with SQLite
+authorization code 23. Maintenance savepoint control now uses the existing
+framework transaction authorization, while application SQL restrictions remain
+installed. This failure was not addressed by relaxing storage authorization.
+
+| Current evidence | Result |
+| --- | --- |
+| Provider/guest campaign | 34 container cases and 17 guest cases pass, including the five existing provider integrations |
+| Running-node supervision | Five cases pass for both peers: unattended expiry after business clear, lost create/delete responses, backend loss/return, default inspection after uncertain deletion and refusal of a late command result after replacement |
+| Safety assertions | No create replay, preserved user alarm/generation, typed expiry before dispatch, confirmed retirement, replacement remains usable after refusing an old result, and fully drained shutdown |
+| Binding/maintenance storage | Nine cases pass: atomic failure rollback, private rows, unsupported/corrupt layouts, immutable expiry, stale task/activity rejection, business clear and reopen |
+| Language paths | Four Node/V8 provider cases and two standalone CPython executables pass with both named bindings refusing expired commands before effects; two TypeScript checks and one packaged-facade smoke test pass |
+| Recovery admission | Provider-only retained cells are admitted without event-source identity; retired-only cells refuse without leaking a resident connection. Existing unavailable-application alarms retain their uncounted retries |
+| Host runtime and scheduler | 16 native worker cases and eight internal-work cases pass on the final build, including wrong/closed domains, rollback, clock reversal, stale installations and user-alarm preservation |
+| Native dependency guard | 466 reachable packages with all native features; no JavaScript engine |
+| Quality | Strict all-target lint for core/container/guest plus Node/V8 and embedded Python passes; 1,213-source Rust format/layout, 102-source JS format, docs/links and the native dependency guard pass |
+
+The publication check initially moved a missing-binding refusal ahead of
+provider-specific command validation. The unchanged E2B acceptance fixture
+caught this regression. Admission now preserves validation order, and requires
+the captured generation only when publishing a successful provider result.
+
+This campaign qualified retained-resource obligations on a running native node
+using local protocol peers. It did not establish unattended fleet startup; the
+following campaign adds that evidence for selected native recovery paths.
+Live-account behavior and provider-side fencing remain unqualified. A standalone
+node without replication does not automatically rediscover untouched cells on
+cold boot. Full SP-05/SP-06 and SP-10 stay partial.
+
+## Fleet recovery and owner-expiry qualification
+
+The [fleet acceptance fixture](../crates/cellar-container/tests/supervision_fleet.rs)
+uses real native replication, wake discovery, ownership, node logs and output
+proofs over a private local object store. Replacement nodes start in fresh
+directories, excluding local cell SQLite and owner-log caches. It calls the
+actual E2B/Vercel adapters through local protocol peers; those peers do not run
+cloud VMs or establish live-account behavior.
+
+| Scenario, repeated for both providers | Required evidence |
+| --- | --- |
+| Same-name cold restart | Retire the original generation before any application, operator or cell-state request |
+| Removed class after a lost create reply | Recover the original pending request, discover and retire its resource without calling the application or cell factory |
+| Accepted create during owner suspension | Hold the reply after allocation; suspend the core for 2.5 seconds against a 1-second lease; require `NodeLeaseExpired`, a closed domain and no successful HTTP response; a fresh successor retires the pending generation |
+| Live handoff and cold verification | After cleanup, transfer ownership to an already running receiver with no local cell files; read the same retirement record, business value and user alarm |
+| Effect and lifetime checks | Exactly one create and one delete; no mutation replay; same original request identity for restart/class removal; shutdown joins ingress, application work, cells and local durability without timeout |
+
+The first verification fixture used `Preserve` before starting a differently
+named verifier. That mode intentionally retains ownership for a same-name
+restart. Replacing it with `Handoff` without a live receiver then failed the
+drain assertion. Starting the receiving node before handoff follows the native
+shutdown contract and passes the original assertions and deadlines. These were
+fixture lifecycle corrections, not production fixes or relaxed safety checks.
+
+| Current campaign | Result |
+| --- | --- |
+| Container tests | All 37 pass: 24 library, five existing provider integrations, five running-node supervision cases and three fleet cases (six new provider scenarios) |
+| Fleet shutdown | Preserve and handoff report drained ingress/cells/application work, no pending events/dispatches, quiesced log, closed local durability and no timeout; preserve also prepares clean reload |
+| Strict lint | Container all-target Clippy passes; existing vendored Raft lifetime warnings remain |
+| Repository checks | 1,214-source Rust format/layout, docs/816 local references and the 466-package native dependency guard pass |
+
+The earlier 90-check campaign remains the language/storage/scheduler evidence;
+this campaign reruns the affected container suite and adds three fleet tests.
+No full image campaign or live provider account was rerun for this test-only
+slice. Provider/object-store outages, network partitions, physical cell deletion
+and provider-enforced fencing remain open. E2B/Vercel live tests still await the
+user's configuration; full SP-05/SP-06 and SP-10 are partial.
+
+The previous PR head's Linux JavaScript job also timed out on `/wake` in the
+published Container sleep/wake fixture, after its provider and Worker checks
+passed. That five-second lifecycle failure remains under investigation; the
+fleet results above do not resolve or supersede it.
+
+## Container lifecycle CI investigation
+
+The [Linux job on `7a26c623`](https://github.com/crabbuild/cellar/actions/runs/40459794588/job/122041419842)
+used Ubuntu 22.04, Rust 1.98.1 and Node 24.21.0. It passed provider, Worker,
+stream-input and HTTP-message tests before the published Container wake request
+timed out at its existing five-second deadline.
+
+| Probe | Observation |
+| --- | --- |
+| Node 24.13.1, two Tokio workers, focused lifecycle test | 20 consecutive runs pass with the original four sleep/wake cycles per run |
+| Same runtime, full five-test module sequence | The original first-call `250ms` budget failure reproduces in `module_http_and_activation_owned_bindings_survive_events_and_restart`; the lifecycle test still passes |
+| Bounded diagnostics | Fixture logs distinguish Worker wake, DO fetch and start/stop hook entry and settlement; failures capture cycle/stage, elapsed time, pre-cleanup bridge usage and at most 24 engine method/path observations |
+| Node 24.21.0, two Tokio workers, instrumented full module sequence | All five tests pass on macOS with the original budgets; this does not resolve the Linux CI failure |
+
+These are investigations, not fixes. Diagnostics do not change the published
+package, handler/client deadlines, sleep policy or original lifecycle/shutdown
+assertions. No engine request bodies are included. Native activation before DO
+entry, callback/monitor ordering and Node-version differences remain candidate
+boundaries until a reproducing trace distinguishes them.
+
+## Sandbox 1.0.3 streamed stdin and process ownership
+
+The selected Node process profile now accepts
+`stdin: ReadableStream<Uint8Array>`, following the
+[upstream container API](https://developers.cloudflare.com/containers/api/durable-object-container/).
+The [pinned fixture](../tools/sandbox/cloudflare-v1/README.md) uses actual native
+exec with the unchanged published Files implementation and matching helper.
+Stream mode exposes no second stdin writer.
+
+| Boundary | Implemented behavior and evidence |
+| --- | --- |
+| Before allocation | Reserve the source reader, dynamic event retention and active callback ownership. Locked/non-stream/pre-aborted input and retention admission failure refuse before provider effects |
+| Failed allocation | Release the unconsumed source without cancelling it; never replay the command |
+| Pump | Pull one byte chunk, split at the native body limit and await each write acknowledgement; no command or chunk replay after an uncertain response |
+| Cancellation | Early exit, abort and lost authority cancel pending input; queued writes recheck cancellation before dispatch. Source failure starts native retirement while an application cancellation hook remains pending, then joins both |
+| Error provenance | Preserve the original source/write failure over secondary observation or cancellation failures; output quota and ignored-output failures remain failures even after process exit resolves |
+| Callback completion | Retain the accepted callback through input settlement. Admitted process reads/waits and automatic discard drains use the original event and handle authority without borrowing a closed callback's SQL view |
+| Refusal boundary | A new ordinary read from a closed callback refuses before provider dispatch. A forged observation flag on storage cannot grant authority or write a key. Streamed and buffered process allocation inside a transaction return `ValidationError` / `not_committed` with zero source pulls and zero provider calls |
+| Independent storage | Existing process writes, stdin closure, signals and resource release use the native provider control queue without holding the bridge SQLite mutation slot; mutation failure classification, event checks and output proofs remain intact |
+| Signal default | Cloudflare `kill()` defaults to SIGTERM (15); automatic abort/source-failure cleanup explicitly requests SIGKILL (9) |
+
+| Current evidence | Result |
+| --- | --- |
+| Pinned image | Sandbox 1.0.3 helper `sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec`, local amd64 image `sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40` |
+| Source stdin | Exact 2 MiB + 17-byte length/SHA-256 through 64 KiB native chunks; delayed process output after callback completion; nonempty ignored stdout/stderr after callback closure |
+| Capacity reuse | 130 sequential byte echoes exceed both existing handle/retention capacities without widening them; exactly 134 provider allocations on the stdin route exclude the refused transaction |
+| Explicit retirement | A provider decorator counts allocated/released handles independently of session-drop fallback. Every route requires zero active and zero fallback-released handles; final allocation and explicit-release totals match |
+| Safety | Early exit and invalid chunks unlock source readers; late reads and forged storage authority refuse; existing Files/fault/cross-event checks and drained native/Node shutdown remain required |
+| Facade and packaging | 119 JS tooling tests pass, including 21 exec checks, two TypeScript checks and packed-facade imports; both SDK/helper input identity/drift checks pass |
+| Native runtime | 83 Node/V8 library checks, including a new held-I/O/storage-admission regression, pass. The affected adapter/Worker/RPC/HTTP/WebSocket campaign passes 116 checks and reproduces one existing cold-module failure |
+| Quality | Strict Node/V8 all-target Clippy, 1,215-source Rust format/layout, 103-source JS formatting, docs/816 references and the 466-package native dependency guard pass |
+
+Failed controls preserved during development include the callback-owned process
+wait being cancelled, a secondary `Cancelled` masking the source `TypeError`,
+nonempty automatic discard reads failing after callback closure, native cleanup
+waiting for an application cancel hook, a missing packed helper file, and
+ignored stderr failure becoming successful output after exit. Each now has a
+specific implementation change and regression evidence. An initial fixture
+expected `Validation` rather than the authoritative `ValidationError`; correcting
+that literal preserved the zero-dispatch/source-pull assertions.
+
+The image campaign retains its 120-second native handler budget, 30-second JS
+budget, 2,048 guest operations and original two-second heartbeat. The 250 ms
+module budget still fails in the wider local sequence; this delivery does not
+resolve it or the earlier heartbeat failure. Stream cancellation is not rollback
+or a hard remote stop. Embedded V8 web streams, the rest of Sandbox 1.x,
+live E2B/Vercel and the full SP-07–SP-10 qualification remain open.
+
+## Linux published-Container wake correction
+
+The [Linux CI trace on `ebe31c33`](https://github.com/crabbuild/cellar/actions/runs/40464869264/job/122057748996)
+reproduced the five-second wake failure after native startup, before `onStart`.
+The lifecycle fixture declares port 8080 but used a peer listening on a random
+port. macOS's published port mapping reached that listener; Linux correctly
+connected to the inspected IP and requested container port, which had no listener.
+The fixture now uses `Peer::start_with_http_port(8080)`, as the unchanged
+published-container routing fixture already does. No production routing or
+upstream package behavior changes.
+
+| Comparison | Result |
+| --- | --- |
+| Linux arm64, original peer | Same first `/wake` timeout at 5.0026 seconds, no `onStart`, two retained invocations before cleanup; shutdown still joins |
+| Same Linux environment, corrected peer | Four sleep/wake cycles across native/Node restart pass; original hook counts, stop parameters, cleared alarms and drain assertions remain intact |
+| Corrected peer, full Linux module sequence | All five tests pass, including lifecycle, module recovery, port isolation, overlapping alarms and unchanged published container routes |
+| Tools and limits | Rust 1.98.1, Node 24.21.0, two Tokio workers; unchanged five-second handler/client deadlines and published one-second sleep policy |
+| Build environment | The initial 4 GiB VM exhausted compiler memory before tests. The controlled comparison uses an isolated 8 GiB VM and one build job, with a checkout-specific target directory; this changes no application/provider resource limit |
+
+The separate 250 ms first module call still fails in the wider macOS campaign.
+On `ebe31c33`, both SDK CI Python variants also fail
+`settlement_race_expiry_replacement_refuses_old_ack_and_extension`: old ack and
+extend calls return `Ambiguous` after a closed peer transport rather than the
+expected `StaleReceipt`. The following campaign isolates that receipt-state
+race; the earlier two-second Node heartbeat failure remains open.
+
+## Receipt-state race and idle peer transport
+
+The SDK CI failure reproduces locally: the original expiry race returns
+`Ambiguous` for an old acknowledgement after the proxy's upstream connection
+closes, while the extension can still return `StaleReceipt`. Its ordinary
+30-second delivery lease and the RPC tunnel's 30-second idle lifetime can expire
+together while the signed requests are held before owner submission.
+
+The fixture now prepares the original append, projection and competing-lease
+probe on the destination. It starts the consumer during the final ten seconds
+of the expiry wait, initializes the separate remote ack/extend callers, and
+preserves the original one-second submission lead. An added assertion requires
+the consumer node's whole age plus the original call budget to remain below the
+existing tunnel idle limit. Even startup-created connections must satisfy that
+bound. Requests still come from the actual SDK and cross the real peer proxy.
+
+| Evidence | Result |
+| --- | --- |
+| Original isolated expiry control | Fails with `Ambiguous` ack / `StaleReceipt` extension after 30.63 seconds, matching the SDK CI transport failure |
+| Setup-call minimization | Moving initial work alone still fails: the consumer can already have opened RPC tunnels during setup. Temporary connection probes were removed from the final change |
+| Fresh-consumer campaign | All three expiry/reset/acknowledgement-replay races pass; original receipt, extension target, captured packet bytes, replacement generation and checkpoint assertions remain intact |
+| Isolated expiry repeat | Both obsolete operations return `StaleReceipt`; the complete case passes again in 36.67 seconds, including original drain assertions |
+| Refusal / replay | Expiry returns `StaleReceipt` for both obsolete requests; reset returns `SubscriptionReset`; replay acknowledges only the original lease and preserves its successor |
+| Limits / shutdown | Original 30-second delivery lease, three-second operation budget, ten-second node lease and tunnel policy remain unchanged. The original no-timeout/no-node-closure assertions and joined shutdown remain required |
+| Quality | Strict core/native-node Clippy, Rust layout and documentation checks pass; repository formatting is applied and checked independently |
+
+This is a fixture correction with an additional freshness precondition.
+Production receipt decisions, peer transport, retry classification and proof
+gates are unchanged. Transport loss still has an uncertain outcome; it cannot
+serve as evidence of a receipt-state refusal. Linux SDK CI must qualify the
+updated PR head independently; full failure qualification remains partial.
+
+
+## Provider outages and lifecycle admission
+
+The [JavaScript CI job on `c7b67994`](https://github.com/crabbuild/cellar/actions/runs/40485701193/job/122126823024)
+failed before the guest tests: the late-command replacement fixture received
+`provider binding revision conflict` while destroying a resource. Persisting
+deletion intent makes native maintenance immediately eligible; its event-local
+session lock did not coordinate with the application's pending lifecycle I/O.
+
+| Boundary | Implementation / acceptance |
+| --- | --- |
+| Shared lifecycle admission | Start, destroy and reconcile acquire the same binding guard as native maintenance; locks belong to the native activation and have at most 64 live names |
+| Waiting | Cancellable acquisition rechecks the original invocation/activation authority; maintenance rereads its installation and exact task before claiming or issuing provider I/O |
+| Completion | Hold admission through provider I/O and checkpoint durability; strict journal CAS and post-proof validation remain intact |
+| Data work | Commands/files remain concurrent; a late old-generation result must still fail publication after retirement/replacement |
+| Direct host contracts | Journal users acquire admission before loading lifecycle state. Maintenance backends already run under the guard and must not reacquire it |
+| Uncertainty | Dropping a wait grants no effect authority. Dropping accepted work does not establish rollback, authorize mutation replay or provide remote fencing |
+
+The regression peer removes the actual resource and holds the DELETE reply.
+Before the fix, a second event reports `deleted` while the original destroy is
+still pending. After the fix, reconciliation waits, a cancelled waiter releases
+admission, the protected record remains pending, and releasing the reply permits
+retirement and a fresh generation. Exact create/delete counts and native joined
+shutdown remain required for both provider peers. The existing held-command
+replacement regression exercises the concurrent data path.
+
+| Added fleet fault | Evidence required |
+| --- | --- |
+| Provider API unavailable | Authenticated real API requests receive 503 before effects; two same-name replacements use fresh local directories with the business class removed; each retains the original deletion obligation |
+| API restored | Read the latest wake deadline through an independent native domain; cleanup runs without business invocation/factory calls and retires the original request/resource/generation with exactly one create and one delete |
+| Owner store isolated | Refuse actual object-store operations on all original-owner clients, require node-lease expiry and domain closure, and keep the caller's executor alive |
+| Healthy successor | Recover through separate healthy clients while the original clients stay isolated; retire the same resource without business construction and verify its tombstone, acknowledged business data and application alarm after another cold restart |
+
+The store fault is extracted from the existing native event recovery fixture;
+its operation failures and original event assertions are preserved. The peers
+execute neither E2B nor Vercel VMs. This covers these selected native faults,
+not live-account behavior, arbitrary partitions or provider-side hard fencing.
+
+Failed controls remain part of the record. The first new outage test used a
+15-second post-repair assertion and failed while a valid retry remained durable;
+the observed retry was about 16 seconds away. The fixture now derives its wait
+from the independently published deadline, checks the existing 60-second backoff
+cap and permits the original five-second completion budget after that deadline.
+No existing handler, request, lease, inspection or shutdown deadline is widened.
+An intermediate five-case fleet campaign passed both new fault cases but failed
+the existing held-create case before provider acceptance at its original
+three-second deadline. Its focused diagnostic run passed both providers; no
+reproducing cause was captured and this is not claimed as a separate cold-start
+fix.
+
+
+| Current campaign | Result |
+| --- | --- |
+| Container suite | All 40 tests pass: 24 library, five provider/journal integrations, six running-node supervision cases and five native fleet cases; each supervision/fleet scenario runs both provider peers |
+| Core journal/scheduler | All nine selected tests pass; strict revision, recovery, capacity, private-table, lifetime and independent-deadline assertions remain intact |
+| Shared store-fault extraction | Both existing native event-owner isolation and running-source fenced-takeover regressions pass, with their original receipt/refusal and shutdown assertions |
+| Guest runtimes | All four E2B/Vercel Node/V8 acceptance tests and both standalone CPython provider programs pass, including named bindings, retention refusal and joined shutdown |
+| Strict lint | All-target Clippy passes for core, container, guest, Node/V8 and embedded Python together; existing vendored Raft lifetime warnings remain |
+| Repository checks | Rust format/layout for 1,216 sources, docs/816 local references, whitespace and the 466-package native engine exclusion guard pass |
+| Environment | macOS arm64, Rust 1.98.1, Node 24.21.0 and CPython 3.14.6; checkout-specific workspace-volume build directory, two build jobs and serial live test execution |
+
+This is 55 Rust tests plus two standalone Python acceptance programs. The
+complete fleet suite passes after the lifecycle fix, including the original
+held-create case; the earlier mixed campaign still does not establish a cold
+admission fix. No real Cloudflare image, JS/TS tooling campaign or live E2B/Vercel
+account was rerun for this native lifecycle slice. The previous image and
+package evidence remains separately recorded above. Fresh Linux PR-head CI is
+required; the full SP-02–SP-10 profiles remain partial or outstanding.
+
+
+## Native terminal execution and process metadata
+
+The shared native provider now accepts `pty: { cols, rows }` and advertises an
+explicit `exec_pty` capability. The native Rust SDK uses `TerminalSize`; Python
+uses `pty=(cols, rows)` and JavaScript/TypeScript use the same named dimensions.
+Process `info()` reports `pid` and `is_pty`, and `resize` uses the original
+resource handle. E2B/Vercel keep `exec_pty: false` and refuse terminal arguments
+before provider execution, including through their direct command validators.
+
+| Boundary | Implemented contract |
+| --- | --- |
+| Allocation | Validate dimensions 1–65,535; require Docker API 1.42+ before allocating a terminal, with initial rows/columns on exec create/start |
+| Identity | Consume only the shell's private PID prelude; accept terminal CRLF, preserve the exact following bytes and never substitute Docker's daemon-host PID |
+| Missing handshake | Portable metadata reports absent PID; Cloudflare reports undefined. The pinned helper image provides the shell and verifies its actual process PID |
+| Terminal transport | Raw PTY bytes, combined stderr and native terminal discipline; ordinary pipes retain their framed binary transport |
+| Metadata / resize | Existing native cell/run and common invocation checks; readonly immutable metadata, bounded dimensions, output proof before acknowledged native resize and no replay |
+| Cloudflare shape | `pty: true` defaults to 80×24, pipe stdin and combined stderr; `resize` returns void and reserves event/callback ownership before queueing. Failed acknowledgement remains reported event work |
+| Retirement | Observed process exit closes its logical input lifetime, permitting explicit native retirement even when default PTY stdin was untouched |
+| Stream faults | Split oversized Docker frames into 64 KiB reads instead of frame-sized allocations; truncated headers/bodies and malformed framing fail reads and wait rather than publishing successful partial EOF |
+
+| Current campaign | Result |
+| --- | --- |
+| Native process transport | Nine exec identity/stream tests pass, including raw CRLF/binary output, fragmented PID admission, large framed output with backpressure and truncation refusal |
+| Native SDK | Both native-container integrations pass; API 1.41 refusal allocates no process, while supported terminal create/resize parameters, combined channels, metadata and existing ownership/run checks pass |
+| Shared providers / fleet | All 41 container tests pass: 25 library, five provider/journal integrations, six running-node supervision and five native fleet cases |
+| Runtime / language facades | All 83 Node/V8 library tests, two terminal-capability integrations, four E2B/Vercel acceptance cases and five Worker module cases pass; CPython's container program and both provider programs also pass |
+| Actual image | The unchanged 1.0.3 helper/base image passes the complete extended image test in 40.29 seconds: kernel 80×24 then 132×40, actual Node PID equality, true tty input/output, combined stderr/CRLF, two terminal allocations and exactly one provider resize |
+| Authority / cleanup | Invalid and foreign-event resizes produce no provider resize; fast default PTY input still retires. Every route requires zero active/fallback-released handles, final explicit allocation/release equality and joined native/Node shutdown |
+| Existing image assertions | Exact 2 MiB + 17-byte stdin/Files hashes, original 134 stdin allocations, source/callback/transaction/ignored-output/error cases and all file/fault/destroy routes remain intact |
+| Tooling | All 124 JS checks pass, including 26 process-facade checks, both TypeScript suites and packed imports; both 1.x identity/drift checks and the fixture build pass. The terminal child program is separately pinned readable source |
+| Strict lint | Core/container/guest/Node/V8/embedded-Python all-target Clippy passes; existing vendored Raft lifetime warnings remain |
+| Repository checks | Rust format/layout for 1,218 sources, JS formatting for 104 sources, docs/816 references, whitespace and the 466-package native engine exclusion guard pass |
+
+This totals 147 Rust tests (including the image case), three standalone Python
+acceptance programs, 124 JS tooling tests and two input identity checks. The
+selected campaign keeps the original 120-second native image handler,
+30-second JS budget, 2,048 operations and two-second Node heartbeat. The private
+Colima profile uses its original two CPUs/four GiB with no mounts; Rust runs on
+macOS arm64 using the checkout-specific workspace target. Node is 24.21.0 and
+CPython is 3.14.6. The immutable image remains
+`sha256:949a64bfcf8b506af234784173c2b4926a9b0e643ada6dc127a074f9784bfb40`
+with helper
+`sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec`.
+After qualification the owned VM is stopped, its configuration bytes match the
+original, Docker's active context remains `default`, and unrelated stopped
+containers are preserved.
+
+The first real-image campaign failed because resize called a context method
+that the facade does not expose; its unit fixture incorrectly supplied that
+method. The actual event-retention hook already verifies authority. Removing
+the nonexistent call and the incorrect fixture method produces the passing image
+campaign; shutdown assertions and all budgets remain unchanged. Bounded route
+and shutdown diagnostics preserve the initiating failure instead of hiding it
+behind a later drain assertion.
+
+The preceding lifecycle commit's
+[Linux JavaScript/Node CI](https://github.com/crabbuild/cellar/actions/runs/40494986716)
+passes, as do its Python example and typed-RPC workflows; its full SDK workflow
+was still running when checked. A fresh Linux run must qualify terminal changes.
+The earlier 250 ms cold-call failure did not reproduce in the initial full
+module run, five fresh full-module controls or the latest module campaign. This
+is passing evidence, not a verified cold-start fix; the earlier heartbeat
+failure also remains open. Broader PTY cancellation/termination faults, other
+engine/platform qualification, remaining 1.x APIs, live providers and the full
+SP-02–SP-10 requirements remain partial or outstanding.
+
+
+## Peer-proxy cancellation and cold fleet qualification
+
+The completed SDK matrix on `b537d8c2` fails three settlement-race cases with
+standard Python and two with free-threaded Python. Some old calls return the
+correct typed receipt refusal before an ordinary follow-up route loses its
+connection. A socket-level control reproduces a separate concrete defect: an
+idle caller's TCP reset escapes the proxy's request reader, terminates its
+listener and aborts another active relay.
+
+The proxy now treats caller-side socket cancellation as local to that relay.
+It never forwards or replays the cancelled request. Upstream failures still
+require the explicit shutdown cut, and malformed/truncated HTTP remains fatal.
+The first unexpected relay error is printed and retained with a 4 KiB bound.
+Production settlement, transport, retry rules and timeouts are unchanged.
+
+| Evidence | Result |
+| --- | --- |
+| Idle pooled-caller reset control | Fails before the fix with `read proxy caller request: Connection reset by peer`; the listener and another relay are lost |
+| Patched proxy campaign | All 12 checks pass, including the original reply-loss/upgrade cases, continued active/new connections after reset and fatal truncated-head/body framing |
+| Receipt races | All three pass using the SDK CI's serial/all-features mode; original packet, receipt, checkpoint, lease, operation budget and joined-shutdown assertions remain intact |
+| Broader native campaign | All 95 native-node tests and all five provider fleet scenarios pass serially, including owner loss, receipt/late-reply faults, outage recovery, native lifecycle and joined shutdown |
+| Linux terminal-head CI | JavaScript run `40504854655` fails one of five provider fleet cases: cold same-name recovery exceeds its original 15-second cleanup deadline; its other four fleet cases pass |
+| Cold-recovery local controls | The initial isolated case and five fresh-process repeats pass, against both protocol peers each time; this does not establish a cold-recovery fix |
+| Bounded fleet diagnostics | Preserve provider identity, node closure, business construction, attempted/failed inspections and deletions, the latest 16 protocol method/paths and shutdown outcome on failure; no provider exception text or credentials |
+
+The TCP regression establishes the proxy defect, not the cause of every Linux
+connection loss. Fresh SDK matrix evidence must qualify the fix independently.
+Cold provider recovery, the intermittent 250 ms module call, the earlier
+two-second Node heartbeat and full failure qualification remain open. No test
+deadline, lease, handler budget or assertion is widened or removed.
+
+
+## Void process controls with native admission
+
+The Node Workers facade now matches the upstream void `kill(signal?)` contract.
+It queues SIGTERM by default; callers observe process completion through
+`exitCode`. Both kill and resize first reserve the original event/callback and
+obtain a bounded native admission ticket synchronously. The native synchronous
+transaction boundary therefore refuses them before queued work can leave that
+transaction. The existing provider capability, invocation and output-proof
+checks also govern ticket execution.
+
+Tickets are one-shot and session-local. A queue refusal discards its unconsumed
+ticket; a failed provider acknowledgement remains reported event work and is
+never replayed. Internal abort/source-failure cleanup keeps its acknowledged
+private signal path so the initiating failure still wins. Portable/native
+Rust, Python and JavaScript process kill operations retain their existing
+acknowledged contracts; this change concerns the optional Workers facade.
+
+| Current campaign | Result |
+| --- | --- |
+| Process tooling | All 30 process checks pass: void/default signal, exit observation, event/callback/native admission refusal, invalid signals, lost acknowledgement without replay and discarded queue-refusal tickets |
+| JavaScript / TypeScript | All 128 tooling checks pass; the explicit type fixture accepts void kill and rejects an acknowledgement-promise assignment. All 104 JS/TS sources pass formatting |
+| Shared provider | All 25 library checks and the provider authority/failure integration pass; queue admission requires the selected operation to be advertised |
+| Runtime / guests | All 83 Node/V8 library checks, both native-container integrations and all five Worker module tests pass |
+| Actual pinned image | Complete campaign passes in 38.15 seconds: transaction-bound kill/resize refuse with `ValidationError` / `not_committed`, the terminal still resizes exactly once, and void default kill terminates a ready Node process with observed nonzero exit |
+| Preserved assertions | Original 134 stdin allocations, exact 2 MiB + 17-byte hashes, PID/kernel geometry, source/callback/transaction refusals, fault/destroy routes, explicit allocation/release accounting and joined native/Node shutdown remain required |
+| Native qualification | All 95 native-node and five fleet cases pass, as recorded in the preceding cancellation campaign; six isolated cold-recovery controls also pass |
+| Quality / environment | Strict core/container/guest/Node/V8 Clippy, Rust format/layout for 1,218 sources, docs/816 references, whitespace and the 466-package native engine guard pass; the pinned helper/base image and all resource/time budgets remain unchanged |
+
+This is 217 Rust tests across the native, fleet, provider, runtime, guest and
+image campaigns, plus the separately recorded repeated controls. The image
+retains its 120-second native handler, 30-second JavaScript budget, 2,048
+operations and two-second heartbeat. The private two-CPU/four-GiB Colima
+configuration is unchanged; qualification leaves no owned containers and stops
+the VM, preserving the unrelated stopped container and Docker's default context.
+
+Fresh Linux CI must qualify these changes independently. The prior terminal
+head's Python examples and typed-RPC workflows pass; its JavaScript fleet
+failure and still-running SDK matrix do not establish a passing release.
+Cold recovery, the intermittent first-call/heartbeat failures, broader terminal
+faults, provider hard fencing and the remaining SP-02–SP-10 requirements stay
+partial or outstanding. Live E2B/Vercel configuration remains deferred.
+
+
+## Native Worker entrypoints for Sandbox gateways
+
+Node Worker modules now dispatch class-based default exports, named
+`WorkerEntrypoint` classes and object fetch exports through Cellar's existing
+service routes. `ctx.exports` supplies callable loopback bindings with copied
+props and declared Durable Object namespaces. Configured service bindings use
+the host's selected script/entrypoint; guest route data cannot select a script
+or replace a configured binding's props.
+
+Incoming Worker RPC uses an explicitly registered `EventKind::WorkerRpc`.
+Public prototype methods/properties and nested receiver paths execute on a fresh
+instance with its native invocation. Clone values, binary data and remote thrown
+values use the existing bounded native codec and stack stripping. HTTP uses the
+existing native fetch/response ownership path. A callee's `waitUntil` retains its
+original native authority after the RPC response, independently of its caller.
+
+| Boundary | Current evidence |
+| --- | --- |
+| Native route selection | Actual configured service, same-script loopback, class default, named object fetch and DO-to-Worker calls; no JavaScript-local method-call substitute |
+| Props / instances | Mutating the caller's props after binding creation cannot change the callee; two method invocations each start with fresh instance state |
+| Visibility / values | Inherited method, getter, nested receiver, binary property and remote error name/message/code survive; own instance state and base ctx/env refuse |
+| Pre-effect refusal | Seven malformed requests refuse with `ValidationError` / `not_committed` and zero method effects: forged script, configured props override, malformed/oversized props, non-array arguments and empty/oversized paths |
+| Lost result | An unrepresentable return after method execution reports unknown with exactly one observed effect; no replay |
+| Unsupported capabilities | Request/Response/stream/function arguments and props, including a web value nested in an Error cause, refuse before callee effects. Four unsupported result/throw kinds each execute once and report unknown; a normal TypeError with a cyclic cause round-trips |
+| Lifetime / cleanup | A returned RPC leaves a retained callee continuation, which later reads its own native variable binding; saved Worker stubs refuse a later event; complete node/Node-runtime join reports zero invocations and retained bytes |
+| Published 1.0.3 gateways | Unmodified `DirectoryBackupGateway` fetch denies a grant and its control RPC refuses deny props; unmodified `S3Gateway` denies a revoked mount route through native fetch |
+| Rust campaign | 17 shared guest tests, all 83 Node/V8 library checks and 28 integration cases pass, including existing DO RPC, module recovery, binary/HTTP-message transfers, stream arguments/results and upgrades |
+| Tooling | All 129 JS checks, explicit entrypoint/props/service TypeScript contracts, both SDK/helper input checks and the fixture builds pass; packed package includes the new service module |
+| Quality | Strict guest/Node/V8 all-target Clippy, Rust format/layout for 1,220 sources, JS formatting for 106, documentation/816 references, whitespace and the 466-package native engine-exclusion guard pass |
+
+This is 128 Rust tests and 129 JS tooling tests in the current campaign. Native
+integration keeps the original 250 ms handler deadline and existing runtime
+limits. The gateway fixture is separately checksummed against the unchanged
+1.0.3 SDK source and helper/base-image pins. It needs neither an engine nor an
+account, and makes no successful storage or mount claim.
+
+The first native control exposed service calls entering the DO result-session
+decoder; service-shaped calls now use their native value-RPC route. A strict
+error/visibility assertion then caught remote error envelopes being treated as
+values; the service facade now unwraps and throws them. The expanded controls
+pass with those assertions and all original budgets intact.
+
+The strict-copy control also caught V8 encoding a pre-sized array as sparse,
+which native error admission correctly refused. Copies now fill dense arrays
+before setting their final length, preserving genuine sparse tails; a wire-tag
+regression and native thrown-error assertions enforce both contracts.
+
+A raw Node 24.21.0 serializer control turns Request, Response and ReadableStream
+into empty ordinary objects. The Worker value profile now uses a strict graph
+copy before serialization, including Error causes, so unsupported capabilities
+cannot silently flatten. Node's lazy stack accessor is read once and copied;
+the original native error/stack rules and graph quotas remain in force.
+
+Full Worker RPC capability transfer remains required: callable/stream/HTTP-message
+arguments/results, returned RpcTargets, transferable service bindings and service
+capabilities inside props currently refuse rather than becoming plain data.
+R2 bindings, outbound interception, positive multipart backup/restore and S3 mount
+campaigns with the actual helper/image remain next deliveries. Embedded V8 still
+lacks this facade's web bootstrap. These additions advance SP-02/SP-07; they do
+not finish the full profiles, provider fencing, Dynamic Workers or release
+qualification. Live E2B/Vercel configuration remains deferred.
+
+The preceding control commit's Linux JavaScript run `40509651797` passed
+its adapter/real-node tests and quality/engine gates, then was cancelled at the
+45-minute workflow limit during the V8 binding example sequence. All completed
+example checks in that sequence passed; the run does not prove full completion.
+The JavaScript workflow now permits 90 minutes for its full source builds and
+serial example/fleet sequence; individual test/application deadlines are
+unchanged. This is a CI scheduling correction, not a first-call/heartbeat fix.
+Its SDK matrix has finished with three free-threaded and two standard failures
+in the settlement races. Both retain an upstream `Broken pipe` in the fault
+proxy; the earlier caller-reset correction did not qualify these races. Fresh
+CI must qualify this entrypoint revision; passing local controls do not close
+the earlier cold-first-call or heartbeat findings.
+
+## Forward idle upstream EOF to pooled callers
+
+The preceding revision's Linux SDK jobs finished with three free-threaded and
+two standard settlement failures. Both retained `forward proxy request
+upstream: Broken pipe`. Caller-reset handling alone did not qualify those races.
+
+A real TCP control proves another proxy defect: after a complete reply, an idle
+upstream can close cleanly while the proxy keeps the caller's pooled connection
+open. The original control fails its two-second deadline. The proxy now observes
+upstream EOF while waiting for the next caller request, retiring only that relay
+before another submission. It neither reconnects nor replays signed requests.
+Unexpected resets, partial messages and unsolicited upstream bytes remain fatal.
+
+| Campaign | Result |
+| --- | --- |
+| Deterministic idle EOF | Fails before the correction; passes afterward, preserving another active relay and a subsequent connection |
+| Proxy boundary | All 13 cases pass, including malformed framing, undeclared reset, binary upgrades, caller cancellation and armed reply cuts |
+| Broad native node | 95 pass, one fails; all three settlement races pass with their existing deadlines |
+| Remaining native failure | Direct consumer overlap after acknowledgment loses its new-fetch RPC to a peer reset near the 30-second lease boundary, returning `Ambiguous`; this case does not use the changed proxy |
+| Isolated overlap control | Passes in 38.23 seconds; the original callback spans expiry for 851 ms within the unchanged three-second budget, with two effects and final checkpoint 2 |
+| Adapter regression | 128 Rust and 129 JS tests, both pinned SDK/helper identity checks, strict guest/Node/V8/native-node Clippy and native dependency guard pass |
+
+The broad campaign is not green. The isolated overlap control and fresh Linux
+qualification remain separate evidence; the passing rerun does not establish a fix.
+No lease, operation, handler or heartbeat deadline has changed. The optional
+entrypoint delivery and this connection-lifetime correction remain partial
+SP-02/SP-07 and qualification work; the full provider goal stays open.
+
+## Integrate current main without losing sandbox admission
+
+Main advanced to `784edc1b` with the recovery pipeline and named-RPC admission
+changes. The merge preserves bounded RPC control decoding and its native-future
+reservation alongside the sandbox's event-owned observations, transaction
+refusals, cleanup and native Worker service routing. Both branches' lifecycle
+changes use the published port 8080; the richer stage diagnostics are retained.
+
+Main's RPC transport advertises its receiving idle interval and retires cached
+senders before expiry, using the originating domain's clock. Its deterministic
+idle-reuse control targets the same boundary as the direct consumer-overlap
+failure recorded above. It does not authorize replay after a submitted call's
+reply is lost. This is upstream implementation evidence, distinct from a passing
+isolated rerun or complete release qualification.
+
+| Post-merge campaign | Result |
+| --- | --- |
+| Shared guest / allocation | 26 pass |
+| Native peer tunnels | 25 pass, including idle-reuse, original-domain retirement, reply admission and submitted-reply-loss controls |
+| Node / V8 runtime | All 83 library checks pass |
+| Container, Worker and typed RPC | 32 integration cases pass, including the new entrypoints, actual published lifecycle hooks, HTTP/stream transfers and generated Rust/V8/Node calls across restart |
+| Native receipt races | Both consumer-overlap cases and all three settlement races pass at the original bounds |
+| Fault proxy | All 13 controls pass |
+| Python | Actual embedded CPython typed-RPC harness passes |
+| JavaScript / inputs | All 129 tooling cases, TypeScript contracts, both pinned input checks and fixture builds pass |
+
+This is 184 Rust tests plus the Python RPC harness. The earlier broad pre-merge
+campaign remains recorded as 95 passes and one peer-reset failure; this targeted
+post-merge campaign does not replace full Linux qualification.
+
+The first post-merge named-RPC control hit its unchanged 250 ms host deadline
+before the required RPC fixtures had been rebuilt from current main. Rebuilding
+those fixtures and rerunning passes both generated-RPC tests. This does not
+establish a cold-first-call performance fix, and the original deadline remains
+unchanged. Fresh SDK/JavaScript CI, cold recovery and heartbeat qualification
+remain required. Positive R2 backup/mount work and the full provider goal remain
+open; no VM or live cloud-account campaign was rerun for this merge.

@@ -33,6 +33,26 @@ class Counter:
             await rejects(lambda: self.old.running(), "not_committed")
             return Response("ok")
         container = ctx.container
+        if request.path == "/borrow-terminal":
+            await rejects(self.old_terminal.info, "not_committed")
+            return Response("ok")
+        if request.path == "/terminal":
+            assert (await container.capabilities()).exec_pty
+            if not await container.running():
+                await container.start()
+            process = await container.exec(["echo-stdin"], pty=(80, 24))
+            info = await process.info()
+            assert info.is_pty and info.pid is None
+            await rejects(lambda: process.resize(0, 24), "not_committed")
+            await process.resize(132, 40)
+            await process.write(b"\x00\xff*")
+            await process.close_stdin()
+            stdout, stderr, code = await asyncio.gather(drain(process.read_stdout), drain(process.read_stderr), process.wait())
+            assert (stdout, stderr, code) == (b"\x00\xff*stderr", b"", 7)
+            self.old_terminal = process
+            await process.release()
+            await container.destroy()
+            return Response("ok")
         capabilities = await container.capabilities()
         assert capabilities.provider == "audited-native" and capabilities.environment == "linux"
         assert capabilities.max_resources == 64 and "container.exec" in capabilities.operations

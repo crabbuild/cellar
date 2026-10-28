@@ -218,6 +218,7 @@ pub(crate) struct Terminal {
 }
 
 pub(crate) struct Handle {
+    pub extents: Option<cellar_ltx::internal::NodeExtentObserver>,
     pub performance: Arc<crate::raft::performance::Registry>,
     pub requests: mailbox::Sender<Request>,
     pub control_requests: mailbox::Sender<ControlRequest>,
@@ -274,6 +275,12 @@ impl RaftCells {
                 .sql
                 .as_ref()
                 .and_then(|sql| sql.images())
+                .map(Into::into),
+            extents: self
+                .handle
+                .extents
+                .as_ref()
+                .and_then(|source| source.capture())
                 .map(Into::into),
             transport: self.handle.transport.capture(),
             controller: self.handle.controller.lock().ok().and_then(|source| {

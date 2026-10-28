@@ -58,6 +58,10 @@ pub(super) async fn fetch_response(
     input: Value,
     options: &Limits,
 ) -> Result<cellar::engine_api::HttpResponse> {
+    if input.get("service").is_some() {
+        return super::service::fetch_response(context, input, options).await;
+    }
+
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Input {

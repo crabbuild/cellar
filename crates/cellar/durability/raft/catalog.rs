@@ -104,6 +104,15 @@ pub struct NamespaceConfig {
     /// Immutable birth-admission owner. Managed namespaces refuse the ordinary
     /// creation API; each birth needs an inventoried fleet reservation.
     pub managed_fleet: Option<ManagedBirthOwner>,
+    pub image_storage: RaftImageStorage,
+}
+
+/// Immutable physical representation for every cell in one Raft namespace.
+/// Changing it requires a fresh namespace; images are never converted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RaftImageStorage {
+    Materialized,
+    Extents,
 }
 
 impl NamespaceConfig {
@@ -121,6 +130,7 @@ impl NamespaceConfig {
             minimum_durability: Durability::Quorum,
             voters: VoterPolicy::ThreeVoters,
             managed_fleet: None,
+            image_storage: RaftImageStorage::Materialized,
         }
     }
 }
@@ -361,7 +371,8 @@ impl NamespaceCatalog {
             self.config.schema_digest,
             limits,
             host,
-        ))
+        )
+        .with_image_storage(self.config.image_storage))
     }
 
     pub fn require_mode(&self, mode: NamespaceMode) -> Result<(), CatalogError> {

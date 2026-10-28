@@ -272,6 +272,7 @@ async fn run(
             namespace: Some(namespace),
             runtime: None,
             dns: Vec::new(),
+            network_helper: None,
         });
         graph.primary.options.do_classes = vec!["Sandbox".into()];
         graph.primary.options.bindings = vec![("Sandbox".into(), "Sandbox".into())];

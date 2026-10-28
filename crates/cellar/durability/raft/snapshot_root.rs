@@ -125,6 +125,19 @@ impl RootSnapshotSource {
         &self.manifest
     }
 
+    /// Reuse the sealed source proof only in its actual inventory. This is a
+    /// metadata operation; callers must establish remote confirmation separately.
+    pub(in crate::raft) fn local_image(
+        &self,
+        store: &NodeExtentStore,
+    ) -> Result<Arc<SealedImageRoot>, SnapshotError> {
+        self.validate_owner(&self.group)?;
+        if !store.owns_image(&self.image) {
+            return Err(SnapshotError::Invalid("root source inventory owner"));
+        }
+        Ok(self.image.clone())
+    }
+
     /// A cached source may not be rebound to another open engine instance.
     /// Passing this check does not create a live native source grant.
     pub fn validate_owner(&self, group: &GroupLog) -> Result<(), SnapshotError> {
@@ -192,6 +205,7 @@ pub struct RootSnapshotSet {
     reference: ExtentRootReference,
     manifest: ExtentManifest,
     dependencies: BTreeSet<ExtentId>,
+    membership: GroupMembership,
 }
 
 impl RootSnapshotSet {
@@ -311,6 +325,7 @@ impl RootSnapshotSet {
             reference,
             manifest,
             dependencies,
+            membership: descriptor.membership,
         })
     }
 
@@ -322,12 +337,29 @@ impl RootSnapshotSet {
         &self.marker
     }
 
+    pub(crate) fn membership(&self) -> &GroupMembership {
+        &self.membership
+    }
+
     pub fn reference(&self) -> ExtentRootReference {
         self.reference
     }
 
     pub fn extents(&self) -> impl Iterator<Item = ExtentId> + '_ {
         self.dependencies.iter().copied()
+    }
+
+    pub(in crate::raft) fn contains_extent(&self, id: ExtentId) -> bool {
+        self.dependencies.contains(&id)
+    }
+
+    /// Protect the declared closure from node GC while individual imports and
+    /// their network waits run. This metadata pin is not a local image seal.
+    pub(crate) fn pin_receive(
+        &self,
+        store: &NodeExtentStore,
+    ) -> Result<cellar_ltx::internal::RootView, SnapshotError> {
+        Ok(store.stage_transient_root(self.manifest.clone())?)
     }
 
     /// Run on the node's physical owner with the complete object already under

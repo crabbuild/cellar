@@ -75,7 +75,7 @@ def trial_intervals(trial, campaign):
         previous = stamp
     require(stamps['seed_installed'] <= stamps['first_read'] <= stamps['first_write_verified'],
             'first use precedes durable installation')
-    require(stamps['hydrated'] <= stamps['first_read'], 'materialized first use precedes hydration')
+    require(stamps['hydrated'] <= stamps['first_read'], 'complete local recovery used before hydration')
     return {
         'cold_failure_to_ready_seconds': (stamps['first_write_verified'] - stamps['fault']) / 1_000_000,
         'cold_ready_seconds': (stamps['first_write_verified'] - stamps['admission_started']) / 1_000_000,
@@ -100,7 +100,7 @@ def analyze(raw, *, mode='pilot', target_seconds=120, minimum_samples=3):
             'invalid recovery target')
     require(integer(minimum_samples, 1), 'invalid minimum sample count')
     require(type(raw) is dict and type(raw.get('format')) is int and raw['format'] == 1, 'invalid campaign format')
-    require(raw.get('backend') in ('peer', 'rustfs') and raw.get('storage') == 'materialized',
+    require(raw.get('backend') in ('peer', 'rustfs') and raw.get('storage') in ('materialized', 'extents'),
             'unsupported recovery path')
     require(integer(raw.get('image_bytes'), 4096) and raw['image_bytes'] % 4096 == 0, 'invalid image size')
     count = raw.get('requested_repetitions')
@@ -119,11 +119,21 @@ def analyze(raw, *, mode='pilot', target_seconds=120, minimum_samples=3):
     expected_profile = hashlib.sha256(json.dumps(profile, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
     require(digest(raw.get('profile_sha256')) and raw['profile_sha256'] == expected_profile, 'profile identity differs')
     intervals, failures, durations = [], [], []
+    observation_work, observation_failures = [], []
     for number, trial in enumerate(raw['trials'], 1):
         try:
             timing = trial_intervals(trial, raw)
             intervals.append(timing)
             durations.append(timing['cold_failure_to_ready_seconds'])
+            # Optional diagnostic evidence cannot replace the controller's
+            # complete timing ledger or any native correctness assertion.
+            if 'observation_windows' in trial['evidence']:
+                from recovery_observations import phase_work
+                try:
+                    observation_work.append({'trial': number, 'work': phase_work(
+                        trial['evidence']['observation_windows'], trial['evidence']['events'])})
+                except ValueError as error:
+                    observation_failures.append({'trial': number, 'reason': str(error)})
         except ValueError as error:
             failures.append({'trial': number, 'reason': str(error)})
             durations.append(None)
@@ -157,6 +167,8 @@ def analyze(raw, *, mode='pilot', target_seconds=120, minimum_samples=3):
         'qualification_blockers': blockers, 'failures': failures,
         'cold_failure_to_ready_seconds': latency,
         'observed_successful_intervals': intervals,
+        'phase_observation_work': observation_work,
+        'phase_observation_failures': observation_failures,
     }
     return report
 

@@ -14,16 +14,20 @@
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, Limited};
+use hyper::body::Body as _;
 use hyper::body::Incoming;
 use hyper::header::{CONNECTION, CONTENT_TYPE, HOST, UPGRADE};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use std::future::{poll_fn, Future as _};
 use std::path::{Path, PathBuf};
+use std::task::Poll;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixStream;
 
-/// Unversioned paths: the daemon answers with its newest API, and every
-/// call here uses fields that have been stable since API 1.24. A pinned
+/// Unversioned paths: the daemon answers with its newest API. Most calls use
+/// fields stable since API 1.24. Terminal exec additionally
+/// requires API 1.42's initial console size and checks before allocation. A pinned
 /// version is refused by a daemon whose minimum moved past it, which Docker
 /// 29 did for 1.41.
 const API: &str = "";
@@ -31,6 +35,31 @@ const API: &str = "";
 #[derive(Clone, Debug)]
 pub struct Docker {
     socket: PathBuf,
+}
+
+/// A full immutable Engine container identifier. This value identifies a
+/// resource; its caller must separately establish that the resource is owned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ContainerId(String);
+
+impl ContainerId {
+    pub fn new(id: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            id.len() == 64 && id.bytes().all(|byte| byte.is_ascii_hexdigit()),
+            "a full Engine container ID is required"
+        );
+        Ok(Self(id.to_owned()))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for ContainerId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(formatter)
+    }
 }
 
 /// A raw bidirectional stream the daemon hijacked for an exec or attach.
@@ -58,6 +87,26 @@ impl Reply {
 }
 
 impl Docker {
+    pub(crate) async fn check_exec_terminal(&self) -> anyhow::Result<()> {
+        let info = self
+            .expect("GET", "/version", None, "inspect terminal API")
+            .await?
+            .json()?;
+        let version = info["ApiVersion"]
+            .as_str()
+            .context("Docker API version missing")?;
+        let (major, minor) = version
+            .split_once('.')
+            .context("invalid Docker API version")?;
+        let major: u16 = major.parse().context("invalid Docker API major version")?;
+        let minor: u16 = minor.parse().context("invalid Docker API minor version")?;
+        anyhow::ensure!(
+            major > 1 || (major == 1 && minor >= 42),
+            "terminal exec requires Docker Engine API 1.42 or newer"
+        );
+        Ok(())
+    }
+
     /// Bounded archive traffic. The request owns its connection, so dropping
     /// it cancels unfinished upload/download work. Archives never touch host FS.
     pub(crate) async fn archive(
@@ -187,8 +236,19 @@ impl Docker {
         crate::asyncrt::select! {
             result = &mut operation => result,
             result = &mut connection => {
-                result.context("drive the container engine connection")?;
-                operation.await
+                match result {
+                    Ok(()) => operation.await,
+                    Err(error) => {
+                        // The daemon may have delivered a complete response
+                        // before shutdown itself fails (ENOTCONN on macOS).
+                        // Observe buffered completion once; never await an
+                        // unfinished response after its connection has failed.
+                        match poll_fn(|cx| Poll::Ready(operation.as_mut().poll(cx))).await {
+                            Poll::Ready(response) => response,
+                            Poll::Pending => Err(error).context("drive the container engine connection"),
+                        }
+                    }
+                }
             }
         }
     }
@@ -281,25 +341,55 @@ impl Docker {
             .header(UPGRADE, "tcp")
             .body(Full::new(Bytes::from(serde_json::to_vec(&body)?)))
             .context("build Docker request")?;
+        self.upgrade(request, "exec start").await
+    }
+
+    /// Attach private stdin/stdout to an exact container ID before startup.
+    ///
+    /// The caller must create the container with `OpenStdin`, `StdinOnce` and
+    /// `Tty: false`, then retain this connection for that run. Docker frames
+    /// stdout/stderr while stdin remains raw. Names are deliberately refused:
+    /// a delayed attachment must never target a replacement run with that name.
+    pub async fn attach_io(&self, id: &str) -> anyhow::Result<Box<dyn Stream>> {
+        let id = ContainerId::new(id)?;
+        let request = self.request(
+            "POST",
+            &format!("/containers/{id}/attach?stream=1&stdin=1&stdout=1&stderr=1"),
+            Bytes::new(),
+        )?;
+        let mut request = request;
+        request.headers_mut().insert(CONNECTION, "Upgrade".parse()?);
+        request.headers_mut().insert(UPGRADE, "tcp".parse()?);
+        self.upgrade(request, "private container attach").await
+    }
+
+    async fn upgrade(
+        &self,
+        request: Request<Full<Bytes>>,
+        what: &str,
+    ) -> anyhow::Result<Box<dyn Stream>> {
         self.exchange(request, |mut response| async move {
             if response.status() != StatusCode::SWITCHING_PROTOCOLS {
                 let status = response.status();
-                let body = response
-                    .into_body()
+                anyhow::ensure!(
+                    response.body().size_hint().lower() <= 64 * 1024,
+                    "bounded Engine upgrade refusal exceeds byte limit"
+                );
+                let body = Limited::new(response.into_body(), 64 * 1024)
                     .collect()
                     .await
-                    .map(|body| body.to_bytes())
-                    .unwrap_or_default();
+                    .map_err(|error| anyhow!("read bounded Engine upgrade refusal: {error}"))?
+                    .to_bytes();
                 let reply = Reply { status, body };
                 return Err(anyhow!(
-                    "exec start failed with [{}] {}",
+                    "{what} failed with [{}] {}",
                     status.as_u16(),
                     reply.message()
                 ));
             }
             let upgraded = hyper::upgrade::on(&mut response)
                 .await
-                .context("upgrade the exec connection")?;
+                .with_context(|| format!("upgrade {what} connection"))?;
             Ok(Box::new(TokioIo::new(upgraded)) as Box<dyn Stream>)
         })
         .await
@@ -313,3 +403,7 @@ pub fn frame_header(header: &[u8; 8]) -> (u8, usize) {
     let length = u32::from_be_bytes([header[4], header[5], header[6], header[7]]) as usize;
     (header[0], length)
 }
+
+#[cfg(test)]
+#[path = "docker_tests.rs"]
+mod tests;

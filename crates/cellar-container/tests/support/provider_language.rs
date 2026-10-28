@@ -11,12 +11,44 @@ use std::{
 #[path = "../../../cellar-javascript/tests/support/native.rs"]
 mod native;
 
+/// Keep a real provider unavailable to maintenance so the guest can observe
+/// local expiry before explicit destruction. No cloud protocol is substituted.
+struct Unavailable(Arc<dyn containers::MaintenanceBackend>);
+
+impl containers::MaintenanceBackend for Unavailable {
+    fn identity(&self) -> containers::BackendIdentity {
+        self.0.identity()
+    }
+
+    fn maintain(
+        self: Arc<Self>,
+        _: Context,
+        _: containers::BindingCheckpoint,
+        _: containers::MaintenanceAction,
+    ) -> HandlerFuture<()> {
+        Box::pin(async { anyhow::bail!("qualification backend unavailable") })
+    }
+}
+
 pub async fn exercise(
     application: Arc<dyn Application>,
     peer: crate::peer::Peer,
     provider: &str,
     commands: usize,
 ) -> Result<()> {
+    let mut supervision = containers::Supervision::default();
+    for provider in [peer.provider()?, peer.provider_binding("backup")?] {
+        supervision.register(
+            Arc::new(Unavailable(provider.maintenance_backend().unwrap())),
+            containers::MaintenancePolicy {
+                inspect_interval_ms: 5000,
+                maximum_lifetime_ms: 5000,
+                attempt_timeout_ms: 1000,
+                idle_timeout_ms: None,
+            },
+        )?;
+    }
+    let application = containers::supervise(application, supervision);
     let directory = tempfile::tempdir()?;
     let (node, address) =
         native::start_configured(directory.path(), application, |config, _, _| {
@@ -27,7 +59,10 @@ pub async fn exercise(
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
             .build()?;
-        for path in ["first", "second", "destroy"] {
+        for path in ["first", "second", "expired", "destroy"] {
+            if path == "expired" {
+                tokio::time::sleep(Duration::from_millis(5100)).await;
+            }
             let response = client
                 .get(format!("{address}/{provider}/{path}"))
                 .send()

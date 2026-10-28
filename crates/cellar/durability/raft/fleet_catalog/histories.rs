@@ -293,6 +293,7 @@ impl FleetCatalog {
         if config.cluster.bytes() != self.inner.cluster
             || config.mode != cellar_logic::NamespaceMode::Raft
             || config.voters != VoterPolicy::ThreeVoters
+            || config.image_storage != super::super::catalog::RaftImageStorage::Materialized
             || config.schema_digest == [0; 32]
         {
             return Err(FleetCatalogError::Invalid("managed namespace"));

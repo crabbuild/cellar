@@ -298,11 +298,12 @@ impl ContainerEngine {
     ) -> Result<Vec<u8>> {
         let run = cell.current_run();
         self.file_run(cell, run)?;
+        let id = cell.engine_id(run)?;
         let (reply, _) = self
             .docker
             .archive(
                 "GET",
-                &route(&cell.name, path.as_str(), false),
+                &route(id.as_str(), path.as_str(), false),
                 Bytes::new(),
                 archive_limit(maximum)?,
             )
@@ -327,11 +328,12 @@ impl ContainerEngine {
         let body = write_archive(&path, &data, mode)?;
         let run = cell.current_run();
         self.file_run(cell, run)?;
+        let id = cell.engine_id(run)?;
         let (reply, _) = self
             .docker
             .archive(
                 "PUT",
-                &route(&cell.name, parent, true),
+                &route(id.as_str(), parent, true),
                 Bytes::from(body),
                 OVERHEAD,
             )
@@ -352,11 +354,12 @@ impl ContainerEngine {
     ) -> Result<FileMetadata> {
         let run = cell.current_run();
         self.file_run(cell, run)?;
+        let id = cell.engine_id(run)?;
         let (reply, stat) = self
             .docker
             .archive(
                 "HEAD",
-                &route(&cell.name, path.as_str(), false),
+                &route(id.as_str(), path.as_str(), false),
                 Bytes::new(),
                 OVERHEAD,
             )
@@ -383,6 +386,7 @@ impl ContainerEngine {
         );
         let run = cell.current_run();
         self.file_run(cell, run)?;
+        let id = cell.engine_id(run)?;
         let path = if path.as_str() == "/" {
             "/.".into()
         } else {
@@ -392,7 +396,7 @@ impl ContainerEngine {
             .docker
             .archive(
                 "GET",
-                &route(&cell.name, &path, false),
+                &route(id.as_str(), &path, false),
                 Bytes::new(),
                 archive_limit(maximum)?,
             )

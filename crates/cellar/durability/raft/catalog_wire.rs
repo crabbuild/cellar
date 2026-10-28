@@ -2,7 +2,7 @@
 
 //! Bounded marker-1 catalog records; independent domains for each immutable key.
 
-use super::catalog::{CatalogError, InitialMember, NamespaceConfig, VoterPolicy};
+use super::catalog::{CatalogError, InitialMember, NamespaceConfig, RaftImageStorage, VoterPolicy};
 use crate::application::consensus::protocol::WireScope;
 use cellar_logic::consensus::{ClusterId, MemberId, NamespaceId, NodeId};
 use cellar_logic::NamespaceMode;
@@ -117,6 +117,7 @@ pub(super) struct Root {
     pub single_voter_development: bool,
     #[serde(deserialize_with = "required_nullable")]
     pub managed_fleet: Option<ManagedOwner>,
+    pub image_storage: RaftImageStorage,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +142,7 @@ impl Root {
                 fleet: owner.fleet,
                 catalog: owner.catalog,
             }),
+            image_storage: config.image_storage,
         }
     }
 
@@ -148,12 +150,20 @@ impl Root {
         ClusterId::new(self.cluster).map_err(|_| CatalogError::Corrupt("root cluster"))?;
         NamespaceId::new(self.namespace).map_err(|_| CatalogError::Corrupt("root namespace"))?;
         if let Some(owner) = &self.managed_fleet {
+            if self.image_storage != RaftImageStorage::Materialized {
+                return Err(CatalogError::Invalid(
+                    "managed fleet requires materialized images",
+                ));
+            }
             cellar_logic::consensus::IncarnationId::new(owner.fleet)
                 .map_err(|_| CatalogError::Corrupt("root fleet"))?;
             if owner.catalog == [0; 32] || self.mode != Mode::Raft || self.single_voter_development
             {
                 return Err(CatalogError::Corrupt("managed namespace policy"));
             }
+        }
+        if self.mode == Mode::Fleet && self.image_storage != RaftImageStorage::Materialized {
+            return Err(CatalogError::Invalid("extent storage requires Raft mode"));
         }
         if self.schema_digest == [0; 32]
             || self.protocol_digest != crate::application::consensus::protocol::protocol_identity()
@@ -167,6 +177,31 @@ impl Root {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_namespace_refuses_extent_commitments_without_fleet_proof_support() {
+        let mut config = NamespaceConfig::new(
+            ClusterId::new([1; 16]).unwrap(),
+            NamespaceId::new([2; 16]).unwrap(),
+            cellar_logic::NamespaceMode::Raft,
+            [3; 32],
+        );
+        config.image_storage = RaftImageStorage::Extents;
+        let mut root = Root::new(&config, "test".into());
+        root.validate().unwrap();
+        root.managed_fleet = Some(ManagedOwner {
+            fleet: [4; 16],
+            catalog: [5; 32],
+        });
+        assert!(matches!(
+            root.validate(),
+            Err(CatalogError::Invalid(
+                "managed fleet requires materialized images"
+            ))
+        ));
+        root.image_storage = RaftImageStorage::Materialized;
+        root.validate().unwrap();
+    }
 
     #[test]
     fn root_refuses_earlier_protocols() {
@@ -208,6 +243,7 @@ mod tests {
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1",
             "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/fleet-1/enrollment-1/node-probes-1/birth-admission-1/managed-genesis-1/group-reservations-1/birth-inventory-1/namespace-import-1/fleet-namespaces-1/catalog-trust-1/fleet-admission-1/fleet-quorum-1/fleet-cuts-1/empty-archives-1/archive-cuts-1/fleet-finalization-1/fleet-stop-1/fleet-stop-rpc-1/capacity-readiness-1/resource-reservations-1/physical-inventory-1/fleet-removal-1/resource-movement-1/movement-completion-1/node-isolation-1/isolated-removal-1/images-1/fenced-movement-1/fleet-execution-1/aborted-movement-1/topology-bindings-1/topology-intent-1",
+            "cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1",
         ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();

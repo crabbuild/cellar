@@ -629,10 +629,11 @@ impl Pool {
             if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
-            if storage.rooted.is_some() {
-                return Err(ExecutionError::Invalid(
-                    "extent seed transport is not installed",
-                ));
+            if let Some(rooted) = &storage.rooted {
+                let seed = received
+                    .finish_root(&rooted.store)
+                    .map_err(super::execution::storage)?;
+                return Ok(Value::Seeded(Box::new(seed)));
             }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),
@@ -946,48 +947,19 @@ impl Cell {
                 })
             }
             Action::CaptureArchive { limits } => {
-                let (options, applier) = self.images.materialized()?;
-                let cut = match applier.queryable().map_err(super::execution::storage)? {
-                    Some(image) => {
-                        let dependencies = super::effects::capture_dependencies(
-                            &image,
-                            self.class.blob_limits(),
-                            options.query_services.clone(),
-                            limits,
-                        )
-                        .map_err(super::execution::storage)?;
-                        CommittedArchiveCut::capture(&self.group, image, dependencies, limits)
-                    }
-                    None => CommittedArchiveCut::capture_empty(
-                        &self.group,
-                        self.class.schema_digest(),
-                        limits,
-                    ),
-                }
-                .map_err(super::execution::storage)?;
-                Ok(Value::ArchiveCut(Some(Box::new(cut))))
+                let cut = self
+                    .images
+                    .capture_archive(&self.group, &self.class, limits)?;
+                Ok(Value::ArchiveCut(cut.map(Box::new)))
             }
             Action::ScanEffects {
                 now,
                 prefer_delivery,
                 reservation,
             } => {
-                let (options, applier) = self.images.materialized()?;
-                let scan = applier
-                    .queryable()
-                    .map_err(super::execution::storage)?
-                    .map(|image| {
-                        super::effects::scan::scan(
-                            image,
-                            &self.class,
-                            options.query_services.clone(),
-                            now,
-                            prefer_delivery,
-                            reservation,
-                        )
-                    })
-                    .transpose()
-                    .map_err(super::execution::storage)?;
+                let scan =
+                    self.images
+                        .scan_effects(&self.class, now, prefer_delivery, reservation)?;
                 Ok(Value::EffectScan(scan.map(Box::new)))
             }
             Action::CaptureSeed {

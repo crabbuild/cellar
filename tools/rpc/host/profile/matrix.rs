@@ -110,6 +110,26 @@ pub(super) async fn run(
         Ok::<_, anyhow::Error>(cases)
     }
     .await;
+    // Capture fixed native health before shutdown changes it. This separates
+    // a failed request from a later cleanup failure without exposing guest
+    // exception text or relaxing the profile's call/lease/handler budgets.
+    let mut before_cleanup = Vec::new();
+    if result.is_err() {
+        for node in &nodes {
+            let closed = node.is_closed();
+            let readiness =
+                match tokio::time::timeout(Duration::from_millis(100), node.is_ready()).await {
+                    Ok(Ok(true)) => "ready",
+                    Ok(Ok(false)) => "not-ready",
+                    Ok(Err(_)) => "unavailable",
+                    Err(_) => "observation-timeout",
+                };
+            before_cleanup.push(format!(
+                "{}:closed={closed},readiness={readiness}",
+                node.info().node
+            ));
+        }
+    }
     let mut errors = Vec::new();
     for node in nodes.into_iter().rev() {
         if let Err(error) = crate::fleet::stop(node, ShutdownMode::Preserve).await {
@@ -118,7 +138,7 @@ pub(super) async fn run(
     }
     let drained = app.audit.drained();
     let cases = result
-        .with_context(|| format!("profile node cleanup={errors:?}, reservations={drained:?}"))?;
+        .with_context(|| format!("profile before_cleanup={before_cleanup:?}, node cleanup={errors:?}, reservations={drained:?}"))?;
     ensure!(errors.is_empty(), "profile node cleanup failed: {errors:?}");
     drained?;
     Ok(

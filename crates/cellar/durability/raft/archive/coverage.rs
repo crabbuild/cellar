@@ -25,7 +25,7 @@ pub struct VerifiedArchiveCoverage {
 
 impl VerifiedArchiveCoverage {
     fn capture(set: &ArchiveRecoverySet) -> Result<Self, ArchiveError> {
-        let membership = &set.manifest.membership;
+        let membership = set.membership();
         let status = membership
             .fleet_status()
             .ok_or(ArchiveError::Invalid("archive has no fleet enrollment"))?;
@@ -33,11 +33,7 @@ impl VerifiedArchiveCoverage {
         // A full snapshot's applied position can include configuration-only
         // progress. Preserve the producer's exact publication origin, including
         // legitimate intact-restore aliases; never infer it from that snapshot.
-        let image_position = set
-            .manifest
-            .image_position
-            .map(Position::decode)
-            .transpose()?;
+        let image_position = set.image_position()?;
         Ok(Self {
             reference: set.reference(),
             binding: status.binding,
@@ -187,7 +183,7 @@ impl CellArchive {
                 if !proof.covers(&minimum)? {
                     return Err(ArchiveError::Unconfirmed);
                 }
-                verifier.verify_checked(&set, || worker.check_verification())?;
+                verifier.verify_checked(set.materialized()?, || worker.check_verification())?;
                 worker.check_verification()?;
                 Ok(proof)
             })

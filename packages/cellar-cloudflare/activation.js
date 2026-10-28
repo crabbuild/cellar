@@ -49,7 +49,7 @@ function rpcMethod(target, method, args) {
 export function activateDurableObject(
   Target,
   nativeContext,
-  { env = {}, container } = {},
+  { env = {}, container, exports } = {},
 ) {
   if (typeof Target !== "function")
     throw new TypeError("Durable Object export must be a class");
@@ -72,9 +72,10 @@ export function activateDurableObject(
     storage,
     container,
     id,
-    // Class exports require their own capability-aware native dispatch.
     get exports() {
-      return unsupported("DurableObjectState.exports");
+      current();
+      if (!exports) return unsupported("DurableObjectState.exports");
+      return exports();
     },
     blockConcurrencyWhile(callback) {
       current();

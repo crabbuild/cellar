@@ -70,6 +70,12 @@ pub struct Store {
     pub archive_payload_reads: AtomicUsize,
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
+    pub root_extent_reads: AtomicUsize,
+    pub root_extent_puts: AtomicUsize,
+    pub root_extent_ready: AtomicUsize,
+    pub hold_root_extents_after: AtomicUsize,
+    pub fail_root_extent: AtomicUsize,
+    pub root_extents_resume: tokio::sync::Notify,
     pub hold_part_confirmations: AtomicBool,
     pub slow_part_confirmations: std::sync::Arc<AtomicBool>,
     pub fail_first_part_after_window_enters: AtomicBool,
@@ -188,6 +194,9 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/root-extents/") {
+            self.root_extent_puts.fetch_add(1, Ordering::AcqRel);
+        }
         if path.as_ref().contains("/snapshot-parts/") {
             self.snapshot_part_puts.fetch_add(1, Ordering::AcqRel);
         }
@@ -504,6 +513,24 @@ impl ObjectStore for Store {
             }
         }
         self.archive_fault(path).await?;
+        let root_extent = !options.head && path.as_ref().contains("/root-extents/");
+        if root_extent {
+            let ordinal = self.root_extent_reads.fetch_add(1, Ordering::AcqRel) + 1;
+            loop {
+                let resumed = self.root_extents_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                let after = self.hold_root_extents_after.load(Ordering::Acquire);
+                if after == 0 || ordinal <= after {
+                    break;
+                }
+                resumed.await;
+            }
+            self.root_extent_ready.fetch_add(1, Ordering::AcqRel);
+            if ordinal == self.fail_root_extent.load(Ordering::Acquire) {
+                return Err(failure());
+            }
+        }
         if !options.head && path.as_ref().contains("/snapshot-parts/") {
             let ordinal = self.snapshot_part_reads.fetch_add(1, Ordering::AcqRel) + 1;
 

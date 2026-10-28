@@ -10,7 +10,7 @@ use cellar_ltx::{apply::ImageState, stream_snapshot, DirectFileSystem, TXID};
 use raft::prelude::{ConfState, Entry};
 
 struct Fixture {
-    set: ArchiveRecoverySet,
+    set: MaterializedSet,
     _root: tempfile::TempDir,
 }
 
@@ -88,7 +88,7 @@ impl Fixture {
             membership,
             dependencies: vec![],
         };
-        let mut set = ArchiveRecoverySet {
+        let mut set = MaterializedSet {
             validated: None,
             activity: None,
             _retention: None,

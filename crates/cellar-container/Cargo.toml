@@ -26,6 +26,8 @@ serde_json.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 
 [dev-dependencies]
+async-trait.workspace = true
+object_store.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
