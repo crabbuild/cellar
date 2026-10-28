@@ -5,7 +5,7 @@
 `cellar-egress` supplies the native routing table, private byte transport and
 dedicated Linux network helper for container outbound interception.
 The engine must own and join its driver.
-This crate alone does not enable `interceptOutboundHttp()`.
+This crate alone does not enable `interceptOutboundHttp()` or `interceptOutboundHttps()`.
 
 ## Connection and ownership
 
@@ -19,15 +19,15 @@ flowchart LR
 ```
 
 The network helper runs and is qualified separately. The native Engine attach
-client and a helper-first two-container topology also have a real `runc`
-campaign. Production cell lifecycle and native Worker routing are the next
-integration step. Outbound sockets remain
-inside the container network fence; the host must not open a fallback connection
-on the application's behalf.
+client and helper-first topology have a real `runc` campaign. Cellar's host owns
+startup, warm reconnect, native Worker dispatch and paired retirement; the
+[pinned Sandbox image fixtures](../../tools/sandbox/cloudflare-v1/README.md)
+qualify selected SDK operations. Outbound sockets remain inside the container
+network fence; the host must not dial a fallback connection on its own network.
 
 | Component | Implemented contract |
 | --- | --- |
-| `HttpTarget`, `Host` | Validated hostname/glob, IP, IP:port, CIDR and catch-all targets; separate socket destination and HTTP hostname |
+| `HttpTarget`, `Host` | Validated hostname/glob, IP, IP:port, CIDR and catch-all targets; separate socket destination, HTTP hostname and HTTP/HTTPS protocol |
 | `Rules` | Shared 128-entry budget, stable registration order, replacement, prepared updates and run retirement |
 | `wire` | Version-1 bounded stream preludes and revisioned installation messages |
 | `control` | Session identity, acknowledged installation, bounded command admission, lost-ack retirement and completion after waiter cancellation |
@@ -73,7 +73,7 @@ or expose an unacknowledged native route. Normal retirement kills and reaps an
 entered installer before the helper exits.
 
 ```rust
-use cellar_egress::{Host, HttpTarget, Destination, Rules};
+use cellar_egress::{Host, HttpTarget, Destination, Protocol, Rules};
 
 let mut rules = Rules::default();
 let candidate = rules.prepare(HttpTarget::parse("backup.internal")?, "gateway")?;
@@ -82,6 +82,7 @@ rules.commit(candidate)?;
 
 let host = Host::parse("backup.internal")?;
 let request = Destination {
+    protocol: Protocol::Http,
     socket: "127.0.0.2:80".parse()?,
     host: Some(&host),
 };
@@ -162,7 +163,7 @@ runs published directory backup/restore/delete through that profile.
 | --- | --- |
 | Network helper qualification | Per-class saturation, broader cancellation/errors, DNS options and additional kernel/runtime profiles |
 | Production cell lifecycle | Broader ownership-transfer, expiry and fault qualification beyond the implemented helper-first startup, warm reconnect and paired removal |
-| Native/Workers facade | HTTPS, trailers/upgrades and broader failure qualification beyond the implemented plain-HTTP service routes |
+| Native/Workers facade | Broader TLS/client/fault qualification, trailers/upgrades and full profile acceptance beyond the optional native HTTP/HTTPS routes |
 | Published Sandbox | S3 mounts and full backup failure/restart/grant lifetime qualification beyond selected matching-image backup/restore/delete |
 
 See the [delivery plan](../../plans/sandbox-provider-compatibility.md),
@@ -170,3 +171,20 @@ See the [delivery plan](../../plans/sandbox-provider-compatibility.md),
 [Cloudflare interception contract](https://developers.cloudflare.com/containers/api/durable-object-container/)
 and [Yamux driver contract](https://docs.rs/yamux/0.14.1/yamux/).
 DNS parsing uses the pinned [Hickory protocol library](https://docs.rs/hickory-proto/0.26.3/hickory_proto/).
+
+
+## Protocol-specific HTTPS routes
+
+| Boundary | Contract |
+| --- | --- |
+| Target construction | `HttpTarget::parse("*.example.test")` selects HTTP; `HttpTarget::https("*.example.test")` selects HTTPS; both accept bare targets rather than URLs |
+| Catch-all | `HttpTarget::all()` and `HttpTarget::all_https()` are distinct, ordered rules with a shared entry budget |
+| Destination | `Destination.protocol` is supplied by the native HTTP/TLS host after transport inspection |
+| Helper opt-in | `--https true` captures 443 from startup; HTTPS rules refuse on HTTP-only helpers |
+| TLS ownership | The native host owns the per-run CA and authenticated HTTP sessions; the helper relays bytes and original destinations |
+| Upstream | The host wraps a marked helper direct stream with certificate/name validation; no host-network fallback socket |
+
+See the [native HTTPS configuration and limits](../cellar-container/README.md#opt-in-to-https-interception)
+for client trust, fresh ownership gates, public certificate injection and
+matching-image evidence. TLS support is optional and does not qualify generic
+TLS protocols or complete Cloudflare compatibility.

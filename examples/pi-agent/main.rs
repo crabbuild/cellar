@@ -32,7 +32,8 @@ fn main() -> Result<()> {
         node,
         Source::module()
             .events([EventKind::Fetch])
-            .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm]),
+            .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm])
+            .filesystem("DurableAgent", cellar::sdk::filesystem::Policy::default())?,
         |application| {
             let stop = application.clone();
             let host = if let Some(sha) = inventory {

@@ -24,4 +24,4 @@ mod target;
 pub mod transport;
 pub mod wire;
 pub use rules::{Prepared, Rules, MAX_INTERCEPT_ENTRIES};
-pub use target::{Destination, DnsFamily, Host, HttpTarget};
+pub use target::{Destination, DnsFamily, Host, HttpTarget, Protocol};

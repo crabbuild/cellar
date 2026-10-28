@@ -1,0 +1,294 @@
+{
+  "format": 1,
+  "license": "Apache-2.0",
+  "source_baseline": "d3206c924031a3f2ca3387b542c02877bb91423d",
+  "source_state": "Uncommitted filesystem implementation; exact compiled source hashes below.",
+  "executable_sha256": "d51e0f10251d811f70ad6b3892fd7905107ee3529c0d658491fd3c54d97d5f93",
+  "source_sha256": {
+    "backend": "f8c40869c557c73fc45608b5f41b799c8ed59e0283022b1bffefc3b23882c7b4",
+    "content": "9c48b2b6269d561b99b9bcf7c47398bacb6ce126df33ba016ec93727cb7f7474",
+    "fixture": "1a6dc89006b64095498ac64c03d55f02515d14334c9dc17001b8779689058776",
+    "gc": "450c5481a7ecb08aa8c6e07ca53c313365c10df29142a5dece481dad510e9e6c",
+    "namespace": "045a8b94881f855c678ac5467541c75fe31caa942172b04ff0d621bccf6f8005",
+    "replica_storage": "232e38acd2a5abe34fd066ad2e2f86c55f71ec897a60a4dc002f5adf2dd27136",
+    "schema": "e9d3f6d4559b59b1c786e7c59b186ae73a0b5e00fa6f024bde466f6c646ea4f1",
+    "sdk": "85de5e2ab4fd71f1127cfabbd9e7f67ec418798119f8f6dc8ccce06c612de5de"
+  },
+  "source_paths": {
+    "fixture": "crates/cellar/tests/support/node_filesystem_capacity.rs",
+    "sdk": "crates/cellar/application/filesystem/mod.rs",
+    "backend": "crates/cellar/storage/sqlite/filesystem/mod.rs",
+    "content": "crates/cellar/storage/sqlite/filesystem/content.rs",
+    "namespace": "crates/cellar/storage/sqlite/filesystem/namespace.rs",
+    "gc": "crates/cellar/storage/sqlite/filesystem/gc.rs",
+    "schema": "crates/cellar/storage/sqlite/filesystem/schema.sql",
+    "replica_storage": "crates/cellar/durability/replication/storage.rs"
+  },
+  "debug_assertions": true,
+  "environment": {
+    "system": "Darwin",
+    "release": "25.5.0",
+    "architecture": "arm64",
+    "physical_memory_bytes": 34359738368,
+    "rust": "1.98.1",
+    "cargo_profile": "test, unoptimized, debug info disabled",
+    "backend": "private machine-local SQLite development bucket",
+    "isolation": "Independent test processes, fresh private state per profile; shared development host, no resource partition"
+  },
+  "profiles": [
+    {
+      "application_bytes_written": 11546624,
+      "bucket_ltx_object_bytes_current": 51119195,
+      "bucket_object_bytes_current": 51122546,
+      "local_ltx_bytes_peak_sampled": 20359305,
+      "mib": 10,
+      "node_file_bytes_peak_sampled": 34446657,
+      "patches": {
+        "count": 3,
+        "max_us": 6998,
+        "p50_us": 6948,
+        "p95_us": 6998,
+        "p99_us": 6998
+      },
+      "process_rss_after": 87867392,
+      "process_rss_before": 12910592,
+      "process_rss_peak_sampled": 158089216,
+      "recovery": {
+        "block_digest_commitment": "27b9f8a1ae6c7ada2abe40b67abe8c5c3e6466140816153652b364079cb14ec3",
+        "cold_reads": {
+          "count": 10,
+          "max_us": 240846,
+          "p50_us": 3471,
+          "p95_us": 240846,
+          "p99_us": 240846
+        },
+        "first_admitted_read_ms": 379,
+        "first_proven_write_us": 256003,
+        "fresh_node_file_bytes": 23619066,
+        "recovered_file_and_business_state": {
+          "allocated": 10485760,
+          "inode": 2,
+          "last_receipt": {
+            "block": 9,
+            "inode": 2,
+            "sha256": "f103844950154f887a87a8c21a331521dfc8b1ddb412f4b54ea4d2cf045523de",
+            "version": 12
+          },
+          "patches": [
+            {
+              "inode": 2,
+              "patch": 0,
+              "version": 13
+            },
+            {
+              "inode": 2,
+              "patch": 1,
+              "version": 14
+            },
+            {
+              "inode": 2,
+              "patch": 2,
+              "version": 15
+            }
+          ],
+          "progress": 10,
+          "size": 10485760,
+          "total_allocated": 10485760,
+          "version": 15
+        }
+      },
+      "wal_bytes_peak_sampled": 4420792,
+      "warm_reads": {
+        "count": 10,
+        "max_us": 6450,
+        "p50_us": 3746,
+        "p95_us": 6450,
+        "p99_us": 6450
+      },
+      "write_elapsed_ms": 1060,
+      "writes": {
+        "count": 10,
+        "max_us": 322670,
+        "p50_us": 46306,
+        "p95_us": 322670,
+        "p99_us": 322670
+      }
+    },
+    {
+      "application_bytes_written": 105918464,
+      "bucket_ltx_object_bytes_current": 222049358,
+      "bucket_object_bytes_current": 222052709,
+      "local_ltx_bytes_peak_sampled": 118107461,
+      "mib": 100,
+      "node_file_bytes_peak_sampled": 225383245,
+      "patches": {
+        "count": 3,
+        "max_us": 8293,
+        "p50_us": 8199,
+        "p95_us": 8293,
+        "p99_us": 8293
+      },
+      "process_rss_after": 386039808,
+      "process_rss_before": 12894208,
+      "process_rss_peak_sampled": 827998208,
+      "recovery": {
+        "block_digest_commitment": "ef15aa49ec0858db43f48733d8f1800d2e6b9a5574a9e9802454e247cc43ef0b",
+        "cold_reads": {
+          "count": 100,
+          "max_us": 1709437,
+          "p50_us": 3729,
+          "p95_us": 6401,
+          "p99_us": 9108
+        },
+        "first_admitted_read_ms": 1855,
+        "first_proven_write_us": 2219689,
+        "fresh_node_file_bytes": 214317328,
+        "recovered_file_and_business_state": {
+          "allocated": 104857600,
+          "inode": 2,
+          "last_receipt": {
+            "block": 99,
+            "inode": 2,
+            "sha256": "9e724ed94ee0726a2b212b8aa09b817c96feb93a16ca91cfff8a8da20a6b96ed",
+            "version": 102
+          },
+          "patches": [
+            {
+              "inode": 2,
+              "patch": 0,
+              "version": 103
+            },
+            {
+              "inode": 2,
+              "patch": 1,
+              "version": 104
+            },
+            {
+              "inode": 2,
+              "patch": 2,
+              "version": 105
+            }
+          ],
+          "progress": 100,
+          "size": 104857600,
+          "total_allocated": 104857600,
+          "version": 105
+        }
+      },
+      "wal_bytes_peak_sampled": 4478472,
+      "warm_reads": {
+        "count": 100,
+        "max_us": 13703,
+        "p50_us": 5932,
+        "p95_us": 10804,
+        "p99_us": 13054
+      },
+      "write_elapsed_ms": 6141,
+      "writes": {
+        "count": 100,
+        "max_us": 289526,
+        "p50_us": 43535,
+        "p95_us": 98521,
+        "p99_us": 197676
+      }
+    },
+    {
+      "application_bytes_written": 1074802688,
+      "bucket_ltx_object_bytes_current": 1121245659,
+      "bucket_object_bytes_current": 1121248352,
+      "local_ltx_bytes_peak_sampled": 1123053328,
+      "mib": 1024,
+      "node_file_bytes_peak_sampled": 2208191960,
+      "patches": {
+        "count": 3,
+        "max_us": 16020,
+        "p50_us": 9441,
+        "p95_us": 16020,
+        "p99_us": 16020
+      },
+      "process_rss_after": 123453440,
+      "process_rss_before": 12894208,
+      "process_rss_peak_sampled": 1516978176,
+      "recovery": {
+        "block_digest_commitment": "5ab2a69f89aeb5d0ba693c1b0f922eaa732c14a652f1f94a242e5adcecbdd477",
+        "cold_reads": {
+          "count": 1024,
+          "max_us": 2936200,
+          "p50_us": 69620,
+          "p95_us": 225878,
+          "p99_us": 271333
+        },
+        "first_admitted_read_ms": 3142,
+        "first_proven_write_us": 44289,
+        "fresh_node_file_bytes": 1086223159,
+        "recovered_file_and_business_state": {
+          "allocated": 1073741824,
+          "inode": 2,
+          "last_receipt": {
+            "block": 1023,
+            "inode": 2,
+            "sha256": "e66947ec42455d50bf162eab904fff20d817a1545edefb8b5acf6d76ab1cb01c",
+            "version": 1026
+          },
+          "patches": [
+            {
+              "inode": 2,
+              "patch": 0,
+              "version": 1027
+            },
+            {
+              "inode": 2,
+              "patch": 1,
+              "version": 1028
+            },
+            {
+              "inode": 2,
+              "patch": 2,
+              "version": 1029
+            }
+          ],
+          "progress": 1024,
+          "size": 1073741824,
+          "total_allocated": 1073741824,
+          "version": 1029
+        }
+      },
+      "wal_bytes_peak_sampled": 4511432,
+      "warm_reads": {
+        "count": 1024,
+        "max_us": 15270,
+        "p50_us": 6383,
+        "p95_us": 7289,
+        "p99_us": 8449
+      },
+      "write_elapsed_ms": 58193,
+      "writes": {
+        "count": 1024,
+        "max_us": 293667,
+        "p50_us": 42066,
+        "p95_us": 88932,
+        "p99_us": 98107
+      }
+    }
+  ],
+  "log_sha256": {
+    "dense-10": "c0dea7da99bff072f0d5c3cf46c01e667d35d72493a0085140e93e5d844d848b",
+    "dense-100": "3cc7cd12ff03ddfbb56b39dd632df0f7a99fe329093dbdd770421c6bc8e988a8",
+    "dense-1024": "f76fa6854197d8858146cf21e316248e5c56b94a25201257659f533cfec68955",
+    "paged-owner-red": "e77633b32942cee98fbbb06559d19e47de890adc836d8ae78968b12783f9e03b",
+    "paged-owner-unit": "df020f16d1d1d1e68a311283cf5e1cfa1c107d6c7be9215f041da545e0bfe287",
+    "replication": "5e877521f15f3f7326b80ac0a0fe17734d2652939038337b7ab75efdb6380bef",
+    "clippy": "31214da7b8620e0ac94875773983bdd276b7e47379ec91d6a4c18986a48d7b62",
+    "all-target-clippy": "19262bfbe57ba6b03d9fe1c92b3a8b03ef0951f45ef5bc22dbd842bd8e711004",
+    "native-filesystem-regression": "426d08d02332dad245739a2c535fe9a49a85c395e44dff4b4d509146ce998e18",
+    "format": "a7590df68342af1f2841e592c86399042d36560b19d173ef2f24617826570b2a",
+    "layout": "7beaaef2b3bbcb7f8bb91ffd585cab32d2c2449f3386fe1f17722c81f9336244",
+    "native-dependencies": "3408e0bfd56a5eac6791f4e84328c92c614dc2de2cfc345a54c6168fb5d7e886"
+  },
+  "limits": "Native SDK, single-node development-bucket proof, fixed 64 KiB chunks, 1 MiB requests, 2 GiB file/allocation ceilings, 120 s recovery/handler budgets. Latency includes routing, hashing and proof; RSS and file lengths are sampled, not hard peak bounds. No external-store, peer-fault, guest, chunk-size comparison or many-cell qualification.",
+  "observations": [
+    "Initial GiB cold open failed because the generic page helper polled the domain-dependent development store without its owner. A small regression reproduces the closed-domain error; the owner-bound range facade fixes it and refuses reads after owner closure.",
+    "The passing GiB log includes one final-durability retry during source shutdown. Both shutdown reports still satisfied every clean-shutdown assertion.",
+    "The SDK CI workflow is configured for the 10 MiB case; no remote CI completion is claimed."
+  ]
+}

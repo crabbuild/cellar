@@ -36,11 +36,15 @@ Choose a stop mode from the intended restart:
 
 | Mode | Use when | Additional requirement |
 | --- | --- | --- |
-| `Handoff` | The logical node leaves and another owner should take over | Retain evidence needed for successor recovery |
+| `Handoff` | The logical node leaves and another owner should take over | Keep ready successor capacity and retain recovery evidence |
 | `Preserve` | The same logical node resumes at the same address with local state and ownership | Complete clean-reload preparation |
 
 Both modes drain ingress, complete event drivers, cells and durability. Event
 draining includes background work, nested calls and prior generations.
+Handoff also waits for a successor to acknowledge ownership of released cells.
+Keep ready, non-draining successor capacity available until donors finish;
+stopping every node as a donor can leave the final node waiting for adoption.
+An incomplete handoff report still requires ordinary recovery.
 
 For `Preserve`, the drained cells publish their final per-cell database positions
 before the node log checks whether it can seal. A durable bundle alone does not

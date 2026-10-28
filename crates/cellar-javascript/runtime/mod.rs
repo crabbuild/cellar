@@ -441,6 +441,10 @@ fn run_with<T>(
 ) -> Result<T> {
     let completion_bytes = backend.completion_bytes();
     source.validate()?;
+    cellar_guest::filesystem::validate_configuration(
+        !source.filesystems.is_empty(),
+        options.max_value_bytes,
+    )?;
     source.rpc.validate_bridge(options.max_value_bytes)?;
     ensure!(
         (1..=4096).contains(&options.max_invocations)

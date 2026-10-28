@@ -15,8 +15,30 @@ async fn slow_confirmation_chunk() {
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 }
 
+/// One precisely controlled registry write, before CAS or after it committed.
+#[derive(Debug, Default)]
+pub struct RegistryGate {
+    pub armed: AtomicBool,
+    pub entered: tokio::sync::Notify,
+    pub resume: tokio::sync::Notify,
+}
+
+impl RegistryGate {
+    async fn pause(&self) {
+        if self.armed.swap(false, Ordering::AcqRel) {
+            self.entered.notify_one();
+            self.resume.notified().await;
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Store {
+    pub registry_before: RegistryGate,
+    pub registry_after: RegistryGate,
+    pub fail_registry_before: AtomicBool,
+    pub fail_registry_after: AtomicBool,
+    pub registry_writes: AtomicUsize,
     /// Hold one exact ordinal initial-member claim while the host initializes.
     pub hold_nth_claim: AtomicUsize,
     pub claim_hang: AtomicBool,
@@ -47,7 +69,10 @@ pub struct Store {
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
     pub root_extent_reads: AtomicUsize,
+    pub root_extent_hits: AtomicUsize,
     pub root_extent_puts: AtomicUsize,
+    pub fail_root_confirmation: AtomicBool,
+    root_confirmation_failure: std::sync::Mutex<Option<Path>>,
     pub root_extent_ready: AtomicUsize,
     pub hold_root_extents_after: AtomicUsize,
     pub fail_root_extent: AtomicUsize,
@@ -205,6 +230,14 @@ impl ObjectStore for Store {
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
+        let registry = path.filename() == Some("registry") && path.as_ref().contains("/retained/");
+        if registry {
+            self.registry_writes.fetch_add(1, Ordering::AcqRel);
+            self.registry_before.pause().await;
+            if self.fail_registry_before.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+        }
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
@@ -216,6 +249,19 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if registry {
+            self.registry_after.pause().await;
+            if self.fail_registry_after.swap(false, Ordering::AcqRel) {
+                return Err(failure());
+            }
+        }
+        if path.as_ref().contains("/root-extents/")
+            && self.fail_root_confirmation.swap(false, Ordering::AcqRel)
+        {
+            // Bind this failure to the successful write's exact read-back;
+            // another concurrent absence probe must not consume it.
+            *self.root_confirmation_failure.lock().unwrap() = Some(path.clone());
+        }
         if path.as_ref().contains("/archives/bundles/")
             && self.fail_bundle_after.swap(false, Ordering::AcqRel)
         {
@@ -313,6 +359,11 @@ impl ObjectStore for Store {
             }
             self.root_extent_ready.fetch_add(1, Ordering::AcqRel);
             if ordinal == self.fail_root_extent.load(Ordering::Acquire) {
+                return Err(failure());
+            }
+            let mut pending = self.root_confirmation_failure.lock().unwrap();
+            if pending.as_ref() == Some(path) {
+                pending.take();
                 return Err(failure());
             }
         }
@@ -419,6 +470,9 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let mut result = self.inner.get_opts(path, options).await?;
+        if root_extent {
+            self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
+        }
         if path.as_ref().contains("/snapshot-parts/")
             && self.slow_part_confirmations.load(Ordering::Acquire)
         {

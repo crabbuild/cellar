@@ -127,3 +127,9 @@ required-features = ["embed"]
 name = "cellar-bindings-python"
 path = "../../examples/bindings/python.rs"
 required-features = ["embed"]
+
+[[test]]
+name = "filesystem"
+path = "tests/filesystem.rs"
+harness = false
+required-features = ["embed"]

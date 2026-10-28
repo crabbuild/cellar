@@ -40,6 +40,7 @@ pub(super) async fn exercise(campaign: &mut Campaign, scenario: Scenario) -> Res
         options.nft_path = "/missing-production-installer".into();
     }
     domain.services().configure_containers(EngineOptions {
+        capacity: None,
         socket: campaign.docker.socket().into(),
         namespace: Some(format!("network-{}-{scenario:?}", campaign.owner)),
         runtime: Some("runc".into()),

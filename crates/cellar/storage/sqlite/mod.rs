@@ -25,6 +25,7 @@ mod console;
 pub(crate) mod container_bindings;
 pub(crate) mod container_maintenance;
 mod event_schema;
+pub(crate) mod filesystem;
 #[cfg(test)]
 mod identity_tests;
 mod immutable;
@@ -962,6 +963,7 @@ fn finish_open(
         register_vec0_extension(&c)?;
     }
     schema(&c)?;
+    filesystem::validate_existing(&c)?;
     if replicated_wake {
         wake_record::initialize(&c, scope, epoch)?;
     }
@@ -4283,6 +4285,7 @@ fn actor_name(connection: &Connection, scope: &str) -> anyhow::Result<Option<Str
 /// which form the public JS deleteAll() operation selects.
 pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
     let result = with_application_storage_write(scope, |c| -> anyhow::Result<()> {
+        filesystem::check_clear(c)?;
         let has_outbox: bool = c.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_outbox')",
             [],
@@ -4321,6 +4324,7 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
                         continue;
                     }
                     if table == "__sys_event_source"
+                        || table.starts_with("__sys_fs_")
                         || table.starts_with("__sys_outbox")
                         || table.starts_with("__sys_inbox")
                         || table.starts_with("__sys_container_bind")

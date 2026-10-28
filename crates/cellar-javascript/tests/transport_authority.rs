@@ -33,6 +33,7 @@ impl Cell for Root {
                 ));
             }
             let limits = Limits {
+                max_value_bytes: 4096,
                 max_body_bytes: 64,
                 max_batch_operations: 2,
             };

@@ -76,6 +76,40 @@ async fn held_physical_job(
 }
 
 #[tokio::test]
+async fn unpolled_read_ahead_cannot_reserve_the_append_jobs_only_physical_slot(
+) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::future::Future as _;
+    use std::task::Poll;
+
+    let (domain, foreground, performance) = physical_fixture().await?;
+    let (_owner, cancellation) = watch::channel(false);
+    let budget = PhysicalBudget::new(1, cancellation, performance.clone())?;
+    let host = budget.host(foreground);
+    let (first, release) = held_physical_job(host.clone()).await?;
+    let mut read_ahead = Box::pin(host.run_blocking(|| 42));
+    // A bounded ordered receive window has polled the later read once. After
+    // yielding its first result it stops polling that window while appending.
+    std::future::poll_fn(|context| {
+        assert!(read_ahead.as_mut().poll(context).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    wait_physical_admissions(&performance, 2).await?;
+    release.send(())?;
+    assert_eq!(first.await??, 41);
+    let appended = tokio::time::timeout(Duration::from_secs(2), host.run_blocking(|| 43)).await;
+    // Join the deliberately unpolled waiter before reporting either outcome.
+    assert_eq!(read_ahead.await?, 42);
+    domain.shutdown().await;
+    assert_eq!(
+        appended.context("an unpolled read-ahead waiter blocked the actively driven append")??,
+        43
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn node_wide_physical_limit_leaves_foreground_host_unqueued() -> anyhow::Result<()> {
     let (domain, foreground, performance) = physical_fixture().await?;
     let (_stop, cancellation) = watch::channel(false);

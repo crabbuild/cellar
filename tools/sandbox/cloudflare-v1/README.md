@@ -1,6 +1,6 @@
 <!-- Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0. -->
 
-# Sandbox 1.0.3: native processes, files and directory backups
+# Sandbox 1.0.3: native processes, files, backups and HTTPS
 
 This separate, partial profile preserves the
 [celld/Sandbox 0.12.9 baseline](../compat/README.md).
@@ -385,3 +385,35 @@ Upstream contracts: [1.0 changes](https://developers.cloudflare.com/sandbox/sdk/
 [Files](https://developers.cloudflare.com/sandbox/reference/files/),
 [helper requirements](https://developers.cloudflare.com/sandbox/reference/) and
 [container exec](https://developers.cloudflare.com/containers/api/durable-object-container/).
+
+
+## HTTPS interception
+
+The separate [HTTPS fixture](https.mjs) uses the pinned `Files` API and matching
+image to read the injected public CA, then starts real Node TLS clients. The
+host explicitly enables both the HTTPS provider and helper profile.
+
+```sh
+CELLAR_SANDBOX_ENGINE_SOCKET=/path/to/private/docker.sock \
+CELLAR_SANDBOX_V1_IMAGE=sha256:YOUR_BUILT_IMAGE_ID \
+CELLAR_SANDBOX_FENCE_IMAGE=sha256:YOUR_PRELOADED_FENCE_ID \
+CELLAR_SANDBOX_NETWORK_IMAGE=sha256:YOUR_PRELOADED_HELPER_ID \
+cargo test --locked -p cellar-javascript --features node \
+  --test sandbox_https -- --ignored --test-threads=1
+```
+
+| Check | Required observation |
+| --- | --- |
+| Before startup | Public CA file exists before the entrypoint serves traffic |
+| Real TLS | Explicitly trusting the run's CA succeeds; an ordinary untrusted client refuses it |
+| Retained connection | Three handlers on one TLS connection echo exactly 2 MiB + 17 bytes/SHA-256 using the original 64 KiB bridge frame limit |
+| Message identity | Mismatched HTTP Host returns 502 with connection close; a fresh authenticated connection still uses the current handler |
+| Protocol separation | Plain HTTP stays direct despite a matching HTTPS rule |
+| Replacement run | Destroy/start changes the public CA digest |
+| Owned cleanup | Completed exec handles release, host/runtime join and owned containers/networks are absent |
+
+Native router tests separately exercise upstream TLS name validation, trusted
+CA isolation, bounded leaf-cache eviction and retirement during a pending
+handler. This fixture does not establish HTTP/2, client-certificate forwarding,
+all TLS client libraries, S3 mount support or full Cloudflare compatibility.
+The host's upstream roots are explicit and independent of a guest's trust store.

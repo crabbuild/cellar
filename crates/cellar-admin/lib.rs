@@ -113,6 +113,10 @@ pub fn router(console: Console) -> Result<Router> {
         )
         .route("/fleets/{fleet}/cells", get(api::cells))
         .route("/fleets/{fleet}/cells/{scope}", get(api::cell))
+        .route(
+            "/fleets/{fleet}/cells/{scope}/filesystem",
+            get(api::filesystem),
+        )
         .route("/fleets/{fleet}/applications", get(api::applications))
         .route(
             "/fleets/{fleet}/applications/{application}",

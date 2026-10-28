@@ -109,6 +109,7 @@ async fn exercise(
         native::start_configured(directory.path(), application, |config, services, graph| {
             config.runtime.handler_budget = Duration::from_secs(120);
             services.containers = Some(cellar::container::EngineOptions {
+                capacity: None,
                 socket: socket.clone(),
                 namespace: Some(namespace),
                 runtime: None,

@@ -111,6 +111,7 @@ pub struct State {
     pub workers: crate::workers::State,
     pub containers: crate::containers::Session,
     pub container_bindings: crate::containers::BindingSessions,
+    pub filesystem: crate::filesystem::Session,
     pub transport: std::sync::Arc<crate::transport::Session>,
     pub queue: Option<queue::Event>,
     pub scheduled: Option<cellar::sdk::cron::Scheduled>,
@@ -236,6 +237,19 @@ pub fn is_read(name: &str) -> bool {
             | "response.closed"
             | "request.body.read"
             | "request.body.cancel"
+            // No descriptor allocation, offset advancement or proof waits.
+            // Keep the Node worker's pre-IPC admission list in sync; the
+            // runtime admission test holds a mutation across these reads.
+            | "filesystem.capabilities"
+            | "filesystem.statvfs"
+            | "filesystem.pread"
+            | "filesystem.fstat"
+            | "filesystem.stat"
+            | "filesystem.lstat"
+            | "filesystem.fstatat"
+            | "filesystem.read_file"
+            | "filesystem.read_dir"
+            | "filesystem.telldir"
     )
 }
 
@@ -296,6 +310,12 @@ pub async fn execute(
         values::check_depth(&value).context(crate::failure::Validation)?;
         ensure!(value.is_object(), crate::failure::Validation);
         return crate::containers::execute(context, state, name, value, options).await;
+    }
+    if name.starts_with("filesystem.") {
+        return state
+            .filesystem
+            .execute(context, name, value, options)
+            .await;
     }
     if name == "cell.fetch_stream"
         || name == "http.fetch_stream"

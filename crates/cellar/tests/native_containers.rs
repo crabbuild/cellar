@@ -58,6 +58,15 @@ impl Cell for Root {
             let container = context.container()?;
             let path = url::Url::parse(&request.url)?.path().to_string();
             let value = match path.as_str() {
+                "/https-refused" => {
+                    assert!(!container.supports_outbound_https(&context)?);
+                    let gateway = context.exported_entrypoint("Gateway")?;
+                    assert!(container
+                        .intercept_outbound_https(&context, "*", &gateway)
+                        .await
+                        .is_err());
+                    json!(true)
+                }
                 "/start" => {
                     context
                         .storage()?
@@ -484,6 +493,13 @@ async fn run() -> Result<()> {
             .count(),
         1
     );
+    let calls = peer.calls.lock().unwrap().len();
+    assert_eq!(call(&host, "Sandbox:test", "/https-refused").await?, true);
+    assert_eq!(
+        peer.calls.lock().unwrap().len(),
+        calls,
+        "refused HTTPS reached the Engine"
+    );
     assert_eq!(call(&host, "Sandbox:test", "/running").await?, false);
     assert_eq!(call(&host, "Sandbox:test", "/monitor-empty").await?, true);
     probe.hold.store(true, Ordering::SeqCst);
@@ -640,10 +656,12 @@ async fn embedded_container_host(
     image: &str,
     runtime: &str,
     probe: Arc<Probe>,
+    capacity: Option<cellar::container::CapacityLimits>,
 ) -> Result<RuntimeManager> {
     domain
         .services()
         .configure_containers(cellar::container::EngineOptions {
+            capacity,
             socket: socket.into(),
             namespace: None,
             runtime: Some(runtime.into()),
@@ -696,6 +714,199 @@ async fn embedded_hosts_own_containers_execs_networks_and_restart_cleanup() -> R
     tokio::time::timeout(Duration::from_secs(60), owned_container_domains()).await?
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn failed_start_retains_capacity_until_owned_removal() -> Result<()> {
+    let directory = tempfile::tempdir_in("/tmp")?;
+    let socket = directory.path().join("engine.sock");
+    let listener = tokio::net::UnixListener::bind(&socket)?;
+    let peer = Arc::new(Engine::default());
+    let serving = peer.clone();
+    let cancelling = Arc::new(AtomicBool::new(false));
+    let cancellation = cancelling.clone();
+    let closed_start = Arc::new(AtomicBool::new(false));
+    let observed_close = closed_start.clone();
+    let (stop, mut stopped) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut connections = tokio::task::JoinSet::new();
+        loop {
+            cellar::asyncrt::select_biased! { "stop the Engine peer before admitting another test connection";
+                _ = &mut stopped => break,
+                accepted = listener.accept() => {
+                    let (stream, _) = accepted?;
+                    let engine = serving.clone();
+                    let cancellation = cancellation.clone();
+                    let observed_close = observed_close.clone();
+                    connections.spawn(async move {
+                        let path = Arc::new(Mutex::new(None));
+                        let seen = path.clone();
+                        let outcome = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), hyper::service::service_fn(
+                                move |request: HttpRequest<Incoming>| {
+                                    *seen.lock().unwrap() = Some(request.uri().path().to_owned());
+                                    engine.clone().answer(request)
+                                }))
+                            .await;
+                        if path.lock().unwrap().as_deref().is_some_and(|path| path.ends_with("/start"))
+                            && outcome.as_ref().is_err_and(|error| error.is_incomplete_message())
+                            && cancellation.load(Ordering::SeqCst)
+                        {
+                            assert!(!observed_close.swap(true, Ordering::SeqCst),
+                                "more than one start connection was aborted");
+                            Ok(())
+                        } else {
+                            outcome
+                        }
+                    });
+                }
+            }
+        }
+        connections.abort_all();
+        let mut lost = 0;
+        while let Some(outcome) = connections.join_next().await {
+            if matches!(&outcome, Ok(Err(error)) if error.is_user()) {
+                lost += 1;
+            } else {
+                completed_identity_peer_connection(outcome, true)?;
+            }
+        }
+        assert_eq!(lost, serving.lost_responses.load(Ordering::SeqCst));
+        Ok::<_, anyhow::Error>(())
+    });
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = tokio::time::timeout(Duration::from_secs(30), async {
+        let image = cellar::container::image_reference(&"c".repeat(64));
+        let host = embedded_container_host(
+            &domain,
+            &directory.path().join("cells"),
+            &socket,
+            &image,
+            "test-runtime",
+            Arc::new(Probe::default()),
+            Some(cellar::container::CapacityLimits::new(
+                1,
+                1024 * 1024 * 1024,
+            )?),
+        )
+        .await?;
+        domain
+            .run(async {
+                let engine = cellar::container::engine_if_ready().unwrap();
+                peer.fail_next_start.store(true, Ordering::SeqCst);
+                assert!(
+                    call(&host, "Sandbox:same-business-id", "/start").await?["error"].is_string()
+                );
+                assert_eq!(
+                    call(&host, "Sandbox:same-business-id", "/running").await?,
+                    false
+                );
+                assert_eq!(peer.containers.lock().unwrap().len(), 1);
+                assert_eq!(
+                    engine.reserved_memory_bytes(),
+                    1024 * 1024 * 1024,
+                    "a submitted start failure is not evidence that the resource stopped"
+                );
+                open(&host, "Sandbox:waiting").await?;
+                let before = peer.calls.lock().unwrap().len();
+                assert_eq!(
+                    call(&host, "Sandbox:waiting", "/start").await?["error"],
+                    "container capacity exhausted"
+                );
+                assert_eq!(
+                    peer.calls.lock().unwrap().len(),
+                    before,
+                    "capacity refusal must precede Engine effects"
+                );
+                call(&host, "Sandbox:same-business-id", "/destroy").await?;
+                assert_eq!(engine.reserved_memory_bytes(), 0);
+                assert!(peer.containers.lock().unwrap().is_empty());
+                assert!(call(&host, "Sandbox:waiting", "/start").await?["run"].is_number());
+                assert_eq!(engine.reserved_memory_bytes(), 1024 * 1024 * 1024);
+                call(&host, "Sandbox:waiting", "/destroy").await?;
+                assert_eq!(engine.reserved_memory_bytes(), 0);
+
+                // An accepted create may be temporarily absent from inspection.
+                peer.lose_next_create.store(true, Ordering::SeqCst);
+                peer.hide_containers.store(true, Ordering::SeqCst);
+                assert!(call(&host, "Sandbox:waiting", "/start").await?["error"].is_string());
+                assert_eq!(engine.reserved_memory_bytes(), 1024 * 1024 * 1024);
+                let creates = peer.app_creates();
+                assert!(call(&host, "Sandbox:waiting", "/start").await?["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("creation outcome is unknown"));
+                assert_eq!(peer.app_creates(), creates, "unknown create was replayed");
+                assert_eq!(
+                    call(&host, "Sandbox:waiting", "/destroy-refused").await?,
+                    true
+                );
+                assert_eq!(engine.reserved_memory_bytes(), 1024 * 1024 * 1024);
+                peer.hide_containers.store(false, Ordering::SeqCst);
+                call(&host, "Sandbox:waiting", "/destroy").await?;
+                assert_eq!(engine.reserved_memory_bytes(), 0);
+
+                // A failed wait is not a positive exit observation.
+                peer.lose_next_wait.store(true, Ordering::SeqCst);
+                assert!(call(&host, "Sandbox:waiting", "/start").await?["run"].is_number());
+                let cell = engine.cell("Sandbox:waiting").unwrap();
+                assert!(engine.monitor(&cell, cell.current_run()).await.is_err());
+                assert_eq!(engine.reserved_memory_bytes(), 1024 * 1024 * 1024);
+                call(&host, "Sandbox:waiting", "/destroy").await?;
+                assert_eq!(engine.reserved_memory_bytes(), 0);
+                assert_eq!(peer.lost_responses.load(Ordering::SeqCst), 2);
+
+                // Cancel after create while start is pending. Cleanup must own
+                // and remove the exact resource before releasing its budget.
+                let (_resume, paused) = watch::channel(false);
+                *peer.startup_gate.lock().unwrap() = Some(paused);
+                peer.start_entered.store(false, Ordering::SeqCst);
+                let starting_engine = engine.clone();
+                let starting_cell = cell.clone();
+                let pending = cellar::asyncrt::spawn(async move {
+                    let run = starting_cell.begin_run();
+                    starting_engine
+                        .start(
+                            &starting_cell,
+                            run,
+                            cellar::container::StartParams {
+                                entrypoint: None,
+                                env: Vec::new(),
+                                enable_internet: false,
+                                labels: Vec::new(),
+                            },
+                        )
+                        .await
+                });
+                cellar::asyncrt::timeout(Duration::from_secs(2), async {
+                    while !peer.start_entered.load(Ordering::SeqCst) {
+                        cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await?;
+                assert_eq!(engine.reserved_memory_bytes(), 1024 * 1024 * 1024);
+                cancelling.store(true, Ordering::SeqCst);
+                pending.abort();
+                assert!(pending.await.is_err());
+                cellar::asyncrt::timeout(Duration::from_secs(2), async {
+                    while engine.reserved_memory_bytes() != 0
+                        || !closed_start.load(Ordering::SeqCst)
+                    {
+                        cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+                    }
+                })
+                .await?;
+                assert!(peer.containers.lock().unwrap().is_empty());
+                peer.assert_immutable_effects()?;
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?
+    })
+    .await;
+    domain.shutdown().await;
+    let _ = stop.send(());
+    server.await??;
+    result?
+}
+
 async fn owned_container_domains() -> Result<()> {
     use cellar::asyncrt::ExecutionDomain;
     let directory = tempfile::Builder::new()
@@ -733,6 +944,7 @@ async fn owned_container_domains() -> Result<()> {
         &first_image,
         "first-runtime",
         first_probe.clone(),
+        None,
     )
     .await?;
     assert_eq!(
@@ -748,6 +960,7 @@ async fn owned_container_domains() -> Result<()> {
         &second_image,
         "second-runtime",
         second_probe.clone(),
+        None,
     )
     .await?;
     assert_eq!(
@@ -929,6 +1142,7 @@ async fn owned_container_domains() -> Result<()> {
     restarted
         .services()
         .configure_containers(cellar::container::EngineOptions {
+            capacity: None,
             socket: socket.clone(),
             namespace: None,
             runtime: None,
@@ -1109,6 +1323,7 @@ async fn immutable_resource_identity(scenario: IdentityScenario) -> Result<()> {
             &cellar::container::image_reference(&"c".repeat(64)),
             "runc",
             probe.clone(),
+            None,
         )
         .await?;
         let started = domain.run(call(&host, scope, "/start")).await??;
@@ -1297,7 +1512,13 @@ async fn immutable_resource_identity(scenario: IdentityScenario) -> Result<()> {
             peer.assert_immutable_effects()?;
             return Ok(());
         }
-        anyhow::ensure!(domain.run(call(&host, scope, "/files")).await?? == true);
+        match domain.run(call(&host, scope, "/files")).await? {
+            Ok(value) => anyhow::ensure!(value == true),
+            Err(error) => {
+                let exit = tokio::time::timeout(Duration::from_millis(100), monitoring).await;
+                return Err(error.context(format!("renamed resource monitor: {exit:?}")));
+            }
+        }
         let query = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("path", "/tmp/cellar-?é.bin")
             .finish();

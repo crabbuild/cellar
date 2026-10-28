@@ -8,7 +8,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 #[path = "store_outage.rs"]
 mod store_outage;
-pub(super) use store_outage::Outage;
+pub(crate) use store_outage::Outage;
 
 pub(super) fn source_scope() -> String {
     let script = "embedded-node";

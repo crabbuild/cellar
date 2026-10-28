@@ -1,0 +1,8 @@
+{
+  "name": "cellar-filesystem-agent-example",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"test:e2e": "node test/process.mjs"},
+  "dependencies": {"@cellar/sdk": "file:../../packages/cellar-sdk"}
+}

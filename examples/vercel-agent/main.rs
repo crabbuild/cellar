@@ -39,6 +39,7 @@ fn main() -> Result<()> {
         Source::module()
             .events([EventKind::Fetch])
             .cell_events("DurableAgent", [EventKind::Fetch, EventKind::Alarm])
+            .filesystem("DurableAgent", cellar::sdk::filesystem::Policy::default())?
             .cell_events("ConversationDirectory", [EventKind::Fetch]),
         |application| {
             let stop = application.clone();

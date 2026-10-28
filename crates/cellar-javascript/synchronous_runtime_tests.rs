@@ -367,6 +367,86 @@ fn output_barriers_overlap_writes_without_admitting_another_mutation() -> Result
 }
 
 #[test]
+fn filesystem_reads_overlap_a_held_mutation_without_releasing_its_slot() -> Result<()> {
+    let body = r#"
+      return (async () => {
+      const write = ctx.storage.apply({puts:{x:1}});
+      const names = ['read', 'write', 'pwrite', 'lseek', 'open', 'openat', 'creat',
+        'dup', 'close', 'ftruncate', 'fchmod', 'fsync', 'fdatasync', 'truncate',
+        'mkdir', 'rmdir', 'unlink', 'rename', 'chmod', 'utimens', 'opendir',
+        'readdir', 'read_page', 'seekdir', 'rewinddir', 'closedir', 'mkdirat',
+        'unlinkat', 'renameat', 'write_file', 'replace_file', 'edit_file',
+        'collect_garbage', 'sync', 'future_unknown_operation'];
+      const refusals = names.map(name => ctx._call('filesystem.' + name, {}).then(
+        () => false,
+        error => error.code === 'ConcurrentMutation' && error.outcome === 'not_committed'
+      ));
+      const reads = ['capabilities', 'statvfs', 'pread', 'fstat', 'stat', 'lstat',
+        'fstatat', 'read_file', 'read_dir', 'telldir'].map(name => ctx._call('filesystem.' + name, {}));
+      const refused = await Promise.all(refusals);
+      const marker = ctx._call('storage.read', {key:'all-refusals-observed'});
+      await Promise.all([write, ...reads, marker]);
+      return {refused:refused.length, all:refused.every(Boolean)};
+      })();
+    "#;
+    for backend in modes() {
+        run(backend, Options::default(), body, |app| {
+            let (invocation, mut receive) = start(&app.runtime, Arc::new(AtomicBool::new(true)));
+            let mut pending = Vec::new();
+            for expected in [
+                "storage.apply",
+                "filesystem.capabilities",
+                "filesystem.statvfs",
+                "filesystem.pread",
+                "filesystem.fstat",
+                "filesystem.stat",
+                "filesystem.lstat",
+                "filesystem.fstatat",
+                "filesystem.read_file",
+                "filesystem.read_dir",
+                "filesystem.telldir",
+                "storage.read",
+            ] {
+                let Event::Operation {
+                    id,
+                    name,
+                    synchronous,
+                    ..
+                } = event(&mut receive)
+                else {
+                    anyhow::bail!("filesystem read refused while a mutation was pending");
+                };
+                assert_eq!(name, expected, "filesystem mutation bypassed its held slot");
+                pending.push((id, synchronous));
+            }
+            // The marker is submitted only after all 35 refusals settled.
+            // Keep the write unacknowledged until every read has been admitted.
+            for (id, synchronous) in pending {
+                app.runtime.respond(
+                    invocation,
+                    id,
+                    r#"{"ok":true,"value":null}"#.into(),
+                    synchronous,
+                )?;
+            }
+            let Event::Complete {
+                payload, failed, ..
+            } = event(&mut receive)
+            else {
+                anyhow::bail!("unexpected extra filesystem dispatch");
+            };
+            ensure!(!failed);
+            assert_eq!(
+                serde_json::from_str::<Value>(&payload)?,
+                json!({"refused":35,"all":true})
+            );
+            Ok(())
+        })?;
+    }
+    Ok(())
+}
+
+#[test]
 fn pending_socket_output_allows_storage_but_not_overlapping_mutations() -> Result<()> {
     let body = r#"
       const output = [

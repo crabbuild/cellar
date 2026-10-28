@@ -3,7 +3,39 @@
 //! Explicit infrastructure for the native Linux network-helper profile.
 
 use anyhow::{ensure, Result};
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
+/// Host-selected upstream trust for TLS interception. The container trusts its
+/// run's public CA; direct upstream connections still validate the real server.
+#[derive(Clone, Debug)]
+pub struct HttpsInterceptionOptions {
+    pub(super) upstream: Arc<rustls::ClientConfig>,
+}
+
+impl HttpsInterceptionOptions {
+    pub fn new(roots: rustls::RootCertStore) -> Result<Self> {
+        ensure!(
+            !roots.is_empty(),
+            "HTTPS interception requires explicit upstream trust roots"
+        );
+        let mut upstream = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        upstream.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Ok(Self {
+            upstream: Arc::new(upstream),
+        })
+    }
+
+    pub fn public_web_roots() -> Result<Self> {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        Self::new(roots)
+    }
+}
 
 /// One immutable, operator-supplied Linux helper image. The application keeps
 /// its own image and joins the helper's network namespace after readiness.
@@ -19,6 +51,8 @@ pub struct NetworkHelperOptions {
     pub shutdown_timeout: Duration,
     /// Absolute nft executable path inside the helper image.
     pub nft_path: String,
+    /// Explicit TLS termination and per-run CA injection. Default is HTTP only.
+    pub https: Option<HttpsInterceptionOptions>,
 }
 
 impl NetworkHelperOptions {
@@ -30,7 +64,13 @@ impl NetworkHelperOptions {
             startup_timeout: Duration::from_secs(10),
             shutdown_timeout: Duration::from_secs(5),
             nft_path: "/usr/sbin/nft".into(),
+            https: None,
         }
+    }
+
+    pub fn with_https_interception(mut self, options: HttpsInterceptionOptions) -> Self {
+        self.https = Some(options);
+        self
     }
 
     pub(super) fn validate(&self) -> Result<()> {

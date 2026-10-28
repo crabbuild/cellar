@@ -23,7 +23,9 @@
     "interception-program.mjs": "293c98b54f50666cf281ba9840a0ccbfa30e091688b1ac4be9260dc690dab515",
     "backup-failures.mjs": "4590d562e8e098ecbf986f1531f2ef761dd5ce4b0f7afc5670e3a837d9c51aa9",
     "backup-boundaries.mjs": "c5ae8bafbd219ea5cb1b291ce811589191c453a0b39e4b2e6bb77c96f62da24c",
-    "backup-recovery.mjs": "033b24a91547f30d374e0880ce0c9cf408a52b2a9c2e3a9772cbb539f1ee9f12"
+    "backup-recovery.mjs": "033b24a91547f30d374e0880ce0c9cf408a52b2a9c2e3a9772cbb539f1ee9f12",
+    "https.mjs": "c9ed2d312eca696fb303f38816b1590462609dce0f84d31d513435d2613b816f",
+    "https-program.mjs": "af89c56601c7ce582798aec235ee675c163a4db08e20791e552b6fbd3612900c"
   },
   "qualified_files": [
     "mkdir",

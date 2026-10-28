@@ -59,6 +59,7 @@ pub struct Source {
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) initial_reads:
@@ -75,11 +76,31 @@ impl Source {
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             distributions: Vec::new(),
             events: Vec::new(),
             cell_events: Default::default(),
             initial_reads: Default::default(),
         }
+    }
+
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
     }
 
     pub fn cell(mut self, name: impl Into<String>) -> Self {
@@ -671,6 +692,7 @@ impl Application for PythonApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -692,6 +714,7 @@ impl Application for PythonApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -700,6 +723,10 @@ impl Application for PythonApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -746,6 +773,7 @@ impl Cell for PythonCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

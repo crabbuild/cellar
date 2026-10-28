@@ -109,9 +109,41 @@ pub(crate) struct Transaction {
     asynchronous: bool,
     queue: Queue,
     pending: Mutex<Vec<Ready>>,
+    filesystem_work: Mutex<(usize, usize)>,
 }
 
 impl Transaction {
+    /// Charge executed work across savepoint ancestors too. Rolling back a
+    /// child does not refund work the isolate already performed.
+    pub(crate) fn charge_filesystem(
+        &self,
+        operations: usize,
+        bytes: usize,
+        limits: crate::application::filesystem::FilesystemLimits,
+    ) -> crate::application::filesystem::Result<()> {
+        use crate::application::filesystem::{Errno, Error};
+        let mut current = Some(self);
+        while let Some(transaction) = current {
+            transaction.check_active().map_err(|_| Error::affinity())?;
+            let mut used = transaction.filesystem_work.lock().unwrap();
+            let total = (
+                used.0.saturating_add(operations),
+                used.1.saturating_add(bytes),
+            );
+            if total.0 > limits.max_transaction_operations || total.1 > limits.max_transaction_bytes
+            {
+                return Err(Error::new(
+                    Errno::EDQUOT,
+                    "filesystem transaction work budget exhausted",
+                )
+                .with_code("TransactionWorkLimit"));
+            }
+            *used = total;
+            current = transaction.parent.as_deref();
+        }
+        Ok(())
+    }
+
     pub(crate) fn check_active(&self) -> Result<()> {
         let mut current = Some(self);
         let mut committed = false;
@@ -236,6 +268,7 @@ impl Guard {
             asynchronous,
             queue: Queue::default(),
             pending: Mutex::new(Vec::new()),
+            filesystem_work: Mutex::new((0, 0)),
         });
         transaction.control(storage, "start")?;
         *storage.0.resources.open_transaction.lock().unwrap() = Some(transaction.clone());

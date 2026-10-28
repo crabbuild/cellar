@@ -1,0 +1,2424 @@
+{
+  "baseline": "2e4bc3608eb5dcab9f14c85b713bbfcf59c62d7a",
+  "source_sha256": {
+    "crates/cellar-python/python/cellar.py": "33614bafa38d44ada65003294d9cd74151a528517487810baa8dd3be88b2e351",
+    "crates/cellar-python/tests/filesystem.rs": "cd1d4ccedb565ab85321652f355b2394df4957d772cc34d0bb11121f62340c4e",
+    "crates/cellar-python/tests/filesystem_cancellation.py": "8d7f0cc2210a2f5cbfa88373efbbe17ed81afe44707531908a0bd6ba0b691f74",
+    "crates/cellar-python/tests/bridge.rs": "4f4a5f7209a984cf14649074e1865f1af40a4a8f0d85b2c4b8cb347d0ad9d8ea",
+    "crates/cellar-python/tests/support/proof_authority.py": "f1ecb195c64533b6ff0bc2075505a276f3f8d3d9aef9eab9b47daf5bec037a19",
+    "crates/cellar-python/tests/support/proof_authority.rs": "c0238ead860dc6dde9ce19c248b061eecb763ab940dc8fddb031d199ec887c62",
+    "crates/cellar/tests/support/proof_fault_gates.rs": "9366b2c7184f4f7ad601cb2dde38e1d7f5a92d4ce91b89fb57cbe823a4a005e7"
+  },
+  "historical_failure": {
+    "before_executable_sha256": "b333e025d5eb7c6f086577e0a8eaf06272726f1630547943651800b2c4ad2931",
+    "raw_files": "lost when workspace .cellar directory disappeared; observations retained in chat tool output",
+    "case": "write_all-before_second",
+    "native_replies": 1,
+    "entered_calls": 2,
+    "shared_offset": 7,
+    "missing_fields": [
+      "code",
+      "outcome",
+      "operation",
+      "completed_bytes"
+    ]
+  },
+  "format": 1,
+  "date": "2026-10-28",
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "architecture": "arm64",
+  "rust": "1.98.1",
+  "python": "3.14.5",
+  "profile": "development; debug information disabled",
+  "scope": "Native Python SDK coroutine cancellation/local reopen; supplied development bucket and authenticated loopback peer proof faults",
+  "abis": {
+    "gil": {
+      "executables": {
+        "library": {
+          "sha256": "e8711635d47a161f333e229107c2320f5d6b511681dcb4b3e1fba5e292e55a0c"
+        },
+        "filesystem": {
+          "sha256": "3e65ddb75216dffb3883d162b569b6756cfcaf88fe9136562e35bf47f850a910"
+        },
+        "bridge": {
+          "sha256": "17720f9beefa6b8607743b1e76b210d636fee9ff4dddbdfc641f8d3b121ff748"
+        }
+      },
+      "checks": {
+        "gil-build": {
+          "exit": 0,
+          "seconds": 54.341,
+          "log_sha256": "4013cde669eb3dfa4171aded160301f1922d105a555e91c42f230a58494e98bf"
+        },
+        "gil-linkage": {
+          "exit": 0,
+          "seconds": 0.027,
+          "log_sha256": "cfacbd953c1584f95d80598d318bd8a4b861b9729561fe5391d7b1b0791cca1a"
+        },
+        "gil-library": {
+          "exit": 0,
+          "seconds": 0.189,
+          "log_sha256": "aaa776962121898b8268559c38fc965d93a8771774a3e91db1195abd3a1699e6"
+        },
+        "gil-task-cancellation": {
+          "exit": 0,
+          "seconds": 9.718,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "gil-normal": {
+          "exit": 0,
+          "seconds": 16.236,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "gil-read-only": {
+          "exit": 0,
+          "seconds": 1.305,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "gil-small-budget": {
+          "exit": 0,
+          "seconds": 0.841,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "gil-filesystem-proof-fsync-deadline": {
+          "exit": 0,
+          "seconds": 16.907,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "gil-filesystem-proof-fsync-fence": {
+          "exit": 0,
+          "seconds": 13.229,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "gil-filesystem-proof-fdatasync-deadline": {
+          "exit": 0,
+          "seconds": 17.525,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "gil-filesystem-proof-fdatasync-fence": {
+          "exit": 0,
+          "seconds": 13.205,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "gil-filesystem-proof-sync-deadline": {
+          "exit": 0,
+          "seconds": 18.444,
+          "log_sha256": "d699212c5874e3adba2ebff6cbd2a53276f1a63d4ed053222ac040b36aebac05"
+        },
+        "gil-filesystem-proof-sync-fence": {
+          "exit": 0,
+          "seconds": 14.328,
+          "log_sha256": "410372c5eea7bffbbb659f37800077c422dbf8ff4e9969d3e47b3f1c19027d6a"
+        },
+        "gil-filesystem-proof-output-deadline": {
+          "exit": 0,
+          "seconds": 17.058,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "gil-filesystem-proof-output-fence": {
+          "exit": 0,
+          "seconds": 14.364,
+          "log_sha256": "4768e3d7e9d4059f7e099c48e2eb732a959ba06766b047d103eba2c4eb4b5518"
+        },
+        "gil-filesystem-handoff-fsync-deadline": {
+          "exit": 0,
+          "seconds": 13.245,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "gil-filesystem-handoff-fsync-fence": {
+          "exit": 0,
+          "seconds": 9.414,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "gil-filesystem-handoff-fdatasync-deadline": {
+          "exit": 0,
+          "seconds": 14.086,
+          "log_sha256": "aa8191e68838e3a0d67c0ca2336c422aec865fabf767a40fe66aa08fec12f4e7"
+        },
+        "gil-filesystem-handoff-fdatasync-fence": {
+          "exit": 0,
+          "seconds": 13.096,
+          "log_sha256": "5aa8f36f28c747046413ba6487e359cb318aada7af1432fff774fbf32b9dc8bb"
+        },
+        "gil-filesystem-handoff-sync-deadline": {
+          "exit": 0,
+          "seconds": 11.931,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "gil-filesystem-handoff-sync-fence": {
+          "exit": 0,
+          "seconds": 8.935,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "gil-filesystem-handoff-output-deadline": {
+          "exit": 0,
+          "seconds": 12.784,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "gil-filesystem-handoff-output-fence": {
+          "exit": 0,
+          "seconds": 8.52,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "gil-proof-authority-sync-deadline": {
+          "exit": 0,
+          "seconds": 12.016,
+          "log_sha256": "e10b5a1b3b95a68fc1cb021fdf506fbe675b43e7139dbb6def5c483c87945cb2"
+        },
+        "gil-proof-authority-sync-fence": {
+          "exit": 0,
+          "seconds": 8.06,
+          "log_sha256": "c5e5391f821ebe4fc2b30c1a64077ccfd3a510ce6f278e5470fe5cc953e5de51"
+        },
+        "gil-proof-authority-output-deadline": {
+          "exit": 0,
+          "seconds": 13.162,
+          "log_sha256": "e10b5a1b3b95a68fc1cb021fdf506fbe675b43e7139dbb6def5c483c87945cb2"
+        },
+        "gil-proof-authority-output-fence": {
+          "exit": 0,
+          "seconds": 8.624,
+          "log_sha256": "c5e5391f821ebe4fc2b30c1a64077ccfd3a510ce6f278e5470fe5cc953e5de51"
+        },
+        "gil-proof-authority-failure": {
+          "exit": 0,
+          "seconds": 2.96,
+          "log_sha256": "c5c82fdb1422e63ac2122dacf6479c7203c6c9a87871656f603dc3a6b7de6689"
+        },
+        "gil-proof-authority-recovery": {
+          "exit": 0,
+          "seconds": 4.102,
+          "log_sha256": "7cbad5a5e97ea415ac6708b3fa8eb7e18fffac265c6f1cc04db747bb6a76b952"
+        },
+        "gil-filesystem-proof-failure-fence": {
+          "exit": 0,
+          "seconds": 10.513,
+          "log_sha256": "36974f62fb30c31a163bcf8ca61c04a99e3322ad9d74bb893570d42f79d4434e"
+        },
+        "gil-queue-lost-ack": {
+          "exit": 0,
+          "seconds": 21.838,
+          "log_sha256": "b77f82886b1cca344d810a8f96a0c7f6cdb39106b46170fd15d99248cc4a3daa"
+        }
+      },
+      "proof_reports": {
+        "gil-filesystem-handoff-fdatasync-deadline.json": {
+          "sha256": "b45d55172364dcd1f2a4acac0dec238da537436a4e16dd102dfa49f4e81d9859",
+          "barrier": "fdatasync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-fdatasync-fence.json": {
+          "sha256": "a9a46ee0a145ead509804b5a3c7c5607a8b95a6d2981dc4b1c6ba10980968962",
+          "barrier": "fdatasync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-fsync-deadline.json": {
+          "sha256": "2659380b8c22db132ae4fec4d4b9c4e28a65b264bb18a4857a2faab8e87f1774",
+          "barrier": "fsync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-fsync-fence.json": {
+          "sha256": "c9fc1d53ca211f8721598c1dbc298baac8ab5d02cf9d3ae44b74d20ed88c9ce7",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-output-deadline.json": {
+          "sha256": "de96fdd26249c2074f743868acd7d5356d7bd613263ab0240af7c635fc3bedb5",
+          "barrier": "output",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-output-fence.json": {
+          "sha256": "0e5e2c41bb19dccab3a7dda3b8b312dd4eb29f2461a35307ea37621094868cc9",
+          "barrier": "output",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-sync-deadline.json": {
+          "sha256": "4a8cb8d5f0ea1178672a0cf7234b95a66feacab711edfe8e76451a089622d26c",
+          "barrier": "sync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-handoff-sync-fence.json": {
+          "sha256": "c6a207bb0c4b2f9df104f83eacacd94fdc79dc0146ba5b709e745364ceb1a099",
+          "barrier": "sync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-proof-failure-fence.json": {
+          "sha256": "0a217fbaf593f3ab02c7e9d7351535deec80427d499c528862346422f37e4cfb",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": true,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "gil-filesystem-proof-fdatasync-deadline.json": {
+          "sha256": "87865c8c21e3254376f7b4bdb2001650e5f0b5e21881d72c0a1bff68cedfed5a",
+          "barrier": "fdatasync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "gil-filesystem-proof-fdatasync-fence.json": {
+          "sha256": "25dee753bbbe3546256f21ec7571cafe14af1194abd93500676abc7603657f84",
+          "barrier": "fdatasync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "gil-filesystem-proof-fsync-deadline.json": {
+          "sha256": "52f6488f98bacfa5674fba4cea86c60e5319d3ad26dee0d4094c1d20070d3e34",
+          "barrier": "fsync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "gil-filesystem-proof-fsync-fence.json": {
+          "sha256": "1098a2c7eb80a8af397883904a3f5a6a1fe72e11f3db1ae40d86c5644303752c",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "gil-filesystem-proof-output-deadline.json": {
+          "sha256": "8d614ea9e989f6a2d723b99df9a842467070f414d12813539b357d262ff27c50",
+          "barrier": "output",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "gil-filesystem-proof-output-fence.json": {
+          "sha256": "4c90a80c7c851de69bbce10ae906de20c4a53c2f52b29493a441dccb7cf13191",
+          "barrier": "output",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "gil-filesystem-proof-sync-deadline.json": {
+          "sha256": "b3c6e4fcef8143e20264837a4cc99db3da8d3c5ce030cc98afcc1f421cc1597c",
+          "barrier": "sync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "gil-filesystem-proof-sync-fence.json": {
+          "sha256": "1c32ae6b368d90cdbb89176c44ac1e16a68b6147e59712c23ccf3f3c0af18cf0",
+          "barrier": "sync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": true,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        }
+      },
+      "task_cancellation": {
+        "observations": 24,
+        "cases": [
+          {
+            "case": "write_all-before_second",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "write_all-before_first",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "write_all-after_second",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECgIGCg4SFhocLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "31c4e6edc53f9e2db3a0ef025b97ebcae419a01988642939a7a6949b9ab6b046",
+              "submitted": 2,
+              "version": "6"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "write_all-capabilities",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "read_exact-before_second",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "read_exact-before_first",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "read_exact-after_second",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 2,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "read_exact-capabilities",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "read-after_native",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "pread-after_native",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.pread",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "write-after_native",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          },
+          {
+            "case": "pwrite-after_native",
+            "status": 200,
+            "gil_enabled": true,
+            "free_threaded": false,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.pwrite",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": true,
+              "free_threaded": false
+            }
+          }
+        ]
+      }
+    },
+    "freethread": {
+      "executables": {
+        "library": {
+          "sha256": "f6fbca5d52fd4cfbe6e07ae9a69b4ad1af838639d876e8553799043988a794f5"
+        },
+        "filesystem": {
+          "sha256": "7a3bf57d6475a5f8c9a412ed46b7481d0c25fc021d966575b8bdbbdd6651bd02"
+        },
+        "bridge": {
+          "sha256": "7221d64d4130c59c3ab67dd28d8fc3b86ac18c720969f0ce49d092545bd0ec90"
+        }
+      },
+      "checks": {
+        "freethread-build": {
+          "exit": 0,
+          "seconds": 23.172,
+          "log_sha256": "507674b7e52d6f28aa922573c439412b754be7c0ec14b9b1c9983dfcc6e1aec7"
+        },
+        "freethread-linkage": {
+          "exit": 0,
+          "seconds": 0.026,
+          "log_sha256": "6682c367417a4c1542e443fa370ed892cc50d53ba2b2b985caa19209acd19dbe"
+        },
+        "freethread-library": {
+          "exit": 0,
+          "seconds": 0.089,
+          "log_sha256": "f4379088a46d69b0a24774feb8ea71749f3cb7ecd4230dc5d0d66b2cdbde9687"
+        },
+        "freethread-task-cancellation": {
+          "exit": 0,
+          "seconds": 3.997,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "freethread-normal": {
+          "exit": 0,
+          "seconds": 4.369,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "freethread-read-only": {
+          "exit": 0,
+          "seconds": 1.012,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "freethread-small-budget": {
+          "exit": 0,
+          "seconds": 0.867,
+          "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+        },
+        "freethread-filesystem-proof-fsync-deadline": {
+          "exit": 0,
+          "seconds": 16.504,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "freethread-filesystem-proof-fsync-fence": {
+          "exit": 0,
+          "seconds": 13.275,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "freethread-filesystem-proof-fdatasync-deadline": {
+          "exit": 0,
+          "seconds": 16.401,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "freethread-filesystem-proof-fdatasync-fence": {
+          "exit": 0,
+          "seconds": 13.206,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "freethread-filesystem-proof-sync-deadline": {
+          "exit": 0,
+          "seconds": 16.424,
+          "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+        },
+        "freethread-filesystem-proof-sync-fence": {
+          "exit": 0,
+          "seconds": 13.15,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "freethread-filesystem-proof-output-deadline": {
+          "exit": 0,
+          "seconds": 17.422,
+          "log_sha256": "dda939792cecd5ac46d372eb9645e6502fcd344b459eb7ff2203b447eebbf3ff"
+        },
+        "freethread-filesystem-proof-output-fence": {
+          "exit": 0,
+          "seconds": 13.21,
+          "log_sha256": "2eb907cb28db4eb7683af8d7530ea92c7e088e0d77d0aa02eec279a53ca81d04"
+        },
+        "freethread-filesystem-handoff-fsync-deadline": {
+          "exit": 0,
+          "seconds": 11.71,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "freethread-filesystem-handoff-fsync-fence": {
+          "exit": 0,
+          "seconds": 8.273,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "freethread-filesystem-handoff-fdatasync-deadline": {
+          "exit": 0,
+          "seconds": 11.665,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "freethread-filesystem-handoff-fdatasync-fence": {
+          "exit": 0,
+          "seconds": 8.302,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "freethread-filesystem-handoff-sync-deadline": {
+          "exit": 0,
+          "seconds": 11.661,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "freethread-filesystem-handoff-sync-fence": {
+          "exit": 0,
+          "seconds": 8.412,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "freethread-filesystem-handoff-output-deadline": {
+          "exit": 0,
+          "seconds": 11.683,
+          "log_sha256": "874c52c2a280cee30f8c9967dc982f019c3743337ed50c40893c774716f5b689"
+        },
+        "freethread-filesystem-handoff-output-fence": {
+          "exit": 0,
+          "seconds": 8.258,
+          "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+        },
+        "freethread-proof-authority-sync-deadline": {
+          "exit": 0,
+          "seconds": 10.903,
+          "log_sha256": "8afd02d7c87d9c10260ecfc33d7ed4879619530efc2c829fa2b85b33d171a5ea"
+        },
+        "freethread-proof-authority-sync-fence": {
+          "exit": 0,
+          "seconds": 7.604,
+          "log_sha256": "c5e5391f821ebe4fc2b30c1a64077ccfd3a510ce6f278e5470fe5cc953e5de51"
+        },
+        "freethread-proof-authority-output-deadline": {
+          "exit": 0,
+          "seconds": 10.962,
+          "log_sha256": "8afd02d7c87d9c10260ecfc33d7ed4879619530efc2c829fa2b85b33d171a5ea"
+        },
+        "freethread-proof-authority-output-fence": {
+          "exit": 0,
+          "seconds": 7.683,
+          "log_sha256": "c5e5391f821ebe4fc2b30c1a64077ccfd3a510ce6f278e5470fe5cc953e5de51"
+        },
+        "freethread-proof-authority-failure": {
+          "exit": 0,
+          "seconds": 3.974,
+          "log_sha256": "c5c82fdb1422e63ac2122dacf6479c7203c6c9a87871656f603dc3a6b7de6689"
+        },
+        "freethread-proof-authority-recovery": {
+          "exit": 0,
+          "seconds": 4.172,
+          "log_sha256": "7cbad5a5e97ea415ac6708b3fa8eb7e18fffac265c6f1cc04db747bb6a76b952"
+        },
+        "freethread-filesystem-proof-failure-fence": {
+          "exit": 0,
+          "seconds": 9.421,
+          "log_sha256": "36974f62fb30c31a163bcf8ca61c04a99e3322ad9d74bb893570d42f79d4434e"
+        },
+        "freethread-queue-lost-ack": {
+          "exit": 0,
+          "seconds": 21.872,
+          "log_sha256": "b77f82886b1cca344d810a8f96a0c7f6cdb39106b46170fd15d99248cc4a3daa"
+        }
+      },
+      "proof_reports": {
+        "freethread-filesystem-handoff-fdatasync-deadline.json": {
+          "sha256": "b5a9005748d105b5b966c431afe516203bdbc9cfb0eb1e927cbfd9fb8a52742e",
+          "barrier": "fdatasync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-fdatasync-fence.json": {
+          "sha256": "0a4c8699e63fe7f96cfeaae2551017cebabc62f1793c0646ce9a4e4e5544f017",
+          "barrier": "fdatasync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-fsync-deadline.json": {
+          "sha256": "4e975e23f49750cd6beafcbaea653f8fc8ef401ff815530a645053642c3872a7",
+          "barrier": "fsync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-fsync-fence.json": {
+          "sha256": "2a5ccf85c2f30242cb0ff63372a309e0e3fc664f70e615507c48ca12fce62267",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-output-deadline.json": {
+          "sha256": "f7a85e51ec0df16265f2c6e99b756dd520c4d89a840e2339f887aaaff0334061",
+          "barrier": "output",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-output-fence.json": {
+          "sha256": "f2ab4b62a710781d3bd9df7a0f8a9c7a71ea265307a792addc4b33df64fda7a3",
+          "barrier": "output",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-sync-deadline.json": {
+          "sha256": "1d22d37b4faece829134c2b702ccfa3ff2b8af87e13e8c5c2cf8d2dad2a78e30",
+          "barrier": "sync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "handoff": 3,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-handoff-sync-fence.json": {
+          "sha256": "7077b93139573ebb98398857107f814fe172984fb6eb916f6dc7df45cc7c4557",
+          "barrier": "sync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-proof-failure-fence.json": {
+          "sha256": "2942bd60b70389c070cb5ca1cd773a5fdca154239313614c705a520928b1bbca",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": true,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "handoff": 2,
+              "preserve": 3
+            }
+          }
+        },
+        "freethread-filesystem-proof-fdatasync-deadline.json": {
+          "sha256": "ff74a7a6aca2b78dc6146be5042cb2aba0e94e7a1d570b56d88f708ba5a94da0",
+          "barrier": "fdatasync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "freethread-filesystem-proof-fdatasync-fence.json": {
+          "sha256": "5be564a794e4ce67e1481545a5415140e52ee3385464f74883e7f8b56c893c03",
+          "barrier": "fdatasync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fdatasync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "freethread-filesystem-proof-fsync-deadline.json": {
+          "sha256": "792673b9ffa26da3a9b995ec615779bccfe8492cd9ab65ee79dd26bbb641e635",
+          "barrier": "fsync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "freethread-filesystem-proof-fsync-fence.json": {
+          "sha256": "584f2580aa9643765b6f52bb06cd2a816cbbbf666a6eae75eed632b2d275001c",
+          "barrier": "fsync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.fsync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "freethread-filesystem-proof-output-deadline.json": {
+          "sha256": "7b9e97c54ee484f2115911755ecdb0eaca98d5f11e2c72039278f8d5393d7d65",
+          "barrier": "output",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "freethread-filesystem-proof-output-fence.json": {
+          "sha256": "8b3c5d455c62cc9ce986f75ce9cb932bc72e348f48348ae295766f09b95be079",
+          "barrier": "output",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": null,
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        },
+        "freethread-filesystem-proof-sync-deadline.json": {
+          "sha256": "113058d63633563f5918bcfe7e9a4f18d8a6719aeb4b0e6ffa6ba99a31ec6273",
+          "barrier": "sync",
+          "termination": "handler_deadline",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 6,
+            "fences": [],
+            "stopped_modes": {
+              "preserve": 6
+            }
+          }
+        },
+        "freethread-filesystem-proof-sync-fence.json": {
+          "sha256": "f5861565b7dfc6cb0e390d48656fe4877facc80a23a1459c7ed6e0a0789a6986",
+          "barrier": "sync",
+          "termination": "node_lease_mismatch",
+          "transport_failure_before_fence": false,
+          "gil_enabled": false,
+          "barrier_failure": {
+            "code": "Cancelled",
+            "completed_bytes": 0,
+            "errno": null,
+            "operation": "filesystem.sync",
+            "outcome": "unknown",
+            "type": "CancelledError"
+          },
+          "joined_native_outcomes": 6,
+          "interpreter_and_bridge_settled": true,
+          "cleanup": {
+            "pending_tasks": 0,
+            "pending_objects": 0,
+            "pending_threads": 0,
+            "host_failed": false,
+            "runtime_failed": false,
+            "thread_errors": 0,
+            "unraisable_errors": 0,
+            "bridge": {
+              "native_invocations": 0,
+              "queued_bytes": 0,
+              "pending_reservations": 0,
+              "operations_settled": true
+            }
+          },
+          "native_outcomes": {
+            "total": 6,
+            "complete": 5,
+            "fences": [
+              {
+                "code": 3,
+                "complete": false,
+                "outcome": "fenced",
+                "reason": "NodeLeaseMismatch"
+              }
+            ],
+            "stopped_modes": {
+              "preserve": 5
+            }
+          }
+        }
+      },
+      "task_cancellation": {
+        "observations": 24,
+        "cases": [
+          {
+            "case": "write_all-before_second",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "write_all-before_first",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "write_all-after_second",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECgIGCg4SFhocLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "31c4e6edc53f9e2db3a0ef025b97ebcae419a01988642939a7a6949b9ab6b046",
+              "submitted": 2,
+              "version": "6"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "write_all-capabilities",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write_all",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "read_exact-before_second",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "read_exact-before_first",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "read_exact-after_second",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 4,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 2,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "read_exact-capabilities",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read_exact",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 0,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "read-after_native",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.read",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "pread-after_native",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.pread",
+              "outcome": "unknown",
+              "sha256": "630dcd2966c4336691125448bbb25b4ff412a49c732db2c8abc1b8581bd710dd",
+              "submitted": 1,
+              "version": "4"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "write-after_native",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.write",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          },
+          {
+            "case": "pwrite-after_native",
+            "status": 200,
+            "gil_enabled": false,
+            "free_threaded": true,
+            "receipt": {
+              "bytes": "AAECgIGCgwcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+              "code": "Cancelled",
+              "completed_bytes": 0,
+              "inode": "2",
+              "operation": "filesystem.pwrite",
+              "outcome": "unknown",
+              "sha256": "2fc2b37f13128761046f36f2692ed43413b162301c64f0eb05b4edbfbd8cb458",
+              "submitted": 1,
+              "version": "5"
+            },
+            "local_reopen": {
+              "status": 200,
+              "same_receipt": true,
+              "gil_enabled": false,
+              "free_threaded": true
+            }
+          }
+        ]
+      }
+    }
+  },
+  "limits": [
+    "Coroutine suspension is at the Python SDK boundary; no physical transport loss is injected in task-cancellation cases.",
+    "Reopened task-cancellation state uses the same local storage; proof cases separately verify empty-directory successor recovery.",
+    "No external store, physical network/disk failure, Linux CI or capacity/latency qualification is established.",
+    "Cancellation before coroutine startup cannot execute SDK annotation code."
+  ],
+  "repository_checks": {
+    "python_all_target_clippy": {
+      "exit": 0,
+      "log_sha256": "f9a70dbfcd94481c33c0336a698a383b4034822315d43146cfce75c3a2121d76"
+    },
+    "formatting": {
+      "rust_files": 1385,
+      "exit": 0
+    },
+    "module_layout": {
+      "rust_files": 1385,
+      "exit": 0
+    },
+    "native_dependency_graph": {
+      "packages": 482,
+      "javascript_engine": false,
+      "exit": 0
+    },
+    "documentation": {
+      "local_references": 845,
+      "exit": 0
+    },
+    "workflow_yaml": {
+      "parsed": true,
+      "cancellation_mode_registered": true,
+      "artifact_upload_registered": true
+    }
+  }
+}

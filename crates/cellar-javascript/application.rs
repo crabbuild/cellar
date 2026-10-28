@@ -78,6 +78,7 @@ pub struct Source {
     pub(crate) code: String,
     pub(crate) filename: String,
     pub(crate) classes: Vec<String>,
+    pub(crate) filesystems: std::collections::BTreeMap<String, cellar::sdk::filesystem::Policy>,
     pub(crate) events: Vec<EventKind>,
     pub(crate) cell_events: std::collections::BTreeMap<String, Vec<EventKind>>,
     pub(crate) rpc: Catalog,
@@ -101,6 +102,7 @@ impl Source {
             code: code.into(),
             filename: filename.into(),
             classes: Vec::new(),
+            filesystems: Default::default(),
             events: Vec::new(),
             cell_events: Default::default(),
             rpc: Catalog::new(),
@@ -109,6 +111,25 @@ impl Source {
 
     /// Register a cell class with a fetch handler. Use [`Self::cell_events`]
     /// when the class also handles alarms or other supported events.
+    /// Enable explicit cell filesystem access for an already registered class.
+    pub fn filesystem(
+        mut self,
+        class: &str,
+        policy: cellar::sdk::filesystem::Policy,
+    ) -> Result<Self> {
+        policy.validate()?;
+        ensure!(
+            self.classes.iter().any(|name| name == class),
+            "filesystem class must be registered first"
+        );
+        ensure!(
+            !self.filesystems.contains_key(class),
+            "duplicate filesystem capability"
+        );
+        self.filesystems.insert(class.into(), policy);
+        Ok(self)
+    }
+
     pub fn cell(mut self, name: impl Into<String>) -> Self {
         self = self.cell_events(name, [EventKind::Fetch]);
         self
@@ -778,6 +799,7 @@ impl JavaScriptApplication {
                                                         cellar_guest::failure::Validation
                                                     );
                                                     let limits = cellar_guest::Limits {
+                                                        max_value_bytes: options.max_value_bytes,
                                                         max_body_bytes: options.max_body_bytes,
                                                         max_batch_operations: options
                                                             .max_batch_operations,
@@ -839,6 +861,8 @@ impl JavaScriptApplication {
                                                         &operation_name,
                                                         payload,
                                                         &cellar_guest::Limits {
+                                                            max_value_bytes: options
+                                                                .max_value_bytes,
                                                             max_body_bytes: options.max_body_bytes,
                                                             max_batch_operations: options
                                                                 .max_batch_operations,
@@ -1011,6 +1035,7 @@ impl Application for JavaScriptApplication {
                     Invocation::Alarm { scheduled_ms: 0 },
                     None,
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: Some(event),
                         scheduled: None,
@@ -1032,6 +1057,7 @@ impl Application for JavaScriptApplication {
                 invocation,
                 None,
                 State {
+                    filesystem: Default::default(),
                     transport: Default::default(),
                     queue: None,
                     scheduled,
@@ -1040,6 +1066,10 @@ impl Application for JavaScriptApplication {
             )
             .await
         })
+    }
+
+    fn filesystem_policy(&self, class: &str) -> Option<cellar::sdk::filesystem::Policy> {
+        self.source.filesystems.get(class).copied()
     }
 
     fn supports_cell(&self, class: &str) -> bool {
@@ -1087,6 +1117,7 @@ impl Cell for JavaScriptCell {
                     event,
                     Some((self.object, self.class.clone(), self.life.clone())),
                     State {
+                        filesystem: Default::default(),
                         transport: Default::default(),
                         queue: None,
                         scheduled: None,

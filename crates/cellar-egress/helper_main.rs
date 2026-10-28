@@ -8,6 +8,7 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let mut session = None;
     let mut internet = false;
+    let mut https = false;
     let mut upstream = None;
     let mut http_port = 39189;
     let mut dns_port = 39190;
@@ -30,6 +31,7 @@ fn main() -> anyhow::Result<()> {
                 session = Some(bytes);
             }
             "--internet" => internet = value.parse().context("invalid helper internet option")?,
+            "--https" => https = value.parse().context("invalid helper HTTPS option")?,
             "--dns" => upstream = Some(value.parse().context("invalid helper DNS upstream")?),
             "--http-port" => http_port = value.parse().context("invalid helper HTTP port")?,
             "--dns-port" => dns_port = value.parse().context("invalid helper DNS port")?,
@@ -49,6 +51,7 @@ fn main() -> anyhow::Result<()> {
     let config = Config {
         session: session.context("missing helper session")?,
         internet,
+        https,
         upstream: upstream.context("missing helper DNS upstream")?,
         http_port,
         dns_port,

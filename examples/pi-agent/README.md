@@ -173,7 +173,8 @@ agent from the persisted prompt on each attempt. Completed model responses are
 replayed by step, with a hash of the model and semantic input transcript checked
 before reuse. Pi-generated message timestamps and execution durations are excluded from this check.
 Tool calls use stable IDs and argument fingerprints. `increment` updates the
-counter and its receipt in the same checked Cellar transaction. The durability
+counter and its receipt in the same checked Cellar transaction. File tools add
+their checks/effects to that same journal transaction. The durability
 barrier completes before Pi receives the result. A lost reply is resolved by
 reading the journal, including when the write's outcome was unknown.
 
@@ -184,10 +185,34 @@ alarm delivery. Exhaustion records `failed` and removes the alarm. Diagnostics
 from provider exceptions are not exposed through the task API. A failed task's
 journal remains available in its cell; the example has no admin reset operation.
 
+Checkpoint admission also checks the complete request and future storage reads
+against the configured bridge value budget. A pending journal leaves room for
+a checked terminal update. Smaller bridge budgets can reject a checkpoint below
+512 KiB before any file effects are submitted; earlier decisions and receipts
+remain available for replay or inspection.
+
 A configuration fingerprint binds unfinished runs to the pinned Pi version,
 model, system prompt and tool contract. A changed configuration refuses to run
 the old task. Recover using the original release; there is no transcript
 migration protocol in this example.
+
+### Cell filesystem tools
+
+`readFile`, `listFiles`, `searchFiles`, `writeFile`, `editFile`, `renameFile` and
+`deleteFile` use the explicit `ctx.fs` primitive. Files belong to this task cell;
+other task IDs have independent workspaces. The [session example](../filesystem-agent/README.md)
+demonstrates follow-up turns sharing one workspace. No mounted path or process
+runner is required.
+
+The shared SDK helper captures bounded read results and checked effects; this
+adapter commits those with its existing journal receipt. Replays return saved
+bytes. Edits require an exact inode/version. Proven refusals are recorded Pi tool
+errors; unknown commits stop the attempt for later receipt reconciliation.
+Reads/writes cap payloads at 32 KiB, write/edit schemas cap text at 8192 characters,
+directory pages cap entries at 128, and search caps traversal at 16 files,
+16 directories and 128 KiB of file prefixes. The 16-receipt/512 KiB journal caps
+also apply. Tool schemas and the file-tool contract revision participate in the
+run configuration fingerprint.
 
 ## What the qualification proves
 
@@ -212,11 +237,16 @@ wait for continuation before sending any task HTTP request. They check one count
 final transcript, task isolation, idempotent submission and graceful shutdown.
 The `test/crash-fixture.mjs` entry owns fault controls; the production `app.ts`
 entry contains none. CI runs these tests in the JavaScript/Node workflow.
+Two additional offline cases interrupt after a file/receipt commit and after an
+edit. They erase the old node's local data, recover with a fresh node identity,
+and verify unchanged write versions, saved read replay after the edit, a
+stale-version refusal, rename/delete, nine receipts, five provider decisions,
+idempotent submission and graceful shutdown.
 
 ## Scope and extension points
 
 This is a durable, bounded tool agent example, not a coding-agent sandbox or a
-general workflow engine. It has one task per cell and one atomic local tool.
+general workflow engine. It has one task per cell and bounded local tools.
 Complete model responses are checkpointed before being handed to Pi; the local
 demo streams provisional text separately as described above. Long-running
 conversations, approvals, cancellation endpoints,
@@ -226,7 +256,7 @@ exposing the example to other users.
 
 An interrupted model call can be repeated if its response was not checkpointed,
 potentially incurring another charge. The counter's single-effect guarantee
-does not extend to arbitrary HTTP, shell, filesystem or third-party tool effects.
+does not extend to arbitrary HTTP, shell, ambient Node filesystem or third-party tool effects.
 An external tool needs a durable operation ID plus downstream idempotency or
 reconciliation. Do not wrap a non-idempotent tool with “execute, then save” and
 claim crash-safe execution. Native Node code retains its ordinary OS authority.

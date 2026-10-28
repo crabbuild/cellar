@@ -13,6 +13,7 @@ publish = false
 [dev-dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
+axum.workspace = true
 cellar.workspace = true
 cellar-logic.workspace = true
 cellar-ltx.workspace = true
@@ -28,6 +29,13 @@ rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+subtle.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber.workspace = true
+url.workspace = true
+
+[[test]]
+name = "native_raft_daemon"
+path = "../../crates/cellar/tests/native_raft_daemon.rs"
+harness = false
