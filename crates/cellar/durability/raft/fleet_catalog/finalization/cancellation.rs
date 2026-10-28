@@ -244,6 +244,11 @@ impl FleetCatalog {
                                     .map_err(|_| FleetCatalogError::Invalid("operation"))?,
                             )
                             .await?;
+                        if active.failure_boot().is_some() {
+                            return Err(FleetCatalogError::Invalid(
+                                "failure isolation cannot be cancelled",
+                            ));
+                        }
                         if active.admission().node() != request.node {
                             return Err(FleetCatalogError::PayloadConflict);
                         }

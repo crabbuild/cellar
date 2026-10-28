@@ -18,11 +18,13 @@ pub use completion::{
 };
 pub(crate) use execution::MovementServiceWork;
 pub use execution::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetIsolatedRepairServiceStatus,
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
-    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
+    FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetNodeFailureStatus, FleetNodeHealth,
+    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
+    FleetTopologyServiceStatus,
 };
 pub use execution::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
@@ -43,6 +45,7 @@ pub(super) enum Authority {
     Admission,
     Completion,
     Isolation,
+    FailureAdmission,
     Topology,
     TopologyAdmission,
     RestartSettlement,

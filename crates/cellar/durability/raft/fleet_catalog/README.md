@@ -1456,8 +1456,52 @@ refuses publication. Timestamps and counters remain local and ephemeral.
 
 This mode writes no failure, evacuation or isolation record and selects no new
 replacement. It is the observation boundary for automatic recovery. A production
-isolation adapter and durable handoff into the repair service remain required;
-neither a timeout nor an Unavailable classification can evict a voter.
+isolation adapter remains required. The separate recovery mode below supplies
+the durable handoff; neither a timeout nor Unavailable can evict a voter.
+
+## Automatic failure admission and isolation handoff
+
+`start_failure_recovery_service(observer, movement_evidence, repair_evidence,
+platform, options, detection)` uses the same exclusive Node-owned worker and
+existing probe bounds. It is explicitly enabled and default-off. Installing
+`FleetFailureRecoveryPlatform` authorizes permanent isolation of a failed boot;
+operators must select and authenticate that deployment integration.
+
+The worker first advances due admitted movements. During their retry/backoff
+windows it collects direct failure observations and complete namespace handles,
+even when the movement book is full. Isolation adds no movement debt; subsequent
+repair admission independently enforces the durable resource limits. A fresh
+Unavailable observation may admit one exact-boot failure evacuation. The Root
+CAS checks the same current inventory and observation expiry, excludes the node
+and claims the sole disruption slot. Its purpose is distinct from operator
+requested evacuation and maintenance. The next round recovers the committed
+operation and exact boot before calling the platform, including after service
+restart on another enrolled node. Uncommitted requests grant no effect authority.
+
+The platform must reconcile `isolate(context, timeout)` by operation and exact
+boot, return stable evidence, stop the process and every worker, and prevent
+restart. It must retain the container/volume/engine and never follow a mutable
+node name to a replacement. Cancellation drops the owned future but cannot undo
+an external action. Consequently the failure intent cannot be cancelled and
+fences boot replacement even before isolation confirmation. Terminal node removal
+is the only slot-release path. A missing or wrong-boot result retains the intent
+and charges; it cannot start replica replacement.
+
+A correct platform attestation is rooted using the ordinary permanent quarantine
+API. Lost replies are reconciled from Root. The same worker then invokes the
+existing isolated-repair planner and executor, preserving survivor quorum,
+resource limits and minority-group blocking. It never adopts a manual evacuation
+or a maintenance operation. `failure_recovery` status distinguishes
+IsolationPending from Repairing; neither is a terminal removal certificate.
+Observation timestamps remain local and are never restored as durable health.
+
+This provides the SDK handoff, not a production Docker/Colima isolation driver.
+Terminal removal automation, simultaneous-failure policy, management integration
+and deployed fleet qualification remain required. Probe fairness under sustained
+due work or repeatedly expired turns still needs qualification; the grace is not
+a recovery-time guarantee. The changed evacuation record
+uses the experimental `/failure-recovery-1` protocol cutover; numeric format
+markers remain 1. Deploy matching binaries on fresh experimental catalog data.
 
 ## Owned repair after trusted node isolation
 
@@ -1527,6 +1571,6 @@ last blocked history/failure and cursor exhaustion. These are local diagnostics.
 Exhaustion does not certify current health, complete evacuation, terminal node
 removal or storage release. This mode handles one explicitly rooted isolated
 node operation. The exact-boot monitor above supplies failure classifications;
-automatic isolation/admission handoff, a production isolation provider,
-simultaneous-isolation policy, lifecycle CLI
+the automatic SDK handoff above composes it with failure admission. A production
+isolation provider, simultaneous-isolation policy, lifecycle CLI
 integration and deployed scale/performance qualification remain open.

@@ -206,8 +206,31 @@ requires repeated fresh direct-connect failures; uncertain observations reset it
 Treat Healthy as connectivity only and Unavailable as a recovery-policy input.
 Neither authorizes a replacement. Metadata errors, stale samples, changed boots
 and stopped monitors produce Unknown. Stop and join this monitor before starting
-the explicit isolated-repair mode on the same node. The durable automatic handoff
-and production platform-isolation adapter remain unfinished.
+the explicit isolated-repair or automatic recovery mode on the same node. A
+production platform-isolation adapter remains required.
+
+## Automatic failure-recovery SDK workflow
+
+Start `start_failure_recovery_service` on a surviving enrolled node with ordinary
+movement and repair evidence plus a trusted `FleetFailureRecoveryPlatform`.
+Its namespace callback supplies complete handles; its isolation callback receives
+the rooted operation and exact boot. Installing this adapter authorizes permanent
+isolation after repeated fresh failures cross grace. The adapter must establish
+physical shutdown of all workers and prevent restart; disappearance or timeout
+alone is insufficient. Preserve volumes and engine identity.
+
+The service owns detection, exclusion admission, isolation reconciliation and
+quorum-based repair. Restarting it on another enrolled node resumes the same
+rooted intent. A timeout or service stop leaves that intent in place because the
+platform action may already have happened. Failure intents cannot be cancelled
+or rebound to another boot; complete verified terminal removal to release the
+slot. Read `failure_recovery` and `isolated_repair` status for progress, and use
+fresh membership/archive proof for completion. Manual evacuation and maintenance
+operations remain owned by their existing workflows.
+
+The native integration uses joined hosts and fixture isolation evidence. A
+production Docker/Colima driver, automatic terminal removal and deployed fault
+qualification remain open. This SDK path remains default-off.
 
 ## Delivered isolated-node repair SDK workflow
 

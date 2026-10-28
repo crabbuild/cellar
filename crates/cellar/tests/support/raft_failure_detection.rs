@@ -3,7 +3,7 @@
 //! Real TLS connectivity, joined failed boot, unchanged catalog authority.
 use super::*;
 
-async fn wait_for(
+pub(super) async fn wait_for(
     f: &RepairFleet,
     service: &FleetMovementService,
     ready: impl Fn(&FleetMovementServiceStatus) -> bool,

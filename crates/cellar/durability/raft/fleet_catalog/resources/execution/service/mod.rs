@@ -5,6 +5,7 @@
 //! release a reservation or establish convergence.
 mod detection;
 mod isolated;
+mod recovery;
 mod schedule;
 mod topology;
 mod worker;
@@ -12,6 +13,10 @@ use super::*;
 pub use detection::{
     FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetNodeFailureStatus,
     FleetNodeHealth,
+};
+pub use recovery::{
+    FleetFailureRecoveryContext, FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform,
+    FleetFailureRecoveryStatus,
 };
 use std::pin::Pin;
 use tokio::sync::watch;
@@ -162,6 +167,7 @@ pub struct FleetIsolatedRepairServiceStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FleetMovementServiceStatus {
     pub failure_detection: Option<FleetFailureDetectionStatus>,
+    pub failure_recovery: Option<FleetFailureRecoveryStatus>,
     pub isolated_repair: Option<FleetIsolatedRepairServiceStatus>,
     pub running: bool,
     pub poll_rounds: u64,
@@ -230,6 +236,11 @@ enum ServiceMode {
         Arc<dyn FleetIsolatedRepairEvidence>,
     ),
     Detection(FleetFailureDetectionOptions),
+    Recovery(
+        Arc<dyn FleetFailureRecoveryPlatform>,
+        Arc<dyn FleetIsolatedRepairEvidence>,
+        FleetFailureDetectionOptions,
+    ),
 }
 
 impl FleetCatalog {
@@ -337,6 +348,32 @@ impl FleetCatalog {
         .await
     }
 
+    /// Detect failed enrolled boots, durably exclude one, reconcile trusted
+    /// platform isolation, then repair histories that retain Raft quorum.
+    /// Default off. Starting explicitly authorizes permanent boot isolation;
+    /// the platform adapter must pin exact deployment identity and retain data.
+    /// Takes the same single node-owned worker slot as the other service modes.
+    /// Resumes only failure-recovery intents, never operator maintenance.
+    /// Terminal node removal and capacity provisioning remain separate.
+    pub async fn start_failure_recovery_service(
+        &self,
+        observer: RaftCells,
+        movement_evidence: Arc<dyn FleetMovementEvidence>,
+        repair_evidence: Arc<dyn FleetIsolatedRepairEvidence>,
+        platform: Arc<dyn FleetFailureRecoveryPlatform>,
+        options: FleetMovementServiceOptions,
+        detection: FleetFailureDetectionOptions,
+    ) -> Result<FleetMovementService> {
+        detection.validate()?;
+        self.start_fleet_service(
+            observer,
+            movement_evidence,
+            ServiceMode::Recovery(platform, repair_evidence, detection),
+            options,
+        )
+        .await
+    }
+
     async fn start_fleet_service(
         &self,
         observer: RaftCells,
@@ -380,6 +417,9 @@ impl FleetCatalog {
                 work.set_isolated_repair(Some((operation, evidence)))
             }
             ServiceMode::Detection(options) => work.set_detection(Some(options)),
+            ServiceMode::Recovery(platform, repair, options) => {
+                work.set_recovery(platform, repair, options)
+            }
         }
         observer.start_movement_worker(work, timeout).await?;
         Ok(service)

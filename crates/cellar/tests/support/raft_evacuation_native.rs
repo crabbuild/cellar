@@ -207,12 +207,15 @@ async fn fleet_evacuation_inventory_admission() -> Result<()> {
         enrollment.state == FleetNodeState::Draining && enrollment.epoch == view.enrollment_epoch()
     );
     ensure!(enrollment.epoch == before.current_enrollment.unwrap().epoch + 1);
-    ensure!(matches!(
-        s.spare
-            .register_managed_history(s.authorization.clone(), TIMEOUT)
-            .await,
-        Err(CommandFailure::Unavailable)
-    ));
+    let retry = s
+        .spare
+        .register_managed_history(s.authorization.clone(), TIMEOUT)
+        .await;
+    ensure!(
+        matches!(retry, Err(CommandFailure::Unavailable)),
+        "excluded registration outcome: {:?}",
+        retry.err()
+    );
     let (plan, permit) = reserve(
         &s.f,
         &s.cells[p],
@@ -227,9 +230,12 @@ async fn fleet_evacuation_inventory_admission() -> Result<()> {
         },
     )
     .await?;
+    // A raw permit has no resource-backed destination boot. It cannot
+    // establish continuation authority after exclusion; this is an explicit
+    // authorization conflict, not a transient unavailable placement.
     ensure!(matches!(
         s.cells[p].begin_managed_repair(permit, plan, TIMEOUT).await,
-        Err(CommandFailure::Unavailable)
+        Err(CommandFailure::CommandConflict)
     ));
     ensure!(target.inspect().await?.occupancy == ReplicaOccupancy::Standby);
     let proof = s.cells[p]

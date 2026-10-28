@@ -163,6 +163,10 @@
       "sha256": "7996368004f4d84f52a5f505881fcc2b44db44cfc35932ceb19df365ce6343d4"
     },
     {
+      "path": "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
+      "sha256": "935bbaed6f78d07f726b13a0f04d76bbab69152296765f9a44ff46006be9d9e0"
+    },
+    {
       "path": "crates/cellar/durability/raft/host.rs",
       "sha256": "e6603a8404ebdfbc677cab99faf7fa35db3cff823e01fea2281e08a064ea1fc6"
     },

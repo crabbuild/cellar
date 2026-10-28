@@ -420,35 +420,90 @@ async fn fleet_evacuation_candidate_fixed_cut_under_writes() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
     use super::super::retirement::{step, stopped};
+    use crate::hosts::capacity_tests::attestation;
     let mut s = Box::pin(Started::new()).await?;
-    write_read(&s.f, &s.cells, 1, 7, 7).await?;
+    write_read(&s.f, &s.cells, 1, 7, 7)
+        .await
+        .context("write before replacement")?;
     let p = primary(&s.f, &s.cells).await?;
     let obsolete = (p + 1) % 3;
-    s.f.state(NodeId::new([7; 16])?, FleetNodeState::Active, 190)
+    let (namespace, _) = initial_birth(&s.f).await?;
+    let evidence = attestation(&s.f, &s.nodes[p].host, &s.observer).await?;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .admit_node_capacity(
+            &cut,
+            &FleetCapacityRequest {
+                identity: Fixture::request(190, cut.revision()),
+                attestation: evidence,
+                action: FleetCapacityAction::Activate,
+            },
+            &s.nodes[p].host,
+            std::slice::from_ref(&namespace),
+            TIMEOUT,
+        )
         .await?;
     refresh_trust(&s).await?;
+    let source = &s.cells[p];
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    let local = s.observer.observe_node(TIMEOUT).await?;
+    let occupancy = FleetResourceAttestation {
+        boot: local.fleet_boot.context("replacement boot")?,
+        profile_revision: 1,
+        used: FleetResourceBounds {
+            engine_slots: 0,
+            durable_bytes: 1024 * 1024,
+            memory_bytes: 64 * 1024 * 1024,
+        },
+        evidence_digest: [71; 32],
+        evidence_reference: "fixture/retained-occupancy".into(),
+    };
+    let movement = FleetMovementRequest {
+        resources: FleetResourceRequest {
+            identity: Fixture::request(210, cut.revision()),
+            group: s.proposal.scope.clone(),
+            attestation: occupancy.clone(),
+            peak: FleetResourceBounds {
+                engine_slots: 1,
+                durable_bytes: local.node.profile.bytes_per_group,
+                memory_bytes: 8 * 1024 * 1024,
+            },
+        },
+        source: s.nodes[p].spec.node,
+        plan: RepairPlan {
+            id: ProposalId::new([212; 16])?,
+            policy_revision: 1,
+            expected_revision: source.status().await?.membership_revision,
+            obsolete: MemberId::new(obsolete as u64 + 1)?,
+            replacement: JoiningMember {
+                member: MemberId::new(4)?,
+                node: NodeId::new([7; 16])?,
+                disk: s.f.peer_spec(7)?.disk,
+            },
+        },
+    };
+    let admitted =
+        s.f.catalog
+            .reserve_movement(
+                &cut,
+                &movement,
+                &s.observer,
+                std::slice::from_ref(&namespace),
+                TIMEOUT,
+            )
+            .await
+            .context("reserve replacement")?;
+    let permit = admitted.authorization();
     let target = s
         .observer
         .register_managed_history(s.authorization.clone(), TIMEOUT)
-        .await?;
-    let source = &s.cells[p];
-    let (plan, permit) = reserve(
-        &s.f,
-        source,
-        &s.proposal.scope,
-        1,
-        210,
-        MemberId::new(obsolete as u64 + 1)?,
-        JoiningMember {
-            member: MemberId::new(4)?,
-            node: NodeId::new([7; 16])?,
-            disk: s.f.peer_spec(7)?.disk,
-        },
-    )
-    .await?;
+        .await
+        .context("register replacement")?;
+    refresh_trust(&s).await?;
     source
-        .begin_managed_repair(permit.clone(), plan, TIMEOUT)
-        .await?;
+        .begin_managed_repair(permit.clone(), movement.plan.clone(), TIMEOUT)
+        .await
+        .context("begin replacement")?;
     target
         .activate_managed_learner(
             permit.clone(),
@@ -460,7 +515,8 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
                 timeout: TIMEOUT,
             },
         )
-        .await?;
+        .await
+        .context("activate replacement learner")?;
     ensure!(
         step(&s.f, source, &permit, RepairStep::PromoteAndRemove)
             .await?
@@ -473,7 +529,47 @@ async fn fleet_evacuation_candidate_after_voter_replacement() -> Result<()> {
             .phase
             == RepairPhase::Complete
     );
-    let (namespace, _) = initial_birth(&s.f).await?;
+    // The resource-backed move must settle against actual physical retirement
+    // before evacuation can certify that no admitted work remains.
+    s.f.domain
+        .run(cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                let cut = s.f.catalog.read(TIMEOUT).await?;
+                let mut complete = true;
+                for node in &s.nodes {
+                    let observed = node
+                        .host
+                        .inspect_peer_physical_inventory(node.spec.node, cut.revision(), TIMEOUT)
+                        .await?;
+                    complete &= observed.view.seed_workers == 0
+                        && observed
+                            .inventory
+                            .as_ref()
+                            .context("physical inventory")?
+                            .history(&s.proposal.scope)?
+                            .is_some_and(|h| h.completed_sequence() == 1);
+                }
+                if complete {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                cellar::asyncrt::sleep(Duration::from_millis(10)).await;
+            }
+        }))
+        .await???;
+    let cut = s.f.catalog.read(TIMEOUT).await?;
+    s.f.catalog
+        .complete_movement(
+            &cut,
+            &FleetMovementCompletionRequest {
+                identity: Fixture::request(213, cut.revision()),
+                reservation: movement.resources.identity.id,
+                attestation: occupancy,
+            },
+            &s.observer,
+            TIMEOUT,
+        )
+        .await
+        .context("settle replacement")?;
     let root = s.f.catalog.read(TIMEOUT).await?;
     let identity = FleetRequestIdentity {
         id: [200; 16],

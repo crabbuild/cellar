@@ -3222,7 +3222,10 @@
         "crates/cellar/durability/raft/transport.rs",
         "crates/cellar/tests/support/raft_movement_native.rs",
         "crates/cellar/durability/raft/transport_inspection_tests.rs",
-        "crates/cellar-logic/raft_fleet/mod.rs"
+        "crates/cellar-logic/raft_fleet/mod.rs",
+        "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
+        "crates/cellar/durability/raft/host_registration.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_reconciliation.rs",
@@ -3249,7 +3252,10 @@
         "crates/cellar-logic/raft_fleet/health_tests.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/detection.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/detection_tests.rs",
-        "crates/cellar/tests/support/raft_failure_detection.rs"
+        "crates/cellar/tests/support/raft_failure_detection.rs",
+        "crates/cellar/durability/raft/fleet_catalog/failure_recovery.rs",
+        "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/recovery.rs",
+        "crates/cellar/tests/support/raft_failure_recovery.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -3265,7 +3271,8 @@
         "Deliver explicit active-collection pacing independently of movement/idle/error backoff, preserving existing startup API cadence. Bound slices by history count and a soft between-proof quantum while retaining original proof deadlines, exact root checks and owned cancellation. Distinguish intrinsic retained-memory Limit from temporary Overloaded. Qualify first-collection latency under native quorum writes before large-fleet deployment claims; full post-move recollection and 500-history resource/performance gates remain open.",
         "Drive one rooted isolated-node evacuation with an owned immutable candidate cursor, independent-group progress and uncertain-admission fencing; diagnostic exhaustion grants no terminal lifecycle authority.",
         "Use admitted-work retry windows for bounded independent required repair; retain every old debit, preserve due-effect priority and enforce global/local slot bounds across competing controllers and recreation.",
-        "Deliver explicit Node-owned exact-boot connectivity classification with four authenticated probes per available round, a 500-ms per-probe ceiling and at least five seconds of repeated fresh direct-connect failures before Unavailable. Unknown outcomes, stale samples, changed boots and catalog errors reset failure history; status ages while the worker is delayed or stopped. Existing admitted movements retain priority and cancellation joins the monitor. This observes failures only; durable automatic evacuation/isolation/repair handoff and a production isolation provider remain unfinished."
+        "Deliver explicit Node-owned exact-boot connectivity classification with four authenticated probes per available round, a 500-ms per-probe ceiling and at least five seconds of repeated fresh direct-connect failures before Unavailable. Unknown outcomes, stale samples, changed boots and catalog errors reset failure history; status ages while the worker is delayed or stopped. Existing admitted movements retain priority and cancellation joins the monitor. This mode observes failures only; the separate recovery mode owns durable admission and platform handoff.",
+        "Compose exact-boot detection with a distinct rooted failure evacuation, trusted idempotent platform isolation and the existing quorum-preserving repair executor in one Node-owned service. Admit exclusion only with complete inventory and fresh observations; recover the exact operation before external effects. Preserve intent across controller loss and unknown responses, refuse wrong-boot evidence, operator-operation adoption, cancellation and reboot while isolation may be outstanding. Production isolation adapters, automatic terminal removal and deployed qualification remain required."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -3785,6 +3792,49 @@
             "F07",
             "F08"
           ]
+        },
+        {
+          "name": "fleet_failure_recovery_resumes_isolation_after_controller_loss_and_repairs_rf3",
+          "oracle": "The exact failure intent precedes the platform callback, survives cancellation/join and controller recreation, refuses cancellation, generic intent forgery, reboot and wrong-boot evidence, reconciles lost external/root replies, restores three real RF3 histories and verifies SQL after repair while retaining the old engine.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F03",
+            "F04",
+            "F05",
+            "F08",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_failure_recovery_never_adopts_operator_evacuation",
+          "oracle": "Recovery refuses an operator evacuation, calls no platform effect and leaves Root unchanged.",
+          "invariants": [
+            "F02",
+            "F04",
+            "F07"
+          ]
+        },
+        {
+          "name": "fleet_failure_recovery_incomplete_inventory_cannot_admit_or_isolate",
+          "oracle": "After actual failure detection the namespace callback is reached, but incomplete coverage rejects admission with unchanged Root, no isolation effect and no repair callback.",
+          "invariants": [
+            "F05",
+            "F07",
+            "F10"
+          ]
+        },
+        {
+          "name": "fleet_failure_recovery_full_movement_book_still_isolates_without_extra_debt",
+          "oracle": "Two real stalled reservations fill the movement book. Detection still admits exact-boot exclusion and trusted isolation without new repair evidence, changed plans or extra resource debt. Controller recreation settles both original moves and verifies RF3 SQL continuity.",
+          "invariants": [
+            "F01",
+            "F02",
+            "F04",
+            "F06",
+            "F08",
+            "F10"
+          ]
         }
       ],
       "verification": [
@@ -3889,6 +3939,18 @@
           "fleet_failure_detection_",
           "--",
           "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "--locked",
+          "-p",
+          "cellar",
+          "--test",
+          "native_raft_fleet_enrollment",
+          "fleet_failure_recovery_",
+          "--",
+          "--test-threads=1"
         ]
       ],
       "evidence": [
@@ -3944,13 +4006,13 @@
         "crates/cellar/durability/raft/fleet_catalog/nodes.rs",
         "crates/cellar/durability/raft/archive/representation.rs",
         "crates/cellar/durability/raft/host_sql/images.rs",
-        "crates/cellar/durability/raft/fleet_stop_transport.rs"
+        "crates/cellar/durability/raft/fleet_stop_transport.rs",
+        "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/fleet_operation.rs",
         "crates/cellar/tests/native_raft_fleet_maintenance.rs",
         "crates/cellar/tests/support/raft_isolated_removal.rs",
-        "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
         "crates/cellar/durability/raft/fleet_catalog/disruption.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/maintenance/records.rs",

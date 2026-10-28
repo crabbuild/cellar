@@ -21,6 +21,7 @@ pub(crate) struct MovementServiceWork {
     topology: Option<super::topology::TopologyService>,
     detection: Option<super::detection::Detection>,
     isolated: Option<super::isolated::IsolatedRepairService>,
+    recovery: Option<super::recovery::Recovery>,
 }
 
 impl MovementServiceWork {
@@ -48,6 +49,7 @@ impl MovementServiceWork {
             topology: None,
             detection: None,
             isolated: None,
+            recovery: None,
         }
     }
 
@@ -76,6 +78,15 @@ impl MovementServiceWork {
 
     pub(super) fn set_detection(&mut self, options: Option<FleetFailureDetectionOptions>) {
         self.detection = options.map(super::detection::Detection::new);
+    }
+
+    pub(super) fn set_recovery(
+        &mut self,
+        platform: Arc<dyn FleetFailureRecoveryPlatform>,
+        repair: Arc<dyn FleetIsolatedRepairEvidence>,
+        options: FleetFailureDetectionOptions,
+    ) {
+        self.recovery = Some(super::recovery::Recovery::new(platform, repair, options));
     }
 
     pub(crate) fn admit(&mut self, host: &FleetHostAuthorization) -> Result<()> {
@@ -125,6 +136,9 @@ impl MovementServiceWork {
         self.memory = Some(memory);
         if let Some(detection) = &mut self.detection {
             detection.set_origin(host.node());
+        }
+        if let Some(recovery) = &mut self.recovery {
+            recovery.detection.set_origin(host.node());
         }
         self.admitted = true;
         self.status.send_modify(|status| status.running = true);
@@ -176,6 +190,12 @@ impl MovementServiceWork {
                         .as_ref()
                         .filter(|_| self.schedule.entries.is_empty())
                         .and_then(|r| r.pass_delay(&self.options))
+                        .or_else(|| {
+                            self.recovery
+                                .as_ref()
+                                .filter(|_| self.schedule.entries.is_empty())
+                                .and_then(|r| r.pass_delay(&self.options))
+                        })
                         .or_else(|| self.topology.as_ref().and_then(|t| t.collection_delay()))
                         .unwrap_or(self.options.interval)
                         .as_millis() as u64
@@ -184,6 +204,9 @@ impl MovementServiceWork {
                 Err(error) => {
                     if let Some(detection) = &mut self.detection {
                         detection.invalidate();
+                    }
+                    if let Some(recovery) = &mut self.recovery {
+                        recovery.detection.invalidate();
                     }
                     self.publish_work();
                     let kind = schedule::classify(&error);
@@ -311,6 +334,21 @@ impl MovementServiceWork {
                     )
                     .await?;
             }
+            // Detection and isolation may unblock already-admitted work even
+            // when every movement slot is occupied. Repair admission checks
+            // the durable resource book independently before adding any debt.
+            if let Some(recovery) = self.recovery.as_mut() {
+                recovery
+                    .round(
+                        &self.catalog,
+                        &self.observer,
+                        &cut,
+                        &self.options,
+                        &deadline,
+                        &self.status,
+                    )
+                    .await?;
+            }
             if let Some(detection) = &mut self.detection {
                 detection
                     .round(&self.catalog, &self.observer, &cut, &deadline)
@@ -338,7 +376,11 @@ impl MovementServiceWork {
     }
 
     fn publish_work(&self) {
-        if let Some(detection) = &self.detection {
+        if let Some(detection) = self
+            .detection
+            .as_ref()
+            .or_else(|| self.recovery.as_ref().map(|r| &r.detection))
+        {
             if let Ok(now) = self.catalog.inner.domain.mono_ms() {
                 self.status
                     .send_modify(|status| status.failure_detection = Some(detection.view(now)));

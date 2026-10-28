@@ -81,8 +81,11 @@ isolation are implemented as an explicit SDK service. Independent required
 repair can use a remaining slot during an admitted action's retry/backoff,
 without releasing that action's debt. An explicit Node-owned failure monitor now
 classifies exact-boot connectivity with bounded authenticated probes, grace and
-sample expiry. Automatic failure-to-repair admission and a production isolation
-provider remain unfinished.
+sample expiry. An explicit recovery service now roots permanent exact-boot
+exclusion, reconciles trusted isolation and drives the existing repair executor.
+It resumes its own intent after controller loss, never adopts operator work and
+can isolate during retry windows with both movement slots full. A production
+isolation provider and automatic terminal removal remain unfinished.
 
 Extent-backed managed namespaces now retain tagged publication cuts and stored
 receipts, exact producer image origins, and independent physical archive proofs.
@@ -96,17 +99,17 @@ terminal-wait/large-fleet qualification limits. These capabilities remain opt-in
 
 The next feature gates are:
 
-1. Finish preparation/resume repeatability within the existing five-second waits,
+1. Connect the delivered recovery service to production exact-boot isolation and
+   terminal removal, then verify restored RF3 under foreground writes. Qualify
+   probe fairness under continuously due work and repeated turn expiry.
+2. Finish preparation/resume repeatability within the existing five-second waits,
    then qualify bounded verification/convergence at hundreds of histories.
    Physical, voter, leadership and sample-age checks remain live; historical
    return/resume/status validation now reuses checked predecessors within each
-   request. The progress log records its measured read reduction and the
-   remaining preparation timing failures.
-2. Complete automatic single-node repair with conservative failure classification,
-   production exact-boot isolation and restored RF3 under foreground writes.
-3. Deliver grace expiry, second-failure handling and gated rolling maintenance.
-4. Add workload-aware leader balancing and safe desired capacity/resize.
-5. Close full-CI failures and qualify deployed RustFS/Colima fault, resource,
+   request. Deliver grace expiry, second-failure handling and gated rolling
+   maintenance against that boundary.
+3. Add workload-aware leader balancing and safe desired capacity/resize.
+4. Close full-CI failures and qualify deployed RustFS/Colima fault, resource,
    foreground performance and soak behavior before enabling the capability by default.
 
 Empty/retired returned-node and deployed large-fleet qualification remain open.

@@ -253,6 +253,16 @@ probe bounds remain four concurrent requests, 500 ms per probe and five seconds
 per observation; five seconds is the initial unavailability grace, not a
 promised recovery time. Apply receiver-local sample aging across the whole scan.
 
+Automatic failure admission uses a distinct permanent evacuation purpose bound
+to the exact boot. One Root CAS claims the disruption slot and excludes the node;
+only a subsequent checked turn may call the trusted platform isolation adapter.
+The operation survives controller loss and ambiguous external responses. It
+cannot be cancelled or admit another boot while isolation may be outstanding.
+The platform reconciles by operation and boot, proves all workers stopped and
+restart prevented, and retains physical data. Quarantine confirmation precedes
+replica repair. Manual evacuation and maintenance are never implicitly adopted.
+Terminal removal releases the slot only after the existing complete proof gates.
+
 Repair priority is: finish admitted joint transitions; restore under-replicated
 groups with quorum; evacuate requested nodes; repair domain violations; perform
 optional load balancing, preferring eligible leader transfers over replica copies.

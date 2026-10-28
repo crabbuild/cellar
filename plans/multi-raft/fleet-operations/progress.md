@@ -6,8 +6,9 @@ FO-08 and FO-10 are in progress; FO-05 and FO-09 remain pending. Healthy desired
 placement has an explicit owned convergence service and authenticated operator
 SDK/admin/CLI access. An explicit SDK controller now selects and executes
 replacements after trusted node isolation. Operators can now register, qualify
-and activate added capacity. Automatic failure-to-repair admission, production
-isolation, grace/rolling/second-failure maintenance and resize remain unfinished.
+and activate added capacity. An explicit SDK service now connects failure detection to durable exclusion,
+trusted isolation and replica repair. Production isolation, automatic terminal
+removal, grace/rolling/second-failure maintenance and resize remain unfinished.
 The intact operator sequence now includes separate stop/return/resume grants,
 read-only status and explicit Node-owned execution; successor qualification is
 recorded below. Verified intact-return
@@ -17,6 +18,49 @@ the SDK, admin API and CLI. Audited cancel-and-restart recovery now resolves
 stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
+
+## Automatic failure admission and isolation handoff
+
+The explicit Node-owned recovery service now connects fresh failure detection,
+permanent exact-boot exclusion, trusted platform isolation and the existing
+resource-bounded repair executor. A separate durable evacuation purpose prevents
+it from adopting operator evacuation or maintenance. Root admission precedes the
+platform callback. Controller recreation retains the original operation and boot;
+lost external replies and catalog confirmations require reconciliation. Once the
+intent is admitted, cancellation and replacement boots are refused because a
+platform action may still complete. Physical storage and resource debt stay owned.
+
+A full movement book previously suppressed every recovery turn: a retained
+negative run retried two stalled moves for 286 rounds without collecting a single
+failure observation. Recovery now uses retry windows even with both slots full.
+Isolation adds no movement debt; repair independently checks the durable book.
+The regression verifies unchanged reservations through isolation, recreates the
+controller, settles both original moves and checks RF3 SQL continuity.
+
+Two evacuation fixtures also failed on the retained pre-change executable. The
+excluded-registration path now reports Unavailable when no admitted learner can
+continue. A bare permit still fails explicitly with CommandConflict because it
+has no reserved destination boot. The successful voter-replacement fixture now
+uses actual capacity admission, resource reservation and physical settlement,
+then retains its archive, graceful stop, concurrent write and terminal removal
+checks. No quorum, resource, deadline or membership assertion was relaxed.
+
+The four native recovery cases pass in `failure-recovery-v4`. That run also
+passed detection, movement, isolated repair, topology and twelve evacuation cases,
+but stopped at a maintenance error-mapping regression. The mapping is now limited
+to permanent draining; qualification of the combined main integration is pending. The remaining cases exercise controller loss,
+wrong-boot evidence, incomplete namespace coverage, manual-operation isolation,
+lost responses and three actual repaired RF3 histories. The isolation provider
+is trusted fixture evidence after actual process join, not a deployment driver.
+
+Next: implement the exact-container Docker/Colima provider and automatic terminal
+removal, then qualify under foreground writes. Probe fairness under sustained due
+work or repeated turn expiry also needs qualification; five-second failure grace
+is not a recovery-time promise. Second-failure/grace/rolling policy, maintenance
+repeatability, workload-aware leadership, desired capacity/resize, full CI and
+deployed resource/TPS/p99/soak remain open. This feature stays default-off and
+FO-06 remains in progress. The experimental protocol adds `/failure-recovery-1`;
+deploy matching binaries with fresh catalog data and numeric format markers at 1.
 
 ## Exact-boot failure detection
 

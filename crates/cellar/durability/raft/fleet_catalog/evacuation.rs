@@ -4,6 +4,7 @@ use super::histories::{history_mutation, validate_request};
 use super::nodes::{NodeRecord, NODE_KIND};
 use super::*;
 use crate::raft::catalog::NamespaceCatalog;
+use crate::raft::fleet_stop::BootBinding;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProposalId};
 use serde::Deserialize;
 
@@ -15,6 +16,9 @@ const OPERATION_REQUEST_KIND: u8 = 54;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum OperationKind {
     Evacuate,
+    Failure {
+        boot: Box<BootBinding>,
+    },
     Restart {
         process: [u8; 16],
         grace_seconds: u16,
@@ -70,6 +74,7 @@ impl CanonicalRequest {
 #[serde(deny_unknown_fields)]
 pub(super) struct Record {
     format: u8,
+    kind: OperationKind,
     catalog: [u8; 32],
     request: FleetRequestIdentity,
     input_root: [u8; 32],
@@ -99,9 +104,14 @@ pub struct FleetEvacuationAdmission {
 pub(super) struct ActiveEvacuation {
     admission: FleetEvacuationAdmission,
     slot: [u8; 32],
+    failure_boot: Option<BootBinding>,
 }
 
 impl ActiveEvacuation {
+    pub(super) fn failure_boot(&self) -> Option<&BootBinding> {
+        self.failure_boot.as_ref()
+    }
+
     pub(super) fn admission(&self) -> &FleetEvacuationAdmission {
         &self.admission
     }
@@ -154,6 +164,13 @@ impl FleetEvacuationAdmission {
 }
 
 impl Record {
+    pub(super) fn failure_boot(&self) -> Option<&BootBinding> {
+        match &self.kind {
+            OperationKind::Failure { boot } => Some(boot),
+            _ => None,
+        }
+    }
+
     pub(super) fn operation(&self) -> [u8; 16] {
         self.request.operation
     }
@@ -185,6 +202,12 @@ impl Record {
     pub(super) fn validate(&self, catalog: &FleetCatalog) -> Result<()> {
         validate_request(&self.request)?;
         self.node.validate(&catalog.inner)?;
+        match &self.kind {
+            OperationKind::Evacuate => (),
+            OperationKind::Failure { boot }
+                if **boot == self.node.boot_binding(catalog.birth_owner()?.catalog)? => {}
+            _ => return Err(FleetCatalogError::Corrupt("evacuation purpose")),
+        }
         if self.format != 1
             || self.catalog != catalog.birth_owner()?.catalog
             || self.input_root == [0; 32]
@@ -234,6 +257,12 @@ impl Record {
     }
 }
 
+enum AdmissionMode {
+    Requested,
+    Placement,
+    Failure { boot: BootBinding, expires_at: u64 },
+}
+
 impl FleetCatalog {
     pub(super) async fn check_evacuation_slot(
         &self,
@@ -274,7 +303,11 @@ impl FleetCatalog {
             self.inner
                 .domain
                 .run(Box::pin(self.begin_evacuation_inner(
-                    snapshot, request, node, namespaces, false,
+                    snapshot,
+                    request,
+                    node,
+                    namespaces,
+                    AdmissionMode::Requested,
                 )))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
@@ -302,7 +335,43 @@ impl FleetCatalog {
             self.inner
                 .domain
                 .run(Box::pin(self.begin_evacuation_inner(
-                    snapshot, request, node, namespaces, true,
+                    snapshot,
+                    request,
+                    node,
+                    namespaces,
+                    AdmissionMode::Placement,
+                )))
+                .await
+                .map_err(|_| FleetCatalogError::Closed)?
+        })
+        .await
+    }
+
+    pub(super) async fn begin_failure_evacuation(
+        &self,
+        snapshot: &FleetSnapshot,
+        request: &FleetRequestIdentity,
+        failure: (BootBinding, u64),
+        namespaces: &[NamespaceCatalog],
+        timeout: Duration,
+    ) -> Result<FleetCommit> {
+        self.check_snapshot(snapshot)?;
+        validate_request(request)?;
+        let (boot, expires_at) = failure;
+        let node =
+            NodeId::new(boot.node).map_err(|_| FleetCatalogError::Invalid("failure node"))?;
+        if namespaces.len() > namespaces::MAX_NAMESPACES {
+            return Err(FleetCatalogError::Limit);
+        }
+        self.run(timeout, async {
+            self.inner
+                .domain
+                .run(Box::pin(self.begin_evacuation_inner(
+                    snapshot,
+                    request,
+                    node,
+                    namespaces,
+                    AdmissionMode::Failure { boot, expires_at },
                 )))
                 .await
                 .map_err(|_| FleetCatalogError::Closed)?
@@ -316,10 +385,15 @@ impl FleetCatalog {
         request: &FleetRequestIdentity,
         node: NodeId,
         namespaces: &[NamespaceCatalog],
-        require_placement: bool,
+        mode: AdmissionMode,
     ) -> Result<FleetCommit> {
         let current = self.inner.current().await?;
-        let canonical = CanonicalRequest::new(self, request, node.bytes())?;
+        let mut canonical = CanonicalRequest::new(self, request, node.bytes())?;
+        if let AdmissionMode::Failure { boot, .. } = &mode {
+            canonical.kind = OperationKind::Failure {
+                boot: Box::new(boot.clone()),
+            };
+        }
         let canonical_present = self.check_operation_request(&canonical).await?;
         let prior = self.evacuation_candidate(request).await?;
         if let Some((record, mutation)) = &prior {
@@ -362,7 +436,7 @@ impl FleetCatalog {
                 operation: record.operation(),
             });
         }
-        if require_placement {
+        if matches!(mode, AdmissionMode::Placement) {
             self.check_departure_placement(snapshot, node).await?;
         }
         let inventory = self.check_inventory_inner(snapshot, namespaces).await?;
@@ -372,10 +446,16 @@ impl FleetCatalog {
             .into_iter()
             .find(|n| n.node == node.bytes())
             .ok_or(FleetCatalogError::Conflict)?;
+        if let AdmissionMode::Failure { boot, .. } = &mode {
+            if next.boot_binding(self.birth_owner()?.catalog)? != *boot {
+                return Err(FleetCatalogError::Conflict);
+            }
+        }
         next.begin_evacuation(request.operation)?;
         next.validate(&self.inner)?;
         let record = Record {
             format: 1,
+            kind: canonical.kind.clone(),
             catalog: self.birth_owner()?.catalog,
             request: request.clone(),
             input_root: hash(&encode(HEAD_KIND, &snapshot.head, ROOT_LIMIT)?),
@@ -402,7 +482,31 @@ impl FleetCatalog {
                 4096,
             )
             .await?;
-        self.commit_inner(snapshot, &mutation).await
+        self.commit_with_disruption(
+            snapshot,
+            &mutation,
+            None,
+            if matches!(mode, AdmissionMode::Failure { .. }) {
+                resources::Authority::FailureAdmission
+            } else {
+                resources::Authority::None
+            },
+            || {
+                if let AdmissionMode::Failure { expires_at, .. } = mode {
+                    if self
+                        .inner
+                        .domain
+                        .mono_ms()
+                        .map_err(|_| FleetCatalogError::Closed)?
+                        > expires_at
+                    {
+                        return Err(FleetCatalogError::Unconfirmed);
+                    }
+                }
+                Ok(())
+            },
+        )
+        .await
     }
 
     pub(super) async fn check_operation_request(
@@ -455,7 +559,8 @@ impl FleetCatalog {
         snapshot: &FleetSnapshot,
         record: &Record,
     ) -> Result<u64> {
-        let canonical = CanonicalRequest::new(self, &record.request, record.node.node)?;
+        let mut canonical = CanonicalRequest::new(self, &record.request, record.node.node)?;
+        canonical.kind = record.kind.clone();
         if !self.check_operation_request(&canonical).await? {
             return Err(FleetCatalogError::Corrupt(
                 "missing canonical evacuation request",
@@ -527,6 +632,7 @@ impl FleetCatalog {
         let mut admission = record.observation(self, snapshot, applied)?;
         admission.enrollment_epoch = current.epoch;
         Ok(ActiveEvacuation {
+            failure_boot: record.failure_boot().cloned(),
             admission,
             slot: snapshot
                 .head

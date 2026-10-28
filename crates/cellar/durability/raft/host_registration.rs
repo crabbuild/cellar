@@ -115,7 +115,13 @@ impl Driver {
                 let settling = matches!(current.state(),
                     FleetNodeState::Draining | FleetNodeState::RestartPending | FleetNodeState::ResizePending);
                 let admitted_learner = if settling && !admitted_initial {
-                    current.admitted_learner(&scope, remaining()?).await.map_err(catalog_failure)?;
+                    current.admitted_learner(&scope, remaining()?).await.map_err(|error| match error {
+                        // Permanent draining makes unadmitted capacity
+                        // unavailable. Maintenance retains its stricter
+                        // continuation-conflict contract.
+                        FleetCatalogError::Conflict if current.state() == FleetNodeState::Draining => CommandFailure::Unavailable,
+                        error => catalog_failure(error),
+                    })?;
                     true
                 } else { false };
                 if !matches!(current.state(), FleetNodeState::Registered | FleetNodeState::Ready | FleetNodeState::Active)

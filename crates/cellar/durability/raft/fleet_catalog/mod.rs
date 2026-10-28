@@ -7,6 +7,7 @@ mod deadline;
 mod disruption;
 mod evacuation;
 mod execution;
+mod failure_recovery;
 mod finalization;
 mod histories;
 mod imports;
@@ -76,12 +77,14 @@ pub use resources::{
     FleetResourceAdmission, FleetResourceAttestation, FleetResourceBounds, FleetResourceRequest,
 };
 pub use resources::{
-    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetIsolatedRepairContext,
-    FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs, FleetIsolatedRepairServiceStatus,
-    FleetMovementEvidence, FleetMovementService, FleetMovementServiceEntry,
-    FleetMovementServiceFailure, FleetMovementServiceOptions, FleetMovementServiceStatus,
-    FleetNodeFailureStatus, FleetNodeHealth, FleetTopologyCollectionOptions, FleetTopologyEvidence,
-    FleetTopologyServiceInputs, FleetTopologyServiceStatus,
+    FleetFailureDetectionOptions, FleetFailureDetectionStatus, FleetFailureRecoveryContext,
+    FleetFailureRecoveryPhase, FleetFailureRecoveryPlatform, FleetFailureRecoveryStatus,
+    FleetIsolatedRepairContext, FleetIsolatedRepairEvidence, FleetIsolatedRepairInputs,
+    FleetIsolatedRepairServiceStatus, FleetMovementEvidence, FleetMovementService,
+    FleetMovementServiceEntry, FleetMovementServiceFailure, FleetMovementServiceOptions,
+    FleetMovementServiceStatus, FleetNodeFailureStatus, FleetNodeHealth,
+    FleetTopologyCollectionOptions, FleetTopologyEvidence, FleetTopologyServiceInputs,
+    FleetTopologyServiceStatus,
 };
 pub use resources::{
     FleetMovementExecutionRequest, FleetMovementPhase, FleetMovementProgress, FleetPendingMovement,
@@ -423,6 +426,8 @@ impl FleetCatalog {
         if current.token != snapshot.token || mutation.expected_revision != snapshot.revision() {
             return Err(FleetCatalogError::Conflict);
         }
+        self.check_failure_recovery_mutation(snapshot, mutation, movement)
+            .await?;
         self.check_isolation_mutation(snapshot, mutation, movement)
             .await?;
         self.check_restart_settlement_mutation(mutation, movement)?;

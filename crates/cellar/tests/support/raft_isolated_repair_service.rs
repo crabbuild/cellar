@@ -6,6 +6,9 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::{future::Future, pin::Pin};
 
+#[path = "raft_failure_recovery.rs"]
+mod recovery;
+
 #[path = "raft_failure_detection.rs"]
 mod detection;
 
@@ -34,6 +37,10 @@ impl RepairFleet {
     }
 
     async fn with_histories(extra: bool, isolated: bool, histories: u8) -> Result<Self> {
+        Box::pin(Self::with_admission(extra, Some(isolated), histories)).await
+    }
+
+    async fn with_admission(extra: bool, isolated: Option<bool>, histories: u8) -> Result<Self> {
         let mut s = Box::pin(Setup::with_histories(true, 6, histories)).await?;
         let (spare_root, spare_node, spare) = s.f.peer_host(8).await?;
         if extra {
@@ -172,9 +179,9 @@ impl RepairFleet {
             .context("failed leader boot")?;
         let old_engine = old.node.info().data_dir.join("raft");
         joined(old.node).await?;
-        if isolated {
+        if isolated == Some(true) {
             isolate(&s, failed, boot.clone()).await?;
-        } else {
+        } else if isolated == Some(false) {
             let cut = s.f.catalog.read(TIMEOUT).await?;
             s.f.catalog
                 .begin_evacuation(
