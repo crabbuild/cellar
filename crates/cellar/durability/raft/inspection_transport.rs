@@ -21,6 +21,37 @@ const RESPONSE_PURPOSE: &[u8] = b"cellar-inspection-response-1";
 pub(super) const SLOTS: usize = 16;
 pub(super) const META_BYTES: usize = 1024 * 1024;
 
+#[cfg(test)]
+#[path = "inspection_connect_tests.rs"]
+mod connect_tests;
+
+pub(super) async fn dial<T>(
+    domain: &crate::asyncrt::DomainToken,
+    deadline: u64,
+    stage: &AtomicU8,
+    connect: impl Future<Output = std::io::Result<T>>,
+) -> Result<T, TransportError> {
+    let now = domain.mono_ms().map_err(|_| TransportError::Closed)?;
+    let remaining = deadline
+        .checked_sub(now)
+        .filter(|ms| *ms >= 2)
+        .ok_or(TransportError::Timeout)?;
+    // A dial that consumes the outer deadline cannot report Unreachable: the
+    // host has already cancelled its waiter. Reserve half the remaining call
+    // budget for classification and delivery. Local expiry before an attempt
+    // keeps stage zero, and TLS/metadata retain stage two and the full deadline.
+    let timer = domain
+        .sleep_until(now + remaining / 2)
+        .map_err(|_| TransportError::Closed)?;
+    stage.store(1, Ordering::Release);
+    let socket = crate::asyncrt::select_biased! { "the connection phase expires before a late socket is accepted";
+        _ = timer => Err(TransportError::Timeout),
+        result = connect => result.map_err(TransportError::from),
+    }?;
+    stage.store(2, Ordering::Release);
+    Ok(socket)
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestHead {
@@ -341,10 +372,14 @@ impl State {
         deadline: u64,
         stage: Arc<AtomicU8>,
     ) -> Result<Box<InspectionSnapshot>, TransportError> {
-        stage.store(1, Ordering::Release);
         let _connection = self.outgoing_connections.acquire(Lane::Control);
-        let tcp = TcpStream::connect(peer.control_address).await?;
-        stage.store(2, Ordering::Release);
+        let tcp = dial(
+            &self.domain,
+            deadline,
+            &stage,
+            TcpStream::connect(peer.control_address),
+        )
+        .await?;
         tcp.set_nodelay(true)?;
         let tcp = self.observed_socket(tcp, metrics::Lane::Control);
         let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())

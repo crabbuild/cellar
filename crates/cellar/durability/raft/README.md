@@ -689,8 +689,12 @@ process/grant changes and shutdown stop and join owned network tasks. Returned
 sample ages include the full request duration. Only `InspectionError::Unreachable`
 reports a failed direct TCP probe; missing discovery, local pressure, refused or
 unusable replies cannot establish remote node failure. Observations grant no
-membership, seed, query or write authority. Automatic reconciliation remains
-MR-11 work.
+membership, seed, query or write authority. Opt-in fleet recovery consumes these
+observations; connectivity alone cannot authorize membership changes.
+Inspection TCP dials use at most half the remaining call budget, leaving time to
+deliver a failed connection before the SDK cancels the outer call. An already
+expired local budget does not attempt a dial. TLS and metadata exchanges retain
+the original deadline and cannot turn their timeouts into failed-node evidence.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.

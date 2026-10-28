@@ -1,5 +1,72 @@
 # Fleet operations implementation progress
 
+## Deliver failed connection observations before outer cancellation
+
+Cell and node inspection now bound TCP connection attempts to half the remaining
+call budget. This leaves time to deliver `Unreachable` before the host expires
+the outer SDK call. Expired local admission remains unavailable without polling
+the connection; successful TCP advances the inspection stage, so subsequent TLS
+or metadata timeouts remain unknown health. Existing exact-boot, trust-revision,
+authentication and cancellation checks are preserved.
+
+The new stalled-dial regression fails on the prior behavior because the live
+caller receives only its outer timeout. It passes with the bounded dial. All
+12 selected transport/inspection tests and all 11 deployment-binary tests pass
+on default native stacks with serial execution. Host library/tests/binary Clippy,
+formatting and module layout pass across 1,729 Rust files. The managed endpoint
+also reports per-boot detection health, failure counts, last errors and sample
+ages, allowing a deployed stall to be located without granting health authority.
+
+These results establish the local correction, not restored deployed RF3. The
+next gate repeats the five-node crash campaign under foreground writes and
+independently checks replacement membership, replica readback, archive catch-up
+and terminal removal. The preceding failed campaign and retained storage remain
+available outside build/runtime directories; performance, maintenance, capacity
+changes and full fleet qualification remain open.
+
+## Recreated fleet: writes survive a crash; automatic detection remains open
+
+Source `b60e8f42aff238c50e548e9cb50425aca888703f` merges current `main` and
+recreates the dedicated Colima deployment after cleanup. Its source-matched
+Linux image reaches measured Active capacity on all five nodes, each limited
+to 1 CPU and 3 GiB memory. All 15 managed cells form RF3 groups, with nine copies
+per node. The original 1-GiB node extent limit and bounded filesystem policy are
+unchanged. All 30 initial writes succeed, and all 45 replicas pass minimum-version
+readback with archive-index catch-up. This verifies the idle-writer capacity fix
+in the deployed path; it is not a TPS or latency qualification.
+
+The owned recovery service starts, then the exact node-5 container is killed
+while serial foreground counter writes continue. Another 780 commands confirm,
+bringing every cell to sequence/value 54. One ambiguous response reconciles
+using its original command ID and retry deadline; no command remains unresolved.
+All 36 surviving replicas subsequently pass readback and archive checks.
+However, the controller stays at catalog revision 52 and never starts isolation
+or repair during the approximately 312-second campaign. The nine lost replicas
+are not replaced. The fleet therefore survives this failure for writes but does
+not yet demonstrate automatic healing.
+
+A direct TCP probe from the controller to the stopped container's control port
+also times out. The inspection transport and its outer SDK call share a deadline;
+the host cancels expired calls before a timed-out dial can be delivered as
+`Unreachable`. Closed-listener native tests exercise immediate refusal and did
+not cover this stalled-connect path. The next delivery is a regression and a
+bounded connection phase that leaves time to return the failure. TLS/metadata
+timeouts, stale identity and local overload must remain unknown observations.
+
+All four surviving native owners join shutdown with exit code zero and no
+unfinished Raft work; the deliberately crashed node retains exit 137. Only the
+seven exact owned fixture containers are removed. Every backing file, volume,
+command journal and failed observation is retained, with primary records outside
+both runtime data and the build target.
+
+On the merged source, 20 selected native tests pass (13 SQL/private-execution
+and seven startup cases), along with 12 managed-runner tests and ten plan tests.
+Formatting and module layout cover 1,728 Rust files; native dependencies and
+documentation checks pass. Full CI, restored RF3 under traffic, terminal removal,
+maintenance/return, capacity changes, density, performance and soak remain open.
+All nodes share one physical VM. The next deployment must repeat automatic
+recovery after the stalled-connect correction before advancing its qualification.
+
 ## Measured admission and shared writer capacity
 
 The bounded five-node deployment at native source `a4b0b4e8`, with the admission

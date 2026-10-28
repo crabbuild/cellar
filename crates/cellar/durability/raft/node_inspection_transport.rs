@@ -265,10 +265,14 @@ impl State {
         ),
         TransportError,
     > {
-        stage.store(1, Ordering::Release);
         let _connection = self.outgoing_connections.acquire(Lane::Control);
-        let tcp = TcpStream::connect(peer.control_address).await?;
-        stage.store(2, Ordering::Release);
+        let tcp = super::inspections::dial(
+            &self.domain,
+            deadline,
+            &stage,
+            TcpStream::connect(peer.control_address),
+        )
+        .await?;
         tcp.set_nodelay(true)?;
         let tcp = self.observed_socket(tcp, metrics::Lane::Control);
         let name = rustls::pki_types::ServerName::try_from(peer.server_name.clone())

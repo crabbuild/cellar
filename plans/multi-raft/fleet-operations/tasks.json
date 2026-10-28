@@ -3236,7 +3236,9 @@
         "crates/cellar-logic/raft_fleet/mod.rs",
         "crates/cellar/durability/raft/fleet_catalog/evacuation.rs",
         "crates/cellar/durability/raft/fleet_catalog/finalization/cancellation.rs",
-        "crates/cellar/durability/raft/host_registration.rs"
+        "crates/cellar/durability/raft/host_registration.rs",
+        "crates/cellar/durability/raft/inspection_transport.rs",
+        "crates/cellar/durability/raft/node_inspection_transport.rs"
       ],
       "creates": [
         "crates/cellar/tests/native_raft_fleet_reconciliation.rs",
@@ -3266,7 +3268,8 @@
         "crates/cellar/tests/support/raft_failure_detection.rs",
         "crates/cellar/durability/raft/fleet_catalog/failure_recovery.rs",
         "crates/cellar/durability/raft/fleet_catalog/resources/execution/service/recovery.rs",
-        "crates/cellar/tests/support/raft_failure_recovery.rs"
+        "crates/cellar/tests/support/raft_failure_recovery.rs",
+        "crates/cellar/durability/raft/inspection_connect_tests.rs"
       ],
       "steps": [
         "Deliver bounded resumable execution of explicit verified moves without waiting for the optional FO-05 workload/leader policy. Reconstruct exact work from durable reservation/permit identity and committed group progress; reconcile ambiguous replies before selecting another effect. Seed, finish joint and settle terminal work before new admission. Add the optional load policy only when its inputs and pressure gates are available.",
@@ -3283,7 +3286,8 @@
         "Drive one rooted isolated-node evacuation with an owned immutable candidate cursor, independent-group progress and uncertain-admission fencing; diagnostic exhaustion grants no terminal lifecycle authority.",
         "Use admitted-work retry windows for bounded independent required repair; retain every old debit, preserve due-effect priority and enforce global/local slot bounds across competing controllers and recreation.",
         "Deliver explicit Node-owned exact-boot connectivity classification with four authenticated probes per available round, a 500-ms per-probe ceiling and at least five seconds of repeated fresh direct-connect failures before Unavailable. Unknown outcomes, stale samples, changed boots and catalog errors reset failure history; status ages while the worker is delayed or stopped. Existing admitted movements retain priority and cancellation joins the monitor. This mode observes failures only; the separate recovery mode owns durable admission and platform handoff.",
-        "Compose exact-boot detection with a distinct rooted failure evacuation, trusted idempotent platform isolation and the existing quorum-preserving repair executor in one Node-owned service. Admit exclusion only with complete inventory and fresh observations; recover the exact operation before external effects. Preserve intent across controller loss and unknown responses, refuse wrong-boot evidence, operator-operation adoption, cancellation and reboot while isolation may be outstanding. Exact-container Docker isolation and automatic terminal removal are implemented; deployment wiring and complete deployed qualification remain required."
+        "Compose exact-boot detection with a distinct rooted failure evacuation, trusted idempotent platform isolation and the existing quorum-preserving repair executor in one Node-owned service. Admit exclusion only with complete inventory and fresh observations; recover the exact operation before external effects. Preserve intent across controller loss and unknown responses, refuse wrong-boot evidence, operator-operation adoption, cancellation and reboot while isolation may be outstanding. Exact-container Docker isolation and automatic terminal removal are implemented; deployment wiring and complete deployed qualification remain required.",
+        "Bound the TCP connection phase inside the original inspection-call deadline so a stalled dial can report Unreachable before SDK/host cancellation. Preserve Unknown for expired local admission, TLS/metadata delays, overload and stale identity. Expose per-boot health, last error and sample age in the managed lab recovery diagnostics, and repeat real stopped-container recovery under foreground writes."
       ],
       "acceptance": [
         "One initialization per destination and bounded outgoing copy per source.",
@@ -4006,6 +4010,23 @@
             "F10",
             "F12"
           ]
+        },
+        {
+          "name": "stalled_dial_reports_unreachable_before_the_call_expires",
+          "oracle": "A pending TCP dial returns typed Unreachable while the original caller budget remains live, instead of being hidden by outer cancellation.",
+          "invariants": [
+            "F06",
+            "F07",
+            "F08"
+          ]
+        },
+        {
+          "name": "only_an_attempted_dial_can_report_unreachable",
+          "oracle": "Expired local admission never polls a dial and stays Unknown; TCP success leaves later TLS/metadata timeouts Unknown, while an actual refused connection remains Unreachable.",
+          "invariants": [
+            "F06",
+            "F07"
+          ]
         }
       ],
       "verification": [
@@ -4170,6 +4191,19 @@
           "native_raft_fleet_enrollment",
           "fleet_docker_resources_",
           "--",
+          "--test-threads=1"
+        ],
+        [
+          "cargo",
+          "test",
+          "-p",
+          "cellar",
+          "--lib",
+          "--locked",
+          "--",
+          "raft::transport::inspections::",
+          "raft::transport::node_inspections::",
+          "raft::transport::tests::directory::inspection::",
           "--test-threads=1"
         ]
       ],

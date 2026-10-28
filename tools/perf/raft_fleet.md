@@ -129,6 +129,9 @@ printed.
 `GET /fleet` is authenticated and reports the current rooted state, native boot,
 profile digest, group occupancy, installed trust revision and local recovery
 diagnostics. It does not grant a health or removal proof.
+Recovery diagnostics include each observed boot's health classification, direct
+failure count, last inspection error and sample age. Use them to distinguish a
+failed connection from stale metadata, local overload or an expired call.
 
 `POST /fleet` accepts these explicit actions:
 

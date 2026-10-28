@@ -21,6 +21,15 @@ impl Api {
             "execution_attempts":status.execution_attempts, "settled_movements":status.settled_movements,
             "last_revision":status.last_revision,
             "last_failure":status.last_round_failure.map(|f| format!("{f:?}")),
+            "detection":status.failure_detection.map(|d| json!({
+                "revision":d.observed_revision,
+                "nodes":d.nodes.iter().map(|n| json!({
+                    "boot":n.boot, "health":format!("{:?}",n.health),
+                    "consecutive_failures":n.consecutive_failures,
+                    "last_error":n.last_error.as_ref().map(|e| format!("{e:?}")),
+                    "sample_age_ms":n.sample_age_ms
+                })).collect::<Vec<_>>()
+            })),
             "recovery":status.failure_recovery.map(|r| json!({
                 "phase":format!("{:?}",r.phase), "verified_histories":r.verified_histories,
                 "total_histories":r.total_histories, "removed_revision":r.removed_revision
