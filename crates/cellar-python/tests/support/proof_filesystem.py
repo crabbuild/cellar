@@ -10,6 +10,7 @@ from cellar import MISSING, SDKError
 _fs_seed = _fs_pending = _fs_post = _fs_handles = None
 _fs_refusals = 0
 _fs_barrier_entered = False
+FILESYSTEM_OPERATION = "fsync" if FILESYSTEM_BARRIER == "dirsync" else FILESYSTEM_BARRIER
 
 
 def filesystem_payload(generation):
@@ -75,6 +76,8 @@ async def filesystem_barrier(ctx):
         await ctx.fs.sync()
     elif FILESYSTEM_BARRIER == "fsync":
         await _fs_handles["file"].fsync()
+    elif FILESYSTEM_BARRIER == "dirsync":
+        await _fs_handles["directory"].fsync()
     else:
         assert FILESYSTEM_BARRIER == "fdatasync"
         await _fs_handles["file"].fdatasync()

@@ -326,15 +326,40 @@ async def wire_profile(fs, ctx, group):
     before = await snapshot()
     refused = 0
 
-    async def refusal(call, operation, errno="EINVAL"):
+    async def refusal(call, operation, errno="EINVAL", code="ValidationError"):
         nonlocal refused
-        error = await refuses(call, "ValidationError", errno)
+        error = await refuses(call, code, errno)
         assert (error.operation, error.outcome, error.completed_bytes) == (operation, "not_committed", 0), (group, refused, operation)
         assert await snapshot() == before
         refused += 1
 
     try:
-        if group.startswith("unsigned-"):
+        if group == "handles":
+            handles = dict(
+                file=(await ctx._call("filesystem.open", path=path, options=dict(access="read_write")))["handle"],
+                directory=(await ctx._call("filesystem.opendir", path="/wire-profile"))["handle"],
+            )
+
+            async def raw_snapshot():
+                return (
+                    await ctx._call("filesystem.fstat", handle=handles["file"]),
+                    await ctx._call("filesystem.fstat", handle=handles["directory"]),
+                    await ctx._call("filesystem.lseek", handle=handles["file"], offset="0", whence="current"),
+                    await ctx._call("filesystem.telldir", handle=handles["directory"]),
+                )
+
+            raw_before = await raw_snapshot()
+            for case in FILESYSTEM_HANDLE_CASES:
+                operation = "filesystem." + case["operation"]
+                await refusal(lambda: ctx._call(operation, handle=handles[case["kind"]], **case["arguments"]), operation, "EBADF", "Filesystem")
+                assert await raw_snapshot() == raw_before
+                await refuses(lambda: fs.open(path), "Filesystem", "ENFILE")
+            assert refused == 16
+            await ctx._call("filesystem.fdatasync", handle=handles["file"])
+            await ctx._call("filesystem.fsync", handle=handles["directory"])
+            await ctx._call("filesystem.close", handle=handles["file"])
+            await ctx._call("filesystem.closedir", handle=handles["directory"])
+        elif group.startswith("unsigned-"):
             part = int(group.removeprefix("unsigned-"))
             assert 0 <= part < 3
             values = ("", "+1", "-1", "1.5", " 1", "1e3", "１２", "1x", "18446744073709551616")

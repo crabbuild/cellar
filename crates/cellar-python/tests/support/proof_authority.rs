@@ -44,7 +44,10 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
 }
 
 pub(super) fn filesystem(barrier: &str, fence: bool, handoff: bool) -> Result<()> {
-    ensure!(matches!(barrier, "fsync" | "fdatasync" | "sync" | "output"));
+    ensure!(matches!(
+        barrier,
+        "fsync" | "dirsync" | "fdatasync" | "sync" | "output"
+    ));
     scenario(
         if barrier == "output" {
             "output"
@@ -363,10 +366,14 @@ fn scenario(
                 ensure!(retired["failure"].is_null(), "proof waiter failed after retirement: {retired}");
                 if filesystem && kind == "sync" {
                     let failure = &retired["barrier_failure"];
+                    let operation = match barrier.as_deref().context("filesystem barrier")? {
+                        "dirsync" => "fsync",
+                        operation => operation,
+                    };
                     let cancellation = failure["type"] == "CancelledError" && failure["code"] == "Cancelled" && failure["errno"].is_null();
                     let native = failure["code"] == "Storage" && failure["errno"] == "EIO";
                     ensure!((cancellation || native) && failure["outcome"] == "unknown" && failure["completed_bytes"] == 0
-                        && failure["operation"] == format!("filesystem.{}", barrier.as_deref().context("filesystem barrier")?),
+                        && failure["operation"] == format!("filesystem.{operation}"),
                         "proof waiter lost its admitted outcome: {failure}");
                 }
                 // Opening real transports after revocation cannot resurrect a

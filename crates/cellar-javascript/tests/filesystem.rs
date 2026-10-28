@@ -19,8 +19,9 @@ mod readonly;
 
 fn source() -> String {
     format!(
-        "const filesystemReservedCases = {};\n{}\n{}\n{}\n{}\n{}\n{}",
+        "const filesystemReservedCases = {};\nconst filesystemHandleCases = {}.cases;\n{}\n{}\n{}\n{}\n{}\n{}",
         include_str!("../../cellar/tests/support/filesystem_reserved_paths.json"),
+        include_str!("../../cellar/tests/support/filesystem_handle_cases.json"),
         include_str!("../../../packages/cellar-sdk/index.js").replace("export ", ""),
         include_str!("../../../packages/cellar-sdk/filesystem-tools.js")
             .replace("import { bytesToBase64, utf8 } from \"./index.js\";", "")

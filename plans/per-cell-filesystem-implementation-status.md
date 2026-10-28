@@ -40,10 +40,31 @@ multipart replacement, bounded orphan reclamation after reopen, irrevocable
 expiry and hard-cutover refusal. The first follow-up run passed 41 of 42 checks
 but exposed maintenance running before the instrumented writer boundary;
 maintenance now follows publication, and the unchanged timing regression passes.
-Full native/guest/fleet qualification and final CI are still in progress. This
+The native public API harness passes all three cases; the filesystem fleet
+filter passes seven cases, with four opt-in scenarios excluded from that filter.
+Separate dense 10 MiB, 100 MiB and 1 GiB profiles all pass on one executable,
+including cold recovery, append, edit, truncate and receipt verification. The
+largest observed lease writer-admission wait across those profiles is 23.8 ms,
+compared with 1.23 seconds in the failing reproduction. The GiB profile samples
+2.20 GiB process RSS; it is neither a hard memory bound nor an optimized capacity
+claim. Final guest/fleet qualification and CI remain in progress. This
 evidence does not attribute every earlier RPC or container lease failure to the
 large-body interval. Raw logs and frozen before-fix executable identity are in
 the checkout target's `qualification/primitive-release-20261028/` directory.
+
+The guest handle audit subsequently reproduces a successful `closedir` on a
+live file token through the real Node host. The dispatcher now checks descriptor
+kind and removes a token under one registry lock; wrong-kind close calls retain
+the descriptor and its slot. `fdatasync` dispatches only to a file. The shared
+[16-case profile](per-cell-filesystem-conformance.md#guest-handle-kind-profile)
+checks typed, no-effect refusals and exact retained state through all guest
+runtimes. The Python proof suite also gains directory `fsync` under deadline and
+fencing interruption with both Preserve and Handoff, matching the existing
+JavaScript barrier family. These follow-up executions are pending at this
+checkpoint. TypeScript declaration checks, JavaScript reply-validation,
+documentation and JavaScript formatting checks pass locally. Clippy identified
+two new test timeouts using Tokio directly; they now use the owning execution
+domain's clock API and await strict lint revalidation.
 
 ## Release disposition
 

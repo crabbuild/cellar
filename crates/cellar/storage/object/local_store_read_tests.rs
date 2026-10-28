@@ -385,7 +385,7 @@ async fn large_body_keeps_lease_cas_progress_and_atomic_visibility() -> Result<(
                     )
                     .await
             })?;
-            tokio::time::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
+            crate::asyncrt::timeout(Duration::from_secs(5), gate.entered.notified()).await?;
             let before = store.get(&key).await?.bytes().await?;
             let lease_store = store.clone();
             let mut renewal = crate::asyncrt::try_spawn(async move {
@@ -401,7 +401,7 @@ async fn large_body_keeps_lease_cas_progress_and_atomic_visibility() -> Result<(
                     )
                     .await
             })?;
-            let observed = tokio::time::timeout(Duration::from_millis(333), &mut renewal).await;
+            let observed = crate::asyncrt::timeout(Duration::from_millis(333), &mut renewal).await;
             let timely = observed.is_ok();
             gate.release();
             writer.await??;

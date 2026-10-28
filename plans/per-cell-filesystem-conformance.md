@@ -275,6 +275,27 @@ marker does not establish the effect outcome of an enclosing cell fetch.
 These selected cases do not complete every option/precedence combination or
 post-dispatch result, cancellation, domain and fault profile.
 
+## Guest handle-kind profile
+
+The shared [handle cases](../crates/cellar/tests/support/filesystem_handle_cases.json)
+drive the `wire-handles` route through Node, embedded V8 and both Python ABIs.
+These are valid wire requests with live tokens of the wrong descriptor kind,
+distinct from malformed arguments and closed or foreign handles.
+
+| Token supplied | Operations that must refuse with EBADF |
+| --- | --- |
+| Directory | `close`, `fdatasync`, `read`, `pread`, `write`, `pwrite`, `lseek`, `ftruncate`, `fchmod`, `dup` |
+| File | `closedir`, `readdir`, `read_page`, `telldir`, `seekdir`, `rewinddir` |
+
+All 16 refusals must retain the outer operation, `not_committed` and zero
+confirmed bytes. Each assertion compares file bytes, file/directory metadata,
+usage, both file offsets and both directory cookies. The four-slot host limit
+must remain exhausted after every refusal, so an invalid close cannot silently
+release a handle. Positive controls then require file `fdatasync`, directory
+`fsync` and each correctly typed close to succeed. Rust's separate `File` and
+`Directory` types make these wrong-kind calls unavailable in its public API.
+Execution evidence belongs in the status ledger.
+
 ## Guest reply-validation profile
 
 The shared [reply inventory](../crates/cellar/tests/support/filesystem_reply_cases.json)
@@ -388,6 +409,17 @@ qualify external-store outages, physical network faults, process crashes, byte-I
 cancellation, retained-wrapper handoff shutdown, closed domains generally, or the
 corresponding Node/V8 proof profiles. Executed ABIs and frozen executable/source
 identities belong in the implementation status ledger.
+
+### Directory proof parity
+
+The Python bridge also registers `dirsync` in both the proof and handoff modes,
+with deadline and owner-fencing interruption. This adds four cases per ABI to
+the existing 17-case filesystem proof suite. It invokes the retained directory's
+public `fsync`; errors must identify `filesystem.fsync`, with the same admitted
+unknown outcome and zero byte progress as the file barrier. The original
+file/state/receipt, stale-wrapper, host-slot, cold-recovery and joined-cleanup
+assertions remain enabled. These cases run in the ordinary Python bridge suite;
+executed results and artifact identities belong in the status ledger.
 
 ## Python handoff and closed-domain profile
 
