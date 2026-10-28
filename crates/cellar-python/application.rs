@@ -395,7 +395,7 @@ impl PythonApplication {
                     if let Some(refusal) = self
                         .source
                         .rpc
-                        .refusal_after_factory(class, &method, &args)?
+                        .refusal_in_context(&context, class, &method, &args)?
                     {
                         return Ok(Output::Rpc(refusal));
                     }
@@ -404,11 +404,7 @@ impl PythonApplication {
                         .rpc
                         .provider(class, &method)
                         .ok_or_else(|| anyhow::anyhow!("undeclared Python RPC method"))?;
-                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
-                        &args,
-                        contract.limits().max_message_bytes,
-                    )?;
-                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    let mut prepared = Prepared::from_context(&context, contract, &method, &args)?;
                     body = prepared.take_request();
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
@@ -448,7 +444,8 @@ impl PythonApplication {
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
         let mut payload = serde_json::to_string(
-            &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
+            &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity,
+                "rpc_limits":self.source.rpc.invocation_limits(&context)}),
         )?;
         if let Some(keys) = class
             .as_ref()

@@ -49,6 +49,32 @@ impl Prepared {
         })
     }
 
+    /// Prepare with the current host's provider policy, including when a
+    /// language application is wrapped by a stricter composed application.
+    #[doc(hidden)]
+    pub fn from_context(
+        context: &Context,
+        fallback: Arc<Contract>,
+        method: &str,
+        args: &RpcData,
+    ) -> Result<Self, Failure> {
+        context
+            .check_turn()
+            .map_err(|_| Failure::new(Code::ContextExpired))?;
+        let declared = context.identity().and_then(|identity| {
+            context
+                .rpc_catalog
+                .as_ref()?
+                .provider(&identity.class, method)
+        });
+        let contract = declared.unwrap_or_else(|| fallback.clone());
+        if contract.descriptor() != fallback.descriptor() {
+            return Err(Failure::new(Code::ContractMismatch));
+        }
+        let (digest, bytes) = super::decode_envelope(args, contract.limits().max_message_bytes)?;
+        Self::new(contract, method, digest, bytes)
+    }
+
     pub fn method(&self) -> &Method {
         &self.method
     }
