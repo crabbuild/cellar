@@ -21,9 +21,9 @@ external-store behavior, workload capacity or recovery objectives.
 | FS-00: context/POSIX contract | Implemented | [API contract](per-cell-filesystem-api.md), explicit capabilities and unsupported facilities |
 | FS-01: SQLite storage | Implemented with bounded recovery evidence | Chunk/namespace/accounting/rollback tests and dense cold recovery through 1 GiB; fault and resource qualification below remains open |
 | FS-02: native primitive | Implemented | Context and exact transaction views, descriptors, byte paths, permissions, quotas and proof barriers; the operation audit retains explicit coverage limits |
-| FS-03: guest and agent APIs | Implemented | Node/V8/Python facades, checked atomic effects, saved reads and receipt-based replay; final installed artifacts require their own evidence |
+| FS-03: guest and agent APIs | Implemented | Node/V8/Python facades, checked atomic effects, saved reads and receipt-based replay; integrated macOS development packages now pass the installed profiles below |
 | FS-04: lifecycle and faults | Partially qualified | Local/native/guest retirement, development-bucket recovery and selected real peer cuts pass; complete remaining error/lifetime, external-store/disk and sustained reclamation profiles |
-| FS-05: production release | Open | Final packages, supported-target CI and a measured deployment capacity/failure envelope |
+| FS-05: production release | Open | Optimized artifacts, supported-target CI and a measured deployment capacity/failure envelope |
 | FS-06: additional capabilities | Optional later work | Links, locks, wider metadata and object-backed content require separate contracts and qualification |
 
 The [release priorities](#release-priorities) and
@@ -92,6 +92,33 @@ joined bridge gauges. Artifacts at this checkpoint precede the `5998b82c` main
 integration below. They retain their source scope while fresh integrated
 artifact/target checks proceed.
 
+## Installed integrated-package checkpoint
+
+The [installed-package report](../tools/perf/results/2026-10-28-filesystem-installed-packages.md)
+refreshes session, Pi, Vercel and both Python ABI packages with the native host
+integrated against main at `5998b82c`. All five local development-package profiles
+pass after their original runtime prefixes are moved aside. Each restores its
+verified archive and runs the captured production entry. Python verifies actual
+GIL state before and after both file-commit and saved-read recovery cuts.
+
+The new installed Vercel profile uses the production OpenAI adapter against a
+private HTTP model fixture. Two cells recover exact edited inode/version/bytes
+and all seven pre-crash receipts, including saved original reads. A third task
+verifies new-owner writes; all three finish with 27 receipts and 15 saved model
+decisions. Twelve duplicate submissions leave complete results and provider-call
+counts unchanged. Direct SQLite inspection verifies the final delete effects
+before host shutdown. The host and provider then join. CI registers this exact
+profile and uploads its observations.
+
+An attempted post-shutdown SQLite sample found fewer task databases than
+expected. Closing replication can rename/remove live database paths, so the
+final fixture checks the completed resident state before shutdown and verifies
+joined cleanup separately. The failed observation is preserved; production
+code, deletion assertions and budgets are unchanged. Pi's installed profile
+still covers its ordinary task, while its file-tool tests retain their separate
+source-entry scope. These macOS development builds do not establish optimized
+artifact, Linux, physical-fault or deployment-load qualification.
+
 ## PR integration baseline
 
 The release-candidate integration is pinned to fetched `origin/main` at
@@ -118,10 +145,10 @@ evidence, without a hard memory or production latency guarantee.
 
 Strict combined five-crate all-target Clippy passes. Formatting/layout cover
 1,387 Rust files; 128 JavaScript sources need no formatting. The native graph
-retains 482 packages without a JavaScript engine. Final integrated packages,
-supported-target CI and the remaining contract/fault/performance audit stay
-open. Completed earlier checkpoints retain their captured source and artifact
-scope.
+retains 482 packages without a JavaScript engine. The installed-package
+checkpoint above supplies fresh local development artifacts. Optimized artifacts,
+supported-target CI and the remaining contract/fault/performance audit stay open.
+Completed earlier checkpoints retain their captured source and artifact scope.
 
 ### Main at 3ffbadcc checkpoint
 
@@ -999,7 +1026,7 @@ below remain the acceptance checklist.
 | --- | --- | --- |
 | P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
-| P1 | Qualify final packages and supported runtime/ABI targets | Fresh Node agent captures, final-source Python captures, absent-runtime restoration, cold recovery and passing affected-feature CI |
+| P1 | Qualify optimized artifacts and supported runtime/ABI targets | Integrated macOS development captures now pass; exact deployment profiles and Linux/ABI CI still require evidence |
 | P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
 | P2 | Consider additional capability profiles after the core baseline | Separate workload justification and contracts for links/locks/wider metadata or object-backed content; independent conformance before advertising support |
 
@@ -1034,27 +1061,19 @@ independent of these primitive release priorities.
    Python coroutine cancellation now covers both helpers at four suspension
    phases and four direct byte APIs, with exact native progress and local-reopen
    receipts. This is distinct from physical byte-reply loss.
-2. Finish final captured-runtime/package qualification across the supported ABI
-   matrix. Vercel/Pi/Python tool parity and cold recovery now have local evidence;
-   the Python run used a staged native package plus host runtime/dependencies.
-   The session example's captured artifact has been refreshed and restored with
-   its capture directory unavailable, with actual predecessor-data removal.
-   Explicit uncertain-outcome, resume/abandon and busy-abandon now have local
-   Node source-entry evidence for both committed and uncommitted effects.
-   Captured Python-agent packages include both 3.14.5 ABI variants on macOS
-   arm64 before the main-branch integration, with absent-prefix restoration,
-   cold agent recovery and direct SDK-mode evidence. The Node session package
-   and nine-case source-entry host have now been refreshed against the PR's
-   integrated sources, including helper preflight normalization. Final
-   Node captures and Python hosts must also include the subsequent guest error
-   and argument fixes. Final Pi/Vercel captures and the corresponding Linux CI/target
-   gates remain unverified.
-   The newer `542e5e89` checkpoint restores absent session/Pi/Python runtimes and
-   tests both Python ABIs with the cancellation fix. Vercel's staged capture and
-   S3 source-entry drill retain their separate scope. The `5998b82c` integration
-   still needs final installed artifacts and supported-target CI.
-   Finish the remaining agent captures and supported target/ABI matrix. The production-entry
-   restore case and qualification-only fault cases retain their distinct scopes.
+2. Complete optimized artifact and supported-target package qualification. The
+   [integrated installed-package checkpoint](#installed-integrated-package-checkpoint)
+   now restores fresh session/Pi/Vercel and CPython 3.14.5 GIL/free-threaded
+   packages from absent original prefixes on macOS arm64. The session, Vercel
+   and Python profiles exercise cell files and receipts through cold recovery;
+   Pi's installed profile covers its ordinary production task, with filesystem
+   tools separately exercised through source-entry fixtures. The final installed
+   Vercel profile verifies exact saved receipts, edited file identity/bytes,
+   deletion and duplicate suppression through the production provider adapter.
+   These are development builds on a local development bucket. Optimized
+   deployment artifacts, Linux/ABI CI and installed external-store fault profiles
+   remain open; source-entry S3 evidence does not substitute for those scopes.
+
 3. Complete the maintenance stress/fault matrix. Pending-work cold recovery,
    pinned-orphan fairness and reclamation above a lowered quota now have the
    bounded backend and real-node evidence above. The bounded native load case
@@ -1110,7 +1129,7 @@ independent of these primitive release priorities.
    The same native scenario now passes over actual S3 I/O beneath supplied-client
    fault gates, including on the `5998b82c` integration. Physical socket/network,
    credential-expiry and host-disk behavior remain separate.
-7. Finish final packaged-example delivery and affected-feature checks;
+7. Complete optimized packaged-example delivery and affected-feature CI;
    run affected Rust/guest tests and strict Clippy, formatting/layout/native
    dependency checks, declarations and documentation links against final sources.
    SDK guides, example catalog and Node CI registration have been added.

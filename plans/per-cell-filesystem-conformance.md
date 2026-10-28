@@ -21,6 +21,7 @@ Executed suites and qualification limits belong in the
 | Budget | [Node](../crates/cellar-javascript/tests/support/filesystem-budget.js) and [Python](../crates/cellar-python/tests/filesystem_budget.py): short transfers, encoded pages and receipt/checkpoint admission |
 | Lost replies | [Node IPC harness](../crates/cellar-javascript/tests/filesystem_io.rs): real successful byte replies withheld through native cancellation, reconciliation and cold recovery |
 | Python task cancellation | [Python coroutine fixture](../crates/cellar-python/tests/filesystem_cancellation.py): real native byte calls, cancelled waits, exact confirmed prefixes and local reopen |
+| Installed Vercel | [Production-package harness](../crates/cellar-javascript/tests/support/fleet_package_vercel.rs): restored runtime archive, model HTTP boundary, proven edit/receipt cut and empty-local-state recovery |
 | Backend | [SQLite tests](../crates/cellar/storage/sqlite/filesystem_tests.rs): persistent-table comparisons, chunk/GC invariants, quotas and exhaustion |
 
 Rust uses snake_case names. The JavaScript facade uses camelCase where the SDK
@@ -93,6 +94,18 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O50 | `fs.collect_garbage()` | Backend checks pins, discarded revisions and quota retention; native/guest hosts check automatic maintenance/restart; Read-only refuses explicit application GC |
 | O51 | Guest `storage.apply` file checks/effects | Native batch validation checks identity/version; Guests check conflict and rollback after a preceding file mutation; file effects/receipts/checkpoints commit together |
 | O52 | Durable-agent read/write/edit/list/search/rename/delete | Guest tool profiles check results, saved reads, conflicts, stable IDs, request snapshots and receipt caps. Directory-edit refusals replay after namespace deletion and host restart; process crash evidence remains separately scoped in the ledger |
+
+The installed Vercel profile exercises O52 through the captured production entry
+and its installed OpenAI adapter, using a private HTTP model fixture. The fixture
+holds the next provider response only after two isolated cells have proved their
+edit, rename and seven receipts. The predecessor is killed and its local data
+deleted. An empty replacement must retain exact edited inode/version/bytes and
+all seven saved receipts, including the original read; it completes nine tools
+and five saved decisions per task. A third task verifies new-owner writes, and
+twelve duplicate submissions preserve results and provider-call counts. Direct
+SQLite inspection verifies final deletion before joined shutdown. The recovery
+source is the development bucket. Installed external-store, physical
+fault, streaming-provider and deployment-capacity profiles remain separate.
 
 ## Directory-relative authority profiles
 

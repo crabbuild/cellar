@@ -20,6 +20,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "support/fleet_package_vercel.rs"]
+mod vercel;
+
 struct Node {
     process: Child,
     log: PathBuf,
@@ -39,6 +42,16 @@ impl Drop for Node {
 
 impl Node {
     async fn start(root: &Path, name: &str, bucket: &Path, program: &Path) -> Result<Self> {
+        Self::start_with_env(root, name, bucket, program, &[]).await
+    }
+
+    async fn start_with_env(
+        root: &Path,
+        name: &str,
+        bucket: &Path,
+        program: &Path,
+        environment: &[(&str, String)],
+    ) -> Result<Self> {
         let log = root.join(format!("{name}.log"));
         let stdout = File::create(&log)?;
         // Listener announcements are stdout data. Merging stderr into the
@@ -65,6 +78,9 @@ impl Node {
             .env("RUST_LOG", "warn")
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
+        for (key, value) in environment {
+            command.env(key, value);
+        }
         command
             .env("CELLAR_NATIVE_FLEET", "1")
             .env("CELLAR_BUCKET", "cellar-dev")

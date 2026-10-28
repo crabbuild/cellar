@@ -334,6 +334,34 @@ cargo run --locked -p cellar -- build examples/vercel-agent/project.json \
   --output .cellar/vercel-agent-package
 ```
 
+Qualify that installed package with its original runtime prefix absent:
+
+```sh
+mv .cellar/vercel-agent-runtime .cellar/vercel-agent-runtime-captured
+CELLAR_VERCEL_PACKAGE="$PWD/.cellar/vercel-agent-package" \
+  cargo test --locked -p cellar-javascript --no-default-features --features node \
+    --test fleet_package vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts \
+    -- --exact --ignored --nocapture
+```
+
+The test publishes and restores the verified archive, then boots the packaged
+production entry without source-entry overrides. A private HTTP model fixture
+supplies decisions through the installed OpenAI provider adapter; it uses no
+paid service or real credentials. Two cells prove their file edit, rename and
+seven tool receipts before the next model response is held. The test kills the
+host, inspects and deletes its local state, then starts an empty replacement.
+Recovery must preserve each edited inode/version/content and all seven original
+receipts, including the saved pre-edit read. Both tasks finish, a new task writes
+under the replacement owner, and twelve duplicate submissions preserve the full
+results without more provider calls. Direct SQLite inspection before shutdown
+also verifies all completed delete receipts have no linked regular files; the
+replacement host and fixture server are then joined.
+`CELLAR_VERCEL_PACKAGE_REPORT` optionally names a JSON evidence file.
+
+This is an installed-package recovery profile on the development bucket. It
+does not qualify a real model service, external storage failures or deployment
+throughput. The source-entry S3 drill above retains its separate scope.
+
 Use a fresh immutable runtime prefix at the same absolute path on build and
 serving machines. The [Node delivery guide](../node/README.md#native-fleet-packaging-and-installation)
 covers inventory verification, publication, installation and `--node-root`.

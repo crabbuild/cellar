@@ -231,5 +231,21 @@ jobs:
           cargo run --locked -p cellar -- build examples/filesystem-agent/project.json --output .cellar/filesystem-agent-package
           mv .cellar/filesystem-agent-runtime .cellar/filesystem-agent-runtime-captured
           CELLAR_FS_PACKAGE="$PWD/.cellar/filesystem-agent-package" cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package filesystem_agent_package -- --ignored --nocapture
+      - name: Vercel installed package and filesystem recovery
+        run: |
+          node tools/javascript/node-package.mjs --runtime examples/vercel-agent/runtime.json .cellar/vercel-agent-runtime
+          cargo run --locked -p cellar -- build examples/vercel-agent/project.json --output .cellar/vercel-agent-package
+          mv .cellar/vercel-agent-runtime .cellar/vercel-agent-runtime-captured
+          CELLAR_VERCEL_PACKAGE="$PWD/.cellar/vercel-agent-package" \
+            CELLAR_VERCEL_PACKAGE_REPORT="$RUNNER_TEMP/vercel-installed-filesystem.json" \
+            cargo test --locked -p cellar-javascript --no-default-features --features node --test fleet_package \
+              vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts -- --exact --ignored --nocapture
+      - name: Preserve installed filesystem recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-installed-filesystem-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/vercel-installed-filesystem.json
+          if-no-files-found: ignore
       - name: SDK archive
         run: npm pack ./packages/cellar-sdk --pack-destination .cellar --ignore-scripts
