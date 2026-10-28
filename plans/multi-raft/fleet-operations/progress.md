@@ -1,5 +1,42 @@
 # Fleet operations implementation progress
 
+## Deployed single-node recovery restores RF3 under writes
+
+Source `5b939c1c3e17128dba57dbe80e837d034a28ca77`, including the inspection
+correction at `5ecb0a45`, passes the repeated five-node Colima recovery campaign.
+The source-matched Linux image uses the unchanged 1-CPU/3-GiB node limits,
+1-GiB extent inventories and bounded storage policy. All five nodes reach Active;
+all 15 cells form RF3 groups. The first topology preflight runs before elections
+finish and admits no command. A retained subsequent inspection finds exactly
+one ready leader per cell before the write campaign proceeds. All 30 initial
+writes and all 45 replica/version/archive readbacks pass.
+
+After the exact node-5 container is killed, the owned controller detects its
+failed connection, roots exclusion, reconciles Docker isolation and settles all
+nine replacement movements. It verifies all 15 histories and reaches terminal
+Removed at catalog revision 74. The campaign completes in approximately 90
+seconds while confirming another 1,320 writes. All 1,350 total commands reach
+their expected values. Two ambiguous HTTP 503 replies reconcile using their
+original command IDs and retry deadlines; none remain unresolved. Independent
+final inspection verifies RF3 without node 5, and all 45 replicas pass
+minimum-version reads and archive-index catch-up.
+
+All four surviving native owners join shutdown with exit zero, no omitted
+groups, no unfinished work and no lagging or unknown archives. RustFS also exits
+zero; the deliberately crashed node retains exit 137. All seven fixture
+containers, every volume/backing file and the complete request/observation/log
+records remain retained outside build/runtime directories. No raw evidence is
+included in the PR.
+
+This closes the small shared-VM single-failure integration gate. It does not
+qualify independent-host availability, 500-cell density, sustained TPS/p99,
+maintenance/return, repeated or multiple failures, controller interruption in
+deployment, workload balancing, desired capacity/resize or soak. FO-04/06/07/08/10
+retain their broader acceptance items; FO-05/09 remain pending. Next feature
+delivery should wire the existing intact prepare/stop/return/resume contracts
+into the managed deployment, then address second-failure/grace policy,
+workload-aware leadership and desired capacity changes.
+
 ## Deliver failed connection observations before outer cancellation
 
 Cell and node inspection now bound TCP connection attempts to half the remaining
