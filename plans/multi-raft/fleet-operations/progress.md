@@ -49,6 +49,26 @@ refused managed placement. Both storage modes promote the learner and retire the
 old voter before their first S3-acknowledged SQL command, with exactly one callback.
 The pre-fix extent case refused activation; no safety assertion or bound changed.
 
+Source `a4312bff4599bba8ad110614e9a467a4d9502a39` integrates main
+`3ffbadcc5e4a7bf938771ee514c2205402e6379e`, including the bounded archive
+physical-job scheduler and buffered extent imports. Merge resolution preserves
+independent per-cell archive completion and the shared physical job limit.
+The merged source passes **1,021 distinct selected cases**: 881 library,
+35 native fleet, nine CLI, two extent-host, 32 rooted archive, seven extent seed,
+17 admin-console, 13 catalog and 25 membership-permit cases. All-target
+host/admin Clippy passes. Format/layout, native dependency rules, documentation,
+ten plan tests, the 458-case manifest and preflight against 102 source anchors
+pass. The manifest validates the acceptance inventory; it does not claim every
+planned scenario has executed. The audit matches **1,717 frozen Rust/Cargo/config
+inputs**, retained executable hashes and passing result hashes to that code
+commit. The final cohorts execute the actual CLI restart, populated-image
+movement/removal, namespace import, cold empty replacement and failed/cancelled
+independent archive verification. Three RustFS-only cases are explicitly skipped.
+Artifacts are retained outside runtime data under
+`qualification/fleet-operations/extent-fleet-main-v1/`. These are selected local
+functional checks; no full-CI, repeatability, large-fleet or deployment pass is
+claimed. Earlier failures remain retained separately.
+
 Earlier finalization cohorts exposed intermittent catalog confirmation and
 five-second terminal-resume waits. The unchanged catalog case passed alone and
 in its complete three-case archive cohort. A broader 14-case operator execution
