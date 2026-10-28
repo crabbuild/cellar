@@ -81,7 +81,7 @@ pub use fleet_observation::{FleetMembershipConfiguration, FleetMembershipObserva
 #[path = "host_fleet_cut.rs"]
 mod fleet_cut;
 pub(crate) use fleet_cut::Publication;
-pub use fleet_cut::{FleetPublishedCut, FleetPublishedImage};
+pub use fleet_cut::{FleetImageState, FleetPublishedCut, FleetPublishedImage};
 #[path = "host_fleet_inspection.rs"]
 mod fleet_inspection;
 pub use super::fleet_inspection_wire::RaftPeerFleetMembershipObservation;
@@ -467,7 +467,9 @@ async fn initialize(
     let peer_count = peers.len();
     let mut peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
-        let needs_extents = registrations.iter().any(|registration| {
+        let needs_extents = declared_namespaces.iter().any(|registration| {
+            registration.namespace.config().image_storage == RaftImageStorage::Extents
+        }) || registrations.iter().any(|registration| {
             registration.namespace.config().image_storage == RaftImageStorage::Extents
                 && !matches!(
                     registration.placement,

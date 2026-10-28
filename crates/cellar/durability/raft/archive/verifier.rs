@@ -4,9 +4,13 @@
 //! existence, configuration, membership and activation remain separate gates.
 use super::{ArchiveError, EntryType, Image, MaterializedSet};
 use cellar_ltx::generation::{GenerationStore, ImageId};
+use cellar_ltx::internal::NodeExtentStore;
 use protobuf::Message as _;
 use sha2::{Digest, Sha256};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 /// One bounded scratch owner may verify many cells. The exclusively opened
 /// store must initially be empty; no pin from it escapes this owner. One fixed
@@ -15,6 +19,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Clone)]
 pub struct ArchiveVerifier {
     inner: Arc<Mutex<State>>,
+    extents: Option<Arc<ExtentScratch>>,
 }
 
 struct State {
@@ -194,6 +199,7 @@ impl ArchiveVerifier {
             return Err(ArchiveError::Invalid("archive verifier store is not empty"));
         }
         Ok(Self {
+            extents: None,
             inner: Arc::new(Mutex::new(State {
                 images,
                 nonce,
@@ -202,6 +208,47 @@ impl ArchiveVerifier {
                 memo: None,
             })),
         })
+    }
+
+    /// Configure a separate exclusively owned, initially empty inventory for
+    /// independent extent closure and SQLite validation. Never pass a live
+    /// producer/receiver inventory. Failed work must be reconciled after its
+    /// entered physical jobs have exited, before a new verification starts.
+    pub fn with_extent_store(mut self, store: NodeExtentStore) -> Result<Self, ArchiveError> {
+        let usage = store.usage().map_err(extent_error)?;
+        if self.extents.is_some()
+            || usage.bytes != 0
+            || usage.roots != 0
+            || usage.objects != 0
+            || usage.workspaces != 0
+            || usage.busy
+            || usage.quarantined
+        {
+            return Err(ArchiveError::Invalid("extent verifier store is not empty"));
+        }
+        self.extents = Some(Arc::new(ExtentScratch {
+            store,
+            busy: AtomicBool::new(false),
+            failed: AtomicBool::new(false),
+        }));
+        Ok(self)
+    }
+
+    pub(super) fn begin_extent(&self) -> Result<Arc<ExtentLease>, ArchiveError> {
+        let owner = self
+            .extents
+            .as_ref()
+            .ok_or(ArchiveError::Invalid("extent verifier inventory required"))?
+            .clone();
+        owner
+            .busy
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| ArchiveError::Unconfirmed)?;
+        let needs_recovery = owner.failed.swap(true, Ordering::AcqRel);
+        Ok(Arc::new(ExtentLease {
+            owner,
+            needs_recovery,
+        }))
     }
 
     pub(super) fn verify(&self, set: &MaterializedSet) -> Result<Replay, ArchiveError> {
@@ -303,3 +350,87 @@ impl ArchiveVerifier {
 #[cfg(test)]
 #[path = "verifier_tests.rs"]
 mod tests;
+
+struct ExtentScratch {
+    store: NodeExtentStore,
+    busy: AtomicBool,
+    failed: AtomicBool,
+}
+
+/// Held across remote loading and its entered physical jobs. Drop after a
+/// failure/cancellation releases contention but keeps scratch quarantined.
+pub(super) struct ExtentLease {
+    owner: Arc<ExtentScratch>,
+    needs_recovery: bool,
+}
+
+impl Drop for ExtentLease {
+    fn drop(&mut self) {
+        self.owner.busy.store(false, Ordering::Release);
+    }
+}
+
+fn extent_error(error: cellar_ltx::internal::StoreError) -> ArchiveError {
+    super::rooted::root_error(crate::raft::snapshot::SnapshotError::Extents(error))
+}
+
+impl ExtentLease {
+    pub(super) fn needs_recovery(&self) -> bool {
+        self.needs_recovery
+    }
+
+    // The last lease reference is retained by every entered inventory job.
+    // Acquiring the next lease therefore proves those jobs have all exited;
+    // only this scratch inventory may be reconciled, never a live node store.
+    pub(super) fn reconcile(
+        &self,
+        check: impl Fn() -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        let store = &self.owner.store;
+        store.retain_only(&[]).map_err(extent_error)?;
+        loop {
+            check()?;
+            let usage = store.usage().map_err(extent_error)?;
+            if usage.roots == 0 && usage.objects == 0 && usage.workspaces == 0 && usage.bytes == 0 {
+                break;
+            }
+            if store.reclaim(8).map_err(extent_error)? == 0 {
+                return Err(ArchiveError::Invalid(
+                    "extent verifier retained scratch objects",
+                ));
+            }
+        }
+        check()?;
+        Ok(())
+    }
+
+    pub(super) fn store(&self) -> NodeExtentStore {
+        self.owner.store.clone()
+    }
+
+    pub(super) fn finish(
+        &self,
+        set: Box<super::root_head::RootRecoverySet>,
+        check: impl Fn() -> Result<(), ArchiveError>,
+    ) -> Result<(), ArchiveError> {
+        check()?;
+        let store = &self.owner.store;
+        // Loading freshly reads every remote extent and independently seals
+        // SQLite in this initially empty inventory. Its pinned sealed owner is
+        // the physical proof; a root descriptor alone cannot reach this path.
+        if !store.same_inventory(&set.root.store)
+            || !store.owns_image(&set.root.image)
+            || set.root.snapshot() != set.metadata.snapshot.snapshot()
+            || crate::raft::rooted::marker::encode(&set.root.image)
+                != *set.metadata.snapshot.marker()
+        {
+            return Err(ArchiveError::Corrupt("extent verifier sealed owner"));
+        }
+        let reference = set.root.image.reference();
+        store.retire_root(reference).map_err(extent_error)?;
+        drop(set);
+        self.reconcile(&check)?;
+        self.owner.failed.store(false, Ordering::Release);
+        Ok(())
+    }
+}

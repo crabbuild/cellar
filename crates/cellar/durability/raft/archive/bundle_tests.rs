@@ -37,6 +37,7 @@ fn archive(id: u8) -> CellArchive {
         bundle_client: None,
         verification_deadline: None,
         root_store: None,
+        root_verification: None,
         image_storage: super::super::super::catalog::RaftImageStorage::Materialized,
     }
 }

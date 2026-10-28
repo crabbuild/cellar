@@ -152,6 +152,34 @@ impl ArchiveMetadata {
         }
     }
 
+    /// Tagged producer state and exact publication origin, without flattening
+    /// an extent root or inferring data position from a configuration snapshot.
+    pub fn published_image(
+        &self,
+    ) -> Result<Option<crate::raft::host::FleetPublishedImage>, ArchiveError> {
+        use crate::raft::host::{FleetImageState, FleetPublishedImage};
+        match &self.inner {
+            Metadata::Materialized(meta) => {
+                match (meta.manifest.image, meta.manifest.image_position) {
+                    (None, None) => Ok(None),
+                    (Some(image), Some(position)) => {
+                        FleetPublishedImage::new(position.decode()?, image.decode()?)
+                            .map(Some)
+                            .map_err(|_| ArchiveError::Corrupt("materialized publication"))
+                    }
+                    _ => Err(ArchiveError::Corrupt("materialized publication origin")),
+                }
+            }
+            Metadata::Rooted(meta) => FleetPublishedImage::new_state(
+                meta.head.image_position.decode()?,
+                FleetImageState::from_marker(meta.snapshot.marker())
+                    .map_err(|_| ArchiveError::Corrupt("extent publication marker"))?,
+            )
+            .map(Some)
+            .map_err(|_| ArchiveError::Corrupt("extent publication")),
+        }
+    }
+
     pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
         match &self.inner {
             Metadata::Materialized(meta) => manifest::decode_conf(&meta.manifest.conf_state),
@@ -262,6 +290,32 @@ impl ArchiveRecoverySet {
         }
     }
 
+    pub fn published_image(
+        &self,
+    ) -> Result<Option<crate::raft::host::FleetPublishedImage>, ArchiveError> {
+        use crate::raft::host::{FleetImageState, FleetPublishedImage};
+        match &self.inner {
+            Recovery::Materialized(set) => {
+                match (set.manifest.image, set.manifest.image_position) {
+                    (None, None) => Ok(None),
+                    (Some(image), Some(position)) => {
+                        FleetPublishedImage::new(position.decode()?, image.decode()?)
+                            .map(Some)
+                            .map_err(|_| ArchiveError::Corrupt("materialized publication"))
+                    }
+                    _ => Err(ArchiveError::Corrupt("materialized publication origin")),
+                }
+            }
+            Recovery::Rooted(set) => FleetPublishedImage::new_state(
+                set.metadata.head.image_position.decode()?,
+                FleetImageState::from_marker(set.metadata.snapshot.marker())
+                    .map_err(|_| ArchiveError::Corrupt("extent publication marker"))?,
+            )
+            .map(Some)
+            .map_err(|_| ArchiveError::Corrupt("extent publication")),
+        }
+    }
+
     pub fn tail_entries(&self) -> usize {
         match &self.inner {
             Recovery::Materialized(set) => set.entries.len(),
@@ -329,6 +383,18 @@ impl ArchiveRecoverySet {
             Recovery::Materialized(_) => {
                 Err(ArchiveError::Invalid("extent archive material required"))
             }
+        }
+    }
+
+    /// Canonical absence has no image commitment domain. Check the complete
+    /// empty payload/configuration shape before using it for an extent seed.
+    pub(crate) fn is_canonical_empty(&self) -> Result<bool, ArchiveError> {
+        match &self.inner {
+            Recovery::Materialized(set) if set.manifest.image.is_none() => {
+                set.check_payloads()?;
+                Ok(true)
+            }
+            _ => Ok(false),
         }
     }
 }
@@ -423,13 +489,16 @@ impl CellArchive {
         Ok(Some((metadata, bytes, version)))
     }
 
-    async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
+    pub(super) async fn load_metadata(
+        &self,
+        object: &ObjectRef,
+    ) -> Result<ArchiveMetadata, ArchiveError> {
         if object.kind != ObjectKind::Manifest || object.bundle.is_some() {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
         let bytes = self.get_object(object).await?;
         let rooted = bytes.get(8) == Some(&super::root_head::KIND);
-        if rooted != (self.image_storage == super::super::catalog::RaftImageStorage::Extents) {
+        if rooted && self.image_storage != super::super::catalog::RaftImageStorage::Extents {
             return Err(ArchiveError::Corrupt("archive image representation"));
         }
         if rooted {
@@ -439,14 +508,19 @@ impl CellArchive {
                     inner: Metadata::Rooted(Box::new(metadata)),
                 })
         } else {
-            self.decode_materialized_metadata(object, &bytes)
-                .map(|metadata| ArchiveMetadata {
-                    inner: Metadata::Materialized(Box::new(metadata)),
-                })
+            let metadata = self.decode_materialized_metadata(object, &bytes)?;
+            if self.image_storage == super::super::catalog::RaftImageStorage::Extents
+                && !metadata.canonical_empty()?
+            {
+                return Err(ArchiveError::Corrupt("archive image representation"));
+            }
+            Ok(ArchiveMetadata {
+                inner: Metadata::Materialized(Box::new(metadata)),
+            })
         }
     }
 
-    async fn load_recovery_material(
+    pub(super) async fn load_recovery_material(
         &self,
         metadata: ArchiveMetadata,
     ) -> Result<ArchiveRecoverySet, ArchiveError> {

@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_methods)]
 use super::retirement::{discover, reserve};
 use super::*;
+use crate::storage_fault as scratch_fault;
 use cellar::application::consensus::verification::{
     ArchiveError, ArchiveLimits, ArchiveReference, ArchiveVerifier, CellArchive,
     VerifiedArchiveCoverage,
@@ -34,7 +35,17 @@ struct Started {
 
 impl Started {
     async fn new() -> Result<Self> {
-        let f = Fixture::with_domains(true, true).await?;
+        Box::pin(Self::with_storage(RaftImageStorage::Materialized)).await
+    }
+
+    async fn with_storage(image_storage: RaftImageStorage) -> Result<Self> {
+        let f = Box::pin(Fixture::with_storage(
+            true,
+            true,
+            FleetReplicaSeparation::PhysicalHosts,
+            image_storage,
+        ))
+        .await?;
         let nodes = fleet(&f).await?;
         let (observer_root, observer_node, observer) = f.peer_host(7).await?;
         let (namespace, proposal, reservation) = reserved_birth(&f).await?;
@@ -62,7 +73,14 @@ impl Started {
             Arc::new(DirectFileSystem),
             GenerationLimits::default(),
         )?;
-        let verifier = ArchiveVerifier::new(scratch.clone(), ImageId::new([91; 16])?)?;
+        let mut verifier = ArchiveVerifier::new(scratch.clone(), ImageId::new([91; 16])?)?;
+        if image_storage == RaftImageStorage::Extents {
+            verifier = verifier.with_extent_store(cellar_ltx::internal::NodeExtentStore::open(
+                scratch_root.path().join("verify-extents"),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?)?;
+        }
         Ok(Self {
             f,
             nodes,
@@ -143,6 +161,16 @@ impl Started {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_archive_coverage_empty_and_data() -> Result<()> {
     let s = Started::new().await?;
+    Box::pin(empty_and_data(s)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_archive_coverage_empty_data_and_stale_retry() -> Result<()> {
+    let s = Box::pin(Started::with_storage(RaftImageStorage::Extents)).await?;
+    Box::pin(empty_and_data(s)).await
+}
+
+async fn empty_and_data(s: Started) -> Result<()> {
     let empty = s.cut().await?;
     ensure!(empty.image().is_none());
     let empty_ref = s.reference(&empty).await?;
@@ -160,7 +188,19 @@ async fn fleet_archive_coverage_empty_and_data() -> Result<()> {
     let first_ref = s.reference(&first).await?;
     let first_proof = s.verify(&first_ref, &first).await?;
     ensure!(first_proof.covers(&empty)?);
-    ensure!(first_proof.image_state().unwrap().digest == first.image().unwrap().digest());
+    ensure!(first_proof.image_state() == Some(first.image().unwrap().state()));
+    if s.f.declaration.namespace.image_storage == RaftImageStorage::Materialized {
+        ensure!(
+            first_proof.image_state().unwrap().materialized()?.digest
+                == first.image().unwrap().digest()?
+        );
+    } else {
+        ensure!(matches!(
+            first_proof.image_state().unwrap().commitment(),
+            cellar::application::consensus::ImageCommitment::Extents(_)
+        ));
+        ensure!(first.image().unwrap().digest().is_err());
+    }
     ensure!(s.verify(&empty_ref, &empty).await?.image_state().is_none());
     ensure!(!proof.covers(&first)?);
 
@@ -178,13 +218,14 @@ async fn fleet_archive_coverage_empty_and_data() -> Result<()> {
             )
             .await?;
     ensure!(matches!(stale, Err(ArchiveError::Unconfirmed)));
+    ensure!(s.verify(&newer_ref, &newer).await?.covers(&newer)?);
     ensure!(s.f.calls.load(Ordering::Acquire) == 2);
     s.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_archive_coverage_configuration_and_replay_failure() -> Result<()> {
-    let mut s = Started::new().await?;
+    let s = Started::new().await?;
     write_read(&s.f, &s.cells, 1, 4, 4).await?;
     let before = s.cut().await?;
     let reference = s.reference(&before).await?;
@@ -224,6 +265,36 @@ async fn fleet_archive_coverage_configuration_and_replay_failure() -> Result<()>
         Err(ArchiveError::Invalid("archive verifier requires recovery"))
     ));
 
+    Box::pin(configuration_and_restore(s, before, reference, proof)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_archive_coverage_preserves_origin_through_configuration_and_restore(
+) -> Result<()> {
+    let s = Box::pin(Started::with_storage(RaftImageStorage::Extents)).await?;
+    write_read(&s.f, &s.cells, 1, 4, 4).await?;
+    let before = s.cut().await?;
+    let reference = s.reference(&before).await?;
+    let proof = s.verify(&reference, &before).await?;
+    ensure!(
+        proof.image_position()
+            == s.f
+                .domain
+                .run(s.archive.recovery_metadata())
+                .await??
+                .context("published root metadata")?
+                .published_image()?
+                .map(|image| image.position())
+    );
+    Box::pin(configuration_and_restore(s, before, reference, proof)).await
+}
+
+async fn configuration_and_restore(
+    mut s: Started,
+    before: FleetPublishedCut,
+    reference: ArchiveReference,
+    proof: VerifiedArchiveCoverage,
+) -> Result<()> {
     let p = primary(&s.f, &s.cells).await?;
     let (_, permit) = reserve(
         &s.f,
@@ -300,7 +371,17 @@ impl Drop for Release {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_archive_coverage_selected_reference_and_deadline() -> Result<()> {
-    let mut s = Started::new().await?;
+    let s = Started::new().await?;
+    Box::pin(selected_reference_and_deadline(s)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_archive_coverage_selected_reference_deadline_and_retry() -> Result<()> {
+    let s = Box::pin(Started::with_storage(RaftImageStorage::Extents)).await?;
+    Box::pin(selected_reference_and_deadline(s)).await
+}
+
+async fn selected_reference_and_deadline(mut s: Started) -> Result<()> {
     let _release = Release(s.f.store.clone());
     write_read(&s.f, &s.cells, 1, 4, 4).await?;
     let before = s.cut().await?;
@@ -386,5 +467,87 @@ async fn fleet_archive_coverage_selected_reference_and_deadline() -> Result<()> 
     ));
     ensure!(s.verify(&newer, &after).await?.reference() == &newer);
     ensure!(s.f.calls.load(Ordering::Acquire) == 2);
+    s.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_archive_coverage_requires_fresh_complete_remote_closure() -> Result<()> {
+    let mut s = Box::pin(Started::with_storage(RaftImageStorage::Extents)).await?;
+    write_read(&s.f, &s.cells, 1, 4, 4).await?;
+    let minimum = s.cut().await?;
+    let reference = s.reference(&minimum).await?;
+    stop(std::mem::take(&mut s.nodes)).await?;
+    ensure!(s.verify(&reference, &minimum).await?.covers(&minimum)?);
+    let objects = s.f.store.inner.list(None).try_collect::<Vec<_>>().await?;
+    let mut removed = Vec::new();
+    for object in objects
+        .iter()
+        .filter(|o| o.location.as_ref().contains("/root-extents/"))
+    {
+        let bytes = s.f.store.inner.get(&object.location).await?.bytes().await?;
+        s.f.store.inner.delete(&object.location).await?;
+        removed.push((object.location.clone(), bytes));
+    }
+    ensure!(!removed.is_empty());
+    let result =
+        s.f.domain
+            .run(
+                s.archive
+                    .verify_published_at(&reference, &minimum, &s.verifier, TIMEOUT),
+            )
+            .await?;
+    ensure!(matches!(
+        result,
+        Err(ArchiveError::Corrupt("missing root archive extent"))
+    ));
+    // Restore fixture-owned immutable bytes only after observing refusal. The
+    // next attempt must reconcile failed scratch and re-read the full closure.
+    for (path, bytes) in removed {
+        s.f.store.inner.put(&path, bytes.into()).await?;
+    }
+    ensure!(s.verify(&reference, &minimum).await?.covers(&minimum)?);
+    s.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_archive_cancelled_waiter_keeps_scratch_until_entered_io_exits() -> Result<()>
+{
+    let mut s = Box::pin(Started::with_storage(RaftImageStorage::Extents)).await?;
+    write_read(&s.f, &s.cells, 1, 4, 4).await?;
+    let minimum = s.cut().await?;
+    let reference = s.reference(&minimum).await?;
+    stop(std::mem::take(&mut s.nodes)).await?;
+    let gate = scratch_fault::Gate::new(None);
+    let inventory = cellar_ltx::internal::NodeExtentStore::open(
+        s._scratch_root.path().join("held-verifier"),
+        Arc::new(scratch_fault::FaultFileSystem { gate: gate.clone() }),
+        Default::default(),
+    )?;
+    let verifier = ArchiveVerifier::new(s.scratch.clone(), ImageId::new([94; 16])?)?
+        .with_extent_store(inventory.clone())?;
+    let release = gate.arm(scratch_fault::HOLD_EXTENT_READ);
+    s.f.domain.run(async {
+        let mut pending = Box::pin(s.archive.verify_published_at(&reference, &minimum, &verifier, TIMEOUT));
+        cellar::asyncrt::select! {
+            _ = gate.entered.notified() => {},
+            result = pending.as_mut() => anyhow::bail!("verification finished before held physical read: {result:?}"),
+        }
+        drop(pending);
+        let result = s.archive.verify_published_at(&reference, &minimum, &verifier, TIMEOUT).await;
+        ensure!(matches!(result, Err(ArchiveError::Unconfirmed)), "scratch was reused during entered I/O: {result:?}");
+        drop(release);
+        cellar::asyncrt::timeout(TIMEOUT, async {
+            loop {
+                match s.archive.verify_published_at(&reference, &minimum, &verifier, TIMEOUT).await {
+                    Ok(proof) => return Ok::<_, anyhow::Error>(proof),
+                    Err(ArchiveError::Unconfirmed) => cellar::asyncrt::sleep(Duration::from_millis(10)).await,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }).await??;
+        let usage = inventory.usage()?;
+        ensure!(usage.bytes == 0 && usage.roots == 0 && usage.objects == 0 && usage.workspaces == 0 && !usage.busy && !usage.quarantined);
+        Ok::<_, anyhow::Error>(())
+    }).await??;
     s.close().await
 }

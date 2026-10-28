@@ -18,10 +18,57 @@ stale departure proofs before stop acceptance.
 The task manifest is the package-status source of truth. The latest verified
 milestone follows; later sections retain earlier states.
 
+## Extent-aware fleet lifecycle and cold repair
+
+Managed and imported extent namespaces now use tagged fleet publication state,
+archive coverage and stored receipts. The 85-byte observation bound is unchanged.
+Root archive heads retain the exact producer image origin separately from
+configuration-only snapshot progress. A materialized digest cannot substitute
+for a root commitment. The protocol suffix is `/extent-fleet-proofs-1`; deploy
+matching binaries with fresh namespaces and coordination prefixes, keeping
+numeric format markers at 1.
+
+Independent extent verification requires a separate exclusively owned, initially
+empty scratch inventory. It freshly downloads the selected remote closure and
+seals SQLite. Entered physical jobs retain its lease after cancellation; retries
+reconcile scratch only after those jobs exit. Missing material and expired work
+issue no proof. Physical inventory quarantine still refuses recovery.
+
+Dynamic managed registration previously selected materialized SQL storage
+unconditionally. It now selects the namespace's actual representation before
+publishing its binding. Empty managed extent hosts refuse missing physical policy
+before claiming their boot. The management connection carries the original
+immutable `image_storage` choice. Actual CLI maintenance, retained return,
+redistribution and terminal removal now have extent scenarios.
+
+Canonical-empty archives carry configuration without an image body. Cold extent
+seeding now keeps the fresh grant, learner/barrier and exact-boot checks while
+admitting that complete empty state. The cold-repair fixture now uses actual
+capacity reservation and movement admission; its old bare permit correctly
+refused managed placement. Both storage modes promote the learner and retire the
+old voter before their first S3-acknowledged SQL command, with exactly one callback.
+The pre-fix extent case refused activation; no safety assertion or bound changed.
+
+Earlier finalization cohorts exposed intermittent catalog confirmation and
+five-second terminal-resume waits. The unchanged catalog case passed alone and
+in its complete three-case archive cohort. A broader 14-case operator execution
+retained terminal-wait failures in both representations; selected functional
+cohorts subsequently passed under the same bounds. A temporary phase timeline
+reached Complete at about 3.8 seconds and spent about 1.3–1.4 seconds in one
+verification turn for two histories. It identifies limited headroom, not a
+repeatability or density pass. Temporary instrumentation was removed. Earlier
+failed runs remain external; final selected qualification is recorded below.
+
+Next: measure and reduce verification/status work within the existing deadlines
+and freshness bounds, then qualify larger fleets before rolling maintenance.
+Grace expiry, second-failure policy, production isolation, workload-aware leaders
+and desired capacity/resize remain feature work. No TPS/p99 gain or deployed
+RustFS/Colima qualification is claimed. The full fleet goal remains active.
+
 ## Intact operator stop, retained return and terminal resume
 
-The current implementation extends preparation/cancellation through separately
-granted stop, return and resume. The Node-owned controller retains bounded SDK
+The predecessor milestone at `43c080a1` extended preparation/cancellation through
+separately granted stop, return and resume. The Node-owned controller retains bounded SDK
 child references, confirms actual signed join, and preserves the original slot
 and exclusion until fresh M9 terminal proof. A separate operator terminal CAS
 then removes only its own active pointer. GET remains read-only; CLI waits for
@@ -39,11 +86,10 @@ own canonical grant; checkpoints retain references under the 4-KiB bound.
 
 Main `cd9a9689` is integrated, including its extent-backed recovery changes.
 Materialized canonical-empty archive and lifecycle deadline behavior are retained
-behind the common representation interface. Fleet enrollment/import and namespace
-Root validation explicitly reject extent-backed images until fleet publication,
-inventory and physical replay proofs support their distinct commitments. Ordinary
-extent host/recovery paths remain available. This is a compatibility gap to
-implement, not extent-backed fleet qualification.
+behind the common representation interface. At that predecessor, fleet enrollment/import and namespace Root validation
+explicitly rejected extent-backed images while ordinary extent recovery remained
+available. The current extent milestone above implements this compatibility gap;
+its larger-fleet and deployment qualification remain open.
 
 The initial `operator-lifecycle-v1`/`v2` checks retained compile/lint defects.
 `operator-lifecycle-v3` passed all-target host/admin Clippy and built native tests,

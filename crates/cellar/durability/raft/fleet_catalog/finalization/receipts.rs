@@ -5,8 +5,8 @@
 use super::super::evacuation::ActiveEvacuation;
 use super::super::*;
 use crate::raft::archive::{ArchiveReference, VerifiedArchiveCoverage};
-use crate::raft::host::FleetPublishedCut;
-use crate::raft::manifest::{Image, Position};
+use crate::raft::host::{FleetImageState, FleetPublishedCut};
+use crate::raft::manifest::Position;
 use cellar_logic::consensus::{DiskLineage, EngineInstanceId, NodeId, ProcessGeneration};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -223,7 +223,7 @@ pub(in crate::raft::fleet_catalog) struct Publication {
     #[serde(deserialize_with = "nullable")]
     image_position: Option<Position>,
     #[serde(deserialize_with = "nullable")]
-    image: Option<Image>,
+    image: Option<FleetImageState>,
 }
 
 impl From<&FleetPublishedCut> for Publication {
@@ -232,14 +232,7 @@ impl From<&FleetPublishedCut> for Publication {
             applied: cut.applied().into(),
             revision: cut.membership_revision().get(),
             image_position: cut.image().map(|image| image.position().into()),
-            image: cut.image().map(|image| Image {
-                epoch: image.epoch(),
-                txid: image.txid(),
-                checksum: image.checksum(),
-                page_size: image.page_size(),
-                length: image.length(),
-                digest: image.digest(),
-            }),
+            image: cut.image().map(|image| image.state()),
         }
     }
 }
@@ -266,13 +259,11 @@ impl Publication {
         validate_image(self.applied, self.image_position, self.image)?;
         let image = match (self.image_position, self.image) {
             (Some(position), Some(image)) => Some(
-                crate::raft::host::FleetPublishedImage::new(
+                crate::raft::host::FleetPublishedImage::new_state(
                     position
                         .decode()
                         .map_err(|_| FleetCatalogError::Corrupt("receipt publication"))?,
-                    image
-                        .decode()
-                        .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?,
+                    image,
                 )
                 .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?,
             ),
@@ -294,7 +285,7 @@ impl Publication {
 fn validate_image(
     position: Position,
     origin: Option<Position>,
-    image: Option<Image>,
+    image: Option<FleetImageState>,
 ) -> Result<()> {
     position
         .decode()
@@ -306,7 +297,7 @@ fn validate_image(
                 .decode()
                 .map_err(|_| FleetCatalogError::Corrupt("receipt publication"))?;
             image
-                .decode()
+                .validate()
                 .map_err(|_| FleetCatalogError::Corrupt("receipt image"))?;
             if origin.index > position.index
                 || origin.term > position.term
@@ -328,7 +319,7 @@ pub(super) struct Archive {
     #[serde(deserialize_with = "nullable")]
     image_position: Option<Position>,
     #[serde(deserialize_with = "nullable")]
-    image: Option<Image>,
+    image: Option<FleetImageState>,
 }
 
 impl From<&VerifiedArchiveCoverage> for Archive {
@@ -337,7 +328,7 @@ impl From<&VerifiedArchiveCoverage> for Archive {
             reference: proof.reference().clone(),
             position: proof.position().into(),
             image_position: proof.image_position().map(Into::into),
-            image: proof.image_state().map(Into::into),
+            image: proof.image_state(),
         }
     }
 }
@@ -407,6 +398,16 @@ impl Entry {
                         && archive.position.term != fixed.applied.term
                 {
                     return Err(FleetCatalogError::Corrupt("receipt archive cut"));
+                }
+                if fixed
+                    .image
+                    .as_ref()
+                    .zip(archive.image.as_ref())
+                    .is_some_and(|(a, b)| !a.same_representation(b))
+                {
+                    return Err(FleetCatalogError::Corrupt(
+                        "receipt image commitment domain",
+                    ));
                 }
                 if fixed.image.is_some() && archive.image.is_none()
                     || archive.image.is_some()

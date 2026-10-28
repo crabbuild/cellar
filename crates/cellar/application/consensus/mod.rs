@@ -73,7 +73,7 @@ pub use crate::raft::fleet_stop::{
     FleetBootBinding, FleetStopAcceptance, FleetStopAction, FleetStopRequest, VerifiedFleetClosure,
 };
 pub use crate::raft::host::{
-    FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
+    FleetImageState, FleetMembershipConfiguration, FleetMembershipObservation, FleetPublishedCut,
     FleetPublishedImage, RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration,
     RaftCellsConfig, RaftCellsServices, RaftControllerOptions, RaftControllerStatus,
     RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions, RaftHostEnrollmentObservation,

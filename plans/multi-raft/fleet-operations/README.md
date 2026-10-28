@@ -82,18 +82,25 @@ repair can use a remaining slot during an admitted action's retry/backoff,
 without releasing that action's debt. Automatic failure
 classification and a production isolation provider remain unfinished.
 
+Extent-backed managed namespaces now retain tagged publication cuts and stored
+receipts, exact producer image origins, and independent physical archive proofs.
+Dynamic registration selects the node's extent owner; empty managed hosts require
+that owner before boot admission. Existing namespace import, populated-image
+movement/removal and intact maintenance use the same lifecycle contracts as
+materialized images. Canonical-empty cold repair now uses actual resource-backed
+exact-boot permits and can finish before the first business write. The
+[progress log](progress.md) records the completed selected checks and remaining
+terminal-wait/large-fleet qualification limits. These capabilities remain opt-in.
+
 The next feature gates are:
 
-1. Support extent-backed fleet publication, inventory and physical replay proofs.
-   Main's ordinary extent recovery is integrated; managed extent namespaces
-   currently refuse because fleet proofs do not yet support their commitments.
-2. Reduce and qualify complete verification/convergence work at hundreds of
-   histories under the existing freshness and foreground resource bounds. The
-   current milestone removes repeated same-Root immutable catalog validation;
-   physical, voter, leadership and sample-age checks remain live.
-3. Deliver grace expiry, second-failure handling, gated rolling maintenance and
+1. Stabilize terminal-resume completion within its existing five-second wait,
+   then qualify bounded verification/convergence at hundreds of histories.
+   Physical, voter, leadership and sample-age checks remain live; historical
+   metadata work and status observation need separate measurement.
+2. Deliver grace expiry, second-failure handling, gated rolling maintenance and
    a production exact-boot isolation provider.
-4. Add workload-aware leader balancing and safe desired capacity/resize.
+3. Add workload-aware leader balancing and safe desired capacity/resize.
 
 Empty/retired returned-node and deployed large-fleet qualification remain open.
 Unconfirmed closure keeps movement debt charged. `tasks.json` retains exact

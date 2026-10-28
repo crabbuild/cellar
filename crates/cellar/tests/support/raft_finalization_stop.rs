@@ -2,14 +2,11 @@
 
 //! Real accepted stop/cancellation fences, physical joins and signed closure.
 use super::*;
+use crate::storage_fault as fault;
 use cellar::sdk::consensus::FleetStopAction;
 use futures_util::StreamExt;
 use object_store::{path::Path, ObjectStore};
 use sha2::{Digest, Sha256};
-
-#[path = "raft_storage_fault.rs"]
-#[allow(dead_code)]
-mod fault;
 
 #[path = "raft_fleet_stop_rpc.rs"]
 mod remote;

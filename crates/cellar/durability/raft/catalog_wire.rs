@@ -150,11 +150,6 @@ impl Root {
         ClusterId::new(self.cluster).map_err(|_| CatalogError::Corrupt("root cluster"))?;
         NamespaceId::new(self.namespace).map_err(|_| CatalogError::Corrupt("root namespace"))?;
         if let Some(owner) = &self.managed_fleet {
-            if self.image_storage != RaftImageStorage::Materialized {
-                return Err(CatalogError::Invalid(
-                    "managed fleet requires materialized images",
-                ));
-            }
             cellar_logic::consensus::IncarnationId::new(owner.fleet)
                 .map_err(|_| CatalogError::Corrupt("root fleet"))?;
             if owner.catalog == [0; 32] || self.mode != Mode::Raft || self.single_voter_development
@@ -179,7 +174,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn managed_namespace_refuses_extent_commitments_without_fleet_proof_support() {
+    fn managed_namespace_accepts_both_image_domains_and_enforces_raft_policy() {
         let mut config = NamespaceConfig::new(
             ClusterId::new([1; 16]).unwrap(),
             NamespaceId::new([2; 16]).unwrap(),
@@ -193,14 +188,25 @@ mod tests {
             fleet: [4; 16],
             catalog: [5; 32],
         });
+        for storage in [RaftImageStorage::Materialized, RaftImageStorage::Extents] {
+            root.image_storage = storage;
+            root.validate().unwrap();
+            let mut invalid = root.clone();
+            invalid.single_voter_development = true;
+            assert!(invalid.validate().is_err());
+            invalid = root.clone();
+            invalid.mode = Mode::Fleet;
+            assert!(invalid.validate().is_err());
+            invalid = root.clone();
+            invalid.managed_fleet.as_mut().unwrap().catalog = [0; 32];
+            assert!(invalid.validate().is_err());
+        }
+        root.managed_fleet = None;
+        root.mode = Mode::Fleet;
         assert!(matches!(
             root.validate(),
-            Err(CatalogError::Invalid(
-                "managed fleet requires materialized images"
-            ))
+            Err(CatalogError::Invalid("extent storage requires Raft mode"))
         ));
-        root.image_storage = RaftImageStorage::Materialized;
-        root.validate().unwrap();
     }
 
     #[test]

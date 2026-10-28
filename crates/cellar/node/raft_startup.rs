@@ -55,6 +55,16 @@ impl Startup<'_> {
             "Raft log must use this node's raft directory"
         );
         config.host.validate()?;
+        anyhow::ensure!(
+            config.host.extents.is_some()
+                || config.host.managed.as_ref().is_none_or(|managed| {
+                    managed.namespaces.iter().all(|entry| {
+                        entry.namespace.image_storage
+                            != crate::application::consensus::RaftImageStorage::Extents
+                    })
+                }),
+            "managed extent namespace requires node extent storage"
+        );
         config.infrastructure.transport.validate()?;
         config
             .infrastructure

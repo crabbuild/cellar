@@ -171,6 +171,39 @@ impl PreparedSeed {
         reservation: std::sync::Arc<crate::raft::budget::Permit>,
     ) -> Result<Self, SnapshotError> {
         let binding = validate_archive_seed(&grant, &set, birth, schema, limits)?;
+        if set.is_canonical_empty().map_err(SnapshotError::Archive)? {
+            // The fresh grant and committed learner/barrier above remain
+            // mandatory. An empty history has no physical image to convert.
+            let descriptor = Descriptor {
+                format: 1,
+                scope: WireScope::from(birth.scope()),
+                birth: birth.digest(),
+                schema,
+                index: binding.position.index.get(),
+                term: binding.position.term.get(),
+                conf: manifest::encode_conf(&binding.conf)?,
+                membership: binding.membership,
+                image: None,
+                encoded_length: 0,
+                encoded_digest: Sha256::digest([]).into(),
+                transfer_length: 0,
+            };
+            Descriptor::decode_bound(
+                birth.scope(),
+                birth.digest(),
+                &crate::raft::member_state::GroupMembership::initial(&binding.initial),
+                schema,
+                &descriptor.snapshot()?,
+                limits,
+            )?;
+            return Ok(Self {
+                grant: SeedPermit::S3(grant),
+                descriptor,
+                initial: binding.initial,
+                pin: None,
+                _reservation: reservation,
+            });
+        }
         let (snapshot, image) = set.into_root(store).map_err(SnapshotError::Archive)?;
         let descriptor = Descriptor::decode_bound(
             birth.scope(),

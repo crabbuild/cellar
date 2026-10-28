@@ -41,7 +41,7 @@ owned fleet reconciler and its qualification gates.
 Managed initial voters persist their enrollment with genesis before a permanent
 member claim and runtime attachment. Empty hosts can initialize them dynamically,
 and cold managed members resolve rooted peer views with only a self hint.
-The experimental namespace protocol now ends in `/config-tails-1/restart-stop-1/restart-return-1`;
+The experimental namespace protocol now ends in `/operator-lifecycle-1/extent-fleet-proofs-1`;
 use fresh fleet/data prefixes, namespaces and matching binaries, with numeric
 markers retained at 1 and no compatibility reader or migration.
 
@@ -52,11 +52,24 @@ member publications during upload; the physical batch stays owned through
 shutdown. Shared payloads still require verified coverage for each head, and
 producer, byte and replay-workspace bounds remain enforced.
 
-Managed fleet lifecycle operations currently require materialized images. Fleet
-binding and namespace declaration refuse extent-backed histories until their
-publication, inventory and physical archive proofs support extent commitments.
-Ordinary extent-backed Raft operation and recovery remain separate supported
-paths below; a materialized fleet proof never substitutes for an extent proof.
+Managed fleet publication and stored lifecycle receipts preserve an explicit
+`FleetImageState` commitment domain for both materialized and extent images.
+`FleetPublishedImage::digest` returns a materialized SHA only, refusing extent
+roots; use `commitment` or `state` for representation-aware comparisons. The
+bounded observation wire retains its 85-byte limit with a distinct extent tag.
+Root archive heads retain the exact producer image position independently of
+configuration-only snapshot progress. Canonical empty archives contain no image
+commitment; a missing or pending image cannot become empty coverage.
+
+`verify_published_at` requires `ArchiveVerifier::with_extent_store` for nonempty
+extent archives. Its exclusively owned, initially empty scratch inventory freshly
+downloads every selected extent and independently seals the complete SQLite image.
+No flat snapshot, full-file SHA or live producer inventory substitutes for that
+proof. Entered physical work retains the scratch lease after waiter cancellation.
+After it exits, retries reconcile only this scratch inventory under the original
+deadline; physical quarantine refuses. Successful replay releases scratch before
+proof delivery. This historical coverage still grants no quorum, activation,
+current health or node-removal authority.
 
 The verification archive interface can store an exact committed extent snapshot
 through `CellArchive::store_root_snapshot` and load its immutable
@@ -85,7 +98,11 @@ a newer head. Physical APIs refuse the other representation instead of
 flattening or converting commitments. Existing-member installation still needs
 the receiving engine's exact ticket. The fresh-learner preparation path uses
 the same authenticated grant, birth, learner/barrier and owner checks as flat
-seeding, then retains the already sealed root. Remote dependency retention/GC,
+seeding, then retains the already sealed root. A canonical-empty archive can
+seed an extent learner with the verified configuration and no image body. It
+still needs the fresh grant, committed learner/barrier and exact boot permit;
+no SQL callback or physical image is manufactured before the first command.
+Remote dependency retention/GC,
 demand loading and full-size recovery qualification remain under implementation.
 
 `NamespaceConfig::image_storage` chooses `RaftImageStorage::Materialized` by

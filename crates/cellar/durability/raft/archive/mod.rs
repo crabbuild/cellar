@@ -351,6 +351,7 @@ pub struct CellArchive {
     bundle_client: Option<bundle::Client>,
     verification_deadline: Option<u64>,
     root_store: Option<cellar_ltx::internal::NodeExtentStore>,
+    root_verification: Option<Arc<verifier::ExtentLease>>,
     image_storage: super::catalog::RaftImageStorage,
 }
 
@@ -399,6 +400,29 @@ struct MaterializedMetadata {
     scope: GroupScope,
     position: LogPosition,
     manifest: Manifest,
+}
+
+impl MaterializedMetadata {
+    // Canonical absence of SQL has no image commitment domain. It is shared
+    // across storage modes, never a conversion of a populated image.
+    fn canonical_empty(&self) -> Result<bool, ArchiveError> {
+        let m = &self.manifest;
+        if m.snapshot.image.is_some()
+            || m.snapshot.object.is_some()
+            || m.image.is_some()
+            || m.image_position.is_some()
+            || !m.tails.is_empty()
+            || !m.dependencies.is_empty()
+        {
+            return Ok(false);
+        }
+        configuration::Configuration::new(
+            m.snapshot.position,
+            &m.snapshot.conf_state,
+            m.snapshot.membership.clone(),
+        )?
+        .matches(m.position, &m.conf_state, &m.membership)
+    }
 }
 
 /// Fully downloaded and hash-checked recovery material. This is not a Raft
@@ -468,6 +492,7 @@ impl CellArchive {
             bundle_client: None,
             verification_deadline: None,
             root_store: None,
+            root_verification: None,
             image_storage: super::catalog::RaftImageStorage::Materialized,
         }
     }
@@ -567,6 +592,7 @@ impl CellArchive {
     /// Refuse a cut from another history or application before advisory I/O.
     fn validate_materialized_cut(&self, cut: &MaterializedCut) -> Result<(), ArchiveError> {
         if self.image_storage != super::catalog::RaftImageStorage::Materialized
+            && cut.image.is_some()
             || cut.scope != self.scope
             || cut.schema_digest != self.schema
             || cut.birth_digest != self.birth

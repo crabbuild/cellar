@@ -11,7 +11,15 @@ use cellar_logic::consensus::ProcessGeneration;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_operator_maintenance_full_restart_preserves_data_and_releases_only_terminal_capacity(
 ) -> Result<()> {
-    Box::pin(restart()).await
+    let f = Box::pin(Scenario::new(true)).await?;
+    Box::pin(restart(f)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_operator_extent_maintenance_full_restart_preserves_data_and_terminal_capacity(
+) -> Result<()> {
+    let f = Box::pin(Scenario::with_storage(true, 2, RaftImageStorage::Extents)).await?;
+    Box::pin(restart(f)).await
 }
 
 async fn revision(server: &Server) -> Result<u64> {
@@ -25,8 +33,7 @@ struct Stopped {
     boot: FleetBootBinding,
 }
 
-async fn restart() -> Result<()> {
-    let mut f = Box::pin(Scenario::new(true)).await?;
+async fn restart(mut f: Scenario) -> Result<()> {
     let server = Server::configured(&f.s.f, &f.s.namespace, Some(f.spare.clone())).await?;
     let service = server
         .control

@@ -2,7 +2,7 @@
 
 //! Physical verification of one exact immutable archive and fixed publication.
 use super::*;
-use crate::raft::host::{FleetPublishedCut, FleetPublishedImage};
+use crate::raft::host::{FleetImageState, FleetPublishedCut};
 use crate::raft::member_state::FleetGroupBinding;
 use cellar_logic::consensus::LogIndex;
 use std::time::Duration;
@@ -20,7 +20,7 @@ pub struct VerifiedArchiveCoverage {
     revision: LogIndex,
     position: LogPosition,
     image_position: Option<LogPosition>,
-    image: Option<ImageState>,
+    image: Option<FleetImageState>,
 }
 
 impl VerifiedArchiveCoverage {
@@ -29,11 +29,12 @@ impl VerifiedArchiveCoverage {
         let status = membership
             .fleet_status()
             .ok_or(ArchiveError::Invalid("archive has no fleet enrollment"))?;
-        let image = set.image_state()?;
+        let published = set.published_image()?;
+        let image = published.as_ref().map(|image| image.state());
         // A full snapshot's applied position can include configuration-only
         // progress. Preserve the producer's exact publication origin, including
         // legitimate intact-restore aliases; never infer it from that snapshot.
-        let image_position = set.image_position()?;
+        let image_position = published.as_ref().map(|image| image.position());
         Ok(Self {
             reference: set.reference(),
             binding: status.binding,
@@ -72,7 +73,7 @@ impl VerifiedArchiveCoverage {
 
     /// None denotes a physically verified canonical-empty archive, never a
     /// missing payload or a pending SQL publication.
-    pub fn image_state(&self) -> Option<ImageState> {
+    pub fn image_state(&self) -> Option<FleetImageState> {
         self.image
     }
 
@@ -89,6 +90,14 @@ impl VerifiedArchiveCoverage {
             || self.revision != minimum.membership_revision()
         {
             return Err(ArchiveError::Conflict);
+        }
+        if self
+            .image
+            .as_ref()
+            .zip(minimum.image())
+            .is_some_and(|(a, b)| !a.same_representation(&b.state()))
+        {
+            return Err(ArchiveError::Corrupt("archive image commitment domain"));
         }
         if self.position.index < minimum.applied().index {
             return Ok(false);
@@ -108,7 +117,7 @@ impl VerifiedArchiveCoverage {
                 {
                     return Err(ArchiveError::Corrupt("archive data prefix term"));
                 }
-                if prior.is_some_and(|image| matches_image(state, image)) {
+                if prior.is_some_and(|image| state == image.state()) {
                     return Ok(true);
                 }
                 if position.index <= minimum.applied().index {
@@ -118,15 +127,6 @@ impl VerifiedArchiveCoverage {
             }
         }
     }
-}
-
-fn matches_image(state: ImageState, image: &FleetPublishedImage) -> bool {
-    state.epoch == image.epoch()
-        && state.txid.0 == image.txid()
-        && state.checksum == image.checksum()
-        && state.page_size == image.page_size()
-        && state.length == image.length()
-        && state.digest == image.digest()
 }
 
 fn consistent(a: LogPosition, b: LogPosition) -> bool {
@@ -171,7 +171,25 @@ impl CellArchive {
                 .map_or(deadline, |previous| previous.min(deadline)),
         );
         archive.check_verification()?;
-        let set = archive.recovery_set_at(reference).await?;
+        let metadata = archive.load_metadata(&reference.0).await?;
+        let lease = if matches!(&metadata.inner, super::representation::Metadata::Rooted(_)) {
+            let lease = verifier.begin_extent()?;
+            archive.root_store = Some(lease.store());
+            archive.root_verification = Some(lease.clone());
+            if lease.needs_recovery() {
+                let worker = archive.clone();
+                let owner = lease.clone();
+                archive
+                    .host
+                    .run_blocking(move || owner.reconcile(|| worker.check_verification()))
+                    .await
+                    .map_err(ArchiveError::Worker)??;
+            }
+            Some(lease)
+        } else {
+            None
+        };
+        let set = archive.load_recovery_material(metadata).await?;
         let worker = archive.clone();
         let verifier = verifier.clone();
         let minimum = minimum.clone();
@@ -180,10 +198,23 @@ impl CellArchive {
             .run_blocking(move || {
                 worker.check_verification()?;
                 let proof = VerifiedArchiveCoverage::capture(&set)?;
-                if !proof.covers(&minimum)? {
-                    return Err(ArchiveError::Unconfirmed);
+                let coverage = proof.covers(&minimum);
+                match set.inner {
+                    super::representation::Recovery::Materialized(set) => {
+                        if !coverage? {
+                            return Err(ArchiveError::Unconfirmed);
+                        }
+                        verifier.verify_checked(&set, || worker.check_verification())?;
+                    }
+                    super::representation::Recovery::Rooted(set) => {
+                        lease
+                            .ok_or(ArchiveError::Invalid("extent verifier lease required"))?
+                            .finish(set, || worker.check_verification())?;
+                        if !coverage? {
+                            return Err(ArchiveError::Unconfirmed);
+                        }
+                    }
                 }
-                verifier.verify_checked(set.materialized()?, || worker.check_verification())?;
                 worker.check_verification()?;
                 Ok(proof)
             })

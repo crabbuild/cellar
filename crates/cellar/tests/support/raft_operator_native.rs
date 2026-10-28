@@ -78,6 +78,7 @@ impl Server {
                 catalog_prefix: "host-enrollment/".into(),
                 scope: RaftFleetNamespaceScope::StoreRoot,
                 managed: cfg.managed_fleet.is_some(),
+                image_storage: cfg.image_storage,
             }],
         };
         let control = domain
@@ -101,9 +102,18 @@ impl Server {
                 Arc::new(cellar_ltx::DirectFileSystem),
                 GenerationLimits::default(),
             )?;
+            let mut verifier = ArchiveVerifier::new(images, ImageId::new([93; 16])?)?;
+            if cfg.image_storage == RaftImageStorage::Extents {
+                verifier =
+                    verifier.with_extent_store(cellar_ltx::internal::NodeExtentStore::open(
+                        root.path().join("verify-extents"),
+                        Arc::new(cellar_ltx::DirectFileSystem),
+                        Default::default(),
+                    )?)?;
+            }
             control.with_removal_verifier(
                 cellar_ltx::LtxHost::default(),
-                ArchiveVerifier::new(images, ImageId::new([93; 16])?)?,
+                verifier,
                 ArchiveLimits::default(),
             )?
         } else {

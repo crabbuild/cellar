@@ -9,6 +9,47 @@ use cellar_logic::consensus::*;
 use cellar_ltx::{apply::ImageState, stream_snapshot, DirectFileSystem, TXID};
 use raft::prelude::{ConfState, Entry};
 
+#[test]
+fn extent_verifier_requires_a_separate_empty_inventory() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let images = GenerationStore::open(
+        root.path().join("images"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let verifier = ArchiveVerifier::new(images, ImageId::new([42; 16])?)?;
+    ensure!(matches!(
+        verifier.begin_extent(),
+        Err(ArchiveError::Invalid("extent verifier inventory required"))
+    ));
+    let dirty = NodeExtentStore::open(
+        root.path().join("dirty"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let bytes = vec![7; 4096];
+    let id = cellar_ltx::internal::ExtentId::of(&bytes)?;
+    dirty.put_extent(id, |offset, count| {
+        Ok(bytes[offset as usize..offset as usize + count].to_vec())
+    })?;
+    ensure!(matches!(
+        verifier.clone().with_extent_store(dirty.clone()),
+        Err(ArchiveError::Invalid("extent verifier store is not empty"))
+    ));
+    ensure!(
+        dirty.usage()?.objects == 1,
+        "refused producer inventory was modified"
+    );
+    let empty = NodeExtentStore::open(
+        root.path().join("empty"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let verifier = verifier.with_extent_store(empty)?;
+    ensure!(verifier.begin_extent().is_ok());
+    Ok(())
+}
+
 struct Fixture {
     set: MaterializedSet,
     _root: tempfile::TempDir,

@@ -579,9 +579,15 @@ impl ObjectStore for Store {
             }
         }
         let payload = path.as_ref().contains("/archives/")
-            && ["/snapshots/", "/tails/", "/dependencies/", "/bundles/"]
-                .iter()
-                .any(|part| path.as_ref().contains(part));
+            && [
+                "/snapshots/",
+                "/tails/",
+                "/dependencies/",
+                "/bundles/",
+                "/root-extents/",
+            ]
+            .iter()
+            .any(|part| path.as_ref().contains(part));
 
         struct PayloadRead<'a>(&'a AtomicUsize);
 

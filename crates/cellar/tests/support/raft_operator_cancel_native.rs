@@ -96,6 +96,12 @@ async fn fleet_operator_cancels_stale_departure_and_restarts_with_fresh_proof() 
     Box::pin(cancel_and_restart(f)).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_operator_extent_departure_rebalances_and_removes_with_fresh_proof() -> Result<()> {
+    let f = Box::pin(Scenario::with_storage(true, 2, RaftImageStorage::Extents)).await?;
+    Box::pin(cancel_and_restart(f)).await
+}
+
 async fn cancel_and_restart(mut f: Scenario) -> Result<()> {
     let mut admin = server(&f).await?;
     let node = hex::encode([4; 16]);

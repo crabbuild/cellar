@@ -21,6 +21,30 @@ use std::{
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_empty_host_requires_physical_admission_before_boot_claim() -> Result<()> {
+    let f = Box::pin(Fixture::with_storage(
+        true,
+        true,
+        FleetReplicaSeparation::PhysicalHosts,
+        RaftImageStorage::Extents,
+    ))
+    .await?;
+    let authorization = f.enroll().await?;
+    let root = tempfile::tempdir()?;
+    let node =
+        public_node::node_named(root.path(), f.definition.application.clone(), &f.spec.label)
+            .await?;
+    let (mut config, services) = f.config(&node, authorization).await?;
+    config.host.extents = None;
+    let before = f.catalog.read(TIMEOUT).await?;
+    ensure!(node.start_raft_cells(config, services).await.is_err());
+    ensure!(f.catalog.read(TIMEOUT).await?.revision() == before.revision());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
+
 #[path = "raft_initial_native.rs"]
 mod initial_tests;
 
@@ -699,13 +723,36 @@ impl Fixture {
         distinct_hosts: bool,
         separation: FleetReplicaSeparation,
     ) -> Result<Self> {
+        Box::pin(Self::with_storage(
+            managed,
+            distinct_hosts,
+            separation,
+            RaftImageStorage::Materialized,
+        ))
+        .await
+    }
+
+    async fn with_storage(
+        managed: bool,
+        distinct_hosts: bool,
+        separation: FleetReplicaSeparation,
+        image_storage: RaftImageStorage,
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let store = Arc::new(fault::Store::default());
         let catalog = Self::open_catalog(&domain, store.clone())?;
         catalog
             .initialize_with_replica_separation(separation, TIMEOUT)
             .await?;
-        Self::prepared(domain, store, catalog, managed, distinct_hosts).await
+        Self::prepared(
+            domain,
+            store,
+            catalog,
+            managed,
+            distinct_hosts,
+            image_storage,
+        )
+        .await
     }
 
     fn open_catalog(domain: &ExecutionDomain, store: Arc<fault::Store>) -> Result<FleetCatalog> {
@@ -732,6 +779,7 @@ impl Fixture {
         catalog: FleetCatalog,
         managed: bool,
         distinct_hosts: bool,
+        image_storage: RaftImageStorage,
     ) -> Result<Self> {
         let (gate, entered) = public_node::Gate::new();
         gate.release();
@@ -746,6 +794,7 @@ impl Fixture {
             ),
             class: "Counter".into(),
         };
+        declaration.namespace.image_storage = image_storage;
         if managed {
             declaration.namespace = catalog.bind_namespace(declaration.namespace)?;
         }
@@ -893,6 +942,9 @@ impl Fixture {
             max_groups: 8,
             ..Default::default()
         };
+        if self.declaration.namespace.image_storage == RaftImageStorage::Extents {
+            host.extents = Some(RaftExtentOptions::default());
+        }
         host.node_profile = Some(RaftNodeProfile {
             pool: "native".into(),
             region: "local".into(),

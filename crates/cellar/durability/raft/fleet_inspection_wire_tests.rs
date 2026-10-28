@@ -178,7 +178,8 @@ fn fleet_cut_wire_requires_explicit_coherent_publication() {
     let group = u32::from_be_bytes(valid[8..12].try_into().unwrap()) as usize;
     let start = 20 + node + group;
     assert!(decode(&valid[..start]).is_err());
-    for tag in [3, 255] {
+    // Tags 2 and 3 are the distinct materialized and extent publications.
+    for tag in [4, 255] {
         let mut malformed = valid.clone();
         malformed[start] = tag;
         assert!(decode(&malformed).is_err());
@@ -243,4 +244,38 @@ fn fleet_quorum_wire_refuses_bounds_trailing_bytes_and_impossible_barriers() {
         bare.snapshot.configuration.as_ref().unwrap(),
     ));
     assert!(encode(&bare).is_err());
+}
+
+#[test]
+fn extent_publication_round_trip_keeps_domain_in_the_existing_wire_bound() {
+    use crate::application::consensus::ImageCommitment;
+    use crate::raft::host::{FleetImageState, FleetPublishedImage, Publication};
+    use cellar_ltx::internal::{ExtentRootReference, ImageRoot};
+    let commitment = ImageCommitment::Extents(
+        ExtentRootReference::new(ImageRoot::from_bytes([7; 32]), 144).unwrap(),
+    );
+    let image = FleetPublishedImage::new_state(
+        LogPosition {
+            index: LogIndex::new(1),
+            term: Term::new(1),
+        },
+        FleetImageState::new(1, 1, 0, 4096, 4096, commitment).unwrap(),
+    )
+    .unwrap();
+    let statement = Publication::Image(image.clone());
+    assert_eq!(publication::encode(&statement).len(), 85);
+    assert_eq!(
+        publication::decode(&publication::encode(&statement)).unwrap(),
+        statement
+    );
+    let mut observed = observation();
+    observed.snapshot.publication = Some(statement);
+    let decoded = decode(&encode(&observed).unwrap()).unwrap();
+    assert_eq!(
+        decoded.snapshot.publication,
+        Some(Publication::Image(image))
+    );
+    for invalid in [vec![3], vec![3; 84], vec![3; 86]] {
+        assert!(publication::decode(&invalid).is_err());
+    }
 }

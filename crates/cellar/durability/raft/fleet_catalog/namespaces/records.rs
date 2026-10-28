@@ -15,7 +15,6 @@ impl Declaration {
         if cfg.cluster.bytes() != catalog.inner.cluster
             || cfg.mode != cellar_logic::NamespaceMode::Raft
             || cfg.voters != VoterPolicy::ThreeVoters
-            || cfg.image_storage != crate::raft::catalog::RaftImageStorage::Materialized
         {
             return Err(FleetCatalogError::Invalid("fleet namespace"));
         }

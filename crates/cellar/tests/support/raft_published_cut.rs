@@ -78,7 +78,7 @@ async fn fleet_published_cut_configuration_progress() -> Result<()> {
             .await?;
         let cut = restored.published_cut().context("restored publication")?;
         ensure!(cut.image().unwrap().position().index >= fixed.applied().index);
-        ensure!(cut.image().unwrap().digest() == original_image.digest());
+        ensure!(cut.image().unwrap().digest()? == original_image.digest()?);
         ensure!(cut.image().unwrap().txid() == original_image.txid());
         ensure!(cut.covers(&fixed)?);
     }

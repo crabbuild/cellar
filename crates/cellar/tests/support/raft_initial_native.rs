@@ -20,8 +20,6 @@ mod placement;
 
 #[path = "raft_archive_coverage.rs"]
 mod archive_coverage;
-#[path = "raft_fleet_empty_archive.rs"]
-mod empty_archive;
 #[path = "raft_evacuation_native.rs"]
 mod evacuation;
 #[path = "raft_peer_fleet_observation.rs"]
@@ -35,6 +33,22 @@ mod resources;
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fleet_genesis_imported_namespace() -> Result<()> {
     let f = Fixture::with_domains(false, true).await?;
+    Box::pin(imported_namespace(f)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fleet_extent_genesis_imported_namespace_preserves_guards_and_data() -> Result<()> {
+    let f = Box::pin(Fixture::with_storage(
+        false,
+        true,
+        FleetReplicaSeparation::PhysicalHosts,
+        RaftImageStorage::Extents,
+    ))
+    .await?;
+    Box::pin(imported_namespace(f)).await
+}
+
+async fn imported_namespace(f: Fixture) -> Result<()> {
     let nodes = fleet(&f).await?;
     let (namespace, _) = initial_birth(&f).await?;
     ensure!(namespace.config().managed_fleet.is_none());

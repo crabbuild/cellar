@@ -11,6 +11,9 @@ mod inventory;
 #[path = "support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;
+#[path = "support/raft_storage_fault.rs"]
+#[allow(dead_code)]
+mod storage_fault;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::{

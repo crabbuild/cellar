@@ -1,38 +1,188 @@
 //! Fixed publication cuts pair the durable configuration with its SQL image.
 //! A data position can precede configuration-only applied progress.
 use super::*;
+use crate::application::consensus::ImageCommitment;
 use crate::raft::cache::{CommittedImage, DurableApply};
 use crate::raft::inspection::MemberInspection;
 use crate::raft::member_state::FleetGroupBinding;
 use cellar_ltx::{apply::ImageState, TXID};
+use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 #[path = "host_fleet_cut_tests.rs"]
 mod tests;
+
+/// Logical published image state with an explicit physical hash domain.
+/// This descriptor grants no local seal, activation or quorum authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FleetImageState {
+    epoch: u64,
+    txid: u64,
+    checksum: u64,
+    page_size: u32,
+    length: u64,
+    commitment: ImageCommitment,
+}
+
+impl FleetImageState {
+    pub(crate) fn from_marker(image: &CommittedImage) -> Result<Self, CommandFailure> {
+        image.validate().map_err(|_| CommandFailure::CorruptState)?;
+        let state = Self {
+            epoch: image.ltx_epoch,
+            txid: image.txid,
+            checksum: image.checksum,
+            page_size: image.page_size,
+            length: image.length,
+            commitment: image.commitment,
+        };
+        state.validate()?;
+        Ok(state)
+    }
+
+    pub(crate) fn new(
+        epoch: u64,
+        txid: u64,
+        checksum: u64,
+        page_size: u32,
+        length: u64,
+        commitment: ImageCommitment,
+    ) -> Result<Self, CommandFailure> {
+        let state = Self {
+            epoch,
+            txid,
+            checksum,
+            page_size,
+            length,
+            commitment,
+        };
+        state.validate()?;
+        Ok(state)
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), CommandFailure> {
+        if self.epoch == 0
+            || self.txid == 0
+            || self.length == 0
+            || self.length > cellar_ltx::stream_snapshot::MAX_IMAGE_BYTES
+            || !cellar_ltx::ltx::is_valid_page_size(self.page_size)
+            || !self.length.is_multiple_of(u64::from(self.page_size))
+        {
+            return Err(CommandFailure::CorruptState);
+        }
+        match self.commitment {
+            ImageCommitment::Sha256(_) => self
+                .materialized()?
+                .validate(&crate::raft::archive::apply_limits())
+                .map_err(|_| CommandFailure::CorruptState),
+            ImageCommitment::Extents(reference) => {
+                let expected = 112 + 32 * self.length.div_ceil(cellar_ltx::internal::EXTENT_BYTES);
+                if u64::from(reference.encoded_length()) != expected {
+                    return Err(CommandFailure::CorruptState);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// The domain tag is part of image identity; root bytes are never a
+    /// materialized-file digest, even when the byte values happen to match.
+    pub fn commitment(&self) -> ImageCommitment {
+        self.commitment
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
+    }
+
+    pub fn txid(&self) -> u64 {
+        self.txid
+    }
+
+    pub fn checksum(&self) -> u64 {
+        self.checksum
+    }
+
+    pub fn page_size(&self) -> u32 {
+        self.page_size
+    }
+
+    pub fn length(&self) -> u64 {
+        self.length
+    }
+
+    /// Only a materialized commitment can describe a full SQLite file digest.
+    pub fn materialized(&self) -> Result<ImageState, CommandFailure> {
+        let digest = self
+            .commitment
+            .sha256()
+            .map_err(|_| CommandFailure::UnsupportedCapability)?;
+        Ok(ImageState {
+            epoch: self.epoch,
+            txid: TXID(self.txid),
+            checksum: self.checksum,
+            page_size: self.page_size,
+            length: self.length,
+            digest,
+        })
+    }
+
+    pub(crate) fn same_representation(&self, other: &Self) -> bool {
+        matches!(
+            (self.commitment, other.commitment),
+            (ImageCommitment::Sha256(_), ImageCommitment::Sha256(_))
+                | (ImageCommitment::Extents(_), ImageCommitment::Extents(_))
+        )
+    }
+}
+
+impl From<ImageState> for FleetImageState {
+    fn from(state: ImageState) -> Self {
+        Self {
+            epoch: state.epoch,
+            txid: state.txid.0,
+            checksum: state.checksum,
+            page_size: state.page_size,
+            length: state.length,
+            commitment: state.digest.into(),
+        }
+    }
+}
 
 /// An immutable published data image. This value alone supplies neither a
 /// quorum barrier nor permission to activate a member or acknowledge a write.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FleetPublishedImage {
     position: LogPosition,
-    state: ImageState,
+    state: FleetImageState,
 }
 
 impl FleetPublishedImage {
     pub(crate) fn new(position: LogPosition, state: ImageState) -> Result<Self, CommandFailure> {
-        state
-            .validate(&crate::raft::archive::apply_limits())
-            .map_err(|_| CommandFailure::CorruptState)?;
+        Self::new_state(position, state.into())
+    }
+
+    pub(crate) fn new_state(
+        position: LogPosition,
+        state: FleetImageState,
+    ) -> Result<Self, CommandFailure> {
+        state.validate()?;
         if position.index.get() == 0
             || position.term.get() == 0
             || position.index.get() >= u64::MAX - 2
             || position.term.get() >= u64::MAX - 2
-            || state.txid == TXID(0)
-            || state.length == 0
         {
             return Err(CommandFailure::CorruptState);
         }
         Ok(Self { position, state })
+    }
+
+    pub fn state(&self) -> FleetImageState {
+        self.state
+    }
+
+    pub fn commitment(&self) -> ImageCommitment {
+        self.state.commitment()
     }
 
     /// The publication's committed position. Restoring the same image may
@@ -41,8 +191,9 @@ impl FleetPublishedImage {
         self.position
     }
 
-    pub fn digest(&self) -> [u8; 32] {
-        self.state.digest
+    /// Full-file digest only. Extent roots require the tagged commitment.
+    pub fn digest(&self) -> Result<[u8; 32], CommandFailure> {
+        Ok(self.state.materialized()?.digest)
     }
 
     pub fn length(&self) -> u64 {
@@ -58,7 +209,7 @@ impl FleetPublishedImage {
     }
 
     pub fn txid(&self) -> u64 {
-        self.state.txid.0
+        self.state.txid
     }
 
     pub fn checksum(&self) -> u64 {
@@ -86,12 +237,17 @@ impl Publication {
         }) {
             return Err(CommandFailure::CorruptState);
         }
+        if let (Some(durable), Some((visible, _))) = (applied.image.as_ref(), published) {
+            if !marker_state(durable)?.same_representation(&marker_state(visible)?) {
+                return Err(CommandFailure::CorruptState);
+            }
+        }
         match (applied.image.as_ref(), published) {
             (None, None) => Ok(Self::Empty),
             (None, Some(_)) => Err(CommandFailure::CorruptState),
             (Some(_), None) => Ok(Self::Pending),
             (Some(durable), Some((visible, position))) if durable == visible => Ok(Self::Image(
-                FleetPublishedImage::new(position, marker_state(durable)?)?,
+                FleetPublishedImage::new_state(position, marker_state(durable)?)?,
             )),
             // Installing an equivalent snapshot can change the local generation
             // name at the same cut before its publication handoff completes.
@@ -120,28 +276,15 @@ impl Publication {
                     && (image.position.index != member.applied.index
                         || image.position.term == member.applied.term) =>
             {
-                FleetPublishedImage::new(image.position, image.state).map(|_| ())
+                FleetPublishedImage::new_state(image.position, image.state).map(|_| ())
             }
             _ => Err(CommandFailure::CorruptState),
         }
     }
 }
 
-fn marker_state(image: &CommittedImage) -> Result<ImageState, CommandFailure> {
-    Ok(ImageState {
-        epoch: image.ltx_epoch,
-        txid: TXID(image.txid),
-        checksum: image.checksum,
-        page_size: image.page_size,
-        length: image.length,
-        // Fleet archive replay currently verifies materialized images. An
-        // extent root belongs to a different hash domain and cannot supply
-        // the full-image digest required by this publication proof.
-        digest: image
-            .commitment
-            .sha256()
-            .map_err(|_| CommandFailure::UnsupportedCapability)?,
-    })
+fn marker_state(image: &CommittedImage) -> Result<FleetImageState, CommandFailure> {
+    FleetImageState::from_marker(image)
 }
 
 /// Historical proof that a published image (or canonical empty state) covers
@@ -247,6 +390,14 @@ impl FleetPublishedCut {
             || self.revision != minimum.revision
         {
             return Err(CommandFailure::CommandConflict);
+        }
+        if self
+            .image
+            .as_ref()
+            .zip(minimum.image.as_ref())
+            .is_some_and(|(a, b)| !a.state.same_representation(&b.state))
+        {
+            return Err(CommandFailure::CorruptState);
         }
         if self.applied.index < minimum.applied.index {
             return Ok(false);

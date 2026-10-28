@@ -6,6 +6,9 @@ use super::super::capacity_tests::{attestation, joined};
 use super::*;
 use cellar_logic::raft_fleet::{LedgerError, ResourceKind};
 
+#[path = "raft_fleet_empty_archive.rs"]
+mod empty_archive;
+
 #[path = "raft_movement_native.rs"]
 mod movement_tests;
 #[path = "raft_topology_native.rs"]
@@ -30,8 +33,32 @@ impl Setup {
         Self::with_histories(qualified, capacity, 2).await
     }
 
-    async fn with_histories(qualified: bool, capacity: u32, histories: u8) -> Result<Self> {
-        let f = Fixture::with_managed_births(true).await?;
+    fn with_histories(
+        qualified: bool,
+        capacity: u32,
+        histories: u8,
+    ) -> std::pin::Pin<Box<impl std::future::Future<Output = Result<Self>>>> {
+        Box::pin(Self::with_storage(
+            qualified,
+            capacity,
+            histories,
+            RaftImageStorage::Materialized,
+        ))
+    }
+
+    async fn with_storage(
+        qualified: bool,
+        capacity: u32,
+        histories: u8,
+        image_storage: RaftImageStorage,
+    ) -> Result<Self> {
+        let f = Box::pin(Fixture::with_storage(
+            true,
+            true,
+            FleetReplicaSeparation::PhysicalHosts,
+            image_storage,
+        ))
+        .await?;
         let nodes = fleet(&f).await?;
         let (namespace, _) = initial_birth(&f).await?;
         let (first, _) = birth(&f).await?;

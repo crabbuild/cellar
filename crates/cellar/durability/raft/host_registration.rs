@@ -203,16 +203,26 @@ impl Driver {
                 return Err(CommandFailure::Overloaded);
             }
             let worker = self.local.bindings.len()? % self.options.blocking_workers;
+            let directory = self
+                .directory_path
+                .join(hex::encode(scope.namespace.bytes()))
+                .join(hex::encode(scope.group.bytes()))
+                .join(hex::encode(scope.incarnation.bytes()));
+            let rooted = match prepared.namespace.config().image_storage {
+                RaftImageStorage::Materialized => None,
+                RaftImageStorage::Extents => Some(
+                    self.extents
+                        .as_ref()
+                        .ok_or(CommandFailure::UnsupportedCapability)?
+                        .cell_storage(&directory),
+                ),
+            };
             let storage = sql::CellStorage {
-                directory: self
-                    .directory_path
-                    .join(hex::encode(scope.namespace.bytes()))
-                    .join(hex::encode(scope.group.bytes()))
-                    .join(hex::encode(scope.incarnation.bytes())),
+                directory,
                 host: ltx_host(),
                 services: read_services(),
                 images: self.options.images,
-                rooted: None,
+                rooted,
                 snapshot_scratch: self.log.snapshot_scratch(),
                 execution: self.options.execution,
             };

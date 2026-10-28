@@ -102,24 +102,46 @@ fn publication_requires_exact_applied_marker() {
 }
 
 #[test]
-fn publication_refuses_extent_root_as_materialized_digest() {
+fn publication_preserves_extent_domain_and_refuses_materialized_substitution() {
     use crate::application::consensus::ImageCommitment;
     use cellar_ltx::internal::{ExtentRootReference, ImageRoot};
-
     let mut rooted = marker();
     rooted.commitment = ImageCommitment::Extents(
         ExtentRootReference::new(ImageRoot::from_bytes([7; 32]), 144).unwrap(),
     );
+    rooted.name = format!("{}.root", hex::encode([7; 32]));
     let durable = DurableApply {
         position: position(5, 2),
         image: Some(rooted.clone()),
     };
-    for visible in [&rooted, &marker()] {
-        assert_eq!(
-            Publication::capture(&durable, Some((visible, position(2, 1)))),
-            Err(CommandFailure::UnsupportedCapability)
-        );
-    }
+    let Publication::Image(published) =
+        Publication::capture(&durable, Some((&rooted, position(2, 1)))).unwrap()
+    else {
+        panic!("complete extent publication missing")
+    };
+    assert_eq!(published.commitment(), rooted.commitment);
+    assert_eq!(
+        published.digest(),
+        Err(CommandFailure::UnsupportedCapability)
+    );
+    let mut rooted_cut = cut(1, 5, 2, Some(published));
+    let flat_cut = cut(2, 5, 2, Some(image(2, 1, 7)));
+    assert_eq!(
+        rooted_cut.covers(&flat_cut),
+        Err(CommandFailure::CorruptState)
+    );
+    assert_eq!(
+        flat_cut.covers(&rooted_cut),
+        Err(CommandFailure::CorruptState)
+    );
+    let mut later = rooted_cut.clone();
+    later.applied = position(8, 3);
+    rooted_cut.image.as_mut().unwrap().position = position(4, 2);
+    assert!(later.covers(&rooted_cut).unwrap());
+    assert_eq!(
+        Publication::capture(&durable, Some((&marker(), position(2, 1)))),
+        Err(CommandFailure::CorruptState)
+    );
 }
 
 #[test]

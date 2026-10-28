@@ -98,7 +98,8 @@ For an existing managed fleet, add `raft` to its private dashboard configuration
       "schema_digest": "0303030303030303030303030303030303030303030303030303030303030303",
       "catalog_prefix": "raft/",
       "scope": "bucket",
-      "managed": true
+      "managed": true,
+      "image_storage": "Materialized"
     }
   ]
 }
@@ -107,7 +108,9 @@ For an existing managed fleet, add `raft` to its private dashboard configuration
 These are example identities: use the original cluster, fleet incarnation,
 namespace schema and storage prefixes. Supply the complete rooted namespace
 inventory, including previously imported namespaces with their original
-`managed` setting. `bucket` resolves namespace metadata within the fleet's bucket
+`managed` setting. Set `image_storage` to the original immutable namespace choice,
+`Materialized` (the default when omitted) or `Extents`; connecting with the wrong
+choice refuses without changing the Root. `bucket` resolves namespace metadata within the fleet's bucket
 prefix; explicit `store_root` is for deployments whose existing namespace metadata
 is outside that prefix. Connection opens existing roots and verifies inventory;
 it never initializes a missing fleet or namespace. A separately started,
@@ -143,7 +146,13 @@ then exclude it, prepare the complete-inventory finalization fence, explicitly
 request the exact process stop, and consume its signed joined closure in terminal
 removal. The embedding server must additionally configure
 `RaftFleetControl::with_removal_verifier` with its private bounded replay store;
-standalone existing-root connections cannot perform live proof or dispatch stop.
+extent namespaces additionally require `ArchiveVerifier::with_extent_store`
+with a separate exclusively owned, initially empty `NodeExtentStore`. Never
+supply a live node's inventory. Each proof freshly downloads and seals the exact
+remote extent closure in this scratch owner. Entered physical work retains the
+owner after cancellation; a subsequent attempt reconciles scratch only after that
+work exits. Physical inventory quarantine still refuses verification.
+Standalone existing-root connections cannot perform live proof or dispatch stop.
 Status and exact committed receipt reconciliation remain metadata operations.
 See the [departure workflow](../../plans/multi-raft/fleet-operations/operator-workflows.md#evacuate-and-permanently-remove-a-node)
 for CLI syntax, restart behavior and retained reservation reporting. Removal

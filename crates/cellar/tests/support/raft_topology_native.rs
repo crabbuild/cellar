@@ -23,8 +23,23 @@ impl Scenario {
         Self::with_histories(materialize, 2).await
     }
 
-    async fn with_histories(materialize: bool, histories: u8) -> Result<Self> {
-        let s = Box::pin(Setup::with_histories(true, 8, histories))
+    fn with_histories(
+        materialize: bool,
+        histories: u8,
+    ) -> Pin<Box<impl Future<Output = Result<Self>>>> {
+        Box::pin(Self::with_storage(
+            materialize,
+            histories,
+            RaftImageStorage::Materialized,
+        ))
+    }
+
+    async fn with_storage(
+        materialize: bool,
+        histories: u8,
+        image_storage: RaftImageStorage,
+    ) -> Result<Self> {
+        let s = Box::pin(Setup::with_storage(true, 8, histories, image_storage))
             .await
             .context("topology base setup")?;
         let (root, node, host) = s.f.peer_host(8).await.context("topology spare setup")?;

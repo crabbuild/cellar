@@ -100,31 +100,36 @@ impl ImageOwner {
                 .map_err(super::super::execution::storage)?;
                 Ok(Some(cut))
             }
-            Self::Rooted { options, applier } => applier
-                .queryable()
-                .map_err(super::super::execution::storage)?
-                .map(|image| {
-                    let dependencies = if let Some(blobs) = class.blob_limits() {
-                        let database = options.database(&image)?;
-                        effects::capture_connection_dependencies(
-                            database.connection(),
-                            blobs,
-                            limits,
-                        )
-                        .map_err(super::super::execution::storage)?
-                    } else {
-                        vec![]
-                    };
-                    CommittedArchiveCut::capture_root(
+            Self::Rooted { options, applier } => {
+                let Some(image) = applier
+                    .queryable()
+                    .map_err(super::super::execution::storage)?
+                else {
+                    return CommittedArchiveCut::capture_empty(
                         group,
-                        image,
-                        options.storage.store.clone(),
-                        dependencies,
+                        class.schema_digest(),
                         limits,
                     )
-                    .map_err(super::super::execution::storage)
-                })
-                .transpose(),
+                    .map(Some)
+                    .map_err(super::super::execution::storage);
+                };
+                let dependencies = if let Some(blobs) = class.blob_limits() {
+                    let database = options.database(&image)?;
+                    effects::capture_connection_dependencies(database.connection(), blobs, limits)
+                        .map_err(super::super::execution::storage)?
+                } else {
+                    vec![]
+                };
+                CommittedArchiveCut::capture_root(
+                    group,
+                    image,
+                    options.storage.store.clone(),
+                    dependencies,
+                    limits,
+                )
+                .map(Some)
+                .map_err(super::super::execution::storage)
+            }
         }
     }
 

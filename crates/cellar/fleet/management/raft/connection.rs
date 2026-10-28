@@ -29,6 +29,13 @@ pub struct RaftFleetNamespace {
     pub scope: RaftFleetNamespaceScope,
     #[serde(default = "managed")]
     pub managed: bool,
+    /// Must match the existing namespace Root; opening never changes its mode.
+    #[serde(default = "materialized")]
+    pub image_storage: crate::raft::catalog::RaftImageStorage,
+}
+
+fn materialized() -> crate::raft::catalog::RaftImageStorage {
+    crate::raft::catalog::RaftImageStorage::Materialized
 }
 
 fn managed() -> bool {
@@ -91,6 +98,7 @@ impl RaftFleetControl {
                 cellar_logic::NamespaceMode::Raft,
                 schema,
             );
+            namespace_config.image_storage = entry.image_storage;
             if entry.managed {
                 namespace_config = catalog.bind_namespace(namespace_config)?;
             }
