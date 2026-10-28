@@ -10,6 +10,12 @@ Rust hosts can supply another backend without changing the guest API.
 [Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](supervision.md) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [HTTP streams](streams.md) · [Wire reference](#bridge-protocol-version-1)
 
+For dynamic instance naming, the [named allocation catalog](allocations.md)
+provides authenticated bounded child execution and scheduled parent cleanup.
+Native deletion verifies exact container absence. New native children use
+per-class fleet capacity samples before final local admission. Physical deletion
+of retained cell data and broader fleet qualification remain outstanding.
+
 ## Native containers, this adapter, or Workers?
 
 `cellar-container` puts a shared provider boundary above Cellar's native
@@ -354,8 +360,11 @@ flowchart LR
 
 Rust receives `cellar::container::CapacityExceeded`. The shared Python/JS/TS
 bridge reports `ResourceExhausted` with `outcome: "not_committed"` for this start
-refusal. An earlier mutation may still have an unknown outcome. Queueing,
-placement retry and dynamic named sandbox allocation remain separate work.
+refusal. An earlier mutation may still have an unknown outcome. Named child
+placement now consults per-class fleet capacity when the origin is
+full. The chosen host still uses hard local admission; unknown outcomes never
+permit automatic mutation replay. Saturation and wider recovery qualification
+remain required.
 
 ### Optional native network-helper lifecycle
 

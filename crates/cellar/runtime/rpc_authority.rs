@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 #[serde(untagged)]
 pub enum RpcAuthority {
     State(StateAuthority),
+    Sandbox(super::sandbox_execution::Authority),
     Inventory(InventoryAuthority),
     Event(event_stream::Authority),
     Source(SourceAuthority),
@@ -260,9 +261,14 @@ impl SourceAuthority {
 }
 
 impl RpcAuthority {
+    pub(crate) fn requires_native_capacity(&self) -> bool {
+        matches!(self,Self::Sandbox(authority) if authority.requires_native_capacity())
+    }
+
     pub(crate) fn validate(&self) -> Result<()> {
         match self {
             Self::State(authority) => authority.validate(),
+            Self::Sandbox(authority) => authority.validate(),
             Self::Inventory(authority) => authority.validate(),
             Self::Event(authority) => authority.validate(),
             Self::Source(authority) => authority.validate(),
@@ -275,6 +281,7 @@ impl RpcAuthority {
         self.validate()?;
         match self {
             Self::State(authority) => authority.validate_target(scope, method),
+            Self::Sandbox(authority) => authority.validate_target(scope, method),
             Self::Inventory(authority) => authority.validate_target(scope, method),
             Self::Event(authority) => {
                 event_stream::validate_target(scope, authority)?;
@@ -306,6 +313,7 @@ pub(crate) fn validate_target(
                     && method != super::source_control::METHOD
                     && method != super::event_state::METHOD
                     && method != super::filesystem_state::METHOD
+                    && method != super::sandbox_execution::METHOD
                     && method != super::event_inventory::METHOD,
                 "framework RPC requires host authority"
             );

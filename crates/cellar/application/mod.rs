@@ -35,6 +35,7 @@ pub mod loader;
 pub(crate) mod outbox;
 pub mod queue;
 pub mod rpc;
+pub(crate) mod sandbox_catalog;
 pub mod service;
 pub mod sockets;
 pub mod sql;
@@ -183,6 +184,11 @@ pub trait Application: Send + Sync + 'static {
     }
 
     fn supports_cell(&self, class: &str) -> bool;
+
+    /// Dedicated sandbox execution classes accept host-authenticated calls only.
+    fn sandbox_executor(&self, _class: &str) -> Option<Arc<dyn containers::SandboxExecutor>> {
+        None
+    }
 
     /// Explicit compiled capability for a root-cell filesystem.
     fn filesystem_policy(&self, _class: &str) -> Option<filesystem::Policy> {

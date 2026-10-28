@@ -116,3 +116,49 @@ impl ContainerEngine {
 #[cfg(test)]
 #[path = "capacity_tests.rs"]
 mod tests;
+
+/// Advisory slots by deployed class. This never reserves capacity: every start
+/// must still pass atomic admission. Missing infrastructure advertises no room.
+pub fn available_instances_by_class() -> std::collections::BTreeMap<String, u64> {
+    let service = crate::asyncrt::services().containers();
+    if service.closed.load(std::sync::atomic::Ordering::Acquire) {
+        return Default::default();
+    }
+    let specs = service.deployment.read().unwrap().specs.clone();
+    let Some(options) = service.settings.lock().unwrap().options.clone() else {
+        return Default::default();
+    };
+    let engine = service.engine.lock().unwrap().clone();
+    let mut instances = 0u64;
+    let mut memory = 0u64;
+    let mut classes = std::collections::BTreeMap::<String, u64>::new();
+    if let Some(engine) = engine {
+        let cells = engine.cells.lock().unwrap();
+        for cell in cells.values() {
+            let state = cell.state.lock().unwrap();
+            let reserved = u64::from(state.reserves_instance());
+            instances = instances.saturating_add(reserved);
+            memory = memory.saturating_add(engine.reserved_bytes(cell, &state));
+            let count = classes.entry(cell.spec.class_name.clone()).or_default();
+            *count = count.saturating_add(reserved);
+        }
+    }
+    specs
+        .into_iter()
+        .map(|spec| {
+            let class_used = classes.get(&spec.class_name).copied().unwrap_or(0);
+            let bytes = instance_memory_bytes(spec.instance_type.as_deref())
+                + u64::from(options.network_helper.is_some()) * network::MEMORY_BYTES;
+            let mut slots = spec
+                .max_instances
+                .unwrap_or(u64::MAX)
+                .saturating_sub(class_used);
+            if let Some(capacity) = options.capacity {
+                slots = slots
+                    .min(capacity.max_instances.saturating_sub(instances))
+                    .min(capacity.max_memory_bytes.saturating_sub(memory) / bytes.max(1));
+            }
+            (spec.class_name.clone(), slots)
+        })
+        .collect()
+}

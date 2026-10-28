@@ -13,7 +13,7 @@ a language facade does not grant provider support.
 | Capability discovery | Yes | Yes | Yes |
 | Running / start / destroy | Yes | Yes | Yes |
 | Explicit binding reconciliation | Running snapshot; no remote journal | Recover / observe expiry / pending deletion | Recover pinned session / observe expiry / pending deletion |
-| Concurrent named sandboxes per business cell | One default container per execution cell; named allocation/pool boundary remains required | Host-declared bindings; no dynamic pool yet | Host-declared bindings; no dynamic pool yet |
+| Concurrent named sandboxes per business cell | One container per execution cell; [authenticated named children](allocations.md), bounded execution, explicit-retirement cleanup and advisory fleet placement; broader qualification pending | Host-declared bindings; no dynamic pool yet | Host-declared bindings; no dynamic pool yet |
 | Custom start entrypoint | Yes | No; host template | No; host image |
 | Bounded binary command output | Yes | Yes | Yes; image-local helper |
 | Interactive process streams | Yes | No | No |

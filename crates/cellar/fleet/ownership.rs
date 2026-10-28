@@ -143,6 +143,7 @@ enum CapacitySampleWire {
 impl NodeLeaseWire {
     fn into_capacity_peer(self) -> CapacityPeer {
         CapacityPeer {
+            native_container_slots: self.load.native_container_slots,
             node: self.node,
             addr: self.addr,
             expires_ms: self.expires_ms,
@@ -239,6 +240,8 @@ pub(crate) fn log_state_from_wire(
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 pub struct NodeLoadWire {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_container_slots: Option<std::collections::BTreeMap<String, u64>>,
     pub sampled_ms: u64,
     /// Confirmed ownership, including cells that are dormant and consume no
     /// residency slot. `None` keeps an older node distinct from an empty one.
@@ -1118,6 +1121,7 @@ impl BucketOwnership {
                 restoring: self.live.restoring.load(Ordering::Relaxed),
                 rebalance_paused: Some(self.live.rebalance_paused.load(Ordering::Relaxed)),
                 draining: Some(self.live.draining.load(Ordering::Relaxed)),
+                native_container_slots: None,
                 container_instances: Default::default(),
             };
         }
@@ -1337,6 +1341,7 @@ pub(crate) fn process_load(live: &LiveLoad) -> NodeLoadWire {
         draining: Some(live.draining.load(Ordering::Relaxed)),
         // Published each renewal, so a peer sees a start or stop within a
         // renewal and a sample refresh. Empty on a node with no engine.
+        native_container_slots: Some(crate::container::available_instances_by_class()),
         container_instances: crate::container::running_instances_by_class(),
     }
 }

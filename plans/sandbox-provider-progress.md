@@ -43,6 +43,7 @@ independent of the optional Workers runtime.
 | 1 — qualification | Cold-first-call latency, callback failure/cancellation and remaining hooks/timeouts | The original 250 ms module failure and earlier two-second heartbeat remain open. The Linux wake port and stale-receipt transport fixtures have verified corrections. A newer CI binding revision conflict has a reproduced lifecycle-overlap regression and shared admission fix; fresh Linux CI remains required |
 | Delivered shared slice; full profile partial | Explicit reconciliation, named portable bindings and retired-provider replacement | Per-slot discovery, independent durable resources and event-owned handles across Rust/Python/JS/TS; replacement requires confirmed retirement; no provider mutation replay |
 | Delivered native/fleet slices; broader faults open | Supervised expiry/orphan cleanup and ownership-transfer faults | Durable deadlines and generation checks cover running-node cases, cold native fleet restart, removed classes, accepted-create owner expiry, handoff, provider API outage and owner-specific store isolation. Broader outages, partitions, physical deletion and remote fencing remain open |
+| Delivered native named-child slice; production qualification open | Authenticated child execution, explicit-parent retirement and capacity-aware placement | Protected parent/child identities, bounded RPC, restartable scheduled cleanup, exact Engine deletion proof and two-host placement. Dynamic allocation facades, removed-deployment discovery, durable cell-data erasure and load/RTO qualification remain open; see [the latest milestone](#authenticated-named-children-and-native-fleet-placement--2026-10-28) |
 | Delivered selected 1.x slice; full profile partial | Sandbox 1.0.3 native processes, files and directory backups | Independently pinned SDK/helper; byte-source stdin, callback-independent observations, kernel PTY/PID/resize, actual files and DirectoryBackup backup/restore/delete; fresh ownership gates and handler replacement on a retained HTTP connection |
 | Following milestones | Remaining Sandbox 1.x, Daytona/Modal, Dynamic Workers and optional hosted Cloudflare | Independent profiles and the SP-07–SP-10 acceptance requirements |
 
@@ -3267,3 +3268,112 @@ pass. These results do not replace the unavailable matching-image rerun.
 
 Both Node/V8 container facade cases and the CPython 3.14 runtime-container bridge
 also pass against the corrected Engine peer. The final formatting check passes.
+
+
+## Durable named allocation catalog
+
+The next native topology is a business cell owning a catalog of independently
+routed sandbox execution cells. Each execution cell retains the existing single
+native container contract. This slice adds the host-only `SandboxCatalog`; it
+reserves child identities but does not yet create compute or expose child calls.
+See the [allocation guide](../crates/cellar-container/allocations.md) for the
+state diagrams, controller obligations and API examples.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Named reservation | Current parent scope/incarnation + name + generation determine an execution name; the configured namespace determines its scope |
+| Duplicate or uncertain create | Same generation and parameter digest; only the first reservation reports fresh; no implicit replay |
+| Replacement | Confirmed old-child deletion is required; the next generation has a different execution identity |
+| Parent retirement | Atomically closes reservation/readiness admission before cleanup; finishing refuses until every child is confirmed deleted |
+| Cleanup inventory | Indexed keyset pages of at most 256 entries; no fixed parent allocation count or resident map |
+| Authority and durability | Original root-event checks, full checkpoint comparison, native storage sync and post-sync parent/child recheck |
+| Protected recovery | Guest SQL cannot forge records; business clear preserves them; unsupported, incomplete or inconsistent retained catalogs refuse opening |
+
+The catalog records controller-supplied evidence. It cannot establish remote
+absence, fence accepted child work, or schedule cleanup on its own. Parent and
+child tombstones remain durable. Physical parent removal must not erase these
+obligations before the pending host/controller integration is implemented.
+
+PR #150 merged during implementation. The change was moved onto a fresh branch
+from main `dde97cbc`, including the merged per-cell filesystem work. The next
+feature slice is authenticated child dispatch with creation/reconnect and
+scheduled cleanup, followed by physical deletion integration, four-language
+allocation facades and capacity-aware fleet placement. These remain open;
+this catalog does not establish a production named sandbox pool.
+
+Validation on that updated main: six catalog unit cases pass, including 1,025
+named allocations cleaned in 17-entry pages, index selection, schema corruption,
+transaction rollback, parent isolation and late-generation refusal. The native
+host lifecycle test passes across five restarts, covering cancellation before
+reservation acknowledgement, stale/foreign event handles, business clear,
+replacement, parent-close races, resumed cleanup and final tombstones. The
+existing provider-binding recovery test also passes. Strict core/container
+all-target Clippy, formatting/layout (1,400 Rust files), the 496-package native
+engine dependency guard, documentation and whitespace checks pass. Existing
+vendor/configuration warnings remain; no lint suppression or test deadline was
+changed. No live provider, Docker image, fleet placement or load/RTO campaign
+was run for this catalog-only slice.
+
+## Authenticated named children and native fleet placement — 2026-10-28
+
+The catalog now controls independently routed execution cells through a
+host-registered `ChildExecutor`. This extends the catalog-only milestone above;
+the [allocation guide](../crates/cellar-container/allocations.md) shows the
+registration API, lifecycle, cleanup and placement diagrams.
+
+| Delivered behavior | Evidence boundary |
+| --- | --- |
+| Authenticated child execution | Private framework RPC binds the parent scope/incarnation, child name/generation, parameters and executor configuration. Ordinary fetch/RPC cannot invoke the dedicated executor class |
+| Durable creation intent | Persist the child identity and intent before provider effects. Proven capacity refusal permits retry; uncertain creation is never replayed. A child tombstone rejects a delayed start |
+| Bounded commands | Exec output, files and port HTTP/readiness; 64 KiB bodies/output and 256 KiB encoded control messages. Invocation-local process/socket/stream handles are not exported |
+| Automatic explicit-parent retirement | Managed registration precedes child creation. `begin_retirement` closes admission and schedules cleanup independently of application alarms. Claims persist a 30-second retry before a bounded 20-second attempt |
+| Physical Engine resource deletion | Delete the immutable container ID, then require an exact-ID 404 before confirming retirement or releasing its remaining reservation. An acknowledged delete with a surviving resource remains pending |
+| Native fleet placement | New unowned children use per-class instance/memory slots, including helper memory and uncertain reservations. Unknown/full/expired/pressured/draining peers are ineligible; the destination still performs atomic admission |
+| Cleanup under saturation | Destroy/reconcile use ordinary ownership routing. Full container capacity does not prevent cleanup; duplicate starts retain their original execution identity |
+
+Slot samples are advisory and include selections already made against the same
+sample. A proven peer refusal invalidates that sample and can retry within the
+original deadline. Lost replies do not authorize mutation replay. Placement does
+not move an existing owner after an admission race or restore native process or
+filesystem state after host loss.
+
+### Remaining production boundaries
+
+- **Durable cell-data erasure:** parent and child SQLite/replica tombstones remain.
+  A retirement barrier outside the erased cells must fence delayed work before
+  physical durable-data deletion can be safe. Local cache eviction is insufficient.
+- **Deployment removal:** automatic retirement of these managed named children
+  when a parent/executor class disappears still needs discovery independent of
+  the removed application. Existing provider-slot recovery is a separate profile.
+- **Public facades:** named dynamic allocation currently uses the native Rust host
+  API. Existing Rust/Python/JavaScript/TypeScript provider-slot APIs are unchanged.
+- **Qualification:** wider placement races, saturation, partitions, restart
+  persistence and measured one-to-five-minute recovery remain open. These changes
+  do not establish full production readiness or a new live-provider/image result.
+  E2B/Vercel real-account configuration remains deferred by the user.
+
+### Validation on updated main
+
+Merged main `ed42c8ed` into PR #153 without conflicts and repeated the affected
+checks on that combined tree. The executor registration case deliberately omits
+an application factory declaration for the execution class.
+
+| Check | Result |
+| --- | --- |
+| Pure decision core | All 36 cases pass, including 18 routing-cache/placement cases |
+| Selected native boundaries | 12 sandbox state/authority cases, 40 container cases and 142 RPC cases pass |
+| Authenticated child host tests | Three pass: bounded calls/capacity/deletion proof, uncertain create with restart cleanup, and two-node placement/retirement |
+| Existing native SDK | All nine Engine/ownership/streams/ports/lifecycle cases pass |
+| Existing durable catalogs/bindings | Named catalog lifecycle across five restarts and provider-binding recovery both pass |
+| Provider adapter and examples | 26 unit cases and seven documentation examples pass |
+| Strict Clippy | Core, container adapter and pure logic, all targets, `-D warnings`, pass |
+| Repository gates | Formatting/layout for 1,420 Rust files, the 496-package native-only graph, 854 documentation references and whitespace checks pass |
+
+The two-node case uses in-process native nodes, signed peer RPC, shared durable
+fleet storage and separate Engine protocol peers. With one native slot per node,
+two children create once each on different Engines, duplicate starts create
+nothing extra, a third create is refused, and parent retirement removes both
+physical fixture resources. The protocol peer also acknowledges deletion while
+retaining a resource to prove that an acknowledgement alone cannot finish cleanup.
+These are local framework results, not a live Docker image, remote-provider,
+saturation or production recovery-time qualification.
