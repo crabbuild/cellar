@@ -321,6 +321,40 @@ cancellation, retained-wrapper handoff shutdown, closed domains generally, or th
 corresponding Node/V8 proof profiles. Executed ABIs and frozen executable/source
 identities belong in the implementation status ledger.
 
+## Python handoff and closed-domain profile
+
+Eight `--runtime-filesystem-handoff-{barrier}-{deadline|fence}` modes extend
+the Python in-flight proof profile. Three successors start with new local
+directories and reach readiness before any predecessor begins Handoff. After
+proof interruption and warm coherent readback, each remaining predecessor must
+return a complete native Handoff report while successor capacity remains live.
+The successors recover the exact proven file/state/receipt result and admit a
+new atomic write. They stop with Preserve after verification; the fixture does
+not attempt to hand the final cell to an empty fleet.
+
+The old file, duplicate, directory and filesystem-view wrappers remain retained
+through predecessor domain shutdown. A live successor invocation repeats the
+31 SDK refusals and one raw submission refusal, taking the profile's cumulative
+count from 32 to 64. Each SDK call must retain ContextExpired, its public
+operation, not_committed and zero confirmed bytes. After every refusal, fresh
+root/file metadata, usage, file/duplicate offsets, directory cookie and a
+positional byte prefix must remain identical. Full file/state/receipt checks
+follow. Four fresh descriptors fill the successor's host ceiling; a fifth open
+still returns ENFILE, so a stale close cannot release its slots.
+
+The earlier all-node Handoff experiment stopped its final donor without a live
+successor. Targeted diagnostics observed successful epoch-advancing transfers on
+the first two nodes, followed by occupied=0, quiescing=0, evicting=0,
+releasing=0 and adopting=1 on the last node. It had no pending application events
+or dispatches. Keeping ready successors before departure made the original
+coherence and shutdown assertions pass with the wrappers still retained. This
+resolves that fixture topology observation without a production runtime change,
+a timeout extension or a weaker shutdown assertion.
+
+Executed runtime/ABI and executable identities belong in the status ledger.
+These selected Python handle families do not qualify all closed-domain paths,
+Node/V8 handoff behavior, physical outages or process crashes.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -345,7 +379,10 @@ remains before this inventory can support a complete conformance claim:
    cleanup profile adds retained-wrapper refusal, slot/pin release and committed
    batch recovery. The Python in-flight proof profile above adds the selected
    barrier/deadline/fence combinations; byte-operation cancellation, Node/V8
-   proof profiles, handoff shutdown and remaining domain cases stay open.
+   proof profiles and remaining domain cases stay open. The Python handoff
+   profile adds selected retained-wrapper refusals after predecessor domain
+   shutdown and coherent successor writes; it does not complete every lifetime
+   family.
 3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
    to actual source and executable evidence. Invocation-bound descriptors and
    activation-bound filesystem views have distinct lifetime contracts.

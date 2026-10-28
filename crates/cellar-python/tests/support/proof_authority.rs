@@ -40,10 +40,10 @@ async fn recovered_state(
 }
 
 pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
-    scenario(kind, fence, None)
+    scenario(kind, fence, None, false)
 }
 
-pub(super) fn filesystem(barrier: &str, fence: bool) -> Result<()> {
+pub(super) fn filesystem(barrier: &str, fence: bool, handoff: bool) -> Result<()> {
     ensure!(matches!(barrier, "fsync" | "fdatasync" | "sync" | "output"));
     scenario(
         if barrier == "output" {
@@ -53,6 +53,7 @@ pub(super) fn filesystem(barrier: &str, fence: bool) -> Result<()> {
         },
         fence,
         Some(barrier),
+        handoff,
     )
 }
 
@@ -90,6 +91,44 @@ fn configure(
     });
 }
 
+async fn successors(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    bucket: &cellar::bucket::Bucket,
+    peers: &Arc<Gate>,
+    data: &Arc<Gate>,
+    proof_timeout: Duration,
+) -> Result<Vec<(Node, String)>> {
+    let mut cold = Vec::new();
+    for name in [
+        "authority-proof-cold-b",
+        "authority-proof-cold-c",
+        "authority-proof-cold-a",
+    ] {
+        let peers = peers.clone();
+        let data = data.clone();
+        let (node, url) = start_services(
+            &directory.join(name),
+            application.clone(),
+            name,
+            Some(bucket.clone()),
+            move |config, services| {
+                configure(config, services, peers, data, proof_timeout, true);
+            },
+        )
+        .await?;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !node.is_ready().await? {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        cold.push((node, url));
+    }
+    Ok(cold)
+}
+
 fn verify_filesystem(value: &Value, generation: u8) -> Result<()> {
     let mut bytes = vec![generation; 3 * 65536 + 17];
     bytes[65535] = generation + 8;
@@ -114,7 +153,7 @@ fn verify_filesystem(value: &Value, generation: u8) -> Result<()> {
     Ok(())
 }
 
-fn scenario(kind: &str, fence: bool, barrier: Option<&str>) -> Result<()> {
+fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let recovering = kind == "recovery";
     let kind = if recovering { "failure" } else { kind }.to_owned();
@@ -360,33 +399,40 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>) -> Result<()> {
                 if filesystem {
                     verify_filesystem(&value["filesystem"], if value["pending"].is_null() { 1 } else { 2 })?;
                 }
-                for (_, node, _) in nodes.into_iter().rev() {
+                let mut cold = if filesystem && handoff {
+                    // A graceful donor must have a live successor. Keep these
+                    // new-directory nodes ready while each predecessor drains.
+                    successors(directory.path(), application.clone(), &bucket, &peers, &data, proof_timeout).await?
+                } else {
+                    Vec::new()
+                };
+                for (name, node, _) in nodes.into_iter().rev() {
                     if let Some(node) = node {
-                        stop(node, &monitor).await?;
+                        stop_mode(node, if handoff { ShutdownMode::Handoff } else { ShutdownMode::Preserve }, &monitor)
+                            .await.with_context(|| format!("proof node {name} shutdown"))?;
                     }
                 }
                 if filesystem {
-                    // Preserve leaves published ownership in place. New logical
-                    // identities must honor the original five-second lease.
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    let mut cold = Vec::new();
-                    for name in ["authority-proof-cold-b", "authority-proof-cold-c", "authority-proof-cold-a"] {
-                        let peers = peers.clone();
-                        let data = data.clone();
-                        let (node, url) = start_services(&directory.path().join(name), application.clone(), name, Some(bucket.clone()), move |config, services| {
-                            configure(config, services, peers, data, proof_timeout, true);
-                        }).await?;
-                        tokio::time::timeout(Duration::from_secs(10), async {
-                            while !node.is_ready().await? {
-                                tokio::time::sleep(Duration::from_millis(20)).await;
-                            }
-                            Ok::<_, anyhow::Error>(())
-                        }).await??;
-                        cold.push((node, url));
+                    if !handoff {
+                        // Preserve leaves published ownership in place. New logical
+                        // identities must honor the original five-second lease.
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                        cold = successors(directory.path(), application.clone(), &bucket, &peers, &data, proof_timeout).await?;
                     }
                     let address = &cold.last().context("cold filesystem node")?.1;
                     let (restored, _) = tokio::time::timeout(Duration::from_secs(20), recovered_state(&client, address, None)).await.context("cold proof state deadline")?.context("cold proof state readback")?;
                     ensure!(restored == value, "cold file/state/receipt recovery changed the proven readback: {restored} vs {value}");
+                    let retired = if handoff {
+                        let response = client.get(format!("{address}/retired-filesystem")).send().await?.error_for_status()
+                            .with_context(|| format!("retired filesystem checks in successor: {:?}", control("snapshot")))?;
+                        let checked: Value = response.json().await?;
+                        ensure!(checked["refusals"] == 64 && checked["filesystem"] == restored["filesystem"]
+                            && checked["owner"].as_str().is_some_and(|name| name.starts_with("authority-proof-cold-")),
+                            "retained filesystem acquired successor authority: {checked}");
+                        Some(checked)
+                    } else {
+                        None
+                    };
                     let written: Value = client.get(format!("{address}/post-recovery")).send().await?.error_for_status()?.json().await?;
                     verify_filesystem(&written, 3)?;
                     ensure!(written["inode"] == restored["filesystem"]["inode"]
@@ -409,8 +455,10 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>) -> Result<()> {
                         "expired_context": final_view,
                         "warm_recovery": value, "cold_recovery": restored,
                         "post_recovery_write": written,
-                        "cold_local_storage": "new directories after Preserve and original lease expiry",
+                        "cold_local_storage": if handoff { "new directories after Handoff" } else { "new directories after Preserve and original lease expiry" },
                         "retained_guest_wrappers": true, "host_slots_reused": 4,
+                        "successors_ready_before_handoff": handoff,
+                        "retired_checks_in_successor": retired,
                         "business_handler_attempts": 1,
                     }));
                     control("clear")?;

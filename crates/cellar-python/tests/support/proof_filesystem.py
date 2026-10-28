@@ -80,9 +80,10 @@ async def filesystem_barrier(ctx):
         await _fs_handles["file"].fdatasync()
 
 
-async def filesystem_late(ctx):
+async def filesystem_late(ctx, observe=None):
     global _fs_refusals
     old = _fs_handles
+    before = await observe() if observe is not None else None
     for call, operation in (
         (lambda: old["file"].read(1), "read"), (lambda: old["file"].write(b"late"), "write"),
         (lambda: old["file"].pread(1, 0), "pread"), (lambda: old["file"].pwrite(b"late", 0), "pwrite"),
@@ -107,6 +108,8 @@ async def filesystem_late(ctx):
             assert (error.code, error.outcome, error.operation, error.completed_bytes) == ("ContextExpired", "not_committed", "filesystem." + operation, 0)
         else:
             raise AssertionError("retired proof context admitted filesystem work")
+        if observe is not None:
+            assert await observe() == before
         with _lock:
             _fs_refusals += 1
     try:
@@ -115,8 +118,47 @@ async def filesystem_late(ctx):
         assert str(error) == "ContextExpired"
     else:
         raise AssertionError("retired proof sender admitted raw file work")
+    if observe is not None:
+        assert await observe() == before
     with _lock:
         _fs_refusals += 1
+
+
+async def filesystem_check_retired(ctx, retired):
+    # The old wrappers survive actual predecessor domain shutdown. Exercise
+    # them while a different node owns a live invocation and all four slots.
+    fs = ctx.fs
+    for _ in range(64):
+        if await fs.collect_garbage() == 0:
+            break
+    else:
+        raise AssertionError("filesystem maintenance did not settle")
+    file = await fs.open("/ledger.bin", access="read_write")
+    duplicate = await file.dup()
+    directory = await fs.opendir("/")
+    fourth = await fs.open("/ledger.bin")
+    await directory.readdir()
+    await file.lseek(2)
+    async def observe():
+        return (await fs.stat("/"), await file.fstat(), await fs.statvfs(),
+                await file.lseek(0, "current"), await duplicate.lseek(0, "current"),
+                await directory.telldir(), await file.pread(32, 0))
+    with _lock:
+        assert _fs_refusals == 32
+    await filesystem_late(retired, observe)
+    try:
+        await fs.open("/ledger.bin")
+    except SDKError as error:
+        assert (error.code, error.errno, error.outcome) == ("Filesystem", "ENFILE", "not_committed")
+    else:
+        raise AssertionError("retired wrapper released a successor descriptor slot")
+    await fourth.close()
+    await directory.closedir()
+    await duplicate.close()
+    await file.close()
+    values = {key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")}
+    return dict(refusals=_fs_refusals, filesystem=await filesystem_state(ctx, values),
+                owner=await ctx.var("DOMAIN_MARKER"))
 
 
 async def filesystem_state(ctx, values):

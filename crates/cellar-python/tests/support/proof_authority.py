@@ -107,6 +107,9 @@ class Counter:
             if FILESYSTEM_BARRIER:
                 values["filesystem"] = await filesystem_state(ctx, values)
             return Response.json(values)
+        if request.path == "/retired-filesystem":
+            assert FILESYSTEM_BARRIER
+            return Response.json(await filesystem_check_retired(ctx, _ctx))
         if request.path == "/post-recovery":
             assert FILESYSTEM_BARRIER
             await filesystem_commit(ctx, 3)

@@ -469,8 +469,10 @@ Ambiguous before the cell handler entered. The final fixture honors the original
 five-second ownership lease before starting successors, and waits for readiness;
 it does not retry the interrupted business mutation. A Handoff experiment instead
 reported application_work_drained=false, cells_drained=false and drain_timed_out.
-That retained-wrapper shutdown observation remains an explicit open P0 lifecycle
-investigation. Preserve/lease-expiry recovery does not qualify Handoff behavior.
+The follow-up handoff checkpoint below identifies missing live successor
+capacity as the cause: the final node had released the cell and was waiting for
+adoption. The earlier Preserve/lease-expiry profile does not itself qualify
+Handoff behavior; its original evidence retains that scope.
 
 Task-local `.cellar/filesystem-proof-pr144-artifacts/final/` retains frozen
 executables, ABI linkage, source hashes, all 28 logs and 16 filesystem
@@ -490,8 +492,64 @@ packages or establish completed remote CI.
 
 These are development-bucket and loopback-peer proofs. External-store/network
 outages, host disk stalls, process crashes, byte-I/O cancellation, Node/V8 proof
-profiles, directory-proof families, closed domains, Handoff shutdown, sustained
-GC/load and final captured packages retain their separate qualification gates.
+profiles, directory-proof families, remaining closed-domain/handoff families,
+sustained GC/load and final captured packages retain their separate qualification
+gates. The selected Python Handoff case is covered by the follow-up below.
+
+### Python Handoff and closed-domain checkpoint
+
+The [handoff profile](per-cell-filesystem-conformance.md#python-handoff-and-closed-domain-profile)
+passes all eight new modes under each CPython 3.14.5 ABI on macOS arm64 with
+Rust 1.98.1. Each ABI also passes the eight existing Preserve/lease-expiry modes
+and all six original storage proof modes: 44 final-executable runs in total.
+Separate frozen executables, linkage and actual GIL-state assertions distinguish
+the ABI runs.
+
+The prior Handoff observation was reproduced twice on the last of three donors.
+Targeted native tracing observed two successful ownership transfers with the
+old wrappers still retained. The final donor had occupied=0, quiescing=0,
+evicting=0, releasing=0 and adopting=1, zero application events/dispatches and
+zero output-proof errors; its only peer endpoints had already stopped.
+The stall was waiting for successor adoption, not an observed descriptor pin or
+in-flight filesystem effect. Starting and readying three new-directory
+successors before departure made the same shutdown/coherence assertions pass.
+The native trace observed final adoption at epoch 4. This is a corrected fixture
+topology and an operations-guide clarification; production runtime behavior,
+proof/handler/lease budgets and shutdown assertions are unchanged.
+
+Every remaining predecessor now completes Handoff while the successor fleet
+stays live. In the fence modes, the original observed fence remains the one
+permitted incomplete native outcome. After predecessor domains join, the old
+file, duplicate, directory and filesystem-view wrappers remain reachable.
+A live successor invocation repeats the 31 SDK refusals and one raw submission
+refusal, taking each handoff case from 32 to 64. Every refusal preserves fresh
+full root/file metadata, usage, file/duplicate offsets, directory cookie and a
+byte prefix. Full file/state/receipt readback remains equal to the proven warm
+result. Four fresh descriptors still occupy the successor ceiling, and a fifth
+open returns ENFILE after all stale close attempts. A subsequent atomic write
+advances the existing inode's content version. All six native outcomes and the
+full interpreter/bridge cleanup contract are checked per filesystem mode.
+
+Task-local `.cellar/filesystem-handoff-pr144-artifacts/` retains both failures,
+targeted traces, the passing one-variable successor probe, source copies and
+frozen diagnostic identity. Its `final/` directory contains all 44 logs and 32
+filesystem proof/shutdown ledgers with final source/executable/ABI identities.
+Diagnostic instrumentation was removed before qualification. Fresh strict
+all-target Clippy passes for `cellar-python` with embed enabled. Formatting and
+layout check 1,342 Rust files; the native dependency graph contains 482 packages
+without a JavaScript engine. Documentation checks pass with 124 filesystem-plan
+links. Remote CI remains a separate, uncompleted gate.
+
+| Executable | SHA-256 |
+| --- | --- |
+| CPython 3.14.5 GIL Handoff/proof harness | `3533103fd4a6dbb2b550c6c854609d5da75389137f069d982f98b11e0623f225` |
+| CPython 3.14.5 free-threaded Handoff/proof harness | `4203345dc2d53c0adc3cbe70c8b2de6d997afb7b1f4ebe490077bc7646fbe37e` |
+
+The missing-successor investigation is resolved for this fixture. Broader
+closed-domain families, Node/V8 proof/handoff profiles, external-store/network
+faults, process crashes, disk stalls, sustained load and final captured-agent
+packages retain their open gates. These supplied-bucket/loopback-peer results do
+not imply production or cross-platform qualification.
 
 ### Captured Python ABI checkpoints
 
@@ -669,7 +727,7 @@ below remain the acceptance checklist.
 
 | Priority | Next deliverable | Completion evidence |
 | --- | --- | --- |
-| P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, retained-wrapper handoff, closed-domain and overload cases resolved |
+| P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
 | P1 | Qualify final packages and supported runtime/ABI targets | Fresh Node agent captures, final-source Python captures, absent-runtime restoration, cold recovery and passing affected-feature CI |
 | P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
@@ -742,9 +800,11 @@ independent of these primitive release priorities.
    retained-wrapper refusal, pin/slot release and recovery of a preceding proven
    batch across those runtimes. The Python in-flight proof checkpoint adds eight
    barrier/deadline/fence combinations per ABI with cold coherence and complete
-   cleanup checks. Resolve the retained-wrapper Handoff drain observation, and
-   extend byte-I/O cancellation, Node/V8 proof, directory-proof, closed-domain and
-   remaining lifetime/resource families across supported guest runtimes.
+   cleanup checks. The Python Handoff follow-up resolves the missing-successor
+   fixture topology and adds selected retained-wrapper checks after domain
+   shutdown. Extend byte-I/O cancellation, Node/V8 proof/handoff, directory-proof,
+   closed-domain and remaining lifetime/resource families across supported guest
+   runtimes.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS
    and retained file/WAL/LTX observations. Finish optimized 4/16/64 KiB chunk
