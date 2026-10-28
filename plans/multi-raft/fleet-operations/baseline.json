@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "revision": "84e1b99a2c7a76e6767704dc2f3251564fa788fb",
+  "revision": "abea384316a32d82340b8f91fcd2a86fd74145bb",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -112,7 +112,7 @@
     },
     {
       "path": "crates/cellar/durability/raft/README.md",
-      "sha256": "1222b5d9ce49f5bf1963d06bd053d32917868abc665117eb850a9c1c000d1329"
+      "sha256": "e47e5fd0a2eaec4b32a286f961967f3a73869e882d7a05b15fa3e17677d1252f"
     },
     {
       "path": "crates/cellar/durability/raft/archive/bundle_tests.rs",
@@ -165,6 +165,10 @@
     {
       "path": "crates/cellar/durability/raft/effect_delivery.rs",
       "sha256": "7996368004f4d84f52a5f505881fcc2b44db44cfc35932ceb19df365ce6343d4"
+    },
+    {
+      "path": "crates/cellar/durability/raft/execution/mod.rs",
+      "sha256": "581e09793a77ee10d9d72d30df1710d000f9e4cd9c7ab829ff43d9cd34ffb6a3"
     },
     {
       "path": "crates/cellar/durability/raft/fleet_catalog/docker_isolation/engine.rs",
@@ -236,7 +240,15 @@
     },
     {
       "path": "crates/cellar/durability/raft/host_sql/images.rs",
-      "sha256": "bf8712e4285a40c38df8e5c6c439d5abff843e358758c2454463f5f093b9570d"
+      "sha256": "549eeef50199e698649cd0b73a92babb58da818dd3c6effa11e5c1a15204650c"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_sql/mod.rs",
+      "sha256": "f89353ce9c20da2f62a20c51fbe711330c8b7a0cc06c80f6a2f94c77e63a60c5"
+    },
+    {
+      "path": "crates/cellar/durability/raft/host_sql/rooted_tests.rs",
+      "sha256": "b47c1bd535a2ac9a57f14ee579ceba9b8f0b0003666b5075dd850b09d591a13d"
     },
     {
       "path": "crates/cellar/durability/raft/host_standby.rs",

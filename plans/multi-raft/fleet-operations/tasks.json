@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "84e1b99a2c7a76e6767704dc2f3251564fa788fb",
+  "baseline_revision": "abea384316a32d82340b8f91fcd2a86fd74145bb",
   "invariants": {
     "F01": "Quorum authority",
     "F02": "Stable identities",
@@ -6544,7 +6544,12 @@
         "crates/cellar/durability/raft/manifest_tests.rs",
         "tools/perf/raft.Dockerfile",
         "tools/perf/raft_node.rs",
-        "tools/perf/test_raft_run.py"
+        "tools/perf/test_raft_run.py",
+        "crates/cellar/durability/raft/execution/mod.rs",
+        "crates/cellar/durability/raft/host_sql/mod.rs",
+        "crates/cellar/durability/raft/host_sql/images.rs",
+        "crates/cellar/durability/raft/host_sql/rooted_tests.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "tools/perf/raft_fleet_operations.py",
@@ -6558,7 +6563,8 @@
         "tools/perf/raft_fleet_capacity_tests.rs",
         "tools/perf/test_raft_fleet.py",
         "tools/perf/raft_fleet_storage.py",
-        "tools/perf/test_raft_fleet_storage.py"
+        "tools/perf/test_raft_fleet_storage.py",
+        "tools/perf/test_raft_fleet_operations.py"
       ],
       "steps": [
         "Start large-inventory qualification with explicit native stress probes and retained failed outcomes. The first five-node/500-history debug fixture at 20 ms ticks failed during warm-up before collection; it does not establish default-profile capacity. Narrow the failing registration path and compare omitted initial SQL/archive work before changing production scheduling. Deployed traffic/fault/soak and the supported envelope remain unqualified.",
@@ -6566,7 +6572,8 @@
         "Implement fault schedule and exact ledger/replica/archive/configuration verification with resource samples.",
         "Run paired performance tests, physical RustFS CAS probes and a 24-hour soak; publish the bounded supported envelope.",
         "Qualify vertical resize as a separate resource tier and add low-load redistribution, stale-stop and terminal-receipt fault scenarios.",
-        "Validate exact failed-pair inventory and retirement-to-scale-in histories; report limiting-stage rates against convergence targets."
+        "Validate exact failed-pair inventory and retirement-to-scale-in histories; report limiting-stage rates against convergence targets.",
+        "Measure and admit bounded Colima capacity, establish managed RF3 histories and exercise foreground writes before failure recovery. Preserve failed outcomes. Release optional idle extent writers under shared byte or workspace pressure without releasing pending proposals or weakening physical admission; verify multi-owner progress and repeat deployed traffic with unchanged bounds."
       ],
       "acceptance": [
         "Every gate in qualification.md passes with retained logs and hashes; failed/inconclusive cohorts remain visible.",

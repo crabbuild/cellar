@@ -1,5 +1,37 @@
 # Fleet operations implementation progress
 
+## Measured admission and shared writer capacity
+
+The bounded five-node deployment at native source `a4b0b4e8`, with the admission
+runner correction at `40758734`, reached Active on every node using retained
+kernel, native occupancy and filesystem evidence. All 15 managed cells formed
+RF3 groups, with nine copies per node. Docker mount enumeration is unordered;
+the runner now compares complete bindings by destination and rejects duplicate
+destinations, changed mounts and changed limits.
+
+The first write campaign exposed a native availability defect. One successful
+write per node retained an idle private writer reserving 580 MiB of each 1-GiB
+extent inventory. The sixth cell repeatedly returned `Overloaded` despite empty
+SQL queues and zero archive lag. After background storage preparation finished,
+the cached cell accepted a write in 38 ms while another cell on that node was
+refused in 1 ms. These observations diagnose admission, not fleet TPS or p99.
+All five native owners subsequently joined shutdown with exit code zero. Their
+backing files, volumes, request identities and failed observations are retained.
+
+Source `abea384316a32d82340b8f91fcd2a86fd74145bb` releases an idle extent-backed writer when keeping it would leave
+no room for another equally bounded writer. Pending proposals retain their full
+reservation, and existing cache reuse continues with spare capacity. A native
+regression failed with the original `Refused(Overloaded)` and now passes across
+two SQL owners sharing one constrained inventory. It also checks active-work
+reservation, committed reads and duplicate receipts. All 13 selected SQL/private
+execution tests and 12 managed-runner tests pass. Documentation and native
+dependency checks pass.
+
+The fresh deployed comparison and recovery-under-traffic campaign remain the
+next gates. This is progress through admission and managed RF3 formation; full
+fleet qualification, throughput, latency, maintenance and scale operations are
+not complete. Workload-aware leadership and desired capacity/resize remain open.
+
 ## Bounded deployment storage
 
 Source `84e1b99a2c7a76e6767704dc2f3251564fa788fb` adds bounded deployment storage.
@@ -25,11 +57,10 @@ previously synced data after remount. A separate RustFS probe successfully
 created a bucket with read-only root and bounded data/log/tmp filesystems.
 Earlier failed attempts and final evidence remain outside runtime data and the PR.
 
-**The bounded five-node deployment is not yet qualified.** Its documented
+At that earlier storage-delivery stage, **the bounded five-node deployment was not yet qualified.** Its documented
 15-cell configuration needs 19 GiB of backing plus a 4-GiB host reserve. The
 retained host observation had about 8 GiB available; preflight refused allocation
-before Engine mutations. No new Linux image or Ready/Active/RF3 recovery campaign
-is claimed. All five nodes in the previous idle startup fixture joined shutdown
+before Engine mutations. That stage claimed no new Linux image or Ready/Active/RF3 recovery campaign. All five nodes in the previous idle startup fixture joined shutdown
 with exit code zero. Only its seven owned containers were removed; volumes and
 diagnostics remain retained. No managed native fleet is currently running.
 Loop-backed volumes require explicit mapping restoration/verification after a VM
