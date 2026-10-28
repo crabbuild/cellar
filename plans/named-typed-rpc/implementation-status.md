@@ -17,10 +17,10 @@ does not close schema, resource, packaging or performance requirements.
 
 | Priority | Remaining gap | Deliverable / completion evidence |
 | --- | --- | --- |
-| P0 — hosted verification | Final hosted gates | Published `fa1543f1` passes both complete typed-RPC jobs. Both SDK jobs fail compilation at an Axum lease-observer caller; that call is repaired locally and both Axum feature modes pass. Require fresh hosted SDK, JavaScript and example gates for the follow-up head. Earlier failures and exact identities remain preserved below. |
+| P0 — hosted verification | Final hosted gates | Current head `1a2be141` passes both local full matrices and live profiles. Hosted GIL profile and JavaScript container recovery fail on lease expiry; the free-threaded full matrix is still running. Require final SDK, JavaScript, typed-RPC and example gates. Preserve exact failing logs and identities below. |
 | P0 | Native and cross-adapter regression timing | A real held-checkpoint regression reproduces a development-store admission bottleneck: the Rust writer mutex remains held after SQLite permits new transactions. Releasing it before COMMIT keeps CAS atomic under SQLite's write lock and lets lease CAS complete within its original 333 ms attempt bound while put/delete checkpoint I/O stays paused. Native I/O reservations and FULL WAL commits remain intact. The final local JavaScript regressions pass unchanged budgets, but their old timing failures and a newly observed Axum lifecycle 503 remain unexplained. Require fresh hosted/original-budget regressions; this controlled cause does not establish the precise phase of earlier CI stalls or resolve the four original 250 ms failures. |
 | P0 | Remaining lifecycle and peer/admission provenance | Preserve 55 deadline, 128 proof-wait, 80 cycle and 96 Node/V8 lifecycle cases. Provenance now has 112 cases in each observed Python mode, including raw native envelopes through every generated caller over local/peer routes. The host downgrades entered native failures even when custom cells bypass generated finishing; genuine pre-factory refusals retain their proof. Saturation has 144 cases and peer faults have 112 in both observed Python modes. Receiving overload stays `ResourceExhausted/unknown`; broader call-specific refusal proof, nested-provider and uncertain partial-submission qualification remain. |
-| P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Retained request backing, native response/decoder ownership handoffs, wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
+| P0 | Resource bounds and parser correctness | Source/inbound request and tunnel admission, dense/cooperative collectors, typed receive ceilings, and shared native decoder/stack allowances retain their existing evidence. A shared response pool now precedes provider factories/codecs and collector growth, normalizes backing, and follows byte aliases through proof/transport waits. Both actual Python modes pass 144 saturation and 128 proof-wait cases with zero cleanup reservations. Dense request backing/alias ownership and native response/decoder handoffs now pass the frozen merged-source full matrices. Wider saturation/fault combinations, effective minima and allocator/RSS qualification remain open. |
 | P1 | Language/profile coverage | The response-pool production source passes all 19 Counter/failure suites in both actual local CPython modes: 1,016 cases per mode plus both 576-call live profiles, with independent audits and unchanged sources/executables. Published native-decoder head `fa1543f1` also passes both hosted typed-RPC jobs. Descriptor semantics, broader regressions and packaging qualification remain open. |
 | P1 | Reproducible application delivery | Offline `cellar rpc check` now validates descriptors, exact canonical inventories and optional native catalog snapshots. Deliver unified generation, verified consumer binding/frozen package inventories, embedded Python source identity, a published typed-RPC example and clean-machine CI. |
 | P2 | Operation visibility | Add registered-method spans, bounded labels and payload-free diagnostics for failures, deadlines and proof waits. |
@@ -118,7 +118,7 @@ measured memory/performance, remaining descriptor semantics and packaging are
 still open. The original JavaScript timing failures remain unexplained; the
 budget-phase diagnostics do not establish their cause.
 
-## Dense request ownership and native decoder handoff (2026-10-27; in progress)
+## Dense request ownership and native decoder handoff (2026-10-27; local slice qualified, release open)
 
 Three controlled observations reproduce ownership gaps on the actual SDK path:
 
@@ -163,8 +163,52 @@ handler budget, including overlapping response/decoder admission and zero
 post-join reservations. All-target core Clippy, formatting (1,252 Rust files),
 layout, native dependency and documentation checks pass. This verifies the
 ownership fix in that run; it does not explain the earlier HTTP failure.
-Broader validation and exact frozen
-source/executable/report identities remain pending.
+The merged-source `request-ownership-main-v1` cohort at `1a2be141` includes main
+`cd9a9689`. All 3,859 watched inputs and both copied executables remain unchanged.
+Its 50 checks contain 49 passes and one failed complete JavaScript regression
+command; this is not an all-green release run.
+
+| Boundary | Current merged-source evidence |
+| --- | --- |
+| Core and native | All 780 core and 38 selected native tests pass, including request backing, alias retirement, native response handoff, decoder/copy bounds and cancellation |
+| Generated profile | Both actual CPython modes pass 576 live local/peer calls and independent mode/profile audits |
+| Full failure driver | Each mode passes all 19 suites / 1,016 cases, including 144 saturation and 128 proof-wait cases; independent peer, provenance, saturation and guest-control audits pass |
+| Language and generation | 31 Python units plus streaming/typed-RPC integrations, all 13 generator tests, JavaScript tooling (139 tests), RPC tooling and TypeScript checks pass |
+| Guards and API modes | Both 41-case qualifier guard suites, qualifier/core/JavaScript/Axum Clippy, embed-only/Node-only builds and static guards pass |
+| Axum | 35 all-feature and 29 no-default-feature tests pass; one doctest is ignored per mode |
+
+The full driver counts 16 local and 16 remote pair rows alongside its 984 named
+failure cases. Both modes preserve actual interpreter identity and zero bridge
+reservations after join. These observations qualify the exercised ownership
+slice; the full plan's remaining semantics, resource and delivery gates stay open.
+
+| Frozen artifact | SHA-256 |
+| --- | --- |
+| Source manifest | `530ae9a433e60be30e178e8a74bd1536399a6398773159c59a158d66a3baff16` |
+| GIL executable | `8187f54f1c3938704880babed5f47a394590ff34935af1e02568afc56a4d2154` |
+| Free-threaded executable | `f11ed311fee0a917c2a00592d3c65ff131a559abb8adfd8d7f2c8bb6e29605d4` |
+| GIL full report | `afe4a35eebc434c99c3b2eb6057fd42c127a6d061a9c11a7f960d4ed863cded0` |
+| Free-threaded full report | `538927e969ffe13bcc5a0390b5f7d301c25161d18a727493c96771e6607323c1` |
+
+The JavaScript command records 128 passes, three failures and seven external
+ignored cases. Two new gateway tests lack the pinned `esbuild` prerequisite.
+Install the documented `tools/sandbox/cloudflare-v1` dependencies, verify/build
+the gateway, then rerun the same two test executables: Workers entrypoints and
+R2 both pass. Their hashes are
+`65549c54f4b7011c97f0d5c36b7da7e59215eb39bdf95e9d94fab947dccaefc3`
+and `b85582b3ddb3fc2136328d5d20d0669a85c667743c468d3ee8cf2e6ff777d8d0`.
+Preserve the original prerequisite failures and rechecks under
+`.cellar/rpc/diagnostics/request-ownership-main-v1-gateway-prerequisite/`.
+
+The third failure is a V8 container `/all` turn timeout: `phase=microtasks`,
+`observed_wall_us=2002200`, `engine_thread_cpu_us=3298`. Preserve its exact
+executable (`5fc58dd89ab4465e9ca24cdf21a3ea0959824c1e00c7b00558b471900c65e4e6`),
+sources and log under
+`.cellar/rpc/diagnostics/request-ownership-main-v1-v8-containers/`.
+Six uninstrumented serial replays pass; none establishes a fix. A stack-sampled
+replay fails earlier with a connection close, so it does not reproduce or
+explain the original timeout. Low engine CPU narrows the investigation toward
+native waits or scheduling; it does not identify a cause.
 
 Published `6addd7eb` JavaScript workflow `40623397481` fails in the container
 successor's accepted-create recovery case before adapter tests execute. The
@@ -174,6 +218,25 @@ Preserve job `122602515937` under
 `9789c949e904117a8b947b8f2533696eba7dcbfda13469a641549c0abce77af5`).
 The job tests the virtual merge into main `cd9a9689`; local integration must
 include that main source before asserting an equivalent regression result.
+
+The new published head `1a2be141` fails the same container successor case in
+JavaScript run `40628344823`, job `122618585086`. The successor is fenced after
+two inspections and no deletion. The preserved log SHA-256 is
+`9cf85094e56d05b6be15e415c1f931545dd3a9bcf6c54bffa3755ee335e4a723`
+under `.cellar/rpc/diagnostics/hosted-1a2be141-js-v1/`.
+Its GIL typed-RPC job `122618587860` in run `40628344860` also fails the live
+profile at Python-to-Rust `empty-bytes-and-values` after repeated ambiguous
+renewals and both nodes fencing. Cleanup reports zero bridge reservations.
+Preserve the log (`7bc4c926c752204203704604f2fbc5dbbc853bff69e4a2cb67a3d3e247ae183d`)
+under `.cellar/rpc/diagnostics/hosted-1a2be141-typed-gil-v1/`.
+
+The next test-only diagnostic adds fixed phase marks and the shared bounded
+lease observer to the repeatedly failing container fixture. Render observations
+only on failure, keep original budgets/assertions, and use existing workspace
+tracing dependencies. All five container fleet supervision tests, all-target
+container Clippy, formatting/layout, docs and the native dependency guard pass
+locally with the observer. Cargo's lock update adds only the two existing
+test-dependency edges. This instrumentation is not a causal timing fix.
 
 This does not close all retained-copy, effective-limit, allocator/RSS, protocol
 or package qualification. The original timing failures and the preserved Axum
