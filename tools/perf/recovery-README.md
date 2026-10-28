@@ -171,6 +171,10 @@ never dispatches, while an entered or executor-queued job retains its slot until
 its physical owner completes. Both delays remain in archive publication and
 recovery timing. These observations do not measure disk bandwidth or establish
 foreground latency under contention.
+Admission wakeups signal capacity without reserving it for an unpolled future.
+This matters when a bounded read-ahead window stops polling its later reads while
+the caller appends or prepares the next source part through the same budget.
+Only a polled dispatch claims a slot; that physical owner retains it until finish.
 
 Materialized archive replay traces also report `verified_restore_images` and
 `verified_restore_image_bytes`. These are the number and summed logical lengths

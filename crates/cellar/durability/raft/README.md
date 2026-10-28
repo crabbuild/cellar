@@ -855,6 +855,11 @@ owner. `archive_physical_admission` reports the new admission wait, and
 `archive_physical_queue` reports the subsequent executor wait. Existing producer
 and memory bounds still apply. This does not cap object-store bandwidth or
 guarantee foreground latency under a saturated shared filesystem.
+Capacity wakeups do not reserve slots for unpolled read-ahead futures. A polled
+request claims a slot immediately before dispatch; release publishes capacity
+before waking waiters. This avoids a cycle in which a bounded receive window
+reserves the slot needed by its caller's intervening append or source read.
+The dispatched job still owns its slot through cancellation and physical finish.
 
 Quorum commands settle after commit and durable image publication. S3 commands
 also need an archive proof covering that exact command. The namespace minimum is

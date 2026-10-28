@@ -717,6 +717,36 @@ test-only changes preserve every production runtime input from the archive and
 recovery validation. Source-bound physical preflights and full-size timing remain
 separate gates.
 
+### Work-conserving physical dispatch
+
+The first real RustFS materialized 272 MiB preflight after replay-budget work
+stalled at archive catch-up: surviving publications stopped at material reads
+before replacement startup. Its release attempt at `b1e7eaae` was intentionally
+canceled through the owning runner after capturing evidence; that interrupted
+requested trial remains unsuccessful. A same-source lab diagnostic completed,
+showing scheduling sensitivity rather than establishing a release recovery time.
+
+A deterministic owning test holds the only physical job, polls a read-ahead
+waiter once, releases the first job and then drives an append without polling
+the read-ahead future again. The old fair semaphore reserves the released permit
+for that unpolled waiter; the append times out. This is the same dependency cycle
+as a bounded receive/upload window whose caller performs intervening physical I/O.
+
+Admission now arms a capacity notification before a nonblocking acquisition.
+A wakeup owns no permit; only a polled dispatch can claim capacity. The physical
+job's guard releases its permit before notifying waiters and still outlives
+caller cancellation or executor queueing. Owner stop/drop remains the cancellation
+boundary. This retains the node-wide concurrency cap and existing pipeline
+windows without spawning a task per job. Before integrating updated `main`,
+all 14 owning tests and 15 private archive tests pass, together with 80 archive,
+20 ordinary large-image, 23 public operations and 32 rooted cases; 14 physical
+cases remain ignored. All-feature host/qualification/performance-node Clippy,
+246 Python tooling cases (one skipped), format/layout over 1,315 Rust files
+and dependency/documentation guards pass at source inputs
+`0161e54d978b27f05920c6f094c9608734c8ff21c71b5481136364b6bd2e2679`.
+PR #145 merged during validation. Updated-main checks and repeated real-store
+preflights are separate pending gates; the 10 GB and hard-failure gates remain open.
+
 ### Bound materialized replay amplification
 
 Encoded tail bytes alone miss complete-image rewrite amplification. Replay
