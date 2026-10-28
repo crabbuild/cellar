@@ -212,8 +212,8 @@ impl Config {
     }
 
     pub(super) async fn connected(&self, context: &Context) -> Result<Sandbox> {
-        let checkpoint = self
-            .journal(context)?
+        let journal = self.journal(context)?;
+        let checkpoint = journal
             .load(context)?
             .context("E2B sandbox has not been started")?;
         self.check_record(&checkpoint.record)?;
@@ -240,6 +240,11 @@ impl Config {
                 && token.len() <= 4096
                 && token.bytes().all(|b| (0x21..=0x7e).contains(&b)),
             "invalid E2B envd token encoding"
+        );
+        journal.check_retention(context)?;
+        ensure!(
+            journal.load(context)?.as_ref() == Some(&checkpoint),
+            "E2B binding changed while inspecting the resource"
         );
         Ok(Sandbox {
             id: info["sandboxID"].as_str().unwrap().into(),
@@ -430,6 +435,19 @@ impl Config {
         let checkpoint = journal
             .compare_exchange(context, previous.as_ref().map(|c| c.revision), record)
             .await?;
+        if let Err(error) = journal.check_retention(context) {
+            if error.is::<cellar::sdk::containers::RetentionExpired>() {
+                // This invocation owns the new reservation and has not sent
+                // its create. Only this proven non-submission may retire it.
+                let mut retired = checkpoint.record;
+                retired.intent = Intent::Deleted;
+                retired.observation = Observation::Confirmed;
+                journal
+                    .compare_exchange(context, Some(checkpoint.revision), retired)
+                    .await?;
+            }
+            return Err(error);
+        }
         let reply=self.control(context,"POST","v2/sandboxes",Some(json!({"templateID":self.template,"timeout":self.lifetime,"autoPause":false,"autoResume":{"enabled":false},"allow_internet_access":internet,"network":{"allowPublicTraffic":false},"metadata":metadata,"envVars":env})),Some(&checkpoint.record.request_id)).await?;
         ensure!(
             reply.status == 201,

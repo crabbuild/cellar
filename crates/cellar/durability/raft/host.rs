@@ -34,6 +34,10 @@ use tokio::sync::{mpsc, Notify};
 #[path = "host_image_limits.rs"]
 mod image_limits;
 
+#[path = "host_extents.rs"]
+mod extents;
+pub use extents::{RaftExtentCacheLimits, RaftExtentLimits, RaftExtentOptions};
+
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "host_startup_tests.rs"]
 mod startup_tests;
@@ -75,6 +79,8 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Shared inventory and caches for namespaces selecting extent images.
+    pub extents: Option<RaftExtentOptions>,
     pub close_report: super::operations::RaftCloseReportLimits,
     /// Explicit committed alarm/outbox scheduling. Definitions refuse activation when
     /// this capability is absent; ordinary classes do not start a scheduler.
@@ -123,6 +129,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            extents: None,
             close_report: super::operations::RaftCloseReportLimits::default(),
             effects: None,
             controller: None,
@@ -174,6 +181,9 @@ impl RaftHostOptions {
         }
         self.archive.validate()?;
         self.execution.validate()?;
+        if let Some(extents) = &self.extents {
+            extents.validate(self.execution)?;
+        }
         anyhow::ensure!(
             self.archive.limits.envelope == self.execution.envelope,
             "archive and execution envelope limits must agree"
@@ -393,9 +403,25 @@ async fn initialize(
     let mut routes = Vec::new();
     let mut archive_owner = None;
     let mut node_directory = None;
+    let mut extent_owner = None;
     let peer_count = peers.len();
     let peers: BTreeMap<_, _> = peers.into_iter().map(|peer| (peer.node, peer)).collect();
     let initialized = async {
+        let needs_extents = registrations.iter().any(|registration| {
+            registration.namespace.config().image_storage == RaftImageStorage::Extents
+                && !matches!(
+                    registration.placement,
+                    RaftCellPlacement::QueryRouter { .. }
+                )
+        });
+        extent_owner = extents::Owner::open(
+            &service.log,
+            directory.clone(),
+            ltx_host(),
+            options.extents,
+            needs_extents,
+        )
+        .await?;
         anyhow::ensure!(
             peer_count == peers.len() && peer_count <= service.transport.peer_limit(),
             "invalid peer discovery count"
@@ -449,15 +475,30 @@ async fn initialize(
             );
             let scope = birth.scope().clone();
             let worker = index % options.blocking_workers;
+            let cell_directory = directory
+                .join(hex::encode(scope.namespace.bytes()))
+                .join(hex::encode(scope.group.bytes()))
+                .join(hex::encode(scope.incarnation.bytes()));
+            let rooted = match namespace.config().image_storage {
+                RaftImageStorage::Materialized => None,
+                RaftImageStorage::Extents
+                    if matches!(placement, RaftCellPlacement::QueryRouter { .. }) =>
+                {
+                    None
+                }
+                RaftImageStorage::Extents => Some(
+                    extent_owner
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("missing node extent owner"))?
+                        .cell_storage(&cell_directory),
+                ),
+            };
             let storage = sql::CellStorage {
-                directory: directory
-                    .join(hex::encode(scope.namespace.bytes()))
-                    .join(hex::encode(scope.group.bytes()))
-                    .join(hex::encode(scope.incarnation.bytes())),
+                directory: cell_directory,
                 host: ltx_host(),
                 services: read_services(),
                 images: options.images,
-                rooted: None,
+                rooted,
                 snapshot_scratch: service.log.snapshot_scratch(),
                 execution: options.execution,
             };
@@ -669,6 +710,10 @@ async fn initialize(
                                     )?
                                     .with_scratch_directory(service.log.limits().directory.clone())
                                     .with_snapshot_scratch(service.log.snapshot_scratch());
+                                let archive = match &storage.rooted {
+                                    Some(rooted) => archive.with_root_store(rooted.store.clone()),
+                                    None => archive,
+                                };
                                 let received = service
                                     .transport
                                     .seed_from_archive(
@@ -820,7 +865,21 @@ async fn initialize(
         service.transport.close().await;
         let _ = pool.join().await;
         let _ = service.log.close().await;
-        return Err(error);
+        // A failed join can still own sealed roots in cells or standby storage.
+        // Release their final directory locks on a joined blocking owner too.
+        let cleanup = service.log.domain().blocking(move || {
+            drop((cells, standbys, extent_owner, archive_owner));
+        });
+        let cleanup = match cleanup {
+            Ok(job) => job.await.map_err(anyhow::Error::from),
+            Err(error) => Err(error.into()),
+        };
+        return match cleanup {
+            Ok(()) => Err(error),
+            Err(cleanup) => {
+                Err(error.context(format!("physical startup cleanup failed: {cleanup}")))
+            }
+        };
     }
     let (sender, requests) = mailbox::channel(options.max_requests);
     let (control_sender, controls) = mailbox::channel(options.max_control_requests);
@@ -847,6 +906,7 @@ async fn initialize(
         archive_capture_budget,
         query_pins,
         sql: Some(pool.resource_observer()),
+        extents: extent_owner.as_ref().map(|owner| owner.store.observer()),
         groups: load::GroupResourceObserver::default(),
         controller: Mutex::new(None),
         transport: service.transport.resource_observer(),
@@ -900,6 +960,7 @@ async fn initialize(
             peers,
             label,
             archive_owner,
+            extents: extent_owner,
             log,
             runtime,
             events,
@@ -1186,6 +1247,7 @@ enum Job {
         result: Result<(), RuntimeError>,
     },
     Hint,
+    ExtentGc(anyhow::Result<usize>),
 }
 
 struct Driver {
@@ -1204,6 +1266,7 @@ struct Driver {
     snapshot_limits: super::snapshot::SnapshotLimits,
     snapshot_source: Option<super::transport::snapshots::SnapshotSource>,
     archive_owner: Option<super::host_archive::Owner>,
+    extents: Option<extents::Owner>,
     local: Arc<client::Handle>,
     log: super::storage::ReplicaLog,
     runtime: RaftRuntime,
@@ -2575,6 +2638,9 @@ impl Driver {
         let sql::Output { value, _bytes } = match result {
             Ok(result) => result,
             Err(error) => {
+                tracing::debug!(event = "raft_sql_failure", cell = %scope.cell,
+                    operation = match &purpose { SqlPurpose::Stage => "stage", SqlPurpose::Prepare(_) => "apply", SqlPurpose::Publish(_) => "publish", _ => "lifecycle" },
+                    error = ?error);
                 if let (
                     SqlPurpose::Prepare(event),
                     ExecutionError::Refused(CommandFailure::Overloaded),
@@ -2862,6 +2928,7 @@ impl Driver {
         let now = crate::asyncrt::mono_ms();
         if now >= self.maintenance_at {
             self.maintenance_at = now.saturating_add(self.options.poll_ms);
+            self.pump_extent_gc();
             self.pump_membership();
             self.pump_snapshots();
         }
@@ -3049,6 +3116,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::ExtentGc(result) => self.extent_gc_completed(result),
             Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),
             Job::Effect(completed) => self.finish_effect(*completed),
@@ -3459,8 +3527,17 @@ impl Driver {
             .map_err(|_| CommandFailure::CorruptState);
         let attached = self.cells.len();
         self.cells.clear();
+        self.standbys.clear();
         let log = self.log.close().await;
-        if runtime.is_err() || sql.is_err() || log.is_err() {
+        let closed_extents = if let Some(extents) = self.extents.take() {
+            match self.log.domain().blocking(move || drop(extents)) {
+                Ok(job) => job.await.is_ok(),
+                Err(_) => false,
+            }
+        } else {
+            true
+        };
+        if runtime.is_err() || sql.is_err() || log.is_err() || !closed_extents {
             return Err(CommandFailure::CorruptState);
         }
         if self.local.admission.is_poisoned() {

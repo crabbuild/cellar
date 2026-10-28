@@ -902,7 +902,20 @@ impl Cluster {
             // Large-image fixtures use the public coupled configuration API,
             // including on the empty replacement node retained below.
             let config = if host.execution.max_image_bytes > 64 * 1024 * 1024 {
-                config.with_materialized_image_limit(host.execution.max_image_bytes)?
+                if config
+                    .cells
+                    .iter()
+                    .all(|cell| cell.namespace.image_storage == RaftImageStorage::Extents)
+                {
+                    config.with_extent_image_limit(
+                        host.execution.max_image_bytes,
+                        host.extents.ok_or_else(|| {
+                            anyhow::anyhow!("large extent fixture needs physical options")
+                        })?,
+                    )?
+                } else {
+                    config.with_materialized_image_limit(host.execution.max_image_bytes)?
+                }
             } else {
                 config
             };

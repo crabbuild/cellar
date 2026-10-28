@@ -109,6 +109,18 @@ impl LocalStore {
                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                    next_etag INTEGER NOT NULL
                  );
+                 CREATE TABLE IF NOT EXISTS __sys_local_uploads (
+                   id TEXT PRIMARY KEY,
+                   key TEXT NOT NULL,
+                   attributes TEXT NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS __sys_local_parts (
+                   upload_id TEXT NOT NULL,
+                   part_index INTEGER NOT NULL,
+                   etag TEXT NOT NULL,
+                   body BLOB NOT NULL,
+                   PRIMARY KEY (upload_id, part_index)
+                 );
                  INSERT OR IGNORE INTO __sys_local_sequence(singleton, next_etag) VALUES (1, 1);",
             )
             .map_err(db_error)?;
@@ -467,6 +479,13 @@ macro_rules! store_blocking {
         }
     }};
 }
+
+#[path = "local_store_multipart.rs"]
+mod multipart;
+
+#[cfg(test)]
+#[path = "local_store_multipart_tests.rs"]
+mod multipart_tests;
 
 #[async_trait]
 impl ObjectStore for LocalStore {
@@ -1122,7 +1141,15 @@ mod schema_tests {
             .map_err(db_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(db_error)?;
-        assert_eq!(names, ["__sys_local_objects", "__sys_local_sequence"]);
+        assert_eq!(
+            names,
+            [
+                "__sys_local_objects",
+                "__sys_local_parts",
+                "__sys_local_sequence",
+                "__sys_local_uploads"
+            ]
+        );
         Ok(())
     }
 }

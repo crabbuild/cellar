@@ -1170,7 +1170,8 @@ impl RuntimeManager {
     }
 
     /// Call a service binding. `generation` is the caller's, so the target
-    /// comes from the deployment graph the caller was built with.
+    /// comes from the deployment graph the caller was built with. An absent
+    /// nonzero generation refuses before Worker admission.
     pub async fn fetch_service(&self, call: ServiceFetch) -> anyhow::Result<HttpResponse> {
         let ServiceFetch {
             generation,
@@ -1182,7 +1183,7 @@ impl RuntimeManager {
             headers,
             cancel,
         } = call;
-        let generation = self.generation_by_id(generation);
+        let generation = self.service_generation(generation)?;
         let pool = generation
             .service(&script)
             .ok_or_else(|| anyhow!("no service Worker for script {script}"))?;
@@ -1229,7 +1230,7 @@ impl RuntimeManager {
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {}
             }
         }
-        let generation = self.generation_by_id(generation);
+        let generation = self.service_generation(generation)?;
         let pool = generation
             .service(script)
             .ok_or_else(|| anyhow!("no service Worker for script {script}"))?;
@@ -1245,7 +1246,7 @@ impl RuntimeManager {
         script: &str,
         batch: crate::engine_api::QueueBatch,
     ) -> anyhow::Result<crate::engine_api::QueueDispatchResult> {
-        let generation = self.generation_by_id(generation);
+        let generation = self.service_generation(generation)?;
         generation
             .service(script)
             .ok_or_else(|| anyhow!("no Queue consumer Worker for script {script}"))?

@@ -27,17 +27,27 @@ CREATE INDEX IF NOT EXISTS __sys_work_due ON __sys_work(scope, at_ms, reason)
 pub(crate) fn set(scope: &str, reason: Reason, at_ms: i64) -> anyhow::Result<Option<i64>> {
     anyhow::ensure!(at_ms >= 0, "internal work deadline must be nonnegative");
     with_application_storage_write(scope, |connection| {
-        connection
-            .prepare_cached(
-                "INSERT INTO __sys_work(scope,reason,generation,at_ms)
-             VALUES (?1,?2,1,?3)
-             ON CONFLICT(scope,reason) DO UPDATE SET
-                generation=__sys_work.generation+1, at_ms=excluded.at_ms",
-            )?
-            .execute(rusqlite::params![scope, reason.as_str(), at_ms])?;
+        set_in(connection, scope, reason, at_ms)?;
         Ok(())
     })?;
     Ok(publish_alarm(scope))
+}
+
+pub(super) fn set_in(
+    connection: &Connection,
+    scope: &str,
+    reason: Reason,
+    at_ms: i64,
+) -> anyhow::Result<()> {
+    connection
+        .prepare_cached(
+            "INSERT INTO __sys_work(scope,reason,generation,at_ms)
+             VALUES (?1,?2,1,?3)
+             ON CONFLICT(scope,reason) DO UPDATE SET
+                generation=__sys_work.generation+1, at_ms=excluded.at_ms",
+        )?
+        .execute(rusqlite::params![scope, reason.as_str(), at_ms])?;
+    Ok(())
 }
 
 pub(crate) fn clear(

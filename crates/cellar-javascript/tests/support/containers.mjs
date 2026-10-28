@@ -63,6 +63,49 @@ export class Counter {
       return ok();
     }
     const c = ctx.container;
+    if (req.url.endsWith("/borrow-terminal")) {
+      const error = await rejects(
+        () => this.oldTerminal.info(),
+        "not_committed",
+      );
+      check(
+        ["ContextExpired", "ContextMismatch"].includes(error.code),
+        "terminal authority",
+      );
+      return ok();
+    }
+    if (req.url.endsWith("/terminal")) {
+      check((await c.capabilities()).exec_pty, "declared terminal execution");
+      if (!(await c.running())) await c.start();
+      const process = await c.exec({
+        cmd: ["echo-stdin"],
+        pty: { cols: 80, rows: 24 },
+      });
+      const info = await process.info();
+      check(
+        info.is_pty && info.pid === null && Object.isFrozen(info),
+        "terminal allocation metadata",
+      );
+      await rejects(() => process.resize(0, 24), "not_committed");
+      await process.resize(132, 40);
+      await process.write(Uint8Array.of(0, 255, 42));
+      await process.closeStdin();
+      const [stdout, stderr, code] = await Promise.all([
+        drain(() => process.readStdout()),
+        drain(() => process.readStderr()),
+        process.wait(),
+      ]);
+      check(
+        stdout.join(",") ===
+          [0, 255, 42, 115, 116, 100, 101, 114, 114].join(","),
+        "raw terminal output",
+      );
+      check(stderr.length === 0 && code === 7, "combined terminal channels");
+      this.oldTerminal = process;
+      await process.release();
+      await c.destroy();
+      return ok();
+    }
     for (const operation of [
       "workers.container.fetch",
       "workers.container.fetch_stream",

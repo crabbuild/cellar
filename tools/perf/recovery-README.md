@@ -16,6 +16,33 @@ kill. A successful pilot never qualifies a hard-crash recovery-time guarantee.
 Public extent recovery and demand loading remain implementation work in the
 [recovery-time strategy](../../plans/multi-raft/010-large-cell-recovery-time.md).
 
+`--storage extents` selects the public extent inventory and authenticated root
+seed path. It uses the same preloaded template, logical quota, live membership
+repair, phase ledger, payload/receipt checks and joined cleanup as materialized
+recovery. Both modes currently install a complete locally verified closure
+before the first read. Extent selection does not enable demand loading or
+change the meaning of hydration, readiness or qualification.
+
+The fixture retires its private prepared template after all initial replicas'
+native markers are synced and their preload owners have joined, before any
+replica runtime starts. A pending or failed preload keeps its input; failed
+retirement refuses startup. This removes one full image from the overlap
+between fixture preparation and archive publication. Supplied raw fixtures stay
+under the caller's ownership. The same payload, receipt, local-loss and serving
+assertions still run after fault injection.
+Cross-volume template preparation creates an exclusive writable private copy;
+it preserves the supplied input's permissions and refuses an existing output.
+The fallback copies at most the opened source length and refuses length changes.
+
+The ignored `retained_root_query` target in `cellar-recovery-tests` diagnoses an
+offline member-4 worker from the full-capacity fixture. Set
+`CELLAR_RETAINED_QUERY_WORKER` to its absolute directory and run
+`cargo test --locked -p cellar-recovery-tests --test retained_root_query -- --ignored --nocapture`.
+It locks the source, privately copies its log/inventory, selects the applied
+native marker and records verification/query time plus completed file I/O.
+It retains the 60-second payload-query budget. This physical query probe cannot
+qualify native admission, cold recovery or a production latency percentile.
+
 ## Run a pilot
 
 Choose a Cargo target directory on the workspace volume, unique to this checkout.
@@ -47,6 +74,12 @@ python3 tools/perf/recovery.py --backend peer --profile reference-10gb \
   --repetitions 3 --output /tmp/cellar-recovery-peer-10gb-001
 python3 tools/perf/recovery.py --backend rustfs --profile reference-10gb \
   --repetitions 3 --output /tmp/cellar-recovery-rustfs-10gb-001
+python3 tools/perf/recovery.py --backend rustfs --storage extents \
+  --profile buffered-archive-272mib --repetitions 1 \
+  --output /tmp/cellar-recovery-extents-272mib-001
+python3 tools/perf/recovery.py --backend peer --storage extents \
+  --profile reference-10gb --repetitions 3 \
+  --output /tmp/cellar-recovery-extents-peer-10gb-001
 ```
 
 The 10 GB profile uses 9,999,998,976 physical SQLite bytes. An optional
@@ -90,7 +123,8 @@ kill may leave only the last incomplete ledger; neither outcome counts as a
 successful trial. The 1,280 MiB diagnostic profile crosses SQLite's reserved-lock
 page boundary and creates its own incompressible template.
 
-The native ledger records monotonic timestamps for owner loss, joined stop,
+The native ledger binds the selected storage representation and records
+monotonic timestamps for owner loss, joined stop,
 local erasure, repair admission, archive waiting, seed installation, complete
 hydration, first read, promotion, first verified write, receipts, payload checks
 and joined cleanup. Timed first-use queries read a single indexed 1 MiB row and
@@ -157,10 +191,37 @@ cache state uncontrolled. The 120-second and 30-second targets remain unqualifie
 
 ## Verification
 
+Recovery evidence also records `observation_windows` before the fault, around
+seed installation, after the verified first write and payload oracle, and around
+joined cleanup. Each capture records its controller-clock start/end and the
+existing bounded host performance snapshot. Closed hosts remain sampled; opaque
+startup identities, rather than shifting service-array positions, identify them.
+
+The analyzer emits `phase_observation_work` using the existing strict performance
+validator. A retained source uses adjacent cumulative deltas. A newly observed
+host is reported as `new_host_lifetime`, with no invented zero baseline. Source
+changes, disappearing hosts, counter/clock regressions, unavailable live timing
+and captures outside their controller phases refuse that diagnostic and appear in
+`phase_observation_failures`. Older reports without these optional captures
+retain their controller timing results but provide no phase-work breakdown.
+
+After shutdown a retained host can have no owner clock. Its raw final counters
+remain in the evidence, but the report marks that source `unavailable`, lists it
+in `unavailable_samples`, and derives no measured delta or zero duration. Other
+live sources still use the strict validator. A source returning after an
+unavailable capture gets a labeled lifetime observation, never a phase delta.
+
+Operation durations overlap and can include work started before the capture;
+do not add them into recovery RTO. Counters describe API/socket work, rather than
+physical device traffic. Capture overhead is retained and is not subtracted from
+the controller interval. Capture ranges measure snapshot collection; persisting
+the ledger adds work that remains inside the controller interval. These diagnostics cannot substitute for the native
+correctness oracle, controller clock or qualification evidence.
+
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_recovery.py' -v
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_raft_metrics.py' -v
-cargo test --locked -p cellar --test native_raft_large_images -- --test-threads=1
+cargo test --locked -p cellar-recovery-tests --test native_raft_large_images -- --test-threads=1
 ```
 
 
@@ -176,8 +237,26 @@ These are bounded reservations, not eager allocations.
 
 The required descriptor transfer length and snapshot/seed authentication domains
 make an internal marker-1 hard cutover. Experimental workers and native state
-must match; there is no legacy reader. Root streams currently have functional
-native TLS/SQL-worker evidence. Public node activation still selects materialized
-storage; RustFS root archival, public root seeding and partial hydration remain
-implementation work. Existing full-size materialized campaigns do not qualify
-root-stream latency or change either recovery-time target.
+must match; there is no legacy reader. Public node selection, peer/RustFS root
+seeding and joined restart have small functional evidence. The runner can now
+select the same public extent path for complete-local recovery campaigns.
+Partial hydration remains implementation work. Existing full-size materialized
+campaigns do not qualify root-stream latency or change either recovery-time target.
+
+Root publication verifies the complete selected previous root and Blob closure
+before uploading replacement material. Within that head-CAS attempt, unchanged
+extent identities can reuse those fresh confirmations. Newly introduced objects
+still require exact PUT read-back. A private receipt binds the confirmed snapshot
+to its actual source inventory; final local sealing, metadata persistence and
+exact-head reconciliation remain required. A retry fetches its selected history
+again. Independent recovery and standalone snapshot storage never substitute an
+older confirmation or local cache for a remote read.
+
+The native root-archive target also exercises overlap at the actual destination
+verification boundary, failed-window draining and immutable remote corruption.
+Run it through the same private qualification package without compiling unrelated
+host executables:
+
+```sh
+cargo test --locked --release -p cellar-recovery-tests --test native_raft_rooted -- --test-threads=1
+```

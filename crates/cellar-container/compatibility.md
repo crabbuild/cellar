@@ -16,6 +16,8 @@ a language facade does not grant provider support.
 | Custom start entrypoint | Yes | No; host template | No; host image |
 | Bounded binary command output | Yes | Yes | Yes; image-local helper |
 | Interactive process streams | Yes | No | No |
+| Process allocation metadata | Verified namespace PID or unavailable; terminal flag | No | No |
+| PTY allocation / resize | Yes; Docker API 1.42+ required | No; pre-effect refusal | No; pre-effect refusal |
 | Container signal / monitor | Yes | No | No |
 | Inactivity timeout | Yes | No; fixed lifetime | No; fixed session timeout |
 | Binary file read/write | Yes; engine archives | Yes | Yes |
@@ -24,7 +26,7 @@ a language facade does not grant provider support.
 | Incremental HTTP response reads / cancellation | Yes; [stream contract](streams.md) | No | No |
 | Raw TCP / WebSocket forwarding | Yes | No | No |
 | Synchronous running / queued lifecycle opt-ins | Yes | No | No |
-| PTY / resize, snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |
+| Snapshots, GPUs and volumes | Not exposed by this operation set | Not exposed | Not exposed |
 | Worker module / isolate invocation | Separate planned operation family | Not implemented | Not implemented |
 
 ## Configuration and guarantees
@@ -50,9 +52,10 @@ establish automatic cleanup on owner loss or node shutdown.
 | --- | --- | --- |
 | Native portable API | Native-host peers, language integrations and separate real Docker image file/command acceptance | Broader Podman/platform and fault qualification |
 | Local Cloudflare baseline | Pinned Containers `0.3.7` and Sandbox `0.12.9`; published package constructors, unchanged basic Sandbox/image routes and in-object/Worker/DO HTTP/direct RPC `execStream()` probes and real Cap'n Web binary SDK files, Node Request/Response RPC results/arguments, idle lifecycle, local HTTP/WebSocket previews, Worker/DO upgrade forwarding and the overlapping alarm regression | Complete hooks, callback-owned controls, slow-peer/remote/ownership faults and complete lifetime/upgrade qualification |
-| E2B | Pinned protocol sources; native host/restart peer, explicit recovery/expiry/deletion observations and CPython/Node/V8 fixtures | Live VM/account expiry, ownership takeover, supervised orphan cleanup and stronger fencing |
-| Vercel | Pinned SDK `3.9.0` protocol sources; native host/restart peer, recovery/expiry/deletion observations, actual local helper and CPython/Node/V8 fixtures | Live VM/image/account expiry, takeover, supervised orphan cleanup and stronger fencing |
-| Daytona, Modal, Sandbox 1.x, Dynamic Workers, hosted Cloudflare | Planned targets | Dedicated implementations and independent qualification |
+| E2B | Pinned protocol sources; native host/restart peer, explicit lifecycle observations, optional scheduled maintenance and CPython/Node/V8 fixtures | Live VM/account expiry, unattended fleet recovery, ownership takeover and stronger fencing |
+| Vercel | Pinned SDK `3.9.0` protocol sources; native host/restart peer, explicit lifecycle observations, optional scheduled maintenance, actual local helper and CPython/Node/V8 fixtures | Live VM/image/account expiry, unattended fleet recovery, takeover and stronger fencing |
+| Local Sandbox 1.x | Separately pinned [1.0.3 exec/Files profile](../../tools/sandbox/cloudflare-v1/README.md), matching helper/image and Node native acceptance | Remaining process/helper APIs, persistence, faults and complete profile qualification |
+| Daytona, Modal, Dynamic Workers, hosted Cloudflare | Planned targets | Dedicated implementations and independent qualification |
 
 Portable E2B/Vercel support does not establish Vercel/E2B SDK compatibility or
 Cloudflare Workers/Containers/Sandbox conformance. The direct providers also

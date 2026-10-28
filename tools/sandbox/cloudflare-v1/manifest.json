@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "profile": "cloudflare-sandbox-1.0.3-files",
+  "conformance": "partial",
+  "platform": "linux/amd64",
+  "sdk": {
+    "version": "1.0.3",
+    "integrity": "sha512-QbpiKDVztiRSG3CETxsocYc16CviM0tV2DzPU9MIcAX09Ee+j7MDS5ec6gJfMCv+rDd1hOGvOJOQ4ztCTuZj2Q==",
+    "tarball": "https://registry.npmjs.org/@cloudflare/sandbox/-/sandbox-1.0.3.tgz"
+  },
+  "helper_image": "docker.io/cloudflare/sandbox@sha256:fc1740c3cba26461f0ab1771287c84018ab2cca43a70ebb823087c85d780aaec",
+  "base_image": "node@sha256:85a395c77b811fa7f5b5e4aa69cd6eb4c3b80c7f1a8e34704dc0ce061e5b404e",
+  "lock_sha256": "b22a9dd0b471db2cd2d09bfdf6eb904a14229e7b8dd0078a02aaaaf083eef20a",
+  "files": {
+    "fixture.mjs": "f3efe2d3a89640982060370ec6b3ef0359be95c76518c5ef49be455d8a9c4c5c",
+    "Dockerfile": "6eb6fe23679f6aba1d394ad33e02785702ed7660a9306f8249eba2b201d24aa6",
+    "node_modules/@cloudflare/sandbox/dist/index.mjs": "98862d6f071f19c2e5b1c57a1aea2578ebc3e40e0bcc2a5c5be13726ae669541",
+    "node_modules/@cloudflare/sandbox/LICENSE": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+    "terminal-program.mjs": "b9ebbd20ad9e2f1030b7523dde178049f9c3b7ccffc26e7ca2b6c63783a95548",
+    "gateways.mjs": "dae9cf0215c1e193b71e9c9f1bfdb6ea45ba18d9c30a67fc41a13d443d1248a4",
+    "r2.mjs": "6f6f914058d2b0ea1ba48277a7a27b324a6f9f8c7d487b4e68e8b6dd51e775b8"
+  },
+  "qualified_files": [
+    "mkdir",
+    "writeFile",
+    "readFile",
+    "rename",
+    "stat",
+    "remove"
+  ]
+}

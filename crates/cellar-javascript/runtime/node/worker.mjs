@@ -195,11 +195,18 @@ export default async function bootstrap(config) {
     // their mutation failure provenance, without the local storage mutation slot.
     // Body/socket output can await acknowledgement while independent jobs and
     // received-message handlers mutate storage. Native output gates still apply.
+    // Existing process I/O and retirement use the native provider control queue,
+    // independently of SQLite mutation admission and with effect provenance.
     // Ordinary SQL and fetch operations remain conservative mutations.
     const mutation =
       !name.startsWith("workers.rpc.") &&
       ![
         "storage.sync",
+        "container.exec.write",
+        "container.exec.close_stdin",
+        "container.exec.kill",
+        "container.exec.resize",
+        "container.release",
         "container.websocket.send_text",
         "container.websocket.send_binary",
         "container.websocket.close",
@@ -246,6 +253,7 @@ export default async function bootstrap(config) {
         "container.capabilities",
         "container.running",
         "container.monitor",
+        "container.exec.info",
         "container.exec.read_stdout",
         "container.exec.read_stderr",
         "container.exec.wait",
@@ -328,6 +336,9 @@ export default async function bootstrap(config) {
         "container.port.fetch",
         "container.port.fetch_stream",
         "container.response.read",
+        "container.exec.read_stdout",
+        "container.exec.read_stderr",
+        "container.exec.wait",
         "container.port.connect_websocket",
         "container.websocket.receive",
         "workers.fetch",

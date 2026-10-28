@@ -106,8 +106,11 @@ now provides activation-owned DO storage, native sync/async transaction and
 critical-section callbacks, constructor admission and event-owned
 namespace/method RPC above the native operation boundary. Native CellRpc calls
 retain structured graphs and typed remote errors in both engines, with explicit
-visibility and clone limits. This partial profile includes TypeScript declarations;
-automatic environment bindings and returned RPC targets remain required.
+visibility and clone limits. Node Worker modules additionally dispatch named
+and default entrypoint classes through native service/loopback routes, with
+copied props, value RPC, HTTP and retained callee background work. This partial
+profile includes TypeScript declarations; additional binding kinds, transferable
+service capabilities and returned RPC targets remain required.
 Published Containers 0.3.7 constructor/scheduling
 methods execute against native SQLite in both engines; Sandbox 0.12.9 constructor
 and metadata recovery execute in Node. These are constructor/storage fixtures

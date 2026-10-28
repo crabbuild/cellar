@@ -46,6 +46,15 @@ reads. This does not create a recovery or native admission capability.
 image seal. An identical root from another directory cannot substitute for that
 local physical capability.
 
+`RootView::image` caches read-only handles to its pinned local extents. Each
+cache miss reserves the ordinary conservative byte/file allowance, independently
+hashes the opened descriptor and derives bounded block proofs. Reads recheck
+those blocks before exposing bytes. Reopened inventory also re-establishes file
+and directory persistence barriers before reuse. Already verified local extents
+need no anonymous copy or cache sync. Handles retain their root and inventory
+lock until their last reader closes; generic `ExtentSource` downloads retain
+their separate scratch files, destination verification and synchronization.
+
 L0 segments capture commits before higher-level compaction. The paged SQLite
 virtual filesystem loads each page on first use through indexes in retained
 segments. A paged epoch continues the history from which it was opened.

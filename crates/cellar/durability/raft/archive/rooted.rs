@@ -8,7 +8,7 @@ use crate::raft::snapshot::{
     PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotError, SnapshotLimits,
 };
 use cellar_ltx::internal::{ExtentId, NodeExtentStore, SealedImageRoot, EXTENT_BYTES};
-use futures_util::stream::FuturesOrdered;
+use futures_util::stream::{FuturesOrdered, FuturesUnordered};
 
 const MAGIC: &[u8; 8] = b"CLRROT01";
 const HEADER_BYTES: usize = 48;
@@ -19,7 +19,7 @@ const ROOT_WINDOW: usize = 2;
 // Include both for each entered request, including in-memory store providers.
 const _: () = assert!(2 * ROOT_WINDOW * EXTENT_BYTES as usize <= physical::READ_BYTES);
 
-fn root_error(error: SnapshotError) -> ArchiveError {
+pub(super) fn root_error(error: SnapshotError) -> ArchiveError {
     ArchiveError::Root(Box::new(error))
 }
 
@@ -30,6 +30,10 @@ fn root_error(error: SnapshotError) -> ArchiveError {
 pub struct RootArchiveReference(ObjectRef);
 
 impl RootArchiveReference {
+    pub(super) fn metadata_bytes(&self) -> u64 {
+        self.0.length
+    }
+
     pub fn position(&self) -> Result<LogPosition, ArchiveError> {
         let object = &self.0;
         let range = object
@@ -49,9 +53,9 @@ impl RootArchiveReference {
 /// A complete independently verified local closure, pinned through native
 /// preparation. Only the receiving engine's ordinary ticket can install it.
 pub struct RootArchiveSnapshot {
-    set: RootSnapshotSet,
-    store: NodeExtentStore,
-    image: Arc<SealedImageRoot>,
+    pub(super) set: RootSnapshotSet,
+    pub(super) store: NodeExtentStore,
+    pub(super) image: Arc<SealedImageRoot>,
     _retention: Option<Arc<super::super::budget::Permit>>,
 }
 
@@ -72,7 +76,70 @@ impl RootArchiveSnapshot {
     }
 }
 
+/// Every remote object was checked in this publication attempt, either by
+/// its exact PUT read-back or by the freshly downloaded previous root. The
+/// source retains the independently sealed local bytes that those checks bind.
+/// This receipt supplies material only, never an archive head or native grant.
+pub(super) struct ConfirmedRootSnapshot {
+    reference: RootArchiveReference,
+    set: RootSnapshotSet,
+    source: Arc<RootSnapshotSource>,
+    _retention: Option<Arc<super::super::budget::Permit>>,
+}
+
+impl ConfirmedRootSnapshot {
+    pub fn reference(&self) -> &RootArchiveReference {
+        &self.reference
+    }
+
+    pub async fn bind(
+        self,
+        expected: &RootArchiveReference,
+        store: &NodeExtentStore,
+        host: &LtxHost,
+    ) -> Result<RootArchiveSnapshot, ArchiveError> {
+        if &self.reference != expected {
+            return Err(ArchiveError::Corrupt("confirmed root archive reference"));
+        }
+        let image = self.source.local_image(store).map_err(root_error)?;
+        if self.set.reference() != image.reference()
+            || self.set.marker() != &crate::raft::rooted::marker::encode(&image)
+        {
+            return Err(ArchiveError::Corrupt("confirmed root source binding"));
+        }
+        let target = store.clone();
+        host.run_blocking(move || {
+            // The producer's source protects all local objects while the
+            // inventory rechecks its metadata, geometry and persistence. Reuse
+            // avoids another remote download, not the destination seal.
+            let _source = self.source;
+            let _retention = self._retention;
+            let image = self
+                .set
+                .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
+                .map_err(root_error)?;
+            Ok(RootArchiveSnapshot {
+                set: self.set,
+                store: target,
+                image: Arc::new(image),
+                _retention,
+            })
+        })
+        .await
+        .map_err(ArchiveError::Worker)?
+    }
+}
+
 impl CellArchive {
+    pub(super) async fn root_index(
+        &self,
+        reference: &RootArchiveReference,
+    ) -> Result<RootSnapshotSet, ArchiveError> {
+        reference.position()?;
+        let metadata = self.get_object(&reference.0).await?;
+        self.decode_root_index(reference, &metadata)
+    }
+
     fn validate_root_objects(&self, set: &RootSnapshotSet) -> Result<(), ArchiveError> {
         if set
             .extents()
@@ -84,6 +151,9 @@ impl CellArchive {
     }
 
     fn root_limits(&self) -> Result<SnapshotLimits, ArchiveError> {
+        if self.image_storage != super::super::catalog::RaftImageStorage::Extents {
+            return Err(ArchiveError::Invalid("extent archive namespace required"));
+        }
         let limits = SnapshotLimits {
             max_image_bytes: self.limits.max_image_bytes,
             max_encoded_bytes: usize::try_from(self.limits.max_snapshot_bytes)
@@ -255,8 +325,24 @@ impl CellArchive {
         &self,
         source: Arc<RootSnapshotSource>,
     ) -> Result<RootArchiveReference, ArchiveError> {
+        Ok(self.confirm_root_snapshot(source, None).await?.reference)
+    }
+
+    /// Reuse only the previous root freshly verified inside the caller's
+    /// current head-CAS attempt. Standalone stores always pass None. A retained
+    /// reference, local filename or earlier publication is not this proof.
+    pub(super) async fn confirm_root_snapshot(
+        &self,
+        source: Arc<RootSnapshotSource>,
+        previous: Option<&RootArchiveSnapshot>,
+    ) -> Result<ConfirmedRootSnapshot, ArchiveError> {
         let (set, metadata) = self.encode_root_index(&source)?;
-        let extents: Vec<_> = set.extents().collect();
+        let extents: Vec<_> = set
+            .extents()
+            .filter(|id| !previous.is_some_and(|base| base.set.contains_extent(*id)))
+            .collect();
+        let reused_objects = set.extents().count() - extents.len();
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_start", cell = %self.scope.cell, index = set.snapshot().get_metadata().index, image_bytes = set.marker().length, objects = extents.len(), reused_objects);
         let mut objects = extents.into_iter();
         let mut pending = FuturesOrdered::new();
         let mut failure = None;
@@ -308,7 +394,13 @@ impl CellArchive {
                 }),
             )
             .await?;
-        Ok(RootArchiveReference(metadata))
+        tracing::info!(event = "raft_archive_phase", phase = "root_upload_confirmed", cell = %self.scope.cell, index = set.snapshot().get_metadata().index);
+        Ok(ConfirmedRootSnapshot {
+            reference: RootArchiveReference(metadata),
+            set,
+            source,
+            _retention: self.read_retention.clone(),
+        })
     }
 
     /// Download only this exact reference, authenticate all declared objects,
@@ -319,39 +411,83 @@ impl CellArchive {
         reference: &RootArchiveReference,
         store: &NodeExtentStore,
     ) -> Result<RootArchiveSnapshot, ArchiveError> {
-        reference.position()?;
+        let position = reference.position()?;
+        tracing::info!(event = "raft_archive_phase", phase = "root_material_read_start", cell = %self.scope.cell, index = position.index.get());
         let metadata = self.get_object(&reference.0).await?;
         let set = Arc::new(self.decode_root_index(reference, &metadata)?);
-        let extents: Vec<_> = set.extents().collect();
-        let pending = extents
-            .iter()
-            .copied()
-            .map(|id| async move { self.get_root_extent(id).await.map(|bytes| (id, bytes)) });
-        let mut reads = futures_util::stream::iter(pending).buffered(ROOT_WINDOW);
-        while let Some((id, bytes)) = reads.try_next().await? {
-            let set = set.clone();
-            let store = store.clone();
-            let retention = self.read_retention.clone();
-            self.host
-                .run_blocking(move || {
-                    let _retention = retention;
-                    set.install_extent(&store, id, &bytes).map_err(root_error)
-                })
-                .await
-                .map_err(ArchiveError::Worker)??;
+        let pin_set = set.clone();
+        let inventory = store.clone();
+        let retention = self.read_retention.clone();
+        let receive_pin = self
+            .host
+            .run_blocking(move || {
+                let _retention = retention;
+                pin_set.pin_receive(&inventory).map_err(root_error)
+            })
+            .await
+            .map_err(ArchiveError::Worker)??;
+        // Bound the complete GET/verify/install lifetime, rather than stopping
+        // network polling whenever one extent enters its destination write.
+        // Serializing only installs also supports inventories whose mutation
+        // contract refuses concurrent operations instead of waiting for them.
+        let install = futures_util::lock::Mutex::new(());
+        let mut objects = set.extents();
+        let mut pending = FuturesUnordered::new();
+        let mut failure = None;
+        loop {
+            while failure.is_none() && pending.len() < ROOT_WINDOW {
+                let Some(id) = objects.next() else { break };
+                let set = set.clone();
+                let store = store.clone();
+                let pin = receive_pin.clone();
+                let retention = self.read_retention.clone();
+                let install = &install;
+                pending.push(async move {
+                    let bytes = self.get_root_extent(id).await?;
+                    let _install = install.lock().await;
+                    self.host
+                        .run_blocking(move || {
+                            // Cancellation may drop the async window while its
+                            // entered physical job still runs. Keep both GC
+                            // protection and admission through that last I/O.
+                            let _pin = pin;
+                            let _retention = retention;
+                            set.install_extent(&store, id, &bytes).map_err(root_error)
+                        })
+                        .await
+                        .map_err(ArchiveError::Worker)?
+                });
+            }
+            let Some(result) = pending.next().await else {
+                break;
+            };
+            if let Err(error) = result {
+                if failure.is_none() {
+                    failure = Some(error);
+                }
+            }
+            // Stop admitting objects after the first observed error, but join
+            // every entered GET and physical install before returning failure.
         }
-        drop(reads);
+        drop(pending);
+        drop(objects);
+        if let Some(error) = failure {
+            return Err(error);
+        }
         let set = Arc::try_unwrap(set)
             .map_err(|_| ArchiveError::Invalid("root archive physical owner retained"))?;
         let target = store.clone();
+        let pin = receive_pin.clone();
         let retention = self.read_retention.clone();
-        self.host
+        let image = self
+            .host
             .run_blocking(move || {
+                let _pin = pin;
                 let _retention = retention;
                 let image = set
                     .seal(&target, &mut vec![0; EXTENT_BYTES as usize])
                     .map_err(root_error)?;
-                Ok(RootArchiveSnapshot {
+                Ok::<_, ArchiveError>(RootArchiveSnapshot {
                     set,
                     store: target,
                     image: Arc::new(image),
@@ -359,6 +495,9 @@ impl CellArchive {
                 })
             })
             .await
-            .map_err(ArchiveError::Worker)?
+            .map_err(ArchiveError::Worker)??;
+        drop(receive_pin);
+        tracing::info!(event = "raft_archive_phase", phase = "root_material_read_done", cell = %self.scope.cell, index = position.index.get());
+        Ok(image)
     }
 }

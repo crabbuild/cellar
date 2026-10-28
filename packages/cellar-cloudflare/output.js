@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-import { headerPairs, httpLimit } from "./http.js";
+import { headerPairs, httpLimit, messageHeaders } from "./http.js";
 import { encodeWebSocketResponse } from "./websocket-upgrade.js";
 import { cancelUntransferredWebSocket } from "./websocket.js";
 
@@ -34,7 +34,7 @@ export function encodeStreamResponse(response, context) {
   }
   let headers;
   try {
-    headers = headerPairs(response.headers);
+    headers = messageHeaders(response);
   } catch (error) {
     response.body?.cancel(error).catch(() => {});
     throw error;

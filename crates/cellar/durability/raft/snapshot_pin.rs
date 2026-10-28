@@ -45,10 +45,10 @@ impl SnapshotPin {
                 }
             }
             Self::Rooted { image, store } => {
-                store.retain_reference(
+                store.retain_image_reference(
                     super::super::rooted::marker::reference_key_for(scope, birth, 3),
                     revision,
-                    image.reference(),
+                    image,
                 )?;
             }
         }
@@ -71,10 +71,10 @@ impl SnapshotPin {
                 pin.release_reference(PENDING_SNAPSHOT_REFERENCE, revision)?;
             }
             Self::Rooted { image, store } => {
-                store.retain_reference(
+                store.retain_image_reference(
                     super::super::rooted::marker::reference_key_for(scope, birth, 2),
                     revision,
-                    image.reference(),
+                    image,
                 )?;
                 store.release_reference(
                     super::super::rooted::marker::reference_key_for(scope, birth, 3),

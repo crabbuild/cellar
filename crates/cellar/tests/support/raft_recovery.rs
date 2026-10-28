@@ -13,6 +13,11 @@ use std::{
     time::Instant,
 };
 
+#[path = "raft_recovery_performance.rs"]
+mod performance;
+#[path = "raft_recovery_preparation.rs"]
+mod preparation;
+
 const PHASES: &[&str] = &[
     "fault",
     "owner_joined",
@@ -43,6 +48,28 @@ const CHECKS: &[&str] = &[
     "cleanup_joined",
 ];
 
+#[derive(Clone, Copy)]
+struct RecoveryOptions {
+    storage: RaftImageStorage,
+    force_leader_change: bool,
+}
+
+impl Default for RecoveryOptions {
+    fn default() -> Self {
+        Self {
+            storage: RaftImageStorage::Materialized,
+            force_leader_change: false,
+        }
+    }
+}
+
+fn storage_name(storage: RaftImageStorage) -> &'static str {
+    match storage {
+        RaftImageStorage::Materialized => "materialized",
+        RaftImageStorage::Extents => "extents",
+    }
+}
+
 fn keep_node_state() -> Result<bool> {
     match std::env::var("CELLAR_RECOVERY_KEEP_NODE_STATE") {
         Ok(value) if value == "1" => Ok(true),
@@ -56,10 +83,11 @@ struct Ledger {
     started: Instant,
     file: Option<File>,
     value: serde_json::Value,
+    performance: performance::Sampler,
 }
 
 impl Ledger {
-    fn new(backend: &str, image_bytes: u64) -> Result<Self> {
+    fn new(backend: &str, image_bytes: u64, storage: RaftImageStorage) -> Result<Self> {
         let file = std::env::var_os("CELLAR_RECOVERY_EVIDENCE")
             .map(|path| {
                 let mut options = OpenOptions::new();
@@ -76,10 +104,12 @@ impl Ledger {
         Ok(Self {
             started: Instant::now(),
             file,
+            performance: performance::Sampler::default(),
             value: serde_json::json!({
-                "format": 1, "backend": backend, "storage": "materialized",
+                "format": 1, "backend": backend, "storage": storage_name(storage),
                 "image_bytes": image_bytes, "failure_mode": "joined_domain_loss",
                 "events": [], "checks": checks, "complete": false,
+                "observation_windows": [],
             }),
         })
     }
@@ -100,6 +130,27 @@ impl Ledger {
         ensure!(CHECKS.contains(&name), "unknown recovery check");
         self.value["checks"][name] = true.into();
         Ok(())
+    }
+
+    fn observe(&mut self, phase: &str, services: &[RaftCells]) -> Result<()> {
+        ensure!(
+            performance::PHASES.contains(&phase),
+            "unknown observation phase"
+        );
+        let started = u64::try_from(self.started.elapsed().as_micros())?;
+        let mut capture = self.performance.capture(services)?;
+        capture["phase"] = phase.into();
+        capture["capture_started_us"] = started.into();
+        capture["capture_finished_us"] = u64::try_from(self.started.elapsed().as_micros())?.into();
+        let windows = self.value["observation_windows"]
+            .as_array_mut()
+            .context("observation windows")?;
+        ensure!(
+            !windows.iter().any(|window| window["phase"] == phase),
+            "duplicate observation phase"
+        );
+        windows.push(capture);
+        self.save()
     }
 
     fn save(&mut self) -> Result<()> {
@@ -258,7 +309,7 @@ async fn drill(
     quota: u64,
     store: Arc<dyn object_store::ObjectStore>,
     backend: &str,
-    force_leader_change: bool,
+    options: RecoveryOptions,
 ) -> Result<serde_json::Value> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::archive=info,cellar::raft::host=debug")
@@ -285,12 +336,13 @@ async fn drill(
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .unzip();
-    let namespace = NamespaceConfig::new(
+    let mut namespace = NamespaceConfig::new(
         ClusterId::new([81; 16])?,
         NamespaceId::new([82; 16])?,
         cellar_logic::NamespaceMode::Raft,
         definitions[0].schema,
     );
+    namespace.image_storage = options.storage;
     let registration = RaftCellRegistration {
         placement: RaftCellPlacement::Replica,
         class: "Counter".into(),
@@ -329,16 +381,24 @@ async fn drill(
     host.execution.max_image_bytes = quota;
     host.execution.receipt_reserve_bytes = receipt_reserve;
     host.execution.max_retry_window_ms = 86_400_000;
+    host.extents = (options.storage == RaftImageStorage::Extents).then(RaftExtentOptions::default);
     let mut cluster = cluster::Cluster::start_with_preloaded_images(
         &definitions,
         vec![registration.clone()],
         host,
         store,
         roots,
-        fixture::preload(template, image, registration.clone(), quota),
+        preparation::retire_after_preload(
+            template.clone(),
+            fixture::preload(template.clone(), image, registration.clone(), quota),
+        ),
     )
     .await?;
     let preflight = async {
+        ensure!(
+            !template.try_exists()?,
+            "prepared recovery input remained after native preload completed"
+        );
         let handles = cluster
             .services
             .iter()
@@ -354,7 +414,7 @@ async fn drill(
             )
             .await?;
         ensure!(first.result == 8_u64.to_be_bytes());
-        let ledger = Ledger::new(backend, image_bytes)?;
+        let ledger = Ledger::new(backend, image_bytes, options.storage)?;
         Ok::<_, anyhow::Error>((handles, primary, first_options, first, ledger))
     }
     .await;
@@ -369,6 +429,7 @@ async fn drill(
     };
     // Always join the whole fixture, including on failed assertions or admission.
     let result: Result<()> = async {
+        ledger.observe("before_fault", &cluster.services)?;
         ledger.mark("fault")?;
         let lost = cluster.crash_owner(primary).await?;
         ledger.mark("owner_joined")?;
@@ -392,7 +453,7 @@ async fn drill(
             .map(|(_, handle)| handle.clone())
             .collect();
         let source = fixture::ready(&handles, Some(primary)).await?;
-        if force_leader_change {
+        if options.force_leader_change {
             let current = fixture::ready(&handles, Some(primary)).await?;
             if current == source {
                 let next = (0..3)
@@ -497,12 +558,14 @@ async fn drill(
             }
         };
         ledger.mark("seed_started")?;
+        ledger.observe("seed_started", &cluster.services)?;
         let joined = cluster
             .join_cold_standby(definitions[3].application.clone(), placement)
             .await?;
         ledger.check("replacement_started_cold")?;
         ledger.mark("seed_installed")?;
-        // Materialized installation already verified the complete physical base.
+        ledger.observe("seed_installed", &cluster.services)?;
+        // Both representations verified the complete local physical base.
         ledger.mark("hydrated")?;
         let learner = joined.cell(namespace.namespace, &registration.birth.scope.cell)?;
         hot_read(
@@ -537,7 +600,7 @@ async fn drill(
                 .phase
                 == RepairPhase::Complete
         );
-        if force_leader_change {
+        if options.force_leader_change {
             let current = fixture::ready(&live, None).await?;
             // Deliberately make the sampled leader stale before the final
             // handoff. Repair completion and an accepted transfer do not pin
@@ -585,6 +648,7 @@ async fn drill(
         ledger.check("first_write_verified")?;
         ledger.check("version_verified")?;
         ledger.mark("first_write_verified")?;
+        ledger.observe("first_write_verified", &cluster.services)?;
         let retry = learner
             .command(
                 definitions[3].increment.clone(),
@@ -635,12 +699,14 @@ async fn drill(
         .await?;
         ledger.check("payloads_verified")?;
         ledger.mark("payloads_verified")?;
+        ledger.observe("payloads_verified", &cluster.services)?;
         Ok(())
     }
     .await;
     // Capture failed and in-flight work too. Observability must not disappear
     // precisely when a recovery stage fails; incomplete ledgers still fail the
     // runner's acceptance checks.
+    let sampled = ledger.observe("before_cleanup", &cluster.services);
     let observations = serde_json::to_value(
         cluster
             .services
@@ -652,6 +718,7 @@ async fn drill(
         ledger.value["failure"] = format!("{error:#}").into();
     }
     let closed = cluster.close().await;
+    let after_cleanup = ledger.observe("after_cleanup", &[]);
     if let Ok(value) = &observations {
         ledger.value["observations"] = value.clone();
     }
@@ -668,6 +735,8 @@ async fn drill(
         (Ok(()), Ok(())) => (),
     }
     observations?;
+    sampled?;
+    after_cleanup?;
     saved?;
     ledger.check("cleanup_joined")?;
     ledger.mark("cleanup_joined")?;
@@ -681,6 +750,17 @@ async fn drill(
 }
 
 async fn small(backend: &str, force_leader_change: bool) -> Result<()> {
+    small_storage(
+        backend,
+        RecoveryOptions {
+            force_leader_change,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+async fn small_storage(backend: &str, options: RecoveryOptions) -> Result<()> {
     let mut root = match std::env::var_os("CELLAR_RECOVERY_WORKDIR") {
         Some(directory) => tempfile::tempdir_in(directory)?,
         None => tempfile::tempdir()?,
@@ -695,13 +775,42 @@ async fn small(backend: &str, force_leader_change: bool) -> Result<()> {
         quota,
         Arc::new(object_store::memory::InMemory::new()),
         backend,
-        force_leader_change,
+        options,
     )
     .await?;
     ensure!(
         evidence["complete"] == true
             && evidence["events"].as_array().context("events")?.len() == PHASES.len()
     );
+    let windows = evidence["observation_windows"]
+        .as_array()
+        .context("observation windows")?;
+    ensure!(windows.len() == performance::PHASES.len());
+    for (window, phase) in windows.iter().zip(performance::PHASES) {
+        ensure!(window["phase"] == *phase, "observation phase order");
+        let hosts = window["hosts"].as_array().context("performance hosts")?;
+        ensure!(
+            hosts.len()
+                == if *phase == "before_fault" || *phase == "seed_started" {
+                    3
+                } else {
+                    4
+                },
+            "closed or newly joined host disappeared from performance evidence"
+        );
+        ensure!(
+            window["new_sources"]
+                .as_array()
+                .context("new sources")?
+                .len()
+                == match *phase {
+                    "before_fault" => 3,
+                    "seed_installed" => 1,
+                    _ => 0,
+                },
+            "performance startup identities changed unexpectedly"
+        );
+    }
     let observations = evidence["observations"]
         .as_array()
         .context("observations")?;
@@ -737,6 +846,42 @@ async fn small_peer_recovers_with_complete_phase_ledger() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn extent_small_peer_recovers_with_complete_phase_ledger() -> Result<()> {
+    small_storage(
+        "peer",
+        RecoveryOptions {
+            storage: RaftImageStorage::Extents,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn extent_small_archive_recovers_with_complete_phase_ledger() -> Result<()> {
+    small_storage(
+        "memory_archive",
+        RecoveryOptions {
+            storage: RaftImageStorage::Extents,
+            ..Default::default()
+        },
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn extent_small_peer_leader_change_does_not_strand_repair() -> Result<()> {
+    small_storage(
+        "peer",
+        RecoveryOptions {
+            storage: RaftImageStorage::Extents,
+            force_leader_change: true,
+        },
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn incompressible_peer_recovers_across_multiple_receive_windows() -> Result<()> {
     peer_windows(12 * 1024 * 1024).await
 }
@@ -749,6 +894,15 @@ async fn buffered_peer_recovers_across_multiple_receive_windows() -> Result<()> 
 }
 
 async fn peer_windows(quota: u64) -> Result<()> {
+    peer_windows_storage(quota, RaftImageStorage::Materialized).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn extent_incompressible_peer_recovers_across_multiple_receive_windows() -> Result<()> {
+    peer_windows_storage(12 * 1024 * 1024, RaftImageStorage::Extents).await
+}
+
+async fn peer_windows_storage(quota: u64, storage: RaftImageStorage) -> Result<()> {
     let root = tempfile::tempdir()?;
     // Zero-filled templates can fit in one compressed wire window. Exercise
     // the native TLS receiver, physical assembly and seed installation with a
@@ -761,7 +915,10 @@ async fn peer_windows(quota: u64) -> Result<()> {
         quota,
         Arc::new(object_store::memory::InMemory::new()),
         "peer",
-        false,
+        RecoveryOptions {
+            storage,
+            ..Default::default()
+        },
     )
     .await?;
     let observations = evidence["observations"]
@@ -798,6 +955,21 @@ async fn small_peer_leader_change_does_not_strand_repair() -> Result<()> {
 }
 
 async fn physical(from_s3: bool, quota: u64, reuse_fixture: bool) -> Result<()> {
+    physical_storage(
+        from_s3,
+        quota,
+        reuse_fixture,
+        RaftImageStorage::Materialized,
+    )
+    .await
+}
+
+async fn physical_storage(
+    from_s3: bool,
+    quota: u64,
+    reuse_fixture: bool,
+    storage: RaftImageStorage,
+) -> Result<()> {
     let workdir = PathBuf::from(std::env::var_os("CELLAR_LARGE_IMAGE_WORKDIR").context("workdir")?);
     let mut fixture_directory = tempfile::tempdir_in(&workdir)?;
     fixture_directory.disable_cleanup(keep_node_state()?);
@@ -835,7 +1007,10 @@ async fn physical(from_s3: bool, quota: u64, reuse_fixture: bool) -> Result<()> 
         quota,
         store,
         if from_s3 { "rustfs" } else { "peer" },
-        false,
+        RecoveryOptions {
+            storage,
+            ..Default::default()
+        },
     )
     .await?;
     Ok(())
@@ -863,4 +1038,28 @@ async fn buffered_archive_rustfs_recovers_with_complete_phase_ledger() -> Result
 #[ignore = "requires actual 1,280 MiB fixture, workspace disk and RustFS credentials"]
 async fn gigabyte_archive_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
     physical(true, 1280 * 1024 * 1024, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires near-quota 10 GB fixture, workspace disk and RustFS credentials"]
+async fn extent_decimal_ten_gb_peer_recovers_with_complete_phase_ledger() -> Result<()> {
+    physical_storage(false, 10_000_000_000, true, RaftImageStorage::Extents).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires near-quota 10 GB fixture, workspace disk and RustFS credentials"]
+async fn extent_decimal_ten_gb_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
+    physical_storage(true, 10_000_000_000, true, RaftImageStorage::Extents).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires actual 272 MiB fixture, workspace disk and RustFS credentials"]
+async fn extent_buffered_archive_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
+    physical_storage(true, 272 * 1024 * 1024, false, RaftImageStorage::Extents).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+#[ignore = "requires actual 1,280 MiB fixture, workspace disk and RustFS credentials"]
+async fn extent_gigabyte_archive_rustfs_recovers_with_complete_phase_ledger() -> Result<()> {
+    physical_storage(true, 1280 * 1024 * 1024, false, RaftImageStorage::Extents).await
 }

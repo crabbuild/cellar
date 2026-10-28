@@ -26,7 +26,7 @@ pub use outbox::{RaftOutbox, RaftOutboxLimits, RaftOutboxProgress};
 #[path = "effect_options.rs"]
 mod options;
 pub use alarm::RaftAlarmLimits;
-pub(crate) use blob::{capture_dependencies, get_blob, put_blob};
+pub(crate) use blob::{capture_connection_dependencies, capture_dependencies, get_blob, put_blob};
 pub use options::RaftEffectOptions;
 
 /// One stable private command client per history, independent of node boot and

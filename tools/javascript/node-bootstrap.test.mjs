@@ -59,3 +59,24 @@ test("bootstrap parse and initialization failures cannot print private configura
     assert.equal(result.stderr, "");
   }
 });
+
+test("runtime error frames stay bounded before native RPC stack stripping", () => {
+  const source = `import {serialize} from 'node:v8';
+    export default async function() {
+      try { await frameworkCall(); }
+      catch(error) {
+        const bytes=serialize(error);
+        if(bytes.byteLength>2048) throw new Error('runtime error exceeded clone budget');
+        console.log(JSON.stringify({message:error.message, stack:error.stack, bytes:bytes.byteLength}));
+      }
+    }
+    async function frameworkCall(){throw new Error('deliberate upload failure')}
+    /*${"x".repeat(256 * 1024)}*/`;
+  const result = launch(JSON.stringify({ source, config: {} }));
+  assert.equal(result.status, 0, result.stderr);
+  const error = JSON.parse(result.stdout);
+  assert.equal(error.message, "deliberate upload failure");
+  assert.ok(error.bytes < 2048);
+  assert.match(error.stack, /cellar:node-bootstrap/);
+  assert.doesNotMatch(error.stack, /data:text\/javascript/);
+});

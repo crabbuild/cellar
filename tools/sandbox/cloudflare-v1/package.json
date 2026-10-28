@@ -1,0 +1,8 @@
+{
+  "name": "@cellar/cloudflare-sandbox-v1-qualification",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@cloudflare/sandbox": "1.0.3" },
+  "devDependencies": { "esbuild": "0.28.2" },
+  "scripts": { "build": "node build.mjs", "test": "node --test inventory.test.mjs" }
+}

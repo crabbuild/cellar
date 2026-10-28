@@ -13,6 +13,17 @@
   const SetClass = Set;
   const WeakMapClass = WeakMap;
   const ErrorClass = Error;
+  const TypeErrorClass = TypeError;
+  const errorTypes = [
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    URIError,
+    Error,
+  ];
+  const own = Object.getOwnPropertyDescriptor;
   const DateClass = Date;
   const RegExpClass = RegExp;
   const BufferClass = ArrayBuffer;
@@ -31,7 +42,7 @@
     return { value: context._serialize([error, properties]), error: true };
   }
 
-  function transform(input, replace) {
+  function transform(input, replace, valuesOnly = false) {
     const seen = new WeakMapClass();
     let values = 0,
       objects = 0;
@@ -48,7 +59,10 @@
         return replacement;
       }
       let output;
-      if (ArrayClass.isArray(value)) output = new ArrayClass(value.length);
+      // Fill dense arrays before setting length so V8 does not encode native
+      // error envelopes as sparse arrays. Set the final length below to keep
+      // trailing holes in genuinely sparse input graphs.
+      if (ArrayClass.isArray(value)) output = [];
       else if (value instanceof MapClass) output = new MapClass();
       else if (value instanceof SetClass) output = new SetClass();
       else if (
@@ -56,7 +70,51 @@
         prototype(value) === null
       )
         output = Object.create(prototype(value));
-      else if (
+      else if (valuesOnly && value instanceof ErrorClass) {
+        const fields = new MapClass();
+        for (const name of ["message", "name", "stack", "cause"]) {
+          const descriptor = own(value, name);
+          if (descriptor && !own(descriptor, "value") && name !== "stack")
+            throw new TypeErrorClass(
+              "Value RPC errors require data properties",
+            );
+          // Node exposes its lazily materialized Error stack as an accessor.
+          // Read it once, before cloning causes, so the new error has no host
+          // adapter stack and the serializer cannot re-run this accessor.
+          if (descriptor)
+            fields.set(
+              name,
+              own(descriptor, "value") ? descriptor.value : value.stack,
+            );
+        }
+        const Constructor = errorTypes.find((Type) => value instanceof Type);
+        output = new Constructor(
+          typeof fields.get("message") === "string"
+            ? fields.get("message")
+            : undefined,
+        );
+        seen.set(value, output);
+        // Validate/copy causes with this same graph budget and alias table.
+        // Reusing the original Error would let a nested web capability flatten.
+        if (fields.has("cause"))
+          define(output, "cause", {
+            value: copy(fields.get("cause"), depth + 1),
+            configurable: true,
+            writable: true,
+          });
+        define(output, "stack", {
+          value: fields.get("stack"),
+          configurable: true,
+          writable: true,
+        });
+        if (fields.has("name"))
+          define(output, "name", {
+            value: fields.get("name"),
+            configurable: true,
+            writable: true,
+          });
+        return output;
+      } else if (
         value instanceof DateClass ||
         value instanceof RegExpClass ||
         value instanceof BufferClass ||
@@ -80,10 +138,27 @@
             configurable: true,
             writable: true,
           });
+        if (ArrayClass.isArray(value)) output.length = value.length;
       }
       return output;
     }
     return copy(input);
+  }
+
+  function valueOnly(value, context) {
+    return context._serialize(
+      transform(
+        value,
+        (child) => {
+          if (typeof child === "function")
+            throw new TypeErrorClass(
+              "This RPC profile transfers clone values only",
+            );
+          return child;
+        },
+        true,
+      ),
+    );
   }
 
   async function result(value, context, closed) {
@@ -366,5 +441,5 @@
     writables,
     messages,
   });
-  return { result, reply, ...inputs };
+  return { result, reply, valueOnly, ...inputs };
 }

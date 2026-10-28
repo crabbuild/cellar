@@ -22,8 +22,9 @@ Rust, Python, JavaScript and TypeScript container calls.
 
 The descriptor reports `fencing: "local_checks_and_expiry"`. Local checks cannot
 revoke an already accepted remote command. Timeout bounds a requested session;
-owner-loss cleanup, expiry/orphan scanning and provider-side fencing still need
-qualification or a separate broker.
+owner-loss cleanup and provider-side fencing still need qualification or a
+separate broker. Optional [host supervision](supervision.md) schedules inspection
+and deletion for retained resources independently of application requests.
 
 ## Configure the host
 

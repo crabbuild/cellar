@@ -66,7 +66,10 @@ pub(super) fn restore_schema(connection: &Connection) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read(connection: &Connection, name: &str) -> anyhow::Result<Option<BindingCheckpoint>> {
+pub(super) fn read(
+    connection: &Connection,
+    name: &str,
+) -> anyhow::Result<Option<BindingCheckpoint>> {
     if !SCHEMA.check(connection)? {
         return Ok(None);
     }
@@ -138,18 +141,35 @@ fn write(
     })
 }
 
-fn transaction(
+fn transaction_managed(
     connection: &Connection,
     name: &str,
     expected: Option<u64>,
     epoch: u64,
     record: BindingRecord,
+    maintenance: Option<(
+        &str,
+        Option<crate::application::containers::MaintenancePolicy>,
+        i64,
+    )>,
 ) -> anyhow::Result<BindingCheckpoint> {
     as_framework_sql(|| {
         // A root native event can be in autocommit mode or an implicit batch.
         // SAVEPOINT starts a transaction in the first case and nests in the second.
         as_storage_transaction(|| connection.execute_batch("SAVEPOINT cellar_container_binding;"))?;
-        let result = write(connection, name, expected, epoch, record);
+        let result = write(connection, name, expected, epoch, record).and_then(|checkpoint| {
+            if let Some((scope, policy, now)) = maintenance {
+                super::container_maintenance::changed(
+                    connection,
+                    scope,
+                    name,
+                    &checkpoint.record,
+                    policy,
+                    now,
+                )?;
+            }
+            Ok(checkpoint)
+        });
         let cleanup = if result.is_err() && connection.is_autocommit() {
             // A SQLite failure may already have rolled back the transaction.
             // Preserve that original failure instead of masking it with a missing savepoint.
@@ -179,10 +199,60 @@ pub(crate) fn compare_exchange(
     expected: Option<u64>,
     epoch: u64,
     record: BindingRecord,
+    policy: Option<crate::application::containers::MaintenancePolicy>,
+    now: i64,
 ) -> anyhow::Result<BindingCheckpoint> {
     with_application_storage_write(scope, |connection| {
-        transaction(connection, name, expected, epoch, record)
+        transaction_managed(
+            connection,
+            name,
+            expected,
+            epoch,
+            record,
+            Some((scope, policy, now)),
+        )
     })
+}
+
+pub(crate) fn list(scope: &str) -> anyhow::Result<Vec<(String, BindingCheckpoint)>> {
+    require_sql_healthy(scope).map_err(anyhow::Error::msg)?;
+    with(scope, |connection| {
+        as_framework_sql(|| {
+            if !SCHEMA.check(connection)? {
+                return Ok(Vec::new());
+            }
+            let names = connection
+                .prepare_cached(
+                    "SELECT binding FROM __sys_container_bindings ORDER BY binding LIMIT 65",
+                )?
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            anyhow::ensure!(
+                names.len() <= MAX_BINDINGS,
+                "provider binding count exceeds limit"
+            );
+            names
+                .into_iter()
+                .map(|name| {
+                    read(connection, &name)?
+                        .map(|record| (name, record))
+                        .ok_or_else(|| anyhow::anyhow!("binding disappeared during native read"))
+                })
+                .collect()
+        })
+    })
+    .ok_or_else(|| anyhow::anyhow!("cell storage is not local"))?
+}
+
+#[cfg(test)]
+fn transaction(
+    connection: &Connection,
+    name: &str,
+    expected: Option<u64>,
+    epoch: u64,
+    record: BindingRecord,
+) -> anyhow::Result<BindingCheckpoint> {
+    transaction_managed(connection, name, expected, epoch, record, None)
 }
 
 #[cfg(test)]
