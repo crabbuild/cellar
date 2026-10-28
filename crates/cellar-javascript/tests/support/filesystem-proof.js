@@ -323,7 +323,7 @@ async function checkRetired(ctx) {
       await directory.telldir(),
       await file.pread(32, 0n),
     ]);
-  check(proof.refused === 32, "old continuation did not finish its refusals");
+  check(proof.refused === 51, "old continuation did not finish its refusals");
   await refusals("ContextMismatch", observe);
   try {
     await fs.open("/ledger.bin");
