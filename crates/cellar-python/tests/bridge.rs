@@ -254,6 +254,11 @@ fn main() -> Result<()> {
     if mode == "--runtime-routing" {
         return routing::child();
     }
+    if let Some(mode) = mode.strip_prefix("--runtime-filesystem-proof-") {
+        let (barrier, outcome) = mode.rsplit_once('-').context("filesystem proof mode")?;
+        ensure!(matches!(outcome, "deadline" | "fence"));
+        return proof_authority::filesystem(barrier, outcome == "fence");
+    }
     if let Some(mode) = mode.strip_prefix("--runtime-proof-authority-") {
         let (kind, outcome) = mode.split_once('-').context("proof authority mode")?;
         ensure!(matches!(kind, "sync" | "output") && matches!(outcome, "deadline" | "fence"));
@@ -502,6 +507,14 @@ fn main() -> Result<()> {
         "--runtime-proof-authority-output-fence",
         "--runtime-proof-authority-failure",
         "--runtime-proof-authority-recovery",
+        "--runtime-filesystem-proof-fsync-deadline",
+        "--runtime-filesystem-proof-fsync-fence",
+        "--runtime-filesystem-proof-fdatasync-deadline",
+        "--runtime-filesystem-proof-fdatasync-fence",
+        "--runtime-filesystem-proof-sync-deadline",
+        "--runtime-filesystem-proof-sync-fence",
+        "--runtime-filesystem-proof-output-deadline",
+        "--runtime-filesystem-proof-output-fence",
         "--runtime-routing",
         "--runtime-privacy",
         "--runtime-lifetimes",
@@ -857,7 +870,11 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .stderr(output.as_file().try_clone()?)
         .spawn()?;
     let deadline = std::time::Instant::now()
-        + Duration::from_secs(if mode == "--runtime-schedule-recovery" {
+        + Duration::from_secs(if mode.starts_with("--runtime-filesystem-proof-") {
+            // The new case adds three fresh node directories and a proven
+            // post-recovery write. Existing handler/proof/lease budgets stay.
+            90
+        } else if mode == "--runtime-schedule-recovery" {
             240
         } else if mode == "--runtime-binding-faults" {
             90

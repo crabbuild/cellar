@@ -24,7 +24,8 @@ def snapshot():
     with _lock:
         return dict(owner=_owner, attempts=_attempts, committed=_committed, returned=_returned,
                     cancelled=_cancelled, late_entered=_late_entered, late_done=_late_done,
-                    active=_ctx._bridge.active() if _ctx else False, state_reads=_state_reads)
+                    active=_ctx._bridge.active() if _ctx else False, state_reads=_state_reads,
+                    filesystem=filesystem_snapshot() if FILESYSTEM_BARRIER else None)
 
 
 def release():
@@ -37,6 +38,8 @@ def clear():
     global _ctx, _loop, _release, _task
     with _lock:
         _ctx = _loop = _release = _task = None
+        if FILESYSTEM_BARRIER:
+            filesystem_clear()
 
 
 async def late(ctx, event):
@@ -60,6 +63,8 @@ async def late(ctx, event):
         assert str(error) == "ContextExpired"
     else:
         raise AssertionError("expired proof sender admitted a mutation")
+    if FILESYSTEM_BARRIER:
+        await filesystem_late(ctx)
     with _lock:
         _late_done = True
 
@@ -91,22 +96,40 @@ class Counter:
         with _lock:
             _owner = owner
         if request.path == "/seed":
-            await ctx.storage.put_json("seed", 7)
+            if FILESYSTEM_BARRIER:
+                await filesystem_commit(ctx, 1)
+            else:
+                await ctx.storage.put_json("seed", 7)
             await ctx.storage.sync()
             return Response.json(True)
         if request.path == "/state":
-            return Response.json({key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")})
+            values = {key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")}
+            if FILESYSTEM_BARRIER:
+                values["filesystem"] = await filesystem_state(ctx, values)
+            return Response.json(values)
+        if request.path == "/post-recovery":
+            assert FILESYSTEM_BARRIER
+            await filesystem_commit(ctx, 3)
+            values = {key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")}
+            return Response.json(await filesystem_state(ctx, values))
         assert request.path in ("/sync", "/output", "/failure")
         event = asyncio.Event()
         with _lock:
             _attempts += 1
             _ctx, _loop, _release = ctx, asyncio.get_running_loop(), event
-        await ctx.storage.put_json("pending", 1)
+        if FILESYSTEM_BARRIER:
+            await filesystem_commit(ctx, 2)
+            await filesystem_retain(ctx)
+        else:
+            await ctx.storage.put_json("pending", 1)
         with _lock:
             _committed = True
         if request.path == "/sync":
             try:
-                await ctx.storage.sync()
+                if FILESYSTEM_BARRIER:
+                    await filesystem_barrier(ctx)
+                else:
+                    await ctx.storage.sync()
             except asyncio.CancelledError:
                 with _lock:
                     _cancelled = True

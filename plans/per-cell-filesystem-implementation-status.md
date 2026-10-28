@@ -433,6 +433,66 @@ Controlled reply faults do not establish commit or durability after actual
 transport loss. In-flight cancellation/proof failures, closed domains, external
 stores/peers, sustained load and final captured packages retain their open gates.
 
+### Python in-flight durability-proof checkpoint
+
+The [in-flight proof profile](per-cell-filesystem-conformance.md#python-in-flight-proof-cancellation-profile)
+passes all eight filesystem modes under both CPython 3.14.5 ABIs on macOS arm64
+with Rust 1.98.1. The six original storage proof modes also pass under each ABI:
+28 final-executable runs in total. The fixture checks actual GIL state and
+records libpython linkage before switching ABI builds.
+
+Each filesystem mode holds real authenticated peer acknowledgements and supplied
+bucket publication after a four-chunk atomic file/business-state/receipt batch.
+The original handler deadline or an observed NodeLeaseMismatch fence interrupts
+fsync, fdatasync, filesystem sync or output proof. The client cannot succeed
+through withheld proof. Thirty-one retained SDK calls and one raw filesystem
+submission refuse expired authority, while four fresh descriptors reuse the
+captured host ceiling and a fifth open returns ENFILE. Warm file bytes, SHA-256,
+generation, receipt, inode and version stay coherent. After proving that selected
+readback, cold recovery in new directories must match it exactly; a fresh atomic
+write advances the same inode's content version without changing prior state.
+The business handler executes once.
+
+The final runs observe both allowed outcomes: deadline cases retain the pending
+generation and fence cases recover the acknowledged seed. This is an observation,
+not a promise about the outcome of an unacknowledged write. Six native outcomes
+are joined per mode. A fence is the only permitted incomplete outcome; every
+other native/interpreter/bridge cleanup invariant satisfies the full report
+contract. The new profile has a 90-second process watchdog for both three-node
+lifecycles. Existing native handler/proof/lease budgets and older watchdogs are
+unchanged. This slice adds qualification fixtures without production API or
+runtime changes.
+
+The first cold probe issued its read immediately after Preserve shutdown, even
+though successor nodes had different logical identities. The nested fetch was
+Ambiguous before the cell handler entered. The final fixture honors the original
+five-second ownership lease before starting successors, and waits for readiness;
+it does not retry the interrupted business mutation. A Handoff experiment instead
+reported application_work_drained=false, cells_drained=false and drain_timed_out.
+That retained-wrapper shutdown observation remains an explicit open P0 lifecycle
+investigation. Preserve/lease-expiry recovery does not qualify Handoff behavior.
+
+Task-local `.cellar/filesystem-proof-pr144-artifacts/final/` retains frozen
+executables, ABI linkage, source hashes, all 28 logs and 16 filesystem
+proof/shutdown ledgers. Earlier diagnostic and initial-matrix observations stay
+in their original scope in the parent artifact directory.
+
+| Executable | SHA-256 |
+| --- | --- |
+| CPython 3.14.5 GIL proof harness | `71026ebb717fce2d9d4bb26f07814adf38630899f2801b3650bbfc7331de4f30` |
+| CPython 3.14.5 free-threaded proof harness | `bceb4f149725e27df42d850909926bc134da6dcf85ccfe125c97a2a4c99c8a4d` |
+
+Fresh strict all-target Clippy passes for `cellar-python` with embed enabled.
+Formatting/layout cover 1,342 Rust files; the 482-package native dependency
+graph has no JavaScript engine. Documentation checks pass, including 123
+filesystem-plan links. These checks do not refresh the earlier captured-agent
+packages or establish completed remote CI.
+
+These are development-bucket and loopback-peer proofs. External-store/network
+outages, host disk stalls, process crashes, byte-I/O cancellation, Node/V8 proof
+profiles, directory-proof families, closed domains, Handoff shutdown, sustained
+GC/load and final captured packages retain their separate qualification gates.
+
 ### Captured Python ABI checkpoints
 
 Both packages use Rust 1.98.1, uv 0.11.19, the development Cargo profile with
@@ -609,7 +669,7 @@ below remain the acceptance checklist.
 
 | Priority | Next deliverable | Completion evidence |
 | --- | --- | --- |
-| P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
+| P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, retained-wrapper handoff, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
 | P1 | Qualify final packages and supported runtime/ABI targets | Fresh Node agent captures, final-source Python captures, absent-runtime restoration, cold recovery and passing affected-feature CI |
 | P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
@@ -680,7 +740,10 @@ independent of these primitive release priorities.
    evidence. Live cross-cell file/directory/view and *at refusals now have
    Node/V8 and both Python ABI evidence. The deadline cleanup profile adds
    retained-wrapper refusal, pin/slot release and recovery of a preceding proven
-   batch across those runtimes; extend in-flight cancellation, closed-domain and
+   batch across those runtimes. The Python in-flight proof checkpoint adds eight
+   barrier/deadline/fence combinations per ABI with cold coherence and complete
+   cleanup checks. Resolve the retained-wrapper Handoff drain observation, and
+   extend byte-I/O cancellation, Node/V8 proof, directory-proof, closed-domain and
    remaining lifetime/resource families across supported guest runtimes.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS

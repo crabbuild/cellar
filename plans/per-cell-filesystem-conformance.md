@@ -279,6 +279,48 @@ activation takeover, closed execution domains, or resource overload generally.
 Runtime/ABI executions and artifact identities are recorded in the status
 ledger.
 
+## Python in-flight proof cancellation profile
+
+The [Python proof harness](../crates/cellar-python/tests/support/proof_authority.rs)
+reuses real three-node fleet proof and the
+[authenticated peer/bucket gates](../crates/cellar-python/tests/support/fault_gates.rs).
+The [filesystem fixture](../crates/cellar-python/tests/support/proof_filesystem.py)
+commits a four-chunk file, business generation and SHA-256 receipt in one
+`storage.apply` batch. A preceding generation is explicitly proven and
+acknowledged. Peer append acknowledgements and bucket publications are held
+before the next batch; the client must remain pending after local commit.
+
+Eight modes select `file.fsync`, `file.fdatasync`, `fs.sync`, or final output
+proof (O16, O17, O36 and the cell output boundary), followed by either the
+original handler deadline or an observed native node-lease mismatch fence.
+Release of the actual transports after authority retirement cannot turn the
+failed client response into success. The interrupted generation may survive or
+be absent; the test does not infer rollback from a lost acknowledgement.
+
+The original task resumes only to check 31 retained file/duplicate/directory/view
+refusals and one raw filesystem submission refusal. SDK refusals require
+ContextExpired, the public operation, not_committed and zero confirmed bytes.
+Two existing storage/raw-storage authority assertions also remain in the
+shared harness. Retained guest wrappers remain live while four fresh descriptors
+reuse the captured host ceiling; a fifth open must return ENFILE.
+
+Warm recovery must select an internally consistent file, generation, receipt,
+inode and content version. An explicit barrier proves that selected readback.
+After the original nodes stop with Preserve and their unchanged five-second
+leases expire, three new logical nodes start with new local directories. Their
+cold readback must equal the warm result exactly. A subsequent atomic file/state
+write proves fresh capabilities still work. The business handler executes once,
+and all six native outcomes and interpreter/bridge cleanup must be accounted for;
+the fence case retains its expected incomplete native fence outcome. The new
+profile has a 90-second outer process watchdog for both three-node lifecycles;
+existing handler, proof, lease and older-profile watchdog budgets are unchanged.
+
+This is supplied development-store and loopback-peer evidence. It does not
+qualify external-store outages, physical network faults, process crashes, byte-I/O
+cancellation, retained-wrapper handoff shutdown, closed domains generally, or the
+corresponding Node/V8 proof profiles. Executed ABIs and frozen executable/source
+identities belong in the implementation status ledger.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -301,7 +343,9 @@ remains before this inventory can support a complete conformance claim:
    native foreign-directory and guest live/expired/closed/wrong-kind profiles
    above cover both `renameat` parents, with their distinct scopes. The deadline
    cleanup profile adds retained-wrapper refusal, slot/pin release and committed
-   batch recovery; in-flight operation/proof cancellation remains open.
+   batch recovery. The Python in-flight proof profile above adds the selected
+   barrier/deadline/fence combinations; byte-operation cancellation, Node/V8
+   proof profiles, handoff shutdown and remaining domain cases stay open.
 3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
    to actual source and executable evidence. Invocation-bound descriptors and
    activation-bound filesystem views have distinct lifetime contracts.
