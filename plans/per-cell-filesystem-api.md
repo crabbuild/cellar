@@ -551,6 +551,7 @@ operation and earlier confirmed prefix. A cancelled wait does not establish
 rollback of its last native call. Cancelling a child task does not retire the
 parent invocation's descriptor authority. Cancelling before the coroutine starts
 cannot run the SDK's annotation code.
+
 Descriptor `readdir` synthesizes `.` and `..`. Stateless `read_dir` returns only
 actual entries so application traversals do not follow synthetic dot entries.
 For conditional edits, equal-size patches and end-of-file tail replacement

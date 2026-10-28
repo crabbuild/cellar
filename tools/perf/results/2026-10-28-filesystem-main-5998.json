@@ -1,0 +1,641 @@
+{
+  "format": 1,
+  "date": "2026-10-28",
+  "baseline": "d22523af51324a387d687cac90eb422d8d73a998",
+  "origin_main": "5998b82cac1b14dbf05b8308b4161144c48252bf",
+  "scope": "macOS arm64; Rust 1.98.1; development builds without debug information",
+  "native": {
+    "baseline": "d22523af51324a387d687cac90eb422d8d73a998",
+    "executables": {
+      "library": {
+        "sha256": "7b96ab689705d91628834795e3a5d43b4815d77622faeab180ddbb055ae938cb"
+      },
+      "sdk": {
+        "sha256": "48abc967b526d59e3a75c87ff0e1a1e2991676bda4970c139f0ab401e9be8678"
+      },
+      "node": {
+        "sha256": "b1ee4fbf8ee198c17e5b689a736d614661124c7184b54c4c6335f9970c53c1fc"
+      }
+    },
+    "checks": {
+      "filesystem-units": {
+        "exit": 0,
+        "seconds": 1.084,
+        "log_sha256": "dc7b06d3ba0cef2ed4f702b83421a1b11891b71494fbb747bc70d99fdd97c2c7"
+      },
+      "filesystem-sdk": {
+        "exit": 0,
+        "seconds": 1.174,
+        "log_sha256": "f2ac1799658755213279de6e2883c284cfe0e7277dab6453a655745f46cb711b"
+      },
+      "filesystem-node": {
+        "exit": 0,
+        "seconds": 47.531,
+        "log_sha256": "91ff79a4cf61d13b42c16e6be4e6c866174db644944d030cde5eaa958361ee36"
+      }
+    }
+  },
+  "serial_guest_and_gil": {
+    "baseline": "d22523af51324a387d687cac90eb422d8d73a998",
+    "profile": "one supervisor; independent native fixtures serial",
+    "guest_executables": {
+      "guest": {
+        "sha256": "9fdeb6f21e90ffbdd74f5da631b142114e5bdc4d7b881ad2d77d1b9172f80633"
+      },
+      "javascript": {
+        "sha256": "ae108ae0f255a3d40140fabf5dc91d2a0a7078e559ed8b4b849096a1b8ae1c7a"
+      },
+      "rpc_response_ownership": {
+        "sha256": "1d39d9a2b84b53ace7ae8fecb696901cc1a1d4dc973999df76b16a5b5dabe3d6"
+      },
+      "filesystem": {
+        "sha256": "a1e9660124bd47c023682d31a7f452949a6b6905a7b4b3077f256349032ef6c8"
+      },
+      "filesystem_io": {
+        "sha256": "04d7a0ba26c703938b4ece1dc47cbdaeaa51e44ae28135b3ef87ebd57b6b7f39"
+      },
+      "filesystem_proof": {
+        "sha256": "76b3f61b201b94fa67c7834a2abe5ec27e43320163cd9f90f66de480dd3b091e"
+      },
+      "synchronous": {
+        "sha256": "fbae005835bcbae60bd7d9f39d6710ff7b996225813880f68f37347b582b8cd6"
+      },
+      "transport_authority": {
+        "sha256": "d6eb5750ca07fd2cb086fabb1391b22300539873a7b22d8a5ff9df8ff96166ec"
+      }
+    },
+    "python_gil_executables": {
+      "library": {
+        "sha256": "b80511cb56e582d70dcd74757a11e2eb1b72566d4d05de30e490bb58140c6b3f"
+      },
+      "filesystem": {
+        "sha256": "322f514e5b633335981e40a66492b428acb6fe13c230c9b5353aa8c5c9e5d55d"
+      },
+      "bridge": {
+        "sha256": "5bba78a8ae8c8d59591414afceb8fdd4a8f9940fc3e4fe67ea0b1a910b7d0f4b"
+      }
+    },
+    "checks": {
+      "guest-units": {
+        "exit": 0,
+        "seconds": 0.256,
+        "log_sha256": "b6e3ec16442ffd828d629d671be2a316387859426ff79efd95a6df743a84923e"
+      },
+      "guest-response-ownership": {
+        "exit": 0,
+        "seconds": 1.07,
+        "log_sha256": "3e11090cdeb2f6e1a737d5f747093192f37969a4900b5d7b5a097276fcb181ce"
+      },
+      "javascript-units": {
+        "exit": 0,
+        "seconds": 9.144,
+        "log_sha256": "e9bbd7d8cf18845c1ddb449e06da87fca474f8639a75ffddd0b8a456bf8c110d"
+      },
+      "filesystem": {
+        "exit": 0,
+        "seconds": 34.926,
+        "log_sha256": "702fe235e3f60646f93f0e335210efb626b2b3af5196341830e2fb7a3b80f00c"
+      },
+      "synchronous": {
+        "exit": 0,
+        "seconds": 2.721,
+        "log_sha256": "1ca6629e9fab31647d14fac62255dd0138b301d8c916643caa8a2bfb3e1bd943"
+      },
+      "transport-authority": {
+        "exit": 0,
+        "seconds": 0.785,
+        "log_sha256": "0b15b88529084cba8cae5ea9b40a163c9f709fc166031f10ead9f06dbdf3e031"
+      },
+      "embedded-fsync-fence-handoff": {
+        "exit": 0,
+        "seconds": 12.917,
+        "log_sha256": "c64c3448d8de4d991467716bf8780bb19d9c631985f6f039a076539a53b0c497"
+      },
+      "node-fsync-fence-handoff": {
+        "exit": 0,
+        "seconds": 11.986,
+        "log_sha256": "6474e1663a2d33874777456d9b53226f21b448ce4d94ecdd7748e6099d2294d3"
+      },
+      "node-byte-reply-read-exact-fence-handoff": {
+        "exit": 0,
+        "seconds": 11.305,
+        "log_sha256": "52184abc654c579c4b5b23cf06e52628996ba97184c5c862f55e315808c1eecd"
+      },
+      "gil-library": {
+        "exit": 0,
+        "seconds": 0.412,
+        "log_sha256": "6dbab1442c697c36f6f6686e3ba7983b324427bdb0b1fe13cd212962e20a2373"
+      },
+      "gil-task-cancellation": {
+        "exit": 0,
+        "seconds": 4.494,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      "gil-normal": {
+        "exit": 0,
+        "seconds": 4.48,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      "gil-read-only": {
+        "exit": 0,
+        "seconds": 0.867,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      "gil-small-budget": {
+        "exit": 0,
+        "seconds": 0.708,
+        "log_sha256": "48f675ac58c2b610e57739209053c551868d89c61dd535423a3aa6c75183f9dc"
+      },
+      "gil-filesystem-proof-fsync-deadline": {
+        "exit": 0,
+        "seconds": 19.521,
+        "log_sha256": "698af136d4a6768811a4f7984152ee7d64a89c511c990661f4dd09b5b8319907"
+      },
+      "gil-filesystem-handoff-fsync-fence": {
+        "exit": 0,
+        "seconds": 9.338,
+        "log_sha256": "c1c64d70eb00c3ed89973b7ec2316361a2b20399c285e6f7dfb70412368ad429"
+      },
+      "gil-filesystem-proof-failure-fence": {
+        "exit": 0,
+        "seconds": 9.293,
+        "log_sha256": "36974f62fb30c31a163bcf8ca61c04a99e3322ad9d74bb893570d42f79d4434e"
+      },
+      "gil-proof-authority-failure": {
+        "exit": 0,
+        "seconds": 2.801,
+        "log_sha256": "c5c82fdb1422e63ac2122dacf6479c7203c6c9a87871656f603dc3a6b7de6689"
+      },
+      "gil-proof-authority-recovery": {
+        "exit": 0,
+        "seconds": 3.105,
+        "log_sha256": "e874ae8d522e8fb277342ac2a205c414a3b3cab011d8a462d7b3370238864faf"
+      },
+      "gil-queue-lost-ack": {
+        "exit": 0,
+        "seconds": 21.861,
+        "log_sha256": "b77f82886b1cca344d810a8f96a0c7f6cdb39106b46170fd15d99248cc4a3daa"
+      }
+    },
+    "complete": true
+  },
+  "free_threaded_python": {
+    "executables": {
+      "library": {
+        "sha256": "f69cc58e5984824e09e9925e5be664781ab92e6d29ec886148f73e1ed9aff28b"
+      },
+      "filesystem": {
+        "sha256": "fef29ed6e04661cc9ace983657cf4319ae0eac8a837e2c01e3e91998b01c6836"
+      },
+      "bridge": {
+        "sha256": "2cda8a978f2045e09711acb38f8b39d8d34352d514901ca68f9a0e90338f0b01"
+      }
+    },
+    "checks": {
+      "freethread-build": {
+        "exit": 0,
+        "seconds": 23.992
+      },
+      "freethread-linkage": {
+        "exit": 0,
+        "seconds": 0.024
+      },
+      "freethread-library": {
+        "exit": 0,
+        "seconds": 0.075
+      },
+      "freethread-task-cancellation": {
+        "exit": 0,
+        "seconds": 3.936
+      },
+      "freethread-normal": {
+        "exit": 0,
+        "seconds": 4.227
+      },
+      "freethread-read-only": {
+        "exit": 0,
+        "seconds": 1.017
+      },
+      "freethread-small-budget": {
+        "exit": 0,
+        "seconds": 0.854
+      },
+      "freethread-filesystem-proof-fsync-deadline": {
+        "exit": 0,
+        "seconds": 16.446
+      },
+      "freethread-filesystem-handoff-fsync-fence": {
+        "exit": 0,
+        "seconds": 9.707
+      },
+      "freethread-filesystem-proof-failure-fence": {
+        "exit": 0,
+        "seconds": 9.524
+      },
+      "freethread-proof-authority-failure": {
+        "exit": 0,
+        "seconds": 4.024
+      },
+      "freethread-proof-authority-recovery": {
+        "exit": 0,
+        "seconds": 3.162
+      },
+      "freethread-queue-lost-ack": {
+        "exit": 0,
+        "seconds": 21.891
+      }
+    }
+  },
+  "python_source_sha256": {
+    "crates/cellar-python/python/cellar.py": "33614bafa38d44ada65003294d9cd74151a528517487810baa8dd3be88b2e351",
+    "crates/cellar-python/tests/filesystem.rs": "cd1d4ccedb565ab85321652f355b2394df4957d772cc34d0bb11121f62340c4e",
+    "crates/cellar-python/tests/filesystem_cancellation.py": "8d7f0cc2210a2f5cbfa88373efbbe17ed81afe44707531908a0bd6ba0b691f74",
+    "crates/cellar-python/tests/bridge.rs": "4f4a5f7209a984cf14649074e1865f1af40a4a8f0d85b2c4b8cb347d0ad9d8ea",
+    "crates/cellar-python/tests/support/proof_authority.py": "f1ecb195c64533b6ff0bc2075505a276f3f8d3d9aef9eab9b47daf5bec037a19",
+    "crates/cellar-python/tests/support/proof_authority.rs": "c0238ead860dc6dde9ce19c248b061eecb763ab940dc8fddb031d199ec887c62",
+    "crates/cellar/tests/support/proof_fault_gates.rs": "9366b2c7184f4f7ad601cb2dde38e1d7f5a92d4ce91b89fb57cbe823a4a005e7"
+  },
+  "native_s3_manifest": {
+    "baseline": "d22523af51324a387d687cac90eb422d8d73a998",
+    "image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+    "executable_sha256": "b1ee4fbf8ee198c17e5b689a736d614661124c7184b54c4c6335f9970c53c1fc",
+    "cpus": 2,
+    "memory_bytes": 2147483648,
+    "exit": 0,
+    "seconds": 15.121411417028867,
+    "log_sha256": "585a6ea99259825dc9347798a9a4dce686fb92770029169eab626653866a8be9",
+    "report_sha256": "73406294095056dd7d7db1f533f1ea36879905cb33e5ea86d8425c295fc3e4c4",
+    "complete": true,
+    "store_removed": true,
+    "private_credentials_removed": true
+  },
+  "native_s3_report": {
+    "acknowledged": [
+      {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      }
+    ],
+    "ambiguous_response": {
+      "http_status": 500,
+      "outcome": "unknown"
+    },
+    "application_constructors": 3,
+    "backend": "s3",
+    "caller_executor_preserved": true,
+    "failed_recovery_http_status": 500,
+    "format": 1,
+    "lease_store_refusals": 45,
+    "mode": "bucket proof; supplied-store fault injection",
+    "owner_fenced": true,
+    "predecessor_local_data_removed": true,
+    "publication_refusals": 11,
+    "recovered_after_outage": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "version": "4"
+    },
+    "recovered_after_takeover": {
+      "generation": 3,
+      "inode": "2",
+      "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+      "version": "6"
+    },
+    "recovery_read_refusals": 2,
+    "remaining_nodes_joined": true,
+    "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+    "stale_descriptor_checks": 1,
+    "successor_local_data_removed": true,
+    "unacknowledged_local_commit": {
+      "generation": 2,
+      "inode": "2",
+      "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+      "version": "6"
+    }
+  },
+  "capacity": {
+    "10": {
+      "debug_assertions": true,
+      "executable_sha256": "b1ee4fbf8ee198c17e5b689a736d614661124c7184b54c4c6335f9970c53c1fc",
+      "format": 1,
+      "limits": "Native SDK, single-node development-bucket proof, fixed 64 KiB chunks, 1 MiB requests, 2 GiB file/allocation ceilings, 120 s recovery/handler budgets. Latency includes routing, hashing and proof; RSS and file lengths are sampled, not hard peak bounds. No external-store, peer-fault, guest, chunk-size comparison or many-cell qualification.",
+      "profiles": [
+        {
+          "application_bytes_written": 11546624,
+          "bucket_ltx_object_bytes_current": 51119198,
+          "bucket_object_bytes_current": 51122549,
+          "local_ltx_bytes_peak_sampled": 20359294,
+          "mib": 10,
+          "node_file_bytes_peak_sampled": 34446646,
+          "patches": {
+            "count": 3,
+            "max_us": 6619,
+            "p50_us": 6591,
+            "p95_us": 6619,
+            "p99_us": 6619
+          },
+          "process_rss_after": 173801472,
+          "process_rss_before": 13418496,
+          "process_rss_peak_sampled": 173899776,
+          "recovery": {
+            "block_digest_commitment": "27b9f8a1ae6c7ada2abe40b67abe8c5c3e6466140816153652b364079cb14ec3",
+            "cold_reads": {
+              "count": 10,
+              "max_us": 249314,
+              "p50_us": 3314,
+              "p95_us": 249314,
+              "p99_us": 249314
+            },
+            "first_admitted_read_ms": 394,
+            "first_proven_write_us": 228441,
+            "fresh_node_file_bytes": 23619066,
+            "recovered_file_and_business_state": {
+              "allocated": 10485760,
+              "inode": 2,
+              "last_receipt": {
+                "block": 9,
+                "inode": 2,
+                "sha256": "f103844950154f887a87a8c21a331521dfc8b1ddb412f4b54ea4d2cf045523de",
+                "version": 12
+              },
+              "patches": [
+                {
+                  "inode": 2,
+                  "patch": 0,
+                  "version": 13
+                },
+                {
+                  "inode": 2,
+                  "patch": 1,
+                  "version": 14
+                },
+                {
+                  "inode": 2,
+                  "patch": 2,
+                  "version": 15
+                }
+              ],
+              "progress": 10,
+              "size": 10485760,
+              "total_allocated": 10485760,
+              "version": 15
+            }
+          },
+          "wal_bytes_peak_sampled": 4420792,
+          "warm_reads": {
+            "count": 10,
+            "max_us": 3546,
+            "p50_us": 3221,
+            "p95_us": 3546,
+            "p99_us": 3546
+          },
+          "write_elapsed_ms": 992,
+          "writes": {
+            "count": 10,
+            "max_us": 288109,
+            "p50_us": 41966,
+            "p95_us": 288109,
+            "p99_us": 288109
+          }
+        }
+      ],
+      "source_sha256": {
+        "backend": "f8c40869c557c73fc45608b5f41b799c8ed59e0283022b1bffefc3b23882c7b4",
+        "content": "9c48b2b6269d561b99b9bcf7c47398bacb6ce126df33ba016ec93727cb7f7474",
+        "fixture": "1a6dc89006b64095498ac64c03d55f02515d14334c9dc17001b8779689058776",
+        "gc": "450c5481a7ecb08aa8c6e07ca53c313365c10df29142a5dece481dad510e9e6c",
+        "namespace": "c58837ef535ac38d8417a61781b77dbbf9f720aba2325a73be9cf16d9917ddd3",
+        "replica_storage": "232e38acd2a5abe34fd066ad2e2f86c55f71ec897a60a4dc002f5adf2dd27136",
+        "schema": "e9d3f6d4559b59b1c786e7c59b186ae73a0b5e00fa6f024bde466f6c646ea4f1",
+        "sdk": "5728bbccb45dc950012cb88f8d27a83f16dd6ac8c768ece17f1133ea7f99c0c3"
+      }
+    },
+    "100": {
+      "debug_assertions": true,
+      "executable_sha256": "b1ee4fbf8ee198c17e5b689a736d614661124c7184b54c4c6335f9970c53c1fc",
+      "format": 1,
+      "limits": "Native SDK, single-node development-bucket proof, fixed 64 KiB chunks, 1 MiB requests, 2 GiB file/allocation ceilings, 120 s recovery/handler budgets. Latency includes routing, hashing and proof; RSS and file lengths are sampled, not hard peak bounds. No external-store, peer-fault, guest, chunk-size comparison or many-cell qualification.",
+      "profiles": [
+        {
+          "application_bytes_written": 105918464,
+          "bucket_ltx_object_bytes_current": 222049294,
+          "bucket_object_bytes_current": 222052645,
+          "local_ltx_bytes_peak_sampled": 118107393,
+          "mib": 100,
+          "node_file_bytes_peak_sampled": 225383177,
+          "patches": {
+            "count": 3,
+            "max_us": 6503,
+            "p50_us": 5498,
+            "p95_us": 6503,
+            "p99_us": 6503
+          },
+          "process_rss_after": 1080737792,
+          "process_rss_before": 13418496,
+          "process_rss_peak_sampled": 1081049088,
+          "recovery": {
+            "block_digest_commitment": "ef15aa49ec0858db43f48733d8f1800d2e6b9a5574a9e9802454e247cc43ef0b",
+            "cold_reads": {
+              "count": 100,
+              "max_us": 1547117,
+              "p50_us": 3525,
+              "p95_us": 3931,
+              "p99_us": 4563
+            },
+            "first_admitted_read_ms": 2690,
+            "first_proven_write_us": 1949337,
+            "fresh_node_file_bytes": 214317326,
+            "recovered_file_and_business_state": {
+              "allocated": 104857600,
+              "inode": 2,
+              "last_receipt": {
+                "block": 99,
+                "inode": 2,
+                "sha256": "9e724ed94ee0726a2b212b8aa09b817c96feb93a16ca91cfff8a8da20a6b96ed",
+                "version": 102
+              },
+              "patches": [
+                {
+                  "inode": 2,
+                  "patch": 0,
+                  "version": 103
+                },
+                {
+                  "inode": 2,
+                  "patch": 1,
+                  "version": 104
+                },
+                {
+                  "inode": 2,
+                  "patch": 2,
+                  "version": 105
+                }
+              ],
+              "progress": 100,
+              "size": 104857600,
+              "total_allocated": 104857600,
+              "version": 105
+            }
+          },
+          "wal_bytes_peak_sampled": 4478472,
+          "warm_reads": {
+            "count": 100,
+            "max_us": 4122,
+            "p50_us": 3512,
+            "p95_us": 3740,
+            "p99_us": 4096
+          },
+          "write_elapsed_ms": 5571,
+          "writes": {
+            "count": 100,
+            "max_us": 275189,
+            "p50_us": 39766,
+            "p95_us": 79782,
+            "p99_us": 188649
+          }
+        }
+      ],
+      "source_sha256": {
+        "backend": "f8c40869c557c73fc45608b5f41b799c8ed59e0283022b1bffefc3b23882c7b4",
+        "content": "9c48b2b6269d561b99b9bcf7c47398bacb6ce126df33ba016ec93727cb7f7474",
+        "fixture": "1a6dc89006b64095498ac64c03d55f02515d14334c9dc17001b8779689058776",
+        "gc": "450c5481a7ecb08aa8c6e07ca53c313365c10df29142a5dece481dad510e9e6c",
+        "namespace": "c58837ef535ac38d8417a61781b77dbbf9f720aba2325a73be9cf16d9917ddd3",
+        "replica_storage": "232e38acd2a5abe34fd066ad2e2f86c55f71ec897a60a4dc002f5adf2dd27136",
+        "schema": "e9d3f6d4559b59b1c786e7c59b186ae73a0b5e00fa6f024bde466f6c646ea4f1",
+        "sdk": "5728bbccb45dc950012cb88f8d27a83f16dd6ac8c768ece17f1133ea7f99c0c3"
+      }
+    },
+    "1024": {
+      "debug_assertions": true,
+      "executable_sha256": "b1ee4fbf8ee198c17e5b689a736d614661124c7184b54c4c6335f9970c53c1fc",
+      "format": 1,
+      "limits": "Native SDK, single-node development-bucket proof, fixed 64 KiB chunks, 1 MiB requests, 2 GiB file/allocation ceilings, 120 s recovery/handler budgets. Latency includes routing, hashing and proof; RSS and file lengths are sampled, not hard peak bounds. No external-store, peer-fault, guest, chunk-size comparison or many-cell qualification.",
+      "profiles": [
+        {
+          "application_bytes_written": 1074802688,
+          "bucket_ltx_object_bytes_current": 1121245646,
+          "bucket_object_bytes_current": 1121248339,
+          "local_ltx_bytes_peak_sampled": 1123053303,
+          "mib": 1024,
+          "node_file_bytes_peak_sampled": 2208191935,
+          "patches": {
+            "count": 3,
+            "max_us": 15693,
+            "p50_us": 8975,
+            "p95_us": 15693,
+            "p99_us": 15693
+          },
+          "process_rss_after": 1315291136,
+          "process_rss_before": 13418496,
+          "process_rss_peak_sampled": 2117320704,
+          "recovery": {
+            "block_digest_commitment": "5ab2a69f89aeb5d0ba693c1b0f922eaa732c14a652f1f94a242e5adcecbdd477",
+            "cold_reads": {
+              "count": 1024,
+              "max_us": 2176739,
+              "p50_us": 60491,
+              "p95_us": 225344,
+              "p99_us": 278378
+            },
+            "first_admitted_read_ms": 2319,
+            "first_proven_write_us": 44400,
+            "fresh_node_file_bytes": 1086223158,
+            "recovered_file_and_business_state": {
+              "allocated": 1073741824,
+              "inode": 2,
+              "last_receipt": {
+                "block": 1023,
+                "inode": 2,
+                "sha256": "e66947ec42455d50bf162eab904fff20d817a1545edefb8b5acf6d76ab1cb01c",
+                "version": 1026
+              },
+              "patches": [
+                {
+                  "inode": 2,
+                  "patch": 0,
+                  "version": 1027
+                },
+                {
+                  "inode": 2,
+                  "patch": 1,
+                  "version": 1028
+                },
+                {
+                  "inode": 2,
+                  "patch": 2,
+                  "version": 1029
+                }
+              ],
+              "progress": 1024,
+              "size": 1073741824,
+              "total_allocated": 1073741824,
+              "version": 1029
+            }
+          },
+          "wal_bytes_peak_sampled": 4511432,
+          "warm_reads": {
+            "count": 1024,
+            "max_us": 7892,
+            "p50_us": 5374,
+            "p95_us": 6457,
+            "p99_us": 7226
+          },
+          "write_elapsed_ms": 55105,
+          "writes": {
+            "count": 1024,
+            "max_us": 272954,
+            "p50_us": 41142,
+            "p95_us": 80308,
+            "p99_us": 92425
+          }
+        }
+      ],
+      "source_sha256": {
+        "backend": "f8c40869c557c73fc45608b5f41b799c8ed59e0283022b1bffefc3b23882c7b4",
+        "content": "9c48b2b6269d561b99b9bcf7c47398bacb6ce126df33ba016ec93727cb7f7474",
+        "fixture": "1a6dc89006b64095498ac64c03d55f02515d14334c9dc17001b8779689058776",
+        "gc": "450c5481a7ecb08aa8c6e07ca53c313365c10df29142a5dece481dad510e9e6c",
+        "namespace": "c58837ef535ac38d8417a61781b77dbbf9f720aba2325a73be9cf16d9917ddd3",
+        "replica_storage": "232e38acd2a5abe34fd066ad2e2f86c55f71ec897a60a4dc002f5adf2dd27136",
+        "schema": "e9d3f6d4559b59b1c786e7c59b186ae73a0b5e00fa6f024bde466f6c646ea4f1",
+        "sdk": "5728bbccb45dc950012cb88f8d27a83f16dd6ac8c768ece17f1133ea7f99c0c3"
+      }
+    }
+  },
+  "superseded_observations": {
+    "profile": "independent native fixtures must be serial",
+    "observation": "Fresh JavaScript and GIL Python runners overlapped because the Python build was followed immediately by tests. No assertions or deadlines were changed.",
+    "qualification": "Do not accept the initial guest or GIL matrix as the serial qualification; preserve them and rerun in a single supervisor.",
+    "initial_guest_manifest": "guest-manifest.json",
+    "initial_python_manifest": "python/manifest.json",
+    "replacement": "serial-regressions/manifest.json"
+  },
+  "checks": {
+    "strict_five_crate_all_target_clippy": {
+      "exit": 0,
+      "log_sha256": "a7d2c68fc0beabe0ebe102334ae578f9f89cbc13b449fb22c790115445a7e9f5"
+    },
+    "rust_format": "Checked 1387 Rust files",
+    "layout": "Checked module layout for 1387 Rust files",
+    "javascript_format": "> @cellar/build@0.1.0 format:check\n> node format.mjs --check\n\n128 sources checked; 0 need formatting.",
+    "native_dependency_packages": 482,
+    "native_dependency_javascript_engine": false
+  },
+  "limits": [
+    "Full earlier guest/proof and package checkpoints keep their recorded source scope. The fresh integration runs selected regressions.",
+    "Initial overlapping JavaScript/GIL observations are superseded by the clean serial rerun. The free-threaded run began after the initial guest process joined.",
+    "Dense capacity uses a development bucket, 64 KiB chunks, explicit 2 GiB file/allocation limits and 120-second recovery/handler budgets. No production latency or hard memory bound.",
+    "S3 fault gates wrap the actual provider client; physical network/disk stalls, credential expiry and independent zones remain separate.",
+    "Supported-target CI and refreshed integrated installed packages remain open."
+  ]
+}

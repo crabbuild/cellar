@@ -66,7 +66,64 @@ retain source/executable/log hashes and shutdown summaries. Neither this local
 matrix nor the CI configuration establishes remote CI completion or the remaining
 external-fault, package and capacity gates.
 
+## S3 and installed-package checkpoint
+
+The [2026-10-28 recovery/delivery report](../tools/perf/results/2026-10-28-filesystem-release-checkpoint.md)
+adds real S3-backed native fault/recovery evidence and installed session/Pi/Python
+packages incorporating the cancellation fix. Both Python ABI packages restore
+absent original runtime prefixes, retain their actual GIL mode and recover
+file-commit/saved-read cuts. The session package recovers four workspaces and
+follow-up files; Pi recovers eight tasks and 32 unchanged duplicate submissions.
+Vercel's source-entry S3 drill recovers six crash cuts, sixteen concurrent tasks,
+and its filesystem mutation/saved-read cuts. Its captured package is staged;
+the source-entry drill does not qualify installation of that package.
+
+The native S3 scenario retains the original file/state/receipt, publication
+refusal, lease-expiry fence, failed-recovery admission, stale-capability and two
+empty-local-state recovery assertions. CI registers that opt-in scenario against
+a private pinned RustFS container and uploads its report. The drills exposed and
+corrected an unusable test access-key length and an oversized saved-read bucket
+name. These are supplied-client fault gates over actual S3 I/O; physical network,
+credential-expiry and disk failures retain separate gates.
+
+The same report records successful recapture of all forty Node/V8 proof cases
+and 24 Node byte-reply cases, with the previously recorded executable hashes and
+joined bridge gauges. Artifacts at this checkpoint precede the `5998b82c` main
+integration below. They retain their source scope while fresh integrated
+artifact/target checks proceed.
+
 ## PR integration baseline
+
+The release-candidate integration is pinned to fetched `origin/main` at
+`5998b82cac1b14dbf05b8308b4161144c48252bf`, incorporated by merge
+`d22523af51324a387d687cac90eb422d8d73a998`. This adds native/guest RPC response
+ownership and sandbox backup-recovery changes. The merge required no conflict
+resolution and retains the filesystem capability, quota/handle registry and
+Python cancellation fixes. Fresh affected-feature checks for this integration
+pass in the [integrated checkpoint](../tools/perf/results/2026-10-28-filesystem-main-5998.md):
+21 native filesystem units, three SDK cases, five serial node/recovery cases,
+36 guest units, two RPC response-ownership cases, 88 JavaScript library cases,
+six Node/V8 filesystem cases, two synchronous cases and one transport-authority
+case. Selected Node/V8 proof and Node lost-byte-reply cases also pass. Each Python
+ABI passes 31 library tests, four filesystem modes and six selected bridge cases.
+The initially overlapping JavaScript/GIL observations are superseded by a clean
+serial rerun; assertions and deadlines remain unchanged.
+
+A fresh native S3 fault case passes the same file/state/receipt and two cold
+recovery assertions on this integrated executable. Independent dense 10 MiB,
+100 MiB and 1 GiB profiles also pass against the same fresh native binary. The
+GiB profile samples 2019.2 MiB process RSS, including the supervisor, node
+lifetimes, SQLite, replication and development store. This is functional capacity
+evidence, without a hard memory or production latency guarantee.
+
+Strict combined five-crate all-target Clippy passes. Formatting/layout cover
+1,387 Rust files; 128 JavaScript sources need no formatting. The native graph
+retains 482 packages without a JavaScript engine. Final integrated packages,
+supported-target CI and the remaining contract/fault/performance audit stay
+open. Completed earlier checkpoints retain their captured source and artifact
+scope.
+
+### Main at 3ffbadcc checkpoint
 
 The branch incorporates freshly fetched `origin/main` at
 `3ffbadcc5e4a7bf938771ee514c2205402e6379e`, including container HTTP and streamed
@@ -974,6 +1031,9 @@ independent of these primitive release priorities.
    adds six APIs through actual withheld IPC replies and native retirement;
    remaining lost-reply/runtime/fleet combinations retain their qualification gate;
    remaining combinations, precedence, lifetimes and resource cases stay open.
+   Python coroutine cancellation now covers both helpers at four suspension
+   phases and four direct byte APIs, with exact native progress and local-reopen
+   receipts. This is distinct from physical byte-reply loss.
 2. Finish final captured-runtime/package qualification across the supported ABI
    matrix. Vercel/Pi/Python tool parity and cold recovery now have local evidence;
    the Python run used a staged native package plus host runtime/dependencies.
@@ -989,6 +1049,10 @@ independent of these primitive release priorities.
    Node captures and Python hosts must also include the subsequent guest error
    and argument fixes. Final Pi/Vercel captures and the corresponding Linux CI/target
    gates remain unverified.
+   The newer `542e5e89` checkpoint restores absent session/Pi/Python runtimes and
+   tests both Python ABIs with the cancellation fix. Vercel's staged capture and
+   S3 source-entry drill retain their separate scope. The `5998b82c` integration
+   still needs final installed artifacts and supported-target CI.
    Finish the remaining agent captures and supported target/ABI matrix. The production-entry
    restore case and qualification-only fault cases retain their distinct scopes.
 3. Complete the maintenance stress/fault matrix. Pending-work cold recovery,
@@ -1023,12 +1087,18 @@ independent of these primitive release priorities.
    cancellation and remaining directory-proof/runtime
    combinations, closed-domain and lifetime/resource families across supported
    guest runtimes.
+   The Python task-cancellation profile adds confirmed between-transfer prefixes,
+   delayed delivery and direct byte calls in both ABIs; V8/Python physical reply
+   loss remains outside that coroutine profile.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS
    and retained file/WAL/LTX observations. Finish optimized 4/16/64 KiB chunk
    comparisons, small-file density, actual traffic amplification, hard resource
    bounds, guest overhead, external-store/peer proof and larger-population
    fairness; the four-cell bounded progress case is not that performance matrix.
+   All three dense sizes also pass on the `5998b82c` integration's fresh native
+   executable. Its GiB run samples 2019.2 MiB RSS; this does not establish a hard
+   process-memory bound or a production capacity envelope.
 6. Qualify durability failures and recovery under existing native/fleet harnesses;
    verify committed file-plus-state-plus-receipt recovery and stale-owner refusal.
    The native supplied-store case now covers blocked bucket publication,
@@ -1037,6 +1107,9 @@ independent of these primitive release priorities.
    It does not qualify physical network isolation, external-store outages,
    peer-proof failures or host disk stalls. The SQLite page-ceiling case covers
    one local disk-full boundary; complete the remaining fault matrix.
+   The same native scenario now passes over actual S3 I/O beneath supplied-client
+   fault gates, including on the `5998b82c` integration. Physical socket/network,
+   credential-expiry and host-disk behavior remain separate.
 7. Finish final packaged-example delivery and affected-feature checks;
    run affected Rust/guest tests and strict Clippy, formatting/layout/native
    dependency checks, declarations and documentation links against final sources.
