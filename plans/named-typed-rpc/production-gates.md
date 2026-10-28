@@ -41,7 +41,11 @@ now hand that worker back while preserving ownership and joined completion.
 A shared-executor fleet test observes lease progress across two unchanged
 one-second lifetimes during a blocked application turn. The preserved Python
 contract passes 400 pre-fix replays, including concurrent runs; its original
-first-write failure remains unexplained. See the
+first-write failure remains unexplained. Implementation `a7b3534c` passes both
+full local Python SDK modes, V8/Node streaming and compatibility, JavaScript
+typed RPC, 20 focused native checks, affected Clippy and repository guards.
+Final serial validation records 3,999 unchanged tracked files; hosted CI remains
+queued. These passes do not close the retained failure's cause. See the
 [latest implementation evidence](implementation-status.md#synchronous-turn-timer-starvation-2026-10-28-release-open).
 
 ## Remaining work, in delivery order
@@ -77,7 +81,7 @@ does not mean every combination in the release contract has been qualified.
 | T14–T15 | Deadline/cancellation, self calls and cyclic dependencies | Saturation and cleanup composition under retained resource pressure |
 | T16–T17 | Peer framing/loss, Node/V8 lifecycle and Python supervision/cancellation | Wider flood/partial-disconnect combinations and resource accounting |
 | T18 | Dynamic codec identity and offline descriptor/catalog checks | Frozen static binding/package identity and clean-machine qualification |
-| T19 | Hosted JavaScript/Node regressions and Python examples | Broader SDK inventory failure and preserved timing regressions; final regression gates |
+| T19 | Hosted JavaScript/Node regressions and Python examples; follow-up local SDK passes in both Python modes | Preserved timing failures and final hosted SDK/HTTP/WebSocket/lifecycle gates |
 
 No gate permits automatic replay of an uncertain submission, a false rollback
 claim, acknowledgement before durability proof, or admission by a stale owner.

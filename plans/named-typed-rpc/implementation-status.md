@@ -60,6 +60,24 @@ and 160 with eight. Those successes do not explain the original first-write
 or as closure of older storage-phase and V8/Node failures. Existing uncertain
 outcomes, proof requirements and all production budgets remain unchanged.
 
+Validation of implementation `a7b3534c` passes the full Python package command
+in both actual interpreter modes, V8/Node SSE and WebSockets, Node compatibility
+and restart, both JavaScript typed-RPC tests, 20 focused native tests, affected
+Clippy, format/layout/dependency/docs checks. The native checks include genuine
+core-executor suspension: it still produces `NodeLeaseExpired`. External
+packaged-agent qualification is not enabled; two Python doctests remain ignored.
+
+The final serial free-threaded/JavaScript-RPC/guard run records 3,999 unchanged
+tracked files in `.cellar/rpc/diagnostics/reliability-final/`. Its preserved
+free-threaded bridge SHA-256 is
+`3a46b40246c20003392ade65bf16ebc8469d6888c858ec02f645d4d877add887`.
+An earlier free-threaded command passed runtime tests but failed rustdoc after
+a concurrent local rebuild changed dependency artifacts; it is not counted as
+a package qualification pass. The final serial command passes. Hosted workflows
+for [PR #154](https://github.com/crabbuild/cellar/pull/154) are still queued at
+this checkpoint. Neither green local runs nor this controlled regression prove
+the cause of the retained first-write 500.
+
 ## Native wait phases and standalone admission (2026-10-28; release open)
 
 Merged `origin/main` at `ed42c8ed` into the active provider-policy branch. The
