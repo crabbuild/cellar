@@ -17,7 +17,10 @@ async def fetch(request, ctx):
         response.body = memoryview(bytearray(request.body))
         return response
     if request.path == "/input-envelope":
-        envelope = dict(kind="fetch", event=request._wire(), object=None, identity=None)
+        # Include invocation-owned policy metadata in the exact native input
+        # charge, even when this HTTP-only fixture declares no RPC services.
+        envelope = dict(kind="fetch", event=request._wire(), object=None, identity=None,
+                        rpc_limits={})
         envelope["class"] = None
         return Response.json(len(_encode(envelope).encode()))
     if request.path.startswith("/body/"):

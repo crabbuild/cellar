@@ -182,14 +182,16 @@ impl CellRuntime {
         self.replication.clone()
     }
 
-    /// Read the filesystem inventory after the core has replaced the exact
-    /// clean predecessor lease generation.
+    /// Read replicated inventory for initial admission or replacement of an
+    /// exact clean predecessor. Standalone hosts have no replicated inventory.
     pub fn local_reload_cells(&self) -> anyhow::Result<Vec<cellar_logic::LocalCell>> {
-        let replication = self
+        // Standalone hosts also confirm inventory on their first lease. They
+        // have no replicated epoch inventory or clean predecessor to resume;
+        // ordinary activation reopens their stable e1 SQLite path instead.
+        Ok(self
             .replication
             .as_ref()
-            .context("local reload requires replication")?;
-        Ok(replication.local_cells())
+            .map_or_else(Vec::new, |replication| replication.local_cells()))
     }
 
     pub fn replication_status(&self) -> std::io::Result<Option<std::process::ExitStatus>> {

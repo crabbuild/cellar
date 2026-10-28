@@ -431,11 +431,12 @@ impl JavaScriptApplication {
                     let identity = context
                         .identity()
                         .ok_or_else(|| anyhow::anyhow!("cell RPC requires a cell identity"))?;
-                    if let Some(refusal) =
-                        self.source
-                            .rpc
-                            .refusal_after_factory(&identity.class, &method, &args)?
-                    {
+                    if let Some(refusal) = self.source.rpc.refusal_in_context(
+                        &context,
+                        &identity.class,
+                        &method,
+                        &args,
+                    )? {
                         return Ok(Output::Rpc(refusal));
                     }
                     let contract = self
@@ -443,11 +444,7 @@ impl JavaScriptApplication {
                         .rpc
                         .provider(&identity.class, &method)
                         .ok_or_else(|| anyhow::anyhow!("undeclared JavaScript RPC method"))?;
-                    let (digest, bytes) = cellar::sdk::rpc::decode_envelope(
-                        &args,
-                        contract.limits().max_message_bytes,
-                    )?;
-                    let mut prepared = Prepared::new(contract, &method, digest, bytes)?;
+                    let mut prepared = Prepared::from_context(&context, contract, &method, &args)?;
                     body = Some(prepared.take_request());
                     rpc_prepared = Some(prepared);
                     ("rpc", json!({"method":method}))
@@ -533,7 +530,8 @@ impl JavaScriptApplication {
             "event": payload,
             "object": object,
             "class": class,
-            "identity": identity
+            "identity": identity,
+            "rpc_limits": self.source.rpc.invocation_limits(&context)
         }))?;
         let charge = crate::runtime::value_size(&payload, body.as_deref())?;
         ensure!(

@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use tracing::Instrument as _;
 
 #[derive(Serialize)]
 struct OwnerWire<'a> {
@@ -1066,7 +1067,15 @@ impl BucketOwnership {
             CasGuard::Match(etag) => Some(etag.as_str()),
         };
         let started_us = lease_request_started_us();
-        let written = self.lease_bucket.put_cas(&key, body, etag).await;
+        // Keep native phase evidence attached to this node's lease even when
+        // the caller times out before the blocking store operation completes.
+        let written = self
+            .lease_bucket
+            .put_cas(&key, body, etag)
+            .instrument(
+                tracing::debug_span!(target: "store", "node_lease_store", node = %self.node),
+            )
+            .await;
         log_lease_request(
             "node_lease_write",
             format_args!("{key}"),

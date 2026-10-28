@@ -44,6 +44,13 @@ use std::time::{Duration, SystemTime};
 const STORE: &str = "cellar development store";
 const READ_CHUNK_BYTES: usize = 128 << 10;
 
+#[path = "local_store_timing.rs"]
+mod timing;
+
+#[cfg(test)]
+#[path = "local_store_timing_tests.rs"]
+mod timing_tests;
+
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
@@ -354,12 +361,23 @@ impl LocalStore {
         body: Bytes,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        self.put_sync_timed(key, body, options, &timing::Timing::default())
+    }
+
+    fn put_sync_timed(
+        &self,
+        key: String,
+        body: Bytes,
+        options: PutOptions,
+        timing: &timing::Timing,
+    ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
         // On a pre-commit failure, close/rollback before returning admission.
         // The success path hands serialization to SQLite before COMMIT below.
         let writer;
         let mut connection = self.connect()?;
+        timing.mark("connected");
         // The fixture observes a real entered SQLite connection without
         // locking out unrelated metadata/claim I/O while the worker pauses.
         #[cfg(test)]
@@ -369,9 +387,11 @@ impl LocalStore {
             }
         }
         writer = self.writer.lock();
+        timing.mark("writer_admitted");
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
+        timing.mark("transaction_started");
         let current = transaction
             .query_row(
                 "SELECT etag FROM __sys_local_objects WHERE key = ?1",
@@ -437,7 +457,9 @@ impl LocalStore {
         // only our admission guard: COMMIT's post-transaction checkpoint can
         // stall on main-file I/O after SQLite has already allowed new writers.
         drop(writer);
+        timing.mark("commit_started");
         transaction.commit().map_err(db_error)?;
+        timing.mark("committed");
         Ok(PutResult {
             e_tag: Some(etag.to_string()),
             version: None,
@@ -545,15 +567,20 @@ impl ObjectStore for LocalStore {
             .extensions
             .get::<crate::bucket::IoGuard>()
             .map(crate::bucket::IoGuard::keep_alive);
-        store_blocking!(move || {
+        let mut caller = timing::Caller::new();
+        let timing = caller.timing.clone();
+        let result = store_blocking!(move || {
+            timing.mark("native_entered");
             // The caller may cancel after native entry. Return capacity only
             // after SQLite has released its input, connection and transaction.
-            let result = store.put_sync(key, body, options);
+            let result = store.put_sync_timed(key, body, options, &timing);
             drop(reservation);
+            timing.mark("native_complete");
             result
         })
-        .await
-        .map_err(db_error)?
+        .await;
+        caller.delivered();
+        result.map_err(db_error)?
     }
 
     async fn put_multipart_opts(

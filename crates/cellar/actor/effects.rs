@@ -133,6 +133,8 @@ impl StepOutput {
                 // dropped future has reported what the possibly-landed
                 // body carried.
                 let mut stamped_log_state = None;
+                let mut attempt_bound_ms = None;
+                let mut wait_elapsed_ms = None;
                 let result = match authority_expires_ms {
                     Some(expires_ms) => {
                         let remaining = expires_ms.saturating_sub(now_ms());
@@ -141,12 +143,16 @@ impl StepOutput {
                         // half even near expiry so a committed-but-lost reply
                         // can still be proven by the ordinary readback.
                         let bound = std::time::Duration::from_millis((remaining / 2).min(2_500));
-                        match crate::asyncrt::timeout(
+                        attempt_bound_ms = Some(bound.as_millis() as u64);
+                        let wait_started = crate::asyncrt::mono_ms();
+                        let waited = crate::asyncrt::timeout(
                             bound,
                             ownership.cas_node_lease(guard, record, &mut stamped_log_state),
                         )
-                        .await
-                        {
+                        .await;
+                        wait_elapsed_ms =
+                            Some(crate::asyncrt::mono_ms().saturating_sub(wait_started));
+                        match waited {
                             Ok(result) => result,
                             Err(_) => Err(Failure::Ambiguous),
                         }
@@ -159,6 +165,12 @@ impl StepOutput {
                 };
                 let completed_ms = now_ms();
                 let elapsed_ms = crate::asyncrt::mono_ms().saturating_sub(attempt_started_mono_ms);
+                // This is observed wait delivery, not a claim that storage
+                // consumed the time. Local-store phase evidence separates
+                // native completion from a caller which was not polled.
+                let wait_overrun_ms = wait_elapsed_ms
+                    .zip(attempt_bound_ms)
+                    .map(|(elapsed, bound)| elapsed.saturating_sub(bound));
                 let prior_authority_headroom_ms = authority_expires_ms
                     .map(|expires_ms| expires_ms.saturating_sub(completed_ms))
                     .unwrap_or(0);
@@ -181,6 +193,9 @@ impl StepOutput {
                         attempt,
                         outcome,
                         elapsed_ms,
+                        attempt_bound_ms,
+                        wait_elapsed_ms,
+                        wait_overrun_ms,
                         prior_authority_headroom_ms,
                         candidate_headroom_ms,
                         "node lease attempt completed"
@@ -192,6 +207,9 @@ impl StepOutput {
                         attempt,
                         outcome,
                         elapsed_ms,
+                        attempt_bound_ms,
+                        wait_elapsed_ms,
+                        wait_overrun_ms,
                         prior_authority_headroom_ms,
                         candidate_headroom_ms,
                         "node lease attempt did not apply"

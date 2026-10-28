@@ -1,6 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
 use super::{envelope, Code, Contract, Failure, Limits, Prepared};
+use crate::application::Context;
 use crate::engine_api::RpcData;
 use anyhow::{ensure, Result};
 use std::{collections::BTreeMap, sync::Arc};
@@ -86,7 +87,7 @@ impl Catalog {
         method: &str,
         args: &RpcData,
     ) -> Result<Option<RpcData>, Failure> {
-        self.refusal_with_proof(class, method, args, true)
+        self.refusal_with_proof(class, method, args, true, None)
     }
 
     /// Use inside an adapter after a custom application may have run a factory.
@@ -97,7 +98,39 @@ impl Catalog {
         method: &str,
         args: &RpcData,
     ) -> Result<Option<RpcData>, Failure> {
-        self.refusal_with_proof(class, method, args, false)
+        self.refusal_with_proof(class, method, args, false, None)
+    }
+
+    /// Adapter validation against the immutable catalog of this native turn.
+    #[doc(hidden)]
+    pub fn refusal_in_context(
+        &self,
+        context: &Context,
+        class: &str,
+        method: &str,
+        args: &RpcData,
+    ) -> Result<Option<RpcData>, Failure> {
+        self.refusal_with_proof(class, method, args, false, Some(context))
+    }
+
+    /// Deliver effective codec limits without replacing the verified schemas.
+    /// A composed application's catalog owns policy; generated defaults remain
+    /// the fallback for contracts which it has not overridden.
+    #[doc(hidden)]
+    pub fn invocation_limits(&self, context: &Context) -> BTreeMap<String, Limits> {
+        self.contracts
+            .iter()
+            .map(|(digest, fallback)| {
+                let declared = context
+                    .rpc_catalog
+                    .as_ref()
+                    .and_then(|catalog| catalog.contract(digest));
+                (
+                    digest.clone(),
+                    declared.as_ref().unwrap_or(fallback).limits(),
+                )
+            })
+            .collect()
     }
 
     fn refusal_with_proof(
@@ -106,15 +139,24 @@ impl Catalog {
         method: &str,
         args: &RpcData,
         proven: bool,
+        context: Option<&Context>,
     ) -> Result<Option<RpcData>, Failure> {
         let Some(entries) = self.classes.get(class) else {
             return Ok(None);
         };
-        let contract = entries.get(method);
+        let fallback = entries.get(method);
+        let declared = context
+            .and_then(|context| context.rpc_catalog.as_ref())
+            .and_then(|catalog| catalog.provider(class, method));
+        let contract = fallback.map(|fallback| declared.as_ref().unwrap_or(fallback));
         let limits = contract.map(|c| c.limits()).unwrap_or_default();
         let (digest, bytes) = envelope::view(args)?;
         let rejection = match contract {
-            Some(contract) if contract.digest() != digest => {
+            Some(contract)
+                if contract.digest() != digest
+                    || fallback
+                        .is_some_and(|fallback| fallback.descriptor() != contract.descriptor()) =>
+            {
                 Some(Failure::refused(Code::ContractMismatch))
             }
             Some(contract) => {

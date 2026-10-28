@@ -80,7 +80,7 @@ fn v8_completion_reservation_survives_byte_saturation() -> Result<()> {
         let owner = Arc::new(AtomicBool::new(true));
         for index in 0..2 {
             let id = runtime.id()?;
-            let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
+            let payload = invocation_payload()?;
             let (sender, mut receive) =
                 channel::channel(runtime.options.max_pending_operations + 1);
             runtime.start(Start {
@@ -169,6 +169,21 @@ fn v8_completion_reservation_survives_byte_saturation() -> Result<()> {
     })
 }
 
+// These runtime-only tests bypass native application dispatch, so supply the
+// same private invocation policy that the native adapter normally attaches.
+fn invocation_payload() -> Result<String> {
+    let contract = rpc::Contract::from_descriptor(
+        include_bytes!("../../../tools/rpc/fixtures/counter.binpb"),
+        rpc::Limits::default(),
+    )?;
+    let limits = std::collections::BTreeMap::from([(contract.digest(), contract.limits())]);
+    Ok(
+        json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"},
+        "identity":null, "object":1,"class":"Counter", "rpc_limits":limits})
+        .to_string(),
+    )
+}
+
 fn event(receiver: &mut channel::Receiver<Event>) -> Result<Event> {
     let until = Instant::now() + Duration::from_secs(5);
     loop {
@@ -188,7 +203,7 @@ fn roundtrip(app: Arc<JavaScriptApplication>) -> Result<()> {
         let id = app.runtime.id()?;
         let (sender, mut receiver) =
             channel::channel(app.runtime.options.max_pending_operations + 1);
-        let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
+        let payload = invocation_payload()?;
         app.runtime.start(Start {
             _completion: Default::default(),
             budget_source: None,
@@ -272,7 +287,7 @@ fn node_releases_delivered_invocation_buffers_while_native_work_remains() -> Res
             let id = app.runtime.id()?;
             let (sender, mut receiver) =
                 channel::channel(app.runtime.options.max_pending_operations + 1);
-            let payload = json!({"kind":"rpc", "event":{"method":"example.counter.v1.Counter/GetCount"}, "identity":null, "object":1,"class":"Counter"}).to_string();
+            let payload = invocation_payload()?;
             let bytes = app.runtime.reserve(payload.len() + LENGTH)?;
             app.runtime.start(Start {
                 _completion: Default::default(),
