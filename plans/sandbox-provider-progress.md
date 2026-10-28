@@ -3267,3 +3267,48 @@ pass. These results do not replace the unavailable matching-image rerun.
 
 Both Node/V8 container facade cases and the CPython 3.14 runtime-container bridge
 also pass against the corrected Engine peer. The final formatting check passes.
+
+
+## Durable named allocation catalog
+
+The next native topology is a business cell owning a catalog of independently
+routed sandbox execution cells. Each execution cell retains the existing single
+native container contract. This slice adds the host-only `SandboxCatalog`; it
+reserves child identities but does not yet create compute or expose child calls.
+See the [allocation guide](../crates/cellar-container/allocations.md) for the
+state diagrams, controller obligations and API examples.
+
+| Delivered boundary | Behavior |
+| --- | --- |
+| Named reservation | Current parent scope/incarnation + name + generation determine an execution name; the configured namespace determines its scope |
+| Duplicate or uncertain create | Same generation and parameter digest; only the first reservation reports fresh; no implicit replay |
+| Replacement | Confirmed old-child deletion is required; the next generation has a different execution identity |
+| Parent retirement | Atomically closes reservation/readiness admission before cleanup; finishing refuses until every child is confirmed deleted |
+| Cleanup inventory | Indexed keyset pages of at most 256 entries; no fixed parent allocation count or resident map |
+| Authority and durability | Original root-event checks, full checkpoint comparison, native storage sync and post-sync parent/child recheck |
+| Protected recovery | Guest SQL cannot forge records; business clear preserves them; unsupported, incomplete or inconsistent retained catalogs refuse opening |
+
+The catalog records controller-supplied evidence. It cannot establish remote
+absence, fence accepted child work, or schedule cleanup on its own. Parent and
+child tombstones remain durable. Physical parent removal must not erase these
+obligations before the pending host/controller integration is implemented.
+
+PR #150 merged during implementation. The change was moved onto a fresh branch
+from main `dde97cbc`, including the merged per-cell filesystem work. The next
+feature slice is authenticated child dispatch with creation/reconnect and
+scheduled cleanup, followed by physical deletion integration, four-language
+allocation facades and capacity-aware fleet placement. These remain open;
+this catalog does not establish a production named sandbox pool.
+
+Validation on that updated main: six catalog unit cases pass, including 1,025
+named allocations cleaned in 17-entry pages, index selection, schema corruption,
+transaction rollback, parent isolation and late-generation refusal. The native
+host lifecycle test passes across five restarts, covering cancellation before
+reservation acknowledgement, stale/foreign event handles, business clear,
+replacement, parent-close races, resumed cleanup and final tombstones. The
+existing provider-binding recovery test also passes. Strict core/container
+all-target Clippy, formatting/layout (1,400 Rust files), the 496-package native
+engine dependency guard, documentation and whitespace checks pass. Existing
+vendor/configuration warnings remain; no lint suppression or test deadline was
+changed. No live provider, Docker image, fleet placement or load/RTO campaign
+was run for this catalog-only slice.
