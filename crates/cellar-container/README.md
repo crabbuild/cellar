@@ -10,6 +10,10 @@ Rust hosts can supply another backend without changing the guest API.
 [Lifecycle](#two-lifecycle-interfaces) · [Scheduled cleanup](supervision.md) · [Files](files.md) · [Add a provider](#add-a-provider) ·
 [HTTP streams](streams.md) · [Wire reference](#bridge-protocol-version-1)
 
+For dynamic instance naming, the [named allocation catalog](allocations.md)
+reserves durable child identities and tracks parent retirement. Child execution,
+scheduled parent cleanup and fleet placement are still being implemented.
+
 ## Native containers, this adapter, or Workers?
 
 `cellar-container` puts a shared provider boundary above Cellar's native

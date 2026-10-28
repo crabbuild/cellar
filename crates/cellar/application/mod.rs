@@ -35,6 +35,7 @@ pub mod loader;
 pub(crate) mod outbox;
 pub mod queue;
 pub mod rpc;
+pub(crate) mod sandbox_catalog;
 pub mod service;
 pub mod sockets;
 pub mod sql;

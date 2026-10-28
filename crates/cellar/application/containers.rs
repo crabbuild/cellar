@@ -11,6 +11,10 @@ pub use super::container_supervision::{
     supervise, BackendIdentity, DeleteSafety, MaintenanceAction, MaintenanceBackend,
     MaintenancePolicy, RetentionExpired, Supervision,
 };
+pub use super::sandbox_catalog::{
+    SandboxAllocation, SandboxAllocationPage, SandboxAllocationState, SandboxCatalog,
+    SandboxParent, SandboxParentState, SandboxReservation,
+};
 use super::{http, sockets, websocket, Context, HandlerFuture, InvocationAuthority};
 use crate::{container as host, host_gates};
 use anyhow::{anyhow, Result};
