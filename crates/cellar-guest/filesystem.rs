@@ -11,6 +11,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    fmt,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
@@ -18,6 +19,28 @@ use std::{
 };
 
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
+
+/// A filesystem wire argument was refused before its SDK effect was submitted.
+/// Keep this marker separate from generic validation and from backend failures.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Validation(pub fs::Errno);
+
+impl fmt::Display for Validation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("invalid filesystem argument")
+    }
+}
+
+impl std::error::Error for Validation {}
+
+/// Classify only argument preparation; never wrap an executed SDK operation.
+pub(crate) fn invalid(error: anyhow::Error) -> anyhow::Error {
+    if error.is::<Validation>() || error.is::<fs::Error>() {
+        error
+    } else {
+        error.context(Validation(fs::Errno::EINVAL))
+    }
+}
 
 /// Filesystem metadata, capabilities and structured errors must fit before any
 /// guest descriptor operation can be admitted. Other primitive-only sources
@@ -114,7 +137,7 @@ impl Path {
                 }
                 let decoded = STANDARD
                     .decode(bytes.bytes_base64)
-                    .context(crate::failure::Validation)?;
+                    .context(Validation(fs::Errno::EINVAL))?;
                 if decoded.len() > limit {
                     return Err(path_limit().into());
                 }
@@ -124,10 +147,27 @@ impl Path {
     }
 }
 
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Access {
+    #[default]
+    Read,
+    Write,
+    ReadWrite,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Origin {
+    Start,
+    Current,
+    End,
+}
+
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Options {
-    access: String,
+    access: Access,
     create: bool,
     create_new: bool,
     truncate: bool,
@@ -138,7 +178,7 @@ struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            access: "read".into(),
+            access: Access::Read,
             create: false,
             create_new: false,
             truncate: false,
@@ -149,19 +189,18 @@ impl Default for Options {
 }
 
 impl Options {
-    fn decode(self) -> Result<OpenOptions> {
-        let options = match self.access.as_str() {
-            "read" => OpenOptions::read_only(),
-            "write" => OpenOptions::write_only(),
-            "read_write" => OpenOptions::read_write(),
-            _ => anyhow::bail!("unsupported access mode"),
+    fn decode(self) -> OpenOptions {
+        let options = match self.access {
+            Access::Read => OpenOptions::read_only(),
+            Access::Write => OpenOptions::write_only(),
+            Access::ReadWrite => OpenOptions::read_write(),
         };
-        Ok(options
+        options
             .create(self.create)
             .create_new(self.create_new)
             .truncate(self.truncate)
             .append(self.append)
-            .mode(self.mode))
+            .mode(self.mode)
     }
 }
 
@@ -207,7 +246,7 @@ enum Request {
     },
     Lseek {
         handle: String,
-        whence: String,
+        whence: Origin,
         offset: String,
     },
     Fstat {
@@ -338,21 +377,21 @@ enum Request {
     },
 }
 
-fn integer(value: &str) -> Result<u64> {
+pub(crate) fn integer(value: &str) -> Result<u64> {
     ensure!(
         !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()),
-        "invalid unsigned filesystem integer"
+        Validation(fs::Errno::EINVAL)
     );
-    Ok(value.parse()?)
+    value.parse().context(Validation(fs::Errno::EOVERFLOW))
 }
 
 fn signed(value: &str) -> Result<i64> {
     let digits = value.strip_prefix('-').unwrap_or(value);
     ensure!(
         !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit()),
-        "invalid signed filesystem integer"
+        Validation(fs::Errno::EINVAL)
     );
-    Ok(value.parse()?)
+    value.parse().context(Validation(fs::Errno::EOVERFLOW))
 }
 
 pub(crate) fn stat(value: fs::Stat) -> Value {
@@ -417,7 +456,7 @@ impl Session {
                 .context("invalid filesystem operation")?);
             Ok(serde_json::from_value::<Request>(value)?)
         })()
-        .context(crate::failure::Validation)?;
+        .map_err(invalid)?;
         let filesystem = context.fs()?;
         let limits = filesystem.capabilities()?.limits;
         let scope_bytes =
@@ -425,16 +464,21 @@ impl Session {
         let budget = WireBudget::new(limits, options, scope_bytes);
         let data_limit = budget.transfer;
         let decode = |value: String, limit: usize| -> Result<Vec<u8>> {
-            ensure!(
-                value.len() <= limit.div_ceil(3).saturating_mul(4),
-                "filesystem byte payload exceeds limit"
-            );
-            let bytes = STANDARD.decode(value)?;
-            ensure!(
-                bytes.len() <= limit,
-                "filesystem byte payload exceeds limit"
-            );
-            Ok(bytes)
+            (|| {
+                ensure!(
+                    value.len() <= limit.div_ceil(3).saturating_mul(4),
+                    "filesystem byte payload exceeds limit"
+                );
+                let bytes = STANDARD
+                    .decode(value)
+                    .context(Validation(fs::Errno::EINVAL))?;
+                ensure!(
+                    bytes.len() <= limit,
+                    "filesystem byte payload exceeds limit"
+                );
+                Ok(bytes)
+            })()
+            .map_err(invalid)
         };
         use Request::*;
         match request {
@@ -448,43 +492,43 @@ impl Session {
             Statvfs=>{let stats=filesystem.statvfs()?; Ok(json!({"logical_bytes":stats.logical_bytes.to_string(),"allocated_bytes":stats.allocated_bytes.to_string(),"inodes":stats.inodes.to_string(),"available_logical_bytes":stats.available_logical_bytes.to_string(),"available_allocated_bytes":stats.available_allocated_bytes.to_string(),"available_inodes":stats.available_inodes.to_string(),"chunk_bytes":stats.chunk_bytes}))},
             Sync=>{filesystem.sync().await?; Ok(Value::Null)},
             CollectGarbage=>Ok(json!(filesystem.collect_garbage()?)),
-            Open {path,options}=>self.insert(Handle::File(Arc::new(filesystem.open(path.decode()?,options.decode()?)?))),
+            Open {path,options}=>self.insert(Handle::File(Arc::new(filesystem.open(path.decode()?,options.decode())?))),
             Creat {path,mode}=>self.insert(Handle::File(Arc::new(filesystem.creat(path.decode()?,mode)?))),
-            Openat {directory,path,options}=>self.insert(Handle::File(Arc::new(filesystem.openat(self.dir(&directory)?.as_ref(),path.decode()?,options.decode()?)?))),
+            Openat {directory,path,options}=>self.insert(Handle::File(Arc::new(filesystem.openat(self.dir(&directory)?.as_ref(),path.decode()?,options.decode())?))),
             Read {handle,count}=>{let mut bytes=vec![0;count.min(data_limit)]; let read=self.file(&handle)?.read(&mut bytes)?; bytes.truncate(read); Ok(json!({"data_base64":STANDARD.encode(bytes),"count":read}))},
-            Pread {handle,count,offset}=>{let offset=integer(&offset).context(crate::failure::Validation)?;let mut bytes=vec![0;count.min(data_limit)];let read=self.file(&handle)?.pread(&mut bytes,offset)?;bytes.truncate(read);Ok(json!({"data_base64":STANDARD.encode(bytes),"count":read}))},
-            Write {handle,data_base64}=>{let bytes=decode(data_base64,options.max_body_bytes).context(crate::failure::Validation)?;Ok(json!(self.file(&handle)?.write(&bytes)?))},
-            Pwrite {handle,data_base64,offset}=>{let offset=integer(&offset).context(crate::failure::Validation)?;let bytes=decode(data_base64,options.max_body_bytes).context(crate::failure::Validation)?;Ok(json!(self.file(&handle)?.pwrite(&bytes,offset)?))},
-            Lseek {handle,whence,offset}=>{let seek=(|| Ok(match whence.as_str() {"start"=>fs::Seek::Start(integer(&offset)?),"current"=>fs::Seek::Current(signed(&offset)?),"end"=>fs::Seek::End(signed(&offset)?),_=>anyhow::bail!("unsupported seek origin")}))().context(crate::failure::Validation)?;Ok(json!(self.file(&handle)?.lseek(seek)?.to_string()))},
+            Pread {handle,count,offset}=>{let offset=integer(&offset)?;let mut bytes=vec![0;count.min(data_limit)];let read=self.file(&handle)?.pread(&mut bytes,offset)?;bytes.truncate(read);Ok(json!({"data_base64":STANDARD.encode(bytes),"count":read}))},
+            Write {handle,data_base64}=>{let bytes=decode(data_base64,options.max_body_bytes)?;Ok(json!(self.file(&handle)?.write(&bytes)?))},
+            Pwrite {handle,data_base64,offset}=>{let offset=integer(&offset)?;let bytes=decode(data_base64,options.max_body_bytes)?;Ok(json!(self.file(&handle)?.pwrite(&bytes,offset)?))},
+            Lseek {handle,whence,offset}=>{let seek=match whence {Origin::Start=>fs::Seek::Start(integer(&offset)?),Origin::Current=>fs::Seek::Current(signed(&offset)?),Origin::End=>fs::Seek::End(signed(&offset)?)};Ok(json!(self.file(&handle)?.lseek(seek)?.to_string()))},
             Fstat {handle}=>Ok(stat(match self.get(&handle)? {Handle::File(file)=>file.fstat()?,Handle::Directory(dir)=>dir.fstat()?})),
-            Ftruncate {handle,size}=>{self.file(&handle)?.ftruncate(integer(&size).context(crate::failure::Validation)?)?;Ok(Value::Null)},
+            Ftruncate {handle,size}=>{self.file(&handle)?.ftruncate(integer(&size)?)?;Ok(Value::Null)},
             Fchmod {handle,mode}=>{self.file(&handle)?.fchmod(mode)?;Ok(Value::Null)},
             Dup {handle}=>self.insert(Handle::File(Arc::new(self.file(&handle)?.dup()?))),
             Close {handle}|Closedir {handle}=>{self.handles.lock().unwrap().remove(&handle).ok_or_else(bad_descriptor)?;Ok(Value::Null)},
             Fsync {handle}|Fdatasync {handle}=>{match self.get(&handle)? {Handle::File(file)=>file.fsync().await?,Handle::Directory(dir)=>dir.fsync().await?};Ok(Value::Null)},
             Stat {path}|Lstat {path}=>Ok(stat(filesystem.stat(path.decode()?)?)),
-            Truncate {path,size}=>{let size=integer(&size).context(crate::failure::Validation)?;filesystem.truncate(path.decode()?,size)?;Ok(Value::Null)},
+            Truncate {path,size}=>{let size=integer(&size)?;filesystem.truncate(path.decode()?,size)?;Ok(Value::Null)},
             Mkdir {path,mode}=>{filesystem.mkdir(path.decode()?,mode)?;Ok(Value::Null)},
             Rmdir {path}=>{filesystem.rmdir(path.decode()?)?;Ok(Value::Null)},
             Unlink {path}=>{filesystem.unlink(path.decode()?)?;Ok(Value::Null)},
             Rename {old,new}=>{filesystem.rename(old.decode()?,new.decode()?)?;Ok(Value::Null)},
             Chmod {path,mode}=>{filesystem.chmod(path.decode()?,mode)?;Ok(Value::Null)},
-            Utimens {path,mtime_ns}=>{let mtime=match mtime_ns {None=>fs::Time::Omit,Some(value) if value=="now"=>fs::Time::Now,Some(value)=>fs::Time::Value(signed(&value).context(crate::failure::Validation)?)};filesystem.utimens(path.decode()?,fs::Times {atime:fs::Time::Omit,mtime})?;Ok(Value::Null)},
+            Utimens {path,mtime_ns}=>{let mtime=match mtime_ns {None=>fs::Time::Omit,Some(value) if value=="now"=>fs::Time::Now,Some(value)=>fs::Time::Value(signed(&value)?)};filesystem.utimens(path.decode()?,fs::Times {atime:fs::Time::Omit,mtime})?;Ok(Value::Null)},
             Opendir {path}=>self.insert(Handle::Directory(Arc::new(filesystem.opendir(path.decode()?)?))),
             Readdir {handle}=>Ok(self.dir(&handle)?.readdir()?.map_or(Value::Null,|entry| json!({"name_base64":STANDARD.encode(entry.name),"inode":entry.inode.to_string(),"kind":entry.kind}))),
             Telldir {handle}=>Ok(json!(STANDARD.encode(self.dir(&handle)?.telldir()?.to_bytes()))),
-            Seekdir {handle,cookie}=>{let bytes=decode(cookie,16).context(crate::failure::Validation)?;let bytes=bytes.try_into().map_err(|_| anyhow::anyhow!("invalid directory cookie")).context(crate::failure::Validation)?;self.dir(&handle)?.seekdir(fs::DirCookie::from_bytes(bytes))?;Ok(Value::Null)},
+            Seekdir {handle,cookie}=>{let bytes=decode(cookie,16)?;let bytes=bytes.try_into().map_err(|_| Validation(fs::Errno::EINVAL))?;self.dir(&handle)?.seekdir(fs::DirCookie::from_bytes(bytes))?;Ok(Value::Null)},
             Rewinddir {handle}=>{self.dir(&handle)?.rewinddir()?;Ok(Value::Null)},
             Fstatat {directory,path,no_follow}=>Ok(stat(filesystem.fstatat(self.dir(&directory)?.as_ref(),path.decode()?,if no_follow {fs::StatFlags::NoFollow} else {fs::StatFlags::Follow})?)),
             Mkdirat {directory,path,mode}=>{filesystem.mkdirat(self.dir(&directory)?.as_ref(),path.decode()?,mode)?;Ok(Value::Null)},
             Unlinkat {directory,path,remove_directory}=>{filesystem.unlinkat(self.dir(&directory)?.as_ref(),path.decode()?,if remove_directory {fs::UnlinkFlags::RemoveDirectory} else {fs::UnlinkFlags::File})?;Ok(Value::Null)},
             Renameat {old_directory,old,new_directory,new}=>{filesystem.renameat(self.dir(&old_directory)?.as_ref(),old.decode()?,self.dir(&new_directory)?.as_ref(),new.decode()?)?;Ok(Value::Null)},
             ReadFile {path,max_bytes}=>Ok(json!({"data_base64":STANDARD.encode(filesystem.read_file_bounded(path.decode()?,max_bytes.unwrap_or(budget.helper).min(budget.helper))?)})),
-            WriteFile {path,data_base64}=>{let bytes=decode(data_base64,budget.helper).context(crate::failure::Validation)?;filesystem.write_file(path.decode()?,&bytes)?;Ok(Value::Null)},
-            ReplaceFile {path,data_base64}=>{let bytes=decode(data_base64,budget.helper).context(crate::failure::Validation)?;filesystem.replace_file(path.decode()?,&bytes)?;Ok(Value::Null)},
+            WriteFile {path,data_base64}=>{let bytes=decode(data_base64,budget.helper)?;filesystem.write_file(path.decode()?,&bytes)?;Ok(Value::Null)},
+            ReplaceFile {path,data_base64}=>{let bytes=decode(data_base64,budget.helper)?;filesystem.replace_file(path.decode()?,&bytes)?;Ok(Value::Null)},
             EditFile {path,inode,version,offset,delete_bytes,data_base64}=>{
-                let expected=fs::FileVersion {inode:integer(&inode).context(crate::failure::Validation)?,version:integer(&version).context(crate::failure::Validation)?};
-                let patch=fs::Edit {offset:integer(&offset).context(crate::failure::Validation)?,delete_bytes:integer(&delete_bytes).context(crate::failure::Validation)?,insert:decode(data_base64,budget.helper).context(crate::failure::Validation)?};
+                let expected=fs::FileVersion {inode:integer(&inode)?,version:integer(&version)?};
+                let patch=fs::Edit {offset:integer(&offset)?,delete_bytes:integer(&delete_bytes)?,insert:decode(data_base64,budget.helper)?};
                 let version=filesystem.edit_file(path.decode()?,expected,&patch)?;
                 Ok(json!({"inode":version.inode.to_string(),"version":version.version.to_string()}))
             },

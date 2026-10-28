@@ -478,6 +478,279 @@ async function namespaceProfile(fs, ctx) {
       encode(replay.result) === encode(directoryRefusal.result),
   );
 }
+async function wireProfile(fs, ctx, group) {
+  while ((await fs.collectGarbage()) > 0) {}
+  const path = "/wire-profile/file";
+  await fs.mkdir("/wire-profile", 0o700);
+  await fs.writeFile(path, utf8("original"));
+  const file = await fs.open(path, { access: "read_write" });
+  const directory = await fs.opendir("/wire-profile");
+  const version = await file.fstat();
+  const edit = { offset: 0n, delete_bytes: 0n, insert: utf8("x") };
+  const snapshot = async () =>
+    JSON.stringify(
+      [
+        await fs.stat("/"),
+        await file.fstat(),
+        await directory.fstat(),
+        await fs.statvfs(),
+        await file.lseek(0n, "current"),
+        await directory.telldir(),
+        Array.from(await file.pread(8, 0n)),
+      ],
+      (_, value) => (typeof value === "bigint" ? String(value) : value),
+    );
+  const before = await snapshot();
+  let refused = 0;
+  const refusal = async (call, operation, errno = "EINVAL") => {
+    let error;
+    try {
+      await call();
+    } catch (caught) {
+      error = caught;
+    }
+    if (
+      error?.code !== "ValidationError" ||
+      error.errno !== errno ||
+      error.operation !== operation ||
+      error.outcome !== "not_committed" ||
+      error.completed_bytes !== 0
+    )
+      throw new Error(
+        `wire ${group} case ${refused} ${operation}: code=${error?.code}, errno=${error?.errno}, operation=${error?.operation}, outcome=${error?.outcome}, completed=${error?.completed_bytes}`,
+      );
+    check((await snapshot()) === before);
+    refused++;
+  };
+  try {
+    if (group === "unsigned") {
+      const calls = (value) => [
+        [() => file.pread(1, value), "pread"],
+        [() => file.pwrite(utf8("x"), value), "pwrite"],
+        [() => file.lseek(value), "lseek"],
+        [() => file.ftruncate(value), "ftruncate"],
+        [() => fs.truncate(path, value), "truncate"],
+        [
+          () => fs.editFile(path, { ...version, inode: value }, edit),
+          "edit_file",
+        ],
+        [
+          () => fs.editFile(path, { ...version, version: value }, edit),
+          "edit_file",
+        ],
+        [
+          () => fs.editFile(path, version, { ...edit, offset: value }),
+          "edit_file",
+        ],
+        [
+          () => fs.editFile(path, version, { ...edit, delete_bytes: value }),
+          "edit_file",
+        ],
+      ];
+      for (const value of [
+        "",
+        "+1",
+        "-1",
+        "1.5",
+        " 1",
+        "1e3",
+        "１２",
+        "1x",
+        "18446744073709551616",
+      ])
+        for (const [call, operation] of calls(value))
+          await refusal(
+            call,
+            `filesystem.${operation}`,
+            value === "18446744073709551616" ? "EOVERFLOW" : "EINVAL",
+          );
+      check(refused === 81);
+    } else if (group === "signed") {
+      for (const value of [
+        "",
+        "+1",
+        "1.5",
+        " 1",
+        "1e3",
+        "--1",
+        "１２",
+        "-",
+        "9223372036854775808",
+        "-9223372036854775809",
+      ])
+        for (const [call, operation] of [
+          [() => file.lseek(value, "current"), "lseek"],
+          [() => file.lseek(value, "end"), "lseek"],
+          [() => fs.utimens(path, value), "utimens"],
+        ])
+          await refusal(
+            call,
+            `filesystem.${operation}`,
+            value.endsWith("5808") || value.endsWith("5809")
+              ? "EOVERFLOW"
+              : "EINVAL",
+          );
+      check(refused === 30);
+    } else if (group === "options") {
+      for (const [call, operation] of [
+        [() => fs.open(path, { access: "invalid", truncate: true }), "open"],
+        [
+          () =>
+            fs.open("/wire-profile/missing", {
+              access: "invalid",
+              create: true,
+            }),
+          "open",
+        ],
+        [
+          () =>
+            fs.openat(directory, "file", { access: "invalid", truncate: true }),
+          "openat",
+        ],
+        [() => fs.open(path, { access: "write", truncate: "yes" }), "open"],
+        [() => fs.open(path, { create: "yes" }), "open"],
+        [() => fs.open(path, { append: "yes" }), "open"],
+        [() => fs.open(path, { mode: -1 }), "open"],
+        [() => fs.open(path, { sync: true }), "open"],
+        [() => fs.open(path, { mode: NaN }), "open"],
+        [() => fs.creat(path, 0.5), "creat"],
+        [() => fs.mkdir("/wire-profile/missing", 0.5), "mkdir"],
+        [() => fs.mkdirat(directory, "missing", 0.5), "mkdirat"],
+        [() => fs.chmod(path, 0.5), "chmod"],
+        [() => file.fchmod(0.5), "fchmod"],
+        [() => file.read(-1), "read"],
+        [() => file.pread(0.5, 0n), "pread"],
+        [() => file.lseek(0n, "invalid"), "lseek"],
+        [() => directory.readPage(0.5), "read_page"],
+        [() => fs.readFile(path, -1), "read_file"],
+        [() => fs.readDir("/wire-profile", 0.5), "read_dir"],
+        [() => fs.fstatat(directory, "file", "yes"), "fstatat"],
+        [() => fs.unlinkat(directory, "file", "yes"), "unlinkat"],
+        [() => directory.seekdir("%%%"), "seekdir"],
+        [() => directory.seekdir(""), "seekdir"],
+        [() => fs.readDir("/wire-profile", 1, {}), "read_dir"],
+        [() => file.readExact(-1), "read_exact"],
+      ])
+        await refusal(call, `filesystem.${operation}`);
+      check(refused === 26);
+    } else {
+      check(group === "batch");
+      const batch = async (changes, errno) => {
+        await refusal(
+          () =>
+            ctx.storage.apply({
+              puts: { wire_must_not_commit: true },
+              filesystem_mutations: [
+                { op: "write_file", path, data_base64: "eA==" },
+              ],
+              ...changes,
+            }),
+          "storage.apply",
+          errno,
+        );
+        check(!(await ctx.storage.read("wire_must_not_commit")).present);
+      };
+      for (const value of ["", "+1", "-1", "18446744073709551616"]) {
+        const errno = value === "18446744073709551616" ? "EOVERFLOW" : "EINVAL";
+        await batch(
+          {
+            filesystem_mutations: [
+              { op: "write_file", path, data_base64: "eA==" },
+              { op: "truncate", path, size: value },
+            ],
+          },
+          errno,
+        );
+      }
+      for (const field of ["inode", "version", "offset", "delete_bytes"])
+        for (const value of ["+1", "18446744073709551616"])
+          await batch(
+            {
+              filesystem_mutations: [
+                { op: "write_file", path, data_base64: "eA==" },
+                {
+                  op: "edit_file",
+                  path,
+                  inode: String(version.inode),
+                  version: String(version.version),
+                  offset: "0",
+                  delete_bytes: "0",
+                  data_base64: "eA==",
+                  [field]: value,
+                },
+              ],
+            },
+            value === "+1" ? "EINVAL" : "EOVERFLOW",
+          );
+      for (const field of ["inode", "version"])
+        for (const value of [`+${version[field]}`, "18446744073709551616"])
+          await batch(
+            {
+              filesystem_checks: [
+                {
+                  path,
+                  present: true,
+                  inode: String(version.inode),
+                  version: String(version.version),
+                  [field]: value,
+                },
+              ],
+            },
+            value.startsWith("+") ? "EINVAL" : "EOVERFLOW",
+          );
+      for (const op of ["write_file", "replace_file", "edit_file"])
+        await batch(
+          {
+            filesystem_mutations: [
+              {
+                op,
+                path,
+                ...(op === "edit_file"
+                  ? {
+                      inode: String(version.inode),
+                      version: String(version.version),
+                      offset: "0",
+                      delete_bytes: "0",
+                    }
+                  : {}),
+                data_base64: "%%%",
+              },
+            ],
+          },
+          "EINVAL",
+        );
+      await batch(
+        {
+          filesystem_checks: [
+            { path: { bytes_base64: "%%%" }, present: false },
+          ],
+        },
+        "EINVAL",
+      );
+      await batch(
+        {
+          filesystem_checks: [
+            {
+              path,
+              present: false,
+              inode: String(version.inode),
+              version: String(version.version),
+            },
+          ],
+        },
+        "EINVAL",
+      );
+      check(refused === 21);
+    }
+  } finally {
+    await file.close();
+    await directory.closedir();
+  }
+  await fs.unlink(path);
+  await fs.rmdir("/wire-profile");
+  while ((await fs.collectGarbage()) > 0) {}
+}
+
 async function argumentProfile(fs) {
   while ((await fs.collectGarbage()) > 0) {}
   const path = "/argument-file";
@@ -985,6 +1258,9 @@ class Counter {
       } else if (action === "arguments") {
         phase = "arguments";
         await argumentProfile(fs);
+      } else if (action.startsWith("wire-")) {
+        phase = action;
+        await wireProfile(fs, ctx, action.slice("wire-".length));
       } else if (action === "metadata") {
         phase = "metadata-profile";
         await fs.writeFile("/metadata", utf8("original"));

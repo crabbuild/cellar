@@ -3,6 +3,7 @@ import base64
 import asyncio
 import sys
 import sysconfig
+from types import SimpleNamespace
 from cellar import ContextMismatch, File, Filesystem, Overloaded, Request, Response, SDKError
 from cellar_filesystem_tools import FilesystemTools
 
@@ -300,6 +301,109 @@ async def namespace_profile(fs, ctx):
     replay = await directory_tools.execute("empty-directory-edit", directory_request)
     assert replay["replayed"] and replay["result"] == directory_refusal["result"]
 
+async def wire_profile(fs, ctx, group):
+    while await fs.collect_garbage() > 0:
+        pass
+    path = "/wire-profile/file"
+    await fs.mkdir("/wire-profile", 0o700)
+    await fs.write_file(path, b"original")
+    file = await fs.open(path, access="read_write")
+    directory = await fs.opendir("/wire-profile")
+    version = await file.fstat()
+    edit = dict(offset=0, delete_bytes=0, insert=b"x")
+
+    async def snapshot():
+        return await fs.stat("/"), await file.fstat(), await directory.fstat(), await fs.statvfs(), await file.lseek(0, "current"), await directory.telldir(), await file.pread(8, 0)
+
+    before = await snapshot()
+    refused = 0
+
+    async def refusal(call, operation, errno="EINVAL"):
+        nonlocal refused
+        error = await refuses(call, "ValidationError", errno)
+        assert (error.operation, error.outcome, error.completed_bytes) == (operation, "not_committed", 0), (group, refused, operation)
+        assert await snapshot() == before
+        refused += 1
+
+    try:
+        if group == "unsigned":
+            for value in ("", "+1", "-1", "1.5", " 1", "1e3", "１２", "1x", "18446744073709551616"):
+                for call, operation in (
+                    (lambda: file.pread(1, value), "pread"), (lambda: file.pwrite(b"x", value), "pwrite"),
+                    (lambda: file.lseek(value), "lseek"), (lambda: file.ftruncate(value), "ftruncate"),
+                    (lambda: fs.truncate(path, value), "truncate"),
+                    (lambda: fs.edit_file(path, SimpleNamespace(inode=value, version=version.version), **edit), "edit_file"),
+                    (lambda: fs.edit_file(path, SimpleNamespace(inode=version.inode, version=value), **edit), "edit_file"),
+                    (lambda: fs.edit_file(path, version, **(edit | dict(offset=value))), "edit_file"),
+                    (lambda: fs.edit_file(path, version, **(edit | dict(delete_bytes=value))), "edit_file"),
+                ):
+                    await refusal(call, "filesystem." + operation, "EOVERFLOW" if value == "18446744073709551616" else "EINVAL")
+            assert refused == 81
+        elif group == "signed":
+            for value in ("", "+1", "1.5", " 1", "1e3", "--1", "１２", "-", "9223372036854775808", "-9223372036854775809"):
+                for call, operation in (
+                    (lambda: file.lseek(value, "current"), "lseek"), (lambda: file.lseek(value, "end"), "lseek"),
+                    (lambda: fs.utimens(path, value), "utimens"),
+                ):
+                    await refusal(call, "filesystem." + operation, "EOVERFLOW" if value.endswith(("5808", "5809")) else "EINVAL")
+            assert refused == 30
+        elif group == "options":
+            for call, operation in (
+                (lambda: fs.open(path, access="invalid", truncate=True), "open"),
+                (lambda: fs.open("/wire-profile/missing", access="invalid", create=True), "open"),
+                (lambda: fs.openat(directory, "file", access="invalid", truncate=True), "openat"),
+                (lambda: fs.open(path, access="write", truncate="yes"), "open"),
+                (lambda: fs.open(path, create="yes"), "open"), (lambda: fs.open(path, append="yes"), "open"),
+                (lambda: fs.open(path, mode=-1), "open"), (lambda: fs.open(path, sync=True), "open"),
+                (lambda: fs.open(path, mode=float("nan")), "open"), (lambda: fs.creat(path, 0.5), "creat"),
+                (lambda: fs.mkdir("/wire-profile/missing", 0.5), "mkdir"),
+                (lambda: fs.mkdirat(directory, "missing", 0.5), "mkdirat"),
+                (lambda: fs.chmod(path, 0.5), "chmod"), (lambda: file.fchmod(0.5), "fchmod"),
+                (lambda: file.read(-1), "read"), (lambda: file.pread(0.5, 0), "pread"),
+                (lambda: file.lseek(0, "invalid"), "lseek"), (lambda: directory.read_page(0.5), "read_page"),
+                (lambda: fs.read_file(path, -1), "read_file"), (lambda: fs.read_dir("/wire-profile", 0.5), "read_dir"),
+                (lambda: fs.fstatat(directory, "file", "yes"), "fstatat"),
+                (lambda: fs.unlinkat(directory, "file", "yes"), "unlinkat"),
+                (lambda: directory.seekdir("%%%"), "seekdir"), (lambda: directory.seekdir(""), "seekdir"),
+                (lambda: fs.read_dir("/wire-profile", 1, {}), "read_dir"),
+                (lambda: file.read_exact(-1), "read_exact"),
+            ):
+                await refusal(call, "filesystem." + operation)
+            assert refused == 26
+        else:
+            assert group == "batch"
+
+            async def batch(changes, errno):
+                value = dict(puts={"wire_must_not_commit": True}, filesystem_mutations=[dict(op="write_file", path=path, data_base64="eA==")]) | changes
+                await refusal(lambda: ctx.storage.apply(**value), "storage.apply", errno)
+                assert not (await ctx.storage.read_json("wire_must_not_commit")).present
+
+            for value in ("", "+1", "-1", "18446744073709551616"):
+                await batch(dict(filesystem_mutations=[dict(op="write_file", path=path, data_base64="eA=="), dict(op="truncate", path=path, size=value)]), "EOVERFLOW" if value == "18446744073709551616" else "EINVAL")
+            for field in ("inode", "version", "offset", "delete_bytes"):
+                for value in ("+1", "18446744073709551616"):
+                    mutation = dict(op="edit_file", path=path, inode=str(version.inode), version=str(version.version), offset="0", delete_bytes="0", data_base64="eA==") | {field: value}
+                    await batch(dict(filesystem_mutations=[dict(op="write_file", path=path, data_base64="eA=="), mutation]), "EINVAL" if value == "+1" else "EOVERFLOW")
+            for field in ("inode", "version"):
+                for value in ("+" + str(getattr(version, field)), "18446744073709551616"):
+                    check = dict(path=path, present=True, inode=str(version.inode), version=str(version.version)) | {field: value}
+                    await batch(dict(filesystem_checks=[check]), "EINVAL" if value.startswith("+") else "EOVERFLOW")
+            for op in ("write_file", "replace_file", "edit_file"):
+                mutation = dict(op=op, path=path, data_base64="%%%")
+                if op == "edit_file":
+                    mutation |= dict(inode=str(version.inode), version=str(version.version), offset="0", delete_bytes="0")
+                await batch(dict(filesystem_mutations=[mutation]), "EINVAL")
+            await batch(dict(filesystem_checks=[dict(path={"bytes_base64": "%%%"}, present=False)]), "EINVAL")
+            await batch(dict(filesystem_checks=[dict(path=path, present=False, inode=str(version.inode), version=str(version.version))]), "EINVAL")
+            assert refused == 21
+    finally:
+        await file.close()
+        await directory.closedir()
+    await fs.unlink(path)
+    await fs.rmdir("/wire-profile")
+    while await fs.collect_garbage() > 0:
+        pass
+
 async def argument_profile(fs):
     while await fs.collect_garbage() > 0:
         pass
@@ -579,6 +683,8 @@ class Counter:
             await namespace_profile(fs, ctx)
         elif action == "arguments":
             await argument_profile(fs)
+        elif action.startswith("wire-"):
+            await wire_profile(fs, ctx, action[len("wire-"):])
         elif action == "metadata":
             await fs.write_file("/metadata", b"original")
             initial = await fs.stat("/metadata")

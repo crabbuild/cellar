@@ -849,6 +849,12 @@
     // These objects contain bridge calls, never native storage handles. Binding
     // lookup and effect execution remain in the original Rust invocation.
     const fsProgress = (error, completed, operation, committed) => {
+      if (
+        error.code === "ValidationError" &&
+        error.outcome === "not_committed" &&
+        error.errno === undefined
+      )
+        error.errno = "EINVAL";
       error.completed_bytes = completed + (error.completed_bytes ?? 0);
       error.operation = `filesystem.${operation}`;
       if (completed > 0 && error.outcome === "not_committed")

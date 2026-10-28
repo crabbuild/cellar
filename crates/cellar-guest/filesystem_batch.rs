@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-use crate::filesystem::Path;
+use crate::filesystem::{integer, invalid, Path};
 use anyhow::{ensure, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use cellar::sdk::filesystem::{Edit, Errno, FileVersion, Filesystem, FsPath};
@@ -24,20 +24,23 @@ pub(crate) struct PreparedCheck {
 
 impl Check {
     pub fn prepare(self) -> Result<PreparedCheck> {
-        ensure!(
-            self.present == (self.inode.is_some() && self.version.is_some()),
-            "present file checks require inode and version"
-        );
-        ensure!(
-            self.present || (self.inode.is_none() && self.version.is_none()),
-            "absent file checks cannot specify inode/version"
-        );
-        Ok(PreparedCheck {
-            path: self.path.decode()?,
-            present: self.present,
-            inode: self.inode.map(|value| value.parse()).transpose()?,
-            version: self.version.map(|value| value.parse()).transpose()?,
-        })
+        (|| {
+            ensure!(
+                self.present == (self.inode.is_some() && self.version.is_some()),
+                "present file checks require inode and version"
+            );
+            ensure!(
+                self.present || (self.inode.is_none() && self.version.is_none()),
+                "absent file checks cannot specify inode/version"
+            );
+            Ok(PreparedCheck {
+                path: self.path.decode()?,
+                present: self.present,
+                inode: self.inode.as_deref().map(integer).transpose()?,
+                version: self.version.as_deref().map(integer).transpose()?,
+            })
+        })()
+        .map_err(invalid)
     }
 }
 
@@ -121,63 +124,66 @@ pub(crate) enum PreparedMutation {
 
 impl Mutation {
     pub fn prepare(self, limit: usize) -> Result<PreparedMutation> {
-        use PreparedMutation as P;
-        Ok(match self {
-            Self::WriteFile { path, data_base64 } => {
-                ensure!(
-                    data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
-                    "filesystem batch payload too large"
-                );
-                let data = STANDARD.decode(data_base64)?;
-                ensure!(data.len() <= limit, "filesystem batch payload too large");
-                P::WriteFile(path.decode()?, data)
-            }
-            Self::ReplaceFile { path, data_base64 } => {
-                ensure!(
-                    data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
-                    "filesystem replacement payload too large"
-                );
-                let data = STANDARD.decode(data_base64)?;
-                ensure!(
-                    data.len() <= limit,
-                    "filesystem replacement payload too large"
-                );
-                P::ReplaceFile(path.decode()?, data)
-            }
-            Self::EditFile {
-                path,
-                inode,
-                version,
-                offset,
-                delete_bytes,
-                data_base64,
-            } => {
-                ensure!(
-                    data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
-                    "filesystem edit payload too large"
-                );
-                let insert = STANDARD.decode(data_base64)?;
-                ensure!(insert.len() <= limit, "filesystem edit payload too large");
-                P::EditFile(
-                    path.decode()?,
-                    FileVersion {
-                        inode: inode.parse()?,
-                        version: version.parse()?,
-                    },
-                    Edit {
-                        offset: offset.parse()?,
-                        delete_bytes: delete_bytes.parse()?,
-                        insert,
-                    },
-                )
-            }
-            Self::Mkdir { path, mode } => P::Mkdir(path.decode()?, mode),
-            Self::Unlink { path } => P::Unlink(path.decode()?),
-            Self::Rmdir { path } => P::Rmdir(path.decode()?),
-            Self::Rename { old, new } => P::Rename(old.decode()?, new.decode()?),
-            Self::Truncate { path, size } => P::Truncate(path.decode()?, size.parse()?),
-            Self::Chmod { path, mode } => P::Chmod(path.decode()?, mode),
-        })
+        (|| {
+            use PreparedMutation as P;
+            Ok(match self {
+                Self::WriteFile { path, data_base64 } => {
+                    ensure!(
+                        data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
+                        "filesystem batch payload too large"
+                    );
+                    let data = STANDARD.decode(data_base64)?;
+                    ensure!(data.len() <= limit, "filesystem batch payload too large");
+                    P::WriteFile(path.decode()?, data)
+                }
+                Self::ReplaceFile { path, data_base64 } => {
+                    ensure!(
+                        data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
+                        "filesystem replacement payload too large"
+                    );
+                    let data = STANDARD.decode(data_base64)?;
+                    ensure!(
+                        data.len() <= limit,
+                        "filesystem replacement payload too large"
+                    );
+                    P::ReplaceFile(path.decode()?, data)
+                }
+                Self::EditFile {
+                    path,
+                    inode,
+                    version,
+                    offset,
+                    delete_bytes,
+                    data_base64,
+                } => {
+                    ensure!(
+                        data_base64.len() <= limit.div_ceil(3).saturating_mul(4),
+                        "filesystem edit payload too large"
+                    );
+                    let insert = STANDARD.decode(data_base64)?;
+                    ensure!(insert.len() <= limit, "filesystem edit payload too large");
+                    P::EditFile(
+                        path.decode()?,
+                        FileVersion {
+                            inode: integer(&inode)?,
+                            version: integer(&version)?,
+                        },
+                        Edit {
+                            offset: integer(&offset)?,
+                            delete_bytes: integer(&delete_bytes)?,
+                            insert,
+                        },
+                    )
+                }
+                Self::Mkdir { path, mode } => P::Mkdir(path.decode()?, mode),
+                Self::Unlink { path } => P::Unlink(path.decode()?),
+                Self::Rmdir { path } => P::Rmdir(path.decode()?),
+                Self::Rename { old, new } => P::Rename(old.decode()?, new.decode()?),
+                Self::Truncate { path, size } => P::Truncate(path.decode()?, integer(&size)?),
+                Self::Chmod { path, mode } => P::Chmod(path.decode()?, mode),
+            })
+        })()
+        .map_err(invalid)
     }
 }
 

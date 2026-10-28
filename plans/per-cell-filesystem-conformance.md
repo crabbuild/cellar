@@ -173,9 +173,31 @@ buffer exception remains the cause, including through `write_all`, and accepts
 valid bytearray/memoryview writes afterward. JavaScript distinguishes detached
 views from valid empty arrays and checks empty writes preserve the baseline.
 
-These profiles cover the facade's argument converters. Native wire-shape,
-decimal syntax/range, option and post-dispatch result failures remain distinct
-audit cases; a client-side conversion refusal does not prove their behavior.
+These profiles cover the facade's argument converters. Native wire validation
+has the separate profiles below; client-side refusal alone does not prove it.
+
+## Guest wire-validation profiles
+
+`wireProfile` / `wire_profile` splits the following checks into four invocation
+groups so each retains the fixture's normal handler budget:
+
+| Group | Cases | Selected assertions |
+| --- | --- | --- |
+| Unsigned | 81 | Nine descriptor/path/edit fields reject eight malformed decimal forms and one u64 overflow; EINVAL versus EOVERFLOW |
+| Signed | 30 | Current/end seeks and timestamps reject eight malformed forms and both i64 overflow boundaries |
+| Options | 26 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN |
+| Batch | 21 | Strict unsigned checks/edits/truncation, base64/path decoding and inconsistent checks refuse before any file or business put |
+
+All 158 cases check ValidationError, symbolic errno, outer operation,
+not_committed and zero progress, plus unchanged metadata, usage, offsets,
+directory cookie and exact original bytes. Batch cases also check the business
+put is absent; their preceding valid file effect is never applied. The decoder
+retains typed parse causes. A separate guest unit checks that an uncertainty
+from the native backend wins over a validation marker, and that a filesystem
+marker does not establish the effect outcome of an enclosing cell fetch.
+
+These selected cases do not complete every option/precedence combination or
+post-dispatch result, cancellation, domain and fault profile.
 
 ## Open audit work
 
@@ -188,8 +210,9 @@ remains before this inventory can support a complete conformance claim:
    name, effect outcome or guest serialization. The looping-helper preflight
    and progress profiles above cover their specified SDK error paths; remaining
    operation/option combinations still need their own assertions. The argument
-   profiles cover the selected facade conversions; decimal syntax/range,
-   wire-shape and option/error combinations still need explicit mappings.
+   profiles cover selected facade conversions. The wire profiles map the
+   selected syntax/range, shape and option refusals above; remaining combinations
+   and precedence still need their own assertions.
 2. Complete transaction, cancellation and closed-domain cases for each
    handle-bearing family. Extend the selected live cross-cell cases where
    additional operation families require distinct authority assertions. The

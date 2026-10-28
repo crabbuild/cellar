@@ -454,6 +454,17 @@ call. They do not change the outcome of any earlier submitted call.
 Detached JavaScript views and released or noncontiguous Python buffers are
 invalid byte inputs. Valid empty buffers retain normal empty-I/O semantics.
 
+Guest wire validation reports `ValidationError` with `EINVAL` for malformed
+shapes, access/seek enums, base64 and decimal syntax. Offset, size, timestamp and
+expected file-identity arguments use strict decimal encoding: unsigned fields
+contain one or more ASCII digits; signed fields allow one leading minus sign.
+Whitespace, a leading plus, fractions, exponents and non-ASCII digits refuse.
+Syntactically valid values outside `u64`/`i64` report `EOVERFLOW`. Filesystem
+checks and mutations in `storage.apply` use the same unsigned grammar. These
+pre-effect refusals retain the outer operation and zero progress; preparation
+of a filesystem batch finishes before its transaction begins. Native backend
+and proof failures retain their own evidenced outcomes.
+
 If `Context::fs()` cannot acquire a storage view, acquisition reports
 `NotApplied`: it has not entered the filesystem backend. This includes stateless
 and retired-context refusals. A retained filesystem or storage view rejected by
@@ -472,7 +483,7 @@ SQLite effects and proof failures retain their own evidenced outcomes.
 | Non-directory component / regular-file operation on directory | ENOTDIR / EISDIR | No mutation |
 | Unlink of a directory | EPERM | Use rmdir or the typed directory-removal flag; no mutation |
 | Nonempty directory removal or replacement | ENOTEMPTY | No mutation |
-| Invalid/closed descriptor or access mode | EBADF | Handle identity retained for diagnosis, not permission to retry |
+| Invalid/closed descriptor or incompatible descriptor access | EBADF | Handle identity retained for diagnosis, not permission to retry |
 | Invalid options/offset arithmetic | EINVAL or EOVERFLOW | Validated before effects |
 | Unsupported operation/flag | EOPNOTSUPP | Capability profile identifies support |
 | Path/name bounds | ENAMETOOLONG | No mutation |

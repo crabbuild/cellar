@@ -376,6 +376,8 @@ def _filesystem_handle(directory, operation):
 def _filesystem_progress(error, completed, operation, committed):
     if not isinstance(error, SDKError):
         error = SDKError("Filesystem helper failed", "HostError", "unknown")
+    if error.code == "ValidationError" and error.outcome == "not_committed" and not hasattr(error, "errno"):
+        error.errno = "EINVAL"
     error.completed_bytes = completed + getattr(error, "completed_bytes", 0)
     error.operation = "filesystem." + operation
     if completed and error.outcome == "not_committed":
