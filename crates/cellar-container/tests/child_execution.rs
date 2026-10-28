@@ -474,7 +474,10 @@ fn named_children_spill_to_a_peer_with_container_capacity_and_cleanup_when_full(
                 let scope = child["execution_scope"].as_str().unwrap();
                 wait_erased(&nodes[0].0, scope).await?;
                 let prefix = format!("cells/{scope}/");
-                let keys = bucket.list(&prefix).await?;
+                let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+                let keys = observer.run(bucket.list(&prefix)).await;
+                observer.shutdown().await;
+                let keys = keys??;
                 ensure!(
                     keys.iter()
                         .all(|key| key.location.as_ref() == format!("{prefix}own.json")),

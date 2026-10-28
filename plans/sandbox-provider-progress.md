@@ -3378,7 +3378,6 @@ retaining a resource to prove that an acknowledgement alone cannot finish cleanu
 These are local framework results, not a live Docker image, remote-provider,
 saturation or production recovery-time qualification.
 
-
 ## Durable erasure and dynamic language allocations — 2026-10-28
 
 This follow-up implements the next three requested delivery items. The
@@ -3402,4 +3401,28 @@ Executor credentials/configuration must remain available until provider cleanup
 finishes. The broader SP-02–SP-10 profile and fleet qualification work remains
 open, including live E2B/Vercel testing deferred by the user.
 
-Validation is recorded after the final combined-tree checks below.
+### Validation on updated main
+
+Merged main `2e68fac2` without conflicts. The combined-tree checks use Rust
+1.98.1, Node 24.21.0 and CPython 3.14 on macOS arm64.
+
+| Check | Result |
+| --- | --- |
+| Erasure and sandbox authority | 14 native cases pass, including partial publication, immutable identity, bounded deletion, neighboring-cell preservation and blocked historical replay |
+| Child host lifecycle | Five cases pass, including two-node replica erasure, terminal standalone erasure across restart, and deployment-removal cleanup without application calls |
+| Dynamic language allocations | Node, embedded V8 and a dedicated CPython main-thread process pass the same real-node lifecycle contract; TypeScript positive and negative declarations pass |
+| Guest bridge | All 38 cases pass, including lossless large generation/revision values and rejection of extra authority |
+| Existing native boundaries | 142 RPC cases, 40 container cases and nine native SDK cases pass |
+| Durable catalogs and adapters | Named allocation restart and provider binding cases pass; 26 adapter unit cases and seven documentation examples pass |
+| Strict Clippy | Core, container, guest and Python embedding pass on all targets; JavaScript passes in Node-only and combined Node/embedded modes with `-D warnings` |
+| Repository gates | Formatting/layout for 1,432 Rust files, 132 JavaScript/TypeScript sources, the 496-package native-only graph and 855 documentation references pass |
+
+The new replica inspection initially failed because the test read its development
+store outside an execution domain. An explicit observer domain fixes the test;
+the exact two-node case and the full five-case host suite then pass without
+weakening deletion assertions. The Python case uses a dedicated process to own
+interpreter initialization and avoid duplicate shared fixture modules.
+
+These are local framework and Engine-protocol results. They do not add a live
+provider/image qualification, fleet-scale throughput result or measured
+one-to-five-minute production recovery guarantee.
