@@ -45,13 +45,42 @@ uses actual capacity admission, resource reservation and physical settlement,
 then retains its archive, graceful stop, concurrent write and terminal removal
 checks. No quorum, resource, deadline or membership assertion was relaxed.
 
-The four native recovery cases pass in `failure-recovery-v4`. That run also
-passed detection, movement, isolated repair, topology and twelve evacuation cases,
-but stopped at a maintenance error-mapping regression. The mapping is now limited
-to permanent draining; qualification of the combined main integration is pending. The remaining cases exercise controller loss,
-wrong-boot evidence, incomplete namespace coverage, manual-operation isolation,
-lost responses and three actual repaired RF3 histories. The isolation provider
-is trusted fixture evidence after actual process join, not a deployment driver.
+Source `e1eccc5c501a823a72f0b8cf9ed4332863b66485` integrates main
+`ed42c8ed`, including replay budgets and durable root ownership. Merge resolution
+preserves canonical-empty archives, independent extent verification, producer
+image origin and lifecycle expiry even on replay memo hits. Empty replay reports
+zero image work. New rooted-storage tests compare heads before/after operations,
+including the namespace birth-inventory head; snapshot storage and retention may
+neither create an archive head nor modify existing heads.
+
+**1,128 distinct selected tests and the real daemon process campaign pass**:
+four recovery, two detection, three movement-service, nine isolated-repair,
+four topology-service, twelve evacuation, two maintenance settlement, two isolation,
+three removal, thirteen catalog, 85 archive, 50 rooted-storage, 25 permit/import
+and 914 host library tests. Three RustFS-only cases remain ignored because they
+require isolated deployment credentials. The recovery cases exercise controller
+loss, wrong-boot evidence, incomplete namespace coverage, manual-operation
+isolation, lost responses and actual repaired RF3 histories. The isolation
+provider is trusted fixture evidence after actual process join, not a deployment
+driver.
+
+The audit binds all 1,781 Rust/Cargo/config inputs, retained executables and
+results to the source commit. The final continuation reran the changed rooted
+suite and retained earlier passing cohorts only when a fresh Cargo build produced
+identical executable hashes. Host/admin/logic all-target Clippy, formatting,
+layout, native dependencies, documentation, ten plan tests and source preflight
+pass. The 472-case acceptance inventory and 103 source anchors validate; that
+inventory does not certify execution of every planned scenario. Artifacts remain
+outside runtime data in `failure-recovery-main-v1` and `failure-recovery-main-v2`.
+Earlier failed probes remain retained. A pre-integration check caught an overly
+broad registration error mapping; its correction preserves the unchanged restart
+continuation-conflict assertion. The daemon uses a custom harness: its successful
+exit and exact campaign marker are audited separately from libtest counts.
+
+Full CI is not established. Published predecessor `79c660fa` failed the Typed RPC
+lifecycle workflow, and a push-triggered SDK job reported a Python initial-read
+failure. Their causes remain unconfirmed; this selected native qualification does
+not establish those Python lifecycle checks or new-head CI success.
 
 Next: implement the exact-container Docker/Colima provider and automatic terminal
 removal, then qualify under foreground writes. Probe fairness under sustained due
