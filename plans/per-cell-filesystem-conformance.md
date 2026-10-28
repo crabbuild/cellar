@@ -2,7 +2,7 @@
 
 # Filesystem operation conformance audit
 
-Status: partial audit, 2026-10-27. This inventory follows the
+Status: partial audit, 2026-10-28. This inventory follows the
 [public API contract](per-cell-filesystem-api.md). Each row names behavioral
 assertions inspected in the current fixtures; it does not establish complete
 POSIX conformance or completion of the corresponding requirement group.
@@ -20,6 +20,7 @@ Executed suites and qualification limits belong in the
 | Guests | [JavaScript](../crates/cellar-javascript/tests/support/filesystem.js) and [Python](../crates/cellar-python/tests/filesystem.py): real bridge calls driven by the [shared host client](../crates/cellar/tests/support/filesystem_guest.rs) |
 | Budget | [Node](../crates/cellar-javascript/tests/support/filesystem-budget.js) and [Python](../crates/cellar-python/tests/filesystem_budget.py): short transfers, encoded pages and receipt/checkpoint admission |
 | Lost replies | [Node IPC harness](../crates/cellar-javascript/tests/filesystem_io.rs): real successful byte replies withheld through native cancellation, reconciliation and cold recovery |
+| Python task cancellation | [Python coroutine fixture](../crates/cellar-python/tests/filesystem_cancellation.py): real native byte calls, cancelled waits, exact confirmed prefixes and local reopen |
 | Backend | [SQLite tests](../crates/cellar/storage/sqlite/filesystem_tests.rs): persistent-table comparisons, chunk/GC invariants, quotas and exhaustion |
 
 Rust uses snake_case names. The JavaScript facade uses camelCase where the SDK
@@ -462,6 +463,68 @@ This profile qualifies cancellation while awaiting a real Node byte reply. It
 does not pause SQLite inside its synchronous call, qualify V8/Python reply loss,
 or replace between-transfer helper cancellation, physical peer/store/disk faults
 and sustained-load qualification.
+
+## S3-backed native recovery profile
+
+The [native fault harness](../crates/cellar/tests/support/node_filesystem_faults.rs)
+runs the same scenario against either its development bucket or an explicit
+private S3-compatible bucket. The S3 case is opt-in, requires a bucket name
+starting with `cellar-filesystem-`, and uses an explicit endpoint and static test
+credentials. The JavaScript SDK workflow provisions a pinned private RustFS
+container, creates the bucket and retains the structured fault report.
+
+The test proves a first file/state/receipt transaction, blocks replica publication
+before a second local commit, independently refuses owner-store operations and
+requires actual lease-expiry fencing without acknowledging the second effect.
+It removes old local state, refuses unreadable replica admission without calling
+the application factory, restores the first acknowledged transaction under a new
+owner, rejects stale capabilities and proves a third transaction. A second
+empty-local-state restore must match that new receipt. The same deadlines and
+shutdown assertions apply to both backends.
+
+The S3 case adds real provider conditional writes, object publication and cold
+replica reads beneath the supplied-client fault gates. Those gates do not simulate
+physical network partition, SDK socket timeouts, credential expiry or disk stalls.
+Results and exact backend scope belong in the release ledger.
+
+## Python task cancellation profile
+
+The [Python filesystem supervisor](../crates/cellar-python/tests/filesystem.rs)
+selects `--task-cancellation` to run twelve cases and twelve local-reopen checks
+per ABI. The fixture starts real SDK coroutines and suspends them before a
+first/second transfer, after the second native transfer, or during capabilities
+reply delivery. Four direct read/pread/write/pwrite cases suspend delivery after
+the native call. Native transfers and the host descriptor ceiling are both four;
+file contents are 32 bytes, with a twelve-byte request starting at offset three.
+No native storage operation is simulated.
+
+`Task.cancel(message)` must retain `asyncio.CancelledError`, the message and
+the task's cancelled state. Errors carry `Cancelled`, `unknown`, the public
+operation and zero or four confirmed bytes. Python's `CancelledError` derives
+from `BaseException`, so handling only `Exception` cannot establish this contract.
+The SDK annotates and re-raises cancellation without converting it to SDKError
+or changing native work or parent-invocation authority. A coroutine cancelled
+before it starts cannot run this annotation code.
+
+The fixture independently verifies actual zero/one/two native replies, full
+file bytes and SHA-256, exact version increments, inode identity, duplicate-shared
+offsets and unchanged directory cookies. Positional calls preserve the offset;
+reads preserve the complete stat. The parent can still use its original handles,
+occupy four slots, observe ENFILE at the fifth and close all handles. A checked
+inode/version receipt is saved and proven. Local reopen must recover the exact
+same bytes, identity, version, progress and receipt. This is an SDK coroutine
+cancellation/local-reopen profile, separate from withheld IPC replies, native
+invocation retirement and empty-local-state fleet recovery.
+
+The shared proof fixture separately records cancellation and native storage
+failure. A native proof failure can retire the activation before Python consumes
+its queued error reply. Both exact outcomes are permitted: CancelledError with
+Cancelled/unknown, or SDKError with Storage/EIO/unknown; each must name the public
+barrier and report zero confirmed bytes. Unexpected errors and success fail the
+case. The transport-failure/fence profile fails both real transports after their
+held local-commit cut, observes settlement, then forces the actual lease mismatch.
+It preserves the original deadlines, recovery, stale-wrapper and complete cleanup
+assertions. It does not require one side of that reply/cancellation race to win.
 
 ## Open audit work
 

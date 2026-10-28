@@ -285,6 +285,16 @@ Looping `read_exact` / `write_all` errors identify the helper and its confirmed
 preserve uncertain outcomes; a failed loop can have a committed write prefix
 or an advanced read offset.
 
+Cancellation while a filesystem coroutine is running propagates the original
+`asyncio.CancelledError`.
+Its `code` is `Cancelled`, `outcome` is `unknown`, `operation` names the outer
+filesystem call, and `completed_bytes` counts only confirmed transfers. The
+looping helpers retain their confirmed prefix when cancelled during a later
+call. Cancellation does not establish rollback of the current native call or
+restore a read offset. The parent invocation can still use and close its own
+descriptors after cancelling a child task.
+Cancelling a task before its coroutine starts cannot run this annotation code.
+
 `cellar_filesystem_tools` is an embedded SDK module with bounded read/stat/list/
 write/replace/edit/rename/unlink/search tools:
 

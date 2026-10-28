@@ -82,3 +82,27 @@ This harness does not qualify an external object store, peer proof/failures,
 disk stalls, guest overhead, 4/16 KiB chunk alternatives, small-file density or
 many-cell fairness. Those remain gates in the
 [filesystem implementation plan](../../plans/per-cell-filesystem-implementation.md).
+
+## Native fault qualification on S3-compatible storage
+
+The separate [native fault profile](../../plans/per-cell-filesystem-conformance.md#s3-backed-native-recovery-profile)
+uses the same file/state/receipt, fencing and failed-recovery assertions as the
+development-store case. Provision a disposable bucket whose name starts with
+`cellar-filesystem-`, supply its static test credentials through `AWS_ACCESS_KEY_ID`
+and `AWS_SECRET_ACCESS_KEY`, and select an explicit endpoint. The profile uses
+region `us-east-1`; it never creates or deletes the bucket itself.
+
+```sh
+CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-UNIQUE-TEST-ID \
+CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
+CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-proof-fault.json \
+cargo test --locked -p cellar --test native_node \
+  node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission \
+  -- --ignored --exact --nocapture
+```
+
+The SDK workflow owns an isolated pinned RustFS container and its generated test
+credentials, runs this case serially and uploads the report. The report contains
+hashes, receipts, refusal counts and recovery outcomes, with no credentials.
+Supplied-client fault gates wrap actual S3 I/O; physical network/disk failures
+and deployment performance retain their own qualification profiles.

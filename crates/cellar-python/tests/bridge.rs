@@ -254,6 +254,9 @@ fn main() -> Result<()> {
     if mode == "--runtime-routing" {
         return routing::child();
     }
+    if mode == "--runtime-filesystem-proof-failure-fence" {
+        return proof_authority::filesystem_proof_failure_fence();
+    }
     let filesystem_mode = mode
         .strip_prefix("--runtime-filesystem-proof-")
         .map(|mode| (mode, false))
@@ -530,6 +533,7 @@ fn main() -> Result<()> {
         "--runtime-filesystem-handoff-sync-fence",
         "--runtime-filesystem-handoff-output-deadline",
         "--runtime-filesystem-handoff-output-fence",
+        "--runtime-filesystem-proof-failure-fence",
         "--runtime-routing",
         "--runtime-privacy",
         "--runtime-lifetimes",

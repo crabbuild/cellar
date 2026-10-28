@@ -11,14 +11,65 @@ mod native;
 #[path = "../../cellar/tests/support/filesystem_readonly.rs"]
 mod readonly;
 
+#[allow(clippy::disallowed_methods)] // Qualification reports are supervisor-owned, outside SDK turns.
+async fn task_cancellation(
+    address: &str,
+    recovered: bool,
+    observations: &mut Vec<serde_json::Value>,
+) -> Result<()> {
+    let mut cases = Vec::new();
+    for operation in ["write_all", "read_exact"] {
+        for phase in [
+            "before_second",
+            "before_first",
+            "after_second",
+            "capabilities",
+        ] {
+            cases.push(format!("{operation}-{phase}"));
+        }
+    }
+    for operation in ["read", "pread", "write", "pwrite"] {
+        cases.push(format!("{operation}-after_native"));
+    }
+    for case in cases {
+        let route = if recovered { "recovered" } else { "run" };
+        let response = reqwest::get(format!("{address}/{case}/{route}")).await?;
+        let status = response.status();
+        let body = response.text().await?;
+        let result = serde_json::from_str::<serde_json::Value>(&body)
+            .unwrap_or_else(|_| serde_json::json!({"failure":body}));
+        observations.push(serde_json::json!({"case":case,"recovered":recovered,"status":status.as_u16(),"result":result}));
+        if let Some(path) = std::env::var_os("CELLAR_FS_PY_CANCELLATION_REPORT") {
+            std::fs::write(
+                path,
+                serde_json::to_vec_pretty(
+                    &serde_json::json!({"format":1,"observations":observations}),
+                )?,
+            )?;
+        }
+        ensure!(
+            status.is_success()
+                && result["checked"] == true
+                && result["case"] == case
+                && result["recovered"] == recovered,
+            "task cancellation {case}/{route}: {status} {body}"
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let small_budget = std::env::args().any(|argument| argument == "--small-budget");
     let read_only = std::env::args().any(|argument| argument == "--read-only");
+    let task_cancellation_mode = std::env::args().any(|argument| argument == "--task-cancellation");
     ensure!(
-        !(small_budget && read_only),
+        usize::from(small_budget) + usize::from(read_only) + usize::from(task_cancellation_mode)
+            <= 1,
         "select one filesystem test mode"
     );
-    let code = if small_budget {
+    let code = if task_cancellation_mode {
+        include_str!("filesystem_cancellation.py").to_owned()
+    } else if small_budget {
         include_str!("filesystem_budget.py").to_owned()
     } else {
         format!(
@@ -68,13 +119,17 @@ fn main() -> Result<()> {
                         }
                         let (application, cancellation) = conformance::observe(application);
                         let directory = tempfile::tempdir()?;
+                        let mut cancellation_observations = Vec::new();
                         for recovered in [false, true] {
                             let (node, address) = native::start_configured(
                                 directory.path(),
                                 application.clone(),
                                 |config, _, _| {
                                     config.runtime.handler_budget = Duration::from_secs(2);
-                                    if small_budget {
+                                    if task_cancellation_mode {
+                                        config.cell_limits.filesystem.max_transfer_bytes = 4;
+                                        config.cell_limits.filesystem.max_host_handles = 4;
+                                    } else if small_budget {
                                         config.cell_limits.filesystem.max_transfer_bytes = 1024;
                                     } else {
                                         config.cell_limits.filesystem.max_host_handles = 4;
@@ -83,7 +138,14 @@ fn main() -> Result<()> {
                             )
                             .await?;
                             let result = async {
-                                if small_budget {
+                                if task_cancellation_mode {
+                                    task_cancellation(
+                                        &address,
+                                        recovered,
+                                        &mut cancellation_observations,
+                                    )
+                                    .await
+                                } else if small_budget {
                                     conformance::tools_budget(&address, recovered).await
                                 } else if recovered {
                                     conformance::recovered(&address).await?;

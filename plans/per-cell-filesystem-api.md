@@ -543,6 +543,14 @@ identify the public `read_exact` / `write_all` operation. They report zero
 completed bytes before byte I/O and preserve the underlying code, errno and
 outcome. An unknown preflight outcome must not be rewritten as a no-commit
 claim. Confirmed earlier byte transfers retain the prefix/offset rules above.
+Cancellation while a Python filesystem coroutine is running preserves
+`asyncio.CancelledError` and its message.
+Filesystem calls attach `code=Cancelled`, `outcome=unknown`, the public
+`operation` and confirmed `completed_bytes`; looping helpers retain their outer
+operation and earlier confirmed prefix. A cancelled wait does not establish
+rollback of its last native call. Cancelling a child task does not retire the
+parent invocation's descriptor authority. Cancelling before the coroutine starts
+cannot run the SDK's annotation code.
 Descriptor `readdir` synthesizes `.` and `..`. Stateless `read_dir` returns only
 actual entries so application traversals do not follow synthetic dot entries.
 For conditional edits, equal-size patches and end-of-file tail replacement

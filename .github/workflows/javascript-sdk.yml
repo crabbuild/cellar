@@ -139,7 +139,9 @@ jobs:
           python3 - "$private" <<'PY'
           import os, secrets, sys
           with open(sys.argv[1], 'x', opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
-              output.write('AWS_ACCESS_KEY_ID=' + secrets.token_hex(16) + '\n')
+              # This pinned RustFS image accepts the 20-character access-key
+              # profile; a 32-character key fails CreateBucket authentication.
+              output.write('AWS_ACCESS_KEY_ID=' + secrets.token_hex(10) + '\n')
               output.write('AWS_SECRET_ACCESS_KEY=' + secrets.token_hex(32) + '\n')
           PY
           set -a
@@ -158,6 +160,14 @@ jobs:
           done
           curl --fail --silent "$S3_ENDPOINT/health" >/dev/null
           export CELLAR_AI_STORE=s3 AWS_REGION=us-east-1
+          export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export CELLAR_FS_S3_ENDPOINT="$S3_ENDPOINT"
+          aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
+            --bucket "$CELLAR_FS_S3_BUCKET"
+          CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-proof-fault.json" \
+            cargo test --locked -p cellar --test native_node \
+              node_filesystem_faults::filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission \
+              -- --ignored --exact --nocapture
           export CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example"
           export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-recovery.json"
           npm run --prefix examples/vercel-agent test:e2e
@@ -171,6 +181,7 @@ jobs:
           path: |
             ${{ runner.temp }}/vercel-rustfs-recovery.json
             ${{ runner.temp }}/vercel-rustfs-tools.json
+            ${{ runner.temp }}/filesystem-s3-proof-fault.json
           if-no-files-found: ignore
       - name: Quality and engine boundaries
         run: |

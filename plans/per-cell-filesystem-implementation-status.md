@@ -2,11 +2,69 @@
 
 # Per-cell filesystem implementation status
 
-Status: implementation in progress, 2026-10-27. The full
+Status: initial API profile implemented; production qualification in progress,
+2026-10-28. The full
 [API contract](per-cell-filesystem-api.md) and
 [implementation plan](per-cell-filesystem-implementation.md) remain the delivery
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
+
+## Release disposition
+
+The initial regular-file/directory primitive, Rust and guest APIs, transaction
+composition and durable-agent tools are implemented. Production readiness is
+still open: passing development-store tests cannot establish a deployment's
+external-store behavior, workload capacity or recovery objectives.
+
+| Delivery package | Current disposition | Evidence or outstanding acceptance |
+| --- | --- | --- |
+| FS-00: context/POSIX contract | Implemented | [API contract](per-cell-filesystem-api.md), explicit capabilities and unsupported facilities |
+| FS-01: SQLite storage | Implemented with bounded recovery evidence | Chunk/namespace/accounting/rollback tests and dense cold recovery through 1 GiB; fault and resource qualification below remains open |
+| FS-02: native primitive | Implemented | Context and exact transaction views, descriptors, byte paths, permissions, quotas and proof barriers; the operation audit retains explicit coverage limits |
+| FS-03: guest and agent APIs | Implemented | Node/V8/Python facades, checked atomic effects, saved reads and receipt-based replay; final installed artifacts require their own evidence |
+| FS-04: lifecycle and faults | Partially qualified | Local/native/guest retirement, development-bucket recovery and selected real peer cuts pass; complete remaining error/lifetime, external-store/disk and sustained reclamation profiles |
+| FS-05: production release | Open | Final packages, supported-target CI and a measured deployment capacity/failure envelope |
+| FS-06: additional capabilities | Optional later work | Links, locks, wider metadata and object-backed content require separate contracts and qualification |
+
+The [release priorities](#release-priorities) and
+[remaining requirements](#remaining-requirements) are the acceptance checklist.
+Admission ceilings in capabilities are configuration limits, not qualified
+throughput, latency, memory or recovery guarantees. Release qualification must
+record the chosen durability mode, store, runtime/ABI, workload and SLO/RPO/RTO
+using the [Cellar qualification method](../docs/19-testing-qualification.md).
+
+Historical task-local `.cellar/` paths below identify the original capture
+locations. That ignored directory was removed outside this task on 2026-10-28;
+its uncommitted raw files are no longer available. Committed reports and hashes
+remain, and recovered executable identities are checked before recapturing
+selected reports. New raw evidence is stored in the checkout-specific workspace
+target's `qualification/` directory, outside that removed workspace directory.
+
+## Python cancellation checkpoint
+
+The [2026-10-28 report](../tools/perf/results/2026-10-28-filesystem-python-cancellation.md)
+records a filesystem SDK defect and the fresh two-ABI regression matrix. Python
+`CancelledError` bypassed `Exception` handlers, losing confirmed helper progress.
+Filesystem calls now annotate and re-raise cancellation with its original type
+and message, `Cancelled/unknown`, public operation and confirmed byte prefix.
+Parent descriptor authority remains usable after child-task cancellation.
+
+CPython 3.14.5 GIL and free-threaded runs each pass 31 library tests, four SDK
+modes and 24 bridge scenarios. Twelve task-cancellation cases per ABI verify real
+native bytes/version/offsets, capacity and saved receipts, followed by twelve
+exact local-reopen checks. Seventeen filesystem proof cases per ABI validate
+six native outcomes each, settled interpreter/bridge work, stale authority,
+warm/cold file/state/receipt coherence and a proven new-owner write. This includes
+real proof transport failure before the forced fence; the exact native-error or
+cancellation settlement is retained without implying rollback.
+
+The [case profile](per-cell-filesystem-conformance.md#python-task-cancellation-profile)
+distinguishes coroutine suspension, local reopen and native proof/cold recovery.
+CI registers the coroutine profile in both ABI jobs and uploads its observations.
+The [structured results](../tools/perf/results/2026-10-28-filesystem-python-cancellation.json)
+retain source/executable/log hashes and shutdown summaries. Neither this local
+matrix nor the CI configuration establishes remote CI completion or the remaining
+external-fault, package and capacity gates.
 
 ## PR integration baseline
 

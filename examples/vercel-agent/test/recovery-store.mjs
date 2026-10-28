@@ -69,9 +69,13 @@ export async function workerState(directory, { filesystem = false } = {}) {
 
 // Every scenario owns a new bucket. Leave S3 buckets intact for inspection;
 // only temporary worker files are removed by the process harness.
+export function recoveryBucketName(scenario) {
+  return `cellar-agent-${scenario.slice(0, 12)}-${randomUUID().replaceAll("-", "")}`;
+}
+
 export async function recoveryStore(directory, scenario) {
   const remote = process.env.CELLAR_AI_STORE === "s3";
-  const bucket = `cellar-agent-${scenario}-${randomUUID()}`;
+  const bucket = recoveryBucketName(scenario);
   const env = storeEnvironment(directory, {
     ...process.env,
     ...(remote ? { CELLAR_BUCKET: bucket } : {}),

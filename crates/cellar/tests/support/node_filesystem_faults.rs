@@ -162,10 +162,43 @@ fn applications(signals: Arc<Signals>) -> Result<CompiledApplications> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn filesystem_unproven_write_is_fenced_and_failed_recovery_refuses_admission() -> Result<()> {
+    scenario(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires a private CELLAR_FS_S3_BUCKET and CELLAR_FS_S3_ENDPOINT with AWS credentials"]
+async fn filesystem_s3_unproven_write_is_fenced_and_failed_recovery_refuses_admission() -> Result<()>
+{
+    scenario(true).await
+}
+
+async fn scenario(s3: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
     let bucket = management
-        .run(async { cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite")) })
+        .run(async {
+            if s3 {
+                let bucket = std::env::var("CELLAR_FS_S3_BUCKET")?;
+                let endpoint = std::env::var("CELLAR_FS_S3_ENDPOINT")?;
+                ensure!(
+                    bucket.starts_with("cellar-filesystem-"),
+                    "use a private filesystem qualification bucket"
+                );
+                cellar::bucket::Bucket::open(
+                    &bucket,
+                    Some(&endpoint),
+                    "us-east-1",
+                    Some(cellar::bucket::StaticCredentials {
+                        access_key_id: std::env::var("AWS_ACCESS_KEY_ID")?,
+                        secret_access_key: std::env::var("AWS_SECRET_ACCESS_KEY")?,
+                        session_token: None,
+                    }),
+                    Some("filesystem-qualification"),
+                )
+            } else {
+                cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))
+            }
+        })
         .await??;
     let signals = Arc::new(Signals::default());
     let _release = Release(signals.clone());
@@ -350,6 +383,7 @@ async fn filesystem_unproven_write_is_fenced_and_failed_recovery_refuses_admissi
     if let Some(path) = std::env::var_os("CELLAR_FS_FAULT_REPORT") {
         let report = json!({
             "format":1,"scope":scope(),"mode":"bucket proof; supplied-store fault injection",
+            "backend":if s3 {"s3"} else {"development"},
             "acknowledged":[seed,proven],"ambiguous_response":ambiguous,
             "unacknowledged_local_commit":signals.local_receipt.lock().unwrap().as_ref().unwrap().clone(),
             "recovered_after_outage":recovered,"recovered_after_takeover":final_receipt,

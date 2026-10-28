@@ -386,6 +386,18 @@ def _filesystem_progress(error, completed, operation, committed):
     return error
 
 
+def _filesystem_cancelled(error, completed, operation):
+    # Cancellation is control flow: retain its type, message and identity. A
+    # cancelled wait cannot establish whether its last native call committed.
+    previous = getattr(error, "completed_bytes", 0)
+    if type(previous) is not int or not 0 <= previous <= 2**53-1:
+        previous = 0
+    error.code = "Cancelled"
+    error.outcome = "unknown"
+    error.operation = "filesystem." + operation
+    error.completed_bytes = completed + previous
+
+
 def _filesystem_reply(operation, value, request):
     """Validate acknowledgements before exposing values or advancing helpers."""
     def require(valid):
@@ -530,6 +542,9 @@ class File:
                     raise SDKError("Filesystem write made no progress", "HostError", "unknown")
                 completed += count
                 data = data[count:]
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, completed, "write_all")
+            raise
         except Exception as error:
             failure = _filesystem_progress(error, completed, "write_all", True)
             if failure is error:
@@ -555,6 +570,9 @@ class File:
                 chunks.append(chunk)
                 count -= len(chunk)
             return b"".join(chunks)
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, completed, "read_exact")
+            raise
         except Exception as error:
             failure = _filesystem_progress(error, completed, "read_exact", False)
             if failure is error:
@@ -643,6 +661,9 @@ class Filesystem:
             reply = await self._context._call("filesystem." + operation, **value)
             _filesystem_reply(operation, reply, value)
             return reply
+        except asyncio.CancelledError as error:
+            _filesystem_cancelled(error, 0, operation)
+            raise
         except Exception as error:
             failure = _filesystem_progress(error, 0, operation, False)
             if failure is error:

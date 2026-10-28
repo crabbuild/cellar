@@ -2,6 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { storeEnvironment } from "../script/store.mjs";
+import { recoveryBucketName } from "./recovery-store.mjs";
+
+test("recovery bucket names stay within S3 limits and isolate scenarios", () => {
+  for (const scenario of [
+    "external",
+    "filesystem",
+    "filesystem-read",
+    "scenario".repeat(32),
+  ]) {
+    const first = recoveryBucketName(scenario);
+    const second = recoveryBucketName(scenario);
+    assert.ok(first.length >= 3 && first.length <= 63, first);
+    assert.match(first, /^[a-z0-9][a-z0-9-]*[a-z0-9]$/);
+    assert.notEqual(first, second);
+    assert.equal(
+      storeEnvironment("data", {
+        CELLAR_AI_STORE: "s3",
+        CELLAR_BUCKET: first,
+        S3_ENDPOINT: "http://127.0.0.1:19000",
+      }).CELLAR_BUCKET,
+      first,
+    );
+  }
+});
 
 test("local mode uses its private development store", () => {
   const env = storeEnvironment("data", {

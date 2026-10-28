@@ -40,7 +40,7 @@ async fn recovered_state(
 }
 
 pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
-    scenario(kind, fence, None, false)
+    scenario(kind, fence, None, false, false)
 }
 
 pub(super) fn filesystem(barrier: &str, fence: bool, handoff: bool) -> Result<()> {
@@ -54,7 +54,12 @@ pub(super) fn filesystem(barrier: &str, fence: bool, handoff: bool) -> Result<()
         fence,
         Some(barrier),
         handoff,
+        false,
     )
+}
+
+pub(super) fn filesystem_proof_failure_fence() -> Result<()> {
+    scenario("sync", true, Some("fsync"), true, true)
 }
 
 fn configure(
@@ -153,7 +158,13 @@ fn verify_filesystem(value: &Value, generation: u8) -> Result<()> {
     Ok(())
 }
 
-fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Result<()> {
+fn scenario(
+    kind: &str,
+    fence: bool,
+    barrier: Option<&str>,
+    handoff: bool,
+    transport_failure_first: bool,
+) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let recovering = kind == "recovery";
     let kind = if recovering { "failure" } else { kind }.to_owned();
@@ -199,7 +210,7 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Re
                 let data = Arc::new(Gate::default());
                 let _release = Release(peers.clone(), data.clone());
                 let mut nodes = Vec::new();
-                let proof_timeout = if kind == "failure" {
+                let proof_timeout = if kind == "failure" || transport_failure_first {
                     Duration::from_secs(2)
                 } else {
                     Duration::from_secs(30)
@@ -271,21 +282,37 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Re
                 let held_client = client.clone();
                 let address = format!("{url}/{kind}");
                 let mut held = tokio::spawn(async move { held_client.get(address).send().await });
-                observe(|view| {
-                    view["committed"] == true
+                let cut = observe(|view| {
+                    !view["failure"].is_null() || (view["committed"] == true
                         && (!filesystem || kind != "sync" || view["filesystem"]["barrier_entered"] == true)
                         && (kind == "sync"
                             || view["returned"] == true && view["late_entered"] == true)
                         && peers.entered.load(Ordering::Acquire) > before_peer
-                        && data.entered.load(Ordering::Acquire) > before_data
+                        && data.entered.load(Ordering::Acquire) > before_data)
                 })
-                .await?;
+                .await.with_context(|| format!("proof cut: peer {before_peer}->{}, bucket {before_data}->{}, HTTP finished={}, native closed={:?}",
+                    peers.entered.load(Ordering::Acquire), data.entered.load(Ordering::Acquire), held.is_finished(),
+                    nodes.iter().map(|(name,node,_)| (*name,node.as_ref().is_some_and(Node::is_closed))).collect::<Vec<_>>()))?;
+                ensure!(cut["failure"].is_null(), "Python proof failed before cut: {cut}; peer {before_peer}->{}, bucket {before_data}->{}",
+                    peers.entered.load(Ordering::Acquire), data.entered.load(Ordering::Acquire));
                 ensure!(
                     tokio::time::timeout(Duration::from_millis(150), &mut held)
                         .await
                         .is_err(),
                     "proof-held mutation returned before cancellation/fence"
                 );
+                if transport_failure_first {
+                    // Fail real transports before the explicit fence. Native
+                    // proof failure can reset the activation before its error
+                    // reply reaches Python; either settlement must retain the
+                    // exact unknown outcome checked after retirement below.
+                    peers.fail();
+                    data.fail();
+                    let failed = observe(|view| view["barrier_settled"] == true || !view["failure"].is_null())
+                        .await.context("filesystem proof failure settlement before fence")?;
+                    ensure!(failed["failure"].is_null() && failed["barrier_failure"]["outcome"] == "unknown",
+                        "filesystem proof failure changed: {failed}");
+                }
                 if kind == "failure" {
                     reset.armed.store(recovering, Ordering::Release);
                     peers.fail();
@@ -329,10 +356,19 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Re
                         "deadline proof returned success"
                     );
                 }
-                observe(|view| {
-                    view["active"] == false && (kind != "sync" || view["cancelled"] == true)
+                let retired = observe(|view| {
+                    !view["failure"].is_null() || (view["active"] == false && (kind != "sync" || view["barrier_settled"] == true))
                 })
-                .await?;
+                .await.context("proof waiter after native retirement")?;
+                ensure!(retired["failure"].is_null(), "proof waiter failed after retirement: {retired}");
+                if filesystem && kind == "sync" {
+                    let failure = &retired["barrier_failure"];
+                    let cancellation = failure["type"] == "CancelledError" && failure["code"] == "Cancelled" && failure["errno"].is_null();
+                    let native = failure["code"] == "Storage" && failure["errno"] == "EIO";
+                    ensure!((cancellation || native) && failure["outcome"] == "unknown" && failure["completed_bytes"] == 0
+                        && failure["operation"] == format!("filesystem.{}", barrier.as_deref().context("filesystem barrier")?),
+                        "proof waiter lost its admitted outcome: {failure}");
+                }
                 // Opening real transports after revocation cannot resurrect a
                 // successful response or the original Python SDK authority.
                 peers.open();
@@ -450,6 +486,7 @@ fn scenario(kind: &str, fence: bool, barrier: Option<&str>, handoff: bool) -> Re
                         "termination": if fence { "node_lease_mismatch" } else { "handler_deadline" },
                         "scope": "supplied development bucket and authenticated loopback peer transport",
                         "proof_held_after_local_commit": true,
+                        "transport_failure_before_fence": transport_failure_first,
                         "peer_entries_after_hold": peers.entered.load(Ordering::Acquire) - before_peer,
                         "bucket_entries_after_hold": data.entered.load(Ordering::Acquire) - before_data,
                         "expired_context": final_view,

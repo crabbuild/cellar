@@ -139,6 +139,8 @@ jobs:
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
           npm test --prefix tools/perf/cloudflare
       - name: Test embedded Python adapter
+        env:
+          CELLAR_FS_PY_CANCELLATION_REPORT: ${{ runner.temp }}/filesystem-python-task-cancellation.json
         run: |
           python -m venv .cellar/rpc/python
           .cellar/rpc/python/bin/python -m pip install protobuf==7.34.2
@@ -146,6 +148,14 @@ jobs:
           .cellar/rpc/python/bin/python -B tools/rpc/test_python_rpc.py
           cargo test -p cellar-python --features embed --locked -- --test-threads=1
           cargo test --locked -p cellar-python --features embed --test filesystem -- --read-only
+          cargo test --locked -p cellar-python --features embed --test filesystem -- --task-cancellation
+      - name: Preserve Python filesystem task-cancellation observations
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: filesystem-python-task-cancellation-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/filesystem-python-task-cancellation.json
+          if-no-files-found: ignore
       - name: Verify native and Python baseline harness
         run: |
           cargo build -p cellar-python --example python-offered-load --no-default-features --locked
