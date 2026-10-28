@@ -67,7 +67,8 @@ def loop_binding(value, device, backing):
 
 
 class Storage:
-    def __init__(self, docker, save, root, prefix, label, image, policy, backing_disk):
+    def __init__(self, docker, save, root, prefix, label, image, policy, backing_disk,
+                 host_backing=None):
         self.docker, self.save, self.root = docker, save, root
         self.prefix, self.label, self.image, self.policy = prefix, label, image, policy
         require(re.fullmatch(r'cellar-fleet-[0-9a-f]{24}', prefix) is not None, 'invalid storage owner')
@@ -79,13 +80,20 @@ class Storage:
                 'storage must use the dedicated Colima data disk')
         self.backing_disk = backing_disk.resolve(strict=True)
         require(self.backing_disk.is_file(), 'missing Colima data disk')
+        self.host_backing = host_backing.resolve(strict=True) if host_backing else None
+        require(self.host_backing is None or self.host_backing.is_dir(),
+                'host backing must be an existing shared directory')
         self.check_host_space(self.total)
         self.volumes = {}
 
     def check_host_space(self, remaining=0):
-        fs = os.statvfs(self.backing_disk)
+        fs = os.statvfs(self.host_backing or self.backing_disk)
         available = fs.f_bavail * fs.f_frsize
         require(available >= remaining + HOST_RESERVE, 'insufficient physical VM backing space')
+        # Docker metadata and capped container logs still live on the VM disk.
+        vm = os.statvfs(self.backing_disk)
+        require(vm.f_bavail * vm.f_frsize >= HOST_RESERVE,
+                'insufficient VM metadata backing reserve')
         return available
 
     def guest(self, *args):
@@ -106,16 +114,31 @@ class Storage:
                 'Colima SSH and Docker context identify different Engines')
         require(not self.docker('volume', 'ls', '-q', '--filter', 'name=' + self.prefix),
                 'retained storage owner already exists')
-        self.docker('volume', 'create', '--label', self.label, self.prefix + '-backing')
-        volume = json.loads(self.docker('volume', 'inspect', self.prefix + '-backing'))[0]
-        expected = PurePosixPath(engine['DockerRootDir']) / 'volumes' / (self.prefix + '-backing') / '_data'
-        require(volume['Mountpoint'] == str(expected)
-                and volume.get('Labels', {}).get('io.cellar.fleet.lab') == self.prefix[13:]
-                and volume['Driver'] == 'local' and not volume.get('Options'),
-                'unexpected backing volume identity')
-        self.directory = str(expected)
+        if self.host_backing is not None:
+            directory = self.host_backing / self.prefix
+            directory.mkdir(mode=0o700, exist_ok=False)
+            marker = directory / 'owner.json'
+            self.save(marker, {'engine': engine['ID'], 'owner': self.prefix,
+                               'host_directory': str(directory)})
+            # The exact host-created bytes must be visible at the same guest
+            # path. A directory existing on both machines is not mount proof.
+            require(self.guest('cat', marker) == marker.read_text().strip(),
+                    'host backing is not the same directory inside Colima')
+            require(self.guest('findmnt', '-T', directory, '-n', '-o', 'FSTYPE') == 'virtiofs',
+                    'host backing requires the configured virtiofs mount')
+            self.directory = str(directory)
+        else:
+            self.docker('volume', 'create', '--label', self.label, self.prefix + '-backing')
+            volume = json.loads(self.docker('volume', 'inspect', self.prefix + '-backing'))[0]
+            expected = PurePosixPath(engine['DockerRootDir']) / 'volumes' / (self.prefix + '-backing') / '_data'
+            require(volume['Mountpoint'] == str(expected)
+                    and volume.get('Labels', {}).get('io.cellar.fleet.lab') == self.prefix[13:]
+                    and volume['Driver'] == 'local' and not volume.get('Options'),
+                    'unexpected backing volume identity')
+            self.directory = str(expected)
         self.save(self.root / 'storage-intent.json', {
             'engine': engine['ID'], 'backing_disk': str(self.backing_disk),
+            'host_backing': str(self.host_backing) if self.host_backing else None,
             'backing_directory': self.directory, 'planned_bytes': self.total,
             'host_available_before': self.check_host_space(self.total),
             'host_reserve_bytes': HOST_RESERVE,

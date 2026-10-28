@@ -126,7 +126,7 @@ def provision(args):
     docker = engine(args.context, root)
     try:
         storage = Storage(docker, save_new, root, prefix, label, args.image, policy,
-                          args.backing_disk)
+                          args.backing_disk, args.host_backing)
         storage.prepare()
         # Docker copies bytes from the client host. A host bind mount would
         # instead resolve inside Colima, where external workspace volumes may
@@ -253,6 +253,8 @@ def main():
     setup.add_argument('--output', type=Path, required=True)
     setup.add_argument('--backing-disk', type=Path, default=Path.home()
                        / '.colima/_lima/_disks/colima-cellar-raft-perf/datadisk')
+    setup.add_argument('--host-backing', type=Path,
+                       help='Existing directory mounted at the same guest path through virtiofs')
     setup.add_argument('--cells', type=int, default=15)
     setup.add_argument('--port-base', type=int, default=19800)
     operator = commands.add_parser('apply')

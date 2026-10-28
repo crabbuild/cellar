@@ -66,6 +66,15 @@ A filesystem ceiling bounds space but does not guarantee workload headroom or
 availability after exhaustion. Capacity qualification and traffic testing remain
 separate operations.
 
+If the VM data disk's host volume lacks room, `--host-backing /absolute/directory`
+places only the new filesystem backing files on another host volume. First mount
+that owned directory writable at the same path in the dedicated Colima profile
+using virtiofs. The runner verifies host-created identity bytes inside the guest
+before allocating, checks free space on that volume, and also preserves the VM
+metadata volume's 4-GiB reserve. It does not move or reformat existing VM data.
+This adds a host shared-filesystem layer to disk I/O; retain that topology with
+benchmark evidence and use the same backing mode for matched comparisons.
+
 For a five-node, 15-cell counter qualification, a conservative starting policy
 uses 14 group slots, 4-MiB images, a 1-GiB node extent inventory and a 128-MiB
 replay inventory. The following hard ceilings consume 19 GiB of backing across
@@ -150,6 +159,22 @@ start after bindings and initial RF3 groups are verified. Its status is local
 diagnostics; independently verify committed membership, archive coverage and
 foreground writes before claiming successful healing or terminal removal.
 The managed endpoint refuses the static fixture's leadership-transfer shortcut.
+
+The scenario runner collects actual kernel limits, native startup bounds,
+mounted-filesystem capacity and retained loop/UUID bindings before admission:
+
+```sh
+python3 tools/perf/raft_fleet_operations.py admit --run /absolute/path/run-1
+python3 tools/perf/raft_fleet_operations.py seed --run /absolute/path/run-1
+```
+
+`admit` qualifies and activates each empty Registered node. `seed` reserves and
+confirms the configured cell histories, then activates their three initial
+members. These actions retain exact request payloads before dispatch; rerunning
+the same mode reconciles prior receipts. Unknown mutations stop the invocation
+without refreshing their revisions or generating replacement requests.
+Successful activation alone does not establish elected leaders, successful
+foreground writes, archive catch-up or recovery.
 
 ## Remaining qualification
 

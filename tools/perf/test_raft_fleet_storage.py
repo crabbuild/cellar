@@ -23,6 +23,44 @@ def policy():
 
 
 class BoundedStorageTests(unittest.TestCase):
+    def test_shared_host_backing_requires_exact_guest_identity_before_allocation(self):
+        for matched in (False, True):
+            with self.subTest(matched=matched), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                backing = root / 'shared'
+                backing.mkdir()
+                storage = object.__new__(Storage)
+                storage.host_backing = backing
+                storage.backing_disk = root / 'vm'
+                storage.prefix = 'cellar-fleet-' + '1' * 24
+                storage.root, storage.save = root, save_new
+                storage.total = 19 * 1024 ** 3
+                storage.check_host_space = Mock(return_value=30 * 1024 ** 3)
+                storage.docker = Mock(side_effect=[json.dumps({'ID': 'engine'}), ''])
+
+                def guest(*args):
+                    if args[0] == 'sudo':
+                        return 'engine'
+                    if args[0] == 'cat':
+                        return Path(args[1]).read_text().strip() if matched else '{}'
+                    return 'virtiofs'
+
+                storage.guest = guest
+                if matched:
+                    storage.prepare()
+                    self.assertEqual(storage.directory, str(backing / storage.prefix))
+                    with self.assertRaises(FileExistsError):
+                        # Reusing the owner cannot reopen or reformat its files.
+                        storage.docker.side_effect = [json.dumps({'ID': 'engine'}), '']
+                        storage.prepare()
+                else:
+                    with self.assertRaisesRegex(ValueError, 'same directory'):
+                        storage.prepare()
+                    self.assertFalse((root / 'storage-intent.json').exists())
+                self.assertTrue((backing / storage.prefix / 'owner.json').exists())
+                self.assertTrue(all(call.args[0] in ('info', 'volume')
+                                    and 'create' not in call.args for call in storage.docker.call_args_list))
+
     def test_insufficient_host_backing_refuses_before_any_engine_mutation(self):
         with tempfile.TemporaryDirectory() as folder:
             home = Path(folder)
