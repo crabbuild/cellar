@@ -1430,6 +1430,20 @@ separately recorded. These are component observations, not native RTO or
 percentile qualification. Fresh source-bound physical pilots are required
 before claiming a full-size recovery-time gain.
 
+At `3be8c9edd6a91e5c9613746c30f4be81018f9017`, fresh peer (12 MiB) and real
+RustFS (272 MiB) preflights pass all nine checks and six valid observation
+windows. Failure to first verified durable write is 3.827742 s and 6.971304 s,
+respectively; seed installation is 0.303747 s and 1.158608 s. Inputs are
+`464cf0ca1cc939a43470a7169adc91e457f43c7906f9ac103bf65b08b1ccff2e`, with
+release executable
+`f7c617d3632429f136791d44866421b3d18fddf5f0142373365b410baa16999d`.
+Both source inventories remain unchanged throughout their trials. Their single
+observations do not meet the analyzer's unchanged pilot sample requirement.
+The new full-size campaign has not started: its capacity preflight refuses
+before creating a native trial when the unchanged four-image-plus-8-GiB guard
+is unmet. This unavailable capacity observation is separate from timed recovery
+samples. The earlier full-size timings above are not results for this new code.
+
 Full-size setup diagnostics distinguish source creation and initial-voter
 preloading from the fault-to-ready interval. A one-second sample of the release
 process during baseline import records 695 of the active blocking worker's 775
