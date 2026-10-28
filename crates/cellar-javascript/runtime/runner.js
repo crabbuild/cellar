@@ -80,6 +80,7 @@
     }
   }
   const ErrorClass = Error;
+  const Uint8ArrayClass = Uint8Array;
   const apply = Reflect.apply;
   const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
   const typedArrayTag = Object.getOwnPropertyDescriptor(
@@ -854,24 +855,59 @@
         error.outcome = committed ? "locally_committed" : "unknown";
       return error;
     };
-    const fsCall = async (operation, value = {}) => {
+    const fsCall = async (operation, prepare = () => ({})) => {
       try {
-        return await call(`filesystem.${operation}`, value);
+        return await call(`filesystem.${operation}`, prepare());
       } catch (error) {
         // Caller-scope admission can fail before a native filesystem reply.
         throw fsProgress(error, 0, operation, false);
       }
     };
+    const fsArgument = () => {
+      const error = rpcFailure("ValidationError", "not_committed");
+      error.errno = "EINVAL";
+      return error;
+    };
+    const fsBytes = (value, maximum = Infinity) => {
+      if (typeof value === "string") {
+        if (value.length > maximum) throw fsArgument();
+        return bytes(value);
+      }
+      if (
+        value === null ||
+        typeof value !== "object" ||
+        apply(typedArrayTag, value, []) !== "Uint8Array"
+      )
+        throw fsArgument();
+      const length = apply(typedArrayBytes, value, []);
+      if (length > maximum) throw fsArgument();
+      try {
+        // Detached arrays also report zero bytes. Constructing a view rejects
+        // them while retaining valid empty arrays and the exact byte range.
+        return new Uint8ArrayClass(
+          apply(typedArrayBuffer, value, []),
+          apply(typedArrayOffset, value, []),
+          length,
+        );
+      } catch (cause) {
+        const error = fsArgument();
+        error.cause = cause;
+        throw error;
+      }
+    };
     const fsPath = (path) =>
-      typeof path === "string" ? path : { bytes_base64: encode(bytes(path)) };
+      typeof path === "string" ? path : { bytes_base64: encode(fsBytes(path)) };
+    const fsHandle = (directory) => {
+      const handle = directory?.handle;
+      if (typeof handle !== "string") throw fsArgument();
+      return handle;
+    };
     const fsInteger = (value) => {
       if (typeof value === "bigint" || typeof value === "string")
         return String(value);
       if (typeof value === "number" && Number.isSafeInteger(value))
         return String(value);
-      const error = rpcFailure("ValidationError", "not_committed");
-      error.errno = "EINVAL";
-      throw error;
+      throw fsArgument();
     };
     const fsStat = (value) => {
       const result = { ...value };
@@ -892,32 +928,33 @@
       freeze({
         handle,
         read: async (count) =>
-          decode((await fsCall("read", { handle, count })).data_base64),
+          decode((await fsCall("read", () => ({ handle, count }))).data_base64),
         pread: async (count, offset) =>
           decode(
             (
-              await fsCall("pread", {
+              await fsCall("pread", () => ({
                 handle,
                 count,
                 offset: fsInteger(offset),
-              })
+              }))
             ).data_base64,
           ),
         write: (data) =>
-          fsCall("write", { handle, data_base64: encode(bytes(data)) }),
-        pwrite: (data, offset) =>
-          fsCall("pwrite", {
+          fsCall("write", () => ({
             handle,
-            data_base64: encode(bytes(data)),
+            data_base64: encode(fsBytes(data)),
+          })),
+        pwrite: (data, offset) =>
+          fsCall("pwrite", () => ({
+            handle,
+            data_base64: encode(fsBytes(data)),
             offset: fsInteger(offset),
-          }),
+          })),
         writeAll: async (data) => {
           let completed = 0;
           try {
             const caps = await fsCall("capabilities");
-            if (data.length > caps.limits.max_file_helper_bytes)
-              throw rpcFailure("ValidationError", "not_committed");
-            let remaining = bytes(data);
+            let remaining = fsBytes(data, caps.limits.max_file_helper_bytes);
             if (remaining.length > caps.limits.max_file_helper_bytes)
               throw rpcFailure("ValidationError", "not_committed");
             if (!remaining.length) await fsFile(handle).write(remaining);
@@ -967,26 +1004,27 @@
         },
         lseek: async (offset, whence = "start") =>
           BigInt(
-            await fsCall("lseek", {
+            await fsCall("lseek", () => ({
               handle,
               offset: fsInteger(offset),
               whence,
-            }),
+            })),
           ),
-        fstat: async () => fsStat(await fsCall("fstat", { handle })),
+        fstat: async () => fsStat(await fsCall("fstat", () => ({ handle }))),
         ftruncate: (size) =>
-          fsCall("ftruncate", { handle, size: fsInteger(size) }),
-        fchmod: (mode) => fsCall("fchmod", { handle, mode }),
-        dup: async () => fsFile((await fsCall("dup", { handle })).handle),
-        close: () => fsCall("close", { handle }),
-        fsync: () => fsCall("fsync", { handle }),
-        fdatasync: () => fsCall("fdatasync", { handle }),
+          fsCall("ftruncate", () => ({ handle, size: fsInteger(size) })),
+        fchmod: (mode) => fsCall("fchmod", () => ({ handle, mode })),
+        dup: async () =>
+          fsFile((await fsCall("dup", () => ({ handle }))).handle),
+        close: () => fsCall("close", () => ({ handle })),
+        fsync: () => fsCall("fsync", () => ({ handle })),
+        fdatasync: () => fsCall("fdatasync", () => ({ handle })),
       });
     const fsDirectory = (handle) =>
       freeze({
         handle,
         readdir: async () => {
-          const value = await fsCall("readdir", { handle });
+          const value = await fsCall("readdir", () => ({ handle }));
           return value === null
             ? null
             : freeze({
@@ -996,19 +1034,19 @@
               });
         },
         readPage: async (limit) =>
-          (await fsCall("read_page", { handle, limit })).map((value) =>
+          (await fsCall("read_page", () => ({ handle, limit }))).map((value) =>
             freeze({
               name: decode(value.name_base64),
               inode: BigInt(value.inode),
               kind: value.kind,
             }),
           ),
-        telldir: () => fsCall("telldir", { handle }),
-        seekdir: (cookie) => fsCall("seekdir", { handle, cookie }),
-        rewinddir: () => fsCall("rewinddir", { handle }),
-        closedir: () => fsCall("closedir", { handle }),
-        fstat: async () => fsStat(await fsCall("fstat", { handle })),
-        fsync: () => fsCall("fsync", { handle }),
+        telldir: () => fsCall("telldir", () => ({ handle })),
+        seekdir: (cookie) => fsCall("seekdir", () => ({ handle, cookie })),
+        rewinddir: () => fsCall("rewinddir", () => ({ handle })),
+        closedir: () => fsCall("closedir", () => ({ handle })),
+        fstat: async () => fsStat(await fsCall("fstat", () => ({ handle }))),
+        fsync: () => fsCall("fsync", () => ({ handle })),
       });
     const filesystem = freeze({
       capabilities: async () => {
@@ -1042,104 +1080,115 @@
         return freeze(result);
       },
       open: async (path, options = {}) =>
-        fsFile((await fsCall("open", { path: fsPath(path), options })).handle),
+        fsFile(
+          (await fsCall("open", () => ({ path: fsPath(path), options })))
+            .handle,
+        ),
       creat: async (path, mode = 0o666) =>
-        fsFile((await fsCall("creat", { path: fsPath(path), mode })).handle),
+        fsFile(
+          (await fsCall("creat", () => ({ path: fsPath(path), mode }))).handle,
+        ),
       openat: async (directory, path, options = {}) =>
         fsFile(
           (
-            await fsCall("openat", {
-              directory: directory.handle,
+            await fsCall("openat", () => ({
+              directory: fsHandle(directory),
               path: fsPath(path),
               options,
-            })
+            }))
           ).handle,
         ),
       stat: async (path) =>
-        fsStat(await fsCall("stat", { path: fsPath(path) })),
+        fsStat(await fsCall("stat", () => ({ path: fsPath(path) }))),
       lstat: async (path) =>
-        fsStat(await fsCall("lstat", { path: fsPath(path) })),
+        fsStat(await fsCall("lstat", () => ({ path: fsPath(path) }))),
       fstatat: async (directory, path, no_follow = false) =>
         fsStat(
-          await fsCall("fstatat", {
-            directory: directory.handle,
+          await fsCall("fstatat", () => ({
+            directory: fsHandle(directory),
             path: fsPath(path),
             no_follow,
-          }),
+          })),
         ),
       truncate: (path, size) =>
-        fsCall("truncate", { path: fsPath(path), size: fsInteger(size) }),
+        fsCall("truncate", () => ({
+          path: fsPath(path),
+          size: fsInteger(size),
+        })),
       mkdir: (path, mode = 0o777) =>
-        fsCall("mkdir", { path: fsPath(path), mode }),
+        fsCall("mkdir", () => ({ path: fsPath(path), mode })),
       mkdirat: (directory, path, mode = 0o777) =>
-        fsCall("mkdirat", {
-          directory: directory.handle,
+        fsCall("mkdirat", () => ({
+          directory: fsHandle(directory),
           path: fsPath(path),
           mode,
-        }),
-      rmdir: (path) => fsCall("rmdir", { path: fsPath(path) }),
-      unlink: (path) => fsCall("unlink", { path: fsPath(path) }),
+        })),
+      rmdir: (path) => fsCall("rmdir", () => ({ path: fsPath(path) })),
+      unlink: (path) => fsCall("unlink", () => ({ path: fsPath(path) })),
       unlinkat: (directory, path, remove_directory = false) =>
-        fsCall("unlinkat", {
-          directory: directory.handle,
+        fsCall("unlinkat", () => ({
+          directory: fsHandle(directory),
           path: fsPath(path),
           remove_directory,
-        }),
+        })),
       rename: (old, path) =>
-        fsCall("rename", { old: fsPath(old), new: fsPath(path) }),
+        fsCall("rename", () => ({ old: fsPath(old), new: fsPath(path) })),
       renameat: (old_directory, old, new_directory, path) =>
-        fsCall("renameat", {
-          old_directory: old_directory.handle,
+        fsCall("renameat", () => ({
+          old_directory: fsHandle(old_directory),
           old: fsPath(old),
-          new_directory: new_directory.handle,
+          new_directory: fsHandle(new_directory),
           new: fsPath(path),
-        }),
-      chmod: (path, mode) => fsCall("chmod", { path: fsPath(path), mode }),
+        })),
+      chmod: (path, mode) =>
+        fsCall("chmod", () => ({ path: fsPath(path), mode })),
       utimens: (path, mtime_ns = "now") =>
-        fsCall("utimens", {
+        fsCall("utimens", () => ({
           path: fsPath(path),
           mtime_ns:
             mtime_ns === null || mtime_ns === "now"
               ? mtime_ns
               : fsInteger(mtime_ns),
-        }),
+        })),
       opendir: async (path) =>
-        fsDirectory((await fsCall("opendir", { path: fsPath(path) })).handle),
+        fsDirectory(
+          (await fsCall("opendir", () => ({ path: fsPath(path) }))).handle,
+        ),
       readFile: async (path, max_bytes = null) =>
         decode(
-          (await fsCall("read_file", { path: fsPath(path), max_bytes }))
+          (await fsCall("read_file", () => ({ path: fsPath(path), max_bytes })))
             .data_base64,
         ),
       writeFile: (path, data) =>
-        fsCall("write_file", {
+        fsCall("write_file", () => ({
           path: fsPath(path),
-          data_base64: encode(bytes(data)),
-        }),
+          data_base64: encode(fsBytes(data)),
+        })),
       replaceFile: (path, data) =>
-        fsCall("replace_file", {
+        fsCall("replace_file", () => ({
           path: fsPath(path),
-          data_base64: encode(bytes(data)),
-        }),
+          data_base64: encode(fsBytes(data)),
+        })),
       editFile: async (path, expected, edit) => {
-        const value = await fsCall("edit_file", {
+        const value = await fsCall("edit_file", () => ({
           path: fsPath(path),
-          inode: fsInteger(expected.inode),
-          version: fsInteger(expected.version),
-          offset: fsInteger(edit.offset),
-          delete_bytes: fsInteger(edit.delete_bytes),
-          data_base64: encode(bytes(edit.insert)),
-        });
+          inode: fsInteger(expected?.inode),
+          version: fsInteger(expected?.version),
+          offset: fsInteger(edit?.offset),
+          delete_bytes: fsInteger(edit?.delete_bytes),
+          data_base64: encode(fsBytes(edit?.insert)),
+        }));
         return freeze({
           inode: BigInt(value.inode),
           version: BigInt(value.version),
         });
       },
       readDir: async (path, limit = 100, cursor = null) => {
-        const page = await fsCall("read_dir", {
+        const page = await fsCall("read_dir", () => ({
           path: fsPath(path),
           limit,
           cursor,
-        });
+        }));
         return freeze({
           entries: freeze(
             page.entries.map((value) =>

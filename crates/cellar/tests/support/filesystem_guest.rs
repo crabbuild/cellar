@@ -12,6 +12,7 @@ pub async fn initial(address: &str) -> Result<()> {
         "/one/replay",
         "/one/expired",
         "/one/metadata",
+        "/one/arguments",
         "/one/namespace",
         "/one/reserved-mkdir",
         "/one/reserved-rmdir",

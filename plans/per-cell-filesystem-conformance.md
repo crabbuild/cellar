@@ -158,6 +158,25 @@ saved inode/version/size and the original head and written tail. This is a
 sparse file and local host replacement; it does not qualify dense capacity or
 empty-local-state restore.
 
+## Guest argument-conversion profiles
+
+`argumentProfile` / `argument_profile` checks malformed path, offset/size/time,
+byte-data, directory-argument and expected-version values. The JavaScript
+profile has 57 cases, including malformed edit objects and seven detached-view
+refusals. The Python profile has
+51 cases, including released and noncontiguous buffers. Every refusal checks
+ValidationError/EINVAL, public operation, not_committed and zero confirmed
+bytes, plus unchanged root/file/directory metadata, quota usage, file offset,
+directory cookie and original content. JavaScript also checks that each call
+returns a promise before observing its rejection. Python checks the original
+buffer exception remains the cause, including through `write_all`, and accepts
+valid bytearray/memoryview writes afterward. JavaScript distinguishes detached
+views from valid empty arrays and checks empty writes preserve the baseline.
+
+These profiles cover the facade's argument converters. Native wire-shape,
+decimal syntax/range, option and post-dispatch result failures remain distinct
+audit cases; a client-side conversion refusal does not prove their behavior.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -168,9 +187,9 @@ remains before this inventory can support a complete conformance claim:
    Shared backend coverage alone does not prove every public wrapper's operation
    name, effect outcome or guest serialization. The looping-helper preflight
    and progress profiles above cover their specified SDK error paths; remaining
-   operation/option combinations still need their own assertions. Path/integer
-   argument construction before dispatch remains part of that audit; dispatch
-   error normalization alone does not qualify those validation paths.
+   operation/option combinations still need their own assertions. The argument
+   profiles cover the selected facade conversions; decimal syntax/range,
+   wire-shape and option/error combinations still need explicit mappings.
 2. Complete transaction, cancellation and closed-domain cases for each
    handle-bearing family. Extend the selected live cross-cell cases where
    additional operation families require distinct authority assertions. The

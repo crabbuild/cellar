@@ -186,6 +186,7 @@ The final affected-feature matrix and fault/capacity gates remain open.
 | Native directory-relative success profile | All three native filesystem tests passed after adding `directory_relative` | Byte-name open/stat/mkdir/rename/unlink through pinned parents after rename; absolute openat resolution from the cell root; unlinked inode reads, directory removal flags and linked dot pages. Also checks creat mode/content, path truncation, stat/lstat equality and quota/availability sums. Guest metadata profiles provide corresponding byte-name and namespace checks |
 | Directory-relative authority profile | All three native filesystem tests, all six Node/V8 filesystem tests and normal CPython mode passed | Eighteen relative/absolute cases refuse a still-live foreign native directory across openat/fstatat/mkdirat/unlinkat/renameat, including both rename parents; two native transactions roll back preceding file/business writes. Original owner metadata/usage remain unchanged before its background continuation. Each guest runtime also passes 54 cases across closed, prior-invocation and wrong-kind tokens, preserving exact errors, metadata/usage/cursors and source/victim bytes. Guest token tests have a different scope from concurrent native cross-cell tests |
 | Live cross-cell guest authority | Six combined Node/V8 filesystem tests and CPython 3.14.5 GIL/free-threaded normal, read-only and small-budget modes passed | Each normal runtime runs 45 refusals while the original owner invocation remains live: 27 retained file/directory/view calls return ContextMismatch and 18 foreign-token *at calls return EBADF. Public operation, not_committed and zero confirmed bytes are checked, with unchanged caller metadata/usage/cursor and owner metadata/usage/offset/cookie/bytes, including a pinned unlinked file. Python verifies actual GIL mode before and after the nested call. Dispatch refusals retain original exception type/cause, errno, outcome and confirmed progress; argument construction, cancellation and closed-domain matrices remain separate |
+| Guest argument conversion | All six Node/V8 filesystem cases and normal/read-only/small-budget modes under both Python 3.14.5 ABIs passed | 57 JavaScript and 51 Python refusals check ValidationError/EINVAL, outer operation, not_committed and zero progress, preserving metadata, usage, offsets, cookies and bytes. JavaScript returns rejected promises even for preparation failures. A detached-view regression reproduced successful write_file truncation before the fix; seven detached-input refusals now preserve state, while valid empty writes succeed. Python retains released/noncontiguous-buffer causes through write_all and accepts valid bytearray/memoryview writes. Native wire/decimal/option errors remain separate audit cases |
 | Guest looping-helper preflight and progress | Targeted Node/CPython red reproductions; all six Node/V8 tests, V8 protocol case and CPython normal/read-only/small-budget modes passed after the fix | Retired-context and helper-bound failures report read_exact/write_all with zero bytes and preserve code/errno/outcome. V8 protocol replies and CPython facade injection preserve not_committed/unknown without byte dispatch. Real budget profiles check 4096 consumed bytes/Unknown on EOF, an unchanged observed file version, a 1024-byte locally committed prefix before EFBIG, checked original head bytes and Python inode/version/head/tail after local host restart. Protocol injection is distinct from real overload/fleet fault qualification |
 | Root/dot and removed-directory profile | All 42 shared cases and removed-directory enumeration passed through Rust, Node, V8 and CPython native hosts | Existing root/dot creation returns EEXIST, directory unlink returns POSIX EPERM, root aliases remain EBUSY, non-root dot/dot-dot removal returns EINVAL/ENOTEMPTY, and missing/non-directory prefixes retain their own errors. Native/guest paths include directory-relative operations and assert exact known-no-effect failures with unchanged metadata/accounting. Removed or replaced open directories retain fstat identity but return EOF without cookie advancement, including rewind/seek; new entries remain refused |
 | Host filesystem descriptor admission | Both native filesystem tests, all four Node/V8 cases and the CPython harness passed | Captured `max_host_handles` bounds all SDK file/directory/dup descriptors in one execution domain. ENFILE precedes create/truncate and preserves metadata, offsets and bytes. The native four-slot/two-domain case checks cell EMFILE precedence, cross-cell exhaustion, immediate close reuse, retained handles after commit/rollback/event expiry, and independent-host admission. Guest cases exercise native four-slot exhaustion and typed no-effect replies through their real bridges |
@@ -224,9 +225,9 @@ normalization before the PR's main-branch integration. Earlier Python observatio
 used the host interpreter/dependencies without a captured runtime; they remain
 historical checkpoints. The refreshed Node session package below includes the
 main-branch integration and JavaScript helper normalization. Other agent
-artifacts and platforms remain open. The subsequent live-authority fix changes
-both guest facades; the captured agents below predate that dispatch-error
-normalization and require a final refresh. New runs use the current development
+artifacts and platforms remain open. Subsequent guest dispatch and argument
+fixes change both facades; the captured agents below predate these changes and
+require a final refresh. New runs use the current development
 accounting schema; older databases
 with the previous resize trigger are deliberately refused.
 
@@ -266,7 +267,7 @@ report and absent-prefix restoration. These are macOS/development-bucket
 results; Linux, final Pi/Vercel captures, refreshed Python hosts and broader
 failure/load qualification remain open.
 
-### Live guest authority checkpoint
+### Guest authority and argument checkpoint
 
 The live-authority regression reproduced missing operation/progress fields on
 JavaScript caller-scope refusals; the Python facade had the same gap. Both
@@ -274,7 +275,15 @@ dispatch boundaries now attach the public operation and confirmed bytes while
 preserving the original typed failure and outcome. All six Node/V8 filesystem
 tests pass. CPython normal, read-only and small-budget modes pass under each
 captured 3.14.5 ABI, with actual GIL state checked in the live case. The
-[conformance inventory](per-cell-filesystem-conformance.md) maps the 45 cases.
+[conformance inventory](per-cell-filesystem-conformance.md) maps the 45 live
+authority cases and the subsequent 57 JavaScript/51 Python argument cases.
+The argument follow-up moves JavaScript payload preparation inside the async
+error boundary and attaches Python conversion metadata before dispatch. A real
+Node reproduction showed detached byte input could truncate an existing file;
+constructing a view from captured typed-array intrinsics now distinguishes
+detached input from valid empty data. Node and V8 check seven detached-input
+refusals with unchanged state. Python preserves buffer-conversion causes, and
+its looping helpers retain original SDK exception causes and outcomes.
 All 20 V8 runtime cases, strict all-target Clippy for the five affected crates
 with combined guest features, formatting/layout, native dependency and
 documentation checks also pass. Layout covers 1,266 Rust files; the native
@@ -283,14 +292,16 @@ filesystem-plan checks validate 110 local links.
 
 Separate frozen executables and dynamic-library inventories distinguish the
 ABI runs, since Cargo reuses the same Python test-executable path. Task-local
-`.cellar/filesystem-live-authority-artifacts/` retains source hashes, failing
-reproductions, passing logs, executable identities and linkage records.
+`.cellar/filesystem-argument-artifacts/` retains the current source hashes,
+failing reproductions, passing logs, executable identities and linkage records.
+The earlier live-only checkpoint remains in
+`.cellar/filesystem-live-authority-artifacts/`.
 
 | Executable | SHA-256 |
 | --- | --- |
-| Combined Node/V8 filesystem tests | `c4ca7b447c4d034dc258402e84696bffab076b015593a3de6d1495926083b5ae` |
-| CPython 3.14.5 GIL filesystem tests | `f22554b8a830f6ac586c6168b89767b882d8ebed8c2bfe1fef3b3f8243880da6` |
-| CPython 3.14.5 free-threaded filesystem tests | `b8aee9ddc4fd5372f4820262052839dfe45163404b9736e75daa67693069b269` |
+| Combined Node/V8 filesystem tests | `5cdb09abb1ce977c824dd85b5b89eef6d63e9a45c940cd83583a24e7a3a1aa1c` |
+| CPython 3.14.5 GIL filesystem tests | `36d3694d623800d9e3b9d24eecd2cd8555d7fc49aad36149295702d1888ca683` |
+| CPython 3.14.5 free-threaded filesystem tests | `d9ea1badfb08361518505d84447673914248dd0d6fd3d3f8d42f08c5cbf529c9` |
 
 These SDK checks do not refresh the earlier captured-agent hosts or close the
 remaining operation/error, cancellation, domain, fault or capacity matrices.
@@ -511,8 +522,8 @@ independent of these primitive release priorities.
    cold agent recovery and direct SDK-mode evidence. The Node session package
    and nine-case source-entry host have now been refreshed against the PR's
    integrated sources, including helper preflight normalization. Final
-   Node captures and Python hosts must also include the subsequent dispatch-error
-   normalization. Final Pi/Vercel captures and the corresponding Linux CI/target
+   Node captures and Python hosts must also include the subsequent guest error
+   and argument fixes. Final Pi/Vercel captures and the corresponding Linux CI/target
    gates remain unverified.
    Finish the remaining agent captures and supported target/ABI matrix. The production-entry
    restore case and qualification-only fault cases retain their distinct scopes.

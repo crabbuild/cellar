@@ -478,6 +478,143 @@ async function namespaceProfile(fs, ctx) {
       encode(replay.result) === encode(directoryRefusal.result),
   );
 }
+async function argumentProfile(fs) {
+  while ((await fs.collectGarbage()) > 0) {}
+  const path = "/argument-file";
+  await fs.writeFile(path, utf8("original"));
+  await fs.mkdir("/argument-directory", 0o700);
+  const file = await fs.open(path, { access: "read_write" });
+  const directory = await fs.opendir("/argument-directory");
+  const version = await file.fstat();
+  const edit = { offset: 0n, delete_bytes: 0n, insert: utf8("x") };
+  const snapshot = async () =>
+    JSON.stringify(
+      [
+        await fs.stat("/"),
+        await file.fstat(),
+        await directory.fstat(),
+        await fs.statvfs(),
+        await file.lseek(0n, "current"),
+        await directory.telldir(),
+      ],
+      (_, value) => (typeof value === "bigint" ? String(value) : value),
+    );
+  const before = await snapshot();
+  const detached = new Uint8Array([1]);
+  check(detached.buffer.transfer().byteLength === 1);
+  const cases = [
+    [
+      () => fs.open({}, { access: "write", create: true, truncate: true }),
+      "open",
+    ],
+    [() => fs.creat({}), "creat"],
+    [() => fs.openat(directory, {}), "openat"],
+    [() => fs.stat({}), "stat"],
+    [() => fs.lstat({}), "lstat"],
+    [() => fs.fstatat(directory, {}), "fstatat"],
+    [() => fs.truncate({}, 0n), "truncate"],
+    [() => fs.mkdir({}), "mkdir"],
+    [() => fs.mkdirat(directory, {}), "mkdirat"],
+    [() => fs.rmdir({}), "rmdir"],
+    [() => fs.unlink({}), "unlink"],
+    [() => fs.unlinkat(directory, {}), "unlinkat"],
+    [() => fs.rename({}, path), "rename"],
+    [() => fs.rename(path, {}), "rename"],
+    [() => fs.renameat(directory, {}, directory, "target"), "renameat"],
+    [() => fs.renameat(directory, "source", directory, {}), "renameat"],
+    [() => fs.chmod({}, 0o600), "chmod"],
+    [() => fs.utimens({}, 0n), "utimens"],
+    [() => fs.opendir({}), "opendir"],
+    [() => fs.readFile({}), "read_file"],
+    [() => fs.writeFile({}, utf8("bad")), "write_file"],
+    [() => fs.replaceFile({}, utf8("bad")), "replace_file"],
+    [() => fs.editFile({}, version, edit), "edit_file"],
+    [() => fs.readDir({}), "read_dir"],
+    [() => file.pread(1, 0.5), "pread"],
+    [() => file.pwrite(utf8("bad"), 0.5), "pwrite"],
+    [() => file.lseek(0.5), "lseek"],
+    [() => file.ftruncate(0.5), "ftruncate"],
+    [() => fs.truncate(path, 0.5), "truncate"],
+    [() => fs.utimens(path, 0.5), "utimens"],
+    [() => fs.editFile(path, version, { ...edit, offset: 0.5 }), "edit_file"],
+    [
+      () => fs.editFile(path, version, { ...edit, delete_bytes: 0.5 }),
+      "edit_file",
+    ],
+    [() => fs.editFile(path, { ...version, inode: 0.5 }, edit), "edit_file"],
+    [() => fs.editFile(path, { ...version, version: 0.5 }, edit), "edit_file"],
+    [() => file.write({}), "write"],
+    [() => file.pwrite({}, 0n), "pwrite"],
+    [() => file.writeAll({}), "write_all"],
+    [() => fs.writeFile(path, {}), "write_file"],
+    [() => fs.replaceFile(path, {}), "replace_file"],
+    [() => fs.editFile(path, version, { ...edit, insert: {} }), "edit_file"],
+    [() => fs.openat(null, path), "openat"],
+    [() => fs.fstatat(null, path), "fstatat"],
+    [() => fs.mkdirat(null, "new"), "mkdirat"],
+    [() => fs.unlinkat(null, path), "unlinkat"],
+    [() => fs.renameat(null, path, directory, "target"), "renameat"],
+    [() => fs.renameat(directory, "source", null, path), "renameat"],
+    [() => fs.editFile(path, null, edit), "edit_file"],
+    [() => fs.editFile(path, {}, edit), "edit_file"],
+    [() => fs.editFile(path, version, null), "edit_file"],
+    [() => fs.editFile(path, version, {}), "edit_file"],
+    [() => fs.writeFile(path, detached), "write_file"],
+    [() => fs.replaceFile(path, detached), "replace_file"],
+    [
+      () => fs.editFile(path, version, { ...edit, insert: detached }),
+      "edit_file",
+    ],
+    [() => file.write(detached), "write"],
+    [() => file.pwrite(detached, 0n), "pwrite"],
+    [() => file.writeAll(detached), "write_all"],
+    [() => fs.stat(detached), "stat"],
+  ];
+  check(cases.length === 57);
+  try {
+    for (const [call, operation] of cases) {
+      let pending;
+      try {
+        pending = call();
+      } catch {
+        throw new Error(`argument ${operation} threw synchronously`);
+      }
+      check(pending !== null && typeof pending.then === "function");
+      let error;
+      try {
+        await pending;
+      } catch (caught) {
+        error = caught;
+      }
+      if (error === undefined)
+        throw new Error(
+          `argument ${operation} unexpectedly succeeded; state_unchanged=${(await snapshot()) === before}`,
+        );
+      if (
+        error?.code !== "ValidationError" ||
+        error.errno !== "EINVAL" ||
+        error.operation !== `filesystem.${operation}` ||
+        error.outcome !== "not_committed" ||
+        error.completed_bytes !== 0
+      )
+        throw new Error(
+          `argument ${operation}: code=${error?.code}, errno=${error?.errno}, operation=${error?.operation}, outcome=${error?.outcome}, completed=${error?.completed_bytes}`,
+        );
+      check((await snapshot()) === before);
+    }
+    equal(await fs.readFile(path), utf8("original"));
+    check((await file.write(new Uint8Array())) === 0);
+    check((await file.pwrite(new Uint8Array(), 0n)) === 0);
+    check((await snapshot()) === before);
+  } finally {
+    await file.close();
+    await directory.closedir();
+  }
+  await fs.unlink(path);
+  await fs.rmdir("/argument-directory");
+  while ((await fs.collectGarbage()) > 0) {}
+}
+
 let liveAuthority;
 
 async function liveAuthorityOwner(fs, ctx) {
@@ -845,6 +982,9 @@ class Counter {
       } else if (action === "namespace") {
         phase = "namespace-profile";
         await namespaceProfile(fs, ctx);
+      } else if (action === "arguments") {
+        phase = "arguments";
+        await argumentProfile(fs);
       } else if (action === "metadata") {
         phase = "metadata-profile";
         await fs.writeFile("/metadata", utf8("original"));

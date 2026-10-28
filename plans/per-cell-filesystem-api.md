@@ -445,6 +445,15 @@ Native `Error::operation` names the outer SDK call, such as `filesystem.open`,
 effect outcome and any confirmed partial progress. Operation names contain no
 path or file contents. Guest envelopes use their filesystem bridge method names.
 
+Facade refusals during path, exact-integer, byte-buffer or descriptor argument
+conversion report `ValidationError`, symbolic `EINVAL`, the public filesystem
+operation, `not_committed` and zero confirmed bytes. JavaScript returns a
+rejected promise; Python raises from the awaited coroutine and retains any
+buffer-conversion cause. These refusals precede submission of that filesystem
+call. They do not change the outcome of any earlier submitted call.
+Detached JavaScript views and released or noncontiguous Python buffers are
+invalid byte inputs. Valid empty buffers retain normal empty-I/O semantics.
+
 If `Context::fs()` cannot acquire a storage view, acquisition reports
 `NotApplied`: it has not entered the filesystem backend. This includes stateless
 and retired-context refusals. A retained filesystem or storage view rejected by

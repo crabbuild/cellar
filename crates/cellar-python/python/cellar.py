@@ -335,18 +335,42 @@ class DirectoryEntry:
     kind: str
 
 
-def _filesystem_path(path):
+def _filesystem_argument(operation, message):
+    error = ValidationError(message)
+    error.errno = "EINVAL"
+    return _filesystem_progress(error, 0, operation, False)
+
+
+def _filesystem_buffer(data, operation):
+    try:
+        return memoryview(data).cast("B")
+    except (TypeError, ValueError, BufferError) as error:
+        raise _filesystem_argument(operation, "Filesystem data must be contiguous bytes") from error
+
+
+def _filesystem_encode(data, operation):
+    return base64.b64encode(_filesystem_buffer(data, operation)).decode("ascii")
+
+
+def _filesystem_path(path, operation):
     if isinstance(path, str):
         return path
     if isinstance(path, (bytes, bytearray, memoryview)):
-        return {"bytes_base64": base64.b64encode(path).decode("ascii")}
-    raise ValidationError("Filesystem paths must be text or bytes")
+        return {"bytes_base64": _filesystem_encode(path, operation)}
+    raise _filesystem_argument(operation, "Filesystem paths must be text or bytes")
 
 
-def _filesystem_integer(value):
+def _filesystem_integer(value, operation):
     if type(value) is int or type(value) is str:
         return str(value)
-    raise ValidationError("Filesystem integers must be exact integers or decimal strings")
+    raise _filesystem_argument(operation, "Filesystem integers must be exact integers or decimal strings")
+
+
+def _filesystem_handle(directory, operation):
+    handle = getattr(directory, "_handle", None) if isinstance(directory, (Directory, File)) else None
+    if not isinstance(handle, str):
+        raise _filesystem_argument(operation, "Filesystem directory argument must be a descriptor")
+    return handle
 
 
 def _filesystem_progress(error, completed, operation, committed):
@@ -375,19 +399,19 @@ class File:
         return base64.b64decode(value["data_base64"], validate=True)
 
     async def pread(self, count, offset):
-        value = await self._fs._call("pread", handle=self._handle, count=count, offset=_filesystem_integer(offset))
+        value = await self._fs._call("pread", handle=self._handle, count=count, offset=_filesystem_integer(offset, "pread"))
         return base64.b64decode(value["data_base64"], validate=True)
 
     async def write(self, data):
-        return await self._fs._call("write", handle=self._handle, data_base64=base64.b64encode(data).decode("ascii"))
+        return await self._fs._call("write", handle=self._handle, data_base64=_filesystem_encode(data, "write"))
 
     async def pwrite(self, data, offset):
-        return await self._fs._call("pwrite", handle=self._handle, data_base64=base64.b64encode(data).decode("ascii"), offset=_filesystem_integer(offset))
+        return await self._fs._call("pwrite", handle=self._handle, data_base64=_filesystem_encode(data, "pwrite"), offset=_filesystem_integer(offset, "pwrite"))
 
     async def write_all(self, data):
-        data = memoryview(data).cast("B")
         completed = 0
         try:
+            data = _filesystem_buffer(data, "write_all")
             limits = (await self._fs.capabilities())["limits"]
             limit = limits["max_file_helper_bytes"]
             if data.nbytes > limit:
@@ -401,7 +425,10 @@ class File:
                 completed += count
                 data = data[count:]
         except Exception as error:
-            raise _filesystem_progress(error, completed, "write_all", True) from None
+            failure = _filesystem_progress(error, completed, "write_all", True)
+            if failure is error:
+                raise
+            raise failure from error
 
     async def read_exact(self, count):
         completed = 0
@@ -423,16 +450,19 @@ class File:
                 count -= len(chunk)
             return b"".join(chunks)
         except Exception as error:
-            raise _filesystem_progress(error, completed, "read_exact", False) from None
+            failure = _filesystem_progress(error, completed, "read_exact", False)
+            if failure is error:
+                raise
+            raise failure from error
 
     async def lseek(self, offset, whence="start"):
-        return int(await self._fs._call("lseek", handle=self._handle, offset=_filesystem_integer(offset), whence=whence))
+        return int(await self._fs._call("lseek", handle=self._handle, offset=_filesystem_integer(offset, "lseek"), whence=whence))
 
     async def fstat(self):
         return FileStat._decode(await self._fs._call("fstat", handle=self._handle))
 
     async def ftruncate(self, size):
-        return await self._fs._call("ftruncate", handle=self._handle, size=_filesystem_integer(size))
+        return await self._fs._call("ftruncate", handle=self._handle, size=_filesystem_integer(size, "ftruncate"))
 
     async def fchmod(self, mode):
         return await self._fs._call("fchmod", handle=self._handle, mode=mode)
@@ -520,75 +550,75 @@ class Filesystem:
         return {key: int(value) for key, value in (await self._call("statvfs")).items()}
 
     async def open(self, path, **options):
-        return File(self, (await self._call("open", path=_filesystem_path(path), options=options))["handle"])
+        return File(self, (await self._call("open", path=_filesystem_path(path, "open"), options=options))["handle"])
 
     async def creat(self, path, mode=0o666):
-        return File(self, (await self._call("creat", path=_filesystem_path(path), mode=mode))["handle"])
+        return File(self, (await self._call("creat", path=_filesystem_path(path, "creat"), mode=mode))["handle"])
 
     async def openat(self, directory, path, **options):
-        return File(self, (await self._call("openat", directory=directory._handle, path=_filesystem_path(path), options=options))["handle"])
+        return File(self, (await self._call("openat", directory=_filesystem_handle(directory, "openat"), path=_filesystem_path(path, "openat"), options=options))["handle"])
 
     async def stat(self, path):
-        return FileStat._decode(await self._call("stat", path=_filesystem_path(path)))
+        return FileStat._decode(await self._call("stat", path=_filesystem_path(path, "stat")))
 
     async def lstat(self, path):
-        return FileStat._decode(await self._call("lstat", path=_filesystem_path(path)))
+        return FileStat._decode(await self._call("lstat", path=_filesystem_path(path, "lstat")))
 
     async def fstatat(self, directory, path, no_follow=False):
-        return FileStat._decode(await self._call("fstatat", directory=directory._handle, path=_filesystem_path(path), no_follow=no_follow))
+        return FileStat._decode(await self._call("fstatat", directory=_filesystem_handle(directory, "fstatat"), path=_filesystem_path(path, "fstatat"), no_follow=no_follow))
 
     async def truncate(self, path, size):
-        return await self._call("truncate", path=_filesystem_path(path), size=_filesystem_integer(size))
+        return await self._call("truncate", path=_filesystem_path(path, "truncate"), size=_filesystem_integer(size, "truncate"))
 
     async def mkdir(self, path, mode=0o777):
-        return await self._call("mkdir", path=_filesystem_path(path), mode=mode)
+        return await self._call("mkdir", path=_filesystem_path(path, "mkdir"), mode=mode)
 
     async def mkdirat(self, directory, path, mode=0o777):
-        return await self._call("mkdirat", directory=directory._handle, path=_filesystem_path(path), mode=mode)
+        return await self._call("mkdirat", directory=_filesystem_handle(directory, "mkdirat"), path=_filesystem_path(path, "mkdirat"), mode=mode)
 
     async def rmdir(self, path):
-        return await self._call("rmdir", path=_filesystem_path(path))
+        return await self._call("rmdir", path=_filesystem_path(path, "rmdir"))
 
     async def unlink(self, path):
-        return await self._call("unlink", path=_filesystem_path(path))
+        return await self._call("unlink", path=_filesystem_path(path, "unlink"))
 
     async def unlinkat(self, directory, path, remove_directory=False):
-        return await self._call("unlinkat", directory=directory._handle, path=_filesystem_path(path), remove_directory=remove_directory)
+        return await self._call("unlinkat", directory=_filesystem_handle(directory, "unlinkat"), path=_filesystem_path(path, "unlinkat"), remove_directory=remove_directory)
 
     async def rename(self, old, new):
-        return await self._call("rename", old=_filesystem_path(old), new=_filesystem_path(new))
+        return await self._call("rename", old=_filesystem_path(old, "rename"), new=_filesystem_path(new, "rename"))
 
     async def renameat(self, old_directory, old, new_directory, new):
-        return await self._call("renameat", old_directory=old_directory._handle, old=_filesystem_path(old), new_directory=new_directory._handle, new=_filesystem_path(new))
+        return await self._call("renameat", old_directory=_filesystem_handle(old_directory, "renameat"), old=_filesystem_path(old, "renameat"), new_directory=_filesystem_handle(new_directory, "renameat"), new=_filesystem_path(new, "renameat"))
 
     async def chmod(self, path, mode):
-        return await self._call("chmod", path=_filesystem_path(path), mode=mode)
+        return await self._call("chmod", path=_filesystem_path(path, "chmod"), mode=mode)
 
     async def utimens(self, path, mtime_ns="now"):
-        value = mtime_ns if mtime_ns is None or mtime_ns == "now" else _filesystem_integer(mtime_ns)
-        return await self._call("utimens", path=_filesystem_path(path), mtime_ns=value)
+        value = mtime_ns if mtime_ns is None or mtime_ns == "now" else _filesystem_integer(mtime_ns, "utimens")
+        return await self._call("utimens", path=_filesystem_path(path, "utimens"), mtime_ns=value)
 
     async def opendir(self, path):
-        return Directory(self, (await self._call("opendir", path=_filesystem_path(path)))["handle"])
+        return Directory(self, (await self._call("opendir", path=_filesystem_path(path, "opendir")))["handle"])
 
     async def read_file(self, path, max_bytes=None):
-        return base64.b64decode((await self._call("read_file", path=_filesystem_path(path), max_bytes=max_bytes))["data_base64"], validate=True)
+        return base64.b64decode((await self._call("read_file", path=_filesystem_path(path, "read_file"), max_bytes=max_bytes))["data_base64"], validate=True)
 
     async def write_file(self, path, data):
-        return await self._call("write_file", path=_filesystem_path(path), data_base64=base64.b64encode(data).decode("ascii"))
+        return await self._call("write_file", path=_filesystem_path(path, "write_file"), data_base64=_filesystem_encode(data, "write_file"))
 
     async def sync(self):
         return await self._call("sync")
 
     async def replace_file(self, path, data):
-        return await self._call("replace_file", path=_filesystem_path(path), data_base64=base64.b64encode(data).decode("ascii"))
+        return await self._call("replace_file", path=_filesystem_path(path, "replace_file"), data_base64=_filesystem_encode(data, "replace_file"))
 
     async def edit_file(self, path, expected, *, offset, delete_bytes, insert):
-        value = await self._call("edit_file", path=_filesystem_path(path), inode=_filesystem_integer(expected.inode), version=_filesystem_integer(expected.version), offset=_filesystem_integer(offset), delete_bytes=_filesystem_integer(delete_bytes), data_base64=base64.b64encode(insert).decode("ascii"))
+        value = await self._call("edit_file", path=_filesystem_path(path, "edit_file"), inode=_filesystem_integer(getattr(expected, "inode", None), "edit_file"), version=_filesystem_integer(getattr(expected, "version", None), "edit_file"), offset=_filesystem_integer(offset, "edit_file"), delete_bytes=_filesystem_integer(delete_bytes, "edit_file"), data_base64=_filesystem_encode(insert, "edit_file"))
         return FileVersion(int(value["inode"]), int(value["version"]))
 
     async def read_dir(self, path, limit=100, cursor=None):
-        page = await self._call("read_dir", path=_filesystem_path(path), limit=limit, cursor=cursor)
+        page = await self._call("read_dir", path=_filesystem_path(path, "read_dir"), limit=limit, cursor=cursor)
         return DirectoryPage([DirectoryEntry(base64.b64decode(value["name_base64"], validate=True), int(value["inode"]), value["kind"]) for value in page["entries"]], page["next"])
 
     async def collect_garbage(self):

@@ -300,6 +300,81 @@ async def namespace_profile(fs, ctx):
     replay = await directory_tools.execute("empty-directory-edit", directory_request)
     assert replay["replayed"] and replay["result"] == directory_refusal["result"]
 
+async def argument_profile(fs):
+    while await fs.collect_garbage() > 0:
+        pass
+    path = "/argument-file"
+    await fs.write_file(path, b"original")
+    await fs.mkdir("/argument-directory", 0o700)
+    file = await fs.open(path, access="read_write")
+    directory = await fs.opendir("/argument-directory")
+    version = await file.fstat()
+    edit = dict(offset=0, delete_bytes=0, insert=b"x")
+
+    async def snapshot():
+        return await fs.stat("/"), await file.fstat(), await directory.fstat(), await fs.statvfs(), await file.lseek(0, "current"), await directory.telldir()
+
+    before = await snapshot()
+    released = memoryview(b"/argument-file")
+    released.release()
+    noncontiguous = memoryview(b"not-contiguous")[::2]
+    cases = (
+        (lambda: fs.open({}, access="write", create=True, truncate=True), "open"),
+        (lambda: fs.creat({}), "creat"), (lambda: fs.openat(directory, {}), "openat"),
+        (lambda: fs.stat({}), "stat"), (lambda: fs.lstat({}), "lstat"),
+        (lambda: fs.fstatat(directory, {}), "fstatat"),
+        (lambda: fs.truncate({}, 0), "truncate"), (lambda: fs.mkdir({}), "mkdir"),
+        (lambda: fs.mkdirat(directory, {}), "mkdirat"), (lambda: fs.rmdir({}), "rmdir"),
+        (lambda: fs.unlink({}), "unlink"), (lambda: fs.unlinkat(directory, {}), "unlinkat"),
+        (lambda: fs.rename({}, path), "rename"), (lambda: fs.rename(path, {}), "rename"),
+        (lambda: fs.renameat(directory, {}, directory, "target"), "renameat"),
+        (lambda: fs.renameat(directory, "source", directory, {}), "renameat"),
+        (lambda: fs.chmod({}, 0o600), "chmod"), (lambda: fs.utimens({}, 0), "utimens"),
+        (lambda: fs.opendir({}), "opendir"), (lambda: fs.read_file({}), "read_file"),
+        (lambda: fs.write_file({}, b"bad"), "write_file"),
+        (lambda: fs.replace_file({}, b"bad"), "replace_file"),
+        (lambda: fs.edit_file({}, version, **edit), "edit_file"), (lambda: fs.read_dir({}), "read_dir"),
+        (lambda: file.pread(1, 0.5), "pread"), (lambda: file.pwrite(b"bad", 0.5), "pwrite"),
+        (lambda: file.lseek(0.5), "lseek"), (lambda: file.ftruncate(0.5), "ftruncate"),
+        (lambda: fs.truncate(path, 0.5), "truncate"), (lambda: fs.utimens(path, 0.5), "utimens"),
+        (lambda: fs.edit_file(path, version, **(edit | dict(offset=0.5))), "edit_file"),
+        (lambda: fs.edit_file(path, version, **(edit | dict(delete_bytes=0.5))), "edit_file"),
+        (lambda: fs.edit_file(path, __import__("types").SimpleNamespace(inode=0.5, version=version.version), **edit), "edit_file"),
+        (lambda: fs.edit_file(path, __import__("types").SimpleNamespace(inode=version.inode, version=0.5), **edit), "edit_file"),
+        (lambda: file.write({}), "write"), (lambda: file.pwrite({}, 0), "pwrite"),
+        (lambda: file.write_all({}), "write_all"), (lambda: fs.write_file(path, {}), "write_file"),
+        (lambda: fs.replace_file(path, {}), "replace_file"),
+        (lambda: fs.edit_file(path, version, **(edit | dict(insert={}))), "edit_file"),
+        (lambda: fs.openat(None, path), "openat"), (lambda: fs.fstatat(None, path), "fstatat"),
+        (lambda: fs.mkdirat(None, "new"), "mkdirat"), (lambda: fs.unlinkat(None, path), "unlinkat"),
+        (lambda: fs.renameat(None, path, directory, "target"), "renameat"),
+        (lambda: fs.renameat(directory, "source", None, path), "renameat"),
+        (lambda: fs.edit_file(path, None, **edit), "edit_file"),
+        (lambda: fs.edit_file(path, {}, **edit), "edit_file"),
+        (lambda: fs.stat(released), "stat"),
+        (lambda: file.write(noncontiguous), "write"),
+        (lambda: file.write_all(released), "write_all"),
+    )
+    assert len(cases) == 51
+    try:
+        for index, (call, operation) in enumerate(cases):
+            error = await refuses(call, "ValidationError", "EINVAL")
+            assert (error.operation, error.outcome, error.completed_bytes) == (f"filesystem.{operation}", "not_committed", 0)
+            if index >= 48:
+                assert isinstance(error.__cause__, (TypeError, ValueError, BufferError))
+            assert await snapshot() == before
+        assert await fs.read_file(path) == b"original"
+        assert await file.pwrite(bytearray(b"o"), 0) == 1
+        assert await file.pwrite(memoryview(b"riginal"), 1) == 7
+        assert await file.pread(8, 0) == b"original"
+    finally:
+        await file.close()
+        await directory.closedir()
+    await fs.unlink(path)
+    await fs.rmdir("/argument-directory")
+    while await fs.collect_garbage() > 0:
+        pass
+
 live_authority = None
 
 async def live_authority_owner(fs, ctx):
@@ -502,6 +577,8 @@ class Counter:
             await reserved_namespace_profile(fs, action[len("reserved-"):])
         elif action == "namespace":
             await namespace_profile(fs, ctx)
+        elif action == "arguments":
+            await argument_profile(fs)
         elif action == "metadata":
             await fs.write_file("/metadata", b"original")
             initial = await fs.stat("/metadata")
