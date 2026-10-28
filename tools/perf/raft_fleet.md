@@ -55,7 +55,10 @@ The runner provisions separate ext4 filesystems backed by exclusively created,
 random-prewritten files on the dedicated VM data disk. It checks host free space
 before allocation and keeps a 4-GiB reserve. It retains loop/backing-file/UUID
 identities, verifies usable capacity, and never retries formatting or deletes
-files after an unknown outcome. Native roots are read-only, `/tmp` is a bounded
+files after an unknown outcome. Direct-I/O prewrites avoid filling the guest
+page cache. Ext4 uses one inode per 16 KiB and a journal of 1/64 of the backing
+size (minimum 4 MiB); each filesystem must still expose at least 90% usable space.
+Native roots are read-only, `/tmp` is a bounded
 128-MiB tmpfs, and container logs are capped. RustFS data has a separate hard
 filesystem bound, with bounded volatile logs and temporary files.
 

@@ -156,17 +156,19 @@ class Storage:
         # Random bytes materialize thin backing; fallocate or a sparse truncate
         # would reserve guest addresses without reserving host disk blocks.
         self.guest('sudo', 'dd', 'if=/dev/urandom', 'of=' + backing, 'bs=1048576',
-                   'count=' + str(size // MIB), 'conv=excl,fsync', 'status=none')
+                   'count=' + str(size // MIB), 'oflag=direct', 'conv=excl,fsync', 'status=none')
         self.check_host_space()
         device = self.guest('sudo', 'losetup', '--find', '--show', '--nooverlap', backing)
         binding = json.loads(self.guest('sudo', 'losetup', '--list', '--json',
                                        '--output', 'NAME,BACK-FILE', device))
         loop_binding(binding, device, backing)
+        journal_mib = max(4, size // MIB // 64)
         self.save(self.root / f'storage-{name}-format-intent.json', {
-            'device': device, 'backing': backing, 'bytes': size})
+            'device': device, 'backing': backing, 'bytes': size, 'journal_mib': journal_mib})
         # Only this invocation that exclusively created the backing may format
         # it. A lost response is retained for inspection, never retried here.
-        self.guest('sudo', 'mkfs.ext4', '-q', '-F', '-m', '0', '-i', '16384', '-E',
+        self.guest('sudo', 'mkfs.ext4', '-q', '-F', '-m', '0', '-i', '16384',
+                   '-J', 'size=' + str(journal_mib), '-E',
                    'nodiscard,lazy_itable_init=0,lazy_journal_init=0', device)
         uuid = self.guest('sudo', 'blkid', '-s', 'UUID', '-o', 'value', device)
         require(re.fullmatch(r'[0-9a-f-]{36}', uuid) is not None, 'missing filesystem UUID')
