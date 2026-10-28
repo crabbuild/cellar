@@ -125,6 +125,12 @@ impl RootSnapshotSource {
         &self.manifest
     }
 
+    /// Reusing remote bytes must not bypass the captured engine's lifetime.
+    /// This checks ownership only; it supplies no remote or native admission proof.
+    pub(in crate::raft) fn ensure_open(&self) -> Result<(), SnapshotError> {
+        self.validate_owner(&self.group)
+    }
+
     /// Reuse the sealed source proof only in its actual inventory. This is a
     /// metadata operation; callers must establish remote confirmation separately.
     pub(in crate::raft) fn local_image(

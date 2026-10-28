@@ -47,7 +47,10 @@ pub struct Store {
     pub snapshot_part_reads: AtomicUsize,
     pub snapshot_part_puts: AtomicUsize,
     pub root_extent_reads: AtomicUsize,
+    pub root_extent_hits: AtomicUsize,
     pub root_extent_puts: AtomicUsize,
+    pub fail_root_confirmation: AtomicBool,
+    root_confirmation_failure: std::sync::Mutex<Option<Path>>,
     pub root_extent_ready: AtomicUsize,
     pub hold_root_extents_after: AtomicUsize,
     pub fail_root_extent: AtomicUsize,
@@ -216,6 +219,13 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if path.as_ref().contains("/root-extents/")
+            && self.fail_root_confirmation.swap(false, Ordering::AcqRel)
+        {
+            // Bind this failure to the successful write's exact read-back;
+            // another concurrent absence probe must not consume it.
+            *self.root_confirmation_failure.lock().unwrap() = Some(path.clone());
+        }
         if path.as_ref().contains("/archives/bundles/")
             && self.fail_bundle_after.swap(false, Ordering::AcqRel)
         {
@@ -313,6 +323,11 @@ impl ObjectStore for Store {
             }
             self.root_extent_ready.fetch_add(1, Ordering::AcqRel);
             if ordinal == self.fail_root_extent.load(Ordering::Acquire) {
+                return Err(failure());
+            }
+            let mut pending = self.root_confirmation_failure.lock().unwrap();
+            if pending.as_ref() == Some(path) {
+                pending.take();
                 return Err(failure());
             }
         }
@@ -419,6 +434,9 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let mut result = self.inner.get_opts(path, options).await?;
+        if root_extent {
+            self.root_extent_hits.fetch_add(1, Ordering::AcqRel);
+        }
         if path.as_ref().contains("/snapshot-parts/")
             && self.slow_part_confirmations.load(Ordering::Acquire)
         {

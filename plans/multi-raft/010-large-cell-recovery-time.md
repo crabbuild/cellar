@@ -1647,6 +1647,80 @@ dependency and documentation guards pass. The full-size pilots retain the
 preceding frozen source and executable; neither these small instrumentation
 cases nor the failed full-size RustFS run qualify M1/M2.
 
+### Three same-artifact full-size pilots after the archive admission fix
+
+At commit `c1bb3a038c361f458b3ddd7baf15316cc1713ebd`, input digest
+`b6a2a20375b1f9c8c5c0ded0d5d74ff47609c0a73ece2cbdf138bb9392b9e633`,
+the release executable with SHA-256
+`c080c658f643102fda2951135db279190b340c3974d7df569fdff6ca30c7c2c3`
+passes three actual 9,999,998,976-byte extent restores per backend. Every trial
+passes all nine correctness checks, all six phase-observation windows and joined
+cleanup. Capacity preflights pass after development-host disk cleanup.
+
+| Backend | Trial 1 | Trial 2 | Trial 3 | Median |
+| --- | ---: | ---: | ---: | ---: |
+| Peer | 94.874534 s | 119.430358 s | 95.223625 s | 95.223625 s |
+| RustFS | 138.557515 s | 105.314964 s | 106.169031 s | 106.169031 s |
+
+These intervals include injected owner loss through the verified durable write.
+The RustFS trial above 120 seconds remains in the population: its pilot target
+is unmet. RustFS archive-coverage waits are 64.173601, 54.988260 and 58.703560
+seconds; seed installation takes 70.827723, 47.394451 and 43.379604 seconds.
+The peer seed intervals are 91.100102, 114.532020 and 90.580674 seconds. First
+writes after full hydration take 0.199513–0.341893 seconds. This does not establish
+an inexpensive first write against an incompletely hydrated image.
+
+The evidence controller retains raw campaigns, exact executable provenance,
+phase ledgers and successful worker-retirement receipts. Its combined analyzer
+requires identical source, profile, backend, image size and trial completeness;
+all six outcomes are retained. These are single-host, uncontrolled-cache,
+repeated-payload, joined-domain-loss pilots. Three samples establish neither
+production percentiles nor hard process-loss qualification. RT-05/06 and both
+production milestones remain open.
+
+The subsequent `5c050d37` component change coalesces concurrent reads of an
+uncached extent under one receive/scratch reservation. A gated two-reader
+regression reproduces `ScratchFull` before the change and passes afterward.
+Failure, corruption, producer panic, cache eviction and independent-extent
+concurrency cases pass. All-feature LTX extent suites pass 62 cases, with three
+existing physical cases ignored; all-target/all-feature Clippy and repository
+guards pass. These full-size timings use the preceding `c1bb3a03` executable;
+they do not qualify the newer component or native partial activation.
+
+### Avoid retransmitting already stored extent objects on publication retry
+
+The next regression reproduces three conditional-create requests for three
+already stored extents. It also shows that a failed confirmation read follows
+an unnecessary upload. Root confirmation now probes and hashes remote bytes
+before reading the local source. Only explicit absence permits an upload;
+transport failures and corrupt objects stop confirmation. Newly uploaded objects
+still require exact read-back, including when the PUT response is lost.
+
+The source engine must remain open. Existing selected history still verifies
+before new material can be uploaded, so this optimization cannot repair or hide
+a missing/corrupt selected dependency. Probing precedes the source buffer
+allocation and stays within the existing two-object/16 MiB read bound. The
+entered work drains on failure. Completion traces separately report freshly
+verified existing objects, new uploads and previous-root reuse.
+
+The first native rooted suite passes 35 cases with two physical cases ignored,
+including the new retry, unknown-PUT-response, corruption, read-failure and
+closed-source cases. Publication tests still require exactly one successful
+object download per new extent: an absence probe adds a request, not another
+object download. Public RustFS smoke/full-size measurements on the resulting
+artifact are required before attributing an RTO improvement to this change.
+
+Final validation at input digest
+`7d6b7419ac19f6978406046000c9b6332f5c9c2ba60aa76154b88fb7e6882ab1`
+passes 135 native archive, large-image and rooted cases, with 14 physical cases
+ignored in the ordinary suites. The explicit RustFS root restore also passes:
+the source owner closes and its directory is removed before restoration,
+native installation and restart verification. All-feature host-library and
+all-target qualification Clippy, formatting/layout (1,354 Rust files), dependency,
+documentation and diff checks pass. The release large-image executable has
+SHA-256 `989c384cdee5aa42b48f76afda7be176813474a64ed82c5e1d08cc2489faf6c9`.
+Full-size and hard-failure qualification for this artifact remain separate gates.
+
 ## RT-05: Serve safely before complete hydration
 
 1. Introduce an explicit installed-root capability backed by durable retained

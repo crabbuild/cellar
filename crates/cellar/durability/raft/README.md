@@ -441,8 +441,8 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 `host_sql/mod.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
 Its private `images` module selects physical command/read adapters beneath the
 shared controller. The extent branch is exercised by the worker integration
-fixtures; public node configuration retains the materialized backend until the
-extent recovery and effect contracts are integrated.
+fixtures. Namespace configuration selects the materialized or extent backend;
+extent activation requires the complete local closure and ordinary native proofs.
 
 The verification facade now has `RootSnapshotSource` and `RootSnapshotSet` for
 complete local extent-closure transfer. Capture pins a coherent durable root
@@ -485,9 +485,10 @@ It is not a grant reconstructed from a manifest or cached membership.
 This is an internal marker-1 hard cutover: canonical descriptors require the
 transfer length, and peer/control and snapshot/seed authentication identities
 refuse the older protocol. Use fresh experimental native state and matching
-workers; there is no legacy descriptor reader or migration. RustFS root archival,
-node-wide inventory recovery/GC, public backend selection and full fresh-learner
-root qualification remain unfinished. Partial residency still cannot produce a
+workers; there is no legacy descriptor reader or migration. Public peer and
+RustFS extent recovery are exercised by the qualification fixtures. Full-size
+failure qualification, durable remote retention/GC and native activation before
+complete hydration remain open. Partial residency still cannot produce a
 `SealedImageRoot`.
 
 `RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
@@ -1009,6 +1010,23 @@ index/head is exposed on failure, and independent destination replay remains
 required. `raft_archive_phase` logs distinguish encoding, confirmed upload,
 material download, physical replay and exact head confirmation; they are
 observations, not new publication proofs or recovery-time guarantees.
+
+Root extent publication first reads and hashes each object not already verified
+through the previous root in this same head-CAS attempt. A valid object needs no
+local source read or conditional-create upload. Only explicit remote absence
+permits an upload; failed reads and corrupt objects refuse confirmation. New
+uploads still require exact read-back, including after a lost PUT response.
+The captured engine must remain open, and selected-history verification still
+precedes any repair of unselected material. No HEAD, filename or earlier success
+substitutes for current byte verification.
+
+These probes run before allocating source buffers, within the existing
+two-object window and physical memory admission. Failures drain the entered
+work before returning. `root_upload_confirmed` reports `existing_objects` from
+fresh probes, `uploaded_objects`, and `reused_objects` from the already verified
+previous root. Empty-store publication pays an extra absence request per object;
+measure the tradeoff on the deployment's store rather than assuming a recovery
+latency improvement from fewer retry uploads.
 
 Native replicas coordinate publication for actual images of at least 64 MiB
 through a bounded conditional `publication` record beside the cell archive's
