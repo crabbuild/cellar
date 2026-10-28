@@ -205,6 +205,7 @@ The final affected-feature matrix and fault/capacity gates remain open.
 | Native directory-relative success profile | All three native filesystem tests passed after adding `directory_relative` | Byte-name open/stat/mkdir/rename/unlink through pinned parents after rename; absolute openat resolution from the cell root; unlinked inode reads, directory removal flags and linked dot pages. Also checks creat mode/content, path truncation, stat/lstat equality and quota/availability sums. Guest metadata profiles provide corresponding byte-name and namespace checks |
 | Directory-relative authority profile | All three native filesystem tests, all six Node/V8 filesystem tests and normal CPython mode passed | Eighteen relative/absolute cases refuse a still-live foreign native directory across openat/fstatat/mkdirat/unlinkat/renameat, including both rename parents; two native transactions roll back preceding file/business writes. Original owner metadata/usage remain unchanged before its background continuation. Each guest runtime also passes 54 cases across closed, prior-invocation and wrong-kind tokens, preserving exact errors, metadata/usage/cursors and source/victim bytes. Guest token tests have a different scope from concurrent native cross-cell tests |
 | Live cross-cell guest authority | Six combined Node/V8 filesystem tests and CPython 3.14.5 GIL/free-threaded normal, read-only and small-budget modes passed | Each normal runtime runs 45 refusals while the original owner invocation remains live: 27 retained file/directory/view calls return ContextMismatch and 18 foreign-token *at calls return EBADF. Public operation, not_committed and zero confirmed bytes are checked, with unchanged caller metadata/usage/cursor and owner metadata/usage/offset/cookie/bytes, including a pinned unlinked file. Python verifies actual GIL mode before and after the nested call. Dispatch refusals retain original exception type/cause, errno, outcome and confirmed progress; argument construction, cancellation and closed-domain matrices remain separate |
+| Guest deadline cleanup | Six Node/V8 filesystem cases and normal/read-only/small-budget modes under both CPython 3.14.5 ABIs passed | A native-future observer distinguishes the nested cell's cancellation from its HTTP caller's timeout. Each normal runtime checks 41 retained-wrapper/token refusals, four-slot capacity reuse, reclamation of a pinned 256 KiB unlinked file and removed directory, and file/business-state/receipt recovery. In-flight operation/proof cancellation and closed-domain cases remain separate |
 | Guest argument conversion | All six Node/V8 filesystem cases and normal/read-only/small-budget modes under both Python 3.14.5 ABIs passed | 57 JavaScript and 51 Python refusals check ValidationError/EINVAL, outer operation, not_committed and zero progress, preserving metadata, usage, offsets, cookies and bytes. JavaScript returns rejected promises even for preparation failures. A detached-view regression reproduced successful write_file truncation before the fix; seven detached-input refusals now preserve state, while valid empty writes succeed. Python retains released/noncontiguous-buffer causes through write_all and accepts valid bytearray/memoryview writes. Native wire/decimal/option errors remain separate audit cases |
 | Guest wire validation | All six Node/V8 filesystem cases, 26 guest units and both Python 3.14.5 ABI SDK-mode sets passed | Each normal runtime checks 158 refusals: 81 unsigned-decimal, 30 signed-decimal, 26 option/shape/helper and 21 batch cases. Invalid access previously returned Ambiguous/unknown in a real Node reproduction. Access and seek origins now decode as enums; pre-effect validation reports EINVAL or EOVERFLOW with outer operation and zero progress. Strict batch parsing rejects plus-prefixed identities as well as malformed sizes/data before any file/business effect. Samples preserve metadata, usage, offsets, cookies and bytes. The unit retains typed parse causes, preserves native unknown outcomes and refuses to use a filesystem marker as an enclosing fetch's effect proof |
 | Guest looping-helper preflight and progress | Targeted Node/CPython red reproductions; all six Node/V8 tests, V8 protocol case and CPython normal/read-only/small-budget modes passed after the fix | Retired-context and helper-bound failures report read_exact/write_all with zero bytes and preserve code/errno/outcome. V8 protocol replies and CPython facade injection preserve not_committed/unknown without byte dispatch. Real budget profiles check 4096 consumed bytes/Unknown on EOF, an unchanged observed file version, a 1024-byte locally committed prefix before EFBIG, checked original head bytes and Python inode/version/head/tail after local host restart. Protocol injection is distinct from real overload/fleet fault qualification |
@@ -334,6 +335,48 @@ live-authority checkpoints retain their own directories.
 
 These SDK checks do not refresh the earlier captured-agent hosts or close the
 remaining operation/error, cancellation, domain, fault or capacity matrices.
+
+### Guest deadline cleanup checkpoint
+
+The [deadline cleanup profile](per-cell-filesystem-conformance.md#guest-deadline-cleanup-profile)
+now passes through Node, embedded V8 and both CPython 3.14.5 ABIs against the
+integrated sources. All six JavaScript filesystem cases and all three Python
+SDK modes passed again. The normal mode checks 31 retained file, duplicate,
+directory and filesystem-view calls plus ten retired directory-token calls.
+Every refusal preserves the outer operation, not_committed and zero confirmed
+bytes, with unchanged fresh metadata, usage, offset and cookie.
+
+The original wrappers stay reachable after cancellation. Four fresh descriptors
+reuse the entire captured host ceiling; bounded GC removes the unlinked 256 KiB
+file and removed-directory inode. The preceding proven file/business/receipt
+batch survives cancellation and node restart. Python's combined report confirms
+joined interpreter/native cleanup, and the JavaScript host/runtime shutdown
+checks pass.
+
+An HTTP caller's timeout can precede cancellation of the accepted nested cell.
+The initial Python harness observed its still-pinned inodes during that window.
+The shared observer now waits for the original cell future to drop under its
+native caller before checking cleanup. Handler budgets, leases and primitive
+pin lifetimes are unchanged. This follow-up adds qualification assertions; it
+does not change production runtime behavior.
+
+Task-local `.cellar/filesystem-cancellation-pr144-artifacts/` records source
+hashes, separate executables, ABI linkage, logs and earlier harness observations.
+Strict five-crate all-target Clippy passes with the combined guest features.
+Formatting/layout cover 1,342 Rust files; JavaScript formatting checks 116
+sources. Native dependency and documentation checks pass, with 482 reachable
+packages without a JavaScript engine and 112 explicit filesystem-plan links.
+
+| Executable | SHA-256 |
+| --- | --- |
+| Combined Node/V8 filesystem tests | `a2467e47b47fbed1d451fb5c1bc3960a18037b7ff90e780f0842313e28781e16` |
+| CPython 3.14.5 GIL filesystem tests | `5f916c1c3fd9bbbd00a85eba1548305b7fdbd0ca18797c4c6a4599b6d5b164dc` |
+| CPython 3.14.5 free-threaded filesystem tests | `1af0282dc3c27a676a489a48222e75bf2ad08dd7637f1e8231dcf8278c8be3f8` |
+
+Cancellation during in-flight byte I/O or durability proof, closed execution
+domains, takeover, overload, final captured agents and the remaining fault/load
+matrix retain their open gates. Completed-operation cancellation evidence does
+not establish rollback or a known outcome for interrupted effects.
 
 ### Captured Python ABI checkpoints
 
@@ -577,8 +620,10 @@ independent of these primitive release priorities.
    and metadata-bound cases. Native background lifetime, wrong-cell/invocation
    refusal, event-end pin release and pending-transaction retirement now have
    evidence. Live cross-cell file/directory/view and *at refusals now have
-   Node/V8 and both Python ABI evidence; extend the remaining lifetime/resource
-   families across supported guest runtimes.
+   Node/V8 and both Python ABI evidence. The deadline cleanup profile adds
+   retained-wrapper refusal, pin/slot release and recovery of a preceding proven
+   batch across those runtimes; extend in-flight cancellation, closed-domain and
+   remaining lifetime/resource families across supported guest runtimes.
 5. Complete the performance/capacity matrix. Native dense 10 MiB/100 MiB/1 GiB
    file-plus-state recovery now has same-executable local evidence, sampled RSS
    and retained file/WAL/LTX observations. Finish optimized 4/16/64 KiB chunk

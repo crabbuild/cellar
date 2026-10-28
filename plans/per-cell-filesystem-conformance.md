@@ -199,6 +199,45 @@ marker does not establish the effect outcome of an enclosing cell fetch.
 These selected cases do not complete every option/precedence combination or
 post-dispatch result, cancellation, domain and fault profile.
 
+## Guest deadline cleanup profile
+
+The shared host client drives `/lifetime/cancel-start` to the native handler
+deadline, then invokes `/lifetime/cancel-check` and, after node restart,
+`/lifetime/cancel-recovered`. A [native-future observer](../crates/cellar/tests/support/filesystem_lifetime.rs)
+waits for the original cell future to drop before cleanup assertions; an HTTP
+caller timeout alone cannot establish cell expiry. The observer leaves the
+future's polling and destruction in its original native execution environment.
+The guest fixtures retain the original filesystem
+view, file, duplicate and removed-directory wrappers in global variables.
+No explicit close or guest collection accounts for their released resources.
+
+Before suspension, an atomic batch saves `/kept`, business state and a receipt.
+An explicit barrier proves those writes. A separate 256 KiB file and an empty
+directory are removed while their descriptors remain open; attempted GC leaves
+all four inodes accounted for. Following cancellation, bounded GC must leave
+exactly the root and `/kept`, nine logical bytes and one 64 KiB chunk. Four fresh
+descriptors can fill the captured four-slot host ceiling, and the next open
+returns ENFILE.
+
+| Cases | Selected audit IDs | Assertions |
+| --- | --- | --- |
+| 16 retained file/duplicate calls | O06–O17, O47–O48 | Reads, writes, positional I/O, seek, metadata, resize, chmod, dup, close, barriers and empty helpers refuse retired invocation authority |
+| 8 retained directory calls | O28–O34, O49 | Enumeration, page reads, cookies, seek/rewind, close, stat and proof refuse retired invocation authority |
+| 7 retained filesystem-view calls | O03, O18, O23, O36, O42–O43, O50 | Capability/metadata/content reads, writes, unlink, proof and GC cannot borrow the later invocation |
+| 10 retired directory-token calls | O37–O38, O40–O41 | Relative and absolute open/truncate, stat, unlink and both rename parents return EBADF through the fresh filesystem view |
+
+Each of the 41 refusals reports the outer operation, not_committed and zero
+confirmed bytes. Fresh root/file metadata, usage, file offset and directory
+cookie stay unchanged after each call. The committed file contents, business
+state and receipt survive both cancellation and node restart. Retained wrappers
+remain reachable through the shutdown boundary.
+
+This profile cancels a handler after completed, proven operations. It does not
+qualify cancellation during an in-flight byte operation or durability proof,
+activation takeover, closed execution domains, or resource overload generally.
+Runtime/ABI executions and artifact identities are recorded in the status
+ledger.
+
 ## Open audit work
 
 Every row records selected positive or negative behavior. The following work
@@ -217,7 +256,9 @@ remains before this inventory can support a complete conformance claim:
    handle-bearing family. Extend the selected live cross-cell cases where
    additional operation families require distinct authority assertions. The
    native foreign-directory and guest live/expired/closed/wrong-kind profiles
-   above cover both `renameat` parents, with their distinct scopes.
+   above cover both `renameat` parents, with their distinct scopes. The deadline
+   cleanup profile adds retained-wrapper refusal, slot/pin release and committed
+   batch recovery; in-flight operation/proof cancellation remains open.
 3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
    to actual source and executable evidence. Invocation-bound descriptors and
    activation-bound filesystem views have distinct lifetime contracts.

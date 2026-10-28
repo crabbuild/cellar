@@ -100,6 +100,7 @@ fn embedded_filesystem_readonly_recovers_writer_state() -> Result<()> {
 }
 
 fn exercise(application: Arc<cellar_javascript::JavaScriptApplication>) -> Result<()> {
+    let (application, cancellation) = conformance::observe(application);
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -124,7 +125,7 @@ fn exercise(application: Arc<cellar_javascript::JavaScriptApplication>) -> Resul
                 let result = if recovered {
                     conformance::recovered(&address).await
                 } else {
-                    conformance::initial(&address).await
+                    conformance::initial(&address, &cancellation).await
                 };
                 let result = async {
                     result?;

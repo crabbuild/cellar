@@ -62,6 +62,7 @@ fn main() -> Result<()> {
                             })
                             .await;
                         }
+                        let (application, cancellation) = conformance::observe(application);
                         let directory = tempfile::tempdir()?;
                         for recovered in [false, true] {
                             let (node, address) = native::start_configured(
@@ -84,7 +85,7 @@ fn main() -> Result<()> {
                                     conformance::recovered(&address).await?;
                                     conformance::tools_recovered(&address).await
                                 } else {
-                                    conformance::initial(&address).await?;
+                                    conformance::initial(&address, &cancellation).await?;
                                     conformance::tools(&address).await
                                 }
                             }

@@ -1080,13 +1080,175 @@ async function authorityProfile(fs, kind, supplied) {
   while ((await fs.collectGarbage()) > 0) {}
   return refused;
 }
+let cancelledFilesystem;
+
+async function cancelledFilesystemProfile(fs, ctx, action) {
+  if (action === "cancel-start") {
+    await ctx.storage.apply({
+      filesystem_mutations: [
+        {
+          op: "write_file",
+          path: "/kept",
+          data_base64: bytesToBase64(utf8("committed")),
+        },
+      ],
+      puts: { business: { phase: "saved" }, receipt: { result: "committed" } },
+    });
+    await fs.mkdir("/removed", 0o700);
+    const directory = await fs.opendir("/removed");
+    const file = await fs.open("/orphan", {
+      access: "read_write",
+      create_new: true,
+    });
+    await file.writeAll(new Uint8Array(4 * 65536).fill(42));
+    const duplicate = await file.dup();
+    await fs.unlink("/orphan");
+    await fs.rmdir("/removed");
+    await fs.collectGarbage();
+    check((await file.fstat()).size === 4n * 65536n);
+    check((await directory.fstat()).nlink === 0n);
+    check((await fs.statvfs()).inodes === 4n);
+    await fs.sync();
+    cancelledFilesystem = {
+      fs,
+      file,
+      duplicate,
+      directory,
+      cookie: await directory.telldir(),
+    };
+    // The native handler deadline, rather than guest GC or explicit close,
+    // must release these descriptors and pins. Keep every wrapper reachable.
+    await new Promise(() => {});
+    throw new Error("deadline-held filesystem invocation resumed");
+  }
+  equal(await fs.readFile("/kept"), utf8("committed"));
+  check((await ctx.storage.read("business")).value.phase === "saved");
+  check((await ctx.storage.read("receipt")).value.result === "committed");
+  await refuses(() => fs.stat("/orphan"), "Filesystem", "ENOENT");
+  await refuses(() => fs.stat("/removed"), "Filesystem", "ENOENT");
+  for (let i = 0; i < 64 && (await fs.collectGarbage()) > 0; i++) {}
+  const usage = await fs.statvfs();
+  check(
+    usage.inodes === 2n &&
+      usage.logical_bytes === 9n &&
+      usage.allocated_bytes === 65536n,
+  );
+  if (action === "cancel-recovered") return;
+  check(action === "cancel-check" && cancelledFilesystem !== undefined);
+  const owner = cancelledFilesystem;
+  const file = await fs.open("/kept", { access: "read_write" });
+  const duplicate = await file.dup();
+  const directory = await fs.opendir("/");
+  const fourth = await fs.open("/kept");
+  await refuses(() => fs.open("/kept"), "Filesystem", "ENFILE");
+  await directory.readdir();
+  const snapshot = async () =>
+    JSON.stringify(
+      [
+        await fs.stat("/"),
+        await file.fstat(),
+        await fs.statvfs(),
+        await file.lseek(0n, "current"),
+        await directory.telldir(),
+      ],
+      (_, value) => (typeof value === "bigint" ? String(value) : value),
+    );
+  const before = await snapshot();
+  let refused = 0;
+  const refusal = async (call, operation, foreignToken = false) => {
+    try {
+      await call();
+    } catch (error) {
+      check(
+        foreignToken
+          ? error.code === "Filesystem" && error.errno === "EBADF"
+          : ["ContextExpired", "ContextMismatch"].includes(error.code),
+      );
+      check(
+        error.operation === `filesystem.${operation}` &&
+          error.outcome === "not_committed" &&
+          error.completed_bytes === 0,
+      );
+      check((await snapshot()) === before);
+      refused++;
+      return;
+    }
+    throw new Error(
+      `cancelled filesystem.${operation} acquired fresh authority`,
+    );
+  };
+  for (const [call, operation] of [
+    [() => owner.file.read(1), "read"],
+    [() => owner.file.write(utf8("bad")), "write"],
+    [() => owner.file.pread(1, 0n), "pread"],
+    [() => owner.file.pwrite(utf8("bad"), 0n), "pwrite"],
+    [() => owner.file.lseek(1n), "lseek"],
+    [() => owner.file.fstat(), "fstat"],
+    [() => owner.file.ftruncate(0n), "ftruncate"],
+    [() => owner.file.fchmod(0o400), "fchmod"],
+    [() => owner.file.dup(), "dup"],
+    [() => owner.file.close(), "close"],
+    [() => owner.file.fsync(), "fsync"],
+    [() => owner.file.fdatasync(), "fdatasync"],
+    [() => owner.file.readExact(0), "read_exact"],
+    [() => owner.file.writeAll(new Uint8Array()), "write_all"],
+    [() => owner.duplicate.read(1), "read"],
+    [() => owner.duplicate.close(), "close"],
+    [() => owner.directory.readdir(), "readdir"],
+    [() => owner.directory.readPage(1), "read_page"],
+    [() => owner.directory.telldir(), "telldir"],
+    [() => owner.directory.seekdir(owner.cookie), "seekdir"],
+    [() => owner.directory.rewinddir(), "rewinddir"],
+    [() => owner.directory.closedir(), "closedir"],
+    [() => owner.directory.fstat(), "fstat"],
+    [() => owner.directory.fsync(), "fsync"],
+    [() => owner.fs.capabilities(), "capabilities"],
+    [() => owner.fs.stat("/kept"), "stat"],
+    [() => owner.fs.readFile("/kept"), "read_file"],
+    [() => owner.fs.writeFile("/kept", utf8("bad")), "write_file"],
+    [() => owner.fs.unlink("/kept"), "unlink"],
+    [() => owner.fs.sync(), "sync"],
+    [() => owner.fs.collectGarbage(), "collect_garbage"],
+  ])
+    await refusal(call, operation);
+  for (const path of ["kept", "/kept"]) {
+    await refusal(
+      () =>
+        fs.openat(owner.directory, path, { access: "write", truncate: true }),
+      "openat",
+      true,
+    );
+    await refusal(() => fs.fstatat(owner.directory, path), "fstatat", true);
+    await refusal(() => fs.unlinkat(owner.directory, path), "unlinkat", true);
+    await refusal(
+      () => fs.renameat(owner.directory, path, directory, "renamed"),
+      "renameat",
+      true,
+    );
+    await refusal(
+      () => fs.renameat(directory, "kept", owner.directory, path),
+      "renameat",
+      true,
+    );
+  }
+  check(refused === 41);
+  equal(await file.pread(16, 0n), utf8("committed"));
+  await fourth.close();
+  await duplicate.close();
+  await file.close();
+  await directory.closedir();
+}
+
 class Counter {
   async fetch(req, ctx) {
     let phase = "start";
     try {
       const action = req.url.split("/").at(-1);
       const fs = ctx.fs;
-      if (action === "exercise") {
+      if (action.startsWith("cancel-")) {
+        phase = action;
+        await cancelledFilesystemProfile(fs, ctx, action);
+      } else if (action === "exercise") {
         phase = "capabilities";
         check(!(await fs.capabilities()).symlinks);
         await fs.mkdir("/dir", 0o700);

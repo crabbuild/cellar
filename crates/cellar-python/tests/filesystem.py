@@ -603,11 +603,116 @@ async def authority_profile(fs, kind, supplied):
         pass
     return refused
 
+cancelled_filesystem = None
+
+async def cancelled_filesystem_profile(fs, ctx, action):
+    global cancelled_filesystem
+    if action == "cancel-start":
+        await ctx.storage.apply(
+            filesystem_mutations=[dict(op="write_file", path="/kept", data_base64=base64.b64encode(b"committed").decode())],
+            puts={"business": {"phase": "saved"}, "receipt": {"result": "committed"}})
+        await fs.mkdir("/removed", 0o700)
+        directory = await fs.opendir("/removed")
+        file = await fs.open("/orphan", access="read_write", create_new=True)
+        await file.write_all(bytes([42]) * (4 * 65536))
+        duplicate = await file.dup()
+        await fs.unlink("/orphan")
+        await fs.rmdir("/removed")
+        await fs.collect_garbage()
+        assert (await file.fstat()).size == 4 * 65536
+        assert (await directory.fstat()).nlink == 0
+        assert (await fs.statvfs())["inodes"] == 4
+        await fs.sync()
+        cancelled_filesystem = dict(fs=fs, file=file, duplicate=duplicate, directory=directory, cookie=await directory.telldir())
+        # Retain every wrapper across native cancellation; guest collection and
+        # explicit closes must not account for the released capacity or pins.
+        await asyncio.Future()
+        raise AssertionError("deadline-held filesystem invocation resumed")
+    assert await fs.read_file("/kept") == b"committed"
+    assert await ctx.storage.get_json("business") == {"phase": "saved"}
+    assert await ctx.storage.get_json("receipt") == {"result": "committed"}
+    await refuses(lambda: fs.stat("/orphan"), "Filesystem", "ENOENT")
+    await refuses(lambda: fs.stat("/removed"), "Filesystem", "ENOENT")
+    for _ in range(64):
+        if await fs.collect_garbage() == 0:
+            break
+    usage = await fs.statvfs()
+    assert (usage["inodes"], usage["logical_bytes"], usage["allocated_bytes"]) == (2, 9, 65536), usage
+    if action == "cancel-recovered":
+        return
+    assert action == "cancel-check" and cancelled_filesystem is not None
+    owner = cancelled_filesystem
+    file = await fs.open("/kept", access="read_write")
+    duplicate = await file.dup()
+    directory = await fs.opendir("/")
+    fourth = await fs.open("/kept")
+    await refuses(lambda: fs.open("/kept"), "Filesystem", "ENFILE")
+    await directory.readdir()
+
+    async def snapshot():
+        return await fs.stat("/"), await file.fstat(), await fs.statvfs(), await file.lseek(0, "current"), await directory.telldir()
+
+    before = await snapshot()
+    refused = 0
+
+    async def refusal(call, operation, foreign_token=False):
+        nonlocal refused
+        try:
+            await call()
+        except SDKError as error:
+            if foreign_token:
+                assert (error.code, error.errno) == ("Filesystem", "EBADF"), error
+            else:
+                assert error.code in ("ContextExpired", "ContextMismatch"), error
+            actual = getattr(error, "operation", None), error.outcome, getattr(error, "completed_bytes", None)
+            assert actual == (f"filesystem.{operation}", "not_committed", 0), actual
+            assert await snapshot() == before
+            refused += 1
+            return
+        raise AssertionError(f"cancelled filesystem.{operation} acquired fresh authority")
+
+    for call, operation in (
+        (lambda: owner["file"].read(1), "read"), (lambda: owner["file"].write(b"bad"), "write"),
+        (lambda: owner["file"].pread(1, 0), "pread"), (lambda: owner["file"].pwrite(b"bad", 0), "pwrite"),
+        (lambda: owner["file"].lseek(1), "lseek"), (owner["file"].fstat, "fstat"),
+        (lambda: owner["file"].ftruncate(0), "ftruncate"), (lambda: owner["file"].fchmod(0o400), "fchmod"),
+        (owner["file"].dup, "dup"), (owner["file"].close, "close"),
+        (owner["file"].fsync, "fsync"), (owner["file"].fdatasync, "fdatasync"),
+        (lambda: owner["file"].read_exact(0), "read_exact"), (lambda: owner["file"].write_all(b""), "write_all"),
+        (lambda: owner["duplicate"].read(1), "read"), (owner["duplicate"].close, "close"),
+        (owner["directory"].readdir, "readdir"), (lambda: owner["directory"].read_page(1), "read_page"),
+        (owner["directory"].telldir, "telldir"), (lambda: owner["directory"].seekdir(owner["cookie"]), "seekdir"),
+        (owner["directory"].rewinddir, "rewinddir"), (owner["directory"].closedir, "closedir"),
+        (owner["directory"].fstat, "fstat"), (owner["directory"].fsync, "fsync"),
+        (owner["fs"].capabilities, "capabilities"), (lambda: owner["fs"].stat("/kept"), "stat"),
+        (lambda: owner["fs"].read_file("/kept"), "read_file"), (lambda: owner["fs"].write_file("/kept", b"bad"), "write_file"),
+        (lambda: owner["fs"].unlink("/kept"), "unlink"), (owner["fs"].sync, "sync"),
+        (owner["fs"].collect_garbage, "collect_garbage"),
+    ):
+        await refusal(call, operation)
+    for path in ("kept", "/kept"):
+        await refusal(lambda: fs.openat(owner["directory"], path, access="write", truncate=True), "openat", True)
+        await refusal(lambda: fs.fstatat(owner["directory"], path), "fstatat", True)
+        await refusal(lambda: fs.unlinkat(owner["directory"], path), "unlinkat", True)
+        await refusal(lambda: fs.renameat(owner["directory"], path, directory, "renamed"), "renameat", True)
+        await refusal(lambda: fs.renameat(directory, "kept", owner["directory"], path), "renameat", True)
+    assert refused == 41
+    assert await file.pread(16, 0) == b"committed"
+    await fourth.close()
+    await duplicate.close()
+    await file.close()
+    await directory.closedir()
+
 class Counter:
     async def fetch(self, req, ctx):
         action = req.url.rsplit("/", 1)[-1]
         fs = ctx.fs
-        if action == "exercise":
+        if action.startswith("cancel-"):
+            try:
+                await cancelled_filesystem_profile(fs, ctx, action)
+            except Exception:
+                return Response(__import__("traceback").format_exc(), status=500)
+        elif action == "exercise":
             assert not (await fs.capabilities())["symlinks"]
             await fs.mkdir("/dir", 0o700)
             await fs.write_file("/notes", b"one")

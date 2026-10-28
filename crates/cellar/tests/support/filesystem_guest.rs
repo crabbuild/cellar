@@ -2,9 +2,13 @@
 
 use anyhow::{ensure, Result};
 
+#[path = "filesystem_lifetime.rs"]
+mod lifetime;
+pub(crate) use lifetime::observe;
+
 // This client-side harness runs outside the native node's execution domain.
 #[allow(clippy::disallowed_methods)]
-pub async fn initial(address: &str) -> Result<()> {
+pub(crate) async fn initial(address: &str, cancellation: &lifetime::Cancellation) -> Result<()> {
     let client = reqwest::Client::new();
     for path in [
         "/stateless-fs",
@@ -38,6 +42,26 @@ pub async fn initial(address: &str) -> Result<()> {
             "filesystem {path}: {status} {text}"
         );
     }
+    let cancelled = client
+        .get(format!("{address}/lifetime/cancel-start"))
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await?;
+    ensure!(
+        cancelled.status().is_server_error(),
+        "deadline-held filesystem invocation returned success"
+    );
+    cancellation.wait().await?;
+    let reply = client
+        .get(format!("{address}/lifetime/cancel-check"))
+        .send()
+        .await?;
+    let status = reply.status();
+    let text = reply.text().await?;
+    ensure!(
+        status.is_success() && text == "ok",
+        "filesystem cancellation cleanup: {status} {text}"
+    );
     let reply = client.get(format!("{address}/one/gc-start")).send().await?;
     ensure!(
         reply.status().is_success(),
@@ -63,13 +87,15 @@ pub async fn initial(address: &str) -> Result<()> {
 }
 
 pub async fn recovered(address: &str) -> Result<()> {
-    let reply = reqwest::get(format!("{address}/one/recovered")).await?;
-    let status = reply.status();
-    let text = reply.text().await?;
-    ensure!(
-        status.is_success() && text == "ok",
-        "filesystem recovery: {status} {text}"
-    );
+    for path in ["/one/recovered", "/lifetime/cancel-recovered"] {
+        let reply = reqwest::get(format!("{address}{path}")).await?;
+        let status = reply.status();
+        let text = reply.text().await?;
+        ensure!(
+            status.is_success() && text == "ok",
+            "filesystem recovery {path}: {status} {text}"
+        );
+    }
     Ok(())
 }
 
