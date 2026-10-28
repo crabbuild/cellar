@@ -36,9 +36,10 @@ pub(super) async fn check(
         for path in ["/scope-steal", "/scope-direct", "/scope-rebound"] {
             let value = call(client, other, path).await;
             stages.push((path, started.elapsed()));
+            let value = value?;
             ensure!(
-                value? == json!({"refused":true,"code":"ContextMismatch"}),
-                "{path}: live context crossed domains"
+                value == json!({"refused":true,"code":"ContextMismatch"}),
+                "{path}: expected live-context ContextMismatch, got {value}"
             );
         }
         let released = call(client, other, "/scope-release").await;
@@ -127,14 +128,16 @@ pub(super) fn run_cases(iterations: usize) -> Result<()> {
     }
 }
 
-/// Fail the control branch while the real held handler is still active. The
-/// diagnostic must retain that primary failure AND the ensuing budget failure;
+/// Fail the control branch while the real held handler is still active.
+/// Inject at the first control request so reaching the fault does not itself
+/// depend on completing three cold-host round trips within the held budget.
+/// The diagnostic must retain that primary failure AND the ensuing budget failure;
 /// a successful rerun cannot prove that either failure was captured correctly.
 pub(super) fn failure_provenance() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let source = include_str!("../bridge.py").replace(
-        "    if request.path == \"/scope-direct\":",
-        "    if request.path == \"/scope-direct\":\n        return Response(b\"controlled context failure\", status=500)",
+        "    if request.path == \"/scope-ready\":",
+        "    if request.path == \"/scope-ready\":\n        return Response(b\"controlled context failure\", status=500)",
     );
     let report = run(
         contract_options(),
@@ -164,7 +167,7 @@ pub(super) fn failure_provenance() -> Result<()> {
                 let error = format!("{:#}", checked.expect_err("controlled branch must fail"));
                 for required in [
                     "controlled context failure",
-                    "/scope-direct",
+                    "/scope-ready",
                     "/scope-hold",
                     "handler exceeded 250ms budget",
                     "stages=",

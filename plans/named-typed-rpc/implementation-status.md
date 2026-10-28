@@ -71,17 +71,41 @@ Local free-threaded observations on this follow-up:
 - One separate context run fails before Python admission: neither handler starts,
   both connections close after approximately 5.2 seconds, and the interpreter's
   sampled age remains approximately 8 ms. Two native outcomes are incomplete.
-  That unlogged run is retained at `.tmpm6HWEi` in the machine's temporary root.
+  That unlogged run is retained at `.tmpm6HWEi` in the machine's temporary root
+  and copied to `.cellar/rpc/diagnostics/pre-admission-failure/`.
   It is a distinct host-lifecycle failure, not a reproduction of the original
   250 ms HTTP 500. Its exact native fencing reason was not captured by the old
   shutdown helper; the helper now includes the actual native outcome.
 
 The controlled diagnostic regression passes on the free-threaded build: a
-synthetic `/scope-direct` 500 and the held request's real 250 ms timeout both
+synthetic control-request 500 and the held request's real 250 ms timeout both
 remain in the error, and the report confirms complete cleanup. The final local
 free-threaded executable passes the contract, 100 fresh-host context cases and
 100 fresh-fleet first writes. These runs add to, rather than replace, the failed
 observations above.
+
+The first GIL diagnostic-regression run fails before reaching its synthetic
+`/scope-direct` error: the held request returns `handler exceeded 250ms budget`
+after 1.044 seconds; `/scope-ready` completes after 1.061 seconds and the next
+control check fails its expected `ContextMismatch` assertion. The old assertion
+did not retain its actual response, so an expired context is not established;
+the updated assertion records the received value. HTTP elapsed time includes
+cold-host admission, so it does not by itself establish late handler-timer
+delivery. Interpreter snapshot age is 4.2 ms,
+with three handlers started, two completed and one cancelled. This failure is
+preserved in `context-failure-gil.log`; it is not counted as a pass. The diagnostic
+regression now injects at `/scope-ready`, the first control request, to separate
+error-capture validation from the multi-request handshake's timing. The ordinary
+probe still performs all three original isolation checks under unchanged budgets.
+The timing failure's underlying cause remains open.
+
+After isolating the diagnostic regression, the controlled failure case and
+full contract pass again on the final free-threaded executable. The GIL
+controlled failure case,
+full contract, 100 first writes and Clippy pass. A separate 1,000-case GIL
+fresh-host context probe also passes. The GIL failure above remains retained,
+not reclassified by these successes. Formatting, layout, documentation and
+native dependency checks pass. No production source or timeout budget changes.
 
 The previous turn's ignored `.cellar/` artifacts were absent at the start of
 this investigation. Earlier ledger references describe evidence captured then,
