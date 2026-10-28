@@ -98,15 +98,8 @@ impl FleetCatalog {
             let completed = self
                 .restart_operator_completed(snapshot, operation, deadline.remaining()?)
                 .await?;
-            let (
-                attempt,
-                cancellation,
-                cancellation_refused,
-                stop_grant,
-                return_grant,
-                resume_grant,
-            ) = self
-                .run(deadline.remaining()?, async {
+            let (attempt, cancellation, refusal_offline, stop_grant, return_grant, resume_grant) =
+                self.run(deadline.remaining()?, async {
                     let attempt = self
                         .restart_operator_attempt(snapshot, &admission.record)
                         .await?;
@@ -114,10 +107,10 @@ impl FleetCatalog {
                         .operator_cancel_command(snapshot, &admission.record)
                         .await?;
                     let refused = if let Some(command) = &cancellation {
-                        self.operator_cancel_refused(snapshot, &admission.record, command)
+                        self.operator_cancel_refusal_offline(snapshot, &admission.record, command)
                             .await?
                     } else {
-                        false
+                        None
                     };
                     let stop = self
                         .operator_action(snapshot, &admission.record, "stop")
@@ -134,6 +127,7 @@ impl FleetCatalog {
                     Ok((attempt, cancellation, refused, stop, returning, resume))
                 })
                 .await?;
+            let cancellation_refused = refusal_offline.is_some();
             let execution_operation = attempt.as_ref().map(|a| a.request.operation);
             if cancellation
                 .as_ref()
@@ -195,15 +189,20 @@ impl FleetCatalog {
                 .ok_or(FleetCatalogError::Corrupt("unadmitted operator stop"))?;
             }
             if let Some(offline) = &facts.offline {
-                let receipt = self
-                    .restart_offline(
+                let checked = if let Some(checked) = refusal_offline {
+                    checked
+                } else {
+                    self.restart_offline(
                         snapshot,
                         ProposalId::new(offline.operation)
                             .map_err(|_| FleetCatalogError::Corrupt("offline operation"))?,
                         deadline.remaining()?,
                     )
-                    .await?;
-                if receipt.identity() != offline {
+                    .await?
+                    .identity()
+                    .clone()
+                };
+                if &checked != offline {
                     return Err(FleetCatalogError::Corrupt("operator offline predecessor"));
                 }
             }

@@ -137,6 +137,7 @@ impl FleetHostAuthorization {
                         .catalog
                         .checked_restart_return(&snapshot, operation)
                         .await?;
+                    let stop = stop.selector(&gate)?;
                     if consent.process != process.bytes()
                         || current.storage_instance() != Some(instance)
                         || log.limits().node != self.node()
@@ -265,7 +266,9 @@ impl FleetCatalog {
         };
         let record: ReturnedBoot = decode(KIND, &bytes, LIMIT)?;
         record.validate(self, consent, gate)?;
-        self.confirm_restart_boot(snapshot, &record.node, &record.mutation()?)
+        // Both callers already checked this return's complete predecessor at
+        // this snapshot. Confirm the canonical boot request and journal once.
+        self.confirm_restart_boot_journal(snapshot, &record.mutation()?)
             .await?;
         Ok(Some(record))
     }
@@ -297,27 +300,36 @@ impl FleetCatalog {
             if record.mutation()? != *mutation || !node.boot_origin_matches(&record.node) {
                 return Err(FleetCatalogError::Corrupt("return boot projection"));
             }
-            let key = hex::encode(mutation.id);
-            let stored = self
-                .inner
-                .read::<FleetMutation>(&format!("requests/{key}"), REQUEST_KIND, REQUEST_LIMIT)
-                .await?
-                .ok_or(FleetCatalogError::Corrupt("missing return boot request"))?
-                .0;
-            let applied = self
-                .inner
-                .committed(
-                    &snapshot.head,
-                    &key,
-                    hash(&encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?),
-                )
-                .await?
-                .ok_or(FleetCatalogError::Corrupt("unadmitted return boot"))?;
-            if stored != *mutation || mutation.expected_revision.checked_add(1) != Some(applied) {
-                return Err(FleetCatalogError::Corrupt("return boot journal"));
-            }
-            Ok(())
+            self.confirm_restart_boot_journal(snapshot, mutation).await
         })
+    }
+
+    async fn confirm_restart_boot_journal(
+        &self,
+        snapshot: &FleetSnapshot,
+        mutation: &FleetMutation,
+    ) -> Result<()> {
+        mutation.validate()?;
+        let key = hex::encode(mutation.id);
+        let stored = self
+            .inner
+            .read::<FleetMutation>(&format!("requests/{key}"), REQUEST_KIND, REQUEST_LIMIT)
+            .await?
+            .ok_or(FleetCatalogError::Corrupt("missing return boot request"))?
+            .0;
+        let applied = self
+            .inner
+            .committed(
+                &snapshot.head,
+                &key,
+                hash(&encode(REQUEST_KIND, mutation, REQUEST_LIMIT)?),
+            )
+            .await?
+            .ok_or(FleetCatalogError::Corrupt("unadmitted return boot"))?;
+        if stored != *mutation || mutation.expected_revision.checked_add(1) != Some(applied) {
+            return Err(FleetCatalogError::Corrupt("return boot journal"));
+        }
+        Ok(())
     }
 }
 
@@ -345,14 +357,9 @@ impl FleetCatalog {
                 .returned_boot(snapshot, operation, &consent, &gate)
                 .await?
                 .ok_or(FleetCatalogError::Unconfirmed)?;
-            let (_, canonical_stop, canonical_gate) =
-                self.checked_restart_offline(snapshot, operation).await?;
-            if canonical_stop.selector(&canonical_gate)? != stop {
-                return Err(FleetCatalogError::Conflict);
-            }
-            let ready = self
-                .restart_stop_ready(&canonical_stop, &canonical_gate)
-                .await?;
+            // The return check carries its validated offline stop and gate;
+            // recover readiness from that exact lineage without replaying it.
+            let ready = self.restart_stop_ready(&stop, &gate).await?;
             Ok(Box::new(ReturnedCut {
                 node: record.node.clone(),
                 quiescence: record.quiescence(&gate)?,

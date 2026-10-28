@@ -2,7 +2,7 @@
 
 //! Separate human CLI grants, actual joined stop, retained boot and M9 capacity.
 use super::*;
-use cellar::application::consensus::verification::LogOpenMode;
+use cellar::application::consensus::verification::{FleetRestartOperatorPhase, LogOpenMode};
 use cellar::application::consensus::{
     fleet_capacity_profile_digest, FleetBootBinding, FleetRestartService,
 };
@@ -45,7 +45,9 @@ async fn restart(mut f: Scenario) -> Result<()> {
             },
         )
         .await?;
-    let stopped = Box::pin(stop_primary(&mut f, server, service)).await?;
+    let stopped = Box::pin(stop_primary(&mut f, server, service))
+        .await
+        .context("stop primary")?;
     let server = Server::configured(&f.s.f, &f.s.namespace, Some(f.spare.clone())).await?;
     let service = server
         .control
@@ -57,8 +59,12 @@ async fn restart(mut f: Scenario) -> Result<()> {
             },
         )
         .await?;
-    let host = Box::pin(return_primary(&mut f, &server, stopped)).await?;
-    Box::pin(resume_primary(&f, server, service, host)).await?;
+    let host = Box::pin(return_primary(&mut f, &server, stopped))
+        .await
+        .context("return primary")?;
+    Box::pin(resume_primary(&f, server, service, host))
+        .await
+        .context("resume primary")?;
     f.close().await
 }
 
@@ -456,6 +462,73 @@ async fn resume_primary(
     let before = root.revision();
     view(&server, &resume.operation_id).await?;
     ensure!(reader.read(TIMEOUT).await?.revision() == before);
+    let (status, reads) =
+        f.s.f
+            .domain
+            .run(crate::fault::count_reads(reader.restart_operator_status(
+                &root,
+                ProposalId::new([210; 16])?,
+                TIMEOUT,
+            )))
+            .await?;
+    let status = status?.context("completed operator status")?;
+    ensure!(status.phase == FleetRestartOperatorPhase::Complete && status.completed.is_some());
+    // Completed, offline and resume receipts each validate their predecessor
+    // once. Background trust refresh runs outside this measured task scope.
+    let closure_reads = reads
+        .iter()
+        .filter(|(key, _)| key.contains("/closures/"))
+        .map(|(_, n)| n)
+        .sum::<usize>();
+    ensure!(
+        closure_reads <= 3,
+        "repeated maintenance lineage: {closure_reads} signed closure reads for one status"
+    );
+    // A successful previous read cannot hide a subsequently missing signed
+    // closure or the canonical boot request, even at the same immutable Root.
+    let closure = reads
+        .keys()
+        .find(|key| key.contains("/closures/"))
+        .context("closure read")?
+        .clone();
+    let missing =
+        f.s.f
+            .domain
+            .run(crate::fault::missing_read(
+                closure,
+                reader.restart_operator_status(&root, ProposalId::new([210; 16])?, TIMEOUT),
+            ))
+            .await?;
+    ensure!(
+        matches!(missing, Err(FleetCatalogError::Unconfirmed)),
+        "missing closure must refuse status"
+    );
+    let boot = host
+        .observe_node(TIMEOUT)
+        .await?
+        .fleet_boot
+        .context("returned boot")?;
+    let suffix = format!("/requests/{}", hex::encode(boot.boot));
+    let request = reads
+        .keys()
+        .find(|key| key.ends_with(&suffix))
+        .context("canonical boot request read")?
+        .clone();
+    let missing =
+        f.s.f
+            .domain
+            .run(crate::fault::missing_read(
+                request,
+                reader.restart_operator_status(&root, ProposalId::new([210; 16])?, TIMEOUT),
+            ))
+            .await?;
+    ensure!(
+        matches!(
+            missing,
+            Err(FleetCatalogError::Corrupt("missing return boot request"))
+        ),
+        "missing boot request must refuse status"
+    );
     service.shutdown().await;
     server.close().await?;
     Ok(())

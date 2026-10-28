@@ -140,6 +140,20 @@ impl FleetCatalog {
         record: &Record,
         command: &Command,
     ) -> Result<bool> {
+        Ok(self
+            .operator_cancel_refusal_offline(root, record, command)
+            .await?
+            .is_some())
+    }
+
+    /// Return the offline predecessor already validated for this refusal and
+    /// snapshot. A status read can check its matching offline fact directly.
+    pub(in super::super) async fn operator_cancel_refusal_offline(
+        &self,
+        root: &FleetSnapshot,
+        record: &Record,
+        command: &Command,
+    ) -> Result<Option<FleetRequestIdentity>> {
         let key = format!(
             "restart-controller-cancel-refused/{}",
             hex::encode(record.request.operation)
@@ -149,7 +163,7 @@ impl FleetCatalog {
             .lookup(root.head.tables[FleetTable::Operations.slot()], &key)
             .await?
         else {
-            return Ok(false);
+            return Ok(None);
         };
         let fact: Refusal = decode(REFUSAL_KIND, &bytes, 4096)?;
         validate_request(&fact.request)?;
@@ -167,7 +181,7 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Corrupt("operator cancellation refusal"));
         }
-        Ok(true)
+        Ok(Some(offline.request))
     }
 
     pub(in super::super) async fn refuse_operator_cancel(

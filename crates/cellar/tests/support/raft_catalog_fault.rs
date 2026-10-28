@@ -8,6 +8,31 @@ use object_store::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+tokio::task_local! {
+    static READ_COUNTS: std::cell::RefCell<std::collections::BTreeMap<String, usize>>;
+    static MISSING_READ: String;
+}
+
+// Keep a read fault local to one verifier; running nodes still see the store.
+#[allow(dead_code)]
+pub async fn missing_read<T>(path: String, work: impl std::future::Future<Output = T>) -> T {
+    MISSING_READ.scope(path, work).await
+}
+
+// Shared fault adapter: only catalog work-count regressions use this scope.
+#[allow(dead_code)]
+pub async fn count_reads<T>(
+    work: impl std::future::Future<Output = T>,
+) -> (T, std::collections::BTreeMap<String, usize>) {
+    READ_COUNTS
+        .scope(Default::default(), async {
+            let result = work.await;
+            let counts = READ_COUNTS.with(|counts| counts.take());
+            (result, counts)
+        })
+        .await
+}
+
 // This test-only external store runs outside the node execution boundary.
 // Its transport delay must remain observable while the node's work is idle.
 #[allow(clippy::disallowed_methods)]
@@ -412,6 +437,21 @@ impl ObjectStore for Store {
     }
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
+        let _ = READ_COUNTS.try_with(|counts| {
+            *counts.borrow_mut().entry(path.to_string()).or_default() += 1;
+        });
+        if MISSING_READ
+            .try_with(|missing| missing == path.as_ref())
+            .unwrap_or(false)
+        {
+            return Err(object_store::Error::NotFound {
+                path: path.to_string(),
+                source: Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "scoped missing object",
+                )),
+            });
+        }
         if path.as_ref().ends_with("/fleet/head")
             && *self.fleet_confirmation_task.lock().unwrap() == tokio::task::try_id()
             && self.fail_fleet_read.swap(false, Ordering::AcqRel)

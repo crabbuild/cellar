@@ -225,7 +225,7 @@ impl FleetCatalog {
         self.check_snapshot(snapshot)?;
         request.validate()?;
         self.run(timeout, async {
-            let record = self
+            let (record, _) = self
                 .resume_intent_candidate(snapshot, &request.identity)
                 .await?
                 .ok_or(FleetCatalogError::Unconfirmed)?;
@@ -364,7 +364,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         identity: &FleetRequestIdentity,
-    ) -> Result<Option<Intent>> {
+    ) -> Result<Option<(Intent, Box<ReturnedCut>)>> {
         let Some((mutation, _)) = self
             .inner
             .read::<FleetMutation>(
@@ -391,7 +391,7 @@ impl FleetCatalog {
         if record.request.identity != *identity || record.mutation()? != mutation {
             return Err(FleetCatalogError::PayloadConflict);
         }
-        Ok(Some(record))
+        Ok(Some((record, cut)))
     }
 
     async fn current_resume_intent(
@@ -408,7 +408,7 @@ impl FleetCatalog {
             .await?
             .ok_or(FleetCatalogError::Unconfirmed)?;
         let record: Intent = decode(records::INTENT_KIND, &bytes, 4096)?;
-        let canonical = self
+        let (canonical, _) = self
             .resume_intent_candidate(snapshot, &record.request.identity)
             .await?
             .ok_or(FleetCatalogError::Corrupt("missing resume consent"))?;
@@ -445,7 +445,7 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::PayloadConflict);
         }
-        let intent = self
+        let (intent, cut) = self
             .resume_intent_candidate(snapshot, &request.resume)
             .await?
             .ok_or(FleetCatalogError::Corrupt("resume completion parent"))?;
@@ -456,9 +456,8 @@ impl FleetCatalog {
         {
             return Err(FleetCatalogError::Corrupt("unadmitted resume parent"));
         }
-        let cut = self
-            .historical_returned_cut(snapshot, request.identity.operation)
-            .await?;
+        // The candidate already checked its returned owner at this snapshot.
+        // Completion validates against the same canonical predecessor.
         record.validate(self, &intent, &cut)?;
         Ok(Some(record))
     }

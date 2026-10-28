@@ -5,6 +5,7 @@ mod boot;
 mod records;
 use super::super::{nodes::NodeRecord, resources::Authority};
 use super::gate::Gate;
+use super::stop::Consent;
 use super::*;
 use crate::raft::fleet_stop::{LifecyclePurpose, LifecycleUpdate, StopSelector};
 use crate::raft::storage::ReplicaLog;
@@ -232,7 +233,7 @@ impl FleetCatalog {
         &self,
         snapshot: &FleetSnapshot,
         operation: [u8; 16],
-    ) -> Result<(Return, StopSelector, Gate)> {
+    ) -> Result<(Return, Consent, Gate)> {
         let bytes = self
             .inner
             .lookup(
@@ -260,7 +261,7 @@ impl FleetCatalog {
             return Err(FleetCatalogError::Corrupt("unadmitted restart return"));
         }
         record.validate(self, &gate)?;
-        Ok((record, stop.selector(&gate)?, gate))
+        Ok((record, stop, gate))
     }
 
     pub(in crate::raft::fleet_catalog) fn check_restart_return_mutation(

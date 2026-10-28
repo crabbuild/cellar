@@ -72,7 +72,7 @@ impl FleetRestartResumeVerification {
             let prior = catalog
                 .run(deadline.remaining()?, async {
                     let current = catalog.inner.current().await?;
-                    if let Some(record) = catalog
+                    if let Some((record, _)) = catalog
                         .resume_intent_candidate(&current, &request.identity)
                         .await?
                     {
