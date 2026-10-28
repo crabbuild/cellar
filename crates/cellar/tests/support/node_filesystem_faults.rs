@@ -24,29 +24,33 @@ enum Backend {
     Development,
     S3,
     S3Sockets,
+    S3Stalls,
 }
 
 enum Fault {
     Publication(Arc<ReplicaPublicationFault>),
     Store(Arc<StoreOutage>),
     Socket(Arc<socket_fault::Control>),
+    StalledSocket(Arc<socket_fault::Control>),
 }
 
 impl Fault {
-    async fn cut(&self) -> Result<()> {
+    async fn apply(&self) -> Result<()> {
         match self {
             Self::Publication(fault) => fault.block_and_drain().await,
             Self::Store(fault) => fault.isolate(),
             Self::Socket(fault) => fault.cut().await?,
+            Self::StalledSocket(fault) => fault.stall().await?,
         }
         Ok(())
     }
 
-    fn refused(&self) -> usize {
+    fn observed(&self) -> usize {
         match self {
             Self::Publication(fault) => fault.refused(),
             Self::Store(fault) => fault.refused(),
             Self::Socket(fault) => fault.refused(),
+            Self::StalledSocket(fault) => fault.stalled(),
         }
     }
 }
@@ -71,6 +75,7 @@ fn s3_bucket(endpoint: &str) -> Result<cellar::bucket::Bucket> {
 }
 
 async fn socket_bucket(
+    backend: Backend,
     management: &ExecutionDomain,
     proxies: &mut Vec<socket_fault::Proxy>,
 ) -> Result<(cellar::bucket::Bucket, Fault)> {
@@ -80,7 +85,11 @@ async fn socket_bucket(
     let endpoint = &proxies.last().unwrap().endpoint;
     Ok((
         management.run(async { s3_bucket(endpoint) }).await??,
-        Fault::Socket(control),
+        if matches!(backend, Backend::S3Stalls) {
+            Fault::StalledSocket(control)
+        } else {
+            Fault::Socket(control)
+        },
     ))
 }
 
@@ -247,6 +256,13 @@ async fn filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recov
     scenario(Backend::S3Sockets).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires a private loopback CELLAR_FS_S3_ENDPOINT, CELLAR_FS_S3_BUCKET and AWS credentials"]
+async fn filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery() -> Result<()>
+{
+    scenario(Backend::S3Stalls).await
+}
+
 async fn scenario(backend: Backend) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -266,12 +282,16 @@ async fn scenario(backend: Backend) -> Result<()> {
     management.shutdown().await;
     let mut report = result?;
     cleanup?;
-    if matches!(backend, Backend::S3Sockets) {
+    if matches!(backend, Backend::S3Sockets | Backend::S3Stalls) {
         ensure!(proxy_reports.len() == 3);
         for proxy in &proxy_reports {
-            ensure!(proxy["denied_connections"]
-                .as_u64()
-                .is_some_and(|count| count > 0));
+            let observation = if matches!(backend, Backend::S3Stalls) {
+                ensure!(proxy["denied_connections"] == 0);
+                "stalled_connections"
+            } else {
+                "denied_connections"
+            };
+            ensure!(proxy[observation].as_u64().is_some_and(|count| count > 0));
             ensure!(proxy["remaining_connections"] == 0 && proxy["joined"] == true);
         }
         for proxy in &proxy_reports[..2] {
@@ -311,8 +331,8 @@ async fn exercise(
     let signals = Arc::new(Signals::default());
     let _release = Release(signals.clone());
     let core = Executor::new("filesystem-outage-owner")?;
-    let (isolated, outage) = if matches!(backend, Backend::S3Sockets) {
-        socket_bucket(management, proxies).await?
+    let (isolated, outage) = if matches!(backend, Backend::S3Sockets | Backend::S3Stalls) {
+        socket_bucket(backend, management, proxies).await?
     } else {
         let (bucket, fault) = StoreOutage::wrap(&bucket)?;
         (bucket, Fault::Store(fault))
@@ -325,20 +345,21 @@ async fn exercise(
         0,
     )
     .await?;
-    let (publication_store, publication) = if matches!(backend, Backend::S3Sockets) {
-        let (bucket, fault) = socket_bucket(management, proxies).await?;
-        (bucket.store, fault)
-    } else {
-        let publication = ReplicaPublicationFault::with_prefixes(
-            bucket.store.clone(),
-            format!("{}cells/{}/ltx/", bucket.prefix, scope()),
-            Vec::new(),
-        );
-        (
-            publication.clone() as Arc<dyn object_store::ObjectStore>,
-            Fault::Publication(publication),
-        )
-    };
+    let (publication_store, publication) =
+        if matches!(backend, Backend::S3Sockets | Backend::S3Stalls) {
+            let (bucket, fault) = socket_bucket(backend, management, proxies).await?;
+            (bucket.store, fault)
+        } else {
+            let publication = ReplicaPublicationFault::with_prefixes(
+                bucket.store.clone(),
+                format!("{}cells/{}/ltx/", bucket.prefix, scope()),
+                Vec::new(),
+            );
+            (
+                publication.clone() as Arc<dyn object_store::ObjectStore>,
+                Fault::Publication(publication),
+            )
+        };
     let fleet = services.fleet.as_mut().context("fleet missing")?;
     fleet.fleet_durability = false;
     fleet.replica_storage = ReplicaStorage::new(
@@ -354,7 +375,7 @@ async fn exercise(
     let seed: Value =
         serde_json::from_str(&call(&http, &owner, reqwest::Method::POST, "/seed").await?)?;
     ensure!(seed["generation"] == 1);
-    publication.cut().await?;
+    publication.apply().await?;
     let address = owner.info().public_address;
     let old_services = owner.services();
     let request = async {
@@ -368,7 +389,7 @@ async fn exercise(
     let control = async {
         let progress = tokio::time::timeout(Duration::from_secs(5), async {
             signals.local_commit.notified().await;
-            while publication.refused() == 0 {
+            while publication.observed() == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
@@ -377,7 +398,7 @@ async fn exercise(
             owner.shutdown(ShutdownMode::Handoff).await?;
             return Err(error.into());
         }
-        outage.cut().await?;
+        outage.apply().await?;
         tokio::time::timeout(
             Duration::from_secs(10),
             owner.run_until(std::future::pending()),
@@ -402,7 +423,7 @@ async fn exercise(
         }
         Err(_) => json!({"transport_error":true,"outcome":"unknown"}),
     };
-    ensure!(publication.refused() > 0 && outage.refused() > 0);
+    ensure!(publication.observed() > 0 && outage.observed() > 0);
     {
         let local = signals.local_receipt.lock().unwrap();
         let local = local.as_ref().unwrap();
@@ -422,13 +443,13 @@ async fn exercise(
     // restore this cell. No application constructor or empty filesystem may
     // be admitted as a substitute for the acknowledged checkpoint.
     let bad_core = Executor::new("filesystem-outage-bad-recovery")?;
-    let (unreadable, read_fault) = if matches!(backend, Backend::S3Sockets) {
-        socket_bucket(management, proxies).await?
+    let (unreadable, read_fault) = if matches!(backend, Backend::S3Sockets | Backend::S3Stalls) {
+        socket_bucket(backend, management, proxies).await?
     } else {
         let (bucket, fault) = StoreOutage::wrap(&bucket)?;
         (bucket, Fault::Store(fault))
     };
-    read_fault.cut().await?;
+    read_fault.apply().await?;
     let (mut config, mut services) = inputs(
         "filesystem-bad-recovery",
         &directory.path().join("bad"),
@@ -447,12 +468,27 @@ async fn exercise(
     )?;
     let bad = Node::start(config, services, graph(), applications(signals.clone())?).await?;
     ready(&bad).await?;
+    // Cell restore is bounded per provider request, not by the node-log startup
+    // recovery policy. A stalled S3 read uses 15-second attempts and a 30-second
+    // retry window (an admitted attempt can finish after that window). Observe
+    // its failure before shutdown; retain the original HTTP/clean-drain checks.
+    // All runtime/store budgets and the other fault profiles remain unchanged.
+    let recovery_observation_timeout =
+        Duration::from_secs(if matches!(backend, Backend::S3Stalls) {
+            60
+        } else {
+            15
+        });
+    let failed_read_started = std::time::Instant::now();
     let refused = http
         .get(format!("http://{}/recovered", bad.info().public_address))
+        .timeout(recovery_observation_timeout)
         .send()
         .await;
+    let failed_read_elapsed = failed_read_started.elapsed();
     let stopped_bad = stopped(bad).await;
-    let refused = refused?;
+    let refused =
+        refused.with_context(|| format!("failed-recovery admission; shutdown: {stopped_bad:?}"))?;
     let status = refused.status();
     let body = refused.text().await?;
     // This application propagates CellRef::fetch failure from its root
@@ -461,7 +497,7 @@ async fn exercise(
         status == reqwest::StatusCode::INTERNAL_SERVER_ERROR,
         "recovery refusal {status}: {body}"
     );
-    ensure!(read_fault.refused() > 0 && signals.constructors.load(Ordering::SeqCst) == 1);
+    ensure!(read_fault.observed() > 0 && signals.constructors.load(Ordering::SeqCst) == 1);
     stopped_bad?;
 
     let new_core = Executor::new("filesystem-outage-successor")?;
@@ -506,18 +542,44 @@ async fn exercise(
     let final_receipt: Value = serde_json::from_str(&final_receipt?)?;
     ensure!(final_receipt == proven);
     ensure!(signals.constructors.load(Ordering::SeqCst) == 3);
-    Ok(json!({
+    let mut report = json!({
         "format":1,"scope":scope(),
-        "mode":if matches!(backend, Backend::S3Sockets) {"bucket proof; TCP connection cuts"} else {"bucket proof; supplied-store fault injection"},
+        "mode":match backend {
+            Backend::S3Sockets => "bucket proof; TCP connection cuts",
+            Backend::S3Stalls => "bucket proof; TCP forwarding stalls",
+            _ => "bucket proof; supplied-store fault injection",
+        },
         "backend":if matches!(backend, Backend::Development) {"development"} else {"s3"},
         "acknowledged":[seed,proven],"ambiguous_response":ambiguous,
         "unacknowledged_local_commit":signals.local_receipt.lock().unwrap().as_ref().unwrap().clone(),
         "recovered_after_outage":recovered,"recovered_after_takeover":final_receipt,
-        "publication_refusals":publication.refused(),"lease_store_refusals":outage.refused(),
-        "recovery_read_refusals":read_fault.refused(),"failed_recovery_http_status":status.as_u16(),
+        "failed_recovery_http_status":status.as_u16(),
+        "failed_recovery_observation_timeout_ms":recovery_observation_timeout.as_millis(),
+        "failed_recovery_elapsed_ms":failed_read_elapsed.as_millis(),
         "application_constructors":signals.constructors.load(Ordering::SeqCst),
         "stale_descriptor_checks":signals.stale_checks.load(Ordering::SeqCst),
         "predecessor_local_data_removed":true,"successor_local_data_removed":true,
         "owner_fenced":true,"caller_executor_preserved":true,"remaining_nodes_joined":true,
-    }))
+    });
+    let names = if matches!(backend, Backend::S3Stalls) {
+        [
+            "publication_stalled_connections",
+            "lease_stalled_connections",
+            "recovery_stalled_connections",
+        ]
+    } else {
+        [
+            "publication_refusals",
+            "lease_store_refusals",
+            "recovery_read_refusals",
+        ]
+    };
+    for (name, count) in names.into_iter().zip([
+        publication.observed(),
+        outage.observed(),
+        read_fault.observed(),
+    ]) {
+        report[name] = json!(count);
+    }
+    Ok(report)
 }

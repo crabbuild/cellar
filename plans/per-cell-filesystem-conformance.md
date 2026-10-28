@@ -528,8 +528,28 @@ empty-node recoveries and joined node shutdown. Proxy counters establish actual
 forwarding before the publication/lease cuts and denied connections afterward;
 all three servers and their forwarding tasks must join. A separate loopback
 control tests both directions of an established connection and refusal of a new
-one. This closes the selected connection-closure boundary, while packet stalls,
-peer failures, expired credentials and host disk faults remain separate profiles.
+one. This closes the selected connection-closure boundary.
+
+The `filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery`
+variant pauses both forwarding directions while retaining the accepted sockets.
+Its fault acknowledgement waits until every admitted connection has parked or
+finished; newly accepted connections park without connecting upstream. The
+control test requires blocked reads rather than EOF on both existing endpoints
+and the fresh client, then verifies that all parked tasks join at shutdown.
+The proxy bounds active connections at 128 and reads its remaining-task counter
+after joining rather than assuming zero.
+
+This variant retains the same unknown-write, lease-fence, failed-admission,
+stale-capability and two cold-recovery assertions. It additionally requires
+stalled connections at all three boundaries and zero denied connections. Its
+failed-recovery HTTP observer has a 60-second deadline so it can observe the
+existing S3 request/retry budget before requiring HTTP 500 and a clean drain.
+The other profiles keep their 15-second observer. Cell restore has no aggregate
+activation deadline; the node-log startup recovery timeout is a different gate.
+Runtime, provider, ownership and shutdown budgets are unchanged. The report
+records the selected observer bound and actual response time. This covers TCP
+forwarding stalls on local S3; kernel packet loss/delay, peer transport failures,
+expired credentials and host disk faults remain separate profiles.
 
 ## Python task cancellation profile
 

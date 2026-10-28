@@ -56,7 +56,7 @@ exercises the binding through its asset-routing configuration. Existing SDK CI
 discovers the new catalog entry. A separate release-application matrix builds
 the CLI and notebook for all three native release targets, selects the release
 profile for the staged application, checks unchanged executable hashes through
-restart, and uploads its evidence. Registration is not remote execution.
+restart, and uploads its evidence.
 
 The [native-example report](../tools/perf/results/2026-10-28-filesystem-native-example.md)
 records passing macOS development/release focused smokes, the combined
@@ -66,8 +66,50 @@ local development storage. A Linux arm64 release
 library build at `ec521d61` was OOM-killed in the local 2 GiB VM before producing
 an application executable. No Linux run or capacity result follows from that
 attempt; the release profile and VM configuration were not changed to obtain a
-pass. This recipe closes the missing Rust application deliverable, while the
-remaining FS-04/05 release requirements below stay open.
+pass. This recipe closes the missing Rust application deliverable.
+
+The subsequent [release CI report](../tools/perf/results/2026-10-28-filesystem-release-ci.md)
+records successful optimized notebook/restart runs on Linux x86_64, Linux arm64
+and macOS arm64 at `0e986468`. Downloaded evidence matches GitHub's archive
+digests and the merge checkout has the exact PR-head tree. This closes that
+selected native target matrix with local development storage. Full runtime/ABI,
+external-store and deployment qualification remain open. The separate JavaScript
+job fails in a provider-journal test before its filesystem steps; twelve fresh
+unchanged local runs pass, but do not resolve that Linux CI timeout. No deadline
+or assertion was relaxed for that failure.
+
+## S3 forwarding-stall checkpoint
+
+The [stall report](../tools/perf/results/2026-10-28-filesystem-socket-stalls.md)
+adds three independent TCP forwarding stalls beneath the unmodified S3 client.
+Established sockets remain open; admitted forwarding must park before the fault
+is acknowledged, and new connections park without upstream I/O. The control
+test distinguishes pending reads from EOF and verifies joined task accounting.
+
+The final macOS development executable passes seven ordinary native filesystem
+cases and all three exact S3 profiles: supplied-store faults, connection cuts
+and forwarding stalls. In the stall case, publication and lease access stop,
+the unproved response remains unknown, and the owner fences. Failed recovery
+returns HTTP 500 after 30.112 seconds without admitting an application. Healthy
+successors recover the first file/state/receipt, reject stale authority, prove a
+new write and recover it after another local-data deletion. All remaining nodes
+and eleven parked proxy connections join; active connection counters reach zero.
+
+The initial new stall fixture incorrectly reused a 15-second HTTP observer for
+provider reads with 15-second attempts and a 30-second retry window. Two runs
+hit that client deadline, and the diagnostic run observed an incomplete drain
+when shutdown interrupted the still-pending restore. Cell restore deliberately
+retains its operation through provider I/O; the four-second node-log startup
+recovery policy does not apply to it. The final stall observer allows 60 seconds
+to observe the provider failure before requiring the original HTTP 500 and full
+cleanup assertions. Runtime/store budgets, all other observers and production
+code are unchanged. Early shutdown during a stalled restore is not qualified as
+a graceful drain by this passing profile.
+
+CI registers the exact stall case in another private RustFS bucket and retains
+its report. This is local macOS development-artifact evidence. Kernel packet
+loss/delay, peer transport, credential/disk faults, sustained load, optimized
+fault artifacts and deployment objectives remain separate release gates.
 
 ## S3 transport-cut checkpoint
 
@@ -1051,6 +1093,7 @@ that every case in each group is complete.
 | F05-sqlite-full | A real SQLite page ceiling causes ENOSPC during chunk growth; observed rollback preserves prior content/accounting, the caller outcome stays Unknown, and writes succeed after removing the ceiling | `sqlite_full_during_chunk_growth_rolls_back_and_allows_later_writes` in backend tests; does not qualify host disk stalls or fleet proof failures |
 | F01/F02/F03/F06/A03/A05-store-fault | Acknowledged file/state/receipt transactions recover through a blocked publication, owner expiry, failed recovery and healthy takeover; the deliberately unpublished local transaction cannot escape as success. A failed replica reader admits no application constructor. Old descriptors/context refuse new-owner use, and a proven post-takeover transaction survives another cold restore | `filesystem_unproven_write_is_fenced_and_failed_recovery_refuses_admission` in [native failure fixture](../crates/cellar/tests/support/node_filesystem_faults.rs), using the existing supplied-store decorators. `CELLAR_FS_FAULT_REPORT` records the client ledger, recovered hashes/inode/versions, real refusal counters and joined lifecycle assertions |
 | F01/F03/F06/A05-TCP-cut | Same file/state/receipt ledger and recovery assertions through real S3 connection cuts; publication and lease pools are closed, new connections are rejected, and a cut recovery reader cannot admit an empty replacement | `filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery` in the native failure fixture; [transport checkpoint](#s3-transport-cut-checkpoint) records socket counters, two cold restores and joined cleanup |
+| F01/F03/F06/A05-TCP-stall | Same ledger and cold recoveries while publication, lease and recovery sockets stay open without forwarding; provider read failure admits no application, and parked task counts reach zero after join | `filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery` and its loopback control; [stall checkpoint](#s3-forwarding-stall-checkpoint) records the observer bound, failed-read duration, socket counts and original failed observations |
 | FS-04-format | An older work constraint refuses first-use initialization; recovery of existing files refuses an old work constraint or resize trigger and preserves the database without migration/reset | `old_maintenance_constraint_refuses_initialization_and_recovery_without_reset` and `old_resize_accounting_refuses_recovery_without_changing_file_state` in backend tests |
 | Q05/H04/F01-maintenance | Pending orphan GC survives forced retirement and empty-local-state recovery, runs without application code, and can reduce usage while above a newly lowered quota | `filesystem_pending_reclamation_recovers_without_application_access` in [real-node tests](../crates/cellar/tests/support/node_filesystem.rs) |
 | Q05/H04/F01-readonly-maintenance | A read-only successor performs the same recovery and automatic GC without application construction, then reads the surviving file and commits/proves business state while refusing file mutation | `filesystem_readonly_recovery_reclaims_without_application_access` in real-node tests |
@@ -1100,7 +1143,7 @@ below remain the acceptance checklist.
 | --- | --- | --- |
 | P0 | Finish the POSIX operation, error, authority and resource contract | O01–O52 mapped to assertions across Rust, Node/V8 and Python; remaining option, cancellation, closed-domain and overload cases resolved |
 | P0 | Complete durability and reclamation fault qualification | File/state/receipt client ledger across external-store/peer failures, disk stalls, takeover and sustained GC; explicit ambiguous outcomes and joined cleanup |
-| P1 | Qualify optimized artifacts and supported runtime/ABI targets | The selected native macOS release example and integrated guest development captures pass; full deployment profiles and Linux/ABI CI still require evidence |
+| P1 | Qualify optimized artifacts and supported runtime/ABI targets | The native release example passes on Linux x86_64/arm64 and macOS arm64; integrated guest development captures pass; full guest/ABI, external-store and deployment profiles plus complete CI remain open |
 | P1 | Establish supported capacity and performance limits | Optimized chunk-size comparisons, dense and small-file workloads, guest overhead, many-cell fairness, amplification and resource bounds |
 | P2 | Consider additional capability profiles after the core baseline | Separate workload justification and contracts for links/locks/wider metadata or object-backed content; independent conformance before advertising support |
 
@@ -1146,9 +1189,10 @@ independent of these primitive release priorities.
    deletion and duplicate suppression through the production provider adapter.
    These guest packages are development builds on a local development bucket.
    The [native Rust checkpoint](#native-rust-example-and-release-profile-checkpoint)
-   adds a passing optimized application smoke on macOS with the local store;
-   its Linux arm64 build fails on the 2 GiB VM before runtime qualification.
-   Complete deployment artifact profiles, Linux/ABI CI and installed
+   adds passing optimized application smokes on all three native release targets
+   with the local store. The earlier local Linux arm64 build failed on the 2 GiB
+   VM; later remote Linux runs have independent successful evidence.
+   Complete deployment artifact profiles, guest/ABI CI and installed
    external-store fault profiles remain open; source-entry S3 evidence does not
    substitute for those scopes.
 
@@ -1207,8 +1251,11 @@ independent of these primitive release priorities.
    The same native scenario now passes over actual S3 I/O beneath supplied-client
    fault gates, including on the `5998b82c` integration. The transport-cut
    checkpoint additionally covers actual S3 connection closure and refusal,
-   including existing pools. Packet blackholes/delay, peer transport failures,
-   credential-expiry and host-disk behavior remain separate.
+   including existing pools. The forwarding-stall checkpoint adds held sockets
+   and provider read-timeout/retry failure, with a distinct observation budget.
+   Kernel packet loss/delay, peer transport failures, credential-expiry and
+   host-disk behavior remain separate; the passing stall case waits for the
+   failed restore to settle before requiring graceful shutdown.
 7. Complete optimized packaged-example delivery and affected-feature CI;
    run affected Rust/guest tests and strict Clippy, formatting/layout/native
    dependency checks, declarations and documentation links against final sources.

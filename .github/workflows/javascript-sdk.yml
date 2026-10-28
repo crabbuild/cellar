@@ -175,6 +175,13 @@ jobs:
             cargo test --locked -p cellar --test native_node \
               node_filesystem_faults::filesystem_s3_socket_cuts_fence_unproven_writes_and_refuse_failed_recovery \
               -- --ignored --exact --nocapture
+          export CELLAR_FS_S3_BUCKET="cellar-filesystem-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-stalls"
+          aws --endpoint-url "$S3_ENDPOINT" --region "$AWS_REGION" s3api create-bucket \
+            --bucket "$CELLAR_FS_S3_BUCKET"
+          CELLAR_FS_FAULT_REPORT="$RUNNER_TEMP/filesystem-s3-stall-fault.json" \
+            cargo test --locked -p cellar --test native_node \
+              node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery \
+              -- --ignored --exact --nocapture
           export CELLAR_AI_HOST="${CARGO_TARGET_DIR:-$PWD/target}/debug/cellar-vercel-agent-example"
           export CELLAR_AI_TEST_REPORT="$RUNNER_TEMP/vercel-rustfs-recovery.json"
           npm run --prefix examples/vercel-agent test:e2e
@@ -190,6 +197,7 @@ jobs:
             ${{ runner.temp }}/vercel-rustfs-tools.json
             ${{ runner.temp }}/filesystem-s3-proof-fault.json
             ${{ runner.temp }}/filesystem-s3-socket-fault.json
+            ${{ runner.temp }}/filesystem-s3-stall-fault.json
           if-no-files-found: ignore
       - name: Quality and engine boundaries
         run: |

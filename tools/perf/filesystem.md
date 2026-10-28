@@ -137,3 +137,36 @@ The [captured transport report](results/2026-10-28-filesystem-socket-faults.md)
 records local macOS evidence. This profile covers connection closure during
 bucket proof and recovery. It does not qualify packet blackholes/delay, peer
 transport cuts, credential expiry, disk stalls, or deployment SLO/RPO/RTO.
+
+### S3 forwarding stalls
+
+The stalled-connection variant leaves established sockets open while stopping
+both forwarding directions. New connections are accepted and held without
+upstream I/O. Acknowledgement waits for admitted forwarding to stop; supervisor
+shutdown aborts and joins the parked tasks. The S3 client remains unmodified.
+Use another fresh private bucket:
+
+```sh
+CELLAR_FS_S3_BUCKET=cellar-filesystem-YOUR-STALL-TEST-ID \
+CELLAR_FS_S3_ENDPOINT=http://127.0.0.1:YOUR-PRIVATE-STORE-PORT \
+CELLAR_FS_FAULT_REPORT=/absolute/qualification/filesystem-s3-stall-fault.json \
+cargo test --locked -p cellar --test native_node \
+  node_filesystem_faults::filesystem_s3_socket_stalls_fence_unproven_writes_and_refuse_failed_recovery \
+  -- --ignored --exact --nocapture
+```
+
+The JavaScript SDK workflow runs this scenario serially and uploads its report.
+The native loopback control also requires reads to remain pending on existing
+and newly accepted sockets, and verifies the actual active-task counter reaches
+zero. Each proxy retains at most 128 connection tasks.
+
+The failed-recovery observer uses 60 seconds to observe the existing provider
+timeouts/retries before requiring the same HTTP 500, no application admission
+and complete joined shutdown. This does not alter runtime/store budgets or the
+15-second observers in the other profiles. Node startup recovery budgets do not
+bound cell replica restoration. The report records the observer bound and actual
+failed-read time, alongside file/state/receipt commitments and connection counts.
+The [captured stall report](results/2026-10-28-filesystem-socket-stalls.md) retains
+the initial observer-budget failure and the final artifact's actual results.
+Kernel packet-loss/delay, peer transport, credential/disk and deployment-load
+qualification remain separate.
