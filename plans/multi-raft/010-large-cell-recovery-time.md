@@ -717,6 +717,41 @@ test-only changes preserve every production runtime input from the archive and
 recovery validation. Source-bound physical preflights and full-size timing remain
 separate gates.
 
+### Bound materialized replay amplification
+
+Encoded tail bytes alone miss complete-image rewrite amplification. Replay
+seals bounded private batches; one small retained tail can therefore require
+several complete output images. The new regression disables size-triggered
+rotation, sets a one-image replay budget and captures 64 data updates. Before
+enforcement it advertises all 64 entries, requiring a second image rewrite.
+
+`ArchiveLimits::max_replay_images` now accepts one through 4,096 and defaults to
+two. The verifier records completed image seals and their summed logical lengths
+only with a successful physical proof and joined cleanup. Its fixed-size memo
+retains those values for the exact physical key. An over-budget candidate must
+pass every existing intermediate-image and remote-dependency check before the
+publisher replaces it with a separately confirmed full base. Only that final
+base may advance the conditional head. An existing over-budget tail can also be
+checkpointed at the exact same cut; an older capture cannot rewind a newer head.
+
+The trace exposes `verified_restore_images`, `verified_restore_image_bytes` and
+the `replay_budget_checkpoint` decision. This is work under the verifier's apply
+limits, not measured device bytes, a bound for stricter receiver limits or a
+replay-time guarantee. The publisher still pays for the final verification that
+triggers rotation; subsequent recoveries can use the fresh base. Existing valid
+archives remain readable. Measured replay-time rotation, archive-lag readiness,
+foreground bandwidth, verified warm handoff and demand loading remain open.
+Validation passes 15 archive private tests, the four focused public budget cases
+and the complete optimized archive/large-image/rooted suites (80, 20 and 32 cases;
+14 physical cases remain ignored). The budget fixture verifies one versus two
+actual destination image syncs, same-cut checkpointing without stale-cut rewind,
+missing/corrupt prior payload refusal and an overwritten false intermediate
+digest. All-feature host/qualification/performance-node Clippy, 246 Python
+tooling cases (one skipped), formatting/layout over 1,315 Rust files and the
+dependency/documentation guards pass. The frozen runtime input SHA-256 is
+`33736da88a529956013068d7a0bca2c198cd4c97f7b3f972221ac0a55e8c565d`.
+Physical timing and full-size M1/M2 qualification remain separate gates.
+
 ## RT-04: Connect complete extent recovery end to end
 
 The first implementation uses the existing extent-aware native descriptor,

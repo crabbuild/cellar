@@ -882,6 +882,22 @@ Size-triggered rotation physically verifies the complete eligible extension,
 including intermediate updates, before replacing its tails with a snapshot.
 It then validates the new recovery proof before advancing the head. Changing
 this producer policy does not invalidate an existing archive.
+`ArchiveLimits::max_replay_images` additionally limits the complete private images
+sealed by a successfully verified materialized recovery set (default two;
+accepted range 1–4,096). A tail exceeding this budget is physically verified
+before a fresh base replaces it. Only the fresh base's independently confirmed
+proof may advance the conditional head. An exact same-cut publication can also
+checkpoint an existing expensive tail; an older capture never replaces a newer
+head. Missing/corrupt selected objects and invalid intermediate states still
+refuse publication. Memo hits retain the work of their exact prior physical
+proof and cannot hide a costly tail.
+The `replay_complete` trace includes `verified_restore_images` and
+`verified_restore_image_bytes`, the count and summed logical lengths of those
+outputs under this verifier's apply limits. These describe verified restore
+work, including on a memo hit; they are not newly executed I/O on a hit, measured
+device bytes or a time guarantee. A destination with stricter batching limits
+can require more passes. Existing archives remain readable, and a newer head
+observed through an older capture is returned only after its ordinary checks.
 New callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
