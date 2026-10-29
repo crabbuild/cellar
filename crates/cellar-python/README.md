@@ -804,6 +804,51 @@ cargo test --locked -p cellar-python --features embed -- --test-threads=1
 python3 tools/docs/check.py
 ```
 
+### Diagnose intermittent contract failures
+
+Run these focused modes with the same interpreter environment as the SDK test:
+
+```sh
+# Fresh hosts, shared interpreter, original context-isolation assertions.
+RUST_LOG=warn,timing=debug cargo test --locked -p cellar-python --features embed \
+  --test bridge -- --runtime-context-isolation 100
+
+# Fresh SQLite fleets; exactly one mutation and one readback per fleet.
+RUST_LOG=warn,timing=debug cargo test --locked -p cellar-python --features embed \
+  --test bridge -- --runtime-first-write 100
+
+# The full contract, including routing, handoff and recovery.
+RUST_LOG=warn,timing=debug cargo test --locked -p cellar-python --features embed \
+  --test bridge -- --runtime-contract
+```
+
+The probes retain the existing **250 ms handler** and **1,000 ms lease** budgets.
+They never retry a failed mutation. Repeat the executable in separate processes
+when testing cold interpreter initialization; an iteration within one process
+only recreates the hosts/fleet. Omitting `RUST_LOG` disables tracing.
+
+```text
+held request ─────────────────────────────── result or timeout
+other host   ready → steal → direct → rebound → release
+                  each stage retains elapsed time and error body
+
+failure → join hosts/interpreter → retain synthetic state + diagnostic-tail.log
+```
+
+Context failures report both concurrent branches, before/after interpreter
+snapshots and joined host outcomes. An interpreter snapshot's age distinguishes
+recent interpreter progress from an unobserved stall; it does not identify a
+unique cause. HTTP failure bodies are capped at 4 KiB. Optional logs use a memory
+tail of 2,048 records, at most 8 KiB each, written after failure rather than to a
+potentially blocked stderr sink during execution. Old records are discarded;
+this tail is diagnostic evidence, not a complete qualification transcript.
+The error names the retained directory. Successful probes remove their state.
+
+`--runtime-context-isolation-failure` checks the diagnostics with a deliberate
+control-request 500 followed by the held request's real budget expiration. It
+runs in the normal bridge suite and requires complete joined cleanup. Passing
+repeated probes does not explain or close an earlier intermittent failure.
+
 | Source | Responsibility |
 | --- | --- |
 | [application.rs](application.rs) | Source declarations, native application/cell proxies, original-invocation execution. |

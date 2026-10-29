@@ -19,6 +19,8 @@ mod bindings;
 mod capacity;
 #[path = "support/containers.rs"]
 mod containers;
+#[path = "support/context_isolation.rs"]
+mod context_isolation;
 #[path = "support/cycles.rs"]
 mod cycles;
 #[path = "support/delivery.rs"]
@@ -223,7 +225,7 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
     let outcome = node.shutdown(mode).await?;
     monitor.record_node(outcome.clone());
     let NodeOutcome::Stopped(report) = outcome else {
-        anyhow::bail!("node failed while stopping")
+        anyhow::bail!("node failed while stopping: {outcome:?}")
     };
     ensure!(
         report.ingress_drained
@@ -237,6 +239,17 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-context-isolation-failure" {
+        return context_isolation::failure_provenance();
+    }
+    if mode == "--runtime-context-isolation" {
+        let iterations = std::env::args()
+            .nth(2)
+            .map(|s| s.parse())
+            .transpose()?
+            .unwrap_or(100);
+        return context_isolation::run_cases(iterations);
+    }
     if mode == "--runtime-first-write" {
         let iterations = std::env::args()
             .nth(2)
@@ -498,6 +511,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
     for mode in [
+        "--runtime-context-isolation-failure",
         "--runtime-wakeups",
         "--runtime-dependency",
         "--runtime-failure",
@@ -585,23 +599,16 @@ fn contract_options() -> Options {
 }
 
 fn contract() -> Result<()> {
-    // Keep the normal fixture quiet, but allow an original-budget replay to
-    // retain native storage phases and lease/timer evidence after a failure.
-    if std::env::var_os("RUST_LOG").is_some() {
-        tracing_subscriber::fmt()
-            .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()?)
-            .with_ansi(false)
-            .with_writer(std::io::stderr)
-            .try_init()
-            .map_err(|error| anyhow::anyhow!("contract tracing: {error}"))?;
-    }
-    let directory = tempfile::tempdir()?;
+    let trace = first_write_trace::Trace::install()?;
+    let directory = Arc::new(tempfile::tempdir()?);
+    let host_directory = directory.clone();
     let report = run(
         contract_options(),
         Source::new(include_str!("bridge.py"), "bridge.py")
             .events([EventKind::Fetch])
             .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm]),
         move |application, monitor| {
+            let directory = host_directory;
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -631,9 +638,15 @@ fn contract() -> Result<()> {
                     None,
                 )
                 .await?;
-                let scoped = context_isolation(&client, &url, &other_url).await;
-                stop(other, &monitor).await?;
-                scoped.context("cross-domain context isolation")?;
+                let scoped = context_isolation::check(&client, &url, &other_url, &application).await;
+                let other_shutdown = stop(other, &monitor).await;
+                if let Err(error) = scoped {
+                    let shutdown = stop(node, &monitor).await;
+                    return Err(error.context(format!(
+                        "cross-domain context isolation; holder shutdown={shutdown:?}; other shutdown={other_shutdown:?}"
+                    )));
+                }
+                other_shutdown?;
                 host_await_progress(&client, &url, &application).await.context("host-await progress")?;
                 let parallel: Value = client.get(format!("{url}/parallel-python")).send().await?
                     .error_for_status()?.json().await?;
@@ -793,7 +806,20 @@ fn contract() -> Result<()> {
                 stop(b, &monitor).await
             })
         },
-    )?;
+    );
+    let report = match report {
+        Ok(report) => report,
+        Err(error) => {
+            let directory = Arc::try_unwrap(directory)
+                .expect("host callback joined")
+                .keep();
+            let saved = trace.save(&directory.join("diagnostic-tail.log"));
+            return Err(error.context(format!(
+                "contract retained state at {}; trace_saved={saved:?}",
+                directory.display()
+            )));
+        }
+    };
     ensure!(report.complete());
     ensure!(report
         .interpreter
@@ -1024,66 +1050,6 @@ async fn response_json<T: serde::de::DeserializeOwned>(
         .json()
         .await
         .with_context(|| format!("decode JSON from {url} (HTTP {status})"))
-}
-
-async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) -> Result<()> {
-    let holding = client.get(format!("{holder}/scope-hold")).send();
-    let crossing = async {
-        let mut ready = false;
-        for _ in 0..20 {
-            if client
-                .get(format!("{other}/scope-ready"))
-                .send()
-                .await?
-                .json::<bool>()
-                .await?
-            {
-                ready = true;
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        ensure!(ready, "first domain did not expose its live context");
-        let stolen: Value = client
-            .get(format!("{other}/scope-steal"))
-            .send()
-            .await?
-            .json()
-            .await?;
-        let direct: Value = client
-            .get(format!("{other}/scope-direct"))
-            .send()
-            .await?
-            .json()
-            .await?;
-        let rebound: Value = client
-            .get(format!("{other}/scope-rebound"))
-            .send()
-            .await?
-            .json()
-            .await?;
-        client
-            .get(format!("{other}/scope-release"))
-            .send()
-            .await?
-            .error_for_status()?;
-        ensure!(
-            stolen == json!({"refused":true,"code":"ContextMismatch"}),
-            "live context crossed domains: {stolen}"
-        );
-        ensure!(
-            direct == json!({"refused":true,"code":"ContextMismatch"}),
-            "native sender crossed domains: {direct}"
-        );
-        ensure!(
-            rebound == json!({"refused":true,"code":"ContextMismatch"}),
-            "rebound module attribute replaced native caller identity: {rebound}"
-        );
-        Ok::<_, anyhow::Error>(())
-    };
-    let (held, crossed) = futures_util::future::join(holding, crossing).await;
-    held?.error_for_status()?;
-    crossed
 }
 
 async fn host_await_progress(

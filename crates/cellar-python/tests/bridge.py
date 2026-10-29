@@ -206,6 +206,11 @@ async def fetch(request, ctx):
     if request.path == "/host-release":
         host_release.set()
         return Response.json(True)
+    if request.path == "/scope-reset":
+        live_context = None
+        scope_ready.clear()
+        scope_release.clear()
+        return Response.json(True)
     if request.path == "/scope-hold":
         live_context = ctx
         scope_ready.set()
