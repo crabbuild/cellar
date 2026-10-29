@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "7484502a2209205d68be42d895abfce7ad15291f",
+  "source_revision": "ee7f4a8d2dec220904f5a6860041f12c14db1cf5",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed CG-01 intermediate contracts at 7484502a2209205d68be42d895abfce7ad15291f. version.rs adds the separate cell-token domain and logical-history verification; original group-token consumers remain pending cutover. Other pinned owner inputs are unchanged. CG-01 is IN_PROGRESS, not qualified.",
+  "review_note": "2026-10-29: reviewed and qualified CG-01 at ee7f4a8d2dec220904f5a6860041f12c14db1cf5. Cell/group histories, cell tokens and bounded typed entry codec are complete at their contract boundary. Enrollment carries replayable initial LTX. Existing host/storage owners remain unchanged and await CG-02 through CG-16.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

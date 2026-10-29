@@ -2,8 +2,9 @@
 
 # Cell group delivery package
 
-Status: implementation started on 2026-10-29 following the executable plan.
-CG-01 is in progress; the production host has not yet cut over to shared groups.
+Status: executable design and implementation plan delivered on 2026-10-29.
+Existing CG-01 contracts have passed their local evidence gate; CG-02 is next.
+The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
@@ -31,6 +32,12 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
 4. Record actual test outputs and source/artifact hashes. A task can become DONE
    only with verified evidence and completed dependencies. Final qualification
    repeats the full capability matrix at one release revision.
+
+This checkout retains CG-01's evidence under the ignored
+`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/` directory. A fresh checkout must
+receive that retained directory at the same relative path before validating the
+DONE checkpoint. Missing evidence fails validation; it is never treated as a pass.
+The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
 python3 plans/multi-raft/cell-groups/plan.py validate

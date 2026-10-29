@@ -2,63 +2,64 @@
 
 # Cell-group implementation progress
 
-The active objective is the entire design and a hard cutover, including all CG-01
-through CG-16 qualification gates. Intermediate contracts do not qualify a shared
+The delivered design and implementation plan covers CG-01 through CG-16 and a
+hard cutover. The current handoff is the executable plan; further runtime work
+follows its dependency order. Intermediate contracts do not qualify a shared
 runtime. No production legacy/shared mode flag is being added.
 
-## CG-01 — in progress
+## CG-01 — complete at the contract boundary
 
-Implemented contracts:
+Qualified source: `ee7f4a8d2dec220904f5a6860041f12c14db1cf5`.
 
-- Dependency-free validated cell IDs, logical cell histories and physical group
-  histories; nonzero mutation, route and membership counters refuse overflow.
-- Canonical namespace routing preimage and adapter SHA-256, collision-safe ordered
-  keys, half-open ranges, adjacent merge and whole-key split boundaries.
-- Cell versions compare mutation sequence within one logical history, rejecting
-  equal-sequence conflicting image commitments. Commit witnesses remain separate.
-- Domain-separated signed cell-version tokens authenticate schema, cell history,
-  sequence, LTX/image commitment and the original physical commit witness. Transfer
-  can preserve the token's history; disaster recovery's new incarnation refuses it.
-- Materialized/extent commitment conversion validates the actual extent reference
-  layout at the host boundary. Core contracts add no dependencies or I/O.
+- Dependency-free cell/group histories, validated cell IDs, monotone counters,
+  canonical routing hashes and collision-safe half-open ranges.
+- Logical cell versions and signed tokens independent of physical log position.
+  Normal transfer preserves history; disaster recovery changes incarnation.
+- Materialized and extent commitment adapters with geometry validation.
+- A bounded, domain-separated entry codec for cell-addressed mutations and typed
+  enrollment, membership, checkpoint, seal/install/activate, park and retire.
+  Enrollment carries replayable initial LTX bytes; decoding borrows payloads.
 
-The new contracts are exposed through the existing unstable verification surface
-while host integration is pending. Existing public runtime consumers still use the
-old contracts and will switch together at CG-07, before legacy removal at CG-16.
+The [entry codec contract](../../../crates/cellar/application/consensus/group_protocol/README.md)
+documents wire layout and checks that remain the runtime owner's responsibility.
+The contracts are exposed through the unstable verification surface. Production
+consumers still use the old contracts until CG-07; legacy removal follows in CG-16.
 
-The [entry codec](../../../crates/cellar/application/consensus/group_protocol/README.md)
-now carries cell-addressed mutations and typed enrollment, membership, checkpoint,
-seal/install/activate, park and retire commands in a new marker-1 domain. It bounds
-metadata before allocation and borrows LTX payloads. Enrollment carries its initial
-LTX snapshot in the log instead of relying on an unproven image reference.
-All 7 native contract cases pass, including both remaining required decoder cases,
-an independent byte vector and SQLite reconstruction from the enrollment payload.
+The retained source-bound record is
+`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/record.json`. It binds the tested
+Git revision, source inputs, native test executable and all 13 command logs by
+hash. The complete gate passed:
 
-Remaining CG-01 work is the complete task checks and source-bound evidence.
-CG-02 and later tasks remain TODO. No task is DONE and no benchmark, RustFS drill,
-hibernation latency, recovery guarantee or production cutover is claimed here.
+- All-target checks and Clippy for `cellar` and `cellar-logic`, with locked builds
+  and Clippy warnings denied.
+- All four required CG-01 cases selected individually by exact name, plus test
+  inventory verification to reject an empty selection.
+- All 7 native cell-group contract cases, 6 existing native Raft contract cases
+  and 18 core library cases: 31 distinct Rust tests.
+- Repository formatting, module layout, native dependency isolation and docs.
 
-Checks completed for this intermediate change:
+Tests include SQLite reconstruction from enrollment bytes, an independent wire
+vector, truncated/oversized metadata, cross-cell/history refusal, token tampering
+and transfer versus disaster identity. These are contract tests, not proof of a
+running multi-cell group, a RustFS drill or a performance claim.
 
-- `native_cell_groups_contracts`: 3 cases pass, including the smallest and largest
-  cell IDs in the signed format, tampering, truncation and transfer/DR identity.
-- `native_raft_contract`: all 6 existing cases pass.
-- `native_raft_reads`: exact `query_token_auth_scope` and
-  `version_key_deadline_and_payload_limits` regressions pass.
-- `cellar-logic --lib`: all 18 cases pass, including 4 new group-contract cases.
-- Clippy for the affected libraries and new native test passes with `-D warnings`;
-  module layout, native dependency isolation and repository documentation pass.
-- Repository formatting check, all 36 plan-validator tests, package validation
-  and the reviewed source preflight pass at this checkpoint.
+The earlier short-ID token-bound failure and intermediate logs remain under
+ignored local evidence. The corrected regression passes. Code review also caught
+and removed a root-only enrollment gap before the final gate: nonempty enrollment
+must include its initial replayable LTX chain.
 
-The first native run exposed an incorrect minimum token length for short IDs.
-The bound now derives from the fixed wire fields, and a one-byte ID regression
-passes. Local logs, including that failed run, remain under the ignored
-`.cellar/cell-groups-evidence/CG-01-in-progress/` directory. They are intermediate
-checks, not the complete source-bound CG-01 evidence record.
+## Remaining implementation
 
-The original source preflight was inspected before edits. The reviewed source
-baseline advances to `7484502a` for this intermediate checkpoint; `version.rs` adds
-the separate token domain and all other pinned owners remain unchanged. This
-baseline update is not task completion. Review further changed contracts before
-refreshing their hashes or beginning dependent implementation.
+CG-02 through CG-16 remain TODO. CG-02 is dependency-eligible and must implement
+complete paged group manifests, real engine publication, recovery refusal for
+missing dependencies and image/pin reclamation tests in both image modes.
+
+The reviewed source baseline advances to the qualified CG-01 revision. Original
+host/storage source anchors remain unchanged; newly produced contract files are
+bound by the CG-01 evidence record. Review changed inputs before refreshing the
+baseline for later tasks. A new executor must receive the ignored evidence
+folder before validating this DONE checkpoint.
+
+No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
+density or final hard cutover is qualified. The release gate remains closed until
+all task and deployment evidence passes at one final revision.

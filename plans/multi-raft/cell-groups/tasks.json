@@ -22,7 +22,7 @@
     {
       "id": "CG-01",
       "title": "Separate logical cell history from physical group consensus",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "M",
       "risk": "HIGH",
@@ -116,7 +116,9 @@
         "I05",
         "I12"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/record.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
