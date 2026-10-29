@@ -24,6 +24,15 @@ use std::{
     time::Duration,
 };
 
+fn engine_bootstrap() -> cellar::application::consensus::verification::CellGroupBootstrap {
+    cellar::application::consensus::verification::CellGroupBootstrap {
+        route: route(),
+        member: MemberId::new(1).unwrap(),
+        voters: vec![MemberId::new(1).unwrap()],
+        learners: vec![],
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Mode {
     Materialized,
@@ -332,7 +341,7 @@ fn assert_receipt(pin: &CellImagePin, cell: u8, sequence: u64) -> Result<()> {
 
 fn prepare_root(
     tree: &ManifestTree,
-    group: &GroupLog,
+    group: &GroupLog<GroupHistory>,
     pages: &mut ManifestPageStore,
     marker: &GroupManifest,
     images: &Images,
@@ -360,7 +369,7 @@ async fn seed(path: &Path, mode: Mode, large: bool) -> Result<GroupManifest> {
             fs.clone(),
         ))
         .await??;
-    let group = log.create_group(engine_bootstrap()).await?;
+    let group = log.create_cell_group(engine_bootstrap()).await?;
     let images = Images::open(&path.join("images"), mode, fs.clone())?;
     let mut pages = ManifestPageStore::open(&path.join("pages"), fs, 256, 4 * 1024 * 1024, 16)?;
     let tree = ManifestTree::new(route(), ManifestLimits::default())?;
@@ -377,7 +386,7 @@ async fn seed(path: &Path, mode: Mode, large: bool) -> Result<GroupManifest> {
         let cut = images::Cut::new(&[], &bytes, 0, true, false);
         let (leaf, pin) = images.prepare(cell, None, &cut, &bytes, u64::from(cell) + 1)?;
         prepared = tree.prepare_update(&mut pages, &prepared, leaf, None, pin)?;
-        log.persist(
+        log.persist_cells(
             OperationId::new(u64::from(cell)),
             vec![root_write(&group, prepared.clone())?],
         )
@@ -402,7 +411,7 @@ pub async fn both_images() -> Result<()> {
                     fs.clone(),
                 ))
                 .await??;
-            let group = log.group(&engine_bootstrap().scope)?;
+            let group = log.cell_group(&engine_bootstrap().route.history)?;
             let images = Images::open(&temp.path().join("images"), mode, fs.clone())?;
             let mut pages =
                 ManifestPageStore::open(&temp.path().join("pages"), fs, 256, 4 * 1024 * 1024, 16)?;
@@ -431,7 +440,7 @@ pub async fn both_images() -> Result<()> {
             }
             let next =
                 tree.prepare_update(&mut pages, &current, changed, Some(&old.version), next_pin)?;
-            log.persist(OperationId::new(3), vec![root_write(&group, next.clone())?])
+            log.persist_cells(OperationId::new(3), vec![root_write(&group, next.clone())?])
                 .await?;
             assert_eq!(next.pin_cell(&history(2).cell).unwrap().0, &sibling);
             assert_receipt(&old_pin, 1, 1)?;
@@ -454,7 +463,7 @@ async fn recover_and_check(path: &Path, mode: Mode, expected: Option<u64>) -> Re
             fs.clone(),
         ))
         .await??;
-    let group = log.group(&engine_bootstrap().scope)?;
+    let group = log.cell_group(&engine_bootstrap().route.history)?;
     let marker = group.group_manifest()?.context("selected root")?;
     let index = marker.position().index.get();
     if let Some(expected) = expected {
@@ -572,7 +581,7 @@ pub async fn missing_images() -> Result<()> {
                     fs.clone(),
                 ))
                 .await??;
-            let group = log.group(&engine_bootstrap().scope)?;
+            let group = log.cell_group(&engine_bootstrap().route.history)?;
             assert_eq!(group.group_manifest()?.as_ref(), Some(&marker));
             let images = Images::open(&temp.path().join("images"), mode, fs.clone())?;
             let mut pages =
@@ -696,7 +705,7 @@ pub async fn process_fixture() -> Result<()> {
             Arc::new(engine_fault::FaultFileSystem { gate: gate.clone() }),
         ))
         .await??;
-    let group = log.group(&engine_bootstrap().scope)?;
+    let group = log.cell_group(&engine_bootstrap().route.history)?;
     let image_fault = faults::Faults::new(path.join("images"), Some(signal.clone()));
     let page_fault = faults::Faults::new(path.join("pages"), Some(signal));
     image_fault
@@ -764,7 +773,7 @@ pub async fn process_fixture() -> Result<()> {
         "engine-after-sync" => engine_fault::CRASH_AFTER_SYNC,
         _ => engine_fault::OFF,
     });
-    log.persist(OperationId::new(3), vec![root_write(&group, next)?])
+    log.persist_cells(OperationId::new(3), vec![root_write(&group, next)?])
         .await?;
     if cut_name == "after-publication" {
         page_fault.pause()?;

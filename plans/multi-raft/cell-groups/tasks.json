@@ -293,7 +293,9 @@
         "crates/cellar/durability/raft/cell_groups/directory/tree.rs",
         "crates/cellar/durability/raft/cell_groups/directory/store.rs",
         "crates/cellar/tests/support/cell_group_directory.rs",
-        "crates/cellar/durability/raft/cell_groups/directory/birth.rs"
+        "crates/cellar/durability/raft/cell_groups/directory/birth.rs",
+        "crates/cellar/durability/raft/cell_groups/directory/bootstrap.rs",
+        "crates/cellar/durability/raft/storage_cell_genesis_tests.rs"
       ],
       "test_target": "native_cell_groups_catalog",
       "steps": [

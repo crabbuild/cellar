@@ -129,9 +129,20 @@ impl GroupMembership {
         if self.validate_scope(&replica.scope).is_err() {
             return false;
         }
+        self.permits_binding(replica)
+    }
+
+    pub(crate) fn permits_group(
+        &self,
+        replica: &cellar_logic::consensus::ReplicaIdentity<cellar_logic::cell_group::GroupHistory>,
+    ) -> bool {
+        self.fleet.is_none() && self.permits_binding(replica)
+    }
+
+    fn permits_binding<S>(&self, replica: &cellar_logic::consensus::ReplicaIdentity<S>) -> bool {
         self.bindings
             .iter()
-            .find(|b| b.member == replica.member.get())
+            .find(|binding| binding.member == replica.member.get())
             .map_or_else(
                 || self.initial.contains(&replica.member.get()),
                 |binding| {

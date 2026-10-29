@@ -2,7 +2,9 @@
 
 //! One domain-owned engine worker. Every successful mutation has crossed fsync.
 
-use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};
+use super::cache::{
+    genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange, StoredGroup,
+};
 use super::filesystem::EngineFileSystem;
 use super::fleet_stop::{Guard, LifecycleRecord, LifecycleUpdate};
 use super::options::{LogOpenMode, ReplicaLogOptions};
@@ -13,7 +15,7 @@ use super::records::{
     self, GroupRecord, MappingRecord, NodeRecord, RootRecord, GROUP_KEY, ROOT_KEY,
 };
 use ::raft::prelude::{ConfState, Entry};
-use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::cell_group::{GroupHistory, GroupRoute};
 use cellar_logic::consensus::{GroupScope, MemberId, OperationId, ReplicaIdentity};
 use cellar_ltx::{FileSystem, HostFileLock};
 use protobuf::Message;
@@ -24,6 +26,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
+
+#[cfg(test)]
+#[path = "storage_cell_genesis_tests.rs"]
+mod cell_genesis_tests;
 
 #[cfg(test)]
 #[path = "storage_genesis_tests.rs"]
@@ -97,30 +103,55 @@ impl GroupBootstrap {
         self.scope
             .validate()
             .map_err(|error| LogError::Invalid(error.to_string()))?;
-        let mut conf = ConfState::default();
-        conf.set_voters(self.voters.iter().map(|id| id.get()).collect());
-        conf.set_learners(self.learners.iter().map(|id| id.get()).collect());
-        validate_conf(&conf).map_err(|error| LogError::Invalid(error.to_string()))?;
-        super::member_state::GroupMembership::initial(&conf)
-            .validate(&conf, 1)
-            .map_err(|error| LogError::Invalid(error.to_string()))?;
-        if !conf.voters.contains(&self.member.get()) && !conf.learners.contains(&self.member.get())
-        {
-            return Err(LogError::WrongIdentity);
-        }
-        Ok(conf)
+        initial_configuration(self.member, &self.voters, &self.learners)
     }
+}
+
+/// Physical genesis for a whole cell range. Construction supplies no membership
+/// claim or serving authority; those require the catalog bootstrap protocol.
+#[derive(Clone, Debug)]
+pub struct CellGroupBootstrap {
+    pub route: GroupRoute,
+    pub member: MemberId,
+    pub voters: Vec<MemberId>,
+    pub learners: Vec<MemberId>,
+}
+
+impl CellGroupBootstrap {
+    fn configuration(&self) -> Result<ConfState, LogError> {
+        super::cell_groups::GroupManifest::genesis(self.route.clone())
+            .map_err(|error| LogError::Invalid(error.to_string()))?;
+        initial_configuration(self.member, &self.voters, &self.learners)
+    }
+}
+
+fn initial_configuration(
+    member: MemberId,
+    voters: &[MemberId],
+    learners: &[MemberId],
+) -> Result<ConfState, LogError> {
+    let mut conf = ConfState::default();
+    conf.set_voters(voters.iter().map(|id| id.get()).collect());
+    conf.set_learners(learners.iter().map(|id| id.get()).collect());
+    validate_conf(&conf).map_err(|error| LogError::Invalid(error.to_string()))?;
+    super::member_state::GroupMembership::initial(&conf)
+        .validate(&conf, 1)
+        .map_err(|error| LogError::Invalid(error.to_string()))?;
+    if !conf.voters.contains(&member.get()) && !conf.learners.contains(&member.get()) {
+        return Err(LogError::WrongIdentity);
+    }
+    Ok(conf)
 }
 
 /// Identity-bound observation of one successfully synced batch.
 #[derive(Clone, Debug)]
-pub struct SyncReceipt {
+pub struct SyncReceipt<S = GroupScope> {
     pub operation: OperationId,
     pub sequence: u64,
-    pub groups: Vec<ReplicaIdentity>,
+    pub groups: Vec<ReplicaIdentity<S>>,
 }
 
-type Catalog = Arc<RwLock<BTreeMap<GroupHistory, GroupLog>>>;
+type Catalog = Arc<RwLock<BTreeMap<GroupHistory, StoredGroup>>>;
 type Reply<T> = oneshot::Sender<Result<T, LogError>>;
 
 #[derive(Clone)]
@@ -213,8 +244,14 @@ enum Work {
         Option<Box<super::member_state::FleetGroupBinding>>,
         Reply<GroupLog>,
     ),
+    CreateCells(CellGroupBootstrap, Reply<GroupLog<GroupHistory>>),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
+    PersistCells(
+        OperationId,
+        Vec<GroupWrite<GroupHistory>>,
+        Reply<SyncReceipt<GroupHistory>>,
+    ),
     Purge(Reply<()>),
 }
 
@@ -447,10 +484,12 @@ impl ReplicaLog {
             Some(scope) => {
                 scope.validate().map_err(|_| LogError::WrongIdentity)?;
                 match groups.get(&GroupHistory::from(scope)) {
-                    Some(group) if &group.identity.scope != scope => {
-                        return Err(LogError::WrongIdentity);
+                    Some(group) => {
+                        if &group.as_cell()?.identity.scope != scope {
+                            return Err(LogError::WrongIdentity);
+                        }
+                        false
                     }
-                    Some(_) => false,
                     None => true,
                 }
             }
@@ -464,14 +503,45 @@ impl ReplicaLog {
 
     pub fn groups(&self) -> Result<Vec<GroupLog>, LogError> {
         self.admit()?;
-        Ok(self
-            .inner
+        self.inner
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
             .values()
+            .map(|group| group.as_cell().cloned())
+            .collect()
+    }
+
+    pub fn cell_groups(&self) -> Result<Vec<GroupLog<GroupHistory>>, LogError> {
+        self.admit()?;
+        self.inner
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .values()
+            .map(|group| group.as_cells().cloned())
+            .collect()
+    }
+
+    pub fn cell_group(&self, history: &GroupHistory) -> Result<GroupLog<GroupHistory>, LogError> {
+        self.admit()?;
+        self.inner
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .get(history)
+            .ok_or(LogError::NotFound)?
+            .as_cells()
             .cloned()
-            .collect())
+    }
+
+    pub async fn create_cell_group(
+        &self,
+        bootstrap: CellGroupBootstrap,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        bootstrap.configuration()?;
+        self.request(16 * 1024, |reply| Work::CreateCells(bootstrap, reply))
+            .await
     }
 
     /// Read occupied identities and locally durable completed membership under
@@ -486,13 +556,26 @@ impl ReplicaLog {
         super::physical_inventory::capture(&groups, pending)
     }
 
+    /// Complete physical occupancy for a cell-group engine, including retained
+    /// histories and an optional initializing group. This is not serving or
+    /// membership authority. Legacy application engines refuse this accessor.
+    pub fn cell_group_inventory(
+        &self,
+        pending: Option<&GroupHistory>,
+    ) -> Result<super::physical_inventory::RaftPhysicalInventory, LogError> {
+        self.admit()?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        super::physical_inventory::capture_cells(&groups, pending)
+    }
+
     pub fn group(&self, scope: &GroupScope) -> Result<GroupLog, LogError> {
         self.admit()?;
         scope.validate().map_err(|_| LogError::WrongIdentity)?;
         let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
         let group = groups
             .get(&GroupHistory::from(scope))
-            .ok_or(LogError::NotFound)?;
+            .ok_or(LogError::NotFound)?
+            .as_cell()?;
         if &group.identity.scope != scope {
             return Err(LogError::WrongIdentity);
         }
@@ -532,16 +615,36 @@ impl ReplicaLog {
             .await
     }
 
+    pub async fn persist_cells(
+        &self,
+        operation: OperationId,
+        writes: Vec<GroupWrite<GroupHistory>>,
+    ) -> Result<SyncReceipt<GroupHistory>, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request(bytes, |reply| Work::PersistCells(operation, writes, reply))
+            .await
+    }
+
     pub async fn persist(
         &self,
         operation: OperationId,
         writes: Vec<GroupWrite>,
     ) -> Result<SyncReceipt, LogError> {
+        let bytes = self.write_bytes(operation, &writes)?;
+        self.request(bytes, |reply| Work::Persist(operation, writes, reply))
+            .await
+    }
+
+    fn write_bytes<S: Clone>(
+        &self,
+        operation: OperationId,
+        writes: &[GroupWrite<S>],
+    ) -> Result<usize, LogError> {
         if operation.get() == 0 {
             return Err(LogError::Invalid("zero persistence operation".into()));
         }
         let mut bytes = 1024_usize;
-        for write in &writes {
+        for write in writes {
             bytes = bytes
                 .checked_add(write.estimated_bytes()?)
                 .ok_or(LogError::Overloaded)?;
@@ -549,8 +652,7 @@ impl ReplicaLog {
         if bytes > self.inner.options.max_batch_bytes {
             return Err(LogError::Overloaded);
         }
-        self.request(bytes, |reply| Work::Persist(operation, writes, reply))
-            .await
+        Ok(bytes)
     }
 
     /// Reclaim obsolete shared engine files, retaining every group's live log,
@@ -836,7 +938,14 @@ impl Worker {
             return Err(error);
         }
         let mut known = BTreeSet::from([0]);
+        let mut application = None;
         for mapping in mappings {
+            if application
+                .replace(mapping.is_cells())
+                .is_some_and(|kind| kind != mapping.is_cells())
+            {
+                return Err(LogError::Corrupt("mixed engine application domains".into()));
+            }
             if mapping.key == 0 || mapping.key >= self.root.next_key || !known.insert(mapping.key) {
                 return Err(LogError::Corrupt(
                     "reused or unallocated numeric group key".into(),
@@ -891,7 +1000,7 @@ impl Worker {
                 .groups
                 .write()
                 .map_err(|_| LogError::Closed)?
-                .insert(GroupHistory::from(&handle.identity.scope), handle)
+                .insert(handle.history(), handle)
                 .is_some()
             {
                 return Err(LogError::Corrupt("duplicate logical group mapping".into()));
@@ -909,7 +1018,7 @@ impl Worker {
         Ok(())
     }
 
-    fn handle(&self, mapping: &MappingRecord, cache: CachedGroup) -> Result<GroupLog, LogError> {
+    fn handle(&self, mapping: &MappingRecord, cache: CachedGroup) -> Result<StoredGroup, LogError> {
         let initial =
             ConfState::parse_from_bytes(&mapping.initial_conf).map_err(records::corrupt)?;
         validate_conf(&initial)?;
@@ -924,9 +1033,28 @@ impl Worker {
         {
             return Err(LogError::Corrupt("member binding birth mismatch".into()));
         }
-        let scope = mapping.application_scope()?;
-        scope.validate().map_err(records::corrupt)?;
-        cache.membership.validate_scope(&scope)?;
+        mapping.validate_cache(&cache)?;
+        if mapping.is_cells() {
+            Ok(StoredGroup::Cells(self.scoped_handle(
+                mapping,
+                cache,
+                mapping.history()?,
+            )?))
+        } else {
+            Ok(StoredGroup::Cell(self.scoped_handle(
+                mapping,
+                cache,
+                mapping.application_scope()?,
+            )?))
+        }
+    }
+
+    fn scoped_handle<S>(
+        &self,
+        mapping: &MappingRecord,
+        cache: CachedGroup,
+        scope: S,
+    ) -> Result<GroupLog<S>, LogError> {
         Ok(GroupLog {
             scratch_directory: self.options.directory.clone(),
             snapshot_scratch: self.snapshot_scratch.clone(),
@@ -1006,6 +1134,7 @@ impl Worker {
             .map_err(|_| LogError::Closed)?
             .get(&GroupHistory::from(&bootstrap.scope))
         {
+            let group = group.as_cell()?;
             let mapping = self
                 .mappings
                 .get(&group.key)
@@ -1060,7 +1189,7 @@ impl Worker {
             .map_err(|_| LogError::Closed)?
             .get(&GroupHistory::from(&identity.scope))
         {
-            return Err(if group.identity.scope == identity.scope {
+            return Err(if group.as_cell()?.identity.scope == identity.scope {
                 LogError::AlreadyExists
             } else {
                 LogError::WrongIdentity
@@ -1079,22 +1208,66 @@ impl Worker {
         cache: CachedGroup,
         seed: Option<&super::snapshot::PreparedSeed>,
     ) -> Result<GroupLog, LogError> {
-        if self.mappings.len() >= self.options.max_groups {
-            return Err(LogError::Overloaded);
-        }
-        // A group identifier cannot be reused for a different logical history.
-        if self
+        let mapping = MappingRecord::new(self.root.next_key, &bootstrap, &conf)?;
+        self.insert_mapping(mapping, cache, seed)?
+            .as_cell()
+            .cloned()
+    }
+
+    fn create_cells(
+        &mut self,
+        bootstrap: CellGroupBootstrap,
+    ) -> Result<GroupLog<GroupHistory>, LogError> {
+        let conf = bootstrap.configuration()?;
+        if let Some(group) = self
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
-            .keys()
-            .any(|scope| scope.group == bootstrap.scope.group)
+            .get(&bootstrap.route.history)
         {
-            return Err(LogError::WrongIdentity);
+            let group = group.as_cells()?;
+            let expected = MappingRecord::new_cells(group.key, &bootstrap, &conf)?;
+            if self.mappings.get(&group.key) != Some(&expected) {
+                return Err(LogError::WrongIdentity);
+            }
+            return Ok(group.clone());
+        }
+        let mapping = MappingRecord::new_cells(self.root.next_key, &bootstrap, &conf)?;
+        let mut cache = genesis(conf);
+        cache.group_manifest = Some(
+            super::cell_groups::GroupManifest::genesis(bootstrap.route)
+                .map_err(|error| LogError::Invalid(error.to_string()))?,
+        );
+        self.insert_mapping(mapping, cache, None)?
+            .as_cells()
+            .cloned()
+    }
+
+    fn insert_mapping(
+        &mut self,
+        mapping: MappingRecord,
+        cache: CachedGroup,
+        seed: Option<&super::snapshot::PreparedSeed>,
+    ) -> Result<StoredGroup, LogError> {
+        if self.mappings.len() >= self.options.max_groups {
+            return Err(LogError::Overloaded);
+        }
+        let history = mapping.history()?;
+        {
+            let groups = self.groups.read().map_err(|_| LogError::Closed)?;
+            if groups.keys().any(|h| h.group == history.group)
+                || groups
+                    .values()
+                    .any(|group| group.is_cells() != mapping.is_cells())
+            {
+                return Err(LogError::WrongIdentity);
+            }
         }
         let key = self.root.next_key;
+        if mapping.key != key {
+            return Err(LogError::WrongIdentity);
+        }
         let next_key = key.checked_add(1).ok_or(LogError::Overloaded)?;
-        let mapping = MappingRecord::new(key, &bootstrap, &conf)?;
         cache.validate(self.options.max_entries_per_group)?;
         let bytes = cache.bytes();
         if self
@@ -1132,18 +1305,18 @@ impl Worker {
         self.groups
             .write()
             .map_err(|_| LogError::Closed)?
-            .insert(GroupHistory::from(&bootstrap.scope), handle.clone());
+            .insert(history, handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
         self.cache_usage.store(self.cache_bytes, Ordering::Release);
         Ok(handle)
     }
 
-    fn persist(
+    fn persist<S: Clone>(
         &mut self,
         operation: OperationId,
-        writes: Vec<GroupWrite>,
-    ) -> Result<SyncReceipt, LogError> {
+        writes: Vec<GroupWrite<S>>,
+    ) -> Result<SyncReceipt<S>, LogError> {
         let mut unique = BTreeSet::new();
         let mut candidates = Vec::with_capacity(writes.len());
         let mut next_bytes = self.cache_bytes;
@@ -1152,8 +1325,16 @@ impl Worker {
             if !Arc::ptr_eq(&write.group.owner, &self.owner) || !unique.insert(write.group.key) {
                 return Err(LogError::WrongIdentity);
             }
+            let mapping = self
+                .mappings
+                .get(&write.group.key)
+                .ok_or(LogError::WrongIdentity)?;
             let old = write.group.read()?;
-            let next = old.changed(write, self.options.max_entries_per_group)?;
+            let next = old.changed(
+                write,
+                self.options.max_entries_per_group,
+                mapping.history()?,
+            )?;
             next_bytes = next_bytes
                 .checked_sub(old.bytes())
                 .and_then(|size| size.checked_add(next.bytes()))
@@ -1162,10 +1343,6 @@ impl Worker {
                 return Err(LogError::Overloaded);
             }
             drop(old);
-            let mapping = self
-                .mappings
-                .get(&write.group.key)
-                .ok_or(LogError::WrongIdentity)?;
             if let Some(change) = &write.snapshot {
                 match change {
                     SnapshotChange::Install { .. } => {
@@ -1336,6 +1513,26 @@ impl Worker {
                 }
                 Work::Create(bootstrap, binding, reply) => {
                     let result = self.create(bootstrap, binding.map(|binding| *binding));
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::CreateCells(bootstrap, reply) => {
+                    let result = self.create_cells(bootstrap);
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::PersistCells(operation, writes, reply) => {
+                    let timer = self.performance.timer(Measured::EnginePersist);
+                    let result = self.persist(operation, writes);
+                    timer.finish(result.is_ok());
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

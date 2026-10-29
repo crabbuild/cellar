@@ -87,6 +87,12 @@ impl From<&crate::consensus::GroupScope> for GroupHistory {
     }
 }
 
+impl From<&GroupHistory> for GroupHistory {
+    fn from(history: &GroupHistory) -> Self {
+        *history
+    }
+}
+
 macro_rules! nonzero_counter {
     ($($name:ident),+ $(,)?) => {$ (
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

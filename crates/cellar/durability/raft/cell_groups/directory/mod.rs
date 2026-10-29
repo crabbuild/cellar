@@ -18,11 +18,13 @@ use std::{
 };
 
 mod birth;
+mod bootstrap;
 mod store;
 mod tree;
 mod wire;
 
 pub use birth::{CellGroupBirth, CellGroupBirthRequest, CellGroupBirthSpec};
+pub use bootstrap::CellGroupBootstrapPermit;
 
 #[derive(Clone, Copy, Debug)]
 pub struct DirectoryLimits {

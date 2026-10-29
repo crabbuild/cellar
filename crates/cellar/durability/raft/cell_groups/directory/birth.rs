@@ -50,6 +50,7 @@ impl CellGroupBirthRequest {
 
 /// Read-back of an immutable birth selected by an observed directory root.
 /// This grants neither membership nor permission to initialize a blank disk.
+#[derive(Clone)]
 pub struct CellGroupBirth {
     request: CellGroupBirthRequest,
     owner: Arc<()>,
@@ -74,7 +75,7 @@ impl CellGroupBirth {
 }
 
 impl RangeDirectory {
-    fn unmanaged_birth(&self) -> Result<(), CatalogError> {
+    pub(super) fn unmanaged_birth(&self) -> Result<(), CatalogError> {
         if self.namespace.config.managed_fleet.is_some() {
             return Err(CatalogError::ManagedAdmissionRequired);
         }

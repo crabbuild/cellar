@@ -203,9 +203,9 @@ retrying. A retired or replaced range cannot materialize again. A birth observat
 is bound to its catalog owner; `require_current_group_birth` checks current route,
 reservation and selected immutable bytes, and refuses missing or changed state.
 
-These methods expose no voter-start capability and write no permanent member disk
-claim. The physical log still needs cell-independent genesis and recovery identity
-before the new birth can be integrated with actual disk-claim admission. Managed
+These metadata methods expose no voter-start capability and write no permanent
+member disk claim. The bootstrap path below connects the verified birth to real
+engine genesis and permanent claims. Managed
 namespaces refuse these unmanaged APIs until their rooted fleet authorization is
 connected. This staged boundary does not permit blank-disk recovery, replace
 current quorum membership, or complete CG-03 qualification.
@@ -221,5 +221,42 @@ The staged single-cell host still stores its real cell binding as application
 adapter metadata. Its lookup, birth retries, pending slot accounting and physical
 inventory must reject another cell binding for the same physical history. This
 metadata is not part of the registry key and is removed with the remaining
-single-cell runtime consumers. This foundation does not expose shared-group voter
-startup or establish the permanent member claim required by the new birth API.
+single-cell runtime consumers. Cell-group genesis and claims use the separate
+physical scope described below.
+
+Cell-independent engine handles now use `GroupLog<GroupHistory>` and
+`ReplicaIdentity<GroupHistory>`. `create_cell_group` atomically syncs the physical
+mapping, initial membership, Raft genesis and an empty route-bound group manifest.
+`persist_cells` uses the same owned worker, quotas, batch sync and publication
+path as the staged adapter. The engine rejects mixed application domains; old
+single-cell enumeration and inventory cannot silently omit cell-group histories.
+The mapping's required application tag also refuses the earlier untagged adapter
+record shape. No old disk layout is decoded or migrated.
+
+`RangeDirectory::bootstrap_group_member` admits an initial unmanaged member only
+after checking its current birth, permanent node-storage pin, actual synced
+genesis and an exact immutable member claim. Claims bind namespace, history,
+birth, member, node, disk and engine instance. Lost confirmation returns no permit;
+retry uses those same identities. A claim with missing local group state, or a
+replacement engine behind the same node identity, refuses. Retired routes and
+foreign nodes/catalog owners refuse. Managed namespaces remain closed until their
+rooted fleet authorization is integrated.
+
+The resulting permit is catalog startup evidence, not complete image recovery,
+quorum, or application-serving authority. A future shared runtime must verify the
+selected manifest closure, revalidate the permit and obtain current-term quorum
+before accepting application work. The production host is not yet converted.
+Native storage recovery fixtures exercise both image representations through real
+cell-independent genesis without a placeholder cell.
+
+`ReplicaLog::cell_group_inventory` reads every physical group under the engine
+catalog lock and short cache reads. It includes retained histories regardless of
+current membership, plus an optional initializing history. Pending identities
+already in the catalog count once. The existing bounded node-inventory wire carries
+these rows without allocating cell names. A domain-separated fixed-width digest
+binds cluster, namespace, group and incarnation; `group_history` performs exact
+lookup. Legacy cell-scoped lookup cannot match that digest. The node observation
+must still match the complete occupied count before encoding or accepting a
+response. Inventory is an occupancy observation, not quorum or release proof.
+The generic physical capture includes shared histories, while the group-native
+accessor refuses a legacy application engine.

@@ -76,9 +76,9 @@ impl RootRetentions {
         Ok(())
     }
 
-    pub(super) fn recover(
+    pub(super) fn recover<S>(
         &self,
-        group: &GroupLog,
+        group: &GroupLog<S>,
         marker: &GroupManifest,
         pins: &ManifestPins,
     ) -> Result<(), ManifestError> {
@@ -112,9 +112,9 @@ impl RootRetentions {
         Ok(())
     }
 
-    pub(super) fn begin(
+    pub(super) fn begin<S>(
         self: &Arc<Self>,
-        group: &GroupLog,
+        group: &GroupLog<S>,
         prepared: &PreparedGroupManifest,
         previous: Option<&GroupManifest>,
     ) -> Result<PublicationPin, ManifestError> {

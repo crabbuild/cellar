@@ -183,3 +183,38 @@ fn physical_inventory_role_includes_every_joint_configuration_set() {
         member
     ));
 }
+
+#[test]
+fn physical_inventory_group_history_is_canonical_and_domain_separated() {
+    let legacy = scope();
+    let history = GroupHistory::from(&legacy);
+    let digest = group_digest(&history);
+    // Independent SHA-256 vector over the fixed domain and four 16-byte IDs.
+    assert_eq!(
+        hex::encode(digest),
+        "08040247cafda32726f8585b91312bb8d84c904fae55e05fa22009b1b4a276f6"
+    );
+    assert_ne!(digest, scope_digest(&legacy).unwrap());
+    let inventory = RaftPhysicalInventory {
+        histories: vec![RaftPhysicalHistory {
+            scope: digest,
+            birth: [8; 32],
+            member: 3u64.to_be_bytes(),
+            completed_sequence: 0u64.to_be_bytes(),
+            in_configuration: false,
+        }],
+        initializing: None,
+    };
+    assert_eq!(inventory.group_history(&history).unwrap().member().get(), 3);
+    assert!(inventory.history(&legacy).unwrap().is_none());
+    for field in 0..4 {
+        let mut changed = history;
+        match field {
+            0 => changed.cluster = ClusterId::new([9; 16]).unwrap(),
+            1 => changed.namespace = NamespaceId::new([9; 16]).unwrap(),
+            2 => changed.group = GroupId::new([9; 16]).unwrap(),
+            _ => changed.incarnation = IncarnationId::new([9; 16]).unwrap(),
+        }
+        assert!(inventory.group_history(&changed).is_none());
+    }
+}

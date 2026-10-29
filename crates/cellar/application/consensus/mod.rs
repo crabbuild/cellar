@@ -202,7 +202,9 @@ pub mod verification {
         PreparedSnapshot, RootSnapshotSet, RootSnapshotSource, SnapshotCheckpoint,
         SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage, SnapshotReference,
     };
-    pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
+    pub use crate::raft::storage::{
+        CellGroupBootstrap, GroupBootstrap, LogError, ReplicaLog, SyncReceipt,
+    };
     pub use crate::raft::transport::{
         Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };

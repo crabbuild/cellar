@@ -335,10 +335,10 @@ fn engine_options(
     )
 }
 
-fn root_write(
-    group: &cellar::application::consensus::verification::GroupLog,
+fn root_write<S: Clone>(
+    group: &cellar::application::consensus::verification::GroupLog<S>,
     prepared: PreparedGroupManifest,
-) -> Result<cellar::application::consensus::verification::GroupWrite> {
+) -> Result<cellar::application::consensus::verification::GroupWrite<S>> {
     use raft::Storage as _;
     let index = prepared.marker().position().index.get();
     let mut write = cellar::application::consensus::verification::GroupWrite::new(group);

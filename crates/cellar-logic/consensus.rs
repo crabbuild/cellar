@@ -109,15 +109,15 @@ pub struct NodeIdentity {
 
 /// A process operating a particular durable member disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReplicaIdentity {
-    pub scope: GroupScope,
+pub struct ReplicaIdentity<S = GroupScope> {
+    pub scope: S,
     pub node: NodeId,
     pub member: MemberId,
     pub disk: DiskLineage,
     pub process: ProcessGeneration,
 }
 
-impl ReplicaIdentity {
+impl<S> ReplicaIdentity<S> {
     pub fn node_identity(&self) -> NodeIdentity {
         NodeIdentity {
             node: self.node,

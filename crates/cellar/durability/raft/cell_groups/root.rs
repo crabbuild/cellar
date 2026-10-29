@@ -57,15 +57,25 @@ impl GroupManifest {
         Ok(())
     }
 
-    pub(crate) fn matches_group(&self, scope: &GroupScope, birth: [u8; 32]) -> bool {
-        self.route.history
-            == GroupHistory {
-                cluster: scope.cluster,
-                namespace: scope.namespace,
-                group: scope.group,
-                incarnation: scope.incarnation,
-            }
-            && self.route.birth_digest == birth
+    pub(crate) fn matches_group<S>(&self, scope: &S, birth: [u8; 32]) -> bool
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
+        self.route.history == GroupHistory::from(scope) && self.route.birth_digest == birth
+    }
+
+    pub(crate) fn genesis(route: GroupRoute) -> Result<Self, ManifestError> {
+        let marker = Self {
+            route,
+            position: LogPosition {
+                index: LogIndex::new(1),
+                term: Term::new(1),
+            },
+            membership_revision: 1,
+            root: ManifestRoot::default(),
+        };
+        marker.check()?;
+        Ok(marker)
     }
 }
 
@@ -103,9 +113,9 @@ impl PreparedGroupManifest {
         self.images.reserved_bytes()
     }
 
-    pub(crate) fn begin_publication(
+    pub(crate) fn begin_publication<S>(
         &self,
-        group: &crate::raft::cache::GroupLog,
+        group: &crate::raft::cache::GroupLog<S>,
         previous: Option<&GroupManifest>,
     ) -> Result<super::retention::PublicationPin, ManifestError> {
         self.retention.begin(group, self, previous)
@@ -116,15 +126,18 @@ impl ManifestTree {
     /// Full closure verification for bootstrap, recovery and checkpoint install.
     /// Ordinary cell mutations use `prepare_update` instead.
     /// The callback returns actual sealed images, never merely accepted markers.
-    pub fn prepare_complete(
+    pub fn prepare_complete<S>(
         &self,
-        group: &crate::raft::cache::GroupLog,
+        group: &crate::raft::cache::GroupLog<S>,
         store: &mut ManifestPageStore,
         root: ManifestRoot,
         position: LogPosition,
         membership_revision: u64,
         mut image: impl FnMut(&CellManifestLeaf) -> Result<CellImagePin, ManifestError>,
-    ) -> Result<PreparedGroupManifest, ManifestError> {
+    ) -> Result<PreparedGroupManifest, ManifestError>
+    where
+        for<'a> GroupHistory: From<&'a S>,
+    {
         let marker = GroupManifest {
             route: self.route.clone(),
             position,

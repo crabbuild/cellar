@@ -51,6 +51,16 @@ async fn group_birth_reservations_bind_global_identity_and_canonical_placement(
     directory::birth_reservations().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn birth_unknown_and_claimed_blank_refuse() -> anyhow::Result<()> {
+    directory::member_bootstrap().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_member_permit_refuses_retired_birth_and_foreign_node() -> anyhow::Result<()> {
+    directory::member_fencing().await
+}
+
 fn route() -> GroupRoute {
     GroupRoute {
         history: GroupHistory {

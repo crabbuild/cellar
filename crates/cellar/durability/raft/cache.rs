@@ -8,7 +8,8 @@ use super::storage::LogError;
 use crate::application::consensus::ImageCommitment;
 use ::raft::prelude::{ConfState, Entry, EntryType, HardState, Snapshot};
 use ::raft::{GetEntriesContext, RaftState, Storage, StorageError};
-use cellar_logic::consensus::{LogIndex, LogPosition, ReplicaIdentity, Term};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::{GroupScope, LogIndex, LogPosition, ReplicaIdentity, Term};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -98,8 +99,8 @@ pub enum SnapshotChange {
 }
 
 #[derive(Clone)]
-pub struct GroupWrite {
-    pub group: GroupLog,
+pub struct GroupWrite<S = GroupScope> {
+    pub group: GroupLog<S>,
     pub entries: Vec<Entry>,
     pub hard_state: Option<HardState>,
     pub conf_state: Option<ConfState>,
@@ -109,8 +110,8 @@ pub struct GroupWrite {
     pub snapshot: Option<SnapshotChange>,
 }
 
-impl GroupWrite {
-    pub fn new(group: &GroupLog) -> Self {
+impl<S: Clone> GroupWrite<S> {
+    pub fn new(group: &GroupLog<S>) -> Self {
         Self {
             group: group.clone(),
             entries: Vec::new(),
@@ -163,21 +164,24 @@ impl GroupWrite {
     }
 }
 
+/// Engine-owned storage handle. `GroupHistory` is the cell-group scope;
+/// `GroupScope` remains only for the staged single-cell application adapter.
+/// The engine rejects mixed application domains and never casts between them.
 #[derive(Clone)]
-pub struct GroupLog {
+pub struct GroupLog<S = GroupScope> {
     pub(crate) scratch_directory: std::path::PathBuf,
     pub(crate) snapshot_scratch: cellar_ltx::stream_snapshot::ScratchPool,
     pub(crate) filesystem: Arc<dyn cellar_ltx::FileSystem>,
     pub(crate) key: u64,
     pub(crate) birth_digest: [u8; 32],
-    pub(crate) identity: ReplicaIdentity,
+    pub(crate) identity: ReplicaIdentity<S>,
     pub(crate) owner: Arc<()>,
     pub(crate) closed: Arc<AtomicBool>,
     pub(crate) cache: Arc<RwLock<CachedGroup>>,
     pub(crate) cache_revision: Arc<AtomicU64>,
 }
 
-impl std::fmt::Debug for GroupLog {
+impl<S: std::fmt::Debug> std::fmt::Debug for GroupLog<S> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("GroupLog")
@@ -187,8 +191,8 @@ impl std::fmt::Debug for GroupLog {
     }
 }
 
-impl GroupLog {
-    pub fn identity(&self) -> &ReplicaIdentity {
+impl<S> GroupLog<S> {
+    pub fn identity(&self) -> &ReplicaIdentity<S> {
         &self.identity
     }
 
@@ -241,6 +245,41 @@ impl GroupLog {
     }
 }
 
+/// One engine catalog, with explicit staged application domains. A caller must
+/// select the right handle type; enumeration never silently skips another kind.
+#[derive(Clone)]
+pub(crate) enum StoredGroup {
+    Cell(GroupLog),
+    Cells(GroupLog<GroupHistory>),
+}
+
+impl StoredGroup {
+    pub(crate) fn as_cell(&self) -> Result<&GroupLog, LogError> {
+        match self {
+            Self::Cell(group) => Ok(group),
+            Self::Cells(_) => Err(LogError::WrongIdentity),
+        }
+    }
+
+    pub(crate) fn as_cells(&self) -> Result<&GroupLog<GroupHistory>, LogError> {
+        match self {
+            Self::Cells(group) => Ok(group),
+            Self::Cell(_) => Err(LogError::WrongIdentity),
+        }
+    }
+
+    pub(crate) fn history(&self) -> GroupHistory {
+        match self {
+            Self::Cell(group) => GroupHistory::from(&group.identity.scope),
+            Self::Cells(group) => group.identity.scope,
+        }
+    }
+
+    pub(crate) fn is_cells(&self) -> bool {
+        matches!(self, Self::Cells(_))
+    }
+}
+
 fn raft_error(error: LogError) -> ::raft::Error {
     ::raft::Error::Store(StorageError::Other(Box::new(error)))
 }
@@ -262,7 +301,7 @@ impl ConsensusStorage {
     }
 }
 
-impl GroupLog {
+impl<S> GroupLog<S> {
     pub(crate) fn consensus_storage(&self) -> ConsensusStorage {
         ConsensusStorage {
             cache: self.cache.clone(),
@@ -276,7 +315,7 @@ impl GroupLog {
     }
 }
 
-impl Storage for GroupLog {
+impl<S> Storage for GroupLog<S> {
     fn initial_state(&self) -> ::raft::Result<RaftState> {
         self.checked_storage()?.initial_state()
     }
@@ -496,7 +535,12 @@ impl CachedGroup {
         Ok(())
     }
 
-    pub fn changed(&self, write: &GroupWrite, max_entries: usize) -> Result<Self, LogError> {
+    pub fn changed<S>(
+        &self,
+        write: &GroupWrite<S>,
+        max_entries: usize,
+        history: GroupHistory,
+    ) -> Result<Self, LogError> {
         let mut next = self.clone();
         if (self.group_manifest.is_some() || write.group_manifest.is_some())
             && (write.applied.is_some() || write.snapshot.is_some())
@@ -623,7 +667,7 @@ impl CachedGroup {
                 .check()
                 .map_err(|e| LogError::Invalid(e.to_string()))?;
             if !Arc::ptr_eq(&prepared.engine_owner, &write.group.owner)
-                || !marker.matches_group(&write.group.identity.scope, write.group.birth_digest)
+                || !marker.matches_group(&history, write.group.birth_digest)
                 || marker.position().index < self.applied.position.index
                 || (marker.position().index == self.applied.position.index
                     && self.group_manifest.as_ref() != Some(marker))
@@ -698,8 +742,6 @@ impl CachedGroup {
                 "applied configuration lacks ConfState".into(),
             ));
         }
-        next.membership
-            .validate_scope(&write.group.identity().scope)?;
         next.validate(max_entries)
             .map_err(|error| LogError::Invalid(error.to_string()))?;
         Ok(next)

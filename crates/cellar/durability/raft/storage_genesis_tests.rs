@@ -183,6 +183,10 @@ async fn physical_catalog_rejects_cell_aliases_across_restart() -> anyhow::Resul
             log.physical_inventory(Some(&alias.scope)),
             Err(LogError::WrongIdentity)
         ));
+        assert!(matches!(
+            log.cell_group_inventory(None),
+            Err(LogError::WrongIdentity)
+        ));
         let inventory = log.physical_inventory(Some(&initial.scope))?;
         assert_eq!(inventory.histories().len(), 1);
         assert_eq!(
@@ -200,7 +204,13 @@ async fn physical_catalog_rejects_cell_aliases_across_restart() -> anyhow::Resul
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn physical_mapping_domain_refuses_old_and_corrupt_engine_records() -> anyhow::Result<()> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
-    for corruption in ["old-scope", "unknown-domain", "zero-history", "empty-cell"] {
+    for corruption in [
+        "old-scope",
+        "old-adapter",
+        "unknown-domain",
+        "zero-history",
+        "empty-cell",
+    ] {
         let root = tempfile::tempdir()?;
         let mut options = options(root.path());
         let initial = bootstrap(5);
@@ -231,7 +241,8 @@ async fn physical_mapping_domain_refuses_old_and_corrupt_engine_records() -> any
                 let mapping = &mut record["mapping"];
                 assert_eq!(mapping["format"], 1);
                 assert_eq!(mapping["domain"], "cellar-group-mapping-1");
-                assert_eq!(mapping["application_cell"], initial.scope.cell);
+                assert_eq!(mapping["application"]["domain"], "single-cell-1");
+                assert_eq!(mapping["application"]["state"], initial.scope.cell);
                 assert_eq!(mapping["history"].as_object().unwrap().len(), 4);
                 assert!(mapping["history"].get("cell").is_none());
                 let mut catalog_key = b"g:".to_vec();
@@ -248,7 +259,7 @@ async fn physical_mapping_domain_refuses_old_and_corrupt_engine_records() -> any
                         let fields = mapping.as_object_mut().unwrap();
                         fields.remove("domain");
                         fields.remove("history");
-                        fields.remove("application_cell");
+                        fields.remove("application");
                         fields.insert(
                             "scope".into(),
                             serde_json::to_value(
@@ -258,13 +269,17 @@ async fn physical_mapping_domain_refuses_old_and_corrupt_engine_records() -> any
                             )?,
                         );
                     }
+                    "old-adapter" => {
+                        mapping.as_object_mut().unwrap().remove("application");
+                        mapping["application_cell"] = serde_json::json!(initial.scope.cell);
+                    }
                     "unknown-domain" => {
                         mapping["domain"] = serde_json::json!("cellar-image-mapping-1")
                     }
                     "zero-history" => {
                         mapping["history"]["group"] = serde_json::json!(vec![0u8; 16])
                     }
-                    "empty-cell" => mapping["application_cell"] = serde_json::json!(""),
+                    "empty-cell" => mapping["application"]["state"] = serde_json::json!(""),
                     _ => unreachable!(),
                 }
                 let mut batch = LogBatch::default();

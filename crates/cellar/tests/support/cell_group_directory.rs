@@ -739,3 +739,197 @@ pub async fn birth_reservations() -> Result<()> {
     f.domain.shutdown().await;
     Ok(())
 }
+
+fn member_options(
+    path: &std::path::Path,
+    node: u8,
+) -> cellar::application::consensus::verification::ReplicaLogOptions {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLogOptions};
+    use cellar_logic::consensus::{DiskLineage, ProcessGeneration};
+    ReplicaLogOptions::new(
+        path.to_owned(),
+        NodeId::new([node; 16]).unwrap(),
+        DiskLineage::new([node + 10; 16]).unwrap(),
+        ProcessGeneration::new([1; 16]).unwrap(),
+        LogOpenMode::Create,
+    )
+}
+
+async fn selected_birth(f: &Fixture) -> Result<CellGroupBirth> {
+    let d = &f.directory;
+    let request = d.prepare_group_birth(birth_spec(&ranges(1)[0]))?;
+    f.run(d.reserve_group_birth(&request)).await?;
+    let initial =
+        d.prepare_initialization(operation(999), std::slice::from_ref(request.route()))?;
+    f.run(d.publish(&initial)).await?;
+    Ok(f.run(d.materialize_group_birth(&request)).await?)
+}
+
+pub async fn member_bootstrap() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar_logic::consensus::ProcessGeneration;
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let birth = selected_birth(&f).await?;
+    let temp = tempfile::tempdir()?;
+    let mut options = member_options(&temp.path().join("member"), 1);
+    let log = f
+        .run(ReplicaLog::open(
+            options.clone(),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    let history = birth.route().history;
+    let claim_key = f.key(&format!(
+        "claims/{}/{}/0000000000000001",
+        hex::encode(history.group.bytes()),
+        hex::encode(history.incarnation.bytes())
+    ));
+    let result = fault::missing_read(
+        claim_key.to_string(),
+        f.run(f.directory.bootstrap_group_member(&birth, &log)),
+    )
+    .await;
+    assert!(matches!(result, Err(CatalogError::Unconfirmed)));
+    let group = log.cell_group(&history)?;
+    assert_eq!(group.group_manifest()?.unwrap().route(), birth.route());
+    assert_eq!(group.group_manifest()?.unwrap().root().cells(), 0);
+    let key = group.numeric_key();
+    let claim = f.store.inner.get(&claim_key).await?.bytes().await?;
+    assert_eq!(&claim[..9], b"CLRCAT01\xbb");
+    let original_engine = log.storage_instance()?;
+    log.close().await?;
+    options.mode = LogOpenMode::Resume;
+    options.process = ProcessGeneration::new([9; 16])?;
+    let log = f
+        .run(ReplicaLog::open(
+            options.clone(),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    let reopened = f.reopen().await?;
+    // An observation from a different catalog owner never grants admission.
+    assert!(matches!(
+        f.run(reopened.bootstrap_group_member(&birth, &log)).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    let request = reopened.prepare_group_birth(birth_spec(birth.route()))?;
+    let current = f.run(reopened.materialize_group_birth(&request)).await?;
+    let permit = f
+        .run(reopened.bootstrap_group_member(&current, &log))
+        .await?;
+    f.run(permit.revalidate()).await?;
+    assert_eq!(permit.group().numeric_key(), key);
+    assert_eq!(permit.group().identity().scope, history);
+    assert_eq!(permit.group().identity().process, options.process);
+    assert_eq!(log.storage_instance()?, original_engine);
+    assert_eq!(f.store.inner.get(&claim_key).await?.bytes().await?, claim);
+    // Corrupt claims are not overwritten or interpreted as absent.
+    f.store
+        .inner
+        .put(&claim_key, b"not-a-claim".to_vec().into())
+        .await?;
+    assert!(matches!(
+        f.run(permit.revalidate()).await,
+        Err(CatalogError::Conflict(_))
+    ));
+    f.store.inner.put(&claim_key, claim.clone().into()).await?;
+    drop(permit);
+    log.close().await?;
+    // Remove only this owned fixture's group state, preserving the actual
+    // engine instance and permanent node pin. This exercises the member claim
+    // refusal independently of the earlier node-storage pin check.
+    let dir = options.directory.join("log").to_string_lossy().into_owned();
+    f.domain
+        .blocking(move || -> Result<()> {
+            let engine = raft_engine::Engine::open(raft_engine::Config {
+                dir,
+                ..Default::default()
+            })?;
+            let mut catalog_key = b"g:".to_vec();
+            catalog_key.extend_from_slice(&history.group.bytes());
+            catalog_key.extend_from_slice(&history.incarnation.bytes());
+            let mut batch = raft_engine::LogBatch::default();
+            batch.delete(0, catalog_key);
+            batch.add_command(key, raft_engine::Command::Clean);
+            engine.write(&mut batch, true)?;
+            Ok(())
+        })?
+        .await??;
+    let log = f
+        .run(ReplicaLog::open(
+            options,
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    assert_eq!(log.storage_instance()?, original_engine);
+    assert!(log.cell_groups()?.is_empty());
+    assert!(matches!(
+        f.run(reopened.bootstrap_group_member(&current, &log)).await,
+        Err(CatalogError::LostStableState)
+    ));
+    assert!(log.cell_groups()?.is_empty());
+    log.close().await?;
+    let blank = f
+        .run(ReplicaLog::open(
+            member_options(&temp.path().join("new-path"), 1),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    assert!(matches!(
+        f.run(reopened.bootstrap_group_member(&current, &blank))
+            .await,
+        Err(CatalogError::LostStableState)
+    ));
+    assert!(blank.cell_groups()?.is_empty());
+    blank.close().await?;
+    assert_eq!(f.store.inner.get(&claim_key).await?.bytes().await?, claim);
+    f.domain.shutdown().await;
+    Ok(())
+}
+
+pub async fn member_fencing() -> Result<()> {
+    use cellar::application::consensus::verification::ReplicaLog;
+    let f = Fixture::new(DirectoryLimits::default()).await?;
+    let birth = selected_birth(&f).await?;
+    let temp = tempfile::tempdir()?;
+    let foreign = f
+        .run(ReplicaLog::open(
+            member_options(&temp.path().join("foreign"), 9),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    assert!(matches!(
+        f.run(f.directory.bootstrap_group_member(&birth, &foreign))
+            .await,
+        Err(CatalogError::NotInitialMember)
+    ));
+    assert!(foreign.cell_groups()?.is_empty());
+    foreign.close().await?;
+    let log = f
+        .run(ReplicaLog::open(
+            member_options(&temp.path().join("member"), 1),
+            Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await?;
+    let permit = f
+        .run(f.directory.bootstrap_group_member(&birth, &log))
+        .await?;
+    let view = f.run(f.directory.observe()).await?;
+    let mut children = split(birth.route(), 700);
+    f.reserve(&mut children).await?;
+    let replace = f.directory.prepare_replacement(
+        &view,
+        operation(1000),
+        std::slice::from_ref(birth.route()),
+        &children,
+    )?;
+    f.run(f.directory.publish(&replace)).await?;
+    assert!(matches!(
+        f.run(permit.revalidate()).await,
+        Err(CatalogError::Fenced)
+    ));
+    assert_eq!(log.cell_groups()?.len(), 1);
+    log.close().await?;
+    f.domain.shutdown().await;
+    Ok(())
+}
