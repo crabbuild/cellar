@@ -235,7 +235,15 @@ async fn disaster_foreign_namespace_refuses_before_intent_or_fence() -> Result<(
     let cut = fixture.commit(7, vec![]).await?;
     let reference = fixture.publish(cut).await?.reference();
     let store = Arc::new(faults::Store::default());
-    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    // Keep the source object paths reachable so the failure proves namespace
+    // validation, rather than an unrelated missing object in another prefix.
+    let catalog = Catalog::new(
+        store.clone(),
+        CatalogOptions {
+            prefix: "archive-test".into(),
+            ..Default::default()
+        },
+    )?;
     let mut config = fixture.namespace.config().clone();
     config.image_storage = RaftImageStorage::Extents;
     let namespace = catalog.open_namespace(config).await?;
@@ -271,19 +279,23 @@ async fn disaster_foreign_namespace_refuses_before_intent_or_fence() -> Result<(
     let fence = Fence::new(true);
     let request = request(&birth, reference)?;
     namespace.disaster_fence_request(request.clone()).await?;
-    ensure!(matches!(
-        namespace
-            .recover_from_disaster(
-                request,
-                &fence,
-                LtxHost::default(),
-                ArchiveLimits::default()
-            )
-            .await,
-        Err(CatalogError::Archive(ArchiveError::Corrupt(
-            "archive history/schema binding"
-        )))
-    ));
+    let result = namespace
+        .recover_from_disaster(
+            request,
+            &fence,
+            LtxHost::default(),
+            ArchiveLimits::default(),
+        )
+        .await;
+    ensure!(
+        matches!(
+            &result,
+            Err(CatalogError::Archive(ArchiveError::Corrupt(
+                "archive history/schema binding"
+            )))
+        ),
+        "unexpected recovery result: {result:?}"
+    );
     ensure!(fence.calls.load(Ordering::SeqCst) == 0);
     ensure!(store.inner.list(None).try_collect::<Vec<_>>().await? == before);
     ensure!(
