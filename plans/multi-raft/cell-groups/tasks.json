@@ -282,7 +282,8 @@
         "crates/cellar/durability/raft/",
         "crates/cellar/application/consensus/",
         "crates/cellar/node/",
-        "crates/cellar/tests/support/raft_catalog_fault.rs"
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar-logic/"
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/enrollment.rs",
@@ -309,7 +310,7 @@
           ]
         },
         {
-          "action": "Reconcile lost birth/root/enrollment replies by canonical operation identity. Keep unconfirmed outcomes typed; a blank claimed voter cannot bootstrap under a new path. Refuse enrollment under sealed or retired ranges.",
+          "action": "Make physical replica/log identity, engine registry and durable mappings, node storage inventory and permanent member claims group-scoped, without a synthetic cell name. Connect the exact verified birth to synced real-engine genesis before permitting voter startup. Reject old storage domains rather than adding a legacy decoder. Reconcile lost birth/root/enrollment replies by canonical operation identity. Keep unconfirmed outcomes typed; a blank claimed voter cannot bootstrap under a new path. Refuse enrollment under sealed or retired ranges. Metadata-only birth tests do not satisfy this integration boundary.",
           "tests": [
             "birth_unknown_and_claimed_blank_refuse"
           ]
@@ -341,7 +342,7 @@
         },
         {
           "name": "birth_unknown_and_claimed_blank_refuse",
-          "oracle": "Unknown creation reconciles its winner and missing permanently claimed disk state refuses.",
+          "oracle": "Real-engine genesis binds the selected group birth and permanent member claim without a cell owner; restart preserves that exact identity. Unknown creation reconciles its winner, identity substitution and old storage domains refuse, and deleting an owned claimed voter fixture cannot authorize fresh genesis under another path. No metadata observation alone grants voter-start authority.",
           "invariants": [
             "I01",
             "I08"

@@ -9,9 +9,10 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The design package is delivered. The active goal is now its end-to-end
-implementation and hard cutover to the shared-group runtime. Checkpoints are
-recorded separately; they do not mark the remaining tasks complete.
+The current requested deliverable is the executable design and implementation
+plan. The target remains an end-to-end hard cutover to the shared-group runtime;
+executing all remaining tasks is a separate implementation phase. Existing code
+checkpoints are preserved and do not mark the remaining tasks complete.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -68,16 +69,26 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The resumed implementation goal includes every task and the final runtime cutover.
-The earlier plan-only handoff is historical; package validation does not satisfy
-the active implementation objective.
+The latest user clarification selects an executable design and implementation
+plan. This handoff supersedes earlier instructions in the progress history to
+continue implementation immediately. No further runtime changes are part of this
+plan handoff; all remaining implementation and qualification gates stay explicit.
 
-Resume CG-03 after reading [progress](progress.md) and inspecting the working diff.
+When implementation is resumed, start with CG-03 after reading
+[progress](progress.md) and inspecting the working diff.
 CG-01 and CG-02 are DONE only at their named contract/storage boundaries; the
 remaining tasks still require implementation. `ready` lists eligible TODO tasks;
 an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
 to DONE. Continue in the generated dependency order afterward.
+
+The next concrete boundary is physical group bootstrap: remove the cell binding
+from replica/log identity, durable engine mappings, node inventory and permanent
+member claims. Connect the verified birth to synced genesis and test restart,
+unknown outcomes and refusal after a claimed voter disk is lost. A birth metadata
+observation alone cannot authorize voter startup. A fabricated cell name is not
+a substitute for a group identity. Then complete bounded redirects before CG-04
+connects enrollment to the shared runtime.
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff

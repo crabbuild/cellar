@@ -3,9 +3,32 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The active goal resumes end-to-end implementation after the plan
-handoff recorded below. Intermediate contracts do not qualify a shared runtime.
+hard cutover. The latest user clarification requests the executable plan as the
+current deliverable. Earlier implementation checkpoints below remain historical
+evidence; they do not authorize continuing runtime changes in this handoff.
+Intermediate contracts do not qualify a shared runtime.
 No production legacy/shared mode flag is being added.
+
+## Current plan handoff — 2026-10-29
+
+The package describes the complete replacement architecture, ordered implementation
+briefs and source-bound qualification gates. CG-01 and CG-02 retain their existing
+DONE evidence; CG-03 remains IN_PROGRESS and CG-04 through CG-16 remain TODO.
+The next executor starts with physical group identity, real genesis/member-claim
+integration and bounded redirects, then follows the task graph. This handoff adds
+no runtime implementation or new runtime qualification claim.
+
+The branch includes fetched `origin/main` at
+`1be27d234d4674d4d014785c60cecbfe394bdab9`. The supplied TiKV checkout remains at
+`b3995dab28308f09cbb7c125bf32f789dbc203fe`. Existing local DONE evidence must
+accompany a fresh checkout to validate those checkpoints. Final release remains
+closed; a validated plan does not prove shared-group performance or recovery.
+
+Handoff checks pass: package validation (16 tasks, 83 required cases, 14 invariants,
+nine profiles), reviewed source preflight, all 37 validator unit tests, repository
+documentation checks and `git diff --check`. The CG-03 executor brief renders
+successfully. `release` exits nonzero as expected because implementation evidence
+is incomplete. Runtime suites were not rerun for these plan-only edits.
 
 ## Historical plan handoff — 2026-10-29
 
