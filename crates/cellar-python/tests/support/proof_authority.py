@@ -145,7 +145,7 @@ class Counter:
                         errno=getattr(error, "errno", None), outcome=getattr(error, "outcome", None),
                         operation=getattr(error, "operation", None), completed_bytes=getattr(error, "completed_bytes", None))
                 if FILESYSTEM_BARRIER:
-                    assert (_barrier_failure["code"], _barrier_failure["outcome"], _barrier_failure["operation"], _barrier_failure["completed_bytes"]) == ("Cancelled", "unknown", "filesystem." + FILESYSTEM_BARRIER, 0)
+                    assert (_barrier_failure["code"], _barrier_failure["outcome"], _barrier_failure["operation"], _barrier_failure["completed_bytes"]) == ("Cancelled", "unknown", "filesystem." + FILESYSTEM_OPERATION, 0)
                 await late(ctx, event)
                 return Response.json(False)
             except SDKError as error:
@@ -154,7 +154,7 @@ class Counter:
                 observed = dict(type=type(error).__name__, code=error.code, errno=getattr(error, "errno", None),
                     outcome=error.outcome, operation=getattr(error, "operation", None), completed_bytes=getattr(error, "completed_bytes", None))
                 valid = FILESYSTEM_BARRIER and (error.code, getattr(error, "errno", None), error.outcome,
-                    observed["operation"], observed["completed_bytes"]) == ("Storage", "EIO", "unknown", "filesystem." + FILESYSTEM_BARRIER, 0)
+                    observed["operation"], observed["completed_bytes"]) == ("Storage", "EIO", "unknown", "filesystem." + FILESYSTEM_OPERATION, 0)
                 with _lock:
                     _barrier_failure = observed
                     _barrier_settled = bool(valid)

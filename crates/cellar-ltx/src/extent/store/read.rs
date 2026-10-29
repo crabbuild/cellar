@@ -12,6 +12,14 @@ use crate::stream_snapshot::ScratchReservation;
 mod tests;
 
 impl RootView {
+    pub(crate) fn invalidate_extent(&self, id: ExtentId) -> Result<(), StoreError> {
+        let mut state = self.inner.state()?;
+        let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+        entry.verified = false;
+        entry.read_proof = None;
+        Ok(())
+    }
+
     pub(crate) fn cached_extent(
         &self,
         id: ExtentId,
@@ -35,13 +43,13 @@ impl RootView {
         reservation: ScratchReservation,
     ) -> Result<ExtentFile, StoreError> {
         let result = (|| {
-            let verified = {
+            let (verified, proof) = {
                 let state = self.inner.state()?;
                 let entry = state.objects.get(&id).ok_or(StoreError::Missing)?;
                 if entry.bytes != u64::from(id.length()) {
                     return Err(StoreError::Integrity);
                 }
-                entry.verified
+                (entry.verified, entry.read_proof.clone())
             };
             let mut file = self.inner.checked_file(
                 &self.inner.directory.join(object_name(id)),
@@ -53,18 +61,29 @@ impl RootView {
                 file.sync_all()?;
                 self.inner.filesystem.sync_all(&self.inner.directory)?;
             }
-            let file = ExtentFile::from_local(file, reservation, self.clone(), id)?;
-            self.inner
-                .state()?
-                .objects
-                .get_mut(&id)
-                .ok_or(StoreError::Missing)?
-                .verified = true;
+            let reused = verified && proof.is_some();
+            let file = ExtentFile::from_local(
+                file,
+                reservation,
+                self.clone(),
+                id,
+                if verified { proof } else { None },
+            )?;
+            if !reused {
+                let mut state = self.inner.state()?;
+                let entry = state.objects.get_mut(&id).ok_or(StoreError::Missing)?;
+                entry.verified = true;
+                // Only complete verification can restore admission. A read
+                // reusing block hashes must not override another verifier's
+                // failure while this descriptor was being opened.
+                entry.read_proof = Some(file.block_proof());
+            }
             Ok(file)
         })();
         if result.is_err() {
             if let Some(entry) = self.inner.state()?.objects.get_mut(&id) {
                 entry.verified = false;
+                entry.read_proof = None;
             }
         }
         result

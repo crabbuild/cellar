@@ -24,6 +24,7 @@ pub(crate) async fn initial(address: &str, cancellation: &lifetime::Cancellation
         "/one/wire-unsigned-2",
         "/one/wire-signed",
         "/one/wire-batch",
+        "/one/wire-handles",
         "/one/namespace",
         "/one/reserved-mkdir",
         "/one/reserved-rmdir",

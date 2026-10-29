@@ -520,7 +520,12 @@ async function wireProfile(fs, ctx, group) {
     );
   const before = await snapshot();
   let refused = 0;
-  const refusal = async (call, operation, errno = "EINVAL") => {
+  const refusal = async (
+    call,
+    operation,
+    errno = "EINVAL",
+    code = "ValidationError",
+  ) => {
     let error;
     try {
       await call();
@@ -528,7 +533,7 @@ async function wireProfile(fs, ctx, group) {
       error = caught;
     }
     if (
-      error?.code !== "ValidationError" ||
+      error?.code !== code ||
       error.errno !== errno ||
       error.operation !== operation ||
       error.outcome !== "not_committed" ||
@@ -541,7 +546,54 @@ async function wireProfile(fs, ctx, group) {
     refused++;
   };
   try {
-    if (group.startsWith("unsigned-")) {
+    if (group === "handles") {
+      const handles = {
+        file: (
+          await ctx._call("filesystem.open", {
+            path,
+            options: { access: "read_write" },
+          })
+        ).handle,
+        directory: (
+          await ctx._call("filesystem.opendir", { path: "/wire-profile" })
+        ).handle,
+      };
+      const rawSnapshot = async () =>
+        JSON.stringify([
+          await ctx._call("filesystem.fstat", { handle: handles.file }),
+          await ctx._call("filesystem.fstat", { handle: handles.directory }),
+          await ctx._call("filesystem.lseek", {
+            handle: handles.file,
+            offset: "0",
+            whence: "current",
+          }),
+          await ctx._call("filesystem.telldir", { handle: handles.directory }),
+        ]);
+      const rawBefore = await rawSnapshot();
+      for (const {
+        kind,
+        operation,
+        arguments: args,
+      } of filesystemHandleCases) {
+        await refusal(
+          () =>
+            ctx._call(`filesystem.${operation}`, {
+              ...args,
+              handle: handles[kind],
+            }),
+          `filesystem.${operation}`,
+          "EBADF",
+          "Filesystem",
+        );
+        check((await rawSnapshot()) === rawBefore);
+        await refuses(() => fs.open(path), "Filesystem", "ENFILE");
+      }
+      check(refused === 16);
+      await ctx._call("filesystem.fdatasync", { handle: handles.file });
+      await ctx._call("filesystem.fsync", { handle: handles.directory });
+      await ctx._call("filesystem.close", { handle: handles.file });
+      await ctx._call("filesystem.closedir", { handle: handles.directory });
+    } else if (group.startsWith("unsigned-")) {
       const part = Number(group.slice("unsigned-".length));
       check(Number.isInteger(part) && part >= 0 && part < 3);
       const calls = (value) => [
@@ -653,7 +705,12 @@ async function wireProfile(fs, ctx, group) {
         [() => file.readExact(-1), "read_exact"],
       ])
         await refusal(call, `filesystem.${operation}`);
-      check(refused === 26);
+      for (const [call, operation] of [
+        [() => directory.readPage(0), "read_page"],
+        [() => fs.readDir("/wire-profile", 0), "read_dir"],
+      ])
+        await refusal(call, `filesystem.${operation}`, "EINVAL", "Filesystem");
+      check(refused === 28);
     } else {
       check(group === "batch");
       const batch = async (changes, errno) => {

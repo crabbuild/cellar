@@ -8,6 +8,8 @@
 mod cluster;
 #[path = "../../../crates/cellar/tests/support/raft_full_capacity.rs"]
 mod full_capacity;
+#[path = "../../../crates/cellar/tests/support/raft_process_recovery/mod.rs"]
+mod process_recovery;
 #[path = "../../../crates/cellar/tests/support/raft_node.rs"]
 #[allow(dead_code)]
 mod public_node;

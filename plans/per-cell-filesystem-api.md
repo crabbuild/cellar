@@ -557,6 +557,9 @@ cannot run the SDK's annotation code.
 
 Descriptor `readdir` synthesizes `.` and `..`. Stateless `read_dir` returns only
 actual entries so application traversals do not follow synthetic dot entries.
+Both `read_dir` and `Directory::read_page` require a positive page limit within
+the captured directory-entry bound. Zero and oversized limits return EINVAL
+with no consumed entries or cursor advancement, consistently across SDKs.
 For conditional edits, equal-size patches and end-of-file tail replacement
 (including append) touch only bounded inserted data, regardless of file size.
 An edit that shifts an existing suffix uses the whole-file helper bound and

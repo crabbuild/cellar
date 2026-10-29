@@ -9,6 +9,16 @@ work. The architecture and product policy are in
 
 ## Current qualification
 
+The separate-process extent recovery drill also passes at 9,999,998,976 bytes on
+frozen `79616cbe`: SIGKILL of the acknowledged owner, complete owner-directory
+erasure, a fresh empty worker restoring from RustFS with zero peer recovery
+bytes, local reads, a new quorum-durable write, receipt reconciliation, payload
+verification and joined shutdown. Failure-to-verified-write took 596.26 s;
+replacement spawn through verified seed installation took 229.22 s. See the
+[process qualification record](process-recovery-qualification.md) for source
+identity, all timing boundaries, the read-proof fix and remaining scope limits.
+This is one shared-host correctness trial, not production percentile qualification.
+
 Both native materialized recovery paths pass at 9,999,998,976 SQLite bytes on
 frozen `106a961f`, without an external SQL reader or stack sampler. They preserve
 the 60-second read deadlines and verify owner/local-state loss, payloads, new
@@ -69,8 +79,8 @@ statements describe each run at that point in time.
 2. Bring extent snapshots, peer seeds and object-store recovery through the
    same acceptance path before enabling public extent selection. Metadata-only
    roots and locally passing command tests do not establish remote recovery.
-3. Qualify owner process loss and erased local state with actual near-quota
-   compressible/incompressible databases, corruption and capacity failures.
+3. Extend the passing separate-process RustFS owner-loss drill to the remaining
+   near-quota workload, corruption, capacity and intermediate-crash matrix.
    Record first-read/first-write work and memory separately from correctness.
 
 The active follow-up stays focused on these gates. UI/demo changes and unrelated

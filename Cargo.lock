@@ -571,6 +571,7 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+ "tracing-subscriber",
  "url",
  "v8",
 ]

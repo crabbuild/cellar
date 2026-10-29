@@ -199,9 +199,9 @@ async fn small_writes_recycle_checkpointed_wal_between_operations() -> Result<()
     let result = domain
         .run(async {
             let bucket = Bucket::open_dev(&database)?;
-            // More than SQLite's default 1,000-page automatic checkpoint threshold.
-            // No explicit checkpoint or connection outside the public store may
-            // preserve the WAL index on behalf of the implementation under test.
+            // Large bodies are staged in bounded transactions, so their upload
+            // can checkpoint and recycle the WAL before publishing the object.
+            // Retain this object's bytes and CAS identity through later recycling.
             let body = vec![0x5a; 8 << 20];
             let token = bucket
                 .put_cas("large", body.clone(), None)
@@ -212,16 +212,36 @@ async fn small_writes_recycle_checkpointed_wal_between_operations() -> Result<()
                 std::fs::File::open(&wal)?.read_exact(&mut bytes)?;
                 Ok(bytes)
             };
+            // Warm the same bounded overwrite workload through multiple automatic
+            // checkpoint cycles. An arbitrary handful of one-byte writes after
+            // the staged upload need not cross the 1,000-page checkpoint threshold.
+            // No external connection or explicit checkpoint may preserve the WAL
+            // index on behalf of the public store under test.
+            for round in 0..8 {
+                for index in 0..16 {
+                    bucket
+                        .put(
+                            &format!("small-{index}"),
+                            vec![round * 16 + index; 64 << 10],
+                        )
+                        .await?;
+                }
+            }
             let before = header()?;
             let initial_size = std::fs::metadata(&wal)?.len();
             // The WAL-index lifetime must follow surviving clones, rather than
             // just the handle that created the store.
             let cloned = bucket.clone();
             drop(bucket);
-            for index in 0..16 {
-                cloned
-                    .put(&format!("small-{index}"), vec![index as u8])
-                    .await?;
+            for round in 8..16 {
+                for index in 0..16 {
+                    cloned
+                        .put(
+                            &format!("small-{index}"),
+                            vec![round * 16 + index; 64 << 10],
+                        )
+                        .await?;
+                }
             }
             let after = header()?;
             // SQLite changes the WAL header salts on recycling after a checkpoint.
@@ -250,7 +270,10 @@ async fn small_writes_recycle_checkpointed_wal_between_operations() -> Result<()
                     .get(&format!("small-{index}"))
                     .await?
                     .context("small object disappeared after reopen")?;
-                ensure!(saved.as_ref() == [index as u8], "small object changed");
+                ensure!(
+                    saved.as_ref() == vec![15 * 16 + index as u8; 64 << 10],
+                    "small object changed"
+                );
             }
             ensure!(
                 reopened

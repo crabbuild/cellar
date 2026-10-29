@@ -1,0 +1,2909 @@
+{
+  "format": 1,
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "source": "cd0463fa8514d1f4972389e6942e85b52f7bccf7",
+  "checks": [
+    {
+      "name": "native-facets",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--test",
+        "native_facets",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit": 0,
+      "seconds": 7.46380504197441,
+      "log_sha256": "995d23c48a47660a0ba844417edbc7f953c35dfac0c7ffb1dbd7677af3137f3a"
+    },
+    {
+      "name": "node-only-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-javascript",
+        "--no-default-features",
+        "--features",
+        "node",
+        "--test",
+        "node_runtime",
+        "--test",
+        "fleet_package",
+        "--test",
+        "filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 65.2993243749952,
+      "log_sha256": "e3e75e4fd739bb8cdbe75bd3842d98dead6568b3346e995879b4f674e1957a85"
+    },
+    {
+      "name": "node-only-filesystem",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-filesystem-executable",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 22.473527624970302,
+      "log_sha256": "8305c46bb5f7c4fb7a51b5dffcddd8ddc3dfa0688965d9403202ff2c3a21d529"
+    },
+    {
+      "name": "node-npm",
+      "command": [
+        "npm",
+        "ci",
+        "--prefix",
+        "examples/node",
+        "--ignore-scripts"
+      ],
+      "exit": 0,
+      "seconds": 0.6960895420052111,
+      "log_sha256": "a5d1ca56ab3abba50a88d917a455e47012f88c7211306511011af27af51a44ff"
+    },
+    {
+      "name": "node-typescript",
+      "command": [
+        "npm",
+        "run",
+        "--prefix",
+        "examples/node",
+        "build"
+      ],
+      "exit": 0,
+      "seconds": 0.30293875001370907,
+      "log_sha256": "b3a494a0f563e19e1ea63a6d17ddf3ce0878b115018361133156c790fe7d0892"
+    },
+    {
+      "name": "node-capture",
+      "command": [
+        "node",
+        "tools/javascript/node-package.mjs",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-config.json",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery"
+      ],
+      "exit": 0,
+      "seconds": 1.7803324999986216,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "node-delivery-0",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0341334999538958,
+      "log_sha256": "59fdb3cb7ec8e79ce86eaf8b58622217755d5c43d9a6d8ca34b5feb537fa044b"
+    },
+    {
+      "name": "node-delivery-1",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9949683340964839,
+      "log_sha256": "66f42d5aa29576a025f8b87444c3657c3d703bb1dad62270d6cd9847837b6748"
+    },
+    {
+      "name": "node-delivery-2",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9783047499367967,
+      "log_sha256": "73b42648d11926f0bd60ec74ada5f288105663a774f1147b87e5afda4ecfc6a7"
+    },
+    {
+      "name": "node-delivery-3",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9713637500535697,
+      "log_sha256": "bbe0e0865d294a3896af6d02c9b822cfba0bd531f55db8880c1bdc8a54bdfca2"
+    },
+    {
+      "name": "node-delivery-4",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0738699159119278,
+      "log_sha256": "711aee2eb32a02199bb76fb5bb6dda3ea0c112c47c66e74e6c832db88f95878a"
+    },
+    {
+      "name": "node-delivery-5",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9870773330330849,
+      "log_sha256": "69b777d614f351b0b0224c9ad5d48aa46b3e54098ac80a652ff4fda93c97de63"
+    },
+    {
+      "name": "node-delivery-6",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9667060829233378,
+      "log_sha256": "40d5a49654f0be0ce3f4211db60bf0fe20f66707d6dd2ebe07b78c90f74fd495"
+    },
+    {
+      "name": "node-delivery-7",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9943054170580581,
+      "log_sha256": "849e49e2ae4ba224b4cb2e89e4520719e55b81a13b6096e2bc3426f2440a0f67"
+    },
+    {
+      "name": "node-delivery-8",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0320192920044065,
+      "log_sha256": "bd1efc47f8d0ed9c47b16316458839ab775bd6e7eba588a8376681a170159d2a"
+    },
+    {
+      "name": "node-delivery-9",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9930220000678673,
+      "log_sha256": "77ab1f9ea110ec7e3531b0c7b50cf1053742164019fcfce1fed7865a11e30540"
+    },
+    {
+      "name": "node-delivery-10",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9755615409230813,
+      "log_sha256": "b8a6772533a1ddf6973a561a74ec10c477a7cdf365a57d40755d5c6c59f6a1a8"
+    },
+    {
+      "name": "node-delivery-11",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0201147079933435,
+      "log_sha256": "15ea8cd6af678f6ffd98d8975e22408a6908c1ea73ccb19723015f8cc41558c2"
+    },
+    {
+      "name": "node-delivery-12",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0455798750044778,
+      "log_sha256": "64f59973e61bad19361d93e876ed1eddfb08c95abbff612f67d9053c0c9fb23b"
+    },
+    {
+      "name": "node-delivery-13",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.1291620840784162,
+      "log_sha256": "bfb61d77d034881c5bc0192e9b1cd042bfd5cbe06391a97347aecaaed6754059"
+    },
+    {
+      "name": "node-delivery-14",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9505477080820128,
+      "log_sha256": "5a50fe456949005a5f91a291335e2894e6085efc7c110c41186818d8b40acc22"
+    },
+    {
+      "name": "node-delivery-15",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9669645000249147,
+      "log_sha256": "6f2f7867cedbaeaa62f1c9d57dd6aca98a9745bb93083598dcadf2559d3c0d72"
+    },
+    {
+      "name": "node-delivery-16",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9904107500333339,
+      "log_sha256": "5d4efea02a8c289b58e491ba20ecd28be7755c304870b4b7bb73475d82cc0d66"
+    },
+    {
+      "name": "node-delivery-17",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 1.0365091660059988,
+      "log_sha256": "1e91d3d576d8a193e5a5c02c61933a2845f956734debac0339d39055db7ed646"
+    },
+    {
+      "name": "node-delivery-18",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.972223374992609,
+      "log_sha256": "7a54f4a93e30a1ec7eea6a6930cf27e179ffc775ddd4380c3f6d3fa7e1fcf205"
+    },
+    {
+      "name": "node-delivery-19",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+        "node_npm_native_addon_components_routing_and_restart",
+        "--exact",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 0.9552732079755515,
+      "log_sha256": "fbdcd926afeeef4b32ea81b196f6a0e11e8fd7be96a6ebd315980f1e5377a89a"
+    },
+    {
+      "name": "session-npm",
+      "command": [
+        "npm",
+        "ci",
+        "--prefix",
+        "examples/filesystem-agent",
+        "--ignore-scripts"
+      ],
+      "exit": 0,
+      "seconds": 0.48393641598522663,
+      "log_sha256": "6d495726ef703231e59ef466643fd2bd603bc951c6f1ec7c1b1b699f06a9a87c"
+    },
+    {
+      "name": "session-process",
+      "command": [
+        "npm",
+        "run",
+        "--prefix",
+        "examples/filesystem-agent",
+        "test:e2e"
+      ],
+      "exit": 0,
+      "seconds": 151.84003199997824,
+      "log_sha256": "fb092ebffa8a7d14d08254fe957fc0a1eb6b34cc6dcefb93ad1a331c4b133d0b"
+    },
+    {
+      "name": "cli-build",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar"
+      ],
+      "exit": 0,
+      "seconds": 3.359481541090645,
+      "log_sha256": "92148bd2561f4ca9a26519b3e27dd6f00655d673790dc2a126f1fdafb479c234"
+    },
+    {
+      "name": "filesystem-agent-runtime",
+      "command": [
+        "node",
+        "tools/javascript/node-package.mjs",
+        "--runtime",
+        "/Users/haipingfu/.codex-workspaces/worktrees/ios-b46756e3-3891-4da0-b2a8-7363c6fda629/cellar/examples/filesystem-agent/runtime.json",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/filesystem-agent-runtime"
+      ],
+      "exit": 0,
+      "seconds": 0.30460237502120435,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "filesystem-agent-package",
+      "command": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-final/debug/cellar",
+        "build",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/filesystem-agent-project.json",
+        "--output",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/filesystem-agent-package"
+      ],
+      "exit": 0,
+      "seconds": 88.05468141695019,
+      "log_sha256": "42898c4d967d76a5359bc968fe3c88735075cf4950ed7137bfd1b12212a01cd2"
+    },
+    {
+      "name": "filesystem-agent-restore",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-fleet-executable",
+        "filesystem_agent_package_restores_session_files_and_followup_turns",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 29.46705083292909,
+      "log_sha256": "defd5635968970e6e4fb668f7c7dc22d5a5c07cfa3a58eaa84d28ca6490e17fd"
+    },
+    {
+      "name": "vercel-npm",
+      "command": [
+        "npm",
+        "ci",
+        "--prefix",
+        "examples/vercel-agent",
+        "--ignore-scripts"
+      ],
+      "exit": 0,
+      "seconds": 1.1756684998981655,
+      "log_sha256": "14ef8a8db074438522fff6a573306a88b745b6a8983ec8859b76f778b5d77217"
+    },
+    {
+      "name": "vercel-typescript",
+      "command": [
+        "npm",
+        "run",
+        "--prefix",
+        "examples/vercel-agent",
+        "build"
+      ],
+      "exit": 0,
+      "seconds": 0.42945908394176513,
+      "log_sha256": "fe9888dd26fbc0b3cb745a8bd3e77ea8fd31ef7363b09391295209b8937f5f79"
+    },
+    {
+      "name": "vercel-agent-runtime",
+      "command": [
+        "node",
+        "tools/javascript/node-package.mjs",
+        "--runtime",
+        "/Users/haipingfu/.codex-workspaces/worktrees/ios-b46756e3-3891-4da0-b2a8-7363c6fda629/cellar/examples/vercel-agent/runtime.json",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/vercel-agent-runtime"
+      ],
+      "exit": 0,
+      "seconds": 1.4476999170146883,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "vercel-agent-package",
+      "command": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-final/debug/cellar",
+        "build",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/vercel-agent-project.json",
+        "--output",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/vercel-agent-package"
+      ],
+      "exit": 0,
+      "seconds": 90.27912229194771,
+      "log_sha256": "208a1ae7e573c8e83940902e35ca5714858845848702df53f614eee55940e1d7"
+    },
+    {
+      "name": "vercel-agent-restore",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-fleet-executable",
+        "vercel::installed_vercel_filesystem_recovers_saved_reads_and_receipts",
+        "--exact",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 41.88235579105094,
+      "log_sha256": "2146bb45ee968068ec6bce358a8742aa6c758d3bb240c3dd1d540fb00daf6d67"
+    },
+    {
+      "name": "gil-package",
+      "command": [
+        "python3",
+        "examples/python-agent/package.py",
+        "--runtime",
+        "3.14.5",
+        "--profile",
+        "dev",
+        "--prefix",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/gil-environment",
+        "--output",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/gil-agent-package"
+      ],
+      "exit": 0,
+      "seconds": 215.13289133296348,
+      "log_sha256": "a8cbc963b265d2ca7cc088816df55599e30e7d1a72d1442ab05e4946b62d3726"
+    },
+    {
+      "name": "gil-agent-boundaries",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/gil-environment/runtime/cpython-3.14.5-macos-aarch64-none/bin/python3.14",
+        "-B",
+        "examples/python-agent/test_app.py"
+      ],
+      "exit": 0,
+      "seconds": 1.4195382919861004,
+      "log_sha256": "dc9af4d91f378ca638956922912f49871be4cf6c76e74a44d8e890945c9475c8"
+    },
+    {
+      "name": "gil-agent-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-python",
+        "--features",
+        "embed",
+        "--test",
+        "agent_filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 82.43090854201,
+      "log_sha256": "d2a079a6dddd926b87038e589638d1a1221590cbd4d5cdffb9597398d9b5f67a"
+    },
+    {
+      "name": "gil-agent-restore",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/gil-agent-executable",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 76.77336520794779,
+      "log_sha256": "0eac66c55cfcf35effdd5224cdca54b49eb05b445b443fbe9003e8e959fbf647"
+    },
+    {
+      "name": "freethread-package",
+      "command": [
+        "python3",
+        "examples/python-agent/package.py",
+        "--runtime",
+        "3.14.5t",
+        "--profile",
+        "dev",
+        "--prefix",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/freethread-environment",
+        "--output",
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/freethread-agent-package"
+      ],
+      "exit": 0,
+      "seconds": 122.80447770794854,
+      "log_sha256": "d692db13982bcf277f138375d6512a56ec6cef7cf70f0538d89f11937d0a51df"
+    },
+    {
+      "name": "freethread-agent-boundaries",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/freethread-environment/runtime/cpython-3.14.5+freethreaded-macos-aarch64-none/bin/python3.14t",
+        "-B",
+        "examples/python-agent/test_app.py"
+      ],
+      "exit": 0,
+      "seconds": 1.320819208980538,
+      "log_sha256": "42f8a729c5c68dd2e64958bf343a0a2a3fe45362c02bba5ba76ab918258a1931"
+    },
+    {
+      "name": "freethread-agent-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar-python",
+        "--features",
+        "embed",
+        "--test",
+        "agent_filesystem",
+        "--no-run"
+      ],
+      "exit": 0,
+      "seconds": 42.2210180410184,
+      "log_sha256": "85a3500f6fb87750299eb9a8e036fa082c3a99dee7545db78c5272e81dd39769"
+    },
+    {
+      "name": "freethread-agent-restore",
+      "command": [
+        "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/freethread-agent-executable",
+        "--ignored",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 76.4711451670155,
+      "log_sha256": "b43437d2d8c4ab283bd8f64e36aede04ec8bba96a6fbb40759d924392002384c"
+    }
+  ],
+  "executables": {
+    "node-delivery": {
+      "path": "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-delivery-executable",
+      "sha256": "d7cf64e2ad84d9d86aaf5ac2e03740e1137b475da412f5edc421033f4310a599"
+    },
+    "node-fleet": {
+      "path": "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-fleet-executable",
+      "sha256": "901f69d53ec5a6d742924a495cd0026e802ed32185b21db2da15f88e7c86f0f9"
+    },
+    "node-filesystem": {
+      "path": "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/node-filesystem-executable",
+      "sha256": "9c8a693045aecbb53354e6a852e1d366b69b3b68af29cbc0baa18754e428d961"
+    },
+    "gil-agent": {
+      "path": "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/gil-agent-executable",
+      "sha256": "543a6f9047549f732bcb03b6e4c07237af88b9405201234f648525655f74e027"
+    },
+    "freethread-agent": {
+      "path": "/Users/haipingfu/.codex-workspaces/qualification/cellar-ios-b46756e3-filesystem/20261028-authority-release/packages-current/freethread-agent-executable",
+      "sha256": "543a6f9047549f732bcb03b6e4c07237af88b9405201234f648525655f74e027"
+    }
+  },
+  "complete": true,
+  "packages": {
+    "filesystem-agent-package": {
+      "manifest_sha256": "7f66cec964d0ec57885b3c19d8988f04a3e39ff50e3cf9a3a2e9723293ebc5f4",
+      "script_name": "filesystem-agent-example",
+      "version": "cdab4d7d33cdcc811c6d00a9faebe0096ec0ef48ee29d8e540af80c338586bbd",
+      "artifacts": [
+        {
+          "target": "aarch64-apple-darwin",
+          "sha256": "3b690c2a5625148a3d40275ca31c401719364fd1866fbc05915cfcf08994ef56",
+          "bytes": 198164528
+        }
+      ]
+    },
+    "vercel-agent-package": {
+      "manifest_sha256": "626dba84594aa0a8174533314e4a9648836a194b4004193b07c851c702fe8fd5",
+      "script_name": "vercel-agent-example",
+      "version": "5fa5f855dd0d1b107840e496c6ce22e848f9be3a1d6ae0b6ecab1bcc06997282",
+      "artifacts": [
+        {
+          "target": "aarch64-apple-darwin",
+          "sha256": "c59b9cd8c28faf940b20727b1cd035c3b3eac3ec65cc0038c722043f55cbd2d2",
+          "bytes": 199008192
+        }
+      ]
+    },
+    "gil-agent-package": {
+      "manifest_sha256": "5a20dde0be8f9d1040eb56ebe8293287ac14c47be0326d3edd12f7b47a257906",
+      "script_name": "python-agent",
+      "version": "b253531978fa3d82257714465f04e956ba3cc6b09355a3481e4efe22c47ad067",
+      "artifacts": [
+        {
+          "target": "aarch64-apple-darwin",
+          "sha256": "3b40b5279faaa20b8b6876a9aecf2ee8553d003b8ac49202d0539c0b6923aaed",
+          "bytes": 204983856
+        }
+      ]
+    },
+    "freethread-agent-package": {
+      "manifest_sha256": "4e12fdb12ecbd7698f1fa65e69d3226b88f4f4f43f3f89321aeeef181a10802f",
+      "script_name": "python-agent",
+      "version": "de03f0a78c4f3aa8726a0f7675d6eb1ecf77c9b3c10c68a63f0b1c16aaa6a5fc",
+      "artifacts": [
+        {
+          "target": "aarch64-apple-darwin",
+          "sha256": "4abcab155220b89f15f395a5c811c31299bc55f6c5f880404b20db0dd30f9628",
+          "bytes": 205149328
+        }
+      ]
+    }
+  },
+  "python_profiles": {
+    "gil": {
+      "inventory_sha256": "8334263d3ec22610e49dbe874a755a1f41201844e039f80eb2037ab4bf29127e",
+      "files": 7766,
+      "soabi": "cpython-314-darwin",
+      "target": "aarch64-apple-darwin",
+      "runtime_observations": [
+        {
+          "after": {
+            "framework": "pydantic-ai",
+            "free_threaded": false,
+            "gil_enabled": true,
+            "model": "demo"
+          },
+          "before": {
+            "framework": "pydantic-ai",
+            "free_threaded": false,
+            "gil_enabled": true,
+            "model": "demo"
+          },
+          "case": "file-commit"
+        },
+        {
+          "after": {
+            "framework": "pydantic-ai",
+            "free_threaded": false,
+            "gil_enabled": true,
+            "model": "demo"
+          },
+          "before": {
+            "framework": "pydantic-ai",
+            "free_threaded": false,
+            "gil_enabled": true,
+            "model": "demo"
+          },
+          "case": "saved-read"
+        }
+      ],
+      "agent_boundary_tests": 15
+    },
+    "freethread": {
+      "inventory_sha256": "a90b187694d3e56fb5e0431eeb537b49939f8de8ca334564235e7a6437926e9a",
+      "files": 7770,
+      "soabi": "cpython-314t-darwin",
+      "target": "aarch64-apple-darwin",
+      "runtime_observations": [
+        {
+          "after": {
+            "framework": "pydantic-ai",
+            "free_threaded": true,
+            "gil_enabled": false,
+            "model": "demo"
+          },
+          "before": {
+            "framework": "pydantic-ai",
+            "free_threaded": true,
+            "gil_enabled": false,
+            "model": "demo"
+          },
+          "case": "file-commit"
+        },
+        {
+          "after": {
+            "framework": "pydantic-ai",
+            "free_threaded": true,
+            "gil_enabled": false,
+            "model": "demo"
+          },
+          "before": {
+            "framework": "pydantic-ai",
+            "free_threaded": true,
+            "gil_enabled": false,
+            "model": "demo"
+          },
+          "case": "saved-read"
+        }
+      ],
+      "agent_boundary_tests": 15
+    }
+  },
+  "session_process": {
+    "evidence": [
+      {
+        "boundary": "accepted",
+        "calls": [
+          "0",
+          "1",
+          "2"
+        ],
+        "version": "4",
+        "receipts": 2,
+        "followup": "durable file at accepted"
+      },
+      {
+        "boundary": "provider",
+        "calls": [
+          "0",
+          "0",
+          "1",
+          "2"
+        ],
+        "version": "4",
+        "receipts": 2,
+        "followup": "durable file at provider"
+      },
+      {
+        "boundary": "decision",
+        "calls": [
+          "0",
+          "1",
+          "2"
+        ],
+        "version": "4",
+        "receipts": 2,
+        "followup": "durable file at decision"
+      },
+      {
+        "boundary": "tool",
+        "calls": [
+          "0",
+          "1",
+          "2"
+        ],
+        "version": "4",
+        "receipts": 2,
+        "followup": "durable file at tool"
+      },
+      {
+        "boundary": "completed",
+        "calls": [
+          "0",
+          "1",
+          "2"
+        ],
+        "version": "4",
+        "receipts": 2,
+        "followup": "durable file at completed"
+      },
+      {
+        "boundary": "uncertain-resume",
+        "dispatch": "committed-reply-lost",
+        "phase": "tool-receipt",
+        "attempts": 5,
+        "outcome": "unknown",
+        "before": {
+          "present": true,
+          "text": "preserve an uncertain file at uncertain-resume",
+          "version": "4",
+          "receipts": 1
+        },
+        "after": {
+          "present": true,
+          "text": "preserve an uncertain file at uncertain-resume",
+          "version": "4",
+          "receipts": 2
+        },
+        "calls": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/1",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/2"
+        ],
+        "writes": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one"
+        ]
+      },
+      {
+        "boundary": "uncertain-abandon",
+        "dispatch": "committed-reply-lost",
+        "phase": "tool-receipt",
+        "attempts": 5,
+        "outcome": "unknown",
+        "before": {
+          "present": true,
+          "text": "preserve an uncertain file at uncertain-abandon",
+          "version": "4",
+          "receipts": 1
+        },
+        "after": {
+          "present": true,
+          "text": "preserve an uncertain file at uncertain-abandon",
+          "version": "4",
+          "receipts": 1
+        },
+        "calls": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/two/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/two/1"
+        ],
+        "writes": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one"
+        ]
+      },
+      {
+        "boundary": "uncertain-before-resume",
+        "dispatch": "not-dispatched",
+        "phase": "decided",
+        "attempts": 5,
+        "outcome": "unknown",
+        "before": {
+          "present": false,
+          "receipts": 0,
+          "logical": "0",
+          "allocated": "0",
+          "inodes": "1"
+        },
+        "after": {
+          "present": true,
+          "text": "preserve an uncertain file at uncertain-before-resume",
+          "version": "4",
+          "receipts": 2
+        },
+        "calls": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/1",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/2"
+        ],
+        "writes": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one"
+        ]
+      },
+      {
+        "boundary": "uncertain-before-abandon",
+        "dispatch": "not-dispatched",
+        "phase": "decided",
+        "attempts": 5,
+        "outcome": "unknown",
+        "before": {
+          "present": false,
+          "receipts": 0,
+          "logical": "0",
+          "allocated": "0",
+          "inodes": "1"
+        },
+        "after": {
+          "present": false,
+          "receipts": 0,
+          "logical": "0",
+          "allocated": "0",
+          "inodes": "1"
+        },
+        "calls": [
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/one/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/two/0",
+          "AgentSession:12a98f1e6571da6a47b3d4469b74e40a4734f27fcce3ba60f6747795020ea357/two/1"
+        ],
+        "writes": []
+      }
+    ]
+  },
+  "vercel_installed": {
+    "captured_files": {
+      "packaged-file-0": {
+        "inode": "2",
+        "receipts": {
+          "1c088267ab282e1a02af5fe6932906dd256d5720091c948bea3bf622cb6a57de": {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "wrong",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "9dd816289da244b93647e2d177abfbe6fa0ec64ae47f7a2657ea9c36aca3a669",
+            "result": {
+              "error": {
+                "code": "Conflict",
+                "errno": "EBUSY",
+                "outcome": "not_committed"
+              }
+            }
+          },
+          "469df4bca978130470dcc619af1ce8badf877b3ce5b5027e76eb6f03ca229cc2": {
+            "input": {
+              "path": "/",
+              "pattern": "first"
+            },
+            "name": "searchFiles",
+            "request": "3db7408e51529e0571f1a4e94269a70642bf50751b2283098b92cd2eb189523a",
+            "result": {
+              "matches": [
+                {
+                  "excerpt": "first contents 0",
+                  "inode": "2",
+                  "kind": "File",
+                  "mode": 420,
+                  "mtime_ns": "1793234960910000000",
+                  "path": "/workspace.txt",
+                  "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                  "size": "16",
+                  "version": "4"
+                }
+              ],
+              "truncated": false,
+              "visited_bytes": 16,
+              "visited_directories": 1,
+              "visited_files": 1
+            }
+          },
+          "6e9ab6a680066e7c6681cb31fad5d44d1c2ad7b278a8262137e265ece4d4bd66": {
+            "input": {
+              "path": "/workspace.txt"
+            },
+            "name": "readFile",
+            "request": "a91140c56a3b0340291ff160161e774a8e313a2f9ddb7f03c35f0b99a0cd39f7",
+            "result": {
+              "data_base64": "Zmlyc3QgY29udGVudHMgMA==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234960910000000",
+              "offset": "0",
+              "size": "16",
+              "text": "first contents 0",
+              "truncated": false,
+              "version": "4"
+            }
+          },
+          "769618825af21b79c77ac970f8e15d62aaf08b13adc2d6a6f3ab1abc20496cdc": {
+            "input": {
+              "path": "/"
+            },
+            "name": "listFiles",
+            "request": "a289a29dcc2a3db85a27e0faeba52a84b53edcf0f99eae3880d97e8aa35f9ae4",
+            "result": {
+              "entries": [
+                {
+                  "inode": "2",
+                  "kind": "File",
+                  "name": "workspace.txt",
+                  "name_base64": "d29ya3NwYWNlLnR4dA=="
+                }
+              ],
+              "inode": "1",
+              "kind": "Directory",
+              "mode": 493,
+              "mtime_ns": "1793234960910000000",
+              "next": null,
+              "size": "0",
+              "version": "2"
+            }
+          },
+          "7f675fb25c174bdf313a35f370d12ff5e329f6586781114a724eee7da85f34a9": {
+            "input": {
+              "content": "first contents 0",
+              "path": "/workspace.txt"
+            },
+            "name": "writeFile",
+            "request": "f3998c9a2a377e717ee78d5eacae1928cd8b5cedca13c42946480149cb2e9d94",
+            "result": {
+              "written_bytes": 16
+            }
+          },
+          "cbea01c7ade65c63638781813edfcae6370d66c21ea5dba0896597222078fb2a": {
+            "input": {
+              "destination": "/result.txt",
+              "path": "/workspace.txt"
+            },
+            "name": "renameFile",
+            "request": "19a9f798164658233029d65ec98840d864aa135ed1148c92fd5916c07cd8f8ed",
+            "result": {
+              "renamed": true
+            }
+          },
+          "f04e4d395ddd6b31410d28aea1b6b3110cf102d54cb6922d1b9040d93902693c": {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "other",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "51f8554044169c5c4f58bbae758b40578b7c1ddde549b8b74d845bff2a4a1938",
+            "result": {
+              "expected_inode": "2",
+              "expected_version": "4",
+              "inserted_bytes": 5
+            }
+          }
+        },
+        "text": "other contents 0",
+        "version": "5"
+      },
+      "packaged-file-1": {
+        "inode": "2",
+        "receipts": {
+          "1c088267ab282e1a02af5fe6932906dd256d5720091c948bea3bf622cb6a57de": {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "wrong",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "9dd816289da244b93647e2d177abfbe6fa0ec64ae47f7a2657ea9c36aca3a669",
+            "result": {
+              "error": {
+                "code": "Conflict",
+                "errno": "EBUSY",
+                "outcome": "not_committed"
+              }
+            }
+          },
+          "469df4bca978130470dcc619af1ce8badf877b3ce5b5027e76eb6f03ca229cc2": {
+            "input": {
+              "path": "/",
+              "pattern": "first"
+            },
+            "name": "searchFiles",
+            "request": "3db7408e51529e0571f1a4e94269a70642bf50751b2283098b92cd2eb189523a",
+            "result": {
+              "matches": [
+                {
+                  "excerpt": "first contents 1",
+                  "inode": "2",
+                  "kind": "File",
+                  "mode": 420,
+                  "mtime_ns": "1793234960978000000",
+                  "path": "/workspace.txt",
+                  "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                  "size": "16",
+                  "version": "4"
+                }
+              ],
+              "truncated": false,
+              "visited_bytes": 16,
+              "visited_directories": 1,
+              "visited_files": 1
+            }
+          },
+          "6e9ab6a680066e7c6681cb31fad5d44d1c2ad7b278a8262137e265ece4d4bd66": {
+            "input": {
+              "path": "/workspace.txt"
+            },
+            "name": "readFile",
+            "request": "a91140c56a3b0340291ff160161e774a8e313a2f9ddb7f03c35f0b99a0cd39f7",
+            "result": {
+              "data_base64": "Zmlyc3QgY29udGVudHMgMQ==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234960978000000",
+              "offset": "0",
+              "size": "16",
+              "text": "first contents 1",
+              "truncated": false,
+              "version": "4"
+            }
+          },
+          "769618825af21b79c77ac970f8e15d62aaf08b13adc2d6a6f3ab1abc20496cdc": {
+            "input": {
+              "path": "/"
+            },
+            "name": "listFiles",
+            "request": "a289a29dcc2a3db85a27e0faeba52a84b53edcf0f99eae3880d97e8aa35f9ae4",
+            "result": {
+              "entries": [
+                {
+                  "inode": "2",
+                  "kind": "File",
+                  "name": "workspace.txt",
+                  "name_base64": "d29ya3NwYWNlLnR4dA=="
+                }
+              ],
+              "inode": "1",
+              "kind": "Directory",
+              "mode": 493,
+              "mtime_ns": "1793234960977000000",
+              "next": null,
+              "size": "0",
+              "version": "2"
+            }
+          },
+          "7f675fb25c174bdf313a35f370d12ff5e329f6586781114a724eee7da85f34a9": {
+            "input": {
+              "content": "first contents 1",
+              "path": "/workspace.txt"
+            },
+            "name": "writeFile",
+            "request": "2d14f47193de9701ef00f8bd977ce636c0f43bf8c64b5e1a1c2a993b97280830",
+            "result": {
+              "written_bytes": 16
+            }
+          },
+          "cbea01c7ade65c63638781813edfcae6370d66c21ea5dba0896597222078fb2a": {
+            "input": {
+              "destination": "/result.txt",
+              "path": "/workspace.txt"
+            },
+            "name": "renameFile",
+            "request": "19a9f798164658233029d65ec98840d864aa135ed1148c92fd5916c07cd8f8ed",
+            "result": {
+              "renamed": true
+            }
+          },
+          "f04e4d395ddd6b31410d28aea1b6b3110cf102d54cb6922d1b9040d93902693c": {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "other",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "51f8554044169c5c4f58bbae758b40578b7c1ddde549b8b74d845bff2a4a1938",
+            "result": {
+              "expected_inode": "2",
+              "expected_version": "4",
+              "inserted_bytes": 5
+            }
+          }
+        },
+        "text": "other contents 1",
+        "version": "5"
+      }
+    },
+    "completed": [
+      {
+        "attempts": 2,
+        "count": 0,
+        "messages": [
+          {
+            "content": "packaged-file-0",
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "content": "first contents 0",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "written_bytes": 16
+                  }
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/"
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/",
+                  "pattern": "first"
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "Zmlyc3QgY29udGVudHMgMA==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234960910000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "first contents 0",
+                    "truncated": false,
+                    "version": "4"
+                  }
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "entries": [
+                      {
+                        "inode": "2",
+                        "kind": "File",
+                        "name": "workspace.txt",
+                        "name_base64": "d29ya3NwYWNlLnR4dA=="
+                      }
+                    ],
+                    "inode": "1",
+                    "kind": "Directory",
+                    "mode": 493,
+                    "mtime_ns": "1793234960910000000",
+                    "next": null,
+                    "size": "0",
+                    "version": "2"
+                  }
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "matches": [
+                      {
+                        "excerpt": "first contents 0",
+                        "inode": "2",
+                        "kind": "File",
+                        "mode": 420,
+                        "mtime_ns": "1793234960910000000",
+                        "path": "/workspace.txt",
+                        "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                        "size": "16",
+                        "version": "4"
+                      }
+                    ],
+                    "truncated": false,
+                    "visited_bytes": 16,
+                    "visited_directories": 1,
+                    "visited_files": 1
+                  }
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "other",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "wrong",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "destination": "/result.txt",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "expected_inode": "2",
+                    "expected_version": "4",
+                    "inserted_bytes": 5
+                  }
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "error": {
+                      "code": "Conflict",
+                      "errno": "EBUSY",
+                      "outcome": "not_committed"
+                    }
+                  }
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "renamed": true
+                  }
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "b3RoZXIgY29udGVudHMgMA==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234961055000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "other contents 0",
+                    "truncated": false,
+                    "version": "5"
+                  }
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "removed": true
+                  }
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "Verified durable file tools.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "modelSteps": 5,
+        "previous": null,
+        "prompt": "packaged-file-0",
+        "receipts": [
+          {
+            "input": {
+              "content": "first contents 0",
+              "path": "/workspace.txt"
+            },
+            "name": "writeFile",
+            "request": "f3998c9a2a377e717ee78d5eacae1928cd8b5cedca13c42946480149cb2e9d94",
+            "result": {
+              "written_bytes": 16
+            }
+          },
+          {
+            "input": {
+              "path": "/workspace.txt"
+            },
+            "name": "readFile",
+            "request": "a91140c56a3b0340291ff160161e774a8e313a2f9ddb7f03c35f0b99a0cd39f7",
+            "result": {
+              "data_base64": "Zmlyc3QgY29udGVudHMgMA==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234960910000000",
+              "offset": "0",
+              "size": "16",
+              "text": "first contents 0",
+              "truncated": false,
+              "version": "4"
+            }
+          },
+          {
+            "input": {
+              "path": "/"
+            },
+            "name": "listFiles",
+            "request": "a289a29dcc2a3db85a27e0faeba52a84b53edcf0f99eae3880d97e8aa35f9ae4",
+            "result": {
+              "entries": [
+                {
+                  "inode": "2",
+                  "kind": "File",
+                  "name": "workspace.txt",
+                  "name_base64": "d29ya3NwYWNlLnR4dA=="
+                }
+              ],
+              "inode": "1",
+              "kind": "Directory",
+              "mode": 493,
+              "mtime_ns": "1793234960910000000",
+              "next": null,
+              "size": "0",
+              "version": "2"
+            }
+          },
+          {
+            "input": {
+              "path": "/",
+              "pattern": "first"
+            },
+            "name": "searchFiles",
+            "request": "3db7408e51529e0571f1a4e94269a70642bf50751b2283098b92cd2eb189523a",
+            "result": {
+              "matches": [
+                {
+                  "excerpt": "first contents 0",
+                  "inode": "2",
+                  "kind": "File",
+                  "mode": 420,
+                  "mtime_ns": "1793234960910000000",
+                  "path": "/workspace.txt",
+                  "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                  "size": "16",
+                  "version": "4"
+                }
+              ],
+              "truncated": false,
+              "visited_bytes": 16,
+              "visited_directories": 1,
+              "visited_files": 1
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "other",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "51f8554044169c5c4f58bbae758b40578b7c1ddde549b8b74d845bff2a4a1938",
+            "result": {
+              "expected_inode": "2",
+              "expected_version": "4",
+              "inserted_bytes": 5
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "wrong",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "9dd816289da244b93647e2d177abfbe6fa0ec64ae47f7a2657ea9c36aca3a669",
+            "result": {
+              "error": {
+                "code": "Conflict",
+                "errno": "EBUSY",
+                "outcome": "not_committed"
+              }
+            }
+          },
+          {
+            "input": {
+              "destination": "/result.txt",
+              "path": "/workspace.txt"
+            },
+            "name": "renameFile",
+            "request": "19a9f798164658233029d65ec98840d864aa135ed1148c92fd5916c07cd8f8ed",
+            "result": {
+              "renamed": true
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "readFile",
+            "request": "c41bab8a352c5dde0ce5c300ab48348c195f2e6493078913489c3c8791685012",
+            "result": {
+              "data_base64": "b3RoZXIgY29udGVudHMgMA==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234961055000000",
+              "offset": "0",
+              "size": "16",
+              "text": "other contents 0",
+              "truncated": false,
+              "version": "5"
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "deleteFile",
+            "request": "51690361886c74a0dd3b5692b26b7bb201edc7f880bcead6fa14707625be1bcf",
+            "result": {
+              "removed": true
+            }
+          }
+        ],
+        "status": "completed",
+        "toolReceipts": 9,
+        "updatedAt": 1793234970987,
+        "usage": [
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          }
+        ]
+      },
+      {
+        "attempts": 2,
+        "count": 0,
+        "messages": [
+          {
+            "content": "packaged-file-1",
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "content": "first contents 1",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "written_bytes": 16
+                  }
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/"
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/",
+                  "pattern": "first"
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "Zmlyc3QgY29udGVudHMgMQ==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234960978000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "first contents 1",
+                    "truncated": false,
+                    "version": "4"
+                  }
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "entries": [
+                      {
+                        "inode": "2",
+                        "kind": "File",
+                        "name": "workspace.txt",
+                        "name_base64": "d29ya3NwYWNlLnR4dA=="
+                      }
+                    ],
+                    "inode": "1",
+                    "kind": "Directory",
+                    "mode": 493,
+                    "mtime_ns": "1793234960977000000",
+                    "next": null,
+                    "size": "0",
+                    "version": "2"
+                  }
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "matches": [
+                      {
+                        "excerpt": "first contents 1",
+                        "inode": "2",
+                        "kind": "File",
+                        "mode": 420,
+                        "mtime_ns": "1793234960978000000",
+                        "path": "/workspace.txt",
+                        "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                        "size": "16",
+                        "version": "4"
+                      }
+                    ],
+                    "truncated": false,
+                    "visited_bytes": 16,
+                    "visited_directories": 1,
+                    "visited_files": 1
+                  }
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "other",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "wrong",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "destination": "/result.txt",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "expected_inode": "2",
+                    "expected_version": "4",
+                    "inserted_bytes": 5
+                  }
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "error": {
+                      "code": "Conflict",
+                      "errno": "EBUSY",
+                      "outcome": "not_committed"
+                    }
+                  }
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "renamed": true
+                  }
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "b3RoZXIgY29udGVudHMgMQ==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234961116000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "other contents 1",
+                    "truncated": false,
+                    "version": "5"
+                  }
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "removed": true
+                  }
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "Verified durable file tools.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "modelSteps": 5,
+        "previous": null,
+        "prompt": "packaged-file-1",
+        "receipts": [
+          {
+            "input": {
+              "content": "first contents 1",
+              "path": "/workspace.txt"
+            },
+            "name": "writeFile",
+            "request": "2d14f47193de9701ef00f8bd977ce636c0f43bf8c64b5e1a1c2a993b97280830",
+            "result": {
+              "written_bytes": 16
+            }
+          },
+          {
+            "input": {
+              "path": "/workspace.txt"
+            },
+            "name": "readFile",
+            "request": "a91140c56a3b0340291ff160161e774a8e313a2f9ddb7f03c35f0b99a0cd39f7",
+            "result": {
+              "data_base64": "Zmlyc3QgY29udGVudHMgMQ==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234960978000000",
+              "offset": "0",
+              "size": "16",
+              "text": "first contents 1",
+              "truncated": false,
+              "version": "4"
+            }
+          },
+          {
+            "input": {
+              "path": "/"
+            },
+            "name": "listFiles",
+            "request": "a289a29dcc2a3db85a27e0faeba52a84b53edcf0f99eae3880d97e8aa35f9ae4",
+            "result": {
+              "entries": [
+                {
+                  "inode": "2",
+                  "kind": "File",
+                  "name": "workspace.txt",
+                  "name_base64": "d29ya3NwYWNlLnR4dA=="
+                }
+              ],
+              "inode": "1",
+              "kind": "Directory",
+              "mode": 493,
+              "mtime_ns": "1793234960977000000",
+              "next": null,
+              "size": "0",
+              "version": "2"
+            }
+          },
+          {
+            "input": {
+              "path": "/",
+              "pattern": "first"
+            },
+            "name": "searchFiles",
+            "request": "3db7408e51529e0571f1a4e94269a70642bf50751b2283098b92cd2eb189523a",
+            "result": {
+              "matches": [
+                {
+                  "excerpt": "first contents 1",
+                  "inode": "2",
+                  "kind": "File",
+                  "mode": 420,
+                  "mtime_ns": "1793234960978000000",
+                  "path": "/workspace.txt",
+                  "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                  "size": "16",
+                  "version": "4"
+                }
+              ],
+              "truncated": false,
+              "visited_bytes": 16,
+              "visited_directories": 1,
+              "visited_files": 1
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "other",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "51f8554044169c5c4f58bbae758b40578b7c1ddde549b8b74d845bff2a4a1938",
+            "result": {
+              "expected_inode": "2",
+              "expected_version": "4",
+              "inserted_bytes": 5
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "wrong",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "9dd816289da244b93647e2d177abfbe6fa0ec64ae47f7a2657ea9c36aca3a669",
+            "result": {
+              "error": {
+                "code": "Conflict",
+                "errno": "EBUSY",
+                "outcome": "not_committed"
+              }
+            }
+          },
+          {
+            "input": {
+              "destination": "/result.txt",
+              "path": "/workspace.txt"
+            },
+            "name": "renameFile",
+            "request": "19a9f798164658233029d65ec98840d864aa135ed1148c92fd5916c07cd8f8ed",
+            "result": {
+              "renamed": true
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "readFile",
+            "request": "c41bab8a352c5dde0ce5c300ab48348c195f2e6493078913489c3c8791685012",
+            "result": {
+              "data_base64": "b3RoZXIgY29udGVudHMgMQ==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234961116000000",
+              "offset": "0",
+              "size": "16",
+              "text": "other contents 1",
+              "truncated": false,
+              "version": "5"
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "deleteFile",
+            "request": "51690361886c74a0dd3b5692b26b7bb201edc7f880bcead6fa14707625be1bcf",
+            "result": {
+              "removed": true
+            }
+          }
+        ],
+        "status": "completed",
+        "toolReceipts": 9,
+        "updatedAt": 1793234971064,
+        "usage": [
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          }
+        ]
+      },
+      {
+        "attempts": 1,
+        "count": 0,
+        "messages": [
+          {
+            "content": "packaged-file-2",
+            "role": "user"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "content": "first contents 2",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "written_bytes": 16
+                  }
+                },
+                "toolCallId": "write",
+                "toolName": "writeFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/"
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/",
+                  "pattern": "first"
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "Zmlyc3QgY29udGVudHMgMg==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234971250000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "first contents 2",
+                    "truncated": false,
+                    "version": "4"
+                  }
+                },
+                "toolCallId": "read",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "entries": [
+                      {
+                        "inode": "2",
+                        "kind": "File",
+                        "name": "workspace.txt",
+                        "name_base64": "d29ya3NwYWNlLnR4dA=="
+                      }
+                    ],
+                    "inode": "1",
+                    "kind": "Directory",
+                    "mode": 493,
+                    "mtime_ns": "1793234971249000000",
+                    "next": null,
+                    "size": "0",
+                    "version": "2"
+                  }
+                },
+                "toolCallId": "list",
+                "toolName": "listFiles",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "matches": [
+                      {
+                        "excerpt": "first contents 2",
+                        "inode": "2",
+                        "kind": "File",
+                        "mode": 420,
+                        "mtime_ns": "1793234971250000000",
+                        "path": "/workspace.txt",
+                        "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                        "size": "16",
+                        "version": "4"
+                      }
+                    ],
+                    "truncated": false,
+                    "visited_bytes": 16,
+                    "visited_directories": 1,
+                    "visited_files": 1
+                  }
+                },
+                "toolCallId": "search",
+                "toolName": "searchFiles",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "other",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "delete_bytes": "5",
+                  "inode": "2",
+                  "insert": "wrong",
+                  "offset": "0",
+                  "path": "/workspace.txt",
+                  "version": "4"
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "destination": "/result.txt",
+                  "path": "/workspace.txt"
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "expected_inode": "2",
+                    "expected_version": "4",
+                    "inserted_bytes": 5
+                  }
+                },
+                "toolCallId": "edit",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "error": {
+                      "code": "Conflict",
+                      "errno": "EBUSY",
+                      "outcome": "not_committed"
+                    }
+                  }
+                },
+                "toolCallId": "stale",
+                "toolName": "editFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "renamed": true
+                  }
+                },
+                "toolCallId": "rename",
+                "toolName": "renameFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-call"
+              },
+              {
+                "input": {
+                  "path": "/result.txt"
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-call"
+              }
+            ],
+            "role": "assistant"
+          },
+          {
+            "content": [
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "data_base64": "b3RoZXIgY29udGVudHMgMg==",
+                    "inode": "2",
+                    "kind": "File",
+                    "mode": 420,
+                    "mtime_ns": "1793234971384000000",
+                    "offset": "0",
+                    "size": "16",
+                    "text": "other contents 2",
+                    "truncated": false,
+                    "version": "5"
+                  }
+                },
+                "toolCallId": "renamed",
+                "toolName": "readFile",
+                "type": "tool-result"
+              },
+              {
+                "output": {
+                  "type": "json",
+                  "value": {
+                    "removed": true
+                  }
+                },
+                "toolCallId": "delete",
+                "toolName": "deleteFile",
+                "type": "tool-result"
+              }
+            ],
+            "role": "tool"
+          },
+          {
+            "content": [
+              {
+                "text": "Verified durable file tools.",
+                "type": "text"
+              }
+            ],
+            "role": "assistant"
+          }
+        ],
+        "modelSteps": 5,
+        "previous": null,
+        "prompt": "packaged-file-2",
+        "receipts": [
+          {
+            "input": {
+              "content": "first contents 2",
+              "path": "/workspace.txt"
+            },
+            "name": "writeFile",
+            "request": "e175815ea38f0be1451110f227d18ca45c1015abedccb457dcd504749c3c0bb6",
+            "result": {
+              "written_bytes": 16
+            }
+          },
+          {
+            "input": {
+              "path": "/workspace.txt"
+            },
+            "name": "readFile",
+            "request": "a91140c56a3b0340291ff160161e774a8e313a2f9ddb7f03c35f0b99a0cd39f7",
+            "result": {
+              "data_base64": "Zmlyc3QgY29udGVudHMgMg==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234971250000000",
+              "offset": "0",
+              "size": "16",
+              "text": "first contents 2",
+              "truncated": false,
+              "version": "4"
+            }
+          },
+          {
+            "input": {
+              "path": "/"
+            },
+            "name": "listFiles",
+            "request": "a289a29dcc2a3db85a27e0faeba52a84b53edcf0f99eae3880d97e8aa35f9ae4",
+            "result": {
+              "entries": [
+                {
+                  "inode": "2",
+                  "kind": "File",
+                  "name": "workspace.txt",
+                  "name_base64": "d29ya3NwYWNlLnR4dA=="
+                }
+              ],
+              "inode": "1",
+              "kind": "Directory",
+              "mode": 493,
+              "mtime_ns": "1793234971249000000",
+              "next": null,
+              "size": "0",
+              "version": "2"
+            }
+          },
+          {
+            "input": {
+              "path": "/",
+              "pattern": "first"
+            },
+            "name": "searchFiles",
+            "request": "3db7408e51529e0571f1a4e94269a70642bf50751b2283098b92cd2eb189523a",
+            "result": {
+              "matches": [
+                {
+                  "excerpt": "first contents 2",
+                  "inode": "2",
+                  "kind": "File",
+                  "mode": 420,
+                  "mtime_ns": "1793234971250000000",
+                  "path": "/workspace.txt",
+                  "path_base64": "L3dvcmtzcGFjZS50eHQ=",
+                  "size": "16",
+                  "version": "4"
+                }
+              ],
+              "truncated": false,
+              "visited_bytes": 16,
+              "visited_directories": 1,
+              "visited_files": 1
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "other",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "51f8554044169c5c4f58bbae758b40578b7c1ddde549b8b74d845bff2a4a1938",
+            "result": {
+              "expected_inode": "2",
+              "expected_version": "4",
+              "inserted_bytes": 5
+            }
+          },
+          {
+            "input": {
+              "delete_bytes": "5",
+              "inode": "2",
+              "insert": "wrong",
+              "offset": "0",
+              "path": "/workspace.txt",
+              "version": "4"
+            },
+            "name": "editFile",
+            "request": "9dd816289da244b93647e2d177abfbe6fa0ec64ae47f7a2657ea9c36aca3a669",
+            "result": {
+              "error": {
+                "code": "Conflict",
+                "errno": "EBUSY",
+                "outcome": "not_committed"
+              }
+            }
+          },
+          {
+            "input": {
+              "destination": "/result.txt",
+              "path": "/workspace.txt"
+            },
+            "name": "renameFile",
+            "request": "19a9f798164658233029d65ec98840d864aa135ed1148c92fd5916c07cd8f8ed",
+            "result": {
+              "renamed": true
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "readFile",
+            "request": "c41bab8a352c5dde0ce5c300ab48348c195f2e6493078913489c3c8791685012",
+            "result": {
+              "data_base64": "b3RoZXIgY29udGVudHMgMg==",
+              "inode": "2",
+              "kind": "File",
+              "mode": 420,
+              "mtime_ns": "1793234971384000000",
+              "offset": "0",
+              "size": "16",
+              "text": "other contents 2",
+              "truncated": false,
+              "version": "5"
+            }
+          },
+          {
+            "input": {
+              "path": "/result.txt"
+            },
+            "name": "deleteFile",
+            "request": "51690361886c74a0dd3b5692b26b7bb201edc7f880bcead6fa14707625be1bcf",
+            "result": {
+              "removed": true
+            }
+          }
+        ],
+        "status": "completed",
+        "toolReceipts": 9,
+        "updatedAt": 1793234971539,
+        "usage": [
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          },
+          {
+            "inputTokens": {
+              "cacheRead": 0,
+              "noCache": 0,
+              "total": 0
+            },
+            "outputTokens": {
+              "reasoning": 0,
+              "text": 0,
+              "total": 0
+            },
+            "raw": {
+              "input_tokens": 0,
+              "output_tokens": 0,
+              "total_tokens": 0
+            }
+          }
+        ]
+      }
+    ],
+    "deleted_files_verified": true,
+    "duplicates": 12,
+    "host_joined": true,
+    "old_local_state_deleted": true,
+    "original_prefix_absent": true,
+    "provider_calls": [
+      [
+        1,
+        1,
+        1,
+        2,
+        1
+      ],
+      [
+        1,
+        1,
+        1,
+        2,
+        1
+      ],
+      [
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    ],
+    "replacement_started_empty": true,
+    "scenario": "installed-vercel-filesystem"
+  },
+  "node_delivery": {
+    "fresh_cases": 20,
+    "feature_mode": "node only",
+    "handler_budget_ms": 250,
+    "worker_fetch_observations": 240,
+    "maximum_worker_fetch_us": 32025,
+    "note": "MacOS observations do not diagnose the earlier Linux CI timeout."
+  },
+  "limits": [
+    "macOS arm64 development packages; Linux and optimized native release targets require current CI.",
+    "The original Node CI timeout remains unexplained; no handler budget, lease or assertion was weakened."
+  ]
+}

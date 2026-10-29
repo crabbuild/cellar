@@ -1,6 +1,6 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Bounded, memory-only diagnostics for the synthetic first-write probe.
+//! Bounded, memory-only diagnostics for the synthetic Python reliability probes.
 use anyhow::Result;
 use std::{
     collections::VecDeque,
@@ -22,7 +22,7 @@ impl Trace {
                 .with_ansi(false)
                 .with_writer(move || writer.clone())
                 .try_init()
-                .map_err(|error| anyhow::anyhow!("first-write tracing: {error}"))?;
+                .map_err(|error| anyhow::anyhow!("Python reliability tracing: {error}"))?;
         }
         Ok(trace)
     }

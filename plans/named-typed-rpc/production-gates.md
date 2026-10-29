@@ -57,8 +57,16 @@ free-threaded Python contract fails cross-domain context isolation with HTTP
 500 before reaching the fleet-write stage; a direct timing-enabled replay passes.
 Both failed observations remain release blockers. The GIL contract and the
 focused first-write probes pass; their success does not close those causes.
+PR #154 is now merged. Its final free-threaded typed-RPC job passes; the GIL
+job still fails after owner lease expiry;
+phase evidence distinguishes storage admission waits from 1–2 ms timer-delivery
+overruns in the final attempts. The new context probe preserves both branches'
+errors; passing repeated contracts and first writes does not close either
+original failure. A separate pre-admission connection-loss observation is also
+open. Previous ignored local artifacts were removed; their historical ledger
+references are not a claim that those files remain available.
 See the
-[current investigation](implementation-status.md#diagnostic-backpressure-and-first-write-reproduction-2026-10-28-release-open)
+[current investigation](implementation-status.md#context-failure-provenance-and-current-ci-2026-10-28-release-open)
 and the
 [latest implementation evidence](implementation-status.md#synchronous-turn-timer-starvation-2026-10-28-release-open).
 

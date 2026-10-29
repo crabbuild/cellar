@@ -19,6 +19,9 @@ use tokio::sync::Notify;
 #[path = "filesystem_socket_fault.rs"]
 mod socket_fault;
 
+#[path = "filesystem_recovery_store.rs"]
+mod recovery_store;
+
 #[derive(Clone, Copy)]
 enum Backend {
     Development,
@@ -110,6 +113,8 @@ fn payload(generation: u8) -> Vec<u8> {
 #[derive(Default)]
 struct Signals {
     constructors: AtomicUsize,
+    write_admitted: Notify,
+    write_release: Notify,
     local_commit: Notify,
     local_receipt: Mutex<Option<Value>>,
     old_file: Mutex<Option<File>>,
@@ -121,6 +126,7 @@ struct Release(Arc<Signals>);
 
 impl Drop for Release {
     fn drop(&mut self) {
+        self.0.write_release.notify_one();
         self.0.old_file.lock().unwrap().take();
         self.0.old_context.lock().unwrap().take();
     }
@@ -155,6 +161,11 @@ impl Cell for Workspace {
                 return Ok(response(receipt));
             }
             if request.url.ends_with("/unproven") {
+                // Routing checks the durable cell-retirement record. Cut the
+                // replica connection only after that admission, while still
+                // preventing the next local commit from racing publication.
+                self.0.write_admitted.notify_one();
+                self.0.write_release.notified().await;
                 let receipt = write(&context, 2)?;
                 let file = context
                     .fs()?
@@ -375,7 +386,6 @@ async fn exercise(
     let seed: Value =
         serde_json::from_str(&call(&http, &owner, reqwest::Method::POST, "/seed").await?)?;
     ensure!(seed["generation"] == 1);
-    publication.apply().await?;
     let address = owner.info().public_address;
     let old_services = owner.services();
     let request = async {
@@ -388,15 +398,22 @@ async fn exercise(
     };
     let control = async {
         let progress = tokio::time::timeout(Duration::from_secs(5), async {
+            signals.write_admitted.notified().await;
+            publication.apply().await?;
+            signals.write_release.notify_one();
             signals.local_commit.notified().await;
             while publication.observed() == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+            Ok::<_, anyhow::Error>(())
         })
-        .await;
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
         if let Err(error) = progress {
-            owner.shutdown(ShutdownMode::Handoff).await?;
-            return Err(error.into());
+            signals.write_release.notify_one();
+            let stopped = owner.shutdown(ShutdownMode::Handoff).await;
+            return Err(error.context(format!("admitted unproven write; shutdown: {stopped:?}")));
         }
         outage.apply().await?;
         tokio::time::timeout(
@@ -459,8 +476,16 @@ async fn exercise(
     )
     .await?;
     config.startup.recovery_retry_backoff = Duration::from_secs(10);
-    services.fleet.as_mut().unwrap().replica_storage = ReplicaStorage::new(
+    // Retirement metadata is a separate admission authority on this same
+    // backend. Keep its real reads healthy so the refusal comes from replica
+    // recovery, rather than an earlier routing check or retirement scan.
+    let recovery_store = recovery_store::RecoveryStore::new(
+        bucket.store.clone(),
         unreadable.store.clone(),
+        &bucket.prefix,
+    );
+    services.fleet.as_mut().unwrap().replica_storage = ReplicaStorage::new(
+        recovery_store.clone(),
         ReplicaStorageOptions {
             prefix: bucket.prefix.clone(),
             ..Default::default()
@@ -498,6 +523,8 @@ async fn exercise(
         "recovery refusal {status}: {body}"
     );
     ensure!(read_fault.observed() > 0 && signals.constructors.load(Ordering::SeqCst) == 1);
+    ensure!(recovery_store.authority_reads.load(Ordering::SeqCst) > 0);
+    ensure!(recovery_store.replica_reads.load(Ordering::SeqCst) > 0);
     stopped_bad?;
 
     let new_core = Executor::new("filesystem-outage-successor")?;
@@ -556,6 +583,8 @@ async fn exercise(
         "failed_recovery_http_status":status.as_u16(),
         "failed_recovery_observation_timeout_ms":recovery_observation_timeout.as_millis(),
         "failed_recovery_elapsed_ms":failed_read_elapsed.as_millis(),
+        "healthy_retirement_reads":recovery_store.authority_reads.load(Ordering::SeqCst),
+        "faulted_replica_reads":recovery_store.replica_reads.load(Ordering::SeqCst),
         "application_constructors":signals.constructors.load(Ordering::SeqCst),
         "stale_descriptor_checks":signals.stale_checks.load(Ordering::SeqCst),
         "predecessor_local_data_removed":true,"successor_local_data_removed":true,

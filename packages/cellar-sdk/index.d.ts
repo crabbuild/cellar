@@ -716,6 +716,7 @@ export interface DirectoryEntry {
 export interface Directory {
   readonly handle: string;
   readdir(): Promise<DirectoryEntry | null>;
+  /** Positive limit within the captured page bound; invalid limits preserve the cursor. */
   readPage(limit: number): Promise<DirectoryEntry[]>;
   telldir(): Promise<string>;
   seekdir(cookie: string): Promise<null>;
@@ -801,6 +802,7 @@ export interface Filesystem {
   collectGarbage(): Promise<number>;
   replaceFile(path: FilesystemPath, data: Uint8Array): Promise<null>;
   editFile(path: FilesystemPath, expected: FileVersion, edit: FileEdit): Promise<FileVersion>;
+  /** Positive limit within the captured page bound. */
   readDir(path: FilesystemPath, limit?: number, cursor?: DirectoryCursor | null): Promise<DirectoryPage>;
 }
 

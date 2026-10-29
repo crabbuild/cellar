@@ -121,6 +121,14 @@ result ready while its caller remains unpolled:
 cargo test --locked -p cellar --lib local_store::timing_tests -- --test-threads=1
 ```
 
+Large ordinary object puts additionally emit `body_staging` and `body_staged`
+between connection setup and publication admission. Their immutable chunks use
+bounded transactions; `transaction_started` through `committed` describes the
+final metadata CAS. Retired-body cleanup runs after that commit and before
+`native_complete`. Small lease bodies remain inline. See the
+[filesystem capacity guide](../perf/filesystem.md) for the development-bucket
+format and abandoned-staging reclamation contract.
+
 An instrumented replay is diagnostic evidence. Preserve the original failed
 run; a passing repetition does not establish its cause or qualify the release.
 

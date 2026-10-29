@@ -1,0 +1,374 @@
+{
+  "barrier": "fdatasync",
+  "bucket_entries_after_hold": 228,
+  "business_handler_attempts": 1,
+  "cold_local_storage": "new directories after Handoff",
+  "cold_recovery": {
+    "filesystem": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "size": 196625,
+      "version": "6"
+    },
+    "late": null,
+    "late-raw": null,
+    "pending": null,
+    "seed": 7
+  },
+  "expired_context": {
+    "active": false,
+    "attempts": 1,
+    "barrier_failure": {
+      "code": "Cancelled",
+      "completed_bytes": 0,
+      "errno": null,
+      "operation": "filesystem.fdatasync",
+      "outcome": "unknown",
+      "type": "CancelledError"
+    },
+    "barrier_settled": true,
+    "cancelled": true,
+    "committed": true,
+    "failure": null,
+    "filesystem": {
+      "barrier_entered": true,
+      "gil_enabled": true,
+      "pending": {
+        "inode": "2",
+        "version": "8"
+      },
+      "post": null,
+      "refusals": 32,
+      "seed": {
+        "inode": "2",
+        "version": "6"
+      }
+    },
+    "late_done": true,
+    "late_entered": true,
+    "owner": "authority-proof-a",
+    "returned": false,
+    "state_reads": 0
+  },
+  "format": 1,
+  "gil_enabled": true,
+  "host_slots_reused": 4,
+  "interpreter_and_bridge_settled": true,
+  "joined_native_outcomes": 6,
+  "peer_entries_after_hold": 30,
+  "post_recovery_write": {
+    "generation": 3,
+    "inode": "2",
+    "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+    "size": 196625,
+    "version": "8"
+  },
+  "proof_held_after_local_commit": true,
+  "retained_guest_wrappers": true,
+  "retired_checks_in_successor": {
+    "filesystem": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "size": 196625,
+      "version": "6"
+    },
+    "owner": "authority-proof-cold-b",
+    "refusals": 64
+  },
+  "scope": "supplied development bucket and authenticated loopback peer transport",
+  "shutdown_report": {
+    "bridge": {
+      "budget_exhaustions": 0,
+      "completion_handoff": {
+        "bucket_counts": [
+          0,
+          0,
+          14,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "maximum_ns": 51708,
+        "samples": 14,
+        "total_ns": 365416
+      },
+      "dispatch_handoff": {
+        "bucket_counts": [
+          0,
+          0,
+          13,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "maximum_ns": 150083,
+        "samples": 16,
+        "total_ns": 1017418
+      },
+      "input_copied_bytes": 1068946,
+      "native_invocations": 0,
+      "operations": {
+        "abandoned_queued": 0,
+        "abandoned_running": 1,
+        "admitted": 370,
+        "delivered": 369,
+        "failed": 12,
+        "peak_pending": 2,
+        "pending": 0,
+        "queue_wait": {
+          "bucket_counts": [
+            0,
+            0,
+            369,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "maximum_ns": 727167,
+          "samples": 370,
+          "total_ns": 8667830
+        },
+        "queued": 0,
+        "replies_pending": 0,
+        "reply_wait": {
+          "bucket_counts": [
+            0,
+            4,
+            358,
+            2,
+            5,
+            0,
+            0,
+            0,
+            0
+          ],
+          "maximum_ns": 4363708,
+          "samples": 369,
+          "total_ns": 29725956
+        },
+        "round_trip": {
+          "bucket_counts": [
+            0,
+            0,
+            166,
+            180,
+            12,
+            9,
+            1,
+            1,
+            0
+          ],
+          "maximum_ns": 1639943250,
+          "samples": 369,
+          "total_ns": 2125130075
+        },
+        "running": 0,
+        "sdk_duration": {
+          "bucket_counts": [
+            0,
+            6,
+            260,
+            81,
+            11,
+            9,
+            1,
+            2,
+            0
+          ],
+          "maximum_ns": 1639809458,
+          "samples": 370,
+          "total_ns": 3720090706
+        },
+        "started": 370,
+        "succeeded": 357,
+        "undelivered": 0
+      },
+      "output_copied_bytes": 1353529,
+      "peak_queued_bytes": 262723,
+      "pending_reservations": 0,
+      "queued_bytes": 0,
+      "reserved_bytes_total": 2417718
+    },
+    "budget_exhaustions": 0,
+    "host_failed": false,
+    "interpreter": {
+      "allocated_blocks_current": 83036,
+      "allocated_blocks_final": 83036,
+      "allocated_blocks_initial": 79586,
+      "handler_wall_ns_max": 1640935000,
+      "handler_wall_ns_sum": 3864144958,
+      "handlers_cancelled": 1,
+      "handlers_completed": 14,
+      "handlers_failed": 1,
+      "handlers_started": 16,
+      "loop_delay": {
+        "bucket_counts": [
+          0,
+          0,
+          28,
+          54,
+          18,
+          0,
+          0,
+          0,
+          0
+        ],
+        "maximum_ns": 1765500,
+        "samples": 100,
+        "total_ns": 32849377
+      },
+      "process_peak_rss_bytes": 101154816,
+      "thread_cpu_ns": 38461667,
+      "trace_bookkeeping_bytes": null,
+      "traced_current_bytes": null,
+      "traced_peak_bytes": null,
+      "wall_ns": 8180698458
+    },
+    "memory": {
+      "after_join": {
+        "jemalloc_active_bytes": 98304,
+        "jemalloc_allocated_bytes": 52224,
+        "jemalloc_resident_bytes": 4407296,
+        "libc_free_bytes": null,
+        "libc_in_use_bytes": null,
+        "libc_mmap_bytes": null,
+        "process_rss_bytes": 94748672
+      },
+      "before_interpreter": {
+        "jemalloc_active_bytes": 98304,
+        "jemalloc_allocated_bytes": 52224,
+        "jemalloc_resident_bytes": 3211264,
+        "libc_free_bytes": null,
+        "libc_in_use_bytes": null,
+        "libc_mmap_bytes": null,
+        "process_rss_bytes": 14909440
+      }
+    },
+    "native_outcomes": [
+      {
+        "code": 3,
+        "complete": false,
+        "outcome": "fenced",
+        "reason": "NodeLeaseMismatch"
+      },
+      {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "complete": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "complete": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "complete": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "complete": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "complete": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    ],
+    "objects_created": 3,
+    "objects_retired": 3,
+    "peak_tasks": 3,
+    "pending_objects": 0,
+    "pending_tasks": 0,
+    "pending_threads": 0,
+    "runtime_failed": false,
+    "runtime_failure_stage": null,
+    "thread_errors": 0,
+    "unraisable_errors": 0,
+    "work": {
+      "active_invocations": 0,
+      "active_tasks": 0,
+      "pending_retirements": 0,
+      "resident_objects": 0
+    }
+  },
+  "successors_ready_before_handoff": true,
+  "termination": "node_lease_mismatch",
+  "transport_failure_before_fence": false,
+  "warm_recovery": {
+    "filesystem": {
+      "generation": 1,
+      "inode": "2",
+      "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+      "size": 196625,
+      "version": "6"
+    },
+    "late": null,
+    "late-raw": null,
+    "pending": null,
+    "seed": 7
+  }
+}

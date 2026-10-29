@@ -161,6 +161,7 @@ impl LocalStore {
             inputs.push((part.0, part.1));
         }
         let size = i32::try_from(size).map_err(db_error)?;
+        let retired = Self::retire_body_for_key(&transaction, &key)?;
         let etag = transaction.query_row(
             "UPDATE __sys_local_sequence SET next_etag = next_etag + 1 WHERE singleton = 1 RETURNING next_etag - 1",
             [], |row| row.get::<_, i64>(0),
@@ -169,7 +170,7 @@ impl LocalStore {
             "INSERT INTO __sys_local_objects(key, etag, modified_ms, attributes, body)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(key) DO UPDATE SET etag = excluded.etag, modified_ms = excluded.modified_ms,
-               attributes = excluded.attributes, body = excluded.body RETURNING rowid",
+               attributes = excluded.attributes, body = excluded.body, body_id = NULL, body_size = NULL RETURNING rowid",
             params![key, etag, crate::asyncrt::wall_ms(), attributes, rusqlite::blob::ZeroBlob(size)],
             |row| row.get::<_, i64>(0),
         ).map_err(db_error)?;
@@ -213,6 +214,9 @@ impl LocalStore {
             .map_err(db_error)?;
         drop(writer);
         transaction.commit().map_err(db_error)?;
+        if let Some(id) = retired {
+            self.drain_body(&mut connection, id)?;
+        }
         Ok(PutResult {
             e_tag: Some(etag.to_string()),
             version: None,

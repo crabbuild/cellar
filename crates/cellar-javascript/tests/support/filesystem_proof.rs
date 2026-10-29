@@ -332,7 +332,7 @@ pub fn exercise(
         peers.open(); data.open();
         ensure!(get(&client, &control_address, "/control/release").await? == true);
         let retired = observe(&client, &control_address, |value| value["lateDone"] == true).await?;
-        ensure!(retired["attempts"] == 1 && retired["refused"] == 32);
+        ensure!(retired["attempts"] == 1 && retired["refused"] == 51);
         if fence { tokio::time::sleep(Duration::from_secs(5)).await; }
         let warm = state(&client, &control_address).await?;
         verify(&warm, &retired)?;
@@ -349,7 +349,7 @@ pub fn exercise(
         verify(&restored, &retired)?;
         ensure!(restored == warm, "cold file/state/receipt changed its proven readback");
         let checked = get(&client, address, "/retired").await?;
-        ensure!(checked["refused"] == 64 && checked["owner"].as_str().is_some_and(|owner| owner.starts_with("javascript-proof-cold-")));
+        ensure!(checked["refused"] == 102 && checked["owner"].as_str().is_some_and(|owner| owner.starts_with("javascript-proof-cold-")));
         ensure!(checked["state"] == restored, "stale wrappers changed successor state");
         let written = get(&client, address, "/post").await?;
         let after = get(&client, address, "/control/snapshot").await?;

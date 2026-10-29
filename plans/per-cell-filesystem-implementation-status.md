@@ -9,6 +9,177 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Current primitive release gates
+
+The latest follow-up is `cd0463fa`, based on `main` at `f3f2845c`. The
+[initial-profile requirement map](per-cell-filesystem-conformance.md#initial-profile-requirement-map)
+now connects every implementation-plan group and all O01–O52 public operations
+to their owning assertions. The earlier checklist below is retained as history;
+this table records the current disposition.
+
+| Gate | Current evidence and disposition |
+| --- | --- |
+| Native storage and API | Passing: 47 local-object-store unit tests, 21 filesystem storage tests, three native public API suites, the facet integration suite, nine runtime-policy tests, seven filesystem fleet tests and three extent tests. The corrected public local-store suite passes all five cases; its WAL-index negative control still fails as intended. |
+| TypeScript/JavaScript | Strict public declaration checks pass. All six real Node/V8 API suites and three Node-only suites pass on the page-limit fix. The integrated baseline also passes 40 proof cases, 24 Node byte-reply-loss cases, 89 JavaScript library tests and 38 shared guest tests. |
+| Python | GIL-enabled and free-threaded CPython 3.14.5 both pass normal, read-only, reduced-budget and task-cancellation modes, plus 20 fresh first-write fleets per ABI. Each ABI passes 21 proof/deadline/fence scenarios with six checked native outcomes and settled interpreter/bridge state. The page-limit fix is exercised through both ABI API suites. |
+| Authority and resource contracts | Every public retained filesystem/file/directory method is covered through proof retirement and closed predecessor domains. Wrong-kind descriptors, fresh-slot occupancy, transaction affinity, readonly policy, quotas and preserved error/progress metadata have explicit assertions. There are 12 independent five-cell reclamation-pressure/cold-recovery passes. |
+| Large files and external-store recovery | Dense 10/100/1024 MiB payloads pass cold recovery, exact content/state/receipt checks and subsequent writes. Development-store, supplied S3, TCP-cut and TCP-stall recovery profiles pass with unchanged fault/progress budgets and checked cleanup. Capacity observations do not establish a hard process-RSS bound or deployment SLO. |
+| Repository checks | Passing: strict Clippy for all affected crates/targets/features, formatting, layout, public declarations, native dependency isolation and documentation/local-link checks. |
+| Captured applications on macOS arm64 | Passing on current source: all nine session-agent process cuts; installed session and Vercel packages with the original runtime prefixes absent; and both Python ABI packages through file-commit and saved-read recovery. Vercel verifies 27 receipts, 15 saved decisions and 12 unchanged retries. Each Python ABI passes 15 agent-boundary tests and preserves its actual GIL mode after recovery. |
+| Supported targets and current CI | Required CI remains pending on [PR #156](https://github.com/crabbuild/cellar/pull/156): native release targets, Node/V8 modes, both Python ABIs, captured agents and typed RPC integration. A prior Node delivery timeout has not reproduced in 30 combined-feature or 20 Node-only local runs; the Linux CI step retains timing and runs 20 fresh cases without increasing its 250 ms budget. Do not treat local repetitions as a diagnosis or a CI pass. |
+
+The [integrated local evidence](../tools/perf/results/2026-10-28-filesystem-integrated-local.json)
+retains 103 passing driver/check entries, the zero-page negative/positive
+regression, frozen executable identities and hashes/summaries for 106 guest
+reports: 40 JavaScript proof, 24 Node byte-reply and 42 Python proof cases.
+It records the source transitions from `cb854795` through test repairs and
+`cd0463fa`, rather than relabeling earlier binaries as rebuilt. Both paused
+driver intervals are documented; their wall times are not benchmark results.
+The [packaged-application evidence](../tools/perf/results/2026-10-28-filesystem-packaged-local.json)
+adds 45 passing command/check entries, package and executable identities,
+actual Python runtime observations, nine process-cut ledgers and the installed
+Vercel recovery report. The 20 Node-only delivery runs record 240 root fetches
+with a largest observed duration of 32.025 ms; this is a local observation,
+not the cause or disposition of the earlier Linux timeout.
+
+This is a framework primitive qualification. Application-specific cell counts,
+latency/recovery targets, credential rotation, hardware-failure campaigns and
+chunk-size tuning belong to deployment qualification. The regular-file and
+directory profile, captured limits, local-commit/proof semantics and explicit
+unsupported capabilities remain the public contract. Keep release status open
+until the current required CI checks pass and any reproduced failure is resolved.
+
+## Directory page-limit parity, 2026-10-28
+
+The final API audit found that native `Directory::read_page(0)` returned an
+empty success while the shared guest dispatcher refused it with EINVAL.
+The native regression fails on that success before the fix. Both directory
+page helpers now require positive limits in every SDK; rejected limits preserve
+the directory cookie and report the public operation, NotApplied and zero
+progress. All three native filesystem suites pass after the validation fix.
+The Node/V8 and both Python ABI option profiles pass the same two zero-limit
+cases. Positive-limit paging and storage behavior are unchanged.
+
+## Integrated fixture repairs, 2026-10-28
+
+The follow-up now includes `main` at `f3f2845c`. On production source
+`cb854795`, the native storage/API/fleet suites, 12 isolated reclamation-pressure
+runs, dense 10/100/1024 MiB cold recoveries, all six Node/V8 filesystem suites
+and all 40 expanded proof scenarios pass locally. These are bounded framework
+profiles; Python, final lint and complete supported-target CI remain pending.
+
+Current CI exposed two obsolete fixture assumptions. The public local-store WAL
+test assumed an 8 MiB upload was one transaction; bounded staging now checkpoints
+within that upload. Its replacement crosses multiple checkpoint cycles with
+64 KiB overwrites and retains the original recycling, WAL-size, clone lifetime,
+reopen, content and CAS assertions. All five public local-store tests pass. A
+negative control dropping all store handles between writes still fails the WAL
+recycling assertion.
+
+The S3 connection-cut fixture failed before its intended local commit because
+routing now reads a durable retirement record through the replica client. An
+explicit handler-admission gate places the cut before the write but after that
+check. Recovery faults now keep real retirement reads healthy on an independent
+connection to the same bucket and require observed replica-read attempts. This
+prevents an early authority failure from masquerading as failed replica restore.
+The development, supplied-store S3, TCP-cut and TCP-stall profiles all pass with
+unchanged deadlines and clean-drain assertions. The
+[repair evidence](../tools/perf/results/2026-10-28-filesystem-ci-fixture-repairs.json)
+retains positive/negative WAL results, the failed intermediate stall observation,
+four recovery ledgers and executable/log hashes.
+
+The Node delivery CI job separately exceeded its existing 250 ms handler budget.
+Thirty fresh local captured-package compatibility/restart executions pass without
+changing that budget. This does not establish the cause of the Linux failure;
+opt-in runtime timing is now retained in that CI step for diagnosis. The release
+gate remains open rather than counting those repetitions as a fix.
+
+## Main integration and evidence retention, 2026-10-28
+
+The release follow-up integrates `origin/main` at `638decc7`, including bounded
+object-list pagination from the sandbox erasure work. The merged query retains
+both the page limit and staged-body size metadata. Its new integration case
+checks large-object sizes on both sides of a page boundary; the upstream
+corrupt-row fixture now names columns explicitly for the expanded development
+store schema. Final qualification must use this integrated source.
+
+Before integration, `3ef18a0d` passed all six Node/V8 filesystem tests, all 40
+proof cases and all 24 Node byte-reply-loss cases. Python 3.14.5 with the GIL
+enabled passed normal, read-only, reduced-budget and task-cancellation modes,
+including 24 cancellation/reopen observations and six concurrency reports.
+Sixteen Python proof scenarios reached their successful cleanup reports,
+including all four new directory-fsync cases. The free-threaded follow-up had
+not started. An early Node attempt during companion-binary linking refused
+startup before reaching the filesystem; the same regression passed after the
+build completed. That startup failure was preserved rather than treated as a
+filesystem pass or assigned an unproven cause.
+
+An external cleanup removed the active checkout target, captured runtimes,
+executables and almost all raw qualification files during that run. The
+qualification driver stopped when its just-written log disappeared. The source
+commits and historical observations above survive, but the deleted raw records
+are no longer independently available. New raw reports and runtimes live outside
+the disposable build-cache tree, with compact evidence retained in the repository.
+The integrated revision's complete local and CI qualification remains pending;
+the historical observations do not certify it.
+
+## Large snapshot lease-progress qualification, 2026-10-28
+
+The follow-up starts from merged `origin/main` at `2e68fac2`. PR #152's three
+JavaScript profiles, four Python example jobs and three native release targets
+pass, but its SDK push jobs fail during dense-file cold recovery. Those failures
+remain recorded; passing repetitions do not establish a fix.
+
+A current-main 100 MiB local reproduction fences the successor while appending
+its first recovered block. The lease write enters its native worker in 39 us,
+connects in 44 ms, then waits until 1.27 seconds for writer admission. This
+isolates the observed delay from executor delivery: an ordinary large snapshot
+body monopolizes the development SQLite store's write transaction. The existing
+checkpoint fix releases admission after body writing and therefore cannot fix
+this interval. The original lease and attempt budgets remain unchanged.
+
+The regression pauses an unfinished ordinary body write after its first 128 KiB.
+Readers must retain the old object, while an independent lease CAS must complete
+within 333 ms. It fails on the original single-transaction implementation in
+0.36 seconds. The follow-up stages immutable chunks in bounded FULL transactions
+and atomically publishes the completed body reference with its ETag. Retirement
+and bounded reclamation cover overwritten, deleted and abandoned bodies.
+This changes the machine-local development bucket's internal format; old object
+layouts refuse admission without modification or migration. Cloud bucket and
+per-cell SQLite formats are unchanged.
+
+All 45 local-store tests pass after the fix. They include the new progress test,
+atomic visibility, CAS-conflict cleanup, cross-chunk ranges, copy/delete and
+multipart replacement, bounded orphan reclamation after reopen, irrevocable
+expiry and hard-cutover refusal. The first follow-up run passed 41 of 42 checks
+but exposed maintenance running before the instrumented writer boundary;
+maintenance now follows publication, and the unchanged timing regression passes.
+The native public API harness passes all three cases; the filesystem fleet
+filter passes seven cases, with four opt-in scenarios excluded from that filter.
+Separate dense 10 MiB, 100 MiB and 1 GiB profiles all pass on one executable,
+including cold recovery, append, edit, truncate and receipt verification. The
+largest observed lease writer-admission wait across those profiles is 23.8 ms,
+compared with 1.23 seconds in the failing reproduction. The GiB profile samples
+2.20 GiB process RSS; it is neither a hard memory bound nor an optimized capacity
+claim. Final guest/fleet qualification and CI remain in progress. This
+evidence does not attribute every earlier RPC or container lease failure to the
+large-body interval. Raw logs and frozen before-fix executable identity are in
+the checkout target's `qualification/primitive-release-20261028/` directory.
+
+The guest handle audit subsequently reproduces a successful `closedir` on a
+live file token through the real Node host. The dispatcher now checks descriptor
+kind and removes a token under one registry lock; wrong-kind close calls retain
+the descriptor and its slot. `fdatasync` dispatches only to a file. The shared
+[16-case profile](per-cell-filesystem-conformance.md#guest-handle-kind-profile)
+checks typed, no-effect refusals and exact retained state through all guest
+runtimes. The Python proof suite also gains directory `fsync` under deadline and
+fencing interruption with both Preserve and Handoff, matching the existing
+JavaScript barrier family. These follow-up executions are pending at this
+checkpoint. TypeScript declaration checks, JavaScript reply-validation,
+documentation and JavaScript formatting checks pass locally. Clippy identified
+two new test timeouts using Tokio directly; they now use the owning execution
+domain's clock API and await strict lint revalidation.
+
 ## Release disposition
 
 The initial regular-file/directory primitive, Rust and guest APIs, transaction
@@ -1194,11 +1365,11 @@ read the workspace on a follow-up turn and return a clean shutdown. Only an
 uncheckpointed provider request repeats. Pending turns resume by alarm before a
 session HTTP request; the completed case needs no continuation alarm.
 
-## Release priorities
+## Earlier release priorities
 
-The primitive is available for review, with production qualification still
-open. Prioritize the remaining work in this order; the detailed requirements
-below remain the acceptance checklist.
+This earlier checklist explains the qualification work accumulated above.
+The current gate table at the top records its latest disposition; the historical
+pending statements below are not new requirements beyond the initial profile.
 
 | Priority | Next deliverable | Completion evidence |
 | --- | --- | --- |
@@ -1213,7 +1384,7 @@ FUSE and command execution remain in the separate
 [optional integration proposal](per-cell-filesystem-fuse-design.md); they are
 independent of these primitive release priorities.
 
-## Remaining requirements
+## Earlier qualification checklist
 
 1. Complete the operation-by-operation conformance/error audit and case-ID map.
    The [operation inventory](per-cell-filesystem-conformance.md) now maps the

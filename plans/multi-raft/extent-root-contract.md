@@ -335,6 +335,17 @@ extent for actual SQLite queries, but cannot become a `SealedRoot` until every
 object in its closure is independently verified and synced locally. The seal
 still grants no Raft vote, native admission or output acknowledgement.
 
+Within that inventory lifetime, full verification retains up to 64 SHA-256
+block hashes per object. Descriptor caches share this metadata, so opening a
+new query does not re-read entire extents that recovery already verified.
+Each returned block is independently read and checked against its retained
+hash, and the opened descriptor must have the exact extent length. The
+`max_objects` admission bound also bounds this retained hash data to 2 KiB per
+object (32 MiB by default), apart from proofs held by admitted readers and
+bounded in-flight verification metadata.
+Restart discards every such proof; filenames never reconstruct it. Full-body
+archive reads and closure verification still check the complete extent digest.
+
 View and SQLite lifetimes retain the node lock and their root pins. Closing a
 cell does not refund named data. Retained closed-root metadata also participates
 in shared-object reachability. The host reconstructs scope-derived monotonic

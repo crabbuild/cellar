@@ -1,0 +1,118 @@
+{
+  "format": 1,
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "source": "d61721866fdc335dc31e865fce1c94955e975b15",
+  "target": "/Users/haipingfu/Workspace/crabbuild-target/cellar-ios-b46756e3-filesystem-final",
+  "checks": [
+    {
+      "name": "layout",
+      "command": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit": 0,
+      "seconds": 1.1369229999836534,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "5c3c293642354f4c09a7a1c998cac2e9d9541587c73db5544cf4af36a5d30a38"
+    },
+    {
+      "name": "native-dependencies",
+      "command": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit": 0,
+      "seconds": 1.2029060419881716,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "8e34def36d392ff32a94cec97755ace30588a6ad9bf61db26c0f418e10baad4a"
+    },
+    {
+      "name": "docs",
+      "command": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit": 0,
+      "seconds": 0.19230487500317395,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "3a70e3708cb2b5aabd052b03c51ff646f088637c0a494e3795b6867a503b720e"
+    },
+    {
+      "name": "typescript",
+      "command": [
+        "node",
+        "tools/javascript/node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "--strict",
+        "--target",
+        "es2022",
+        "--module",
+        "nodenext",
+        "packages/cellar-sdk/test/types.ts",
+        "packages/cellar-sdk/test/filesystem-types.ts"
+      ],
+      "exit": 0,
+      "seconds": 0.520998541964218,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "javascript-format",
+      "command": [
+        "npm",
+        "run",
+        "--prefix",
+        "tools/javascript",
+        "format:check"
+      ],
+      "exit": 0,
+      "seconds": 2.1519644169602543,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "2c3c515e3f39e3143c75f4b45e4e6184ee1001463a88e2b4a5e0914300fff9d0"
+    },
+    {
+      "name": "javascript-replies",
+      "command": [
+        "node",
+        "--test",
+        "tools/javascript/filesystem-replies.test.mjs"
+      ],
+      "exit": 0,
+      "seconds": 0.19542050000745803,
+      "process_timeout_seconds": 3600,
+      "timed_out": false,
+      "log_sha256": "30a3051049679374de91c700d3f4a861c963a5ffa1bdda4b662133e3d0b2639f"
+    },
+    {
+      "name": "native-build",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "-p",
+        "cellar",
+        "--all-features",
+        "--lib",
+        "--test",
+        "native_filesystem",
+        "--test",
+        "native_node",
+        "--test",
+        "native_raft_extents",
+        "--no-run"
+      ],
+      "exit": -15,
+      "seconds": 282.2767588329734,
+      "process_timeout_seconds": 5400,
+      "timed_out": false,
+      "log_sha256": "18e3151c8bd678fb3c70ba053a90d7b6e67cac718ad2464afa4047e6a657fa47"
+    }
+  ],
+  "executables": {},
+  "complete": false
+}

@@ -1871,6 +1871,12 @@ binding, hybrid installation and activation before hydration remain open.
 
 ## RT-06: Harden and qualify the targets
 
+The [2026-10-29 process recovery record](process-recovery-qualification.md)
+establishes one passing near-10-GB RustFS case with an owner SIGKILL, erased
+owner directory, new empty worker, local reads, quorum-durable writes, receipts,
+payload verification and joined shutdown. It uses complete local extent
+hydration on a shared host and does not complete this campaign or its targets.
+
 Use deterministic small fault tests in ordinary CI and source-pinned physical
 campaigns for actual size, process loss and performance. Runtime tests precede
 each package's rollout; do not defer all fault coverage to this final gate.

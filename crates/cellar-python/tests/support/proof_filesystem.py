@@ -10,6 +10,7 @@ from cellar import MISSING, SDKError
 _fs_seed = _fs_pending = _fs_post = _fs_handles = None
 _fs_refusals = 0
 _fs_barrier_entered = False
+FILESYSTEM_OPERATION = "fsync" if FILESYSTEM_BARRIER == "dirsync" else FILESYSTEM_BARRIER
 
 
 def filesystem_payload(generation):
@@ -64,7 +65,7 @@ async def filesystem_retain(ctx):
     duplicate = await file.dup()
     directory = await ctx.fs.opendir("/")
     _fs_handles = dict(file=file, duplicate=duplicate, directory=directory,
-                       cookie=await directory.telldir(), fs=ctx.fs)
+                       cookie=await directory.telldir(), fs=ctx.fs, version=await file.fstat())
 
 
 async def filesystem_barrier(ctx):
@@ -75,6 +76,8 @@ async def filesystem_barrier(ctx):
         await ctx.fs.sync()
     elif FILESYSTEM_BARRIER == "fsync":
         await _fs_handles["file"].fsync()
+    elif FILESYSTEM_BARRIER == "dirsync":
+        await _fs_handles["directory"].fsync()
     else:
         assert FILESYSTEM_BARRIER == "fdatasync"
         await _fs_handles["file"].fdatasync()
@@ -101,6 +104,25 @@ async def filesystem_late(ctx, observe=None):
         (lambda: old["fs"].read_file("/ledger.bin"), "read_file"), (lambda: old["fs"].write_file("/ledger.bin", b"late"), "write_file"),
         (lambda: old["fs"].unlink("/ledger.bin"), "unlink"), (old["fs"].sync, "sync"),
         (old["fs"].collect_garbage, "collect_garbage"),
+        (lambda: old["fs"].open("/ledger.bin", access="write", truncate=True), "open"),
+        (lambda: old["fs"].creat("/late-create"), "creat"),
+        (lambda: old["fs"].lstat("/ledger.bin"), "lstat"),
+        (lambda: old["fs"].truncate("/ledger.bin", 0), "truncate"),
+        (lambda: old["fs"].mkdir("/late-directory"), "mkdir"),
+        (lambda: old["fs"].rmdir("/"), "rmdir"),
+        (lambda: old["fs"].rename("/ledger.bin", "/late-renamed"), "rename"),
+        (lambda: old["fs"].chmod("/ledger.bin", 0o400), "chmod"),
+        (lambda: old["fs"].utimens("/ledger.bin", 0), "utimens"),
+        (lambda: old["fs"].opendir("/"), "opendir"),
+        (old["fs"].statvfs, "statvfs"),
+        (lambda: old["fs"].openat(old["directory"], "ledger.bin", access="write", truncate=True), "openat"),
+        (lambda: old["fs"].fstatat(old["directory"], "ledger.bin"), "fstatat"),
+        (lambda: old["fs"].mkdirat(old["directory"], "late-directory"), "mkdirat"),
+        (lambda: old["fs"].unlinkat(old["directory"], "ledger.bin"), "unlinkat"),
+        (lambda: old["fs"].renameat(old["directory"], "ledger.bin", old["directory"], "late-renamed"), "renameat"),
+        (lambda: old["fs"].replace_file("/ledger.bin", b"late"), "replace_file"),
+        (lambda: old["fs"].edit_file("/ledger.bin", old["version"], offset=0, delete_bytes=1, insert=b"late"), "edit_file"),
+        (lambda: old["fs"].read_dir("/", 1), "read_dir"),
     ):
         try:
             await call()
@@ -144,7 +166,7 @@ async def filesystem_check_retired(ctx, retired):
                 await file.lseek(0, "current"), await duplicate.lseek(0, "current"),
                 await directory.telldir(), await file.pread(32, 0))
     with _lock:
-        assert _fs_refusals == 32
+        assert _fs_refusals == 51
     await filesystem_late(retired, observe)
     try:
         await fs.open("/ledger.bin")
