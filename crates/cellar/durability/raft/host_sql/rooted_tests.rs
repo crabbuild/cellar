@@ -17,6 +17,7 @@ use cellar_ltx::{
 use std::{path::Path, sync::atomic::AtomicUsize};
 
 struct Host {
+    scope: GroupScope,
     pool: Pool,
     domain: ExecutionDomain,
     token: crate::asyncrt::DomainToken,
@@ -50,6 +51,21 @@ impl Host {
         member: u8,
         learners: Vec<MemberId>,
     ) -> anyhow::Result<Self> {
+        Self::open_inventory(root, class, resume, member, learners, None).await
+    }
+
+    async fn open_inventory(
+        root: &Path,
+        class: Arc<RaftClass>,
+        resume: bool,
+        member: u8,
+        learners: Vec<MemberId>,
+        inventory: Option<(GroupScope, NodeExtentStore)>,
+    ) -> anyhow::Result<Self> {
+        let scope = inventory
+            .as_ref()
+            .map(|(scope, _)| scope.clone())
+            .unwrap_or_else(scope);
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let token = domain
             .run(async { crate::asyncrt::services().domain_token().unwrap() })
@@ -72,7 +88,7 @@ impl Host {
             .await??;
         if !resume {
             log.create_group(GroupBootstrap {
-                scope: scope(),
+                scope: scope.clone(),
                 member: MemberId::new(u64::from(member))?,
                 birth_digest: [7; 32],
                 voters: vec![MemberId::new(1)?],
@@ -80,11 +96,14 @@ impl Host {
             })
             .await?;
         }
-        let store = NodeExtentStore::open(
-            root.join("extents"),
-            Arc::new(DirectFileSystem),
-            Default::default(),
-        )?;
+        let store = match inventory {
+            Some((_, store)) => store,
+            None => NodeExtentStore::open(
+                root.join("extents"),
+                Arc::new(DirectFileSystem),
+                Default::default(),
+            )?,
+        };
         let limits = ExecutionLimits::default();
         let pins = Budget::new(0, 1);
         let pool = Pool::start(
@@ -112,9 +131,9 @@ impl Host {
         let output = pool
             .call(
                 0,
-                scope(),
+                scope.clone(),
                 Action::Initialize {
-                    group: log.group(&scope())?,
+                    group: log.group(&scope)?,
                     class: class.clone(),
                     storage: CellStorage {
                         directory: root.join("cell"),
@@ -173,6 +192,7 @@ impl Host {
         )
         .await?;
         let mut host = Self {
+            scope,
             pool,
             domain,
             token,
@@ -184,7 +204,7 @@ impl Host {
             pins,
         };
         if member == 1 {
-            host.runtime.campaign(&scope()).await?;
+            host.runtime.campaign(&host.scope).await?;
             host.ready().await?;
         }
         Ok(host)
@@ -198,8 +218,8 @@ impl Host {
                         return Err(error.into());
                     }
                 }
-                let status = self.runtime.status(&scope()).await?;
-                if CommandAuthority::from_status(self.log.group(&scope())?, &status).is_ok() {
+                let status = self.runtime.status(&self.scope).await?;
+                if CommandAuthority::from_status(self.log.group(&self.scope)?, &status).is_ok() {
                     return Ok(status);
                 }
                 tokio::time::sleep(Duration::from_millis(1)).await;
@@ -209,7 +229,11 @@ impl Host {
     }
 
     async fn call(&self, action: Action) -> Result<Value, ExecutionError> {
-        Ok(self.pool.call(0, scope(), action, None, None).await?.value)
+        Ok(self
+            .pool
+            .call(0, self.scope.clone(), action, None, None)
+            .await?
+            .value)
     }
 
     async fn stage(
@@ -289,7 +313,7 @@ impl Host {
     ) -> anyhow::Result<(ImageView, CommittedReceipt)> {
         self.call(Action::Submit { identity }).await?;
         self.runtime
-            .propose(&scope(), prepared.context(), prepared.bytes().to_vec())
+            .propose(&self.scope, prepared.context(), prepared.bytes().to_vec())
             .await?;
         let event = self.event().await?;
         let RuntimeEventKind::Apply { ticket, .. } = &event.kind else {
@@ -666,6 +690,11 @@ async fn extent_sql_worker_gates_publication_reconciles_receipts_and_reopens() -
         anyhow::bail!("duplicate new command")
     };
     let (view, receipt) = host.commit(identity, prepared).await?;
+    assert_eq!(
+        host.store.usage()?.workspaces,
+        1,
+        "headroom should retain the hot writer cache"
+    );
     let read = host
         .query(
             "Read",
@@ -846,4 +875,92 @@ async fn discarded_extent_commands_release_the_private_workspace_and_preserve_co
     assert_eq!(receipt.receipt().result(), 2_i64.to_be_bytes());
     assert_eq!(calls.load(Ordering::SeqCst), 3);
     host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn extent_writers_share_one_workspace_capacity_after_committed_publication(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let class = class(calls.clone())?;
+    let store = NodeExtentStore::open(
+        directory.path().join("shared-extents"),
+        Arc::new(DirectFileSystem),
+        cellar_ltx::internal::NodeExtentLimits {
+            max_bytes: 1024 * 1024 * 1024,
+            ..Default::default()
+        },
+    )?;
+    let mut other = scope();
+    other.cell = "Counter:8".into();
+    other.group = GroupId::new([8; 16])?;
+    let mut first = Host::open_inventory(
+        &directory.path().join("first"),
+        class.clone(),
+        false,
+        1,
+        vec![],
+        Some((scope(), store.clone())),
+    )
+    .await?;
+    let mut second = Host::open_inventory(
+        &directory.path().join("second"),
+        class,
+        false,
+        1,
+        vec![],
+        Some((other, store.clone())),
+    )
+    .await?;
+    // Separate SQL owners share the same physical inventory. A cached writer
+    // from the first cell must not permanently refuse the second cell.
+    for sequence in 1..=2 {
+        for index in 0..2 {
+            let (host, waiting) = if index == 0 {
+                (&mut first, &mut second)
+            } else {
+                (&mut second, &mut first)
+            };
+            let tag = (sequence * 2 + index as u64) as u8;
+            let (identity, outcome) = host.stage(sequence, tag).await?;
+            let StageOutcome::Prepared(prepared) = outcome else {
+                anyhow::bail!("new command was a duplicate")
+            };
+            assert_eq!(store.usage()?.workspaces, 1);
+            let refused = waiting
+                .stage(sequence, tag + 20)
+                .await
+                .err()
+                .expect("active workspace must remain reserved");
+            assert!(matches!(
+                refused.downcast_ref::<ExecutionError>(),
+                Some(ExecutionError::Refused(CommandFailure::Overloaded))
+            ));
+            assert_eq!(
+                store.usage()?.workspaces,
+                1,
+                "active command lost its reservation"
+            );
+            let (view, receipt) = host.commit(identity, prepared).await?;
+            assert_eq!(receipt.receipt().result(), (sequence as i64).to_be_bytes());
+            let read = host
+                .query(
+                    "Read",
+                    super::super::query::Minimum::ReadIndex(view.position.index),
+                    Arc::new(AttemptControl::new(host.token.clone())),
+                )
+                .await?;
+            assert_eq!(read.result, (sequence as i64).to_be_bytes());
+            let (_, duplicate) = host.stage(sequence, tag + 40).await?;
+            assert!(matches!(duplicate, StageOutcome::Duplicate(_)));
+            assert_eq!(
+                store.usage()?.workspaces,
+                0,
+                "duplicate pinned the shared writer capacity"
+            );
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 4);
+    first.close().await?;
+    second.close().await
 }

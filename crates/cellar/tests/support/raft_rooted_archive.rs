@@ -39,9 +39,22 @@ pub(super) async fn history(
     Ok((namespace, birth, archive))
 }
 
+pub(super) fn heads(
+    objects: Vec<object_store::ObjectMeta>,
+) -> std::collections::BTreeMap<String, object_store::ObjectMeta> {
+    objects
+        .into_iter()
+        .filter(|object| object.location.filename() == Some("head"))
+        .map(|object| (object.location.to_string(), object))
+        .collect()
+}
+
 async fn cold_restore(store: Arc<dyn ObjectStore>) -> Result<()> {
     let root = tempfile::tempdir()?;
     let (_, birth, archive) = history(store.clone()).await?;
+    // Namespace birth inventory may already own a head. The data-only archive
+    // call must neither introduce a head nor modify any existing head.
+    let heads_before = heads(store.list(None).try_collect::<Vec<_>>().await?);
     let (source, captured) = snapshots::source_padding(
         &root.path().join("source"),
         birth.digest(),
@@ -74,10 +87,8 @@ async fn cold_restore(store: Arc<dyn ObjectStore>) -> Result<()> {
         "archive transferred duplicate extent identities"
     );
     ensure!(
-        objects
-            .iter()
-            .all(|o| !o.location.as_ref().ends_with("/head")),
-        "data reference published an archive head"
+        heads(objects) == heads_before,
+        "data reference created or changed a head"
     );
     drop(captured);
     source.close().await?;

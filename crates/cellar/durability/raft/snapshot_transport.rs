@@ -285,6 +285,12 @@ impl RaftTransport {
             .snapshot_source
             .lock()
             .map_err(|_| TransportError::Closed)? = Some(Arc::downgrade(&source));
+        // Route replacement may race source construction. Publishing before
+        // rechecking closes the gap with install/remove's invalidation pass.
+        state.invalidate_snapshot_routes();
+        if source.finished.load(Ordering::Acquire) {
+            return Err(TransportError::StalePeer);
+        }
         Ok(SnapshotSource(source))
     }
 

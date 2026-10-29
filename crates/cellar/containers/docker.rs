@@ -282,6 +282,40 @@ impl Docker {
         self.reply(self.request(method, path, body)?).await
     }
 
+    /// Bounded control-plane replies. Dropping the call also drops its owned
+    /// connection; a cancelled mutation may still complete in the daemon.
+    pub(crate) async fn call_bounded(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<serde_json::Value>,
+        maximum: usize,
+    ) -> anyhow::Result<Reply> {
+        let body = body
+            .map(|value| serde_json::to_vec(&value))
+            .transpose()?
+            .map(Bytes::from)
+            .unwrap_or_default();
+        self.exchange(self.request(method, path, body)?, |response| async move {
+            let status = response.status();
+            anyhow::ensure!(
+                response
+                    .body()
+                    .size_hint()
+                    .upper()
+                    .is_none_or(|size| size <= maximum as u64),
+                "Docker control response exceeds byte budget"
+            );
+            let body = Limited::new(response.into_body(), maximum)
+                .collect()
+                .await
+                .map_err(|_| anyhow!("Docker control response exceeds budget or is incomplete"))?
+                .to_bytes();
+            Ok(Reply { status, body })
+        })
+        .await
+    }
+
     /// `call`, failing on any non-success status with the daemon's message.
     pub async fn expect(
         &self,

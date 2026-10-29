@@ -17,6 +17,9 @@ pub enum NodeAction {
         operation_id: String,
         mode: super::StopMode,
     },
+    FleetStop {
+        request: Box<crate::application::consensus::FleetStopRequest>,
+    },
     Evict {
         scope: String,
         epoch: u64,

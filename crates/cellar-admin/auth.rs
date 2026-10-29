@@ -19,6 +19,16 @@ pub enum Permission {
     DataWrite,
     Operate,
     Configure,
+    FleetTopology,
+    FleetCancel,
+    FleetRegister,
+    /// Trusted deployment authority for explicit node resource attestations.
+    FleetCapacity,
+    FleetEvacuate,
+    FleetRemove,
+    FleetStop,
+    /// Preparation is independent of stop and capacity grants.
+    FleetMaintenance,
 }
 
 #[derive(Clone)]

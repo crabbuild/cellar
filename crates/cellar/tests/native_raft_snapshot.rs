@@ -24,6 +24,8 @@ mod cluster;
 #[allow(dead_code)]
 mod public_node;
 
+#[path = "support/raft_empty_archive_seed.rs"]
+mod empty_archive_seed;
 #[path = "support/raft_seed_crash.rs"]
 mod seed_crashes;
 #[path = "support/raft_seed_fault.rs"]

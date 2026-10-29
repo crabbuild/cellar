@@ -171,6 +171,8 @@ nix.workspace = true
 tikv-jemallocator = { workspace = true, features = ["background_threads"] }
 
 [dev-dependencies]
+# Exercise the authenticated operator path against the real native fleet.
+cellar-admin.workspace = true
 lz4_flex.workspace = true
 
 [build-dependencies]

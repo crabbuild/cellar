@@ -168,10 +168,12 @@ impl Image {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Snapshot {
     pub position: Position,
-    pub image: Image,
+    #[serde(deserialize_with = "required_option")]
+    pub image: Option<Image>,
     pub conf_state: Vec<u8>,
     pub membership: super::member_state::GroupMembership,
-    pub object: ObjectRef,
+    #[serde(deserialize_with = "required_option")]
+    pub object: Option<ObjectRef>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -193,7 +195,11 @@ pub(crate) struct Manifest {
     pub snapshot: Snapshot,
     pub tails: Vec<Tail>,
     pub position: Position,
-    pub image: Image,
+    #[serde(deserialize_with = "required_option")]
+    pub image: Option<Image>,
+    /// Original published-image position, distinct from protocol-only apply.
+    #[serde(deserialize_with = "required_option")]
+    pub image_position: Option<Position>,
     pub conf_state: Vec<u8>,
     pub membership: super::member_state::GroupMembership,
     pub dependencies: Vec<ObjectRef>,
@@ -224,12 +230,25 @@ impl Manifest {
             return Err(ArchiveError::Corrupt("archive history/schema binding"));
         }
         self.snapshot.position.decode()?;
-        self.snapshot.object.validate_location()?;
         self.position.decode()?;
-        self.snapshot.image.decode()?;
-        self.image.decode()?;
-        if self.snapshot.image.length > limits.max_image_bytes
-            || self.image.length > limits.max_image_bytes
+        self.snapshot.image.map(Image::decode).transpose()?;
+        self.image.map(Image::decode).transpose()?;
+        if let Some(position) = self.image_position {
+            position.decode()?;
+            if position.index > self.position.index
+                || position.term > self.position.term
+                || position.index == self.position.index && position.term != self.position.term
+            {
+                return Err(ArchiveError::Corrupt("archive image publication position"));
+            }
+        }
+        if self
+            .snapshot
+            .image
+            .is_some_and(|image| image.length > limits.max_image_bytes)
+            || self
+                .image
+                .is_some_and(|image| image.length > limits.max_image_bytes)
         {
             return Err(ArchiveError::Limit);
         }
@@ -243,15 +262,44 @@ impl Manifest {
             .validate(&tip_conf, self.position.index)
             .map_err(|_| ArchiveError::Corrupt("archive tip member bindings"))?;
         self.membership
+            .validate_scope(scope)
+            .map_err(|_| ArchiveError::Corrupt("archive tip fleet binding"))?;
+        self.membership
             .succeeds(&self.snapshot.membership)
             .map_err(|_| ArchiveError::Corrupt("archive tip member history"))?;
+        self.snapshot
+            .membership
+            .validate_scope(scope)
+            .map_err(|_| ArchiveError::Corrupt("archive fleet binding"))?;
+        // Explicit nulls denote the canonical pre-schema state. Missing fields
+        // are rejected by required_option; partial pairs or retained payloads
+        // cannot be reinterpreted as an empty archive.
+        let object = match (
+            &self.snapshot.image,
+            &self.snapshot.object,
+            &self.image,
+            &self.image_position,
+        ) {
+            (None, None, None, None)
+                if self.tails.is_empty()
+                    && self.dependencies.is_empty()
+                    && self.snapshot.position == self.position
+                    && self.conf_state == self.snapshot.conf_state
+                    && self.membership == self.snapshot.membership =>
+            {
+                return Ok(())
+            }
+            (Some(_), Some(object), Some(_), Some(_)) => object,
+            _ => return Err(ArchiveError::Corrupt("archive empty/image binding")),
+        };
+        object.validate_location()?;
         if self.tails.len() > limits.max_tails
             || self.dependencies.len() > limits.max_dependencies
-            || self.snapshot.object.kind != ObjectKind::Snapshot
+            || object.kind != ObjectKind::Snapshot
         {
             return Err(ArchiveError::Limit);
         }
-        if self.snapshot.object.range
+        if object.range
             != Some(PositionRange {
                 first: self.snapshot.position,
                 last: self.snapshot.position,
@@ -261,7 +309,7 @@ impl Manifest {
         }
         let mut position = self.snapshot.position;
         let mut entries = 0usize;
-        let mut total = self.snapshot.object.length;
+        let mut total = object.length;
         for tail in &self.tails {
             tail.object.validate_location()?;
             tail.first.decode()?;
@@ -311,7 +359,7 @@ impl Manifest {
                 .checked_add(dependency.length)
                 .ok_or(ArchiveError::Limit)?;
         }
-        if self.snapshot.object.length > limits.max_object_bytes as u64
+        if object.length > limits.max_object_bytes as u64
             || self
                 .tails
                 .iter()
@@ -326,6 +374,14 @@ impl Manifest {
         }
         Ok(())
     }
+}
+
+fn required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::deserialize(deserializer)
 }
 
 pub(crate) fn decode_conf(bytes: &[u8]) -> Result<ConfState, ArchiveError> {
@@ -402,4 +458,193 @@ pub(crate) fn decode<T: DeserializeOwned + Serialize>(
 
 pub(crate) fn digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+#[cfg(test)]
+mod fleet_tests {
+    use super::*;
+
+    #[test]
+    fn archive_configuration_set_order_is_canonical() -> Result<(), ArchiveError> {
+        let mut first = ConfState {
+            voters: vec![9, 1, 5],
+            voters_outgoing: vec![3, 9, 1],
+            learners: vec![11, 7],
+            learners_next: vec![3],
+            auto_leave: true,
+            ..Default::default()
+        };
+        let encoded = encode_conf(&first)?;
+        let raw = first
+            .write_to_bytes()
+            .map_err(|_| ArchiveError::Corrupt("test configuration"))?;
+        assert!(decode_conf(&raw).is_err());
+        first.voters.reverse();
+        first.voters_outgoing.reverse();
+        first.learners.reverse();
+        first.learners_next.reverse();
+        assert_eq!(encoded, encode_conf(&first)?);
+        let canonical = decode_conf(&encoded)?;
+        assert_eq!(canonical.voters, vec![1, 5, 9]);
+        assert_eq!(canonical.voters_outgoing, vec![1, 3, 9]);
+        assert_eq!(canonical.learners, vec![7, 11]);
+        assert_eq!(canonical.learners_next, vec![3]);
+        Ok(())
+    }
+
+    #[test]
+    fn archive_configuration_unknown_and_duplicate_members_refused() {
+        let mut conf = ConfState {
+            voters: vec![1, 1],
+            ..Default::default()
+        };
+        assert!(encode_conf(&conf).is_err());
+        conf.voters.pop();
+        conf.mut_unknown_fields().add_varint(99, 1);
+        assert!(encode_conf(&conf).is_err());
+    }
+
+    fn empty_manifest() -> (GroupScope, Manifest) {
+        use cellar_logic::consensus::{ClusterId, GroupId, IncarnationId, NamespaceId};
+        let scope = GroupScope {
+            cluster: ClusterId::new([1; 16]).unwrap(),
+            namespace: NamespaceId::new([2; 16]).unwrap(),
+            group: GroupId::new([3; 16]).unwrap(),
+            incarnation: IncarnationId::new([4; 16]).unwrap(),
+            cell: "Counter:empty".into(),
+        };
+        let conf = ConfState {
+            voters: vec![1, 2, 3],
+            ..Default::default()
+        };
+        let position = Position { index: 1, term: 1 };
+        let manifest = Manifest {
+            scope: WireScope::from(&scope),
+            root_digest: [5; 32],
+            birth_digest: [6; 32],
+            schema_digest: [7; 32],
+            snapshot: Snapshot {
+                position,
+                image: None,
+                object: None,
+                conf_state: encode_conf(&conf).unwrap(),
+                membership: super::super::member_state::GroupMembership::initial(&conf),
+            },
+            tails: vec![],
+            position,
+            image: None,
+            image_position: None,
+            conf_state: encode_conf(&conf).unwrap(),
+            membership: super::super::member_state::GroupMembership::initial(&conf),
+            dependencies: vec![],
+        };
+        (scope, manifest)
+    }
+
+    #[test]
+    fn archive_empty_manifest_requires_explicit_null_fields() {
+        let (_, manifest) = empty_manifest();
+        let value = serde_json::to_value(&manifest).unwrap();
+        assert!(serde_json::from_value::<Manifest>(value.clone()).is_ok());
+        for field in ["image", "object"] {
+            let mut missing = value.clone();
+            missing["snapshot"].as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<Manifest>(missing).is_err());
+        }
+        for field in ["image", "image_position"] {
+            let mut missing = value.clone();
+            missing.as_object_mut().unwrap().remove(field);
+            assert!(serde_json::from_value::<Manifest>(missing).is_err());
+        }
+    }
+
+    #[test]
+    fn archive_empty_manifest_refuses_partial_state_and_payloads() {
+        let (scope, manifest) = empty_manifest();
+        let validate = |m: &Manifest| {
+            m.validate(
+                &scope,
+                [5; 32],
+                [6; 32],
+                [7; 32],
+                ArchiveLimits::default(),
+                &manifest.snapshot.membership,
+            )
+        };
+        assert!(validate(&manifest).is_ok());
+        let mut invalid = manifest.clone();
+        invalid.position.index += 1;
+        assert!(validate(&invalid).is_err());
+        let mut invalid = manifest.clone();
+        invalid.image_position = Some(invalid.position);
+        assert!(validate(&invalid).is_err());
+        let mut invalid = manifest.clone();
+        invalid.snapshot.object = Some(ObjectRef::new(ObjectKind::Snapshot, b"", None));
+        assert!(validate(&invalid).is_err());
+        let mut invalid = manifest.clone();
+        invalid
+            .dependencies
+            .push(ObjectRef::new(ObjectKind::Dependency, b"data", None));
+        assert!(validate(&invalid).is_err());
+        let mut invalid = manifest.clone();
+        invalid.image = Some(Image {
+            epoch: 1,
+            txid: 0,
+            checksum: 0,
+            page_size: 0,
+            length: 0,
+            digest: [0; 32],
+        });
+        assert!(validate(&invalid).is_err());
+    }
+
+    #[test]
+    fn archive_manifest_requires_bounded_publication_origin() {
+        let (scope, mut manifest) = empty_manifest();
+        let position = Position { index: 7, term: 3 };
+        let image = Image {
+            epoch: 1,
+            txid: 1,
+            checksum: 0,
+            page_size: 4096,
+            length: 4096,
+            digest: [9; 32],
+        };
+        manifest.position = position;
+        manifest.snapshot.position = position;
+        manifest.snapshot.image = Some(image);
+        manifest.snapshot.object = Some(ObjectRef::new(
+            ObjectKind::Snapshot,
+            b"metadata-only snapshot reference",
+            Some(PositionRange {
+                first: position,
+                last: position,
+            }),
+        ));
+        manifest.image = Some(image);
+        manifest.image_position = Some(Position { index: 2, term: 1 });
+        let validate = |m: &Manifest| {
+            m.validate(
+                &scope,
+                [5; 32],
+                [6; 32],
+                [7; 32],
+                ArchiveLimits::default(),
+                &manifest.snapshot.membership,
+            )
+        };
+        // A full snapshot applied at 7 does not relabel the SQL publication at 2.
+        assert!(validate(&manifest).is_ok());
+        for origin in [
+            None,
+            Some(Position { index: 0, term: 1 }),
+            Some(Position { index: 8, term: 3 }),
+            Some(Position { index: 2, term: 4 }),
+            Some(Position { index: 7, term: 2 }),
+        ] {
+            let mut invalid = manifest.clone();
+            invalid.image_position = origin;
+            assert!(validate(&invalid).is_err());
+        }
+    }
 }

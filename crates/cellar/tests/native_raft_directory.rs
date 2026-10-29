@@ -164,9 +164,21 @@ async fn directory_pin_shared_by_namespaces_has_no_group_authority() -> Result<(
     assert_eq!(
         objects
             .iter()
-            .filter(|o| o.location.filename() == Some("pin"))
+            .filter(|o| o.location.filename() == Some("pin")
+                && o.location.as_ref().starts_with(&format!(
+                    "node-directory/test/raft/{}/nodes/",
+                    hex::encode([1; 16])
+                )))
             .count(),
         1
+    );
+    ensure!(objects.iter().any(|object| object.location == key("pin")));
+    assert_eq!(
+        objects
+            .iter()
+            .filter(|object| object.location.as_ref().ends_with("/births/pin"))
+            .count(),
+        2
     );
     ensure!(!objects
         .iter()

@@ -2,6 +2,9 @@
 
 //! Leadership movement is admitted by the same serialized owner as proposals.
 use super::*;
+#[cfg(test)]
+#[path = "replica_leadership_tests.rs"]
+mod tests;
 
 impl Replica {
     pub(super) fn replication_status(&self) -> Result<ReplicationStatus, RuntimeError> {
@@ -33,6 +36,86 @@ impl Replica {
             committed: LogIndex::new(self.node.raft.raft_log.committed),
             members,
         })
+    }
+
+    pub(super) fn restart_leadership(
+        &mut self,
+        check: RestartLeadershipCheck,
+    ) -> Result<(), RuntimeError> {
+        let progress = self.replication_status()?;
+        let cache = self.log.read()?;
+        let voters = &cache.conf_state.voters;
+        if check.through.get() == 0
+            || self.node.raft.pending_conf_index > self.node.raft.raft_log.applied
+            || self.node.raft.lead_transferee.is_some()
+            || progress.term != check.expected_term
+            || progress.membership_revision != check.expected_revision
+            || progress.committed < check.through
+            || voters.len() != 3
+            || !cache.conf_state.voters_outgoing.is_empty()
+            || !cache.conf_state.learners.is_empty()
+            || !cache.conf_state.learners_next.is_empty()
+            || cache.conf_state.auto_leave
+            || check.survivors[0] == check.survivors[1]
+            || check
+                .survivors
+                .iter()
+                .any(|member| !voters.contains(&member.get()))
+            || check.survivors.iter().any(|member| {
+                progress
+                    .members
+                    .iter()
+                    .find(|p| p.member == *member)
+                    .is_none_or(|p| {
+                        !p.voter
+                            || p.matched < check.through
+                            || (*member != self.identity().member && !p.recent_active)
+                    })
+            })
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        if check.all_voters
+            && voters.iter().any(|id| {
+                progress
+                    .members
+                    .iter()
+                    .find(|p| p.member.get() == *id)
+                    .is_none_or(|p| {
+                        !p.voter
+                            || p.matched < check.through
+                            || (*id != self.identity().member.get() && !p.recent_active)
+                    })
+            })
+        {
+            return Err(RuntimeError::NotReady);
+        }
+        let local = self.identity().member;
+        match &check.transfer {
+            Some((target, selector)) => {
+                if check.survivors.contains(&local)
+                    || !check.survivors.contains(target)
+                    || selector.boot.node != self.identity().node.bytes()
+                    || selector.boot.disk != self.identity().disk.bytes()
+                    || selector.boot.process != self.identity().process.bytes()
+                {
+                    return Err(RuntimeError::NotReady);
+                }
+            }
+            None if !check.survivors.contains(&local) => return Err(RuntimeError::NotReady),
+            None => (),
+        }
+        drop(cache);
+        if let Some((target, _)) = check.transfer {
+            // The existing owner also requires this destination to be caught up
+            // to the latest commit, and refuses repair/joint/active transfers.
+            self.transfer_leadership(LeadershipTransfer {
+                target,
+                expected_term: check.expected_term,
+                expected_revision: check.expected_revision,
+            })?;
+        }
+        Ok(())
     }
 
     pub(super) fn transfer_leadership(

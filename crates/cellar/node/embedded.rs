@@ -600,6 +600,10 @@ impl Node {
         }
         let (ready, readiness) = oneshot::channel();
         let (command, mut commands) = mpsc::unbounded_channel();
+        domain
+            .services()
+            .raft_lifecycle()
+            .configure_shutdown(command.clone());
         let owner = domain.clone();
         let executor = services.host_executor.clone();
         let task_guard = CloseOnDrop(Some(domain.clone()));
@@ -647,6 +651,15 @@ impl Node {
                 operations
                     .joined(&outcome, tokio::runtime::Handle::current())
                     .await;
+            }
+            match owner.services().raft_lifecycle().take_stop_reporter() {
+                Ok(Some(reporter)) => {
+                    reporter
+                        .joined(&outcome, tokio::runtime::Handle::current())
+                        .await
+                }
+                Ok(None) => (),
+                Err(error) => tracing::warn!(%error, "fleet stop reporter unavailable after join"),
             }
             outcome
         });
@@ -699,8 +712,10 @@ impl Node {
             !self.is_closed() && !self.app.is_draining(),
             "node is closing"
         );
+        // Keep the composite startup state machine out of application caller
+        // futures; deeply nested startup/recovery otherwise exhausts their stack.
         self.domain
-            .run(async {
+            .run(Box::pin(async {
                 super::raft_startup::Startup {
                     domain: self
                         .domain
@@ -713,7 +728,7 @@ impl Node {
                 }
                 .start(config, services)
                 .await
-            })
+            }))
             .await?
     }
 
@@ -742,6 +757,31 @@ impl Node {
 
     pub fn services(&self) -> Arc<HostServices> {
         self.domain.services()
+    }
+
+    /// Submit exact-operation stop/fence work to this Node's owned lifecycle
+    /// task. Acceptance is not physical closure; dropped waiters do not undo an
+    /// admitted stop. Raw owner shutdown remains an unplanned local teardown.
+    pub async fn request_fleet_stop(
+        &self,
+        request: crate::application::consensus::FleetStopRequest,
+        timeout: std::time::Duration,
+    ) -> Result<
+        crate::application::consensus::FleetStopAcceptance,
+        crate::raft::fleet_catalog::FleetCatalogError,
+    > {
+        use crate::raft::fleet_catalog::FleetCatalogError;
+        self.domain
+            .run(async {
+                let reporter = crate::asyncrt::services()
+                    .raft_lifecycle()
+                    .stop_reporter()
+                    .map_err(|_| FleetCatalogError::Closed)?
+                    .ok_or(FleetCatalogError::Invalid("no managed fleet host"))?;
+                reporter.submit(request, timeout).await
+            })
+            .await
+            .map_err(|_| FleetCatalogError::Closed)?
     }
 
     /// Observe permanent sandbox-cell erasure outside the retired application.
@@ -776,7 +816,7 @@ impl Node {
                     .as_ref()
                     .is_some_and(|runtime| runtime.generation().event_readiness.check().is_ok())
                     && self.app.fleet_ready()
-                    && !self.app.is_draining()
+                    && !self.app.public_admission_closed()
                     && self.app.healthy().await
             })
             .await?)

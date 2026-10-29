@@ -242,6 +242,9 @@ where
     } = channels;
     let mut stop = std::pin::pin!(stop);
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel();
+    crate::asyncrt::services()
+        .raft_lifecycle()
+        .configure_shutdown(shutdown_tx.clone());
     #[cfg(all(test, cellar_internal_tests))]
     if shutdown_accept_failure_test_active {
         let _ = shutdown_tx.send(ShutdownMode::Handoff);
@@ -312,8 +315,29 @@ where
         }
         Ok::<(), anyhow::Error>(())
     });
+    let lifecycle = crate::asyncrt::services().raft_lifecycle();
+    let mut maintenance_rx = app.runtime.as_ref().and_then(|runtime| {
+        Arc::ptr_eq(runtime.host_services(), &crate::asyncrt::services())
+            .then(|| lifecycle.maintenance_receiver())
+            .flatten()
+    });
+    let mut maintenance = super::maintenance::Driver::new(lifecycle);
+    let mut maintenance_tick = crate::asyncrt::interval(std::time::Duration::from_millis(5));
+    maintenance_tick.set_missed_tick_behavior(crate::asyncrt::MissedTickBehavior::Skip);
     let shutdown_mode = loop {
+        maintenance.pump(
+            &app,
+            pending_dispatches!(),
+            application_work.snapshot().pending_events,
+        );
         crate::asyncrt::select! {
+            command = async { match &mut maintenance_rx {
+                Some(receiver) => receiver.recv().await,
+                None => std::future::pending().await,
+            } }, if maintenance_rx.is_some() => {
+                match command { Some(command) => maintenance.accept(command), None => maintenance_rx = None }
+            }
+            _ = maintenance_tick.tick(), if maintenance.pending() => {}
             activated = &mut activation, if !resources_ready => {
                 activated?;
                 resources_ready = true;

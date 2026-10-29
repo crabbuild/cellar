@@ -147,6 +147,9 @@ impl NamespaceCatalog {
             return Err(CatalogError::Conflict("disaster source archive"));
         }
         drop(set);
+        // Shares the birth-inventory CAS with fleet import/freeze. Once this
+        // claim wins, its histories cannot subsequently enter managed ownership.
+        self.claim_disaster_namespace().await?;
         let reserved = wire::encode(
             wire::RESERVATION,
             &wire::Reservation {
@@ -233,6 +236,7 @@ impl NamespaceCatalog {
         mut request: DisasterRecoveryRequest,
     ) -> Result<(GroupBirth, Intent, DisasterRecoveryRequest), CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
+        self.require_disaster_namespace().await?;
         if self.config.image_storage != RaftImageStorage::Materialized {
             return Err(CatalogError::Invalid(
                 "disaster recovery requires materialized image storage",
@@ -260,6 +264,8 @@ impl NamespaceCatalog {
                 .map(wire::Member::encode)
                 .collect(),
             empty_digest: wire::digest(&[]),
+            managed_owner: None,
+            cancelled_by: None,
         };
         self.validate_replacement(&source, &target)?;
         request.archive.position().map_err(CatalogError::Archive)?;
@@ -334,6 +340,9 @@ impl NamespaceCatalog {
             ancestor = old.recovery.as_ref().map(|recovery| &recovery.source);
         }
         if scope.cell != source.scope.cell
+            || source.managed_owner.is_some()
+            || target.managed_owner.is_some()
+            || target.cancelled_by.is_some()
             || scope.group == source.scope.group
             || scope.incarnation == source.scope.incarnation
             || target.root_digest != self.root_digest
@@ -405,6 +414,9 @@ impl NamespaceCatalog {
         mut birth: GroupBirth,
     ) -> BoxFuture<'a, Result<GroupBirth, CatalogError>> {
         Box::pin(async move {
+            if birth.managed_owner.is_some() {
+                return Ok(birth);
+            }
             let mut seen = BTreeSet::new();
             for _ in 0..MAX_HISTORY {
                 if !seen.insert(birth.scope.incarnation) {
@@ -420,12 +432,13 @@ impl NamespaceCatalog {
     }
 
     async fn historical_birth(&self, scope: &GroupScope) -> Result<GroupBirth, CatalogError> {
-        let bytes = self
-            .inner
-            .read(&self.birth_key(&scope.cell))
+        let disposition = self
+            .birth_disposition(&scope.cell)
             .await?
             .ok_or(CatalogError::Fenced)?;
-        let mut birth = self.decode_birth(&scope.cell, &bytes).await?;
+        let BirthDisposition::Live(mut birth) = disposition else {
+            return Err(CatalogError::BirthCancelled);
+        };
         for _ in 0..MAX_HISTORY {
             if birth.scope() == scope {
                 return Ok(birth);

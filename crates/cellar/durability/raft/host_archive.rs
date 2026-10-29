@@ -266,43 +266,28 @@ pub(super) fn next_scope<'a, T>(
     next.map(|(scope, _)| scope)
 }
 
+/// Release each cut only after its own physical verification and head result.
+/// An unrelated member still doing I/O cannot retain that completed cell's slot.
 pub(crate) async fn publish(
     captured: Vec<Captured>,
     verifier: ArchiveVerifier,
     prepared: super::snapshot::prepared::Cache,
     physical: PhysicalBudget,
-) -> Vec<Completed> {
-    let expected: Vec<_> = captured
-        .iter()
-        .map(|capture| (capture.scope.clone(), capture.cut.position()))
-        .collect();
-    // One execution-domain worker drives each admitted batch, bounded by the
-    // existing producer limit. Attempt-local snapshot files may close during a
-    // retry, an error or final completion. Drive object I/O on this owner too,
-    // so none of those synchronous closes can occupy the driver's poll stack.
-    // The driver joins the worker before releasing its producer slot.
+    report: impl FnMut(usize, Completed) + Send + 'static,
+) -> bool {
+    // Keep every attempt-local snapshot close on the execution-domain worker,
+    // including retry/error cleanup. Completed cuts still release independently;
+    // the host retains the batch job until this physical owner has joined.
     let producer = crate::asyncrt::try_blocking(move || {
-        crate::asyncrt::block_on(publish_owned(captured, verifier, prepared, physical))
+        crate::asyncrt::block_on(publish_owned(
+            captured, verifier, prepared, physical, report,
+        ))
     });
-    let result = match producer {
-        Ok(producer) => producer.await.map_err(|error| {
-            ArchiveError::Worker(cellar_ltx::host::HostTaskError::new(error.to_string()))
-        }),
-        Err(_) => Err(ArchiveError::Stopped),
-    };
-    match result {
-        Ok(completed) => completed,
-        Err(error) => {
-            let mut error = Some(error);
-            expected
-                .into_iter()
-                .map(|(scope, position)| Completed {
-                    scope,
-                    position,
-                    result: Err(error.take().unwrap_or(ArchiveError::Unconfirmed)),
-                })
-                .collect()
-        }
+    // A rejected or panicked worker drops its completion senders. The host's
+    // per-cut receivers then report Unconfirmed; neither path acknowledges S3.
+    match producer {
+        Ok(producer) => producer.await.unwrap_or(false),
+        Err(_) => false,
     }
 }
 
@@ -311,60 +296,75 @@ async fn publish_owned(
     verifier: ArchiveVerifier,
     prepared: super::snapshot::prepared::Cache,
     physical: PhysicalBudget,
-) -> Vec<Completed> {
-    let mut identities = Vec::with_capacity(captured.len());
-    let mut reservations = Vec::with_capacity(captured.len());
+    mut report: impl FnMut(usize, Completed),
+) -> bool {
+    let mut pending = Vec::with_capacity(captured.len());
+    let mut all_succeeded = !captured.is_empty();
     let inputs = captured
         .into_iter()
         .map(|capture| {
-            identities.push((capture.scope, capture.cut.position()));
-            reservations.push(capture.reservation);
+            pending.push(Some((
+                capture.scope,
+                capture.cut.position(),
+                capture.reservation,
+            )));
             (
                 capture.archive.with_publication_budget(&physical),
                 capture.cut,
             )
         })
         .collect();
-    let result = CellArchive::publish_batch(inputs, &verifier).await;
-    let results = match result {
-        Ok(results) if results.len() == identities.len() => results,
-        Ok(_) => (0..identities.len())
-            .map(|_| Err(ArchiveError::Unconfirmed))
-            .collect(),
-        Err(error) => {
-            let mut error = Some(error);
-            (0..identities.len())
-                .map(|_| Err(error.take().unwrap_or(ArchiveError::Unconfirmed)))
-                .collect()
+    let result = CellArchive::publish_batch_each(inputs, &verifier, |number, result| {
+        let Some((scope, position, reservation)) = pending.get_mut(number).and_then(Option::take)
+        else {
+            all_succeeded = false;
+            return;
+        };
+        if let Err(error) = &result {
+            release_idle_source_on_scratch_pressure(&prepared, error);
         }
-    };
-    let completed = identities
-        .into_iter()
-        .zip(results)
-        .map(|((scope, position), result)| {
-            if let Err(error) = &result {
-                release_idle_source_on_scratch_pressure(&prepared, error);
+        let result = result.and_then(|set| {
+            if set.scope() != &scope
+                || set.position().index < position.index
+                || set.position().index == position.index && set.position().term != position.term
+            {
+                return Err(ArchiveError::Corrupt("archive output coverage"));
             }
-            let result = result.and_then(|set| {
-                if set.scope() != &scope
-                    || set.position().index < position.index
-                    || set.position().index == position.index
-                        && set.position().term != position.term
-                {
-                    return Err(ArchiveError::Corrupt("archive output coverage"));
-                }
-                Ok(())
-            });
+            Ok(())
+        });
+        all_succeeded &= result.is_ok();
+        // The recovery set and completed publication future have released their
+        // inputs. Keep the slot charged until then, even for a failed member.
+        drop(reservation);
+        report(
+            number,
             Completed {
                 scope,
                 position,
                 result,
-            }
-        })
-        .collect();
-    // Physical cleanup precedes capture refund, on this same blocking owner.
-    drop(reservations);
-    completed
+            },
+        );
+    })
+    .await;
+    let mut error = result.err();
+    if let Some(error) = &error {
+        release_idle_source_on_scratch_pressure(&prepared, error);
+    }
+    for (number, slot) in pending.into_iter().enumerate() {
+        if let Some((scope, position, reservation)) = slot {
+            all_succeeded = false;
+            drop(reservation);
+            report(
+                number,
+                Completed {
+                    scope,
+                    position,
+                    result: Err(error.take().unwrap_or(ArchiveError::Unconfirmed)),
+                },
+            );
+        }
+    }
+    all_succeeded && error.is_none()
 }
 
 /// Called by the admitted physical publisher after failed payload cleanup.

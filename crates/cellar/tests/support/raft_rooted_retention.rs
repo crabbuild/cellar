@@ -78,7 +78,12 @@ async fn key(store: &archive_faults::Store, filename: &str) -> Result<ObjectPath
 
 #[tokio::test]
 async fn restart_reconciles_persisted_intent_and_retains_exact_reference() -> Result<()> {
-    let (store, archive, registry) = fixture().await?;
+    let store = Arc::new(archive_faults::Store::default());
+    let (_, _, archive) = archive::history(store.clone()).await?;
+    // Birth inventory owns a head before registry creation. Retention must
+    // neither publish an archive head nor change that existing metadata.
+    let heads_before = archive::heads(store.inner.list(None).try_collect().await?);
+    let registry = archive.create_root_registry().await?;
     let intent = registry.prepare_reserve([7; 32], None).await?;
     let saved_intent = serde_json::to_vec(&intent)?;
     let saved_id = serde_json::to_vec(&registry.id())?;
@@ -113,13 +118,10 @@ async fn restart_reconciles_persisted_intent_and_retains_exact_reference() -> Re
     let acquired = reference(registry.commit(&intent).await?)?;
     ensure!(acquired != held);
     ensure!(registry.referenced(acquired).await? == held.root());
-    ensure!(store
-        .inner
-        .list(None)
-        .try_collect::<Vec<_>>()
-        .await?
-        .iter()
-        .all(|entry| entry.location.filename() != Some("head")));
+    ensure!(
+        archive::heads(store.inner.list(None).try_collect().await?) == heads_before,
+        "retention created or changed a head"
+    );
     Ok(())
 }
 

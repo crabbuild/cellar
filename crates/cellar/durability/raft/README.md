@@ -14,6 +14,63 @@ under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
+Managed empty hosts expose `RaftCells::inspect_peer_node` under rooted fleet
+trust. It authenticates both physical processes and a requested minimum installed
+trust revision without constructing a cell. Current enrollment state/epoch is
+separate from startup enrollment, and metadata grants no membership, capacity
+activation or removal proof. The [fleet catalog contract](fleet_catalog/README.md)
+describes identity, response bounds, cancellation and remaining management work.
+Fresh managed namespace roots require rooted birth reservations before creation;
+their histories retain exact birth/schema identity and pending node references.
+Complete namespace import and inventory remain separate from capacity activation
+and terminal removal proof. Typed `begin_evacuation` consumes complete inventory
+before atomically excluding an Active node and claiming its disruption slot;
+it grants no shutdown or removal certificate. Managed births and fresh repairs
+enforce the rooted replica-separation policy, defaulting to distinct physical
+hosts. Explicit node-only colocation grants no host-failure independence.
+Every managed boot claims its exact process through root CAS before endpoint
+publication. The Finalizing transition orders against those claims and refuses
+later boots; it retains the disruption slot and grants no physical-stop or
+terminal-removal authority. The terminal API separately renews survivor quorum
+proofs after archive verification and checks signed joined-owner closure. One
+root CAS records removal, tombstones the exact node and releases the disruption
+slot. Unconfirmed closure keeps the slot and physical resources charged. See the
+[fleet catalog contract](fleet_catalog/README.md).
+The legacy opt-in controller remains disabled for managed hosts pending the
+owned fleet reconciler and its qualification gates.
+Managed initial voters persist their enrollment with genesis before a permanent
+member claim and runtime attachment. Empty hosts can initialize them dynamically,
+and cold managed members resolve rooted peer views with only a self hint.
+The experimental namespace protocol now ends in `/operator-lifecycle-1/extent-fleet-proofs-1/failure-recovery-1`;
+use fresh fleet/data prefixes, namespaces and matching binaries, with numeric
+markers retained at 1 and no compatibility reader or migration.
+
+Archive batches coalesce immutable payload uploads while reporting each verified
+history's result independently. A completed cell releases its own producer slot
+without waiting for another history's read-back. The coordinator keeps polling
+member publications during upload; the physical batch stays owned through
+shutdown. Shared payloads still require verified coverage for each head, and
+producer, byte and replay-workspace bounds remain enforced.
+
+Managed fleet publication and stored lifecycle receipts preserve an explicit
+`FleetImageState` commitment domain for both materialized and extent images.
+`FleetPublishedImage::digest` returns a materialized SHA only, refusing extent
+roots; use `commitment` or `state` for representation-aware comparisons. The
+bounded observation wire retains its 85-byte limit with a distinct extent tag.
+Root archive heads retain the exact producer image position independently of
+configuration-only snapshot progress. Canonical empty archives contain no image
+commitment; a missing or pending image cannot become empty coverage.
+
+`verify_published_at` requires `ArchiveVerifier::with_extent_store` for nonempty
+extent archives. Its exclusively owned, initially empty scratch inventory freshly
+downloads every selected extent and independently seals the complete SQLite image.
+No flat snapshot, full-file SHA or live producer inventory substitutes for that
+proof. Entered physical work retains the scratch lease after waiter cancellation.
+After it exits, retries reconcile only this scratch inventory under the original
+deadline; physical quarantine refuses. Successful replay releases scratch before
+proof delivery. This historical coverage still grants no quorum, activation,
+current health or node-removal authority.
+
 The verification archive interface can store an exact committed extent snapshot
 through `CellArchive::store_root_snapshot` and load its immutable
 `RootArchiveReference` through `load_root_snapshot_at`. A bounded metadata object
@@ -41,7 +98,11 @@ a newer head. Physical APIs refuse the other representation instead of
 flattening or converting commitments. Existing-member installation still needs
 the receiving engine's exact ticket. The fresh-learner preparation path uses
 the same authenticated grant, birth, learner/barrier and owner checks as flat
-seeding, then retains the already sealed root. Remote dependency retention/GC,
+seeding, then retains the already sealed root. A canonical-empty archive can
+seed an extent learner with the verified configuration and no image body. It
+still needs the fresh grant, committed learner/barrier and exact boot permit;
+no SQL callback or physical image is manufactured before the first command.
+Remote dependency retention/GC,
 demand loading and full-size recovery qualification remain under implementation.
 
 The verification-only [remote-root registry](archive/retention/README.md) now
@@ -265,6 +326,25 @@ schema, cluster, minimum durability and voter policy cannot change in place.
 Three initial voters are required unless the immutable root explicitly selects
 the single-voter development policy.
 
+Raft birth writers first enter the authoritative
+[namespace admission inventory](catalog_inventory/README.md). Its CAS root can
+freeze new admissions while retaining pending, live and cancelled intents for
+bounded exact-key reconciliation. This birth cut does not quiesce membership or
+certify complete import/removal. Existing groups can continue business work and
+failover while new births are frozen.
+
+`NamespaceCatalog::cancel_birth` contends with creation at that same permanent
+cell-name key. A cancelled winner stores its exact scope and operation identity;
+late `resolve_birth` and ordinary `birth` calls return `BirthCancelled` and cannot
+mint a bootstrap capability. `birth_disposition` reports the exact live or
+cancelled winner for inventory reconciliation. A birth that won first stays live:
+cancellation returns it and does not revoke its members or delete its data.
+Another incarnation cannot reuse a cancelled name. The group-ID reservation also
+remains permanent. No timeout, lost reply or missing-key observation establishes
+that cancellation committed. Retry the original request or reconcile its exact
+key before releasing the corresponding inventory reservation. The cancellation
+deadline covers its entire attempt and starts no detached writer.
+
 Initial attachment requires a permanent member claim binding member, disk
 lineage and birth digest. The adapter reads the claim first, syncs/verifies local
 genesis through the engine, then conditionally creates and reads back the claim.
@@ -394,6 +474,15 @@ A known archive-admission refusal still permits duplicate receipt lookup, then
 refuses new work before opening a transaction or invalidating private capture
 state. It does not require a private-image rebuild. Failures after mutation
 begins retain the existing rebuild requirement.
+
+An extent-backed private writer also holds its main/WAL/capture reservation in
+the shared node inventory. After joined SQL work, the owner closes an idle
+writer if retaining it leaves insufficient bytes or workspace slots for another
+equally bounded writer. Prepared and submitted proposals keep their reservation
+and uncertainty fence. Capacity remains atomically checked when a later writer
+opens; the cache observation grants no admission. With spare capacity, the
+existing hot writer cache remains available. Committed images and receipts
+remain authoritative after the disposable writer closes.
 
 The transaction stores the command ID, operation/contract/request digests,
 bounded encoded result, minimum requested durability and retry deadline beside
@@ -611,8 +700,12 @@ process/grant changes and shutdown stop and join owned network tasks. Returned
 sample ages include the full request duration. Only `InspectionError::Unreachable`
 reports a failed direct TCP probe; missing discovery, local pressure, refused or
 unusable replies cannot establish remote node failure. Observations grant no
-membership, seed, query or write authority. Automatic reconciliation remains
-MR-11 work.
+membership, seed, query or write authority. Opt-in fleet recovery consumes these
+observations; connectivity alone cannot authorize membership changes.
+Inspection TCP dials use at most half the remaining call budget, leaving time to
+deliver a failed connection before the SDK cancels the outer call. An already
+expired local budget does not attempt a dial. TLS and metadata exchanges retain
+the original deadline and cannot turn their timeouts into failed-node evidence.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.
@@ -854,6 +947,21 @@ by the verifier owner. SQL workers capture immutable published image/engine cuts
 head advances only after referenced bytes are read back, validated and replayed.
 Lost object/head responses are reconciled by exact reads. The supplied
 `Bucket::raft_store` binds the bucket prefix and its conditional-write client.
+
+Cold groups publish an explicit canonical-empty archive containing the durable
+configuration, membership/fleet guard and history/schema bindings. Its snapshot
+image, snapshot object and final image are required null fields; tails and
+dependencies must be empty. Missing fields, a half-present image/object pair,
+zero-TXID image markers or retained payloads refuse validation. A missing SQL
+publication of applied data cannot be captured as empty.
+
+The bounded producer scheduler includes these cold groups. Empty capture creates
+no SQLite image or payload object. `restore_state` returns `None` for the verified
+empty state and never deletes existing images; image-only `restore` refuses it.
+The authenticated S3 seed path installs an empty snapshot under the same actual
+learner, quorum, process and membership checks as an image seed. The first SQL
+write establishes a complete archive snapshot. Empty metadata supplies neither
+live quorum nor activation/removal authority.
 
 Each admitted publication batch runs on an execution-domain blocking worker
 that drives its asynchronous object I/O. Snapshot file disposal during retry,
@@ -1454,8 +1562,11 @@ isolated, caught-up movement after healing, subsequent writes/reads and refusal
 during an active repair. Complete node-load collection is available through
 inspection; automatic balancing remains open.
 
-This extends the internal protocol to
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1/bundles-1/images-1/config-tails-1`; numeric format markers stay 1.
+The internal fingerprint includes fleet enrollment/lifecycle, image publication
+origins and configuration tails. The [protocol identity](../../application/consensus/protocol.rs)
+records its complete value; numeric format markers stay 1. Current birth records
+require an explicit nullable `cancelled_by` field, and managed group records
+require their fleet guard.
 Earlier roots/state have no compatibility reader. Use a fresh experimental
 namespace/prefix and local state. The earlier MR-10 evidence retains its exact
 historical protocol and source scope.

@@ -11,6 +11,8 @@ mod cluster;
 mod disaster;
 #[path = "support/raft_archive_download.rs"]
 mod download;
+#[path = "support/raft_empty_archive.rs"]
+mod empty_archive;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
 #[path = "support/raft_ltx_fault.rs"]
@@ -24,6 +26,8 @@ mod images;
 mod public_node;
 #[path = "support/raft_archive_publication.rs"]
 mod publication;
+#[path = "support/raft_archive_publication_origin.rs"]
+mod publication_origin;
 #[path = "support/raft_archive_replay_budget.rs"]
 mod replay_budget;
 #[path = "support/raft_archive_replay_memo.rs"]
@@ -864,7 +868,12 @@ async fn archive_publication_rechecks_prior_payloads_before_head_success() -> Re
         let objects = fixture.store.list(None).try_collect::<Vec<_>>().await?;
         let head = objects
             .iter()
-            .find(|o| o.location.filename() == Some("head"))
+            .find(|o| {
+                o.location.filename() == Some("head")
+                    && o.location
+                        .as_ref()
+                        .starts_with(fixture.namespace.data_prefix())
+            })
             .context("archive head")?;
         let head_bytes = fixture
             .store
@@ -1264,7 +1273,12 @@ async fn archive_refuses_foreign_birth_and_noncanonical_head() -> Result<()> {
         .try_collect::<Vec<_>>()
         .await?
         .into_iter()
-        .find(|o| o.location.filename() == Some("head"))
+        .find(|o| {
+            o.location.filename() == Some("head")
+                && o.location
+                    .as_ref()
+                    .starts_with(fixture.namespace.data_prefix())
+        })
         .ok_or_else(|| anyhow::anyhow!("missing head"))?;
     let mut bytes = fixture
         .store
@@ -2527,6 +2541,81 @@ async fn retention_preserves_only_copy() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_batch_reports_completed_history_before_stalled_peer() -> Result<()> {
+    use std::time::Duration;
+    let store = Arc::new(faults::Store::default());
+    let mut first = Fixture::new_group(ArchiveLimits::default(), store.clone(), 7).await?;
+    let second = Fixture::new_group(ArchiveLimits::default(), store.clone(), 8).await?;
+    let inputs = vec![
+        (first.archive.clone(), first.commit(7, vec![]).await?),
+        (
+            second.archive.clone(),
+            CommittedArchiveCut::capture_empty(&second.group, [9; 32], ArchiveLimits::default())?,
+        ),
+    ];
+    // The empty history's head read resumes only once the other history is
+    // stalled inside upload read-back. This requires the coordinator to keep
+    // polling independent member futures while its upload is pending.
+    *store.hold_archive_head_until_payload.lock().unwrap() = Some(format!(
+        "/archives/{}/{}/head",
+        hex::encode(second.birth.scope().group.bytes()),
+        hex::encode(second.birth.scope().incarnation.bytes()),
+    ));
+    store.payload_hang.store(true, Ordering::Release);
+    store.hold_next_payload.store(true, Ordering::Release);
+    let (done, mut completed) = tokio::sync::mpsc::channel(2);
+    let mut batch = Box::pin(CellArchive::publish_batch_each(
+        inputs,
+        &first.verifier,
+        |number, result| {
+            done.try_send((number, result))
+                .expect("one result per bounded batch input");
+        },
+    ));
+    let progress = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !store.payload_waiting.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .context("batch did not enter payload gate")?;
+        let (number, result) = tokio::time::timeout(Duration::from_secs(2), completed.recv())
+            .await
+            .context("completed history was withheld behind its stalled batch peer")?
+            .context("missing batch completion")?;
+        let set = result?;
+        ensure!(number == 1 && store.payload_waiting.load(Ordering::Acquire));
+        ensure!(set.scope() == second.birth.scope() && set.image_state()?.is_none());
+        ensure!(completed.try_recv().is_err());
+        Ok::<_, anyhow::Error>(number)
+    };
+    let (result, already_joined) = cellar::asyncrt::select! {
+        result = progress => (result, None),
+        result = &mut batch => (Err(anyhow::anyhow!("batch finished before the stalled payload released: {result:?}")), Some(result)),
+    };
+    store.release_payload();
+    let joined = match already_joined {
+        Some(result) => Ok(result),
+        None => tokio::time::timeout(Duration::from_secs(5), &mut batch).await,
+    };
+    drop(batch);
+    let cleanup_first = first.close().await;
+    let cleanup_second = second.close().await;
+    let early = result?;
+    joined??;
+    let (number, result) = tokio::time::timeout(Duration::from_secs(2), completed.recv())
+        .await
+        .context("remaining completion timed out")?
+        .context("missing remaining completion")?;
+    ensure!(early == 1 && number == 0);
+    restored(&result?, 7)?;
+    ensure!(completed.try_recv().is_err());
+    cleanup_first?;
+    cleanup_second
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn independent_cell_archives_while_another_publication_is_stalled() -> Result<()> {
     use std::time::Duration;
     let store = Arc::new(faults::Store::default());
@@ -2727,10 +2816,17 @@ async fn check_archive_producer_shutdown(max_producers: usize) -> Result<()> {
                 let mut committed = 0;
                 for (handle, before) in handles.iter().zip(&before_commands) {
                     let status = archive_status(handle).await?;
-                    if status.committed > *before && status.applied.index >= status.committed {
+                    if status.committed > *before
+                        && status.applied.index >= status.committed
+                        && status.version.as_ref().is_some_and(|version| version.position.index > *before)
+                    {
+                        // A cold configuration can already be fully archived.
+                        // Count only this command's published SQL state, and
+                        // require its data cut to remain unacknowledged.
+                        let version = status.version.as_ref().context("published command version")?;
+                        ensure!(status.archived < version.position.index);
                         committed += 1;
                     }
-                    ensure!(status.archived < status.committed);
                 }
                 if committed == count
                     && store.active_payload_reads.load(Ordering::Acquire) == max_producers
@@ -2799,6 +2895,7 @@ async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()>
     )
     .await?;
     let cell = native.cell()?;
+    let before = archive_status(&cell).await?.committed;
     let mut options = public_node::options(1)?;
     options.durability = Durability::S3;
     let pending = cell.command(
@@ -2807,16 +2904,29 @@ async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()>
         options,
     );
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        while store.archive_attempts.load(Ordering::Acquire) == 0 {
+        loop {
+            let status = archive_status(&cell).await?;
+            if store.archive_attempts.load(Ordering::Acquire) > 0
+                && status.committed > before
+                && status.applied.index >= status.committed
+                && status
+                    .version
+                    .as_ref()
+                    .is_some_and(|version| version.position.index > before)
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
-    .await?;
+    .await??;
+    ensure!(native.calls.load(Ordering::Acquire) == 1);
     tokio::time::timeout(std::time::Duration::from_secs(5), native.close()).await??;
-    ensure!(matches!(
-        pending.await,
-        Err(CommandFailure::Ambiguous { .. })
-    ));
+    let outcome = pending.await;
+    ensure!(
+        matches!(outcome, Err(CommandFailure::Ambiguous { .. })),
+        "committed unarchived command did not remain ambiguous: {outcome:?}"
+    );
     Ok(())
 }
 
@@ -3143,7 +3253,11 @@ async fn bucket_archive_store_preserves_prefix_and_conditional_writes() -> Resul
             );
             ensure!(objects
                 .iter()
-                .any(|object| object.location.filename() == Some("head")));
+                .any(|object| object.location.filename() == Some("head")
+                    && object
+                        .location
+                        .as_ref()
+                        .starts_with(&format!("tenant/archive/{}", namespace.data_prefix()))));
             fixture.close().await
         })
         .await;

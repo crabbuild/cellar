@@ -4,6 +4,7 @@
 
 use super::cache::{genesis, validate_conf, CachedGroup, GroupLog, GroupWrite, SnapshotChange};
 use super::filesystem::EngineFileSystem;
+use super::fleet_stop::{Guard, LifecycleRecord, LifecycleUpdate};
 use super::options::{LogOpenMode, ReplicaLogOptions};
 use super::performance::{
     Counter as MeasuredCounter, Operation as Measured, Registry as Performance,
@@ -22,6 +23,22 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
+
+#[cfg(test)]
+#[path = "storage_genesis_tests.rs"]
+mod genesis_tests;
+
+#[cfg(test)]
+#[path = "storage_lifecycle_tests.rs"]
+mod lifecycle_tests;
+
+const LIFECYCLE_KEY: &[u8] = b"cellar-node-lifecycle";
+
+#[derive(Clone)]
+struct EngineCaches {
+    usage: Arc<AtomicUsize>,
+    lifecycle: Arc<Mutex<LifecycleRecord>>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LogError {
@@ -120,6 +137,7 @@ struct LogHandle {
     groups: Catalog,
     pending: Arc<AtomicUsize>,
     cache_usage: Arc<AtomicUsize>,
+    lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     options: ReplicaLogOptions,
     closing: Arc<AtomicBool>,
     runtime_claimed: AtomicBool,
@@ -188,7 +206,12 @@ struct Request {
 
 enum Work {
     NodeFence(Reply<u64>),
-    Create(GroupBootstrap, Reply<GroupLog>),
+    Lifecycle(Box<LifecycleUpdate>, Reply<Guard>),
+    Create(
+        GroupBootstrap,
+        Option<Box<super::member_state::FleetGroupBinding>>,
+        Reply<GroupLog>,
+    ),
     Seeded(Box<super::snapshot::PreparedSeed>, Reply<GroupLog>),
     Persist(OperationId, Vec<GroupWrite>, Reply<SyncReceipt>),
     Purge(Reply<()>),
@@ -224,6 +247,26 @@ impl ReplicaLog {
     /// synced root fence. This cannot settle a Raft group persistence ticket.
     pub async fn reserve_node_revision(&self) -> Result<u64, LogError> {
         self.request(1024, Work::NodeFence).await
+    }
+
+    pub(crate) async fn update_lifecycle(
+        &self,
+        update: LifecycleUpdate,
+    ) -> Result<Guard, LogError> {
+        self.request(8192, |reply| Work::Lifecycle(Box::new(update), reply))
+            .await
+    }
+
+    /// Last fsynced local lifecycle state, retained after the engine joins.
+    /// This observation alone supplies no physical closure proof.
+    pub(crate) fn lifecycle_guard(&self) -> Result<Option<Guard>, LogError> {
+        Ok(self
+            .inner
+            .lifecycle_cache
+            .lock()
+            .map_err(|_| LogError::Closed)?
+            .guard
+            .clone())
     }
 
     pub(crate) fn claim_runtime(&self) -> Result<RuntimeLease, LogError> {
@@ -293,6 +336,7 @@ impl ReplicaLog {
         let closing = Arc::new(AtomicBool::new(false));
         let owner = Arc::new(());
         let cache_usage = Arc::new(AtomicUsize::new(0));
+        let lifecycle_cache = Arc::new(Mutex::new(LifecycleRecord::empty()));
         let handle = Self {
             inner: Arc::new(LogHandle {
                 snapshot_scratch,
@@ -304,6 +348,7 @@ impl ReplicaLog {
                 groups: groups.clone(),
                 pending: Arc::new(AtomicUsize::new(0)),
                 cache_usage: cache_usage.clone(),
+                lifecycle_cache: lifecycle_cache.clone(),
                 options: options.clone(),
                 closing: closing.clone(),
                 runtime_claimed: AtomicBool::new(false),
@@ -343,7 +388,10 @@ impl ReplicaLog {
                     groups,
                     owner,
                     closed.clone(),
-                    cache_usage,
+                    EngineCaches {
+                        usage: cache_usage,
+                        lifecycle: lifecycle_cache,
+                    },
                     performance,
                 );
                 let mut worker = match result {
@@ -383,13 +431,23 @@ impl ReplicaLog {
     }
 
     pub(crate) fn group_count(&self) -> Result<usize, LogError> {
+        self.group_count_with_pending(None)
+    }
+
+    /// Count an admitted slot once while ownership transfers to the durable
+    /// catalog. One lock prevents a sync racing two independent observations.
+    pub(crate) fn group_count_with_pending(
+        &self,
+        pending: Option<&GroupScope>,
+    ) -> Result<usize, LogError> {
         self.admit()?;
-        Ok(self
-            .inner
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .len())
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        groups
+            .len()
+            .checked_add(usize::from(
+                pending.is_some_and(|scope| !groups.contains_key(scope)),
+            ))
+            .ok_or(LogError::Overloaded)
     }
 
     pub fn groups(&self) -> Result<Vec<GroupLog>, LogError> {
@@ -402,6 +460,18 @@ impl ReplicaLog {
             .values()
             .cloned()
             .collect())
+    }
+
+    /// Read occupied identities and locally durable completed membership under
+    /// the engine catalog lock and short per-group cache reads. This catalog is
+    /// append-only for an engine instance; retired bindings remain.
+    pub(crate) fn physical_inventory(
+        &self,
+        pending: Option<&GroupScope>,
+    ) -> Result<super::physical_inventory::RaftPhysicalInventory, LogError> {
+        self.admit()?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        super::physical_inventory::capture(&groups, pending)
     }
 
     pub fn group(&self, scope: &GroupScope) -> Result<GroupLog, LogError> {
@@ -417,8 +487,24 @@ impl ReplicaLog {
 
     pub async fn create_group(&self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
         bootstrap.configuration()?;
-        self.request(4096, |reply| Work::Create(bootstrap, reply))
+        self.request(4096, |reply| Work::Create(bootstrap, None, reply))
             .await
+    }
+
+    pub(crate) async fn create_managed_group(
+        &self,
+        bootstrap: GroupBootstrap,
+        binding: super::member_state::FleetGroupBinding,
+    ) -> Result<GroupLog, LogError> {
+        let conf = bootstrap.configuration()?;
+        if !binding.matches_scope(&bootstrap.scope) {
+            return Err(LogError::WrongIdentity);
+        }
+        super::member_state::GroupMembership::managed_initial(&conf, binding.clone())?;
+        self.request(24 * 1024, |reply| {
+            Work::Create(bootstrap, Some(Box::new(binding)), reply)
+        })
+        .await
     }
 
     pub(crate) async fn create_seeded(
@@ -535,6 +621,8 @@ struct Worker {
     closed: Arc<AtomicBool>,
     cache_bytes: usize,
     cache_usage: Arc<AtomicUsize>,
+    lifecycle: LifecycleRecord,
+    lifecycle_cache: Arc<Mutex<LifecycleRecord>>,
     purge_pending: bool,
 }
 
@@ -550,7 +638,7 @@ impl Worker {
         groups: Catalog,
         owner: Arc<()>,
         closed: Arc<AtomicBool>,
-        cache_usage: Arc<AtomicUsize>,
+        caches: EngineCaches,
         performance: Arc<Performance>,
     ) -> Result<Self, LogError> {
         let StorageFiles {
@@ -639,6 +727,13 @@ impl Worker {
                 batch
                     .put(0, ROOT_KEY.to_vec(), records::encode(&root)?)
                     .map_err(engine_error)?;
+                batch
+                    .put(
+                        0,
+                        LIFECYCLE_KEY.to_vec(),
+                        records::encode(&LifecycleRecord::empty())?,
+                    )
+                    .map_err(engine_error)?;
                 engine.write(&mut batch, true).map_err(engine_error)?;
                 fs.sync_all(&log_directory)?;
                 fs.sync_all(&options.directory)?;
@@ -653,6 +748,24 @@ impl Worker {
                 root
             }
         };
+        let bytes = engine
+            .get(0, LIFECYCLE_KEY)
+            .ok_or(LogError::LostStableState)?;
+        if bytes.len() > 4096 {
+            return Err(LogError::Corrupt("oversized node lifecycle record".into()));
+        }
+        let lifecycle: LifecycleRecord = records::decode(&bytes)?;
+        lifecycle.validate().map_err(|error| {
+            LogError::Corrupt(format!("invalid node lifecycle record: {error}"))
+        })?;
+        if lifecycle.guard.as_ref().is_some_and(|guard| {
+            guard.boot.node != options.node.bytes()
+                || guard.boot.disk != options.disk.bytes()
+                || guard.boot.engine != root.identity.storage_instance
+        }) {
+            return Err(LogError::WrongIdentity);
+        }
+        *caches.lifecycle.lock().map_err(|_| LogError::Closed)? = lifecycle.clone();
         let mut worker = Self {
             filesystem: fs.clone(),
             snapshot_scratch,
@@ -666,7 +779,9 @@ impl Worker {
             owner,
             closed,
             cache_bytes: 0,
-            cache_usage,
+            cache_usage: caches.usage,
+            lifecycle,
+            lifecycle_cache: caches.lifecycle,
             // A previous process may have synced compaction without purging.
             purge_pending: true,
         };
@@ -797,6 +912,7 @@ impl Worker {
         }
         let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
         scope.validate().map_err(records::corrupt)?;
+        cache.membership.validate_scope(&scope)?;
         Ok(GroupLog {
             scratch_directory: self.options.directory.clone(),
             snapshot_scratch: self.snapshot_scratch.clone(),
@@ -836,7 +952,39 @@ impl Worker {
         Ok(sequence)
     }
 
-    fn create(&mut self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
+    fn change_lifecycle(&mut self, update: LifecycleUpdate) -> Result<Guard, LogError> {
+        let boot = update.boot();
+        if boot.node != self.options.node.bytes()
+            || boot.disk != self.options.disk.bytes()
+            || boot.process != self.options.process.bytes()
+            || boot.engine != self.root.identity.storage_instance
+        {
+            return Err(LogError::WrongIdentity);
+        }
+        let next = self.lifecycle.change(update)?;
+        let guard = next.guard.clone().ok_or(LogError::WrongIdentity)?;
+        if next == self.lifecycle {
+            return Ok(guard);
+        }
+        let bytes = records::encode(&next)?;
+        if bytes.len() > 4096 {
+            return Err(LogError::Overloaded);
+        }
+        let mut batch = LogBatch::default();
+        batch
+            .put(0, LIFECYCLE_KEY.to_vec(), bytes)
+            .map_err(engine_error)?;
+        self.fence(&mut batch)?;
+        self.lifecycle = next;
+        *self.lifecycle_cache.lock().map_err(|_| LogError::Closed)? = self.lifecycle.clone();
+        Ok(guard)
+    }
+
+    fn create(
+        &mut self,
+        bootstrap: GroupBootstrap,
+        binding: Option<super::member_state::FleetGroupBinding>,
+    ) -> Result<GroupLog, LogError> {
         let conf = bootstrap.configuration()?;
         if let Some(group) = self
             .groups
@@ -852,11 +1000,32 @@ impl Worker {
                 && mapping.birth_digest == bootstrap.birth_digest
                 && mapping.initial_conf == conf.write_to_bytes().map_err(records::corrupt)?
             {
+                if let Some(binding) = &binding {
+                    let cache = group.read()?;
+                    if !cache
+                        .membership
+                        .fleet_status()
+                        .is_some_and(|status| status.binding == *binding)
+                        || !super::member_state::members(&cache.conf_state)
+                            .contains(&bootstrap.member.get())
+                        || !cache.membership.permits(group.identity())
+                    {
+                        return Err(LogError::WrongIdentity);
+                    }
+                }
                 return Ok(group.clone());
             }
             return Err(LogError::WrongIdentity);
         }
-        self.create_cache(bootstrap, conf.clone(), genesis(conf), None)
+        let mut cache = genesis(conf.clone());
+        if let Some(binding) = binding {
+            if !binding.matches_scope(&bootstrap.scope) {
+                return Err(LogError::WrongIdentity);
+            }
+            cache.membership =
+                super::member_state::GroupMembership::managed_initial(&conf, binding)?;
+        }
+        self.create_cache(bootstrap, conf, cache, None)
     }
 
     fn seeded(&mut self, seed: super::snapshot::PreparedSeed) -> Result<GroupLog, LogError> {
@@ -1111,8 +1280,21 @@ impl Worker {
                     let _ = reply.send(result);
                     fatal
                 }
-                Work::Create(bootstrap, reply) => {
-                    let result = self.create(bootstrap);
+                Work::Lifecycle(update, reply) => {
+                    let result = match domain.mono_ms() {
+                        Ok(now) if now < update.deadline() => self.change_lifecycle(*update),
+                        Ok(_) => Err(LogError::Invalid("expired node lifecycle command".into())),
+                        Err(_) => Err(LogError::Closed),
+                    };
+                    let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
+                    if fatal.is_some() {
+                        self.closed.store(true, Ordering::Release);
+                    }
+                    let _ = reply.send(result);
+                    fatal
+                }
+                Work::Create(bootstrap, binding, reply) => {
+                    let result = self.create(bootstrap, binding.map(|binding| *binding));
                     let fatal = result.as_ref().err().filter(|error| error.fatal()).cloned();
                     if fatal.is_some() {
                         self.closed.store(true, Ordering::Release);

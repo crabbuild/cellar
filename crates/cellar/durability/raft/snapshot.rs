@@ -206,6 +206,7 @@ impl Descriptor {
         descriptor
             .membership
             .validate(metadata.get_conf_state(), metadata.index)?;
+        descriptor.membership.validate_scope(scope)?;
         if !descriptor.membership.same_birth(initial) {
             return Err(SnapshotError::Invalid("snapshot birth members"));
         }

@@ -78,46 +78,58 @@ impl ImageOwner {
     ) -> Result<Option<super::super::archive::CommittedArchiveCut>, ExecutionError> {
         use super::super::{archive::CommittedArchiveCut, effects};
         match self {
-            Self::Materialized { options, applier } => applier
-                .queryable()
-                .map_err(super::super::execution::storage)?
-                .map(|image| {
-                    let dependencies = effects::capture_dependencies(
-                        &image,
-                        class.blob_limits(),
-                        options.query_services.clone(),
-                        limits,
-                    )
-                    .map_err(super::super::execution::storage)?;
-                    CommittedArchiveCut::capture(group, image, dependencies, limits)
-                        .map_err(super::super::execution::storage)
-                })
-                .transpose(),
-            Self::Rooted { options, applier } => applier
-                .queryable()
-                .map_err(super::super::execution::storage)?
-                .map(|image| {
-                    let dependencies = if let Some(blobs) = class.blob_limits() {
-                        let database = options.database(&image)?;
-                        effects::capture_connection_dependencies(
-                            database.connection(),
-                            blobs,
+            Self::Materialized { options, applier } => {
+                let cut = match applier
+                    .queryable()
+                    .map_err(super::super::execution::storage)?
+                {
+                    Some(image) => {
+                        let dependencies = effects::capture_dependencies(
+                            &image,
+                            class.blob_limits(),
+                            options.query_services.clone(),
                             limits,
                         )
-                        .map_err(super::super::execution::storage)?
-                    } else {
-                        vec![]
-                    };
-                    CommittedArchiveCut::capture_root(
+                        .map_err(super::super::execution::storage)?;
+                        CommittedArchiveCut::capture(group, image, dependencies, limits)
+                    }
+                    None => {
+                        CommittedArchiveCut::capture_empty(group, class.schema_digest(), limits)
+                    }
+                }
+                .map_err(super::super::execution::storage)?;
+                Ok(Some(cut))
+            }
+            Self::Rooted { options, applier } => {
+                let Some(image) = applier
+                    .queryable()
+                    .map_err(super::super::execution::storage)?
+                else {
+                    return CommittedArchiveCut::capture_empty(
                         group,
-                        image,
-                        options.storage.store.clone(),
-                        dependencies,
+                        class.schema_digest(),
                         limits,
                     )
-                    .map_err(super::super::execution::storage)
-                })
-                .transpose(),
+                    .map(Some)
+                    .map_err(super::super::execution::storage);
+                };
+                let dependencies = if let Some(blobs) = class.blob_limits() {
+                    let database = options.database(&image)?;
+                    effects::capture_connection_dependencies(database.connection(), blobs, limits)
+                        .map_err(super::super::execution::storage)?
+                } else {
+                    vec![]
+                };
+                CommittedArchiveCut::capture_root(
+                    group,
+                    image,
+                    options.storage.store.clone(),
+                    dependencies,
+                    limits,
+                )
+                .map(Some)
+                .map_err(super::super::execution::storage)
+            }
         }
     }
 
@@ -326,6 +338,27 @@ impl ImageOwner {
                 Ok(applier.queryable()?.map(PublishedExecutionImage::Rooted))
             }
         }
+    }
+
+    /// Retain an optional idle writer only while another equally bounded
+    /// writer can fit. This observation grants no reservation; opening the
+    /// next writer still uses the inventory's atomic admission.
+    pub fn private_cache_has_headroom(&self) -> Result<bool, ExecutionError> {
+        let Self::Rooted { options, .. } = self else {
+            return Ok(true);
+        };
+        let (usage, limits) = options.storage.store.observer().capture().ok_or_else(|| {
+            super::super::execution::storage(cellar_ltx::internal::StoreError::Quarantined)
+        })?;
+        let reservation = RootPrivateOptions::workspace_bounds(options.limits)?
+            .reservation()
+            .map_err(super::super::execution::storage)?;
+        Ok(!usage.quarantined
+            && usage.workspaces < limits.max_workspaces
+            && usage
+                .bytes
+                .checked_add(reservation)
+                .is_some_and(|bytes| bytes <= limits.max_bytes))
     }
 
     pub fn open_private(

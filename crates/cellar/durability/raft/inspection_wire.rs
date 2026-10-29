@@ -25,7 +25,7 @@ where
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Profile {
+pub(crate) struct Profile {
     pool: String,
     region: String,
     zone: String,
@@ -320,6 +320,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<Box<InspectionSnapshot>, TransportE
         },
         membership,
         configuration: body.configuration.map(Configuration::decode).transpose()?,
+        publication: None,
     });
     snapshot.validate().map_err(|_| TransportError::Protocol)?;
     Ok(snapshot)

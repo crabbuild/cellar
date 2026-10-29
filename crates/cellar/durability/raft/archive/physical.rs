@@ -47,8 +47,9 @@ impl ConfirmedSnapshot {
     }
 
     pub fn bind(self, expected: &Snapshot) -> Result<stream_snapshot::SnapshotFile, ArchiveError> {
-        if self.object != expected.object
-            || self.source.metadata().image != expected.image.decode()?
+        if Some(&self.object) != expected.object.as_ref()
+            || Some(self.source.metadata().image)
+                != expected.image.map(Image::decode).transpose()?
         {
             return Err(ArchiveError::Corrupt("confirmed snapshot binding"));
         }
@@ -215,17 +216,29 @@ impl CellArchive {
         image: ImageState,
         position: Position,
     ) -> Result<ConfirmedSnapshot, ArchiveError> {
-        if previous.manifest.snapshot.image != Image::from(image)
-            || previous.manifest.image != Image::from(image)
-            || previous.snapshot.metadata().image != image
+        let source = previous
+            .snapshot
+            .ok_or(ArchiveError::Invalid("snapshot rebind needs a stream"))?;
+        if previous.manifest.snapshot.image != Some(Image::from(image))
+            || previous.manifest.image != Some(Image::from(image))
+            || source.metadata().image != image
             || previous.position.index.get() >= position.index
             || previous.position.term.get() > position.term
         {
             return Err(ArchiveError::Invalid("snapshot rebind image/position"));
         }
-        let bytes = self.get_object(&previous.manifest.snapshot.object).await?;
+        let bytes = self
+            .get_object(
+                previous
+                    .manifest
+                    .snapshot
+                    .object
+                    .as_ref()
+                    .ok_or(ArchiveError::Corrupt("snapshot rebind index"))?,
+            )
+            .await?;
         let index: Index = manifest::decode(4, &bytes, MAX_INDEX_BYTES)?;
-        let metadata = previous.snapshot.metadata();
+        let metadata = source.metadata();
         if index.length != metadata.encoded_length || index.digest != metadata.encoded_digest {
             return Err(ArchiveError::Corrupt("snapshot rebind stream binding"));
         }
@@ -239,10 +252,7 @@ impl CellArchive {
                 }),
             )
             .await?;
-        Ok(ConfirmedSnapshot {
-            object,
-            source: previous.snapshot,
-        })
+        Ok(ConfirmedSnapshot { object, source })
     }
 
     pub(super) async fn get_snapshot(
@@ -287,7 +297,10 @@ impl CellArchive {
             return Err(ArchiveError::Corrupt("snapshot part coverage"));
         }
         let metadata = stream_snapshot::Metadata {
-            image: snapshot.image.decode()?,
+            image: snapshot
+                .image
+                .ok_or(ArchiveError::Corrupt("snapshot index needs an image"))?
+                .decode()?,
             encoded_length: index.length,
             encoded_digest: index.digest,
         };

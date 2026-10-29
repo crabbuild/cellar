@@ -2,6 +2,15 @@
 
 # Zero-quorum disaster recovery
 
+This path is separate from managed fleet repair. Managed namespaces refuse
+disaster admission. An unmanaged namespace must atomically claim permanent
+exclusion from fleet import before publishing any disaster intent or invoking
+the fencing authority. That claim shares the birth-inventory CAS with freezing:
+if freeze wins, disaster admission refuses; if disaster wins, later freeze/import
+refuses, including after an interrupted recovery. Existing initial-name intents
+remain immutable; fenced successors are decoded through their predecessor proof.
+Use matching binaries and fresh experimental catalogs for this format-1 cutover.
+
 The operator API restores a cell from a selected S3 recovery set into a new Raft
 history after permanent loss of its voters. It is distinct from learner seeding,
 which still requires a fresh ReadIndex from a surviving quorum.

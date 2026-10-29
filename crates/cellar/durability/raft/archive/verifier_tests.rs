@@ -4,10 +4,51 @@
 use super::*;
 use crate::application::consensus::{protocol::WireScope, EnvelopeLimits};
 use crate::raft::{archive::ArchiveReference, manifest, member_state::GroupMembership};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use cellar_logic::consensus::*;
 use cellar_ltx::{apply::ImageState, stream_snapshot, DirectFileSystem, TXID};
 use raft::prelude::{ConfState, Entry};
+
+#[test]
+fn extent_verifier_requires_a_separate_empty_inventory() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let images = GenerationStore::open(
+        root.path().join("images"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let verifier = ArchiveVerifier::new(images, ImageId::new([42; 16])?)?;
+    ensure!(matches!(
+        verifier.begin_extent(),
+        Err(ArchiveError::Invalid("extent verifier inventory required"))
+    ));
+    let dirty = NodeExtentStore::open(
+        root.path().join("dirty"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let bytes = vec![7; 4096];
+    let id = cellar_ltx::internal::ExtentId::of(&bytes)?;
+    dirty.put_extent(id, |offset, count| {
+        Ok(bytes[offset as usize..offset as usize + count].to_vec())
+    })?;
+    ensure!(matches!(
+        verifier.clone().with_extent_store(dirty.clone()),
+        Err(ArchiveError::Invalid("extent verifier store is not empty"))
+    ));
+    ensure!(
+        dirty.usage()?.objects == 1,
+        "refused producer inventory was modified"
+    );
+    let empty = NodeExtentStore::open(
+        root.path().join("empty"),
+        Arc::new(DirectFileSystem),
+        Default::default(),
+    )?;
+    let verifier = verifier.with_extent_store(empty)?;
+    ensure!(verifier.begin_extent().is_ok());
+    Ok(())
+}
 
 struct Fixture {
     set: MaterializedSet,
@@ -15,6 +56,17 @@ struct Fixture {
 }
 
 impl Fixture {
+    fn empty() -> Result<Self> {
+        let mut fixture = Self::new()?;
+        fixture.set.snapshot = None;
+        fixture.set.manifest.snapshot.image = None;
+        fixture.set.manifest.snapshot.object = None;
+        fixture.set.manifest.image = None;
+        fixture.set.manifest.image_position = None;
+        fixture.set.validate_payloads()?;
+        Ok(fixture)
+    }
+
     fn new() -> Result<Self> {
         let root = tempfile::tempdir()?;
         let path = root.path().join("input.sqlite");
@@ -60,14 +112,19 @@ impl Fixture {
             schema_digest: [7; 32],
             snapshot: manifest::Snapshot {
                 position,
-                image: state.into(),
+                image: Some(state.into()),
                 conf_state: conf_state.clone(),
                 membership: membership.clone(),
-                object: manifest::ObjectRef::new(manifest::ObjectKind::Snapshot, b"index", None),
+                object: Some(manifest::ObjectRef::new(
+                    manifest::ObjectKind::Snapshot,
+                    b"index",
+                    None,
+                )),
             },
             tails: vec![],
             position,
-            image: state.into(),
+            image: Some(state.into()),
+            image_position: Some(position),
             conf_state,
             membership,
             dependencies: vec![],
@@ -84,7 +141,7 @@ impl Fixture {
             scope,
             position: position.decode()?,
             manifest,
-            snapshot,
+            snapshot: Some(snapshot),
             entries: vec![],
             dependencies: vec![],
             envelope: EnvelopeLimits::default(),
@@ -156,8 +213,8 @@ fn physical_identity_binds_history_policy_image_and_ordered_data() -> Result<()>
             2 => f.set.manifest.root_digest = [99; 32],
             3 => f.set.manifest.birth_digest = [99; 32],
             4 => f.set.manifest.schema_digest = [99; 32],
-            5 => f.set.manifest.image.digest = [99; 32],
-            6 => f.set.manifest.snapshot.image.epoch += 1,
+            5 => f.set.manifest.image.as_mut().unwrap().digest = [99; 32],
+            6 => f.set.manifest.snapshot.image.as_mut().unwrap().epoch += 1,
             7 => f.set.envelope.max_files += 1,
             8 => f.set.max_image_bytes += 4096,
             _ => f.set.entries.push(Entry {
@@ -239,7 +296,15 @@ fn replay_work_survives_a_memo_hit_without_minting_a_new_physical_proof() -> Res
     let performed = verifier.verify_with_work(&fixture.set)?;
     ensure!(performed.replay == Replay::Performed);
     ensure!(performed.work.images == 1);
-    ensure!(performed.work.image_bytes == fixture.set.manifest.image.length);
+    ensure!(
+        performed.work.image_bytes
+            == fixture
+                .set
+                .manifest
+                .image
+                .context("materialized image")?
+                .length
+    );
     let reused = verifier.verify_with_work(&fixture.set)?;
     ensure!(reused.replay == Replay::Reused && reused.work == performed.work);
     ensure!(images.usage()?.generations == 0);
@@ -270,5 +335,61 @@ fn unvalidated_inputs_cannot_use_or_create_a_physical_replay_memo() -> Result<()
         "unvalidated input did not invalidate the memo"
     );
     ensure!(images.usage()?.generations == 0);
+    Ok(())
+}
+
+#[test]
+fn archive_empty_replay_memo_preserves_canonical_shape() -> Result<()> {
+    let mut fixture = Fixture::empty()?;
+    let images = GenerationStore::open(
+        fixture._root.path().join("empty-verifier"),
+        Arc::new(DirectFileSystem),
+        cellar_ltx::generation::GenerationLimits::default(),
+    )?;
+    let verifier = ArchiveVerifier::new(images.clone(), ImageId::new([41; 16])?)?;
+    let performed = verifier.verify_with_work(&fixture.set)?;
+    ensure!(performed.replay == Replay::Performed);
+    ensure!(performed.work.images == 0 && performed.work.image_bytes == 0);
+    let reused = verifier.verify_with_work(&fixture.set)?;
+    ensure!(reused.replay == Replay::Reused && reused.work == performed.work);
+    ensure!(fixture
+        .set
+        .restore_state(&images, ImageId::new([42; 16])?)?
+        .is_none());
+    // A cached empty projection cannot hide a changed configuration tip.
+    fixture.set.manifest.conf_state = manifest::encode_conf(&ConfState {
+        voters: vec![1],
+        learners: vec![2],
+        ..Default::default()
+    })?;
+    ensure!(verifier.verify(&fixture.set).is_err());
+    ensure!(fixture.set.validate_payloads().is_err());
+    ensure!(fixture
+        .set
+        .restore_state(&images, ImageId::new([43; 16])?)
+        .is_err());
+    ensure!(images.usage()?.generations == 0);
+    Ok(())
+}
+
+#[test]
+fn archive_replay_memo_rechecks_lifecycle_expiry_on_hit() -> Result<()> {
+    for fixture in [Fixture::new()?, Fixture::empty()?] {
+        let images = GenerationStore::open(
+            fixture._root.path().join("deadline-verifier"),
+            Arc::new(DirectFileSystem),
+            cellar_ltx::generation::GenerationLimits::default(),
+        )?;
+        let verifier = ArchiveVerifier::new(images.clone(), ImageId::new([44; 16])?)?;
+        ensure!(verifier.verify(&fixture.set)? == Replay::Performed);
+        ensure!(matches!(
+            verifier.verify_checked(&fixture.set, || Err(ArchiveError::Timeout)),
+            Err(ArchiveError::Timeout)
+        ));
+        // Only the expired lifecycle attempt is refused; a physical memo is
+        // not a lease, and a new unexpired caller still rechecks its own guard.
+        ensure!(verifier.verify_checked(&fixture.set, || Ok(()))? == Replay::Reused);
+        ensure!(images.usage()?.generations == 0);
+    }
     Ok(())
 }

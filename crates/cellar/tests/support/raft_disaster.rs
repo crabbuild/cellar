@@ -5,6 +5,7 @@
 use super::*;
 use futures_util::future::BoxFuture;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
+use std::time::Duration;
 
 struct Fence {
     stopped: AtomicBool,
@@ -63,6 +64,169 @@ fn request(source: &GroupBirth, archive: ArchiveReference) -> Result<DisasterRec
             learners: vec![],
         },
     })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disaster_and_fleet_import_share_an_exclusive_admission_boundary() -> Result<()> {
+    for freeze_first in [false, true] {
+        let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+        let cut = fixture.commit(7, vec![]).await?;
+        let reference = fixture.publish(cut).await?.reference();
+        let request = request(&fixture.birth, reference)?;
+        let fence = Fence::new(true);
+        let operation = cellar_logic::consensus::ProposalId::new([81; 16])?;
+        if freeze_first {
+            fixture
+                .domain
+                .run(
+                    fixture
+                        .namespace
+                        .freeze_births(operation, Duration::from_secs(5)),
+                )
+                .await??;
+            ensure!(matches!(
+                fixture
+                    .namespace
+                    .disaster_fence_request(request.clone())
+                    .await,
+                Err(CatalogError::BirthsFrozen)
+            ));
+            ensure!(matches!(
+                fixture
+                    .namespace
+                    .recover_from_disaster(
+                        request,
+                        &fence,
+                        LtxHost::default(),
+                        ArchiveLimits::default()
+                    )
+                    .await,
+                Err(CatalogError::BirthsFrozen)
+            ));
+            ensure!(fence.calls.load(Ordering::SeqCst) == 0);
+            ensure!(
+                fixture
+                    .namespace
+                    .birth(fixture.birth.scope().cell.as_str())
+                    .await?
+                    .context("birth")?
+                    .digest()
+                    == fixture.birth.digest()
+            );
+        } else {
+            let successor = fixture
+                .namespace
+                .recover_from_disaster(
+                    request.clone(),
+                    &fence,
+                    LtxHost::default(),
+                    ArchiveLimits::default(),
+                )
+                .await?;
+            ensure!(successor.scope() == &request.replacement.scope);
+            ensure!(matches!(
+                fixture
+                    .domain
+                    .run(
+                        fixture
+                            .namespace
+                            .freeze_births(operation, Duration::from_secs(5))
+                    )
+                    .await?,
+                Err(CatalogError::Conflict(
+                    "disaster namespace cannot enter managed ownership"
+                ))
+            ));
+            let retry = fixture
+                .namespace
+                .recover_from_disaster(
+                    request,
+                    &fence,
+                    LtxHost::default(),
+                    ArchiveLimits::default(),
+                )
+                .await?;
+            ensure!(retry.digest() == successor.digest());
+        }
+        fixture.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disaster_concurrent_freeze_has_one_admission_winner() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let cut = fixture.commit(7, vec![]).await?;
+    let reference = fixture.publish(cut).await?.reference();
+    let request = request(&fixture.birth, reference)?;
+    let fence = Fence::new(true);
+    let operation = cellar_logic::consensus::ProposalId::new([82; 16])?;
+    let (freeze, recovery) = fixture
+        .domain
+        .run(async {
+            tokio::join!(
+                fixture
+                    .namespace
+                    .freeze_births(operation, Duration::from_secs(5)),
+                fixture.namespace.recover_from_disaster(
+                    request,
+                    &fence,
+                    LtxHost::default(),
+                    ArchiveLimits::default()
+                )
+            )
+        })
+        .await?;
+    match (freeze, recovery) {
+        (Ok(_), Err(CatalogError::BirthsFrozen)) => {
+            ensure!(fence.calls.load(Ordering::SeqCst) == 0);
+        }
+        (
+            Err(CatalogError::Conflict("disaster namespace cannot enter managed ownership")),
+            Ok(_),
+        ) => (),
+        (freeze, recovery) => anyhow::bail!(
+            "expected exactly one admission winner: freeze={:?}, recovery={recovery:?}",
+            freeze.map(|_| ())
+        ),
+    }
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn disaster_refuses_managed_namespace_before_fencing() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let cut = fixture.commit(7, vec![]).await?;
+    let reference = fixture.publish(cut).await?.reference();
+    let store = Arc::new(faults::Store::default());
+    let catalog = Catalog::new(store.clone(), CatalogOptions::default())?;
+    let mut config = fixture.namespace.config().clone();
+    config.voters = VoterPolicy::ThreeVoters;
+    config.managed_fleet = Some(serde_json::from_value(
+        serde_json::json!({"fleet": vec![71; 16], "catalog": vec![72; 32]}),
+    )?);
+    let namespace = catalog.open_namespace(config).await?;
+    let before = store.inner.list(None).try_collect::<Vec<_>>().await?;
+    let fence = Fence::new(true);
+    let request = request(&fixture.birth, reference)?;
+    ensure!(matches!(
+        namespace.disaster_fence_request(request.clone()).await,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+    ensure!(matches!(
+        namespace
+            .recover_from_disaster(
+                request,
+                &fence,
+                LtxHost::default(),
+                ArchiveLimits::default()
+            )
+            .await,
+        Err(CatalogError::ManagedAdmissionRequired)
+    ));
+    ensure!(fence.calls.load(Ordering::SeqCst) == 0);
+    ensure!(store.inner.list(None).try_collect::<Vec<_>>().await? == before);
+    fixture.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

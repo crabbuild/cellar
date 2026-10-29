@@ -57,6 +57,8 @@ pub struct RootArchiveSnapshot {
     pub(super) store: NodeExtentStore,
     pub(super) image: Arc<SealedImageRoot>,
     _retention: Option<Arc<super::super::budget::Permit>>,
+    // Declared last: release image/receive pins before releasing scratch.
+    _verification: Option<Arc<super::verifier::ExtentLease>>,
 }
 
 impl RootArchiveSnapshot {
@@ -123,6 +125,7 @@ impl ConfirmedRootSnapshot {
                 store: target,
                 image: Arc::new(image),
                 _retention,
+                _verification: None,
             })
         })
         .await
@@ -445,11 +448,17 @@ impl CellArchive {
         let pin_set = set.clone();
         let inventory = store.clone();
         let retention = self.read_retention.clone();
+        let verification = self.root_verification.clone();
         let receive_pin = self
             .host
             .run_blocking(move || {
                 let _retention = retention;
-                pin_set.pin_receive(&inventory).map_err(root_error)
+                // The returned receive pin and every physical clone keep the
+                // scratch owner until the pin itself has been released.
+                pin_set
+                    .pin_receive(&inventory)
+                    .map(|pin| (pin, verification))
+                    .map_err(root_error)
             })
             .await
             .map_err(ArchiveError::Worker)??;
@@ -506,6 +515,7 @@ impl CellArchive {
         let target = store.clone();
         let pin = receive_pin.clone();
         let retention = self.read_retention.clone();
+        let verification = self.root_verification.clone();
         let image = self
             .host
             .run_blocking(move || {
@@ -519,6 +529,7 @@ impl CellArchive {
                     store: target,
                     image: Arc::new(image),
                     _retention,
+                    _verification: verification,
                 })
             })
             .await

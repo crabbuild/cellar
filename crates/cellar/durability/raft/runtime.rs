@@ -26,6 +26,10 @@ use tokio::sync::{mpsc, oneshot, Notify};
 mod scheduler_tests;
 
 #[cfg(test)]
+#[path = "runtime_restart_leadership_tests.rs"]
+mod restart_leadership_tests;
+
+#[cfg(test)]
 #[path = "runtime_persistence_tests.rs"]
 mod persistence_tests;
 
@@ -33,6 +37,7 @@ pub(crate) enum GroupAction {
     Campaign,
     ReplicationStatus,
     TransferLeadership(LeadershipTransfer),
+    RestartLeadership(Box<RestartLeadershipCheck>),
     Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
     Propose {
@@ -65,8 +70,9 @@ type Reply = oneshot::Sender<Result<Response, RuntimeError>>;
 const COMPLETION_SLOTS: usize = 8;
 
 // Snapshot references now carry a bounded committed member ledger in addition
-// to their image/ticket metadata. Reserve every physical completion slot for it.
-const SNAPSHOT_COMPLETION_BYTES: usize = 16 * 1024;
+// to their image/ticket metadata, including an optional fleet permit ledger.
+// Reserve every physical completion slot for the complete bounded ledger.
+const SNAPSHOT_COMPLETION_BYTES: usize = 32 * 1024;
 const COMPLETION_BYTES: usize = COMPLETION_SLOTS * SNAPSHOT_COMPLETION_BYTES;
 const HINT_SLOTS: usize = 256;
 const HINT_BYTES: usize = HINT_SLOTS * 4096;
@@ -193,6 +199,10 @@ impl RuntimeEvents {
 }
 
 impl RaftRuntime {
+    pub(crate) fn limits(&self) -> &RaftRuntimeOptions {
+        &self.inner.options
+    }
+
     pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
         self.admit()?;
         self.inner
@@ -646,6 +656,16 @@ impl RaftRuntime {
         transfer: LeadershipTransfer,
     ) -> Result<(), RuntimeError> {
         self.group(scope, GroupAction::TransferLeadership(transfer), 4096)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn restart_leadership(
+        &self,
+        scope: &GroupScope,
+        check: Box<RestartLeadershipCheck>,
+    ) -> Result<(), RuntimeError> {
+        self.group(scope, GroupAction::RestartLeadership(check), 4096)
             .await
             .map(|_| ())
     }
@@ -1104,10 +1124,40 @@ impl Worker {
                     };
                     let new_read = matches!(&action, GroupAction::ReadIndex(_))
                         || matches!(&action,GroupAction::Step(m) if m.get_msg_type()==::raft::prelude::MessageType::MsgReadIndex);
+                    // Recheck at execution after any queueing. A synced fence
+                    // must defeat a delayed maintenance transfer even when its
+                    // catalog cancellation CAS was lost. Read-only observation
+                    // on a surviving leader needs no local quiescence.
+                    let gate = match &action {
+                        GroupAction::RestartLeadership(check)
+                            if self
+                                .domain
+                                .mono_ms()
+                                .map_or(true, |now| now >= check.deadline) =>
+                        {
+                            Err(RuntimeError::Closed)
+                        }
+                        GroupAction::RestartLeadership(check) => match &check.transfer {
+                            Some((_, selector)) => self
+                                .log
+                                .lifecycle_guard()
+                                .map_err(RuntimeError::from)
+                                .and_then(|guard| {
+                                    if guard.as_ref().and_then(|g| g.quiescing()) == Some(selector)
+                                    {
+                                        Ok(())
+                                    } else {
+                                        Err(RuntimeError::NotReady)
+                                    }
+                                }),
+                            None => Ok(()),
+                        },
+                        _ => Ok(()),
+                    };
                     let result = if new_read && pending_reads >= self.options.max_pending_reads {
                         Err(RuntimeError::Overloaded)
                     } else {
-                        group.replica.execute(action, &self.options)
+                        gate.and_then(|()| group.replica.execute(action, &self.options))
                     };
                     drop(request._permit);
                     drop(request._inbound);

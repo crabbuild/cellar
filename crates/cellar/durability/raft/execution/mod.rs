@@ -744,6 +744,10 @@ impl PrivateExecutor {
         }
     }
 
+    pub(crate) fn has_pending_proposal(&self) -> bool {
+        self.pending.is_some()
+    }
+
     /// Logical bytes hashed by the last extent observation. This excludes
     /// source/cache/sealing I/O and is not an RSS or transfer measurement.
     pub fn extent_observation_work(&self) -> Option<cellar_ltx::internal::db::ObservationWork> {

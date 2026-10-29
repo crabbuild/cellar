@@ -9,7 +9,7 @@ use crate::raft::operations::RaftDrainReport;
 use std::ops::Bound::{Excluded, Unbounded};
 
 pub(super) struct Drain {
-    request: Request,
+    request: NodeRequest,
     cursor: Option<GroupScope>,
     waiting: Option<(GroupScope, u64)>,
     busy: bool,
@@ -31,12 +31,12 @@ pub(super) struct Completed {
 }
 
 impl Driver {
-    pub(super) fn start_node_drain(&mut self, mut request: Request) {
+    pub(super) fn start_node_drain(&mut self, mut request: NodeRequest) {
         if !self.local.admission.is_draining()
             || self.closing.load(Ordering::Acquire)
             || self.drain.is_some()
         {
-            reply(&mut request, Err(CommandFailure::Unavailable));
+            reply_node(&mut request, Err(CommandFailure::Unavailable));
             return;
         }
         self.drain = Some(Drain {
@@ -59,7 +59,7 @@ impl Driver {
             Ok(now) => now,
             Err(_) => {
                 if let Some(mut drain) = self.drain.take() {
-                    reply(&mut drain.request, Err(CommandFailure::Unavailable));
+                    reply_node(&mut drain.request, Err(CommandFailure::Unavailable));
                 }
                 return;
             }
@@ -71,7 +71,7 @@ impl Driver {
             };
             drain.report.deadline_elapsed = true;
             drain.report.unavailable_groups += usize::from(drain.waiting.is_some());
-            reply(&mut drain.request, Ok(Response::Drained(drain.report)));
+            reply_node(&mut drain.request, Ok(Response::Drained(drain.report)));
             return;
         }
         let (scope, deadline) = if let Some(waiting) = drain.waiting.take() {
@@ -85,7 +85,7 @@ impl Driver {
                 let Some(mut drain) = self.drain.take() else {
                     return;
                 };
-                reply(&mut drain.request, Ok(Response::Drained(drain.report)));
+                reply_node(&mut drain.request, Ok(Response::Drained(drain.report)));
                 return;
             };
             let scope = scope.clone();

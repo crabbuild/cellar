@@ -53,7 +53,7 @@ impl Driver {
             || owner.busy.is_some()
             || now < owner.next_at
             || self.closing.load(Ordering::Acquire)
-            || self.local.admission.is_draining()
+            || self.local.admission.application_paused()
         {
             return;
         }
@@ -81,14 +81,18 @@ impl Driver {
             {
                 continue;
             }
-            let binding = self
+            let Ok(binding) = self
                 .local
                 .bindings
-                .get(&(scope.namespace, scope.cell.clone()));
-            if binding.is_some_and(|b| {
-                b.scope == *scope
-                    && (b.class.alarm_limits().is_some() || b.class.outbox_definition().is_some())
-            }) {
+                .get(&(scope.namespace, scope.cell.clone()))
+            else {
+                owner.enabled = false;
+                return;
+            };
+            if binding.scope == *scope
+                && (binding.class.alarm_limits().is_some()
+                    || binding.class.outbox_definition().is_some())
+            {
                 selected = Some(scope.clone());
                 break;
             }
@@ -146,7 +150,7 @@ impl Driver {
         {
             return;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.application_paused() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -219,7 +223,7 @@ impl Driver {
         if let Some(cell) = self.cells.get_mut(&scope) {
             cell.sql_busy = false;
         }
-        if self.closing.load(Ordering::Acquire) || self.local.admission.is_draining() {
+        if self.closing.load(Ordering::Acquire) || self.local.admission.application_paused() {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -254,12 +258,17 @@ impl Driver {
             self.finish_effect_turn(sequence);
             return;
         }
-        let Some(binding) = self
+        let Ok(binding) = self
             .local
             .bindings
             .get(&(scope.namespace, scope.cell.clone()))
-            .cloned()
-            .filter(|b| b.scope == scope)
+            .and_then(|b| {
+                if b.scope == scope {
+                    Ok(b)
+                } else {
+                    Err(CommandFailure::CommandConflict)
+                }
+            })
         else {
             self.finish_effect_turn(sequence);
             return;
@@ -295,7 +304,9 @@ impl Driver {
         // current-term readiness. It cannot rebind an unresolved old producer.
         let admission = self.local.admission.clone();
         let work = {
-            let Ok(registration) = admission.registration(false) else {
+            let Ok(registration) = admission
+                .registration(crate::application::consensus::admission::Access::Application)
+            else {
                 self.finish_effect_turn(sequence);
                 return;
             };
@@ -447,7 +458,7 @@ async fn deliver_owned(
             return Err(CommandFailure::Unavailable);
         }
         if send.is_none() {
-            if admission.is_draining() {
+            if admission.application_paused() {
                 return Err(CommandFailure::Unavailable);
             }
             send = Some(sink.deliver(request.clone()));

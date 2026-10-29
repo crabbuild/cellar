@@ -193,6 +193,26 @@ pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };
 pub use crate::application::*;
+/// Rooted managed-Raft operator contracts, independent of the HTTP adapter.
+pub mod fleet_operations {
+    pub use crate::management::{
+        FleetRestartService, FleetRestartServiceOptions, FleetRestartServiceStatus,
+        RaftFleetAcceptance, RaftFleetBegin, RaftFleetBirthResolution, RaftFleetCancel,
+        RaftFleetCapacityAttestation, RaftFleetConnection, RaftFleetControl,
+        RaftFleetEvacuationAcceptance, RaftFleetEvacuationDebt, RaftFleetEvacuationPhase,
+        RaftFleetEvacuationProgress, RaftFleetEvacuationStatus, RaftFleetFailure,
+        RaftFleetFailureCode, RaftFleetMaintenanceAcceptance, RaftFleetMaintenanceAction,
+        RaftFleetMaintenanceCancel, RaftFleetMaintenancePhase, RaftFleetMaintenancePrepare,
+        RaftFleetMaintenanceReturnContext, RaftFleetMaintenanceStatus, RaftFleetMovement,
+        RaftFleetMovements, RaftFleetNamespace, RaftFleetNamespaceScope, RaftFleetNodeAcceptance,
+        RaftFleetNodeAction, RaftFleetNodeAdmission, RaftFleetNodeCancel, RaftFleetNodeCapacity,
+        RaftFleetNodeDescriptor, RaftFleetNodeOperation, RaftFleetNodeRemove, RaftFleetNodeState,
+        RaftFleetNodeStatus, RaftFleetNodeStop, RaftFleetOperation, RaftFleetOutcome,
+        RaftFleetRegisterNode, RaftFleetStatus, RaftFleetVerificationBlocker,
+        RaftFleetVerificationReason, RaftFleetVerificationStage,
+    };
+    pub use crate::raft::fleet_catalog::FleetTopologyPolicy;
+}
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain, WallClock};
