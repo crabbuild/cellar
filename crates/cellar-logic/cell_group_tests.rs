@@ -153,3 +153,28 @@ fn cell_versions_require_exact_history_and_same_sequence_image() {
         assert_eq!(conflicting.covers(&version), Err(Refusal::WrongHistory));
     }
 }
+
+#[test]
+fn physical_history_projection_preserves_every_group_identity_field() {
+    let original = crate::consensus::GroupScope {
+        cluster: ClusterId::new([1; 16]).unwrap(),
+        namespace: NamespaceId::new([2; 16]).unwrap(),
+        group: GroupId::new([3; 16]).unwrap(),
+        incarnation: IncarnationId::new([4; 16]).unwrap(),
+        cell: "alpha".into(),
+    };
+    let history = GroupHistory::from(&original);
+    let mut other = original.clone();
+    other.cell = "beta".into();
+    assert_eq!(GroupHistory::from(&other), history);
+    for field in 0..4 {
+        let mut other = original.clone();
+        match field {
+            0 => other.cluster = ClusterId::new([9; 16]).unwrap(),
+            1 => other.namespace = NamespaceId::new([9; 16]).unwrap(),
+            2 => other.group = GroupId::new([9; 16]).unwrap(),
+            _ => other.incarnation = IncarnationId::new([9; 16]).unwrap(),
+        }
+        assert_ne!(GroupHistory::from(&other), history);
+    }
+}

@@ -209,3 +209,17 @@ before the new birth can be integrated with actual disk-claim admission. Managed
 namespaces refuse these unmanaged APIs until their rooted fleet authorization is
 connected. This staged boundary does not permit blank-disk recovery, replace
 current quorum membership, or complete CG-03 qualification.
+
+## Physical log identity cutover
+
+The engine registry uses `GroupHistory` (cluster, namespace, group and incarnation),
+independent of application cell names. Marker-1 mappings use an explicit
+`cellar-group-mapping-1` domain and a separate physical history. Old bare `scope`
+mapping records refuse during recovery; there is no compatibility reader.
+
+The staged single-cell host still stores its real cell binding as application
+adapter metadata. Its lookup, birth retries, pending slot accounting and physical
+inventory must reject another cell binding for the same physical history. This
+metadata is not part of the registry key and is removed with the remaining
+single-cell runtime consumers. This foundation does not expose shared-group voter
+startup or establish the permanent member claim required by the new birth API.

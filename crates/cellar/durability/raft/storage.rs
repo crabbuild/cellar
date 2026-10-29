@@ -13,6 +13,7 @@ use super::records::{
     self, GroupRecord, MappingRecord, NodeRecord, RootRecord, GROUP_KEY, ROOT_KEY,
 };
 use ::raft::prelude::{ConfState, Entry};
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::consensus::{GroupScope, MemberId, OperationId, ReplicaIdentity};
 use cellar_ltx::{FileSystem, HostFileLock};
 use protobuf::Message;
@@ -119,7 +120,7 @@ pub struct SyncReceipt {
     pub groups: Vec<ReplicaIdentity>,
 }
 
-type Catalog = Arc<RwLock<BTreeMap<GroupScope, GroupLog>>>;
+type Catalog = Arc<RwLock<BTreeMap<GroupHistory, GroupLog>>>;
 type Reply<T> = oneshot::Sender<Result<T, LogError>>;
 
 #[derive(Clone)]
@@ -442,11 +443,22 @@ impl ReplicaLog {
     ) -> Result<usize, LogError> {
         self.admit()?;
         let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        let additional = match pending {
+            Some(scope) => {
+                scope.validate().map_err(|_| LogError::WrongIdentity)?;
+                match groups.get(&GroupHistory::from(scope)) {
+                    Some(group) if &group.identity.scope != scope => {
+                        return Err(LogError::WrongIdentity);
+                    }
+                    Some(_) => false,
+                    None => true,
+                }
+            }
+            None => false,
+        };
         groups
             .len()
-            .checked_add(usize::from(
-                pending.is_some_and(|scope| !groups.contains_key(scope)),
-            ))
+            .checked_add(usize::from(additional))
             .ok_or(LogError::Overloaded)
     }
 
@@ -476,13 +488,15 @@ impl ReplicaLog {
 
     pub fn group(&self, scope: &GroupScope) -> Result<GroupLog, LogError> {
         self.admit()?;
-        self.inner
-            .groups
-            .read()
-            .map_err(|_| LogError::Closed)?
-            .get(scope)
-            .cloned()
-            .ok_or(LogError::NotFound)
+        scope.validate().map_err(|_| LogError::WrongIdentity)?;
+        let groups = self.inner.groups.read().map_err(|_| LogError::Closed)?;
+        let group = groups
+            .get(&GroupHistory::from(scope))
+            .ok_or(LogError::NotFound)?;
+        if &group.identity.scope != scope {
+            return Err(LogError::WrongIdentity);
+        }
+        Ok(group.clone())
     }
 
     pub async fn create_group(&self, bootstrap: GroupBootstrap) -> Result<GroupLog, LogError> {
@@ -877,7 +891,7 @@ impl Worker {
                 .groups
                 .write()
                 .map_err(|_| LogError::Closed)?
-                .insert(handle.identity.scope.clone(), handle)
+                .insert(GroupHistory::from(&handle.identity.scope), handle)
                 .is_some()
             {
                 return Err(LogError::Corrupt("duplicate logical group mapping".into()));
@@ -910,7 +924,7 @@ impl Worker {
         {
             return Err(LogError::Corrupt("member binding birth mismatch".into()));
         }
-        let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
+        let scope = mapping.application_scope()?;
         scope.validate().map_err(records::corrupt)?;
         cache.membership.validate_scope(&scope)?;
         Ok(GroupLog {
@@ -990,13 +1004,14 @@ impl Worker {
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
-            .get(&bootstrap.scope)
+            .get(&GroupHistory::from(&bootstrap.scope))
         {
             let mapping = self
                 .mappings
                 .get(&group.key)
                 .ok_or(LogError::LostStableState)?;
-            if mapping.member == bootstrap.member.get()
+            if group.identity.scope == bootstrap.scope
+                && mapping.member == bootstrap.member.get()
                 && mapping.birth_digest == bootstrap.birth_digest
                 && mapping.initial_conf == conf.write_to_bytes().map_err(records::corrupt)?
             {
@@ -1039,13 +1054,17 @@ impl Worker {
         if !seed.authorized(&self.owner, &identity) {
             return Err(LogError::WrongIdentity);
         }
-        if self
+        if let Some(group) = self
             .groups
             .read()
             .map_err(|_| LogError::Closed)?
-            .contains_key(&identity.scope)
+            .get(&GroupHistory::from(&identity.scope))
         {
-            return Err(LogError::AlreadyExists);
+            return Err(if group.identity.scope == identity.scope {
+                LogError::AlreadyExists
+            } else {
+                LogError::WrongIdentity
+            });
         }
         let bootstrap = seed.bootstrap()?;
         let conf = seed.initial().clone();
@@ -1113,7 +1132,7 @@ impl Worker {
         self.groups
             .write()
             .map_err(|_| LogError::Closed)?
-            .insert(bootstrap.scope, handle.clone());
+            .insert(GroupHistory::from(&bootstrap.scope), handle.clone());
         self.mappings.insert(key, mapping);
         self.cache_bytes += bytes;
         self.cache_usage.store(self.cache_bytes, Ordering::Release);

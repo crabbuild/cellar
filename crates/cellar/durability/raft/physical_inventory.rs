@@ -6,6 +6,7 @@ use super::cache::GroupLog;
 use super::host::RaftHostObservation;
 use super::storage::LogError;
 use super::transport::TransportError;
+use cellar_logic::cell_group::GroupHistory;
 use cellar_logic::consensus::{GroupScope, MemberId};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -148,15 +149,25 @@ pub(crate) fn scope_digest(scope: &GroupScope) -> Result<[u8; 32], LogError> {
 }
 
 pub(crate) fn capture(
-    groups: &BTreeMap<GroupScope, GroupLog>,
+    groups: &BTreeMap<GroupHistory, GroupLog>,
     pending: Option<&GroupScope>,
 ) -> Result<RaftPhysicalInventory, LogError> {
     if groups.len() > MAX_GROUPS {
         return Err(LogError::Overloaded);
     }
+    if let Some(scope) = pending {
+        scope.validate().map_err(|_| LogError::WrongIdentity)?;
+        if groups
+            .get(&GroupHistory::from(scope))
+            .is_some_and(|group| &group.identity().scope != scope)
+        {
+            return Err(LogError::WrongIdentity);
+        }
+    }
     let mut histories = Vec::with_capacity(groups.len());
-    for (scope, group) in groups {
-        if scope != &group.identity().scope || group.birth_digest == [0; 32] {
+    for (history, group) in groups {
+        let scope = &group.identity().scope;
+        if history != &GroupHistory::from(scope) || group.birth_digest == [0; 32] {
             return Err(LogError::WrongIdentity);
         }
         let cache = group.read()?;

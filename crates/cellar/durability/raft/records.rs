@@ -4,9 +4,12 @@
 
 use super::cache::{CachedGroup, CommittedImage, DurableApply};
 use super::storage::{GroupBootstrap, LogError};
-use crate::application::consensus::protocol::WireScope;
 use ::raft::prelude::{ConfState, HardState, Snapshot};
-use cellar_logic::consensus::{DiskLineage, EngineInstanceId, LogIndex, LogPosition, NodeId, Term};
+use cellar_logic::cell_group::GroupHistory;
+use cellar_logic::consensus::{
+    ClusterId, DiskLineage, EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex,
+    LogPosition, NamespaceId, NodeId, Term,
+};
 use protobuf::Message;
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +60,11 @@ pub(crate) struct RootRecord {
 pub(crate) struct MappingRecord {
     pub format: u32,
     pub key: u64,
-    pub scope: WireScope,
+    domain: MappingDomain,
+    history: PhysicalHistory,
+    // Temporary application adapter metadata, never the physical registry key.
+    // Removed with the remaining single-cell host consumers at public cutover.
+    application_cell: String,
     pub member: u64,
     pub birth_digest: [u8; 32],
     pub initial_conf: Vec<u8>,
@@ -68,19 +75,71 @@ impl MappingRecord {
         Ok(Self {
             format: 1,
             key,
-            scope: WireScope::from(&bootstrap.scope),
+            domain: MappingDomain::Group,
+            history: PhysicalHistory::from(GroupHistory::from(&bootstrap.scope)),
+            application_cell: bootstrap.scope.cell.clone(),
             member: bootstrap.member.get(),
             birth_digest: bootstrap.birth_digest,
             initial_conf: conf.write_to_bytes().map_err(corrupt)?,
         })
     }
 
+    pub fn application_scope(&self) -> Result<GroupScope, LogError> {
+        let history = self.history.decode()?;
+        let scope = GroupScope {
+            cluster: history.cluster,
+            namespace: history.namespace,
+            group: history.group,
+            incarnation: history.incarnation,
+            cell: self.application_cell.clone(),
+        };
+        scope.validate().map_err(corrupt)?;
+        Ok(scope)
+    }
+
     pub fn catalog_key(&self) -> Result<Vec<u8>, LogError> {
-        let scope = self.scope.clone().decode().map_err(corrupt)?;
+        let scope = self.history.decode()?;
         let mut key = b"g:".to_vec();
         key.extend_from_slice(&scope.group.bytes());
         key.extend_from_slice(&scope.incarnation.bytes());
         Ok(key)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum MappingDomain {
+    #[serde(rename = "cellar-group-mapping-1")]
+    Group,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PhysicalHistory {
+    cluster: [u8; 16],
+    namespace: [u8; 16],
+    group: [u8; 16],
+    incarnation: [u8; 16],
+}
+
+impl From<GroupHistory> for PhysicalHistory {
+    fn from(history: GroupHistory) -> Self {
+        Self {
+            cluster: history.cluster.bytes(),
+            namespace: history.namespace.bytes(),
+            group: history.group.bytes(),
+            incarnation: history.incarnation.bytes(),
+        }
+    }
+}
+
+impl PhysicalHistory {
+    fn decode(&self) -> Result<GroupHistory, LogError> {
+        Ok(GroupHistory {
+            cluster: ClusterId::new(self.cluster).map_err(corrupt)?,
+            namespace: NamespaceId::new(self.namespace).map_err(corrupt)?,
+            group: GroupId::new(self.group).map_err(corrupt)?,
+            incarnation: IncarnationId::new(self.incarnation).map_err(corrupt)?,
+        })
     }
 }
 
@@ -134,7 +193,7 @@ impl GroupRecord {
         let (image, group_manifest) = match &self.application {
             ApplicationRecord::Image(image) => (image.clone(), None),
             ApplicationRecord::Group(marker) => {
-                let scope = self.mapping.scope.clone().decode().map_err(corrupt)?;
+                let scope = self.mapping.application_scope()?;
                 if !marker.matches_group(&scope, self.mapping.birth_digest) {
                     return Err(LogError::WrongIdentity);
                 }

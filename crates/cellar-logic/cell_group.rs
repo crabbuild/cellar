@@ -74,6 +74,19 @@ impl GroupHistory {
     }
 }
 
+/// Projects the physical history from the temporary single-cell adapter.
+/// This does not validate or authorize the adapter's cell binding.
+impl From<&crate::consensus::GroupScope> for GroupHistory {
+    fn from(scope: &crate::consensus::GroupScope) -> Self {
+        Self {
+            cluster: scope.cluster,
+            namespace: scope.namespace,
+            group: scope.group,
+            incarnation: scope.incarnation,
+        }
+    }
+}
+
 macro_rules! nonzero_counter {
     ($($name:ident),+ $(,)?) => {$ (
         #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
