@@ -9,6 +9,40 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Integrated fixture repairs, 2026-10-28
+
+The follow-up now includes `main` at `f3f2845c`. On production source
+`cb854795`, the native storage/API/fleet suites, 12 isolated reclamation-pressure
+runs, dense 10/100/1024 MiB cold recoveries, all six Node/V8 filesystem suites
+and all 40 expanded proof scenarios pass locally. These are bounded framework
+profiles; Python, final lint and complete supported-target CI remain pending.
+
+Current CI exposed two obsolete fixture assumptions. The public local-store WAL
+test assumed an 8 MiB upload was one transaction; bounded staging now checkpoints
+within that upload. Its replacement crosses multiple checkpoint cycles with
+64 KiB overwrites and retains the original recycling, WAL-size, clone lifetime,
+reopen, content and CAS assertions. All five public local-store tests pass. A
+negative control dropping all store handles between writes still fails the WAL
+recycling assertion.
+
+The S3 connection-cut fixture failed before its intended local commit because
+routing now reads a durable retirement record through the replica client. An
+explicit handler-admission gate places the cut before the write but after that
+check. Recovery faults now keep real retirement reads healthy on an independent
+connection to the same bucket and require observed replica-read attempts. This
+prevents an early authority failure from masquerading as failed replica restore.
+The development, supplied-store S3, TCP-cut and TCP-stall profiles all pass with
+unchanged deadlines and clean-drain assertions. The
+[repair evidence](../tools/perf/results/2026-10-28-filesystem-ci-fixture-repairs.json)
+retains positive/negative WAL results, the failed intermediate stall observation,
+four recovery ledgers and executable/log hashes.
+
+The Node delivery CI job separately exceeded its existing 250 ms handler budget.
+Thirty fresh local captured-package compatibility/restart executions pass without
+changing that budget. This does not establish the cause of the Linux failure;
+opt-in runtime timing is now retained in that CI step for diagnosis. The release
+gate remains open rather than counting those repetitions as a fix.
+
 ## Main integration and evidence retention, 2026-10-28
 
 The release follow-up integrates `origin/main` at `638decc7`, including bounded

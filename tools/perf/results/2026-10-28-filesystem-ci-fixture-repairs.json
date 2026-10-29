@@ -1,0 +1,376 @@
+{
+  "format": 1,
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "production_source": "cb854795c5e00611e00e94d5cf7ad4ee8fab6492",
+  "scope": "Test-fixture repairs only; production code unchanged. Local macOS arm64 debug validation.",
+  "wal": {
+    "original": "4 pass / 1 fail: small writes did not recycle the checkpointed WAL",
+    "repaired": "5 pass / 0 fail",
+    "negative_control": "Dropping all store handles between writes fails the unchanged WAL recycling assertion.",
+    "budgets_or_assertions_relaxed": false
+  },
+  "faults": {
+    "dev": {
+      "acknowledged": [
+        {
+          "generation": 1,
+          "inode": "2",
+          "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+          "version": "4"
+        },
+        {
+          "generation": 3,
+          "inode": "2",
+          "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+          "version": "6"
+        }
+      ],
+      "ambiguous_response": {
+        "http_status": 500,
+        "outcome": "unknown"
+      },
+      "application_constructors": 3,
+      "backend": "development",
+      "caller_executor_preserved": true,
+      "failed_recovery_elapsed_ms": 3,
+      "failed_recovery_http_status": 500,
+      "failed_recovery_observation_timeout_ms": 15000,
+      "faulted_replica_reads": 1,
+      "format": 1,
+      "healthy_retirement_reads": 4,
+      "lease_store_refusals": 47,
+      "mode": "bucket proof; supplied-store fault injection",
+      "owner_fenced": true,
+      "predecessor_local_data_removed": true,
+      "publication_refusals": 11,
+      "recovered_after_outage": {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      "recovered_after_takeover": {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      },
+      "recovery_read_refusals": 1,
+      "remaining_nodes_joined": true,
+      "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+      "socket_proxies": [],
+      "stale_descriptor_checks": 1,
+      "successor_local_data_removed": true,
+      "unacknowledged_local_commit": {
+        "generation": 2,
+        "inode": "2",
+        "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+        "version": "6"
+      }
+    },
+    "proof": {
+      "acknowledged": [
+        {
+          "generation": 1,
+          "inode": "2",
+          "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+          "version": "4"
+        },
+        {
+          "generation": 3,
+          "inode": "2",
+          "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+          "version": "6"
+        }
+      ],
+      "ambiguous_response": {
+        "outcome": "unknown",
+        "transport_error": true
+      },
+      "application_constructors": 3,
+      "backend": "s3",
+      "caller_executor_preserved": true,
+      "failed_recovery_elapsed_ms": 5,
+      "failed_recovery_http_status": 500,
+      "failed_recovery_observation_timeout_ms": 15000,
+      "faulted_replica_reads": 2,
+      "format": 1,
+      "healthy_retirement_reads": 6,
+      "lease_store_refusals": 48,
+      "mode": "bucket proof; supplied-store fault injection",
+      "owner_fenced": true,
+      "predecessor_local_data_removed": true,
+      "publication_refusals": 10,
+      "recovered_after_outage": {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      "recovered_after_takeover": {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      },
+      "recovery_read_refusals": 2,
+      "remaining_nodes_joined": true,
+      "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+      "socket_proxies": [],
+      "stale_descriptor_checks": 1,
+      "successor_local_data_removed": true,
+      "unacknowledged_local_commit": {
+        "generation": 2,
+        "inode": "2",
+        "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+        "version": "6"
+      }
+    },
+    "sockets": {
+      "acknowledged": [
+        {
+          "generation": 1,
+          "inode": "2",
+          "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+          "version": "4"
+        },
+        {
+          "generation": 3,
+          "inode": "2",
+          "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+          "version": "6"
+        }
+      ],
+      "ambiguous_response": {
+        "outcome": "unknown",
+        "transport_error": true
+      },
+      "application_constructors": 3,
+      "backend": "s3",
+      "caller_executor_preserved": true,
+      "failed_recovery_elapsed_ms": 221,
+      "failed_recovery_http_status": 500,
+      "failed_recovery_observation_timeout_ms": 15000,
+      "faulted_replica_reads": 2,
+      "format": 1,
+      "healthy_retirement_reads": 6,
+      "lease_store_refusals": 18,
+      "mode": "bucket proof; TCP connection cuts",
+      "owner_fenced": true,
+      "predecessor_local_data_removed": true,
+      "publication_refusals": 8,
+      "recovered_after_outage": {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      "recovered_after_takeover": {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      },
+      "recovery_read_refusals": 6,
+      "remaining_nodes_joined": true,
+      "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+      "socket_proxies": [
+        {
+          "accepted_connections": 24,
+          "cancelled_connections": 6,
+          "connection_io_errors": 0,
+          "denied_connections": 18,
+          "forwarded_connections": 6,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "lease",
+          "stalled_connections": 0
+        },
+        {
+          "accepted_connections": 9,
+          "cancelled_connections": 1,
+          "connection_io_errors": 0,
+          "denied_connections": 8,
+          "forwarded_connections": 1,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "publication",
+          "stalled_connections": 0
+        },
+        {
+          "accepted_connections": 6,
+          "cancelled_connections": 0,
+          "connection_io_errors": 0,
+          "denied_connections": 6,
+          "forwarded_connections": 0,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "recovery",
+          "stalled_connections": 0
+        }
+      ],
+      "stale_descriptor_checks": 1,
+      "successor_local_data_removed": true,
+      "unacknowledged_local_commit": {
+        "generation": 2,
+        "inode": "2",
+        "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+        "version": "6"
+      }
+    },
+    "stalls": {
+      "acknowledged": [
+        {
+          "generation": 1,
+          "inode": "2",
+          "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+          "version": "4"
+        },
+        {
+          "generation": 3,
+          "inode": "2",
+          "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+          "version": "6"
+        }
+      ],
+      "ambiguous_response": {
+        "outcome": "unknown",
+        "transport_error": true
+      },
+      "application_constructors": 3,
+      "backend": "s3",
+      "caller_executor_preserved": true,
+      "failed_recovery_elapsed_ms": 30116,
+      "failed_recovery_http_status": 500,
+      "failed_recovery_observation_timeout_ms": 60000,
+      "faulted_replica_reads": 1,
+      "format": 1,
+      "healthy_retirement_reads": 31,
+      "lease_stalled_connections": 9,
+      "mode": "bucket proof; TCP forwarding stalls",
+      "owner_fenced": true,
+      "predecessor_local_data_removed": true,
+      "publication_stalled_connections": 1,
+      "recovered_after_outage": {
+        "generation": 1,
+        "inode": "2",
+        "sha256": "43b52819fe6e2d231fb8f895368d74322fbe00fac16c9e3b78a67eda1e50d06c",
+        "version": "4"
+      },
+      "recovered_after_takeover": {
+        "generation": 3,
+        "inode": "2",
+        "sha256": "b0cfa20cfb938d6c81d97ae045776493e18d6205bbb07812398923bf1deaffb6",
+        "version": "6"
+      },
+      "recovery_stalled_connections": 2,
+      "remaining_nodes_joined": true,
+      "scope": "Account:a1b10eade05e53c804314980b9999da73e9d3355d93222ee779971b888bca6d0",
+      "socket_proxies": [
+        {
+          "accepted_connections": 9,
+          "cancelled_connections": 9,
+          "connection_io_errors": 0,
+          "denied_connections": 0,
+          "forwarded_connections": 7,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "lease",
+          "stalled_connections": 9
+        },
+        {
+          "accepted_connections": 1,
+          "cancelled_connections": 1,
+          "connection_io_errors": 0,
+          "denied_connections": 0,
+          "forwarded_connections": 1,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "publication",
+          "stalled_connections": 1
+        },
+        {
+          "accepted_connections": 2,
+          "cancelled_connections": 2,
+          "connection_io_errors": 0,
+          "denied_connections": 0,
+          "forwarded_connections": 0,
+          "joined": true,
+          "remaining_connections": 0,
+          "role": "recovery",
+          "stalled_connections": 2
+        }
+      ],
+      "stale_descriptor_checks": 1,
+      "successor_local_data_removed": true,
+      "unacknowledged_local_commit": {
+        "generation": 2,
+        "inode": "2",
+        "sha256": "bca335636d7cce3447a4d939b16c429ef2934724ed1f0dd8d1064883bfd89f21",
+        "version": "6"
+      }
+    }
+  },
+  "server_image": "ghcr.io/rustfs/rustfs@sha256:bffcab0c9d647aab0055d1c69d340b202d0909966b385932d4ead1aeb7602858",
+  "executable_sha256": "d5b21be648cbd7214e7c9199f26bac9c4cbf66a6a310f014dbba5766d27ea843",
+  "logs": {
+    "wal-original-reproduction": "3df8b90187be19a21a46a6dc4e6b5e49b138cb4a6f18dbb1af8758ebede97ad8",
+    "wal-bounded-workload": "9f2ce5f7896c374c0df186bfb795058e3e029301b1eeed5acd80379320241cd9",
+    "wal-negative-control": "9f3858c414ef7f6a5ff991c4a4630efb3597f6ede1914e7a81e5039e96ee93ae",
+    "wal-restored-pass": "4a69efad3239cfa64caf00b411f33614598f179b20d5b049e8ec837e07398014",
+    "s3-cut-reproduction": "1dee61826790f8fe7c6a971ccac97053899a8b0173394650b1716598cf58a306",
+    "s3-cut-diagnostic": "816384ea0b46675600a18db167471d358ab0b711fedfe13d24aab706b97a25f7",
+    "admitted-dev": "d574df0512008037cd293836b0b4448815796ae51d7f40d8c4714b7e7d5ea862",
+    "admitted-proof": "32174d68a7d06cc852833682c84427bf4a421fa40a75d93755639a11b56101dd",
+    "admitted-sockets": "dbfbf4b8a95836106613e0069f2ac270da23340da926469dde773925ffd47e5f",
+    "admitted-stalls": "71209826fae2366eed9f91d68f8982e65c85926126ffacd365ef2db322cbfa6b",
+    "replica-dev": "ecb224c37943e3b74a713959937379f48a2e19d974371ac1f27bb9717a676d4c",
+    "replica-proof": "ac0e1ba12c20fd109fd5d3abdab84f35bdf8ed8fe23bc6b9b6950067055c7acd",
+    "replica-sockets": "6c2e002ff17a11d7c3ddbde79470b92d0d85d352785e12349c627d124673d0ca",
+    "replica-stalls": "a420c97e8be2917a4fe67544db8d5dac57a8cb529f9f350ec84337e6b772487f"
+  },
+  "node_delivery": {
+    "status": "Linux failure not reproduced locally; cause unresolved; CI timing enabled",
+    "feature_mode": "embed,node",
+    "executions": 30,
+    "restarts": 30,
+    "handler_budget_ms": 250,
+    "confirmed_root_fetch_observations": 360,
+    "max_root_fetch_us": 30759,
+    "node_version": "24.13.1",
+    "executable_sha256": "b114e2c30fb33bddee77a0f2502d81e3b26a69100fe22c3cb81469c40035c44f",
+    "package_inventory_sha256": "ef4f0d276bfd886b28984163b5e790709378bab8031c1f58f40abffdacd52747",
+    "logs": {
+      "node-delivery-reproduction-0.log": "47f56ed0c013e9d331ffe61ffce491555cfe308444158c197e2ef3281b58ea00",
+      "node-delivery-reproduction-1.log": "4af775d20819719fee103240583fd417816d8a226afe76dcc33d7074ba7b258b",
+      "node-delivery-reproduction-2.log": "0fe47f92e75affe65c653137bc9fac47b1b43611f8465f6fbc49910e3f8fc2ed",
+      "node-delivery-reproduction-3.log": "8fbc481849407b84797f5fabe3aea8f42a99ceb3f40030a902ecfffc5b44c47a",
+      "node-delivery-reproduction-4.log": "3f3d0a937b67e65ffd84dbdf08c56267cc187d98a48a4cf07e0c94afdff5009b",
+      "node-delivery-reproduction-5.log": "bb58d20971858a1dd98f1046fb39bca4bab25b556a2b09d10865ace0e4712992",
+      "node-delivery-reproduction-6.log": "e8a6c1a4f09dc2ca68e798355332533b10683239a191fe451c781c2802a58021",
+      "node-delivery-reproduction-7.log": "3597b0247995e2516b8946a46056b5c1171887f8feee826bed845643d5ad1253",
+      "node-delivery-reproduction-8.log": "b8828b0a43556b349fadcea8944221ad34303052542751497ac8046d8734cdfa",
+      "node-delivery-reproduction-9.log": "55c2739c1204cb48702fde947b91b6585c43aa0f3700e38b2959dbb24a1f299f",
+      "node-delivery-reproduction-10.log": "4fd631cc6a0476f3c5021df7034f1de5ba2d4f5f1e3f46c826c0d679b04754ef",
+      "node-delivery-reproduction-11.log": "4de1a7ea1897b1223af515ea97ac91ecfb5a977460172e3a6c7152503d75a311",
+      "node-delivery-reproduction-12.log": "82e5a327799550b5108ecc80be7bce45d4b4d33bf2120701e6599cac4673fcd9",
+      "node-delivery-reproduction-13.log": "f68e756cd0ee277482ebbfa4a0f8439781640f06ab6b432b744a9ce8f2ff4e95",
+      "node-delivery-reproduction-14.log": "8bb4bea24827416e4ad6fcec3ddd1c27b5f48962c0fdb23a8b05bc8d305fb78e",
+      "node-delivery-reproduction-15.log": "740860076f65a64ab688839e1fc252e3bd890a52cb4cb51ff6d5b11912b5e144",
+      "node-delivery-reproduction-16.log": "8b43c1fe94f72a9e3f9b73886ef7173209c702775c8cfe2d677f65f3bf1b6a4c",
+      "node-delivery-reproduction-17.log": "38233833e44db0336b6f61c8387852aa786770a97c816f916c93b75bb91e50de",
+      "node-delivery-reproduction-18.log": "55021fbd3377e8cef39cf74131731052bcc42e38fb0b7cac874ae9804ce80d14",
+      "node-delivery-reproduction-19.log": "ff6e880453ce8e9c95c8250b6700017b34ba09b53df708b316a3c6faa16ec0ec",
+      "node-delivery-reproduction-20.log": "aa7c0637679f059d36b3cc6f7fc532626d2eb06da50ddd7b964870f42af28d6a",
+      "node-delivery-reproduction-21.log": "e043c8bdf0c61fba7ca8813b49f866b9c04de62190285abe5d82a58bf9f71109",
+      "node-delivery-reproduction-22.log": "98f58a9df5e3f485103a515c3aa65183d053e1f524c7bc998904e2748646a69d",
+      "node-delivery-reproduction-23.log": "52ef16a19a9065aac8d429c2d1387921ccd31e97262dc1f075fde582943c2bb9",
+      "node-delivery-reproduction-24.log": "5c0bbec84890344a389dd2d2556ca5ef5184c675d04a8d214e33b906ec30affa",
+      "node-delivery-reproduction-25.log": "6e297949816b52e2c6c406623312444fedd526db6883ac0e248699e917cfcc5a",
+      "node-delivery-reproduction-26.log": "8f1ab6f2c34c4b9670f116e2cda95604b66cf5f1739cfc23421646f7df3f58f6",
+      "node-delivery-reproduction-27.log": "c33902aca4c562a1f92b201b17e2cc698d1481e70a01c7d765e415095450e0c9",
+      "node-delivery-reproduction-28.log": "5aa61f4e920f1421276472f84a52bd77edd9d9d77fd4c3af5cf3b8d8a21c8d99",
+      "node-delivery-reproduction-29.log": "90b1462080f087b3c5188e42a2c2d000457b1d758e8d52b49e9f608f953f6bfb"
+    }
+  }
+}

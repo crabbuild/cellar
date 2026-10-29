@@ -596,11 +596,25 @@ container, creates the bucket and retains the structured fault report.
 The test proves a first file/state/receipt transaction, blocks replica publication
 before a second local commit, independently refuses owner-store operations and
 requires actual lease-expiry fencing without acknowledging the second effect.
+The second handler signals admission and waits before writing. The controller
+cuts publication and releases that handler, then observes its local commit and
+failed publication before isolating the lease. This ordering preserves the
+durable retirement check during routing: an outage before admission correctly
+refuses the request and cannot exercise an in-flight unproven write.
 It removes old local state, refuses unreadable replica admission without calling
 the application factory, restores the first acknowledged transaction under a new
 owner, rejects stale capabilities and proves a third transaction. A second
 empty-local-state restore must match that new receipt. The same deadlines and
 shutdown assertions apply to both backends.
+
+The recovery client keeps real retirement-record reads and scans on its healthy
+connection to the same bucket, while replica reads use the faulted connection.
+The [test adapter](../crates/cellar/tests/support/filesystem_recovery_store.rs)
+records both paths. This isolates failed replica restoration from retirement
+authority failure; it neither invents an absent retirement record nor returns a
+successful replica response. Both read counters must advance, and no application
+constructor may run. A fault covering the retirement namespace as well is a
+different admission/shutdown profile.
 
 The S3 case adds real provider conditional writes, object publication and cold
 replica reads beneath the supplied-client fault gates. Those gates do not simulate
