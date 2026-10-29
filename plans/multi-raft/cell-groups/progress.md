@@ -3,10 +3,46 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The full implementation goal is active following the plan handoff
-below. Intermediate contracts do not qualify a shared runtime.
+hard cutover. The latest user selection scopes this delivery to the executable
+design and implementation plan. Earlier implementation checkpoints are retained
+below; their historical scope statements do not override that selection.
+Intermediate contracts do not qualify a shared runtime.
 No production legacy/shared mode flag is being added.
 
+
+## Current executable-plan handoff
+
+The package contains 16 dependency-ordered tasks, 86 required cases, 14 invariants
+and nine qualification profiles. Each task supplies source anchors, owned paths,
+implementation steps, exact test commands and acceptance oracles. CG-01 and CG-02
+retain their historical DONE evidence. CG-03 remains IN_PROGRESS pending the
+implementation executor's completion audit; CG-04 through CG-16 remain TODO.
+This handoff does not advance runtime status merely because a plan validates.
+
+The reviewed source is `0df009a24d88408a8efc40e356f794ca35513a95`. Existing routing
+sessions now retain the original logical request, command identity, deadline and
+attempt budget across retries. Relocation requires exact confirmation against the
+configured trusted catalog; cached requests need no catalog read. Cancelled
+lookup cannot refund an attempt, and a possibly submitted command retains its
+ambiguous outcome. Catalog confirmation does not authenticate a network peer or
+grant serving authority. Actual shared dispatch remains CG-04/CG-07 work.
+
+The retained record at
+`.cellar/cell-groups-evidence/CG-03-routing-final/record.json` binds 77 source
+inputs, 20 successful command logs, three test executables and 44 distinct Rust
+test cases to that revision. Its gate includes all-target check and Clippy,
+formatting, layout, dependency isolation and docs checks. All 37 plan-validator
+tests pass. The earlier Clippy rejection of a forbidden test macro is retained;
+the final source replaces it with a permitted selector without suppressing the
+lint. These are existing local qualification results, not a RustFS drill or a
+shared runtime performance claim.
+
+For this handoff, package validation, reviewed-source preflight, validator tests,
+executor-brief generation and repository docs checks are rerun. The release gate
+must still refuse incomplete implementation. The branch includes freshly fetched
+`origin/main` at `1be27d234d4674d4d014785c60cecbfe394bdab9`; the supplied TiKV checkout
+matches the investigation pin. The requested MR-13/MR-14 progress JSON files
+remain excluded from the PR.
 
 ## CG-03 physical bootstrap and inventory checkpoint
 
@@ -184,11 +220,12 @@ CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
 CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline is `5d0d8e5ede3b4efedc211c40122a1a26b43968b4`.
-The physical bootstrap change updates the identity, manifest, catalog and birth
-source anchors. Their excerpts are unchanged; the manifest excerpt moves after
-the typed storage handles. A new executor must receive both ignored DONE-task evidence folders
-before validating those historical checkpoints.
+The reviewed source baseline is `0df009a24d88408a8efc40e356f794ca35513a95`.
+The routing change updates the catalog/birth anchor hashes and line positions;
+their excerpts are unchanged. The baseline records the source review and test
+corrections. A new executor must receive both ignored DONE-task evidence folders
+before validating those historical checkpoints, plus the CG-03 routing directory
+before auditing that task for completion.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until

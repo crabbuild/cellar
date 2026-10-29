@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "5d0d8e5ede3b4efedc211c40122a1a26b43968b4",
+  "source_revision": "0df009a24d88408a8efc40e356f794ca35513a95",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed physical cell-group bootstrap at 5d0d8e5ede3b4efedc211c40122a1a26b43968b4. ReplicaIdentity and GroupLog now carry GroupHistory without a fabricated cell. The existing GroupScope excerpt remains for staged host consumers. CachedGroup fields are unchanged but their excerpt moves after typed storage handles; mapping/cache validation now binds membership and mandatory group roots on both persistence and recovery. Catalog/birth excerpts are unchanged; catalog.rs adds the typed bootstrap permit export. The new path syncs empty group genesis, checks permanent node and member claims, refuses missing claimed state and exposes bounded physical inventory. Shared manifest recovery fixtures use real physical handles. No managed fleet permit, shared runtime serving authority, authenticated redirect integration or final hard cutover is implied. CG-03 remains IN_PROGRESS.",
+  "review_note": "2026-10-29: reviewed invocation-bounded routing at 7f37a60917bdf4d54022eb366050dba5d58ee4bf. Catalog/birth source anchor excerpts are unchanged; catalog.rs adds exports for the new route session, request, attempt, cached observation and typed errors, shifting the excerpt lines. The directory verifies untrusted relocation hints by exact lookup in its configured trusted catalog under the original captured domain deadline. Immutable request identity and ambiguity survive redirects, budgets are consumed before awaits, and cached starts do not read the catalog. This prepares shared-host routing; it is not transport authentication, command execution or serving authority. Existing storage and host source anchors are unchanged. Successor c60a7d23aa4c01bde405f04483d1792cb9375bc2 strengthens the native deadline test by consuming four seconds of a five-second invocation before a stalled redirect; a two-second external guard rejects per-hop timeout replenishment. Anchored production source is unchanged. Successor 0df009a24d88408a8efc40e356f794ca35513a95 replaces the forbidden Tokio select macro in the external cancellation test with a bounded futures selector. No production source anchor changes.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -61,14 +61,14 @@
     },
     "catalog": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "3eba1f95021bdc27e94a34dab3f9a01b127b4f58ca5930abab6fba7b89226f65",
-      "line": 111,
+      "sha256": "ee51dcf3b884e9edf39364046054d8aac7769005a2637fef1dd7cb1cb7c3a4d8",
+      "line": 113,
       "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
     },
     "birth": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "3eba1f95021bdc27e94a34dab3f9a01b127b4f58ca5930abab6fba7b89226f65",
-      "line": 180,
+      "sha256": "ee51dcf3b884e9edf39364046054d8aac7769005a2637fef1dd7cb1cb7c3a4d8",
+      "line": 182,
       "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
     },
     "version": {

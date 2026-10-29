@@ -9,9 +9,9 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The design package is delivered. The active implementation goal remains the
-complete shared-group runtime and hard cutover. Delivering the plan or an
-intermediate checkpoint does not mark that goal complete.
+The requested deliverable is the executable design and implementation plan.
+The target for its implementation executor remains the complete shared-group
+runtime and hard cutover. Plan delivery does not qualify that runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -68,8 +68,9 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The end-to-end implementation goal is active. Continue from the existing code
-and retained evidence; the historical plan handoffs do not replace that scope.
+The user selected a plan handoff for this delivery. The implementation executor
+should continue from the existing code and retained evidence; no new runtime
+work is required to read or review this package.
 
 Continue CG-03 after reading
 [progress](progress.md) and inspecting the working diff.
@@ -79,12 +80,15 @@ an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
 to DONE. Continue in the generated dependency order afterward.
 
-Physical group genesis, typed replica handles, permanent initial-member claims
-and complete group inventory are implemented at `5d0d8e5e`; see the latest
-[checkpoint](progress.md) for evidence and limits. Complete authenticated redirects
-with the original invocation deadline and hop budget before closing CG-03. CG-04
-then connects enrollment and the catalog startup permit to the shared runtime,
-verifies the complete selected manifest/image closure and acquires current-term
+Physical group genesis, typed replica handles, permanent initial-member claims,
+complete group inventory and invocation-bounded catalog-confirmed redirects are
+implemented through `0df009a2`; see the latest [checkpoint](progress.md) for
+evidence and limits. Audit the retained CG-03 record against every task step
+before marking it DONE. The record is at
+`.cellar/cell-groups-evidence/CG-03-routing-final/record.json`; transfer that entire
+directory along with the earlier DONE-task evidence to the implementation
+executor. CG-04 then connects enrollment and the catalog startup permit to the
+shared runtime, verifies the complete selected manifest/image closure and acquires current-term
 quorum authority. Managed fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
