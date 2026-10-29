@@ -2,7 +2,7 @@
 
 # Cell-group durable state
 
-This component is under CG-02 implementation. It supplies immutable manifest pages, their filesystem owner, complete-root
+CG-02's storage boundary is qualified. The component supplies immutable manifest pages, their filesystem owner, complete-root
 preparation and atomic Raft Engine root publication. Production host admission
 is not yet wired to these contracts; a stored root is not quorum authority.
 
@@ -110,5 +110,27 @@ cover image/page writes and sync, engine sync, publication and reclamation;
 restart verifies every selected cell before collecting orphaned objects. Missing
 or corrupt pages, images, extent roots and non-header extents refuse complete-root
 preparation. These are storage-boundary checks, not quorum, SDK deduplication or
-RustFS qualification. CG-02 completion requires the full source-bound evidence
-gate recorded in the delivery plan.
+RustFS qualification. The full CG-02 source-bound evidence gate is recorded in the
+delivery plan.
+
+## Enrollment admission (CG-03 in progress)
+
+`decide_enrollment` checks a bounded cell-addressed enrollment entry against the
+current group route and committed lifecycle state. Sealed and retired ranges
+refuse, including delayed entries prepared before the seal. Active admission
+returns either a prospective creation record or the identical committed record.
+A competing operation, cell incarnation, schema or initial image cannot replace
+the winner. The same decision must run again at ordered log application; a
+preparation-time check is not permission to bypass a later seal.
+
+`EnrollmentRecord` binds logical cell history, original creation operation,
+schema and initial image. It deliberately excludes physical group placement, so
+normal transfer preserves the record while the request adopts the current route.
+Its bounded canonical marker-1 codec verifies data shape, not authority. CG-04
+must publish this record atomically with enrollment, retain it through mutations,
+and include it in complete snapshots/archives. An exact retry must not initialize
+again or roll the current image back to the initial one. Current-term quorum and
+read authority remain required from the host even for a recognized retry.
+
+Paged range-directory publication, birth reconciliation and host integration are
+still pending. Pure admission tests do not qualify those boundaries.

@@ -49,8 +49,8 @@ must include its initial replayable LTX chain.
 
 ## Remaining implementation
 
-CG-01 and CG-02 have passed their complete task gates. CG-03 through CG-16 remain
-TODO. The latest storage qualification is recorded below; the earlier sections
+CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
+CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
 The reviewed source baseline is `ec9d277e50416f786fe3c1cd851b4147f9cd4b43`.
@@ -232,3 +232,33 @@ loss. Receipt rows are physical-state checks, not SDK deduplication qualificatio
 The shared host must still integrate authoritative root inventories, admission,
 quorum, snapshots and archives. No RustFS drill, split/merge, hibernation latency,
 density claim or final hard cutover is qualified by these tests. CG-03 is next.
+
+
+## CG-03 — enrollment admission in progress
+
+The first CG-03 slice adds deterministic admission using the existing bounded
+cell-addressed entry codec. Requests verify group history, route epoch, birth,
+schema and the cell's half-open range. Sealed or retired lifecycle state refuses
+delayed enrollment. Concurrent preparations must be checked again in committed
+log order; only the selected original creation record can resolve a retry.
+
+The bounded canonical `EnrollmentRecord` binds logical cell history, original
+creation operation, schema and initial image commitment. It survives normal
+transfer without binding to the old physical group. The host must retain it
+atomically with enrollment, preserve it through mutations and include it in
+snapshots/archives. Returning an existing record grants no quorum/read authority
+and must never restore the initial image over newer state.
+
+Three native admission cases pass: creation conflict/retry and route identity,
+sealed/retired refusal, and bounded canonical record decoding. Negative record
+checks preserve field order so rejection cannot be attributed only to JSON map
+reordering. Empty records require the canonical empty image and zero checksum.
+The initial build required explicit image wire fields; an intermediate running
+suite exposed the absent empty-image checksum check. Failed and corrected logs
+are retained with the checkpoint rather than suppressed.
+
+This is a pure admission boundary. The paged range tree and conditional namespace
+root journal, lost birth/root response reconciliation, permanent blank-disk
+refusal integration and bounded route discovery remain CG-03 work. CG-04 must
+connect admission and durable creation records to the real shared group host.
+CG-03 remains IN_PROGRESS; the production hard cutover is not complete.

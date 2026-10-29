@@ -264,7 +264,7 @@
     {
       "id": "CG-03",
       "title": "Prepare paged range routing and enrollment admission",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -407,7 +407,7 @@
       "test_target": "native_cell_groups_execution",
       "steps": [
         {
-          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands.",
+          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands. Atomically retain the immutable enrollment creation record with the selected cell state; preserve it through mutations and transfer so retries never reinitialize or restore the initial image over newer state.",
           "tests": [
             "three_cells_one_rawnode_per_voter",
             "concurrent_enrollment_one_cell"

@@ -33,6 +33,16 @@ under that route epoch. The group checks the key is in its active range and no
 other live incarnation has enrolled that ID. The command is idempotent by its
 stable creation identity. Only committed/published enrollment becomes visible.
 
+Persist the original creation operation, logical cell history, schema and initial
+image commitment atomically with enrollment. Retain this creation record through
+later mutations and normal transfers; comparing a retry to the latest image would
+confuse a successful earlier creation with a conflict. The initial commitment is
+provenance, not a requirement to retain the superseded initial image forever.
+Snapshots and archives carry the record with the selected current cell state.
+Admission decisions must be checked again in committed log order against the
+current lifecycle state. Recognizing an exact retry grants neither current-term
+authority nor permission to restore the initial image over newer mutations.
+
 | Crash/collision | Recovery |
 | --- | --- |
 | Birth CAS result unknown | Read the canonical birth/mutation journal; never allocate competing voter history. |

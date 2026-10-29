@@ -4,7 +4,7 @@
 
 Status: executable design and implementation plan delivered on 2026-10-29.
 CG-01 contracts and CG-02 storage have passed their local evidence gates.
-CG-03 routing and enrollment is next.
+CG-03 routing and enrollment is in progress.
 The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
@@ -68,7 +68,7 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-Start CG-03 after reading [progress](progress.md) and inspecting the working diff.
+Resume CG-03 after reading [progress](progress.md) and inspecting the working diff.
 CG-01 and CG-02 are DONE only at their named contract/storage boundaries; the
 remaining tasks still require implementation. `ready` lists eligible TODO tasks;
 an IN_PROGRESS task is resumed from its existing brief and working state. Each
