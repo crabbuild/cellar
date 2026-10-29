@@ -41,6 +41,8 @@ Checks completed for this intermediate change:
 - `cellar-logic --lib`: all 18 cases pass, including 4 new group-contract cases.
 - Clippy for the affected libraries and new native test passes with `-D warnings`;
   module layout, native dependency isolation and repository documentation pass.
+- Repository formatting check, all 36 plan-validator tests, package validation
+  and the reviewed source preflight pass at this checkpoint.
 
 The first native run exposed an incorrect minimum token length for short IDs.
 The bound now derives from the fixed wire fields, and a one-byte ID regression
@@ -48,7 +50,8 @@ passes. Local logs, including that failed run, remain under the ignored
 `.cellar/cell-groups-evidence/CG-01-in-progress/` directory. They are intermediate
 checks, not the complete source-bound CG-01 evidence record.
 
-The original source preflight was inspected before edits. `version.rs` is now an
-intentional CG-01 change; update its reviewed baseline at the completed source
-revision before dependent implementation starts. Do not replace a mismatched hash
-without reading the changed contract.
+The original source preflight was inspected before edits. The reviewed source
+baseline advances to `7484502a` for this intermediate checkpoint; `version.rs` adds
+the separate token domain and all other pinned owners remain unchanged. This
+baseline update is not task completion. Review further changed contracts before
+refreshing their hashes or beginning dependent implementation.

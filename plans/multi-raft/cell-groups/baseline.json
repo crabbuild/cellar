@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "70b6022c8baba3d0a52de6bd9fa11866bdbd3b3f",
+  "source_revision": "7484502a2209205d68be42d895abfce7ad15291f",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: inspected current owners, callers, native fixtures and CI; planning-only branch at 70b6022c. Reconcile changed source explicitly before implementation.",
+  "review_note": "2026-10-29: reviewed CG-01 intermediate contracts at 7484502a2209205d68be42d895abfce7ad15291f. version.rs adds the separate cell-token domain and logical-history verification; original group-token consumers remain pending cutover. Other pinned owner inputs are unchanged. CG-01 is IN_PROGRESS, not qualified.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -73,8 +73,8 @@
     },
     "version": {
       "path": "crates/cellar/durability/raft/version.rs",
-      "sha256": "950d023f70e7b3ab1242e9b9d2a02475da4097f8aed0e9bf888e21c35a214c37",
-      "line": 20,
+      "sha256": "1b5294e02c9a5299e752fa5656ee153876d1b76fa5ffaa06c7da2d53defe53fe",
+      "line": 73,
       "excerpt": "pub enum VersionError {\n    Invalid,\n    Expired,\n    WrongHistory,\n    WrongSchema,\n    KeyRetention,\n    Limit,\n}\n"
     },
     "snapshot": {
