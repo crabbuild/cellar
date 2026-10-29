@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "f41f470f40f510746ba5d8f3178b35624f3cecb2",
+  "source_revision": "ec9d277e50416f786fe3c1cd851b4147f9cd4b43",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed reclamation and uncertain-publication checkpoint at f41f470f40f510746ba5d8f3178b35624f3cecb2. Page leases retain the directory lock. Storage reserves old/candidate closures before engine I/O, commits retention after cache publication and preserves both closures on an armed failure. Recovery binds retention to the selected engine marker; bounded collection requires complete owner-supplied root reconciliation and a successful deletion barrier. Existing source excerpts remain unchanged. Complete shared-host inventory integration, root process-kill cuts and full extent-mode qualification remain pending; CG-02 is not complete.",
+  "review_note": "2026-10-29: reviewed and qualified CG-02 at ec9d277e50416f786fe3c1cd851b4147f9cd4b43. All five required cases and complete command gate pass. Both physical image modes recover complete selected roots through 30 process-kill cuts; missing/corrupt image, extent and manifest dependencies refuse. Reclamation retains selected and uncertain closures. Existing anchored source hashes/excerpts are unchanged. Production shared-host authoritative inventory, quorum, snapshots/archive, topology, hibernation and real RustFS recovery remain CG-03 through CG-16 work.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {

@@ -49,15 +49,13 @@ must include its initial replayable LTX chain.
 
 ## Remaining implementation
 
-CG-02 is IN_PROGRESS; CG-03 through CG-16 remain TODO. CG-02 must complete
-complete paged group manifests, real engine publication, recovery refusal for
-missing dependencies and image/pin reclamation tests in both image modes.
+CG-01 and CG-02 have passed their complete task gates. CG-03 through CG-16 remain
+TODO. The latest storage qualification is recorded below; the earlier sections
+retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline advances to the qualified CG-01 revision. Original
-host/storage source anchors remain unchanged; newly produced contract files are
-bound by the CG-01 evidence record. Review changed inputs before refreshing the
-baseline for later tasks. A new executor must receive the ignored evidence
-folder before validating this DONE checkpoint.
+The reviewed source baseline is `ec9d277e50416f786fe3c1cd851b4147f9cd4b43`.
+The original anchored source hashes and excerpts remain unchanged. A new executor
+must receive both ignored DONE-task evidence folders before validation.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until
@@ -205,3 +203,32 @@ an unnecessary clone used to construct a one-element slice. Neither fix weakened
 an assertion. Source hashes, copied test executables and failed/corrected logs
 are retained under `.cellar/cell-groups-evidence/CG-02-reclamation/`. This is a
 storage checkpoint, not the complete CG-02 evidence gate or a RustFS qualification.
+
+
+### CG-02 — complete storage qualification
+
+Qualified source: `ec9d277e50416f786fe3c1cd851b4147f9cd4b43`.
+The retained record is `.cellar/cell-groups-evidence/CG-02-ec9d277e5041/record.json`.
+It binds 45 source inputs, 16 successful command logs and three copied native
+executables. All five required cases were present in the inventory and each
+passed when selected individually. The complete gate includes all-target checks
+and Clippy, formatting/layout, dependency isolation, docs and 37 validator tests.
+
+The 14-case manifest suite covers both materialized and extent-backed SQLite
+images. Thirty actual child-process kills span image and manifest writes/sync,
+engine sync, publication and reclamation. Recovery selects a complete old or new
+root, checks both cells' independent values and receipt rows, and verifies that
+selected data remains readable after orphan reclamation. Missing or corrupt
+manifest pages, sibling images, extent roots and non-header extents refuse
+complete recovery. Extent updates also preserve an unchanged shared tail extent.
+
+All 19 existing Raft storage cases and the generation-store image sync regression
+pass. The latter exercises five additional child-process cuts with the shared
+fault adapter's original behavior. Standalone child fixtures remain intentionally
+ignored by direct suite execution and are launched by their parent tests.
+
+This completes CG-02 at its storage boundary. Process kills do not simulate power
+loss. Receipt rows are physical-state checks, not SDK deduplication qualification.
+The shared host must still integrate authoritative root inventories, admission,
+quorum, snapshots and archives. No RustFS drill, split/merge, hibernation latency,
+density claim or final hard cutover is qualified by these tests. CG-03 is next.

@@ -3,7 +3,8 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 contracts have passed their local evidence gate; CG-02 is in progress.
+CG-01 contracts and CG-02 storage have passed their local evidence gates.
+CG-03 routing and enrollment is next.
 The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
@@ -28,7 +29,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-02` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-03` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -37,17 +38,18 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    only with verified evidence and completed dependencies. Final qualification
    repeats the full capability matrix at one release revision.
 
-This checkout retains CG-01's evidence under the ignored
-`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/` directory. A fresh checkout must
-receive that retained directory at the same relative path before validating the
-DONE checkpoint. Missing evidence fails validation; it is never treated as a pass.
+This checkout retains evidence under the ignored
+`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/` and
+`.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` directories. A fresh checkout must
+receive both retained directories at the same relative paths before validating
+the DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
 The design, task briefs and validator unit tests are committed in this package.
 
 ```sh
 python3 plans/multi-raft/cell-groups/plan.py validate
 python3 plans/multi-raft/cell-groups/plan.py preflight
 python3 plans/multi-raft/cell-groups/plan.py ready
-python3 plans/multi-raft/cell-groups/plan.py show CG-02
+python3 plans/multi-raft/cell-groups/plan.py show CG-03
 python3 -m unittest discover -s plans/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -66,12 +68,12 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-Resume CG-02, which is already IN_PROGRESS, before starting CG-03. At this
-checkpoint `ready` lists no new TODO task because CG-03 depends on CG-02's
-completion; an empty list does not mean the project is finished. Read
-[progress](progress.md), inspect the working diff and retain existing work before
-executing the CG-02 brief. Its complete source-bound evidence gate must pass before
-changing its status to DONE. Continue in the generated dependency order afterward.
+Start CG-03 after reading [progress](progress.md) and inspecting the working diff.
+CG-01 and CG-02 are DONE only at their named contract/storage boundaries; the
+remaining tasks still require implementation. `ready` lists eligible TODO tasks;
+an IN_PROGRESS task is resumed from its existing brief and working state. Each
+task's complete source-bound evidence gate must pass before changing its status
+to DONE. Continue in the generated dependency order afterward.
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff
