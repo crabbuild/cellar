@@ -38,10 +38,10 @@ impl ManifestPins {
         cells as usize
             * (std::mem::size_of::<PinnedPage>()
                 + 2 * std::mem::size_of::<usize>()
-                + 2 * MAX_CELL_ID_BYTES)
+                + 3 * MAX_CELL_ID_BYTES)
     }
 
-    /// Conservatively charge shared subtrees to every owner. Include both cell
+    /// Conservatively charge shared subtrees to every owner. Include all three cell
     /// ID allocations and Arc control blocks, not just the image handle size.
     pub(crate) fn reserved_bytes(&self) -> usize {
         self.0.as_ref().map_or(0, |p| p.bytes)
@@ -76,6 +76,7 @@ impl ManifestPins {
             + 2 * std::mem::size_of::<usize>()
             + key.cell().as_str().len()
             + leaf.version.history.cell.as_str().len()
+            + leaf.enrollment.cell().cell.as_str().len()
             + left.reserved_bytes()
             + right.reserved_bytes();
         Self(Some(Arc::new(PinnedPage {

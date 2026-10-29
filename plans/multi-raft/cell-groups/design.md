@@ -148,8 +148,10 @@ cell's identity and base chain; batching is never a cross-cell transaction.
 
 The durable group root contains group history, applied position, routing/transition
 state, membership binding and an authenticated map of all cell image leaves.
-Each leaf contains cell history/version, last group mutation position and effect
-summary. Use a content-addressed paged tree with bounded copy-on-write paths, not
+Each leaf contains cell history/version, immutable original enrollment identity,
+last group mutation position and effect summary. Enrollment identity binds the
+creation operation, original cell history, schema and initial image commitment;
+it is retained even after that original image is reclaimed. Use a content-addressed paged tree with bounded copy-on-write paths, not
 an O(cell-count) full manifest rewrite for every update. An engine transaction
 publishes the durable root and contiguous apply position after referenced image
 and manifest pages are synced. Readers pin a published root and exact cell image.

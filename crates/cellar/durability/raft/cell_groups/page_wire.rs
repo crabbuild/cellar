@@ -8,6 +8,10 @@ use cellar_logic::{cell_group::*, consensus::*};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+#[path = "page_wire_tests.rs"]
+mod tests;
+
 const MAGIC: &[u8; 8] = b"CLRCGM01";
 pub(super) const MAX_PAGE_BYTES: usize = 16 * 1024;
 
@@ -67,6 +71,7 @@ impl Page {
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WirePage {
+    enrollment: super::EnrollmentRecord,
     schema: [u8; 32],
     cluster: [u8; 16],
     namespace: [u8; 16],
@@ -101,6 +106,7 @@ pub(super) fn encode(
     let leaf = &page.leaf;
     let history = &leaf.version.history;
     let wire = WirePage {
+        enrollment: leaf.enrollment.clone(),
         schema: route.schema_digest,
         cluster: history.cluster.bytes(),
         namespace: history.namespace.bytes(),
@@ -163,6 +169,7 @@ pub(super) fn decode(
     };
     let page = Page {
         leaf: CellManifestLeaf {
+            enrollment: wire.enrollment,
             version: CellVersion {
                 history,
                 sequence: MutationSequence::new(wire.sequence)

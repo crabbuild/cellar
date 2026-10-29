@@ -15,7 +15,9 @@ JSON and a 16 KiB decode bound. Tree depth and cell count are explicit limits.
 These limits are admission ceilings, not qualified fleet capacities.
 
 Leaves bind logical cell history, mutation sequence, image commitment and
-geometry, last group mutation position, schema and effect summary. Local image
+geometry, last group mutation position, schema, effect summary and immutable
+original enrollment identity. A page without the required enrollment field
+refuses at marker 1; no old-layout decoder or inferred creation record is used. Local image
 filenames are excluded: replicas may store the same image under different local
 names and still derive the same logical manifest. A physical image adapter must
 resolve and pin each image by the selected logical leaf. Extent and materialized
@@ -113,7 +115,7 @@ preparation. These are storage-boundary checks, not quorum, SDK deduplication or
 RustFS qualification. The full CG-02 source-bound evidence gate is recorded in the
 delivery plan.
 
-## Enrollment admission (CG-03 in progress)
+## Enrollment admission and ordered preparation
 
 `decide_enrollment` checks a bounded cell-addressed enrollment entry against the
 current group route and committed lifecycle state. Sealed and retired ranges
@@ -126,13 +128,33 @@ preparation-time check is not permission to bypass a later seal.
 `EnrollmentRecord` binds logical cell history, original creation operation,
 schema and initial image. It deliberately excludes physical group placement, so
 normal transfer preserves the record while the request adopts the current route.
-Its bounded canonical marker-1 codec verifies data shape, not authority. CG-04
-must publish this record atomically with enrollment, retain it through mutations,
-and include it in complete snapshots/archives. An exact retry must not initialize
-again or roll the current image back to the initial one. Current-term quorum and
-read authority remain required from the host even for a recognized retry.
+Its bounded canonical marker-1 codec verifies data shape, not authority. The
+record is now required in each authenticated manifest leaf and published with
+the selected image. Ordinary mutation refuses any changed creation record.
+The record matches the cell history/schema; sequence one must select its initial
+image, and later sequences must advance that image's LTX position. A normal
+transfer carries the same record. It records an initial image commitment without
+pinning that superseded image forever. Complete snapshots and archives must
+retain this metadata as part of their selected manifest closure.
 
-## Range directory (CG-03 in progress)
+`prepare_enrollment` rechecks a bounded enrollment entry against the preceding
+complete root and the caller's committed lifecycle phase. It verifies the next
+contiguous group position before invoking the physical image producer. A new
+creation prepares sequence one and its image seal together. An exact retry does
+not invoke that producer or replace the latest image; `prepare_unchanged` advances
+only the group position, sharing the same manifest and image pins without page
+I/O. A quarantined page store refuses even this unchanged-root path. Competing creations refuse before physical preparation. The engine checks
+the exact previous branch and committed position before publication. The future
+shared owner must consume this boundary only for the actual ordered log entry;
+preparation is not a quorum proof or command acknowledgement.
+
+Current-term quorum and read authority remain required even for a recognized
+retry. Shared RawNode ownership, real concurrent enrollment and business callback
+settlement remain CG-04 work. The storage fixtures exercise repeated enrollment
+after mutation, restart and reclamation of the initial image in both physical
+image formats; they do not qualify a live shared host.
+
+## Range directory
 
 `RangeDirectory` stores a namespace-bound, immutable AVL range tree. Each page
 binds its route, child hashes, subtree bounds, height, count and coverage. A lookup
@@ -175,10 +197,10 @@ the seal, installation, archive and activation proofs before exposing replacemen
 ownership. Birth/claim admission and invocation-bounded route confirmation are
 described below. Managed admission and production client integration remain open. Native directory tests exercise real conditional
 object-store operations in memory, including races, dropped replies, corruption,
-restart and bounded split/merge churn. They do not qualify live Raft ownership,
-real RustFS or the full CG-03 gate.
+restart and bounded split/merge churn. They do not qualify live Raft ownership or real RustFS. CG-03 combines these
+checks with the separately retained physical-bootstrap and routing evidence.
 
-## Cell-independent group birth (CG-03 in progress)
+## Cell-independent group birth
 
 `CellGroupBirthSpec` binds physical group history, range, route epoch, original
 creation operation and initial members. It has no single-cell ownership field;
@@ -207,8 +229,8 @@ These metadata methods expose no voter-start capability and write no permanent
 member disk claim. The bootstrap path below connects the verified birth to real
 engine genesis and permanent claims. Managed
 namespaces refuse these unmanaged APIs until their rooted fleet authorization is
-connected. This staged boundary does not permit blank-disk recovery, replace
-current quorum membership, or complete CG-03 qualification.
+connected. This staged boundary does not permit blank-disk recovery or replace
+current quorum membership.
 
 ## Physical log identity cutover
 

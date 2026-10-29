@@ -89,6 +89,9 @@ pub struct EffectSummary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellManifestLeaf {
+    /// Original creation identity, retained atomically with every selected image.
+    /// Mutations and ordinary group transfers must preserve this record exactly.
+    pub enrollment: super::EnrollmentRecord,
     pub version: CellVersion,
     pub geometry: CellImageGeometry,
     pub last_mutation: LogPosition,
@@ -106,6 +109,17 @@ impl CellManifestLeaf {
             .map_err(|_| ManifestError::Invalid("mutation position"))?;
         if self.last_mutation.index.get() == 0 {
             return Err(ManifestError::Invalid("zero mutation index"));
+        }
+        // The immutable record's constructor/decoder validates its bounded shape.
+        // Do not allocate its canonical encoding on every tree lookup.
+        let initial = self.enrollment.initial();
+        if self.enrollment.cell() != &self.version.history
+            || self.enrollment.schema() != route.schema_digest
+            || initial.epoch != self.version.image.epoch
+            || (self.version.sequence.get() == 1 && initial != self.version.image)
+            || (self.version.sequence.get() > 1 && initial.txid >= self.version.image.txid)
+        {
+            return Err(ManifestError::Invalid("enrollment/image binding"));
         }
         let image = LtxImage::try_from(self.version.image)
             .map_err(|_| ManifestError::Invalid("image commitment"))?;
@@ -217,7 +231,8 @@ impl ManifestTree {
                 }
             }
             (Some(old), Some(expected)) if &old.version == expected => {
-                if old.version.history != leaf.version.history
+                if old.enrollment != leaf.enrollment
+                    || old.version.history != leaf.version.history
                     || old.version.sequence.checked_next().ok() != Some(leaf.version.sequence)
                     || leaf.version.image.epoch != old.version.image.epoch
                     || leaf.version.image.txid <= old.version.image.txid

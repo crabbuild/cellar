@@ -127,13 +127,24 @@ impl Images {
     fn prepare(
         &self,
         cell: u8,
-        base: Option<&CellImagePin>,
+        base: Option<(&CellManifestLeaf, &CellImagePin)>,
         cut: &images::Cut,
         after: &[u8],
         index: u64,
     ) -> Result<(CellManifestLeaf, CellImagePin)> {
         let state = cut.result;
         let mut leaf = CellManifestLeaf {
+            enrollment: EnrollmentRecord::new(
+                history(cell),
+                ProposalId::new([cell; 16])?,
+                route().schema_digest,
+                CellImage {
+                    epoch: state.epoch,
+                    txid: state.txid.0,
+                    checksum: state.checksum,
+                    commitment: CellImageCommitment::Materialized(state.digest),
+                },
+            )?,
             version: CellVersion {
                 history: history(cell),
                 sequence: MutationSequence::new(state.txid.0)?,
@@ -151,6 +162,8 @@ impl Images {
             last_mutation: position(index),
             effects: EffectSummary::default(),
         };
+        let previous = base.map(|(leaf, _)| leaf.enrollment.clone());
+        let base = base.map(|(_, pin)| pin);
         let pin = match self {
             Self::Materialized(store) => {
                 let base = match base {
@@ -210,6 +223,15 @@ impl Images {
                 };
                 CellImagePin::Extents(Arc::new(prepared.image))
             }
+        };
+        leaf.enrollment = match previous {
+            Some(record) => record,
+            None => EnrollmentRecord::new(
+                history(cell),
+                ProposalId::new([cell; 16])?,
+                route().schema_digest,
+                leaf.version.image,
+            )?,
         };
         Ok((leaf, pin))
     }
@@ -385,12 +407,31 @@ async fn seed(path: &Path, mode: Mode, large: bool) -> Result<GroupManifest> {
         let bytes = initial(cell, large && cell == 1)?;
         let cut = images::Cut::new(&[], &bytes, 0, true, false);
         let (leaf, pin) = images.prepare(cell, None, &cut, &bytes, u64::from(cell) + 1)?;
-        prepared = tree.prepare_update(&mut pages, &prepared, leaf, None, pin)?;
-        log.persist_cells(
-            OperationId::new(u64::from(cell)),
-            vec![root_write(&group, prepared.clone())?],
-        )
-        .await?;
+        let entry = enrollment_entry(&leaf.enrollment, &cut)?;
+        let (next, decision) = tree.prepare_enrollment(
+            &mut pages,
+            &prepared,
+            EnrollmentApply {
+                position: leaf.last_mutation,
+                phase: EnrollmentPhase::Active,
+                entry: &entry,
+                limits: GroupEntryLimits::default(),
+            },
+            |record| {
+                assert_eq!(record, &leaf.enrollment);
+                Ok(EnrollmentImage {
+                    geometry: leaf.geometry,
+                    effects: leaf.effects,
+                    pin,
+                })
+            },
+        )?;
+        assert!(matches!(decision, EnrollmentDecision::Propose(_)));
+        prepared = next;
+        let mut write = root_write(&group, prepared.clone())?;
+        write.entries[0].data = entry.into();
+        log.persist_cells(OperationId::new(u64::from(cell)), vec![write])
+            .await?;
     }
     let marker = prepared.marker().clone();
     log.close().await?;
@@ -428,7 +469,7 @@ pub async fn both_images() -> Result<()> {
             let before = read_image(&old_pin)?;
             let after = mutate(&before)?;
             let cut = images::Cut::new(&before, &after, 1, true, false);
-            let (changed, next_pin) = images.prepare(1, Some(&old_pin), &cut, &after, 4)?;
+            let (changed, next_pin) = images.prepare(1, Some((old, &old_pin)), &cut, &after, 4)?;
             if let (CellImagePin::Extents(old), CellImagePin::Extents(next)) = (&old_pin, &next_pin)
             {
                 assert!(old.manifest().geometry().extent_count() > 1);
@@ -450,6 +491,8 @@ pub async fn both_images() -> Result<()> {
             domain.shutdown().await;
         }
         recover_and_check(temp.path(), mode, Some(4)).await?;
+        replay_enrollment(temp.path(), mode).await?;
+        recover_and_check(temp.path(), mode, Some(5)).await?;
     }
     Ok(())
 }
@@ -469,7 +512,9 @@ async fn recover_and_check(path: &Path, mode: Mode, expected: Option<u64>) -> Re
     if let Some(expected) = expected {
         assert_eq!(index, expected);
     }
-    assert!([3, 4].contains(&index));
+    if expected != Some(5) {
+        assert!([3, 4].contains(&index));
+    }
     assert_eq!(marker.root().cells(), 2);
     let images = Images::open(&path.join("images"), mode, fs.clone())?;
     let mut pages = ManifestPageStore::open(&path.join("pages"), fs, 256, 4 * 1024 * 1024, 16)?;
@@ -478,8 +523,11 @@ async fn recover_and_check(path: &Path, mode: Mode, expected: Option<u64>) -> Re
     let mut leaves = Vec::new();
     for cell in 1..=2 {
         let (leaf, pin) = restored.pin_cell(&history(cell).cell).unwrap();
-        let sequence = if cell == 1 && index == 4 { 2 } else { 1 };
+        let sequence = if cell == 1 && index >= 4 { 2 } else { 1 };
         assert_eq!(leaf.version.history, history(cell));
+        assert_eq!(leaf.enrollment.cell(), &history(cell));
+        assert_eq!(leaf.enrollment.creation(), ProposalId::new([cell; 16])?);
+        assert_eq!(leaf.enrollment.initial().txid, 1);
         assert_eq!(leaf.version.sequence.get(), sequence);
         assert_receipt(&pin, cell, sequence)?;
         leaves.push(leaf.clone());
@@ -757,7 +805,7 @@ pub async fn process_fixture() -> Result<()> {
     };
     image_fault.mode.store(select("image-"), Ordering::Release);
     let cut = images::Cut::new(&before, &after, 1, true, false);
-    let (changed, pin) = images.prepare(1, Some(&old_pin), &cut, &after, 4)?;
+    let (changed, pin) = images.prepare(1, Some((old, &old_pin)), &cut, &after, 4)?;
     if cut_name == "after-image" {
         image_fault.pause()?;
     }
@@ -788,4 +836,142 @@ pub async fn process_fixture() -> Result<()> {
         collect_pages(&mut pages)?;
     }
     bail!("requested cut was never reached: {cut_name}")
+}
+
+fn enrollment_entry(record: &EnrollmentRecord, cut: &images::Cut) -> Result<Vec<u8>> {
+    let route = route();
+    Ok(CellGroupEntry {
+        binding: GroupEntryBinding {
+            group: route.history,
+            route_epoch: route.epoch,
+            birth_digest: route.birth_digest,
+            schema_digest: route.schema_digest,
+            proposal: record.creation(),
+        },
+        command: GroupCommand::Enroll {
+            cell: record.cell().clone(),
+            image: LtxImage::try_from(record.initial())?,
+            files: vec![GroupLtx {
+                min_txid: 1,
+                max_txid: cut.result.txid.0,
+                page_count: cut.pages.len() as u64,
+                decoded_bytes: cut.pages.len() as u64 * 512,
+                bytes: &cut.bytes,
+            }],
+        },
+    }
+    .encode(&route, GroupEntryLimits::default())?)
+}
+
+async fn replay_enrollment(path: &Path, mode: Mode) -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&path.join("node"), LogOpenMode::Resume, 4),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log.cell_group(&route().history)?;
+    let images = Images::open(&path.join("images"), mode, fs.clone())?;
+    let mut pages = ManifestPageStore::open(&path.join("pages"), fs, 256, 4 * 1024 * 1024, 16)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let current = prepare_root(
+        &tree,
+        &group,
+        &mut pages,
+        &group.group_manifest()?.context("selected root")?,
+        &images,
+    )?;
+    let (old, old_pin) = current.pin_cell(&history(1).cell).unwrap();
+    assert_eq!(old.version.sequence.get(), 2);
+    assert_eq!(old.enrollment.initial().txid, 1);
+    assert_ne!(old.enrollment.initial(), old.version.image);
+    let initial_leaf = CellManifestLeaf {
+        version: CellVersion {
+            sequence: MutationSequence::new(1)?,
+            image: old.enrollment.initial(),
+            ..old.version.clone()
+        },
+        ..old.clone()
+    };
+    assert!(
+        images.recover(&initial_leaf).is_err(),
+        "the original image has been reclaimed; creation identity must survive independently"
+    );
+    let bytes = initial(1, true)?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let entry = enrollment_entry(&old.enrollment, &cut)?;
+    let before = pages.usage().written_pages;
+    let apply = |phase, index| EnrollmentApply {
+        position: position(index),
+        phase,
+        entry: &entry,
+        limits: GroupEntryLimits::default(),
+    };
+    for phase in [EnrollmentPhase::Sealed, EnrollmentPhase::Retired] {
+        assert!(tree
+            .prepare_enrollment(&mut pages, &current, apply(phase, 5), |_| panic!(
+                "sealed or retired retry cannot initialize"
+            ))
+            .is_err());
+    }
+    for index in [4, 6] {
+        assert!(tree
+            .prepare_enrollment(
+                &mut pages,
+                &current,
+                apply(EnrollmentPhase::Active, index),
+                |_| panic!("invalid prefix cannot initialize")
+            )
+            .is_err());
+    }
+    let competing = EnrollmentRecord::new(
+        old.version.history.clone(),
+        ProposalId::new([99; 16])?,
+        route().schema_digest,
+        old.enrollment.initial(),
+    )?;
+    let competing_entry = enrollment_entry(&competing, &cut)?;
+    let error = tree.prepare_enrollment(
+        &mut pages,
+        &current,
+        EnrollmentApply {
+            entry: &competing_entry,
+            ..apply(EnrollmentPhase::Active, 5)
+        },
+        |_| panic!("competing creation cannot initialize"),
+    );
+    assert!(matches!(
+        error,
+        Err(EnrollmentApplyError::Enrollment(EnrollmentError::Conflict))
+    ));
+    let (next, decision) = tree.prepare_enrollment(
+        &mut pages,
+        &current,
+        apply(EnrollmentPhase::Active, 5),
+        |_| panic!("duplicate must not rerun initialization"),
+    )?;
+    assert_eq!(
+        decision,
+        EnrollmentDecision::Existing(old.enrollment.clone())
+    );
+    assert_eq!(next.marker().root(), current.marker().root());
+    assert_eq!(next.marker().position(), position(5));
+    assert_eq!(pages.usage().written_pages, before);
+    for cell in 1..=2 {
+        assert_eq!(
+            next.pin_cell(&history(cell).cell).unwrap().0,
+            current.pin_cell(&history(cell).cell).unwrap().0
+        );
+    }
+    let mut write = root_write(&group, next.clone())?;
+    write.entries[0].data = entry.into();
+    log.persist_cells(OperationId::new(7), vec![write]).await?;
+    assert_eq!(group.group_manifest()?.unwrap(), *next.marker());
+    assert_receipt(&next.pin_cell(&history(1).cell).unwrap().1, 1, 2)?;
+    assert_receipt(&old_pin, 1, 2)?;
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
 }

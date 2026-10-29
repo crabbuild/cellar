@@ -47,7 +47,8 @@ impl std::error::Error for EnrollmentError {}
 /// must publish it atomically with the initial cell image and carry it through
 /// snapshots/archives; the latest image cannot stand in for this original image.
 /// Decoding only checks shape and canonical encoding, not commitment authority.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "WireRecord")]
 pub struct EnrollmentRecord {
     cell: CellHistory,
     creation: ProposalId,
@@ -56,6 +57,24 @@ pub struct EnrollmentRecord {
 }
 
 impl EnrollmentRecord {
+    /// Construct bounded creation data. This grants no admission or commitment;
+    /// the owner must still validate the replicated enrollment against its route.
+    pub fn new(
+        cell: CellHistory,
+        creation: ProposalId,
+        schema: [u8; 32],
+        initial: CellImage,
+    ) -> Result<Self, EnrollmentError> {
+        let record = Self {
+            cell,
+            creation,
+            schema,
+            initial,
+        };
+        record.encode()?;
+        Ok(record)
+    }
+
     pub fn cell(&self) -> &CellHistory {
         &self.cell
     }
@@ -80,20 +99,7 @@ impl EnrollmentRecord {
         {
             return Err(EnrollmentError::InvalidRecord);
         }
-        let wire = WireRecord {
-            domain: RECORD_DOMAIN.into(),
-            cluster: self.cell.cluster.bytes(),
-            namespace: self.cell.namespace.bytes(),
-            cell: self.cell.cell.as_str().into(),
-            incarnation: self.cell.incarnation.bytes(),
-            creation: self.creation.bytes(),
-            schema: self.schema,
-            initial_epoch: image.epoch,
-            initial_txid: image.txid,
-            initial_checksum: image.checksum,
-            initial_commitment: image.commitment,
-        };
-        let bytes = serde_json::to_vec(&wire).map_err(|_| EnrollmentError::InvalidRecord)?;
+        let bytes = serde_json::to_vec(self).map_err(|_| EnrollmentError::InvalidRecord)?;
         if bytes.len() > MAX_RECORD_BYTES {
             return Err(EnrollmentError::Limit);
         }
@@ -104,31 +110,8 @@ impl EnrollmentRecord {
         if bytes.len() > MAX_RECORD_BYTES {
             return Err(EnrollmentError::Limit);
         }
-        let wire: WireRecord =
+        let record: Self =
             serde_json::from_slice(bytes).map_err(|_| EnrollmentError::InvalidRecord)?;
-        if wire.domain != RECORD_DOMAIN {
-            return Err(EnrollmentError::InvalidRecord);
-        }
-        let record = Self {
-            cell: CellHistory {
-                cluster: ClusterId::new(wire.cluster)
-                    .map_err(|_| EnrollmentError::InvalidRecord)?,
-                namespace: NamespaceId::new(wire.namespace)
-                    .map_err(|_| EnrollmentError::InvalidRecord)?,
-                cell: CellId::new(wire.cell).map_err(|_| EnrollmentError::InvalidRecord)?,
-                incarnation: IncarnationId::new(wire.incarnation)
-                    .map_err(|_| EnrollmentError::InvalidRecord)?,
-            },
-            creation: ProposalId::new(wire.creation).map_err(|_| EnrollmentError::InvalidRecord)?,
-            schema: wire.schema,
-            initial: LtxImage {
-                epoch: wire.initial_epoch,
-                txid: wire.initial_txid,
-                checksum: wire.initial_checksum,
-                commitment: wire.initial_commitment,
-            }
-            .into(),
-        };
         if record.encode()? != bytes {
             return Err(EnrollmentError::InvalidRecord);
         }
@@ -199,4 +182,57 @@ struct WireRecord {
     initial_txid: u64,
     initial_checksum: u64,
     initial_commitment: ImageCommitment,
+}
+
+impl TryFrom<WireRecord> for EnrollmentRecord {
+    type Error = EnrollmentError;
+
+    fn try_from(wire: WireRecord) -> Result<Self, Self::Error> {
+        if wire.domain != RECORD_DOMAIN {
+            return Err(EnrollmentError::InvalidRecord);
+        }
+        let record = EnrollmentRecord {
+            cell: CellHistory {
+                cluster: ClusterId::new(wire.cluster)
+                    .map_err(|_| EnrollmentError::InvalidRecord)?,
+                namespace: NamespaceId::new(wire.namespace)
+                    .map_err(|_| EnrollmentError::InvalidRecord)?,
+                cell: CellId::new(wire.cell).map_err(|_| EnrollmentError::InvalidRecord)?,
+                incarnation: IncarnationId::new(wire.incarnation)
+                    .map_err(|_| EnrollmentError::InvalidRecord)?,
+            },
+            creation: ProposalId::new(wire.creation).map_err(|_| EnrollmentError::InvalidRecord)?,
+            schema: wire.schema,
+            initial: LtxImage {
+                epoch: wire.initial_epoch,
+                txid: wire.initial_txid,
+                checksum: wire.initial_checksum,
+                commitment: wire.initial_commitment,
+            }
+            .into(),
+        };
+        record.encode()?;
+        Ok(record)
+    }
+}
+
+impl Serialize for EnrollmentRecord {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let record = self;
+        let image = LtxImage::try_from(record.initial).map_err(serde::ser::Error::custom)?;
+        WireRecord {
+            domain: RECORD_DOMAIN.into(),
+            cluster: record.cell.cluster.bytes(),
+            namespace: record.cell.namespace.bytes(),
+            cell: record.cell.cell.as_str().into(),
+            incarnation: record.cell.incarnation.bytes(),
+            creation: record.creation.bytes(),
+            schema: record.schema,
+            initial_epoch: record.initial.epoch,
+            initial_txid: record.initial.txid,
+            initial_checksum: record.initial.checksum,
+            initial_commitment: image.commitment,
+        }
+        .serialize(serializer)
+    }
 }

@@ -84,23 +84,31 @@ fn leaf(id: u8, pin: &GenerationPin, sequence: u64, index: u64) -> CellManifestL
         checksum: state.checksum,
         page_size: state.page_size,
     };
-    CellManifestLeaf {
-        version: CellVersion {
-            history: CellHistory {
-                cluster: route().history.cluster,
-                namespace: route().history.namespace,
-                cell: CellId::new(format!("cell-{id}")).unwrap(),
-                incarnation: IncarnationId::new([7; 16]).unwrap(),
-            },
-            sequence: MutationSequence::new(sequence).unwrap(),
-            image: LtxImage {
-                epoch: image.ltx_epoch,
-                txid: image.txid,
-                checksum: image.checksum,
-                commitment: image.commitment,
-            }
-            .into(),
+    let version = CellVersion {
+        history: CellHistory {
+            cluster: route().history.cluster,
+            namespace: route().history.namespace,
+            cell: CellId::new(format!("cell-{id}")).unwrap(),
+            incarnation: IncarnationId::new([7; 16]).unwrap(),
         },
+        sequence: MutationSequence::new(sequence).unwrap(),
+        image: LtxImage {
+            epoch: image.ltx_epoch,
+            txid: image.txid,
+            checksum: image.checksum,
+            commitment: image.commitment,
+        }
+        .into(),
+    };
+    CellManifestLeaf {
+        enrollment: EnrollmentRecord::new(
+            version.history.clone(),
+            ProposalId::new([id; 16]).unwrap(),
+            route().schema_digest,
+            version.image,
+        )
+        .unwrap(),
+        version,
         geometry: CellImageGeometry {
             length: image.length,
             page_size: image.page_size,
@@ -153,7 +161,8 @@ fn manifest_updates_only_changed_path() -> Result<()> {
     let after = images::image(Some(&before), "UPDATE value SET n = 99;")?;
     let cut = images::Cut::new(&before, &after, 1, true, false);
     let changed = generations.prepare(images::id(100), Some(pin), &cut.update())?;
-    let value = leaf(32, &changed, 2, 65);
+    let mut value = leaf(32, &changed, 2, 65);
+    value.enrollment = old.enrollment.clone();
     let written = pages.usage().written_pages;
     root = tree.update(&mut pages, root, value.clone(), Some(&old.version))?;
     assert!(pages.usage().written_pages - written <= u64::from(old_root.depth()));
@@ -208,6 +217,29 @@ fn manifest_rejects_conflicts_bounds_and_missing_pages() -> Result<()> {
     )?;
     let root = tree.update(&mut pages, ManifestRoot::default(), value.clone(), None)?;
     let before = pages.usage();
+    for replace_initial in [false, true] {
+        let mut changed = value.clone();
+        changed.version.sequence = MutationSequence::new(2)?;
+        changed.version.image.txid = 2;
+        changed.last_mutation = position(2);
+        let mut initial = value.enrollment.initial();
+        let creation = if replace_initial {
+            initial.commitment = CellImageCommitment::Materialized([99; 32]);
+            value.enrollment.creation()
+        } else {
+            ProposalId::new([99; 16])?
+        };
+        changed.enrollment = EnrollmentRecord::new(
+            value.version.history.clone(),
+            creation,
+            route().schema_digest,
+            initial,
+        )?;
+        assert!(matches!(
+            tree.update(&mut pages, root, changed, Some(&value.version)),
+            Err(ManifestError::Conflict)
+        ));
+    }
     assert!(tree.update(&mut pages, root, value.clone(), None).is_err());
     assert!(tree
         .update(&mut pages, root, value.clone(), Some(&value.version))
@@ -680,7 +712,8 @@ async fn incremental_manifest_preserves_images_and_rejects_forks() -> Result<()>
     let after = images::image(Some(&before), "UPDATE value SET n = 999;")?;
     let cut = images::Cut::new(&before, &after, 1, true, false);
     let changed = generations.prepare(images::id(100), Some(&reader), &cut.update())?;
-    let next_leaf = leaf(32, &changed, 2, 3);
+    let mut next_leaf = leaf(32, &changed, 2, 3);
+    next_leaf.enrollment = old_leaf.enrollment.clone();
     let written = pages.usage().written_pages;
     let reads = trace.reads.load(std::sync::atomic::Ordering::Acquire);
     trace.synced_paths.lock().unwrap().clear();
@@ -1069,7 +1102,10 @@ async fn uncertain_manifest_publication_retains_both_roots() -> Result<()> {
     let next = tree.prepare_update(
         &mut pages,
         &current,
-        leaf(1, &next_pin, 2, 3),
+        CellManifestLeaf {
+            enrollment: old_leaf.enrollment.clone(),
+            ..leaf(1, &next_pin, 2, 3)
+        },
         Some(&old_leaf.version),
         CellImagePin::Materialized(next_pin.clone()),
     )?;
@@ -1285,6 +1321,75 @@ async fn manifest_batch_retention_refusal_cancels_unwritten_reservations() -> Re
     drop(second);
     assert_eq!(collect_pages(&mut pages)?, 1);
     assert_eq!(pages.usage().pages, 1);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unchanged_group_root_refuses_quarantined_page_store() -> Result<()> {
+    use cellar::application::consensus::verification::{
+        CellGroupBootstrap, LogOpenMode, ReplicaLog,
+    };
+    use cellar::sdk::ExecutionDomain;
+    let temp = tempfile::tempdir()?;
+    let fs = Arc::new(DirectFileSystem);
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log
+        .create_cell_group(CellGroupBootstrap {
+            route: route(),
+            member: MemberId::new(1)?,
+            voters: vec![MemberId::new(1)?],
+            learners: vec![],
+        })
+        .await?;
+    let page_path = temp.path().join("pages");
+    let fault = faults::Faults::new(page_path.clone(), None);
+    let page_fs = Arc::new(faults::FaultFileSystem {
+        faults: fault.clone(),
+    });
+    let mut pages = ManifestPageStore::open(&page_path, page_fs, 64, 1024 * 1024, 16)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let current = tree.prepare_complete(
+        &group,
+        &mut pages,
+        ManifestRoot::default(),
+        position(1),
+        1,
+        |_| panic!("genesis is empty"),
+    )?;
+    assert!(tree
+        .prepare_unchanged(&pages, &current, position(2))
+        .is_ok());
+    let generations =
+        GenerationStore::open(temp.path().join("images"), fs, GenerationLimits::default())?;
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    fault.mode.store(
+        faults::AFTER_IMAGE_WRITE,
+        std::sync::atomic::Ordering::Release,
+    );
+    assert!(tree
+        .prepare_update(
+            &mut pages,
+            &current,
+            leaf(1, &pin, 1, 2),
+            None,
+            CellImagePin::Materialized(pin)
+        )
+        .is_err());
+    assert!(matches!(
+        tree.prepare_unchanged(&pages, &current, position(2)),
+        Err(ManifestError::Quarantined)
+    ));
+    assert_eq!(group.group_manifest()?.unwrap().position(), position(1));
     log.close().await?;
     domain.shutdown().await;
     Ok(())

@@ -3,6 +3,7 @@
 //! Complete group-state storage. A synced page is data, not Raft authority.
 
 mod enrollment;
+mod enrollment_apply;
 mod image_pin;
 mod manifest;
 mod page_store;
@@ -26,6 +27,7 @@ pub use crate::raft::catalog::{
 pub use enrollment::{
     decide_enrollment, EnrollmentDecision, EnrollmentError, EnrollmentPhase, EnrollmentRecord,
 };
+pub use enrollment_apply::{EnrollmentApply, EnrollmentApplyError, EnrollmentImage};
 pub use image_pin::{cell_image_history_digest, CellImagePin};
 pub(crate) use pins::ManifestPins;
 pub use root::{GroupManifest, PreparedGroupManifest};

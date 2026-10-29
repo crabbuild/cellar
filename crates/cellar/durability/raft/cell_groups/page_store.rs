@@ -60,6 +60,13 @@ pub struct ManifestReclaimReport {
 }
 
 impl ManifestPageStore {
+    pub(super) fn require_live(&self) -> Result<(), ManifestError> {
+        if self.quarantined {
+            return Err(ManifestError::Quarantined);
+        }
+        Ok(())
+    }
+
     pub fn open(
         directory: &Path,
         filesystem: Arc<dyn FileSystem>,

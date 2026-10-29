@@ -123,6 +123,31 @@ impl PreparedGroupManifest {
 }
 
 impl ManifestTree {
+    /// Advance one committed no-op or duplicate enrollment without changing any
+    /// cell version. The owner must supply the actual next committed position;
+    /// this preparation alone proves neither commitment nor serving authority.
+    pub fn prepare_unchanged(
+        &self,
+        store: &ManifestPageStore,
+        previous: &PreparedGroupManifest,
+        position: LogPosition,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        store.require_live()?;
+        if previous.marker.route != self.route || !Arc::ptr_eq(&previous.page_owner, &store.owner) {
+            return Err(ManifestError::Invalid("root/page owner"));
+        }
+        if previous.marker.position.index.get().checked_add(1) != Some(position.index.get())
+            || position.term < previous.marker.position.term
+        {
+            return Err(ManifestError::Invalid("noncontiguous no-op"));
+        }
+        let mut prepared = previous.clone();
+        prepared.base = Some(previous.marker.clone());
+        prepared.marker.position = position;
+        prepared.marker.check()?;
+        Ok(prepared)
+    }
+
     /// Full closure verification for bootstrap, recovery and checkpoint install.
     /// Ordinary cell mutations use `prepare_update` instead.
     /// The callback returns actual sealed images, never merely accepted markers.

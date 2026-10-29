@@ -2,15 +2,37 @@
 
 # Cell-group implementation progress
 
-The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The latest user selection scopes this delivery to the executable
-design and implementation plan. Earlier implementation checkpoints are retained
-below; their historical scope statements do not override that selection.
-Intermediate contracts do not qualify a shared runtime.
-No production legacy/shared mode flag is being added.
+The full end-to-end implementation goal is active following the plan handoff.
+CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
+CG-05 through CG-16 remain TODO. Intermediate contracts do not qualify a shared
+runtime. No production legacy/shared mode flag is being added.
 
+## CG-03 completion audit and CG-04 continuation
 
-## Current executable-plan handoff
+The audit checks the four CG-03 steps against retained evidence at
+`0df009a24d88408a8efc40e356f794ca35513a95`:
+
+- Paged directory tests exercise exact coverage, bounded discovery, conditional
+  publication and recovery from lost replies using real conditional operations.
+- Enrollment tests check pure creation identity and sealed/retired admission;
+  the task explicitly assigns real SQLite enrollment to CG-04.
+- Native member bootstrap exercises synced physical genesis, permanent claims,
+  restart, unknown outcomes and refusal after claimed local records are removed.
+  Storage boundary tests separately verify physical identities and inventory.
+- Route tests check trusted-catalog confirmation, cached operation during catalog
+  failure, original deadlines and attempt budgets, cancellation and command ambiguity.
+
+The full required command gate, source/log/artifact hashes and dependency evidence
+validate. CG-03 is DONE only at that catalog/routing/admission-preparation boundary.
+The record retains 77 source inputs, 20 successful commands, three executables and
+44 distinct Rust cases. It does not qualify live shared dispatch, network peer
+authentication, managed startup, current-term serving authority or RustFS.
+
+CG-04 now addresses original enrollment identity in the durable manifest, followed
+by shared group ownership and execution. Its full six-case real-Raft execution
+gate remains required; storage-only tests cannot substitute for that gate.
+
+## Plan handoff at b3b7eabd
 
 The package contains 16 dependency-ordered tasks, 86 required cases, 14 invariants
 and nine qualification profiles. Each task supplies source anchors, owned paths,
@@ -216,16 +238,14 @@ must include its initial replayable LTX chain.
 
 ## Remaining implementation
 
-CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
-CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
-retain the intermediate checkpoints and their limitations.
+CG-01 through CG-03 have passed their scoped task gates. CG-04 is IN_PROGRESS;
+CG-05 through CG-16 remain TODO. Historical entries below retain the intermediate
+checkpoints and their limitations.
 
 The reviewed source baseline is `0df009a24d88408a8efc40e356f794ca35513a95`.
-The routing change updates the catalog/birth anchor hashes and line positions;
-their excerpts are unchanged. The baseline records the source review and test
-corrections. A new executor must receive both ignored DONE-task evidence folders
-before validating those historical checkpoints, plus the CG-03 routing directory
-before auditing that task for completion.
+A new executor must receive all three ignored DONE-task evidence directories
+before validating those historical checkpoints. Current CG-04 source changes
+remain subject to their own verification and recorded review.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until

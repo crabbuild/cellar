@@ -3,15 +3,15 @@
 # Cell group delivery package
 
 Status: executable design and implementation plan delivered on 2026-10-29.
-CG-01 contracts and CG-02 storage have passed their local evidence gates.
-CG-03 routing and enrollment is in progress.
+CG-01 contracts, CG-02 storage and CG-03 routing/admission preparation have
+passed their local evidence gates. CG-04 shared execution is in progress.
 The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The requested deliverable is the executable design and implementation plan.
-The target for its implementation executor remains the complete shared-group
-runtime and hard cutover. Plan delivery does not qualify that runtime.
+The plan handoff is complete. The active end-to-end implementation goal resumes
+from that handoff and requires the complete shared-group runtime and hard cutover.
+Plan delivery or an intermediate task gate does not qualify that runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -29,7 +29,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    behavior and final release gates; they supersede fixed assignment as the final
    target. Fixed assignment is an intermediate milestone only.
 2. Run the commands below from the repository root. `ready` reports dependency
-   eligibility; `show CG-03` emits a complete executor brief, source excerpts,
+   eligibility; `show CG-04` emits a complete executor brief, source excerpts,
    scope, steps, exact test commands and completion rules. It never runs them.
 3. Implement each task in dependency order on the active PR branch or an explicitly
    assigned branch. Preserve working intermediate commits. Do not expose a second
@@ -40,8 +40,9 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
 
 This checkout retains evidence under the ignored
 `.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/` and
-`.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` directories. A fresh checkout must
-receive both retained directories at the same relative paths before validating
+`.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` and
+`.cellar/cell-groups-evidence/CG-03-routing-final/` directories. A fresh checkout must
+receive all three retained directories at the same relative paths before validating
 the DONE checkpoints. Missing evidence fails validation; it is never treated as a pass.
 The design, task briefs and validator unit tests are committed in this package.
 
@@ -49,7 +50,7 @@ The design, task briefs and validator unit tests are committed in this package.
 python3 plans/multi-raft/cell-groups/plan.py validate
 python3 plans/multi-raft/cell-groups/plan.py preflight
 python3 plans/multi-raft/cell-groups/plan.py ready
-python3 plans/multi-raft/cell-groups/plan.py show CG-03
+python3 plans/multi-raft/cell-groups/plan.py show CG-04
 python3 -m unittest discover -s plans/multi-raft/cell-groups -p 'test_*.py'
 ```
 
@@ -68,13 +69,13 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The user selected a plan handoff for this delivery. The implementation executor
-should continue from the existing code and retained evidence; no new runtime
-work is required to read or review this package.
+The active goal requires end-to-end runtime implementation. Continue from the
+existing code and retained evidence; earlier plan-only handoffs do not satisfy
+the resumed implementation objective.
 
-Continue CG-03 after reading
+Continue CG-04 after reading
 [progress](progress.md) and inspecting the working diff.
-CG-01 and CG-02 are DONE only at their named contract/storage boundaries; the
+CG-01 through CG-03 are DONE only at their named contract/storage/admission boundaries; the
 remaining tasks still require implementation. `ready` lists eligible TODO tasks;
 an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
@@ -83,12 +84,13 @@ to DONE. Continue in the generated dependency order afterward.
 Physical group genesis, typed replica handles, permanent initial-member claims,
 complete group inventory and invocation-bounded catalog-confirmed redirects are
 implemented through `0df009a2`; see the latest [checkpoint](progress.md) for
-evidence and limits. Audit the retained CG-03 record against every task step
-before marking it DONE. The record is at
+evidence and limits. CG-03 has been audited at its preparation boundary. Its
+record is at
 `.cellar/cell-groups-evidence/CG-03-routing-final/record.json`; transfer that entire
 directory along with the earlier DONE-task evidence to the implementation
-executor. CG-04 then connects enrollment and the catalog startup permit to the
-shared runtime, verifies the complete selected manifest/image closure and acquires current-term
+executor. CG-04 is now implementing atomic creation retention and ordered
+enrollment application. It must connect the catalog startup permit to the shared
+runtime, verify the complete selected manifest/image closure and acquire current-term
 quorum authority. Managed fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 

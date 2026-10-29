@@ -264,7 +264,7 @@
     {
       "id": "CG-03",
       "title": "Prepare paged range routing and enrollment admission",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -402,7 +402,9 @@
         "I09",
         "I12"
       ],
-      "evidence": [],
+      "evidence": [
+        ".cellar/cell-groups-evidence/CG-03-routing-final/record.json"
+      ],
       "stop_conditions": [
         "A current source excerpt no longer matches: review and record the successor baseline before edits.",
         "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
@@ -418,7 +420,7 @@
     {
       "id": "CG-04",
       "title": "Execute many independent SQLite cells through one real Raft group",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "L",
       "risk": "HIGH",
@@ -441,7 +443,9 @@
       ],
       "creates": [
         "crates/cellar/durability/raft/cell_groups/owner.rs",
-        "crates/cellar/tests/native_cell_groups_execution.rs"
+        "crates/cellar/tests/native_cell_groups_execution.rs",
+        "crates/cellar/durability/raft/cell_groups/enrollment_apply.rs",
+        "crates/cellar/durability/raft/cell_groups/page_wire_tests.rs"
       ],
       "test_target": "native_cell_groups_execution",
       "steps": [
