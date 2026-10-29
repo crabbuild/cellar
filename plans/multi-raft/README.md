@@ -12,6 +12,11 @@ uses the same group machinery with one cell. The runtime conversion,
 complete group recovery manifests and qualification remain pending; current
 evidence below still describes the one-cell-per-group implementation.
 
+The [cell group delivery package](cell-groups/README.md) turns that decision into
+16 dependent implementation tasks with source preflight, exact test oracles,
+split/merge and hibernation protocols, and source-bound release evidence gates.
+It is a validated implementation plan; all runtime conversion tasks remain pending.
+
 The [fleet balancing and maintenance delivery package](fleet-operations/README.md)
 defines the next CAS-coordinated fleet design, executable task plan and operator
 workflows for automatic repair, redistribution, scale-out, scale-in and node

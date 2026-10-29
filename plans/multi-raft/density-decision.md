@@ -7,6 +7,13 @@ are pending. This document does not claim that Cellar supports shared groups yet
 It supersedes one-cell-per-group as the target architecture, while the existing
 technical design and qualification records describe the implemented baseline.
 
+The [executable delivery package](cell-groups/README.md) expands this decision into
+the complete replacement, including dynamic split/merge and coordinated hibernation.
+Its detailed protocols supersede the initial assignment sketch below: range-based
+ownership and replicated enrollment replace per-cell reservation as the single
+assignment authority, and stable cell history is separate from group placement.
+Fixed assignment is an intermediate delivery milestone, not the final scope.
+
 ## Decision
 
 Make a **cell group** the unit of Raft consensus, placement, membership, snapshot

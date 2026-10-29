@@ -110,7 +110,9 @@ do not extrapolate a small-counter benchmark to large databases.
 
 The [density decision](density-decision.md) selects shared cell groups and specifies
 their identity, apply, snapshot, archive and recovery boundaries before runtime
-conversion. Separate SQLite databases and LTX chains remain per cell. Leadership,
+conversion. The [executable delivery package](cell-groups/README.md) defines the
+complete implementation, including safe dynamic split/merge and hibernation.
+Separate SQLite databases and LTX chains remain per cell. Leadership,
 membership, placement and the contiguous apply/archive prefixes become group
 scoped. Dedicated hot cells use the same implementation at occupancy one.
 

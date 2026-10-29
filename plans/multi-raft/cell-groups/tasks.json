@@ -1,0 +1,1986 @@
+{
+  "format": 1,
+  "planned_at": "70b6022c8baba3d0a52de6bd9fa11866bdbd3b3f",
+  "toolchain": "1.98.1",
+  "invariants": [
+    "I01",
+    "I02",
+    "I03",
+    "I04",
+    "I05",
+    "I06",
+    "I07",
+    "I08",
+    "I09",
+    "I10",
+    "I11",
+    "I12",
+    "I13",
+    "I14"
+  ],
+  "tasks": [
+    {
+      "id": "CG-01",
+      "title": "Separate logical cell history from physical group consensus",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [],
+      "anchors": [
+        "identity",
+        "codec",
+        "version",
+        "ci"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/durability/raft/version.rs",
+        "crates/cellar/lib.rs"
+      ],
+      "creates": [
+        "crates/cellar-logic/cell_group.rs",
+        "crates/cellar-logic/cell_group_tests.rs",
+        "crates/cellar/tests/native_cell_groups_contracts.rs"
+      ],
+      "test_target": "native_cell_groups_contracts",
+      "steps": [
+        {
+          "action": "Add dependency-free CellHistory, GroupHistory, CellKey, CellVersion and route/membership epoch types. Specify canonical hash bytes and infinity bounds exactly as design.md. Add private adapters while existing consumers still compile; do not introduce a public legacy/shared mode flag.",
+          "tests": [
+            "identity_and_hash_boundaries"
+          ]
+        },
+        {
+          "action": "Encode cell-addressed data and typed administrative entries under new marker-1 semantic domains. Reject unknown tags, duplicate identity fields, oversized declarations and wrong cell/schema/route before allocation or application.",
+          "tests": [
+            "envelope_rejects_wrong_cell_and_domain"
+          ]
+        },
+        {
+          "action": "Define version tokens and receipt provenance around stable cell incarnation and monotone mutation sequence. Preserve transfer compatibility within one cell history; refuse old-incarnation and cross-cell tokens. Wire validation through owning Result types.",
+          "tests": [
+            "version_survives_transfer_not_disaster"
+          ]
+        },
+        {
+          "action": "Add golden byte/negative tests and bounded decoding fixtures. Map the new module through existing lib.rs paths; keep raft-rs, I/O and serde out of cellar-logic.",
+          "tests": [
+            "codec_limits_before_allocation"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "identity_and_hash_boundaries",
+          "oracle": "Empty/control IDs, hash ties, infinity endpoints and sequence overflow reject or order exactly as the canonical specification.",
+          "invariants": [
+            "I01"
+          ]
+        },
+        {
+          "name": "envelope_rejects_wrong_cell_and_domain",
+          "oracle": "Valid LTX under another cell/route/schema and old protocol domains cannot be decoded as authorized data.",
+          "invariants": [
+            "I01",
+            "I04"
+          ]
+        },
+        {
+          "name": "version_survives_transfer_not_disaster",
+          "oracle": "Same cell incarnation/sequence token remains comparable after a group move; another cell or disaster incarnation refuses.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05"
+          ]
+        },
+        {
+          "name": "codec_limits_before_allocation",
+          "oracle": "Truncated, duplicate and excessive metadata/payload declarations fail within configured memory bounds.",
+          "invariants": [
+            "I01",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I04",
+        "I05",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "contracts"
+    },
+    {
+      "id": "CG-02",
+      "title": "Persist complete group manifests with crash-safe cell image ownership",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01"
+      ],
+      "anchors": [
+        "manifest",
+        "apply",
+        "extent",
+        "sql"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/extent/",
+        "crates/cellar-ltx/src/generation.rs"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/mod.rs",
+        "crates/cellar/durability/raft/cell_groups/manifest.rs",
+        "crates/cellar/durability/raft/cell_groups/manifest_tests.rs",
+        "crates/cellar/tests/native_cell_groups_storage.rs"
+      ],
+      "test_target": "native_cell_groups_storage",
+      "steps": [
+        {
+          "action": "Implement authenticated paged copy-on-write cell manifests and a group root. Leaves bind cell history, image/version, last group mutation and effect summary. Bound page fanout, decoded bytes, tree depth and cell count; use explicit execution-domain storage owners.",
+          "tests": [
+            "manifest_updates_only_changed_path"
+          ]
+        },
+        {
+          "action": "Separate logical-cell image bindings from group ownership in both materialized and extent paths. Sync changed images and manifest paths before one engine marker publishes applied position/root. Preserve old roots and all physical pins through failure.",
+          "tests": [
+            "manifest_marker_crash_cuts"
+          ]
+        },
+        {
+          "action": "Recover only complete durable roots; reject a missing/corrupt leaf or referenced image. Treat staged unmarked objects as non-serving orphans and reclaim only after pin/marker reconciliation.",
+          "tests": [
+            "missing_cell_image_refuses_group"
+          ]
+        },
+        {
+          "action": "Inject failures before/after image sync, manifest sync, marker commit and publication. Verify independent SQLite files, receipt floors and bounded copy-on-write work for one changed cell.",
+          "tests": [
+            "manifest_pin_reclamation",
+            "both_image_representations_share_contract"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "manifest_updates_only_changed_path",
+          "oracle": "An update rewrites bounded manifest paths and the target cell, with unchanged cell image commitments preserved.",
+          "invariants": [
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "manifest_marker_crash_cuts",
+          "oracle": "Every crash cut recovers exactly the old or new durable root without partial cells or callback reexecution.",
+          "invariants": [
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "missing_cell_image_refuses_group",
+          "oracle": "Removing/corrupting any referenced cell or tree page prevents serving the group.",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "manifest_pin_reclamation",
+          "oracle": "Reader/snapshot/apply/transition pins prevent physical deletion until their owners release them.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        },
+        {
+          "name": "both_image_representations_share_contract",
+          "oracle": "Materialized and extent images retain identical history, publication and receipt safety.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I07",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "storage"
+    },
+    {
+      "id": "CG-03",
+      "title": "Prepare paged range routing and enrollment admission",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01",
+        "CG-02"
+      ],
+      "anchors": [
+        "catalog",
+        "birth",
+        "host",
+        "fleet"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/node/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/directory.rs",
+        "crates/cellar/durability/raft/cell_groups/enrollment.rs",
+        "crates/cellar/tests/native_cell_groups_catalog.rs"
+      ],
+      "test_target": "native_cell_groups_catalog",
+      "steps": [
+        {
+          "action": "Implement immutable paged range-tree records and one conditional namespace-root mutation journal. Verify complete range coverage, no overlap and exact epochs. Initial explicit ranges can be lazily materialized using existing birth and permanent disk-claim rules.",
+          "tests": [
+            "range_directory_has_single_owner"
+          ]
+        },
+        {
+          "action": "Define the pure enrollment decision and codec around the current range, cell creation identity and schema. Concurrent proposals must converge on one cell history when committed. This task validates admission decisions only; CG-04 connects those decisions to the actual multi-cell group owner and independent SQLite initialization.",
+          "tests": [
+            "enrollment_decision_checks_identity"
+          ]
+        },
+        {
+          "action": "Reconcile lost birth/root/enrollment replies by canonical operation identity. Keep unconfirmed outcomes typed; a blank claimed voter cannot bootstrap under a new path. Refuse enrollment under sealed or retired ranges.",
+          "tests": [
+            "birth_unknown_and_claimed_blank_refuse"
+          ]
+        },
+        {
+          "action": "Add bounded tree traversal/cache tests, restart races and stale-route redirects with original deadlines/hop budgets. Ordinary known-group commands must not require an S3 catalog request.",
+          "tests": [
+            "bounded_catalog_discovery",
+            "sealed_range_rejects_enrollment"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "range_directory_has_single_owner",
+          "oracle": "Duplicate/overlapping/gapped trees and stale root CAS cannot publish ownership.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "enrollment_decision_checks_identity",
+          "oracle": "Pure admission decisions reject wrong range/schema, preserve creation identity on retries and select one cell history; no native publication qualification is claimed here.",
+          "invariants": [
+            "I01",
+            "I03"
+          ]
+        },
+        {
+          "name": "birth_unknown_and_claimed_blank_refuse",
+          "oracle": "Unknown creation reconciles its winner and missing permanently claimed disk state refuses.",
+          "invariants": [
+            "I01",
+            "I08"
+          ]
+        },
+        {
+          "name": "bounded_catalog_discovery",
+          "oracle": "Lookup reads a bounded tree path without namespace-wide listing; cache bounds hold under churn.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "sealed_range_rejects_enrollment",
+          "oracle": "No delayed enrollment can create a cell beyond a committed seal boundary.",
+          "invariants": [
+            "I09"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I08",
+        "I09",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "catalog"
+    },
+    {
+      "id": "CG-04",
+      "title": "Execute many independent SQLite cells through one real Raft group",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-01",
+        "CG-02",
+        "CG-03"
+      ],
+      "anchors": [
+        "host",
+        "sql",
+        "runtime",
+        "identity",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar-logic/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/owner.rs",
+        "crates/cellar/tests/native_cell_groups_execution.rs"
+      ],
+      "test_target": "native_cell_groups_execution",
+      "steps": [
+        {
+          "action": "Split the combined host Cell owner into group consensus state and per-cell execution state. One GroupHistory owns exactly one RawNode per voter; cell count does not allocate additional RawNodes. Reuse shared persistence, transport and SQL pools. Integrate CG-03 enrollment decisions with replicated enrollment and independent SQLite initialization before exposing cell commands.",
+          "tests": [
+            "three_cells_one_rawnode_per_voter",
+            "concurrent_enrollment_one_cell"
+          ]
+        },
+        {
+          "action": "Admit one unresolved proposal per cell with fair cell queues and group/node byte quotas. Allow independent cells to prepare concurrently, then publish committed entries through one contiguous group prefix with per-cell base/version checks.",
+          "tests": [
+            "shared_group_fair_admission"
+          ]
+        },
+        {
+          "action": "Implement exact per-cell output settlement and receipt retry. Group no-ops/configuration entries advance group apply without changing cell version. Reject stale term/activation/completion tickets and preserve unknown proposed outcomes.",
+          "tests": [
+            "cell_receipt_not_group_progress"
+          ]
+        },
+        {
+          "action": "Implement Stale, AtLeast and current-term ReadIndex for the target cell. Pin coherent manifest/image views and include cross-cell noninterference and slow-apply cases in the real-engine fixture.",
+          "tests": [
+            "strong_read_at_group_barrier",
+            "apply_prefix_never_skips_slow_cell"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "three_cells_one_rawnode_per_voter",
+          "oracle": "Three separate SQLite histories are served by exactly three RawNodes total across three voters; interleaved values agree on all replicas.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I04"
+          ]
+        },
+        {
+          "name": "shared_group_fair_admission",
+          "oracle": "Concurrent cells receive bounded fair admission; cancellation retains physical accounting and busy SQL never blocks consensus ticks.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "cell_receipt_not_group_progress",
+          "oracle": "A later update to B cannot settle or replace A; identical client/sequence in A and B remains independent.",
+          "invariants": [
+            "I02",
+            "I03"
+          ]
+        },
+        {
+          "name": "strong_read_at_group_barrier",
+          "oracle": "ReadIndex through B serves unchanged A coherently; stale leader/minority/incorrect incarnation cannot satisfy a strong read.",
+          "invariants": [
+            "I01",
+            "I05"
+          ]
+        },
+        {
+          "name": "apply_prefix_never_skips_slow_cell",
+          "oracle": "Out-of-order staging cannot publish beyond a missing earlier cell entry after crash or election.",
+          "invariants": [
+            "I04"
+          ]
+        },
+        {
+          "name": "concurrent_enrollment_one_cell",
+          "oracle": "Actual simultaneous enrollment through the real group owner creates one SQLite history per cell and one initialization effect on all voters, including a lost response and leader restart.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "execution"
+    },
+    {
+      "id": "CG-05",
+      "title": "Snapshot and rebuild complete groups through membership changes",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04"
+      ],
+      "anchors": [
+        "snapshot",
+        "membership",
+        "manifest",
+        "extent"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/checkpoint.rs",
+        "crates/cellar/tests/native_cell_groups_snapshot.rs"
+      ],
+      "test_target": "native_cell_groups_snapshot",
+      "steps": [
+        {
+          "action": "Capture one group root at cut K with every enrolled cell, membership, range and transition state. Pin immutable dependencies while cells continue preparing later writes; stream bounded chunks rather than aggregate all images in memory.",
+          "tests": [
+            "snapshot_contains_every_cell_at_cut"
+          ]
+        },
+        {
+          "action": "Verify and sync every receiver dependency before atomic group install. Incomplete, mixed-cut or wrong-history snapshots fail closed. Match materialized and extent representations, including an enrolled empty cell.",
+          "tests": [
+            "partial_snapshot_never_serves"
+          ]
+        },
+        {
+          "action": "Adapt learner admission, joint configuration, leadership handoff and disk replacement to whole groups. Preserve permanent disk lineage and learner catch-up proofs; snapshots do not authorize new voters.",
+          "tests": [
+            "whole_group_learner_and_joint_change"
+          ]
+        },
+        {
+          "action": "Run real peer catch-up, process restart and lost-disk scenarios while a different cell writes. Reclaim transferred scratch only after physical owner release.",
+          "tests": [
+            "snapshot_empty_cell_and_extent_restart",
+            "snapshot_memory_and_pin_bounds"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "snapshot_contains_every_cell_at_cut",
+          "oracle": "A concurrent writer cannot produce a snapshot mixing cells from different group cuts.",
+          "invariants": [
+            "I04",
+            "I07"
+          ]
+        },
+        {
+          "name": "partial_snapshot_never_serves",
+          "oracle": "Interrupted/corrupt/foreign dependency install leaves the prior root or refuses admission.",
+          "invariants": [
+            "I01",
+            "I04"
+          ]
+        },
+        {
+          "name": "whole_group_learner_and_joint_change",
+          "oracle": "Fresh learner installs all cells before promotion; one failed voter remains tolerable and minority writes refuse.",
+          "invariants": [
+            "I02",
+            "I08"
+          ]
+        },
+        {
+          "name": "snapshot_empty_cell_and_extent_restart",
+          "oracle": "Empty enrolled cells and extent/materialized populated cells survive checkpoint and retained restart.",
+          "invariants": [
+            "I03",
+            "I04"
+          ]
+        },
+        {
+          "name": "snapshot_memory_and_pin_bounds",
+          "oracle": "Large group transfer stays within declared scratch/buffer slots and preserves live reader pins.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I07",
+        "I08",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "snapshot"
+    },
+    {
+      "id": "CG-06",
+      "title": "Archive and reclaim the complete group recovery history",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04",
+        "CG-05"
+      ],
+      "anchors": [
+        "archive",
+        "snapshot",
+        "disaster",
+        "manifest"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/archive.rs",
+        "crates/cellar/tests/native_cell_groups_archive.rs"
+      ],
+      "test_target": "native_cell_groups_archive",
+      "steps": [
+        {
+          "action": "Replace single-cell archive envelopes with complete group checkpoint and cell-addressed tail closures. Verify membership, administrative entries and every cell base chain before publishing group coverage; reuse unchanged immutable payloads.",
+          "tests": [
+            "group_archive_requires_all_dependencies"
+          ]
+        },
+        {
+          "action": "Keep Quorum acknowledgement independent from asynchronous S3 publication; S3-mode settlement requires complete confirmed group coverage. Bound unarchived bytes and expose group lag without crediting uploaded-but-unverified objects.",
+          "tests": [
+            "quorum_continues_bounded_s3_outage"
+          ]
+        },
+        {
+          "action": "Tie local truncation and physical shared-engine purge to covering snapshots, archive policy and all live group/reader/transition pins. Preserve lagging-peer snapshot availability and prevent deleting another group range.",
+          "tests": [
+            "group_reclaim_restart_keeps_history"
+          ]
+        },
+        {
+          "action": "Implement unmanaged fresh-incarnation whole-group S3 seeding through the existing fencing authority. Preserve selected-cut receipts, reject old tokens and prove no callback replay; later CG-13 adds managed and in-transition recovery.",
+          "tests": [
+            "fenced_group_seed_new_incarnations",
+            "archive_tails_cover_enrollment_and_controls"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "group_archive_requires_all_dependencies",
+          "oracle": "A delayed/corrupt image for B blocks coverage and S3 acknowledgement of a later A entry.",
+          "invariants": [
+            "I06"
+          ]
+        },
+        {
+          "name": "quorum_continues_bounded_s3_outage",
+          "oracle": "Quorum can progress without S3 until explicit retention admission limits; S3 outputs cannot.",
+          "invariants": [
+            "I02",
+            "I06",
+            "I12"
+          ]
+        },
+        {
+          "name": "group_reclaim_restart_keeps_history",
+          "oracle": "Actual log files can be reclaimed without losing any acknowledged cell effect/receipt on retained restart.",
+          "invariants": [
+            "I03",
+            "I07"
+          ]
+        },
+        {
+          "name": "fenced_group_seed_new_incarnations",
+          "oracle": "Complete archived group restores under fresh identities with exact results, old-token rejection and fresh-quorum admission.",
+          "invariants": [
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "archive_tails_cover_enrollment_and_controls",
+          "oracle": "Enrollment, no-ops and membership/administrative cuts replay without holes or synthetic cells.",
+          "invariants": [
+            "I04",
+            "I06"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I06",
+        "I07",
+        "I11",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "archive"
+    },
+    {
+      "id": "CG-07",
+      "title": "Cut public SDK routing and managed fleet over to shared groups",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-03",
+        "CG-04",
+        "CG-05",
+        "CG-06",
+        "CG-08"
+      ],
+      "anchors": [
+        "public",
+        "host",
+        "fleet",
+        "placement",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/application/consensus/",
+        "crates/cellar/node/",
+        "crates/cellar/cli/",
+        "crates/cellar-axum/",
+        "crates/cellar-admin/",
+        "examples/",
+        "crates/cellar/sdk.rs"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_public.rs"
+      ],
+      "test_target": "native_cell_groups_public",
+      "steps": [
+        {
+          "action": "Switch the existing public host/startup/registration APIs to group placement plus cell enrollment. Preserve cell-addressed application calls and explicit query consistency. Remove production creation of one RawNode for each ordinary cell.",
+          "tests": [
+            "sdk_many_cells_share_group"
+          ]
+        },
+        {
+          "action": "Adapt managed namespace import, capacity accounting, repair, drain, maintenance and topology inventory to group replicas plus separate cell/image occupancy. Reuse existing CAS journal, permissions and disruption debt; do not bypass managed admission.",
+          "tests": [
+            "managed_group_lifecycle"
+          ]
+        },
+        {
+          "action": "Update native/Axum dispatch, CLI configuration, admin/operator views and examples. Validate tenant/cell authorization independently from group route; give stale hints bounded redirects and typed ambiguous mutation results.",
+          "tests": [
+            "ingress_cannot_cross_cell_authority"
+          ]
+        },
+        {
+          "action": "Audit all GroupScope.cell consumers, codecs, receipt/token paths and example configs. Delete superseded single-image/one-cell host assumptions after all consumers use shared groups; occupancy-one must use the exact same code.",
+          "tests": [
+            "occupancy_one_uses_shared_path",
+            "feature_off_fleet_contract_unchanged"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "sdk_many_cells_share_group",
+          "oracle": "Public startup and cell handles serve independent SQLite cells under one configured group on all replicas.",
+          "invariants": [
+            "I01",
+            "I02",
+            "I03"
+          ]
+        },
+        {
+          "name": "managed_group_lifecycle",
+          "oracle": "Repair, drain, stop/return/resume and capacity charges move complete groups while preserving cell count and physical debt.",
+          "invariants": [
+            "I08",
+            "I12"
+          ]
+        },
+        {
+          "name": "ingress_cannot_cross_cell_authority",
+          "oracle": "Native/Axum/admin routes reject forged tenant/cell/group bindings; retries preserve caller command identity.",
+          "invariants": [
+            "I01",
+            "I03"
+          ]
+        },
+        {
+          "name": "occupancy_one_uses_shared_path",
+          "oracle": "Single-cell and multi-cell configurations exercise one host/manifest/snapshot/archive implementation with no legacy fallback.",
+          "invariants": [
+            "I04",
+            "I06"
+          ]
+        },
+        {
+          "name": "feature_off_fleet_contract_unchanged",
+          "oracle": "Existing non-Raft feature modes retain their ownership and durability behavior through the full regression suite.",
+          "invariants": [
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I06",
+        "I08",
+        "I12",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "public"
+    },
+    {
+      "id": "CG-08",
+      "title": "Preserve per-cell effects and bounded idle execution caches",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-04",
+        "CG-05",
+        "CG-06"
+      ],
+      "anchors": [
+        "effects",
+        "sql",
+        "host",
+        "manifest"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-ltx/src/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/effect_index.rs",
+        "crates/cellar/tests/native_cell_groups_effects.rs"
+      ],
+      "test_target": "native_cell_groups_effects",
+      "steps": [
+        {
+          "action": "Move alarm/outbox/inbox identity to CellHistory and retain existing receiver dedupe/client floors. Record effect summaries in the cell manifest and maintain a bounded next-due index owned by node services.",
+          "tests": [
+            "effect_identity_stable_across_group_binding"
+          ]
+        },
+        {
+          "action": "Close idle execution/SQLite caches only after unresolved proposals, dispatches and unsafe pins settle. Reopen against the exact committed cell root without resetting ownership or acknowledging based on cached state.",
+          "tests": [
+            "idle_cache_reopens_exact_cell_base"
+          ]
+        },
+        {
+          "action": "Make fair effect discovery independent of opening every cell database. Serialize control decisions with cell commands and preserve unknown dispatched outcomes through leadership change and future transfer seals.",
+          "tests": [
+            "due_effect_without_client_request"
+          ]
+        },
+        {
+          "action": "Integrate all cache/effect workers with shutdown, resource observation and physical permit lifetimes. Cover due alarms with no client traffic and mixed hot/cold group cells.",
+          "tests": [
+            "pending_command_or_dispatch_pins_cache",
+            "cache_and_effect_shutdown_joins"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "effect_identity_stable_across_group_binding",
+          "oracle": "Changing placement metadata never allocates a new delivery identity or loses receiver duplicate suppression.",
+          "invariants": [
+            "I03",
+            "I13"
+          ]
+        },
+        {
+          "name": "idle_cache_reopens_exact_cell_base",
+          "oracle": "Eviction saves disposable resources and the next command starts from the verified committed image without an election requirement.",
+          "invariants": [
+            "I04",
+            "I12"
+          ]
+        },
+        {
+          "name": "due_effect_without_client_request",
+          "oracle": "Durable due summaries schedule alarms/outbox work without scanning or hydrating every cell.",
+          "invariants": [
+            "I12",
+            "I13"
+          ]
+        },
+        {
+          "name": "pending_command_or_dispatch_pins_cache",
+          "oracle": "Uncertain proposal/delivery cannot be evicted and forgotten after cancellation or leader loss.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I13"
+          ]
+        },
+        {
+          "name": "cache_and_effect_shutdown_joins",
+          "oracle": "All retained cache/pin/timer workers finish or preserve durable debt before joined stop reports success.",
+          "invariants": [
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "effects"
+    },
+    {
+      "id": "CG-09",
+      "title": "Implement irreversible source sealing and destination activation",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-08"
+      ],
+      "anchors": [
+        "fleet",
+        "membership",
+        "archive",
+        "version"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-logic/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/transition.rs",
+        "crates/cellar/durability/raft/cell_groups/transition_tests.rs",
+        "crates/cellar/tests/native_cell_groups_transitions.rs"
+      ],
+      "test_target": "native_cell_groups_transitions",
+      "steps": [
+        {
+          "action": "Implement Planned/Prepared/SealAuthorized/Sealed/Installed/Published/Active/Retired journal states from protocols.md. Seal authorization and pre-seal cancellation CAS the same state; no source Seal request is allowed before authorization wins.",
+          "tests": [
+            "seal_authorization_cancel_race"
+          ]
+        },
+        {
+          "action": "Commit parent seals after accepted mutations, block new enrollment/writes/strong reads, and pin the exact cell/effect/receipt cuts. After SealAuthorized only roll forward, including unknown replies and partially sealed merges.",
+          "tests": [
+            "source_seal_blocks_delayed_work"
+          ]
+        },
+        {
+          "action": "Seed fresh non-serving child group histories with preserved CellHistory/versions/receipts/effect IDs. Require child quorum install receipts and an atomic range-tree publication certificate before committed child activation. Publish and verify a complete remote transfer closure before changing active ranges; pin its digest in the publication certificate so all-voter loss immediately after publication remains recoverable.",
+          "tests": [
+            "child_requires_install_and_publication",
+            "publication_requires_remote_transfer_closure"
+          ]
+        },
+        {
+          "action": "Persist stale-authority tombstones and transition resources across controller/leader/node restart. Release source data only after all child baseline archives and physical pins are safe; no timer may reopen the parent.",
+          "tests": [
+            "transition_restart_retains_single_writer",
+            "transfer_preserves_tokens_receipts_effects",
+            "retirement_keeps_required_archive_pins"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "seal_authorization_cancel_race",
+          "oracle": "Exactly one root decision wins; cancelled intents cannot seal and authorized intents cannot roll back after unknown responses.",
+          "invariants": [
+            "I09"
+          ]
+        },
+        {
+          "name": "source_seal_blocks_delayed_work",
+          "oracle": "Accepted-before-seal work appears in the cut; delayed/new mutation/enrollment/strong read cannot pass the seal.",
+          "invariants": [
+            "I01",
+            "I05",
+            "I09"
+          ]
+        },
+        {
+          "name": "child_requires_install_and_publication",
+          "oracle": "Copied bytes or a catalog hint alone cannot activate a child; quorum seed plus exact publication and activation are required.",
+          "invariants": [
+            "I02",
+            "I04",
+            "I09"
+          ]
+        },
+        {
+          "name": "transition_restart_retains_single_writer",
+          "oracle": "Crash at every phase and lost CAS replies preserve a single writable owner and resume the same transition.",
+          "invariants": [
+            "I09",
+            "I12"
+          ]
+        },
+        {
+          "name": "transfer_preserves_tokens_receipts_effects",
+          "oracle": "Old cell-history versions and duplicate commands remain valid at the child while effect IDs and receiver dedupe survive.",
+          "invariants": [
+            "I03",
+            "I05",
+            "I13"
+          ]
+        },
+        {
+          "name": "retirement_keeps_required_archive_pins",
+          "oracle": "Source cleanup cannot orphan any child baseline, archived acknowledgement or unresolved physical owner.",
+          "invariants": [
+            "I06",
+            "I07"
+          ]
+        },
+        {
+          "name": "publication_requires_remote_transfer_closure",
+          "oracle": "Missing remote transfer dependencies block publication. Erase all local copies immediately after publication in the native fixture; independent archive replay of the pinned closure retains every prior S3-acknowledged cell effect. CG-13/15 qualify fenced live recovery through the public disaster API.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I07",
+        "I09",
+        "I11",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "transitions"
+    },
+    {
+      "id": "CG-10",
+      "title": "Split hot groups and merge compatible adjacent ranges",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-09"
+      ],
+      "anchors": [
+        "placement",
+        "fleet",
+        "host",
+        "catalog"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar-logic/",
+        "crates/cellar-admin/",
+        "crates/cellar/cli/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/partition.rs",
+        "crates/cellar/tests/native_cell_groups_split_merge.rs"
+      ],
+      "test_target": "native_cell_groups_split_merge",
+      "steps": [
+        {
+          "action": "Build split decisions over whole ordered CellKeys with exact equal-union range proofs, including empty edges and hash collisions. Allocate fresh child histories; parent group retirement uses CG-09 instead of in-place identity reuse.",
+          "tests": [
+            "split_equal_union_whole_cells"
+          ]
+        },
+        {
+          "action": "Build merge decisions for adjacent compatible namespace/schema/durability/failure-domain ranges. Seal all parents, install one fresh child and publish one atomic root replacement; partial parent failure cannot admit the child.",
+          "tests": [
+            "merge_requires_adjacent_compatible_ranges"
+          ]
+        },
+        {
+          "action": "Pre-copy immutable state and apply final sealed deltas with bounded parallelism and resource reservations. Define explicit operator split/merge/status/resume APIs; waiting remains read-only and ambiguous requests retain their IDs.",
+          "tests": [
+            "partial_merge_failure_no_double_writer"
+          ]
+        },
+        {
+          "action": "Exercise repeated split/merge under foreground writes, stale client routes, controller loss and skew. A dedicated hot cell is a range with one cell using the common runtime.",
+          "tests": [
+            "split_merge_under_writes",
+            "transition_precopy_resource_bounds"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "split_equal_union_whole_cells",
+          "oracle": "Children partition the parent exactly, never split a SQLite database, and tolerate hash ties without aliasing.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "merge_requires_adjacent_compatible_ranges",
+          "oracle": "Non-adjacent or policy/schema-incompatible sources refuse before sealing or allocating unsafe authority.",
+          "invariants": [
+            "I01",
+            "I09"
+          ]
+        },
+        {
+          "name": "partial_merge_failure_no_double_writer",
+          "oracle": "A sealed source stays fenced while another lacks quorum; no child admits prematurely.",
+          "invariants": [
+            "I02",
+            "I09"
+          ]
+        },
+        {
+          "name": "split_merge_under_writes",
+          "oracle": "Every acknowledged effect and receipt reconciles exactly through repeated transitions and cached stale routes.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I05",
+            "I09"
+          ]
+        },
+        {
+          "name": "transition_precopy_resource_bounds",
+          "oracle": "Bounded precopy/delta streaming cannot starve live groups or release transfer debt before completion.",
+          "invariants": [
+            "I07",
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I05",
+        "I07",
+        "I09",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "split_merge"
+    },
+    {
+      "id": "CG-11",
+      "title": "Schedule group placement and adaptive partition size",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-10"
+      ],
+      "anchors": [
+        "placement",
+        "fleet",
+        "membership",
+        "public"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/durability/raft/",
+        "crates/cellar-admin/",
+        "crates/cellar/cli/"
+      ],
+      "creates": [
+        "crates/cellar-logic/cell_group_placement.rs",
+        "crates/cellar-logic/cell_group_placement_tests.rs",
+        "crates/cellar/tests/native_cell_groups_scheduler.rs"
+      ],
+      "test_target": "native_cell_groups_scheduler",
+      "steps": [
+        {
+          "action": "Define dependency-free scheduler observations/actions using group bytes, cell count, write/apply rate, queue age, archive lag and failure-domain load. Keep observations advisory; actual owners revalidate membership, route and resource permits.",
+          "tests": [
+            "scheduler_hysteresis_and_hot_isolation"
+          ]
+        },
+        {
+          "action": "Add bounded split/merge hysteresis and cooldown with deterministic reason codes. Isolate an oversized/hot cell without claiming intra-cell parallelism; refuse unsafe merge and prevent repeated split/merge oscillation.",
+          "tests": [
+            "scheduler_cannot_grant_authority"
+          ]
+        },
+        {
+          "action": "Integrate scale-out/in, leader balance, learner movement, maintenance and repair with whole-group inventory. Serialize membership with transition/park/disaster ownership; reserve recovery capacity and keep exact physical charges.",
+          "tests": [
+            "whole_group_scale_out_in"
+          ]
+        },
+        {
+          "action": "Expose bounded metrics/status and qualify node loss under mixed load. Avoid broadcasting all cell/group metadata to every node and record topology-journal contention.",
+          "tests": [
+            "repair_preserves_failure_domains_and_reserve",
+            "control_plane_fanout_bounded"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "scheduler_hysteresis_and_hot_isolation",
+          "oracle": "Stable decisions split hot/large ranges, merge eligible small neighbors and do not oscillate at thresholds.",
+          "invariants": [
+            "I12"
+          ]
+        },
+        {
+          "name": "scheduler_cannot_grant_authority",
+          "oracle": "Stale observed plans cannot bypass current route, membership, permit or quorum checks.",
+          "invariants": [
+            "I01",
+            "I08",
+            "I09"
+          ]
+        },
+        {
+          "name": "whole_group_scale_out_in",
+          "oracle": "Adding/removing nodes transfers group replicas without remapping or reinitializing individual cells.",
+          "invariants": [
+            "I03",
+            "I08"
+          ]
+        },
+        {
+          "name": "repair_preserves_failure_domains_and_reserve",
+          "oracle": "One-domain loss repairs groups within bounded slots; a second loss cannot fabricate quorum.",
+          "invariants": [
+            "I02",
+            "I08",
+            "I12"
+          ]
+        },
+        {
+          "name": "control_plane_fanout_bounded",
+          "oracle": "Paged inventory and targeted updates remain bounded under many enrolled cells and groups.",
+          "invariants": [
+            "I12"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I08",
+        "I09",
+        "I12"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "scheduler"
+    },
+    {
+      "id": "CG-12",
+      "title": "Coordinate group hibernation and authority-checked wakeup",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-08",
+        "CG-10",
+        "CG-11"
+      ],
+      "anchors": [
+        "ticks",
+        "runtime",
+        "effects",
+        "membership"
+      ],
+      "scope": [
+        "crates/cellar-logic/",
+        "crates/cellar/durability/raft/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/hibernate.rs",
+        "crates/cellar-logic/cell_group_hibernation.rs",
+        "crates/cellar/tests/native_cell_groups_hibernate.rs"
+      ],
+      "test_target": "native_cell_groups_hibernate",
+      "steps": [
+        {
+          "action": "Implement PreparePark and generation-bound local durable park/closed records. Require all configured voters to acknowledge the committed applied cut, with explicit learner state and no unresolved proposal/read/topology work.",
+          "tests": [
+            "park_requires_all_voters_and_no_pending_work"
+          ]
+        },
+        {
+          "action": "Pause routine group ticks only after the exact park certificate is durable. Keep node transport/control/effect wake owners active and bounded; partial park delivery must be safe and stale certificates must never re-park a woken group.",
+          "tests": [
+            "partial_park_and_stale_certificate"
+          ]
+        },
+        {
+          "action": "Wake on API/peer/effect/topology activity or restart, durably close the park generation, resume retained Raft and obtain fresh current-term commit/read authority. Never reset votes, assume retained leadership or replace a missing quorum with S3.",
+          "tests": [
+            "wake_requires_fresh_quorum_barrier"
+          ]
+        },
+        {
+          "action": "Integrate alarm due indexes, membership serialization, cancellation and shutdown. Measure healthy cached wake, image-cache restore and leader-loss wake separately with enough samples.",
+          "tests": [
+            "alarm_and_peer_wake_no_client",
+            "parked_restart_and_leader_loss"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "park_requires_all_voters_and_no_pending_work",
+          "oracle": "A missing voter or unresolved command/effect/topology operation prevents parking but not ordinary safe quorum operation.",
+          "invariants": [
+            "I02",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "partial_park_and_stale_certificate",
+          "oracle": "Lost/late messages, generation replay and new commands cannot cause unsafe re-parking or lost work.",
+          "invariants": [
+            "I01",
+            "I10"
+          ]
+        },
+        {
+          "name": "wake_requires_fresh_quorum_barrier",
+          "oracle": "Retained leader and minority wake cannot serve strong reads/writes without current quorum proof.",
+          "invariants": [
+            "I02",
+            "I05",
+            "I10"
+          ]
+        },
+        {
+          "name": "alarm_and_peer_wake_no_client",
+          "oracle": "Due effects and peer traffic wake parked groups without client traffic or per-cell threads.",
+          "invariants": [
+            "I10",
+            "I12",
+            "I13"
+          ]
+        },
+        {
+          "name": "parked_restart_and_leader_loss",
+          "oracle": "All-voter retained restart and parked leader failure preserve term/vote/history and eventually serve through ordinary elections.",
+          "invariants": [
+            "I04",
+            "I08",
+            "I10"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I04",
+        "I05",
+        "I08",
+        "I10",
+        "I12",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "hibernate"
+    },
+    {
+      "id": "CG-13",
+      "title": "Recover managed groups and incomplete transitions from S3",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-06",
+        "CG-09",
+        "CG-10",
+        "CG-11",
+        "CG-14"
+      ],
+      "anchors": [
+        "disaster",
+        "fleet",
+        "recovery",
+        "archive"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "tools/cellar-recovery-tests/",
+        "crates/cellar/tests/support/raft_process_recovery/"
+      ],
+      "creates": [
+        "crates/cellar/durability/raft/cell_groups/disaster.rs",
+        "crates/cellar/tests/native_cell_groups_disaster.rs"
+      ],
+      "test_target": "native_cell_groups_disaster",
+      "steps": [
+        {
+          "action": "Extend recovery admission to the exact managed topology journal and transition component. Resolve publication outcome and enumerate all parent/child/replacement voting lineages that could still activate; preserve fleet debt/import exclusion.",
+          "tests": [
+            "managed_disaster_blocks_old_lifecycle"
+          ]
+        },
+        {
+          "action": "Verify complete selected recovery closures before fencing. For unpublished operations recover parent domain; for published operations require child sets or transfer closure plus child tails. A parent checkpoint alone cannot cover child S3 acknowledgements.",
+          "tests": [
+            "transition_disaster_selects_complete_closure"
+          ]
+        },
+        {
+          "action": "Use the explicit fencing-authority API to permanently revoke old launch authority and confirm isolation before publishing any new range. Create fresh cell/group/node/member/disk/process identities, seed receipts without callbacks, and require a fresh quorum.",
+          "tests": [
+            "fence_all_possible_old_writers"
+          ]
+        },
+        {
+          "action": "Test exact-request retry after unknown fencing/catalog results, old-host restart attempts, outbox ambiguity and retained-disk restart. Refuse partial fences, missing dependencies, unmanaged bypasses and unsupported rollback.",
+          "tests": [
+            "all_disks_deleted_restore_all_cells",
+            "disaster_retry_and_old_token_refusal",
+            "disaster_outbox_ambiguity_refuses"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "managed_disaster_blocks_old_lifecycle",
+          "oracle": "Import, maintenance and failure recovery cannot concurrently activate old or replacement group histories.",
+          "invariants": [
+            "I08",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "transition_disaster_selects_complete_closure",
+          "oracle": "Published children require their acknowledged tails; unpublished parents recover an exact complete domain without duplication or gaps.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "fence_all_possible_old_writers",
+          "oracle": "Partial inventory, incomplete launch revocation or a restartable old voter prevents new incarnation publication.",
+          "invariants": [
+            "I11"
+          ]
+        },
+        {
+          "name": "all_disks_deleted_restore_all_cells",
+          "oracle": "Real RustFS restore after erasing every owned voter disk preserves all selected-cut values/receipts and admits fresh writes only after quorum.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "disaster_retry_and_old_token_refusal",
+          "oracle": "Lost replies resume the same cut/identities; old tokens refuse and duplicate results return without callback replay.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I11"
+          ]
+        },
+        {
+          "name": "disaster_outbox_ambiguity_refuses",
+          "oracle": "Old-origin uncertain external effects cannot be silently reissued under a fresh identity.",
+          "invariants": [
+            "I11",
+            "I13"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I02",
+        "I03",
+        "I06",
+        "I08",
+        "I09",
+        "I11",
+        "I13"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "disaster"
+    },
+    {
+      "id": "CG-14",
+      "title": "Build reproducible shared-group workload and RustFS harnesses",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-07",
+        "CG-08"
+      ],
+      "anchors": [
+        "harness",
+        "recovery",
+        "fixture",
+        "ci"
+      ],
+      "scope": [
+        "tools/perf/",
+        "tools/cellar-recovery-tests/",
+        "crates/cellar/tests/support/"
+      ],
+      "creates": [
+        "tools/perf/cell_groups.py",
+        "tools/perf/test_cell_groups.py",
+        "crates/cellar/tests/native_cell_groups_harness.rs"
+      ],
+      "test_target": "native_cell_groups_harness",
+      "steps": [
+        {
+          "action": "Extend existing native workload and process-recovery fixtures with logical-cell/group population, mixed operations and per-cell independent ledgers. Observe actual RawNode/group/cell counts; do not substitute counter rows in one database.",
+          "tests": [
+            "harness_counts_real_cells_and_groups"
+          ]
+        },
+        {
+          "action": "Implement the planned harness CLI in qualification.md with explicit private fixture config, owned run directories, source/binary/image/profile hashes and resource preflight. Never change global Docker context or touch unowned resources.",
+          "tests": [
+            "harness_owned_resources_only"
+          ]
+        },
+        {
+          "action": "Separate build/setup/warmup/measurement and run equal-cell cohorts serially. Record all offered/accepted/refused/ambiguous operations, latencies, control bytes, CPU/RSS/FD, image/log writes, S3 requests/lag and cleanup/join outcomes.",
+          "tests": [
+            "harness_ledger_preserves_all_outcomes"
+          ]
+        },
+        {
+          "action": "Implement strict result validation for profiles.json and replayable fault schedules. Retain failed attempts; refuse unsupported profiles, zero selected tests, missing artifacts, source drift and fake multi-node topology claims.",
+          "tests": [
+            "harness_rejects_missing_or_drifted_evidence",
+            "harness_profile_gates_measured"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "harness_counts_real_cells_and_groups",
+          "oracle": "Metrics distinguish independent SQLite cells, RawNodes, groups and replicas and match physical inventory.",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_owned_resources_only",
+          "oracle": "Destructive actions refuse wrong context, label, directory, container identity or run UUID.",
+          "invariants": [
+            "I11",
+            "I12",
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_ledger_preserves_all_outcomes",
+          "oracle": "Refusals/timeouts/cancellations remain in offered-load and correctness accounting; no silent retry improves benchmark results.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_rejects_missing_or_drifted_evidence",
+          "oracle": "Changed sources/binaries/profiles, zero-test runs and absent logs cannot produce complete reports.",
+          "invariants": [
+            "I14"
+          ]
+        },
+        {
+          "name": "harness_profile_gates_measured",
+          "oracle": "Numeric metrics and source-bound artifacts, not a passed boolean alone, determine benchmark acceptance.",
+          "invariants": [
+            "I12",
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I11",
+        "I12",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "harness"
+    },
+    {
+      "id": "CG-15",
+      "title": "Qualify crashes, split merge, wake and zero-quorum recovery",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "L",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-10",
+        "CG-11",
+        "CG-12",
+        "CG-13",
+        "CG-14"
+      ],
+      "anchors": [
+        "fixture",
+        "recovery",
+        "harness",
+        "runtime"
+      ],
+      "scope": [
+        "crates/cellar/durability/raft/",
+        "crates/cellar/tests/",
+        "tools/perf/",
+        "tools/cellar-recovery-tests/"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_faults.rs"
+      ],
+      "test_target": "native_cell_groups_faults",
+      "steps": [
+        {
+          "action": "Run the full native history oracle over interleaved cells, both image modes and all new durable cuts. Include deterministic exhaustive transition/park event schedules and process SIGKILL at persistence boundaries; finite tests complement rather than prove the protocol.",
+          "tests": [
+            "history_oracle_rejects_cross_cell_loss"
+          ]
+        },
+        {
+          "action": "Run real RustFS campaigns with physical log reclamation, S3 outage, slow apply/minority, leader/controller restart and every split/merge cut. Verify per-cell values, versions, receipts, effect IDs and no two writable owners.",
+          "tests": [
+            "all_new_durable_crash_cuts"
+          ]
+        },
+        {
+          "action": "Delete all owned voter disks in standalone and in-transition scenarios after fencing; verify new incarnations, old-host restart rejection, every selected-cut cell and retained restart. Record quorum-only suffix loss separately from S3-protected effects.",
+          "tests": [
+            "rustfs_reclaim_and_transition_recovery"
+          ]
+        },
+        {
+          "action": "Run candidate density, mixed/skew, transition, hibernation, independent-domain and 24-hour profiles. Compare identical logical-cell populations and retain misses. Do not declare a physical tier from containers on one host.",
+          "tests": [
+            "rustfs_zero_quorum_transition_matrix",
+            "load_and_wake_profiles_complete",
+            "soak_and_domain_loss_history"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "history_oracle_rejects_cross_cell_loss",
+          "oracle": "Mutated histories with a lost acknowledged effect, borrowed version or duplicate receipt execution are rejected by the oracle.",
+          "invariants": [
+            "I02",
+            "I03",
+            "I05",
+            "I14"
+          ]
+        },
+        {
+          "name": "all_new_durable_crash_cuts",
+          "oracle": "Native process kills cover manifest, enrollment, seed, publication, seal, activation, park and wake boundaries without partial admission.",
+          "invariants": [
+            "I04",
+            "I09",
+            "I10"
+          ]
+        },
+        {
+          "name": "rustfs_reclaim_and_transition_recovery",
+          "oracle": "Real object-store closure plus actual log-file reclamation survives group restart and transition interruption.",
+          "invariants": [
+            "I06",
+            "I07",
+            "I09"
+          ]
+        },
+        {
+          "name": "rustfs_zero_quorum_transition_matrix",
+          "oracle": "Every specified parent/child disaster case fences old histories and restores complete selected state under fresh quorum.",
+          "invariants": [
+            "I06",
+            "I09",
+            "I11"
+          ]
+        },
+        {
+          "name": "load_and_wake_profiles_complete",
+          "oracle": "All required profile metrics, errors, samples and topology attestations meet the frozen candidate gates.",
+          "invariants": [
+            "I10",
+            "I12",
+            "I14"
+          ]
+        },
+        {
+          "name": "soak_and_domain_loss_history",
+          "oracle": "24-hour and independent-domain runs preserve history, bounded resources and joined lifecycle under foreground load.",
+          "invariants": [
+            "I08",
+            "I12",
+            "I13",
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I02",
+        "I03",
+        "I04",
+        "I05",
+        "I06",
+        "I07",
+        "I08",
+        "I09",
+        "I10",
+        "I11",
+        "I12",
+        "I13",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "faults"
+    },
+    {
+      "id": "CG-16",
+      "title": "Publish the unified group runtime and qualified release envelope",
+      "status": "TODO",
+      "priority": "P1",
+      "effort": "M",
+      "risk": "HIGH",
+      "depends_on": [
+        "CG-15"
+      ],
+      "anchors": [
+        "ci",
+        "host",
+        "catalog",
+        "version",
+        "fixture"
+      ],
+      "scope": [
+        "crates/",
+        "examples/",
+        "docs/",
+        "tools/",
+        ".github/workflows/"
+      ],
+      "creates": [
+        "crates/cellar/tests/native_cell_groups_release.rs"
+      ],
+      "test_target": "native_cell_groups_release",
+      "steps": [
+        {
+          "action": "Audit every production registration, scope codec, image marker, archive, SDK and operator path for the old cell-equals-group assumption. Remove temporary staging adapters and legacy runtime choices; leave explicit one-cell occupancy on the common code.",
+          "tests": [
+            "no_legacy_per_cell_consensus_path"
+          ]
+        },
+        {
+          "action": "Update public docs, examples, CLI/admin error messages and operator runbooks for group placement, split/merge, park/wake and fenced S3 recovery. Document fresh-root cutover and rollback limits without deleting existing state.",
+          "tests": [
+            "public_group_operations_end_to_end"
+          ]
+        },
+        {
+          "action": "Run the complete workspace/feature-off/native/Axum regression matrix and all new task tests at the same immutable release source. Repeat deployment gates at that source; evidence from different revisions cannot be added into one release pass.",
+          "tests": [
+            "release_all_modes_and_shutdown"
+          ]
+        },
+        {
+          "action": "Publish source/artifact/profile hashes, exact supported topology/load envelope and every limitation. plan.py release must refuse until all tasks, invariant cases and mandatory profile reports pass with retained evidence.",
+          "tests": [
+            "release_evidence_single_source"
+          ]
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "no_legacy_per_cell_consensus_path",
+          "oracle": "Public configuration cannot select a legacy one-cell host; physical group counts follow grouping, including occupancy one.",
+          "invariants": [
+            "I01",
+            "I14"
+          ]
+        },
+        {
+          "name": "public_group_operations_end_to_end",
+          "oracle": "SDK/native/Axum/admin/CLI share authorization and identity for enrollment, strong reads, split/merge, park/wake and status.",
+          "invariants": [
+            "I01",
+            "I03",
+            "I05",
+            "I09",
+            "I10"
+          ]
+        },
+        {
+          "name": "release_all_modes_and_shutdown",
+          "oracle": "Materialized/extents, managed/unmanaged, feature-off applications and owned shutdown pass the complete repository regression suite.",
+          "invariants": [
+            "I04",
+            "I08",
+            "I12",
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "release_evidence_single_source",
+          "oracle": "All capabilities and numerical profiles are verified at the published source with no missing, stale or synthetic evidence.",
+          "invariants": [
+            "I14"
+          ]
+        }
+      ],
+      "invariants": [
+        "I01",
+        "I03",
+        "I04",
+        "I05",
+        "I08",
+        "I09",
+        "I10",
+        "I12",
+        "I13",
+        "I14"
+      ],
+      "evidence": [],
+      "stop_conditions": [
+        "A current source excerpt no longer matches: review and record the successor baseline before edits.",
+        "An acknowledged effect, receipt, proof boundary or resource owner would be weakened to make a test pass.",
+        "The implementation requires an unrecorded wire/storage compatibility path or bypass of quorum/fencing."
+      ],
+      "out_of_scope": [
+        "TiKV KV/MVCC APIs and cross-cell transactions",
+        "Online migration or deletion of existing user disks/archives",
+        "Feature-off Fleet/bucket durability semantics"
+      ],
+      "capability": "release"
+    }
+  ]
+}

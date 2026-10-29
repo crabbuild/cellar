@@ -1,0 +1,153 @@
+{
+  "format": 1,
+  "source_revision": "70b6022c8baba3d0a52de6bd9fa11866bdbd3b3f",
+  "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
+  "review_note": "2026-10-29: inspected current owners, callers, native fixtures and CI; planning-only branch at 70b6022c. Reconcile changed source explicitly before implementation.",
+  "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
+  "anchors": {
+    "identity": {
+      "path": "crates/cellar-logic/consensus.rs",
+      "sha256": "4003a743cae358bc29d1b4f5f527d7685e9c468c5cfaaa8d9fcded18b5194912",
+      "line": 83,
+      "excerpt": "pub struct GroupScope {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub cell: String,\n    pub group: GroupId,\n    pub incarnation: IncarnationId,\n}\n\nimpl GroupScope {"
+    },
+    "codec": {
+      "path": "crates/cellar/application/consensus/protocol.rs",
+      "sha256": "cb2f16cf0c8f900b32c8c33ee504870539c8a7fd4ad282af27d4b0a28dce9229",
+      "line": 160,
+      "excerpt": "pub struct CellUpdate {\n    pub scope: GroupScope,\n    pub application_digest: [u8; 32],\n    pub proposal: ProposalId,\n    pub base: LtxImage,\n    pub result: LtxImage,\n    pub files: Vec<LtxUpdate>,\n}\n"
+    },
+    "manifest": {
+      "path": "crates/cellar/durability/raft/cache.rs",
+      "sha256": "c10a9c6eb84c3b7ba3866de68ca331456a926ad219bc276b6d767a4d7b27f770",
+      "line": 82,
+      "excerpt": "pub struct DurableApply {\n    pub position: LogPosition,\n    /// None denotes the canonical empty state before the schema command.\n    pub image: Option<CommittedImage>,\n}\n\n#[derive(Clone, Debug)]\npub enum SnapshotChange {\n    /// A verified local snapshot; retain entries beyond its included index."
+    },
+    "apply": {
+      "path": "crates/cellar/durability/raft/apply.rs",
+      "sha256": "22dacc21f18449945d61ef2553621500512691faaf2da87c697262f6b4dcc3a1",
+      "line": 80,
+      "excerpt": "pub struct ImageApplier {\n    group: GroupLog,\n    images: GenerationStore,\n    application_digest: [u8; 32],\n    limits: EnvelopeLimits,\n    current: Option<PublishedImage>,\n    snapshot_pin: Option<GenerationPin>,\n    pending: Option<Pending>,\n}"
+    },
+    "extent": {
+      "path": "crates/cellar/durability/raft/rooted/marker.rs",
+      "sha256": "b354ad8c64957569d21e8002b4f26082c41581140513fd31827e703c15076d43",
+      "line": 59,
+      "excerpt": "pub(super) fn adopt(\n    group: &GroupLog,\n    store: &NodeExtentStore,\n    schema: [u8; 32],\n    marker: &CommittedImage,\n    max_image_bytes: u64,\n    buffer: &mut [u8],\n) -> Result<SealedImageRoot, ImageApplyError> {\n    marker.validate().map_err(ImageApplyError::Log)?;"
+    },
+    "host": {
+      "path": "crates/cellar/durability/raft/host.rs",
+      "sha256": "94d5b62a99129b057377243a737c9e8ac642438eb677ad50ed78ccc15379bcc2",
+      "line": 1313,
+      "excerpt": "struct Cell {\n    extents: Option<cellar_ltx::internal::NodeExtentStore>,\n    birth: GroupBirth,\n    route_revision: LogIndex,\n    configuration: Option<membership::PendingConfiguration>,\n    retired: bool,\n    archive: CellArchive,\n    archived: LogIndex,\n    archive_retained: admission::Retained,"
+    },
+    "sql": {
+      "path": "crates/cellar/durability/raft/host_sql/mod.rs",
+      "sha256": "afab717be888dc826ff558bca6898abeb7406a9c531baf36da1a644d2218a923",
+      "line": 802,
+      "excerpt": "struct Cell {\n    group: GroupLog,\n    class: Arc<RaftClass>,\n    images: ImageOwner,\n    snapshot: Option<(ApplyTicket, PreparedSnapshot, Permit)>,\n    private: Option<PrivateExecutor>,\n    active: Option<CommandIdentity>,\n}\n"
+    },
+    "runtime": {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "96b2b60c65333f0a16c8e2a538399ecdbc1c4456c14e504e904feb1bc41f655d",
+      "line": 727,
+      "excerpt": "struct Group {\n    replica: Replica,\n    scheduled: bool,\n    write_scheduled: bool,\n    deferred: VecDeque<Request>,\n    inbound: Arc<Budget>,\n    hints: BTreeMap<u64, PeerHint>,\n    tick: bool,\n    failed: Option<RuntimeError>,"
+    },
+    "ticks": {
+      "path": "crates/cellar/durability/raft/runtime.rs",
+      "sha256": "96b2b60c65333f0a16c8e2a538399ecdbc1c4456c14e504e904feb1bc41f655d",
+      "line": 1055,
+      "excerpt": "    fn tick(&mut self) {\n        for (scope, group) in &mut self.groups {\n            group.tick = true;\n            group.wake(scope, &mut self.order);\n        }\n    }\n\n    fn progress(&mut self) -> Result<bool, RuntimeError> {\n        let mut made = false;"
+    },
+    "catalog": {
+      "path": "crates/cellar/durability/raft/catalog.rs",
+      "sha256": "65053cb9c70931f8234041d99e43ccd748c8f64b7479ed299888a57030850e1a",
+      "line": 104,
+      "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
+    },
+    "birth": {
+      "path": "crates/cellar/durability/raft/catalog.rs",
+      "sha256": "65053cb9c70931f8234041d99e43ccd748c8f64b7479ed299888a57030850e1a",
+      "line": 173,
+      "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
+    },
+    "version": {
+      "path": "crates/cellar/durability/raft/version.rs",
+      "sha256": "950d023f70e7b3ab1242e9b9d2a02475da4097f8aed0e9bf888e21c35a214c37",
+      "line": 20,
+      "excerpt": "pub enum VersionError {\n    Invalid,\n    Expired,\n    WrongHistory,\n    WrongSchema,\n    KeyRetention,\n    Limit,\n}\n"
+    },
+    "snapshot": {
+      "path": "crates/cellar/durability/raft/snapshot.rs",
+      "sha256": "1882395d832cc76b2233d3e9d223105b2ee03da44e5c241f04f339238aa145a3",
+      "line": 296,
+      "excerpt": "pub struct SnapshotPackage {\n    group: GroupLog,\n    snapshot: Snapshot,\n    bytes: Option<SourcePayload>,\n    root: Option<rooted::RootPayload>,\n    pin: Option<SnapshotPin>,\n    limits: SnapshotLimits,\n    membership: super::member_state::GroupMembership,\n}"
+    },
+    "archive": {
+      "path": "crates/cellar/durability/raft/archive/mod.rs",
+      "sha256": "ef082373601af208a5ece0a73b5653874459f69abd24ed0b0fe1fcbd6a32e202",
+      "line": 346,
+      "excerpt": "pub struct CellArchive {\n    coordination: Option<publication::Coordination>,\n    activity: Option<IoActivity>,\n    snapshot_scratch: stream_snapshot::ScratchPool,\n    scratch_directory: Option<std::path::PathBuf>,\n    store: Arc<dyn ObjectStore>,\n    prefix: String,\n    bundle_prefix: String,\n    scope: GroupScope,"
+    },
+    "disaster": {
+      "path": "crates/cellar/durability/raft/disaster.rs",
+      "sha256": "8214156072b8fe4296869223596defbf75660f676635a85071b41d843a71c81c",
+      "line": 17,
+      "excerpt": "pub struct S3DisasterRecovery {\n    namespace: NamespaceCatalog,\n    host: cellar_ltx::LtxHost,\n    limits: ArchiveLimits,\n}\n\nimpl S3DisasterRecovery {\n    pub async fn open(\n        store: Arc<dyn object_store::ObjectStore>,"
+    },
+    "membership": {
+      "path": "crates/cellar/durability/raft/host_membership.rs",
+      "sha256": "ece36f2f8d1f0f099cfa3b56cc6214d60070bc9e9bc42469cdbc90c42b15521d",
+      "line": 15,
+      "excerpt": "pub(super) enum Goal {\n    Fleet {\n        binding: Box<crate::raft::member_state::FleetGroupBinding>,\n        fence: Option<Box<crate::raft::member_state::FleetMembershipPermit>>,\n    },\n    Learner(JoiningMember),\n    Repair {\n        plan: RepairPlan,\n        phase: RepairPhase,"
+    },
+    "effects": {
+      "path": "crates/cellar/durability/raft/host_effects.rs",
+      "sha256": "292eb1b101eeb0c250a1e095d8be7d3c345166af335b9139eedc10a6c710dda0",
+      "line": 8,
+      "excerpt": "pub(super) struct Scheduler {\n    options: RaftEffectOptions,\n    cursor: Option<GroupScope>,\n    next_at: u64,\n    sequence: u64,\n    busy: Option<u64>,\n    enabled: bool,\n    memory: Arc<Budget>,\n}"
+    },
+    "placement": {
+      "path": "crates/cellar/durability/raft/placement.rs",
+      "sha256": "f0ccb5cb44b7d98e8b5a6df507196cb8f5bc4da078f8176edcefa8e91ea9e7d4",
+      "line": 11,
+      "excerpt": "pub(super) struct Context<'a> {\n    pub cells: &'a BTreeMap<GroupScope, Cell>,\n    pub peers: &'a BTreeMap<NodeId, RaftPeerNode>,\n    pub local: NodeId,\n    pub rng: &'a mut crate::asyncrt::rng::Stream,\n}\n\nstruct Seen<'a> {\n    view: &'a CellInspection,"
+    },
+    "fleet": {
+      "path": "crates/cellar/durability/raft/fleet_catalog/mod.rs",
+      "sha256": "66f72bfc0791d0080313419f82075eff6f1f480c3dc65fddffb0e7f8b6eb3522",
+      "line": 4,
+      "excerpt": "mod boots;\nmod capacity;\nmod deadline;\nmod disruption;\nmod docker_isolation;\nmod evacuation;\nmod execution;\nmod failure_recovery;\nmod finalization;"
+    },
+    "public": {
+      "path": "crates/cellar/durability/raft/host_node.rs",
+      "sha256": "4b351c8f15a4c117e03ce3d46c69c40c86ab2747bdb379fde4687c3a5913c90d",
+      "line": 39,
+      "excerpt": "pub struct RaftHostObservation {\n    pub node: super::super::inspection::NodeInspection,\n    /// Synced physical boot, independent of a caller-provided process hint.\n    pub fleet_boot: Option<super::super::fleet_stop::BootBinding>,\n    pub startup_bounds: RaftHostStartupBounds,\n    /// Rooted observation used by this boot, never a fresh eligibility proof.\n    pub startup_enrollment: Option<RaftHostEnrollmentObservation>,\n    /// Enrollment in the installed current trust cut. It may differ from boot.\n    pub current_enrollment: Option<RaftHostEnrollmentObservation>,"
+    },
+    "fixture": {
+      "path": "crates/cellar/tests/native_raft_snapshot.rs",
+      "sha256": "3de9090b47be8aac228b071cba44668c12c6e4562472bbdb361563826dc1b67f",
+      "line": 91,
+      "excerpt": "async fn native_extent_fresh_learner_peer_seed_resumes_and_catches_up() -> Result<()> {\n    native_seed_drill(\n        false,\n        false,\n        false,\n        SeedScenario::Ordinary,\n        RaftImageStorage::Extents,\n    )\n    .await"
+    },
+    "harness": {
+      "path": "tools/perf/raft_fleet.py",
+      "sha256": "417078701099601536e4bb1c4044dab05ceb4290257cb7d42de75c2df350bd7b",
+      "line": 246,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    commands = parser.add_subparsers(dest='mode', required=True)\n    setup = commands.add_parser('provision')\n    setup.add_argument('--context', default='colima-cellar-raft-perf')\n    setup.add_argument('--image', required=True)\n    setup.add_argument('--policy', type=Path, required=True)\n    setup.add_argument('--output', type=Path, required=True)\n    setup.add_argument('--backing-disk', type=Path, default=Path.home()"
+    },
+    "recovery": {
+      "path": "tools/perf/process_recovery.py",
+      "sha256": "f95cc6a69ef88f214314a50a59428e98140258a0d9644476eb0e78da3af9c9c4",
+      "line": 130,
+      "excerpt": "def main():\n    parser = argparse.ArgumentParser(description=__doc__)\n    parser.add_argument('--scenario', choices=['owner-loss', 'quorum-loss'], default='owner-loss')\n    parser.add_argument('--profile', choices=['272mib', '10gb'], required=True)\n    parser.add_argument('--output', type=Path, required=True)\n    parser.add_argument('--work-directory', type=Path, required=True)\n    parser.add_argument('--store-data-directory', type=Path, required=True)\n    parser.add_argument('--fixture', type=Path)\n    parser.add_argument('--binary', type=Path)"
+    },
+    "ci": {
+      "path": ".github/workflows/native-sdk.yml",
+      "sha256": "05c5dc73b4ed7c2a29af7ada4765db3dbd6ec7645c8d2c997223417b18145de0",
+      "line": 67,
+      "excerpt": "  RUST_VERSION: 1.98.1\n  # Process tests publish executable artifacts; DWARF makes those fixtures huge.\n  # Keep debug assertions and test behavior while omitting symbol information.\n  CARGO_PROFILE_DEV_DEBUG: \"0\"\n  CARGO_PROFILE_TEST_DEBUG: \"0\"\n\njobs:\n  filesystem_release:\n    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'qualification'"
+    }
+  }
+}
