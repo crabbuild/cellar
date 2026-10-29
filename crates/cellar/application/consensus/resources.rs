@@ -200,6 +200,10 @@ pub struct RaftGroupResources {
     pub incoming_seeds: usize,
     pub applying: usize,
     pub archive_pending: usize,
+    /// Attached cells with locally confirmed coverage of the observed commit.
+    pub archive_current: usize,
+    /// Attached cells with no locally confirmed recovery cut in this process.
+    pub archive_unconfirmed: usize,
     /// Sum and maximum committed-minus-applied positions, in Raft entries.
     #[serde(serialize_with = "decimal")]
     pub apply_lag_entries: u64,

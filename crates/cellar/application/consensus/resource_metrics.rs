@@ -171,6 +171,8 @@ impl RaftResourceUsage {
                 ("incoming_seeds", groups.incoming_seeds),
                 ("applying", groups.applying),
                 ("archive_pending", groups.archive_pending),
+                ("archive_current", groups.archive_current),
+                ("archive_unconfirmed", groups.archive_unconfirmed),
             ] {
                 sample(
                     &mut text,

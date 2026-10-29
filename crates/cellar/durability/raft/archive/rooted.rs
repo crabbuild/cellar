@@ -433,6 +433,30 @@ impl CellArchive {
         })
     }
 
+    pub(super) async fn verify_root_extents(
+        &self,
+        set: &RootSnapshotSet,
+    ) -> Result<(), ArchiveError> {
+        let mut objects = set.extents();
+        let mut pending = FuturesUnordered::new();
+        let mut failure = None;
+        loop {
+            while failure.is_none() && pending.len() < ROOT_WINDOW {
+                let Some(id) = objects.next() else { break };
+                pending.push(self.get_root_extent(id));
+            }
+            let Some(result) = pending.next().await else {
+                break;
+            };
+            if let Err(error) = result {
+                failure.get_or_insert(error);
+            }
+            // Stop admission on failure and drain entered reads/hash work before
+            // releasing the caller's physical owner and bounded read budget.
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
     /// Download only this exact reference, authenticate all declared objects,
     /// and independently seal the destination. Local cache contents cannot
     /// hide missing or corrupt remote bytes. No activation authority is minted.

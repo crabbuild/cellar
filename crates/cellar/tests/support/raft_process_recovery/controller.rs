@@ -3,9 +3,9 @@
 use super::*;
 use std::process::{Child, Command, Stdio};
 
-struct Process {
-    child: Child,
-    control: PathBuf,
+pub(super) struct Process {
+    pub(super) child: Child,
+    pub(super) control: PathBuf,
     sequence: u64,
 }
 
@@ -19,11 +19,11 @@ impl Drop for Process {
 }
 
 impl Process {
-    fn spawn(config: &Config) -> Result<Self> {
+    pub(super) fn spawn(config: &Config) -> Result<Self> {
         std::fs::create_dir_all(&config.control)?;
         ensure!(
-            !config.directory.exists(),
-            "worker data already exists before spawn"
+            config.directory.exists() == config.retained,
+            "worker directory does not match cold/retained startup"
         );
         let path = config.control.join("config.json");
         atomic_json(&path, config)?;
@@ -51,7 +51,7 @@ impl Process {
         })
     }
 
-    async fn file(&mut self, name: &str, timeout: Duration) -> Result<Value> {
+    pub(super) async fn file(&mut self, name: &str, timeout: Duration) -> Result<Value> {
         let deadline = Instant::now() + timeout;
         loop {
             let path = self.control.join(name);
@@ -72,7 +72,7 @@ impl Process {
         }
     }
 
-    async fn raw(&mut self, action: Action) -> Result<Value> {
+    pub(super) async fn raw(&mut self, action: Action) -> Result<Value> {
         self.sequence += 1;
         atomic_json(
             &self.control.join("request.json"),
@@ -106,7 +106,7 @@ impl Process {
         }
     }
 
-    async fn call(&mut self, action: Action) -> Result<Value> {
+    pub(super) async fn call(&mut self, action: Action) -> Result<Value> {
         let response = self.raw(action).await?;
         ensure!(
             response["ok"] == true,
@@ -115,7 +115,7 @@ impl Process {
         Ok(response["value"].clone())
     }
 
-    async fn stop(&mut self) -> Result<Value> {
+    pub(super) async fn stop(&mut self) -> Result<Value> {
         let response = self.call(Action::Stop).await?;
         ensure!(
             response["owners_closed"] == true,
@@ -136,18 +136,18 @@ impl Process {
     }
 }
 
-struct Ledger {
-    path: PathBuf,
-    started: Instant,
-    value: Value,
+pub(super) struct Ledger {
+    pub(super) path: PathBuf,
+    pub(super) started: Instant,
+    pub(super) value: Value,
 }
 
 impl Ledger {
-    fn save(&self) -> Result<()> {
+    pub(super) fn save(&self) -> Result<()> {
         atomic_json(&self.path, &self.value)
     }
 
-    fn phase(&mut self, name: &str, detail: Value) -> Result<()> {
+    pub(super) fn phase(&mut self, name: &str, detail: Value) -> Result<()> {
         let elapsed = u64::try_from(self.started.elapsed().as_micros())?;
         self.value["events"]
             .as_array_mut()
@@ -158,7 +158,7 @@ impl Ledger {
     }
 }
 
-async fn leader(processes: &mut [Process], killed: Option<usize>) -> Result<usize> {
+pub(super) async fn leader(processes: &mut [Process], killed: Option<usize>) -> Result<usize> {
     let deadline = Instant::now() + START_TIMEOUT;
     loop {
         for (index, process) in processes.iter_mut().enumerate() {
@@ -174,7 +174,7 @@ async fn leader(processes: &mut [Process], killed: Option<usize>) -> Result<usiz
     }
 }
 
-fn counter(performance: &Value, name: &str) -> Result<u64> {
+pub(super) fn counter(performance: &Value, name: &str) -> Result<u64> {
     let items = performance["counters"]
         .as_array()
         .context("performance counters missing")?;
@@ -188,7 +188,7 @@ fn counter(performance: &Value, name: &str) -> Result<u64> {
         .parse()?)
 }
 
-fn same_receipt(current: &Value, previous: &Value) -> Result<()> {
+pub(super) fn same_receipt(current: &Value, previous: &Value) -> Result<()> {
     for name in ["value", "group", "incarnation", "durability"] {
         ensure!(current[name] == previous[name], "duplicate changed {name}");
     }
@@ -284,6 +284,9 @@ async fn drill(directory: &Path, quota: u64, prefix: &str, ledger: &mut Ledger) 
     }
     let configs = (0..4)
         .map(|index| Config {
+            disaster: false,
+            retained: false,
+            generation: 0,
             index,
             quota,
             prefix: prefix.into(),

@@ -168,6 +168,7 @@ pub struct CellStatus {
     /// The durable Raft checkpoint boundary; it grants no read or write proof.
     pub checkpoint: LogPosition,
     pub archived: LogIndex,
+    pub archive: super::ArchiveStatus,
     pub membership_revision: LogIndex,
     pub member_high_water: u64,
 }

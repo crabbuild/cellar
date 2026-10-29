@@ -6,6 +6,8 @@
 //! Transport, storage and command registration are supplied by the host.
 
 pub(crate) mod admission;
+mod archive_status;
+pub use archive_status::{ArchiveFailure, ArchiveReadiness, ArchiveStatus};
 mod class;
 pub(crate) mod client;
 mod performance;

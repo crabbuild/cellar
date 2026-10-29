@@ -16,7 +16,7 @@ fn dependencies(manifest: &ExtentManifest) -> Result<BTreeSet<ExtentId>, Snapsho
         .collect()
 }
 
-pub(super) fn transfer_length(
+pub(in crate::raft::snapshot) fn transfer_length(
     manifest: &ExtentManifest,
     metadata: usize,
 ) -> Result<usize, SnapshotError> {

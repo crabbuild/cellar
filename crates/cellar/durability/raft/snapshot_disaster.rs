@@ -17,6 +17,96 @@ impl DisasterSeed {
         &self.permit.local.scope
     }
 
+    pub(crate) fn finish_root(
+        self,
+        storage: &crate::raft::host_sql::RootStorage,
+        services: cellar_ltx::generation::ReadServices,
+    ) -> Result<PreparedSeed, SnapshotError> {
+        use cellar_ltx::internal::{ImageBinding, StoreError, EXTENT_BYTES};
+        self.limits.validate()?;
+        self.permit
+            .validate_set(&self.set)
+            .map_err(|_| SnapshotError::Invalid("disaster archive authority"))?;
+        if self.set.schema_digest() != self.schema {
+            return Err(SnapshotError::Invalid("disaster archive schema"));
+        }
+        let (_, source) = self
+            .set
+            .into_root(&storage.store)
+            .map_err(SnapshotError::Archive)?;
+        {
+            let view = source.view().image(
+                storage.cache_directory.clone(),
+                storage.cache_pool.clone(),
+                storage.cache,
+            )?;
+            let database = crate::storage::open_immutable_extent_image(
+                view,
+                crate::storage::ImmutableQueryOptions {
+                    services,
+                    sqlite_vec: false,
+                },
+            )
+            .map_err(|_| SnapshotError::Invalid("disaster SQLite image"))?;
+            require_reconciled_outbox(database.connection())?;
+        }
+        let birth = &self.permit.birth;
+        // Rebind only the authenticated history. Payloads, geometry, SQLite
+        // position and receipts remain byte-for-byte the selected archive cut.
+        // Keep the source pin until the new root has its own inventory seal.
+        let manifest = source.manifest();
+        let manifest = manifest
+            .with_updates(
+                ImageBinding {
+                    history: birth.digest(),
+                    ..manifest.binding()
+                },
+                manifest.geometry(),
+                &[],
+            )
+            .map_err(StoreError::from)?;
+        let image = std::sync::Arc::new(
+            storage
+                .store
+                .seal_image_root(manifest, &mut vec![0; EXTENT_BYTES as usize])?,
+        );
+        let bytes = image.manifest().encode().map_err(StoreError::from)?;
+        let mut initial = ::raft::prelude::ConfState::default();
+        initial.set_voters(birth.voters().iter().map(|m| m.member.get()).collect());
+        initial.set_learners(birth.learners().iter().map(|m| m.member.get()).collect());
+        let descriptor = Descriptor {
+            format: 1,
+            scope: WireScope::from(birth.scope()),
+            birth: birth.digest(),
+            schema: self.schema,
+            index: 2,
+            term: 1,
+            conf: manifest::encode_conf(&initial)?,
+            membership: crate::raft::member_state::GroupMembership::initial(&initial),
+            image: Some(crate::raft::rooted::marker::encode(&image)),
+            encoded_length: bytes.len(),
+            encoded_digest: Sha256::digest(&bytes).into(),
+            transfer_length: super::super::rooted::transfer_length(image.manifest(), bytes.len())?,
+        };
+        super::super::RootSnapshotSet::for_seed(
+            birth,
+            self.schema,
+            &descriptor.snapshot()?,
+            &bytes,
+            self.limits,
+        )?;
+        Ok(PreparedSeed {
+            grant: SeedPermit::Disaster(self.permit),
+            descriptor,
+            initial,
+            pin: Some(SnapshotPin::Rooted {
+                image,
+                store: storage.store.clone(),
+            }),
+            _reservation: self.reservation,
+        })
+    }
+
     pub(crate) fn finish(
         self,
         images: &GenerationStore,

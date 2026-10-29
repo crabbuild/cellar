@@ -33,6 +33,10 @@ struct Observation {
 }
 
 impl Retained {
+    pub(super) fn bytes(&mut self, group: &GroupLog, archived: LogIndex) -> Result<u64, LogError> {
+        Ok(self.observe(group, archived)?.bytes)
+    }
+
     fn observe(&mut self, group: &GroupLog, archived: LogIndex) -> Result<Usage, LogError> {
         let revision = group.cache_revision()?;
         if let Some(observed) = &self.observed {

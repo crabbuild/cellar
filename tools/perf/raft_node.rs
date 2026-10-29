@@ -646,7 +646,7 @@ async fn main() -> Result<()> {
                         "ready": status.command_ready, "role":format!("{:?}",status.role),
                         "term":status.term.get(), "persisted":status.persisted.get(),
                         "checkpoint":status.checkpoint.index.get(), "committed":status.committed.get(),
-                        "applied":status.applied.index.get(), "archived":status.archived.get()}))
+                        "applied":status.applied.index.get(), "archived":status.archived.get(), "archive":status.archive}))
                 }.await;
                 if let Some(probe) = &probe { probe.finish(result.is_ok()); }
                 match result { Ok(v) => (axum::http::StatusCode::OK, v.to_string()),

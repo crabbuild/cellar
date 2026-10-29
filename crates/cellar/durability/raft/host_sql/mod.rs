@@ -633,12 +633,14 @@ impl Pool {
         accounting: &cellar_ltx::generation::GenerationAccounting,
     ) -> Result<Value, ExecutionError> {
         if let Action::SealDisasterSeed { received, storage } = action {
-            if cells.contains_key(scope)
-                || cells.len() >= max
-                || received.scope() != scope
-                || storage.rooted.is_some()
-            {
+            if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("disaster seed owner"));
+            }
+            if let Some(rooted) = &storage.rooted {
+                let seed = received
+                    .finish_root(rooted, storage.services)
+                    .map_err(super::execution::storage)?;
+                return Ok(Value::Seeded(Box::new(seed)));
             }
             let images = GenerationStore::open_with_scratch(
                 storage.directory.join("images"),

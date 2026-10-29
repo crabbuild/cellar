@@ -47,6 +47,9 @@ mod startup_tests;
 #[cfg(test)]
 use super::storage_fault;
 
+#[path = "host_archive_status.rs"]
+mod archive_status;
+
 #[path = "host_admission.rs"]
 mod admission;
 
@@ -772,6 +775,12 @@ async fn initialize(
                                             service.log.limits().directory.clone(),
                                         )
                                         .with_snapshot_scratch(service.log.snapshot_scratch());
+                                    let archive = match &storage.rooted {
+                                        Some(rooted) => {
+                                            archive.with_root_store(rooted.store.clone())
+                                        }
+                                        None => archive,
+                                    };
                                     let bytes = archive.read_memory_bound();
                                     let reservation =
                                         service.transport.reserve_disaster_seed(bytes)?;
@@ -1310,6 +1319,7 @@ struct Cell {
     archive: CellArchive,
     archived: LogIndex,
     archive_retained: admission::Retained,
+    archive_observation: archive_status::Observation,
     archive_retry_at: u64,
     group: GroupLog,
     schema_digest: [u8; 32],
@@ -2433,6 +2443,11 @@ impl Driver {
                     reply(&mut pending.request, Err(error));
                 }
             }
+            cell.archive_observation.observe(
+                status.committed,
+                cell.archived,
+                crate::asyncrt::mono_ms(),
+            );
             Ok(status)
         });
         if let StatusPurpose::Observe(mut request) = purpose {
@@ -2480,6 +2495,15 @@ impl Driver {
                     applied: status.applied,
                     checkpoint: status.checkpoint,
                     archived: cell.archived,
+                    archive: cell.archive_observation.capture(
+                        status.committed,
+                        cell.archived,
+                        now,
+                        cell.archive_retained.bytes(&cell.group, cell.archived)?,
+                        self.archive_owner
+                            .as_ref()
+                            .is_some_and(|owner| owner.inflight.contains(&scope)),
+                    ),
                     membership_revision: status.membership_revision,
                     member_high_water: status.member_high_water,
                 }))
@@ -3101,6 +3125,11 @@ impl Driver {
                     if cell.apply.is_some() {
                         self.fail(&scope);
                     } else {
+                        cell.archive_observation.observe(
+                            ticket.position().index,
+                            cell.archived,
+                            crate::asyncrt::mono_ms(),
+                        );
                         cell.apply_inflight = true;
                         cell.apply = Some(event);
                         self.applying.insert(scope);
@@ -3547,7 +3576,11 @@ impl Driver {
                     // eligible for the next fair scan; back off failures or a proof
                     // that the local state machine could not accept.
                     let now = crate::asyncrt::mono_ms();
+                    if let Err(error) = &result {
+                        cell.archive_observation.failed(error);
+                    }
                     cell.archive_retry_at = if result.is_ok() && position.index <= cell.archived {
+                        cell.archive_observation.confirmed(cell.archived, now);
                         now
                     } else {
                         now.saturating_add(self.options.archive.retry_ms)

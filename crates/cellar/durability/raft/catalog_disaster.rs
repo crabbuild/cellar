@@ -139,14 +139,13 @@ impl NamespaceCatalog {
             return Err(CatalogError::Conflict("different disaster recovery intent"));
         }
         let archive = self.cell_archive(&source, host, limits)?;
-        let set = archive
-            .recovery_set_at(&request.archive)
+        // Validate the exact source history and its complete remote closure
+        // before reserving an intent or asking the infrastructure to fence it.
+        // The operator does not need a local inventory the size of the cell.
+        archive
+            .verify_recovery_at(&request.archive)
             .await
             .map_err(CatalogError::Archive)?;
-        if set.scope() != &request.source || set.birth_digest() != source.digest() {
-            return Err(CatalogError::Conflict("disaster source archive"));
-        }
-        drop(set);
         // Shares the birth-inventory CAS with fleet import/freeze. Once this
         // claim wins, its histories cannot subsequently enter managed ownership.
         self.claim_disaster_namespace().await?;
@@ -237,11 +236,6 @@ impl NamespaceCatalog {
     ) -> Result<(GroupBirth, Intent, DisasterRecoveryRequest), CatalogError> {
         self.require_mode(NamespaceMode::Raft)?;
         self.require_disaster_namespace().await?;
-        if self.config.image_storage != RaftImageStorage::Materialized {
-            return Err(CatalogError::Invalid(
-                "disaster recovery requires materialized image storage",
-            ));
-        }
         self.check_scope(&request.source)?;
         request.replacement.voters.sort_by_key(|m| m.member);
         request.replacement.learners.sort_by_key(|m| m.member);

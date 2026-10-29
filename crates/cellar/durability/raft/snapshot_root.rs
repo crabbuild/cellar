@@ -13,7 +13,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 #[path = "snapshot_root_stream.rs"]
 mod stream;
-pub(super) use stream::{RootDownload, RootPayload};
+pub(super) use stream::{transfer_length, RootDownload, RootPayload};
 
 /// A coherent committed source. The node's transport separately admits its
 /// lifetime and each at-most-4-MiB extent read on a registered blocking owner.
