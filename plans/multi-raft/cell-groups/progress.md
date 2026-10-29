@@ -130,3 +130,40 @@ against the moving review baseline. Evidence now covers every runtime change
 since the frozen plan starting revision. A regression test ensures later baseline
 reviews neither invalidate historical inputs nor waive earlier changed files.
 This correction does not make CG-02 DONE or relax the final release-source gate.
+
+### CG-02 incremental preparation checkpoint
+
+Ordinary cell mutations now prepare against a complete prior root without scanning
+or copying all cell pins. The physical pin tree mirrors the authenticated AVL
+manifest, shares unchanged subtrees and copies changed paths/rotations. Each
+mutation checks the changed image, expected cell version and next group position.
+Page reads and allocations are logarithmic; lookup comparisons are bounded by
+O(log² cells). Root clones are constant-time and memory admission charges the
+complete owned tree, including node and cell-ID allocations.
+
+The engine checks the exact base root, so a staged successor from a competing
+branch cannot replace the selected branch merely because its index is next.
+Identical already-selected roots remain retryable. Capabilities also bind the
+page-store instance; reopening requires complete preparation. A coherent root can
+return a selected cell leaf plus an independent physical image pin.
+
+Native cases cover one update among 64 real SQLite cells, bounded page reads and
+writes, competing-branch refusal, identical retry, page-owner replacement, and
+96 incremental enrollments across AVL rotations. Reclamation checks keep the old
+image while its reader survives, reclaim it after release, and retain all 64
+selected images through the engine's root owner after caller handles are dropped.
+The first incremental run exposed an overly strict retry base check; the corrected
+run is retained beside that failure under ignored local evidence.
+
+This is not the complete pin/reclamation gate. Page reclamation, authoritative
+retention across uncertain engine outcomes, root-specific process-kill cuts and
+full extent-mode recovery remain CG-02 work. The production shared-group host and
+the full hard-cutover goal remain pending; CG-02 stays IN_PROGRESS.
+
+Runtime checkpoint `b71f62b5` passes all 7 native manifest cases and 19 existing
+Raft storage cases, all-target Clippy with warnings denied, formatting, layout,
+native dependency isolation and docs checks. All 37 plan-validator tests and the
+reviewed source preflight pass. The initial source-drift refusal correctly required
+review of the changed cache anchor before advancing the baseline. Source and
+executable hashes, failed/corrected test output and final check logs are retained
+under `.cellar/cell-groups-evidence/CG-02-incremental-pins/`.

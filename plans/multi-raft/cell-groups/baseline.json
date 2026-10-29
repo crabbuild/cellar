@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "4387fedd2256d4eed3e38473ac42a8b46f8e68b8",
+  "source_revision": "b71f62b5841bab473481661bb5d7d6be9f366e29",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed CG-02 engine-root checkpoint at 4387fedd2256d4eed3e38473ac42a8b46f8e68b8. The cache now atomically binds a complete group manifest to its applied prefix and membership, retains image pins during publication, and refuses legacy image access for group roots. The source anchor shows both staged state contracts. Group-record domains refuse the previous bare-image shape. Incremental preparation, reclamation, extent recovery and production host cutover remain pending; this is not CG-02 completion.",
+  "review_note": "2026-10-29: reviewed incremental preparation at b71f62b5841bab473481661bb5d7d6be9f366e29. The cache now owns persistent manifest pin trees, validates their exact root reference, charges node/ID allocations, and checks the prior root for staged mutations while allowing identical selected retries. Page-store instance binding prevents reuse after reopen. Page reclamation, uncertain-publication retention, full extent recovery and production host cutover remain pending; CG-02 is not complete.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
@@ -19,9 +19,9 @@
     },
     "manifest": {
       "path": "crates/cellar/durability/raft/cache.rs",
-      "sha256": "1873c7f987f20a3de81d561c07d9117320a99ec7cacef18435ff4e776b79c801",
-      "line": 379,
-      "excerpt": "pub(crate) struct CachedGroup {\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    pub manifest_pins: Option<Arc<[CellImagePin]>>,\n}\n"
+      "sha256": "6e3a022cd16636f7587dd28be3edf86bd6ee0f13778d771ff8af0f6e4cf39edc",
+      "line": 377,
+      "excerpt": "pub(crate) struct CachedGroup {\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    pub manifest_pins: Option<ManifestPins>,\n}\n"
     },
     "apply": {
       "path": "crates/cellar/durability/raft/apply.rs",
