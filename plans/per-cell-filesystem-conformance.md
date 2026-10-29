@@ -2,12 +2,12 @@
 
 # Filesystem operation conformance audit
 
-Status: partial audit, 2026-10-28. This inventory follows the
-[public API contract](per-cell-filesystem-api.md). Each row names behavioral
-assertions inspected in the current fixtures; it does not establish complete
-POSIX conformance or completion of the corresponding requirement group.
-Executed suites and qualification limits belong in the
-[status ledger](per-cell-filesystem-implementation-status.md).
+Status: initial-profile source audit, 2026-10-28. This inventory follows the
+[public API contract](per-cell-filesystem-api.md). It maps requirement groups and
+public operations to inspected behavioral assertions. Release acceptance also
+requires the executed suites and supported-target CI recorded in the
+[status ledger](per-cell-filesystem-implementation-status.md); source coverage
+alone does not establish a passing release or universal POSIX conformance.
 
 ## Fixture boundaries
 
@@ -28,6 +28,37 @@ Executed suites and qualification limits belong in the
 Rust uses snake_case names. The JavaScript facade uses camelCase where the SDK
 declares it; Python uses snake_case. Guest transaction composition is the checked
 `storage.apply` batch, rather than a callback transaction held across bridge calls.
+
+## Initial-profile requirement map
+
+This maps the implementation plan's requirement groups to their owning
+assertions. The O01–O52 catalog below checks the public wrappers, while backend
+and runtime fixtures check shared storage and authority invariants. Execution
+status is recorded separately: a source mapping is not a passing test result.
+
+| Requirement IDs | Owning assertions and boundary |
+| --- | --- |
+| N01–N06 | Native `namespace` and shared reserved-path cases cover root confinement, byte names, path/depth limits, trailing slashes and exclusive create. Backend exhaustion checks compare the entire persistent state before and after rejected inode/cookie/revision allocation. |
+| N07–N12 | Native `namespace` / `directory_mutation`, guest namespace profiles and backend replacement cases cover rename victims, nonempty/type/cycle refusals, pinned unlink/rename identity and enumeration during mutation. |
+| D01–D08 | Native `/exercise` and `/contracts`, guest normal/budget/concurrency profiles and backend `range_edits_sparse_growth_and_truncate_gc_preserve_new_content` cover chunk boundaries, zero transfers, sparse growth, append, tail zeroing and rewrite/extension before reclamation. The dense fleet profile checks actual 10/100/1024 MiB payloads and cold readback. |
+| Q01–Q06 | Backend quota, aggregate-integer-limit and pinned-orphan cases compare bytes, logical/allocated accounting and pending garbage through refusal. Native `transactions` checks that rolled-back savepoints do not refund root work admission. Native admission and guest budget fixtures check handle/transfer/result limits before effects. |
+| T01–T07 | Native `transactions`, guest wire/batch and durable-tool profiles check atomic file/state/receipt changes, later rollback, version conflicts, exact savepoint lifetime and codec prevalidation. The local `Storage` transaction API and `storage.apply` schema contain only current-cell state; named KV/SQL/queue RPCs have no participant field or shared transaction handle. This last item is an API-boundary audit, not a distributed transaction claim. |
+| A01–A07 | Native stateless/denied/facet, foreign-view, replaced-activation and background-lifetime cases check acquisition and retained authority. Node/V8 and both Python ABIs exercise all retained filesystem methods after deadline/fence and predecessor shutdown. Backend protected-SQL checks prevent application access to filesystem tables. Rust cleanup-only close/drop retains its documented exception. |
+| H01–H06 | Native descriptors/admission, backend directory pins, guest live/expired/wrong-kind tokens and fleet pending-reclamation recovery check pins, dup/last-close, stale tokens, orphan cleanup, cookie identity and cleanup of provisional handles. Wrong-kind close preserves the original occupied slot. |
+| S01–S04 | Native foreign views/directories and guest isolation/*at profiles reject other-cell and guessed tokens while preserving state; both rename parents are checked independently. Paths resolve from the cell root in SQLite, including absolute *at paths; there is no host-file fallback. |
+| C01–C06 | Native/guest budget and nested-transaction cases check admission, concurrency profiles check mutable offsets and serialized append, and the five-cell pressure fixture checks progress with bounded GC. Node lost replies and Python task cancellation preserve confirmed prefixes and uncertainty. Proof/recovery reports require joined native and interpreter shutdown. |
+| G01–G06 | Guest tool profiles and the session agent's [process cuts](../examples/filesystem-agent/test/process.mjs) check saved decisions, atomic receipts, saved reads after edits, bounded journals, follow-up files and serialized turn ownership. Installed session/Vercel/Python packages verify restored runtime assets and cold file/receipt recovery. |
+| F01–F06 | Native filesystem fleet faults check acknowledged and unpublished file/state/receipt ledgers through owner loss, failed restore and proven successor writes. S3 supplied-client, TCP-cut and TCP-stall variants exercise distinct publication/recovery failures. Guest proof gates cover peer/bucket proof interruption. Backend SQLite FULL checks rollback and later recovery; the runtime SQLite-busy fixture checks timer progress. These are explicit software fault boundaries, not a claim about arbitrary device failure or power loss. |
+| P01–P08 | Native descriptors/metadata/directory-relative and guest normal profiles check acquisition, independent/shared offsets, positional I/O, seek/truncate semantics, short/zero transfers, modes/mask, *at identity and duplicate closure. |
+| P09–P16 | Native transactions and guest wire/lifetime profiles check transaction expiry, ordinary/child/savepoint affinity, proof refusal inside a transaction, token/integer/name validation, delete_all protection and positional writes on append-open files. |
+| B01–B04 | Dependency isolation, SDK types, the three-language API harnesses and native/installed-agent examples exercise the primitive with normal SDK invocations. SDK acquisition and configuration contain no mount or command-execution API; the optional FUSE proposal has no role in these builds or recovery tests. |
+
+The release matrix is the declared regular-file/directory profile and its
+documented error classes. It does not advertise all POSIX facilities or every
+Cartesian combination of malformed arguments and simultaneous failures.
+Contract-specific error precedence, descriptor kind, authority, admission,
+rollback and uncertainty each have owning assertions; new public operations or
+newly discovered combinations require regressions at the affected boundary.
 
 ## Access and file descriptors
 
@@ -694,41 +725,42 @@ held local-commit cut, observes settlement, then forces the actual lease mismatc
 It preserves the original deadlines, recovery, stale-wrapper and complete cleanup
 assertions. It does not require one side of that reply/cancellation race to win.
 
-## Open audit work
+## Audit disposition and release gates
 
-Every row records selected positive or negative behavior. The following work
-remains before this inventory can support a complete conformance claim:
+The initial-profile requirement map and O01–O52 inventory define this audit's
+scope. Error coverage is organized by the shared validation/storage boundary
+and the public wrappers that carry operation, outcome and progress metadata.
+It is not an exhaustive cross-product of every invalid argument, authority
+failure and transport interruption. The zero-page and wrong-kind-close
+regressions demonstrate why a new mismatch still needs a test at its public
+boundary even when shared backend validation already exists.
 
-1. Enumerate applicable type, access, option, size/overflow and namespace errors
-   for each operation, including precedence only where the contract specifies it.
-   Shared backend coverage alone does not prove every public wrapper's operation
-   name, effect outcome or guest serialization. The looping-helper preflight
-   and progress profiles above cover their specified SDK error paths; remaining
-   operation/option combinations still need their own assertions. The argument
-   profiles cover selected facade conversions. The wire profiles map the
-   selected syntax/range, shape and option refusals above; remaining combinations
-   and precedence still need their own assertions. The reply-validation profile
-   adds controlled post-dispatch faults and helper-prefix evidence. The Node
-   byte-reply profile adds selected real transport losses; remaining lost-reply
-   families and production fault outcomes retain their separate gates.
-2. Complete transaction, cancellation and closed-domain cases for each
-   handle-bearing family. Extend the selected live cross-cell cases where
-   additional operation families require distinct authority assertions. The
-   native foreign-directory and guest live/expired/closed/wrong-kind profiles
-   above cover both `renameat` parents, with their distinct scopes. The deadline
-   cleanup profile adds retained-wrapper refusal, slot/pin release and committed
-   batch recovery. The Python in-flight proof profile above adds the selected
-   barrier/deadline/fence combinations. The Node/V8 profile adds five barriers,
-   both interruption modes and Preserve/Handoff with stale-context checks.
-   The Node byte-reply profile adds six byte APIs through real reply loss and
-   native cancellation. Other byte-cancellation/runtime combinations and
-   remaining domain families stay open. The
-   Python handoff profile adds selected retained-wrapper refusals after predecessor domain
-   shutdown and coherent successor writes; it does not complete every lifetime
-   family.
-3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
-   to actual source and executable evidence. Invocation-bound descriptors and
-   activation-bound filesystem views have distinct lifetime contracts.
-4. Finish fleet fault, sustained load, captured-package, target/ABI and capacity
-   qualification from the implementation plan. This operation inventory does
-   not replace those gates or include the separate optional FUSE proposal.
+Retained filesystem views, files and directories have complete public-method
+coverage in the Node/V8 and Python proof profiles. Native tests separately
+cover cached views in another cell/replaced activation, exact transaction
+identity, descriptor cleanup and both *at parents. Read-only, admission, wire,
+reply-shape, helper-prefix and namespace profiles cover the declared refusal
+classes. Invocation-bound descriptors and activation-bound views retain distinct
+lifetimes; cleanup-only native close/drop is not a stale-authority mutation.
+
+Cancellation evidence follows each transport. Node withholds real successful
+IPC byte replies; Python cancels coroutine waits at defined native/bridge
+boundaries. Node, V8 and both Python ABIs interrupt the five proof/output
+boundaries under deadline/fence and Preserve/Handoff. These mechanisms preserve
+uncertainty until a receipt/readback reconciles it. In-process V8/Python bridge
+cancellation is not described as a physical Node IPC failure.
+
+Release still requires passing executions on the final source and supported
+runtime/target matrix. The [status ledger](per-cell-filesystem-implementation-status.md)
+records local results, binary/source identities and CI disposition. A prior
+successful run cannot erase a later failure; investigate a failing assertion
+without increasing its lease or handler budget or retrying it into a pass.
+Captured-package delivery, native release targets and both Python ABIs remain
+required CI gates alongside the primitive's API, recovery and resource suites.
+
+The bounded five-cell stress, dense-file and S3 fault profiles establish their
+stated framework contracts. Larger populations, application throughput/SLOs,
+provider credential rotation, device/power failure and network-kernel fault
+campaigns use the deployment qualification process. Links, locks, wider
+metadata, cold object-backed file content and FUSE remain separately designed
+capability/adaptor work; this audit makes no claims for them.

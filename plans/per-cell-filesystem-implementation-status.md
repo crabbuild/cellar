@@ -9,6 +9,46 @@ Status: initial API profile implemented; production qualification in progress,
 scope. This ledger distinguishes implemented behavior from verified behavior.
 FUSE remains a separate proposal.
 
+## Current primitive release gates
+
+The latest follow-up is `cd0463fa`, based on `main` at `f3f2845c`. The
+[initial-profile requirement map](per-cell-filesystem-conformance.md#initial-profile-requirement-map)
+now connects every implementation-plan group and all O01–O52 public operations
+to their owning assertions. The earlier checklist below is retained as history;
+this table records the current disposition.
+
+| Gate | Current evidence and disposition |
+| --- | --- |
+| Native storage and API | Passing: 47 local-object-store unit tests, 21 filesystem storage tests, three native public API suites, the facet integration suite, nine runtime-policy tests, seven filesystem fleet tests and three extent tests. The corrected public local-store suite passes all five cases; its WAL-index negative control still fails as intended. |
+| TypeScript/JavaScript | Strict public declaration checks pass. All six real Node/V8 API suites and three Node-only suites pass on the page-limit fix. The integrated baseline also passes 40 proof cases, 24 Node byte-reply-loss cases, 89 JavaScript library tests and 38 shared guest tests. |
+| Python | GIL-enabled and free-threaded CPython 3.14.5 both pass normal, read-only, reduced-budget and task-cancellation modes, plus 20 fresh first-write fleets per ABI. Each ABI passes 21 proof/deadline/fence scenarios with six checked native outcomes and settled interpreter/bridge state. The page-limit fix is exercised through both ABI API suites. |
+| Authority and resource contracts | Every public retained filesystem/file/directory method is covered through proof retirement and closed predecessor domains. Wrong-kind descriptors, fresh-slot occupancy, transaction affinity, readonly policy, quotas and preserved error/progress metadata have explicit assertions. There are 12 independent five-cell reclamation-pressure/cold-recovery passes. |
+| Large files and external-store recovery | Dense 10/100/1024 MiB payloads pass cold recovery, exact content/state/receipt checks and subsequent writes. Development-store, supplied S3, TCP-cut and TCP-stall recovery profiles pass with unchanged fault/progress budgets and checked cleanup. Capacity observations do not establish a hard process-RSS bound or deployment SLO. |
+| Repository checks | Passing: strict Clippy for all affected crates/targets/features, formatting, layout, public declarations, native dependency isolation and documentation/local-link checks. |
+| Captured applications on macOS arm64 | Passing on current source: all nine session-agent process cuts; installed session and Vercel packages with the original runtime prefixes absent; and both Python ABI packages through file-commit and saved-read recovery. Vercel verifies 27 receipts, 15 saved decisions and 12 unchanged retries. Each Python ABI passes 15 agent-boundary tests and preserves its actual GIL mode after recovery. |
+| Supported targets and current CI | Required CI remains pending on [PR #156](https://github.com/crabbuild/cellar/pull/156): native release targets, Node/V8 modes, both Python ABIs, captured agents and typed RPC integration. A prior Node delivery timeout has not reproduced in 30 combined-feature or 20 Node-only local runs; the Linux CI step retains timing and runs 20 fresh cases without increasing its 250 ms budget. Do not treat local repetitions as a diagnosis or a CI pass. |
+
+The [integrated local evidence](../tools/perf/results/2026-10-28-filesystem-integrated-local.json)
+retains 103 passing driver/check entries, the zero-page negative/positive
+regression, frozen executable identities and hashes/summaries for 106 guest
+reports: 40 JavaScript proof, 24 Node byte-reply and 42 Python proof cases.
+It records the source transitions from `cb854795` through test repairs and
+`cd0463fa`, rather than relabeling earlier binaries as rebuilt. Both paused
+driver intervals are documented; their wall times are not benchmark results.
+The [packaged-application evidence](../tools/perf/results/2026-10-28-filesystem-packaged-local.json)
+adds 45 passing command/check entries, package and executable identities,
+actual Python runtime observations, nine process-cut ledgers and the installed
+Vercel recovery report. The 20 Node-only delivery runs record 240 root fetches
+with a largest observed duration of 32.025 ms; this is a local observation,
+not the cause or disposition of the earlier Linux timeout.
+
+This is a framework primitive qualification. Application-specific cell counts,
+latency/recovery targets, credential rotation, hardware-failure campaigns and
+chunk-size tuning belong to deployment qualification. The regular-file and
+directory profile, captured limits, local-commit/proof semantics and explicit
+unsupported capabilities remain the public contract. Keep release status open
+until the current required CI checks pass and any reproduced failure is resolved.
+
 ## Directory page-limit parity, 2026-10-28
 
 The final API audit found that native `Directory::read_page(0)` returned an
@@ -17,9 +57,8 @@ The native regression fails on that success before the fix. Both directory
 page helpers now require positive limits in every SDK; rejected limits preserve
 the directory cookie and report the public operation, NotApplied and zero
 progress. All three native filesystem suites pass after the validation fix.
-The Node/V8 and Python option profiles include the same two zero-limit cases;
-their integrated runs remain in progress. Positive-limit paging and storage
-behavior are unchanged.
+The Node/V8 and both Python ABI option profiles pass the same two zero-limit
+cases. Positive-limit paging and storage behavior are unchanged.
 
 ## Integrated fixture repairs, 2026-10-28
 
@@ -1326,11 +1365,11 @@ read the workspace on a follow-up turn and return a clean shutdown. Only an
 uncheckpointed provider request repeats. Pending turns resume by alarm before a
 session HTTP request; the completed case needs no continuation alarm.
 
-## Release priorities
+## Earlier release priorities
 
-The primitive is available for review, with production qualification still
-open. Prioritize the remaining work in this order; the detailed requirements
-below remain the acceptance checklist.
+This earlier checklist explains the qualification work accumulated above.
+The current gate table at the top records its latest disposition; the historical
+pending statements below are not new requirements beyond the initial profile.
 
 | Priority | Next deliverable | Completion evidence |
 | --- | --- | --- |
@@ -1345,7 +1384,7 @@ FUSE and command execution remain in the separate
 [optional integration proposal](per-cell-filesystem-fuse-design.md); they are
 independent of these primitive release priorities.
 
-## Remaining requirements
+## Earlier qualification checklist
 
 1. Complete the operation-by-operation conformance/error audit and case-ID map.
    The [operation inventory](per-cell-filesystem-conformance.md) now maps the
