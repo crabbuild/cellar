@@ -1373,7 +1373,7 @@ async fn unchanged_group_root_refuses_quarantined_page_store() -> Result<()> {
     let cut = images::Cut::new(&[], &bytes, 0, true, false);
     let pin = generations.prepare(images::id(1), None, &cut.update())?;
     fault.mode.store(
-        faults::AFTER_IMAGE_WRITE,
+        faults::FAIL_DIRECTORY_SYNC,
         std::sync::atomic::Ordering::Release,
     );
     assert!(tree
@@ -1385,6 +1385,7 @@ async fn unchanged_group_root_refuses_quarantined_page_store() -> Result<()> {
             CellImagePin::Materialized(pin)
         )
         .is_err());
+    assert_eq!(fault.mode.load(std::sync::atomic::Ordering::Acquire), 0);
     assert!(matches!(
         tree.prepare_unchanged(&pages, &current, position(2)),
         Err(ManifestError::Quarantined)
