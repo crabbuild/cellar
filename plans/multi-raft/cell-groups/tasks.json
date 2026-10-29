@@ -22,7 +22,7 @@
     {
       "id": "CG-01",
       "title": "Separate logical cell history from physical group consensus",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "priority": "P1",
       "effort": "M",
       "risk": "HIGH",

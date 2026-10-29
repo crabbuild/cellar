@@ -12,7 +12,7 @@ never executed by the plan runner. Read the [design](design.md),
 
 | Task | Deliverable | Dependencies | Status | Required cases |
 | --- | --- | --- | --- | ---: |
-| CG-01 | Separate logical cell history from physical group consensus | None | TODO | 4 |
+| CG-01 | Separate logical cell history from physical group consensus | None | IN_PROGRESS | 4 |
 | CG-02 | Persist complete group manifests with crash-safe cell image ownership | CG-01 | TODO | 5 |
 | CG-03 | Prepare paged range routing and enrollment admission | CG-01, CG-02 | TODO | 5 |
 | CG-04 | Execute many independent SQLite cells through one real Raft group | CG-01, CG-02, CG-03 | TODO | 6 |

@@ -2,8 +2,9 @@
 
 # Cell group delivery package
 
-Status: executable design and implementation plan, requested on 2026-10-29.
-The production runtime is unchanged. All CG implementation tasks are TODO.
+Status: implementation started on 2026-10-29 following the executable plan.
+CG-01 is in progress; the production host has not yet cut over to shared groups.
+See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
 This package implements the direction selected in the

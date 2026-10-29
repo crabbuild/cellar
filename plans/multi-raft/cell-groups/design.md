@@ -2,7 +2,8 @@
 
 # Cell group design
 
-Status: target contract for CG-01 through CG-16; not implemented.
+Status: target contract for CG-01 through CG-16; implementation in progress.
+See [implementation progress](progress.md); no runtime cutover is qualified yet.
 Cellar baseline: `1be27d234d4674d4d014785c60cecbfe394bdab9`.
 TiKV investigation: `b3995dab28308f09cbb7c125bf32f789dbc203fe` in the supplied
 checkout. The [decision](../density-decision.md) records the inspected source.
