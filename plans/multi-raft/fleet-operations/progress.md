@@ -1,5 +1,63 @@
 # Fleet operations implementation progress
 
+## Fleet integration with archive recovery and log reclamation
+
+Source `7732ae08` integrates `main` through `efc74121` and corrects three
+failures at the fleet/runtime boundary. Retained startup keeps large archive
+and bootstrap futures out of the enclosing native stack frame. Inspection
+accepts an image whose publication entry has been compacted only when the
+complete durable marker still proves its applied state; a retained conflicting
+term or uncommitted position still refuses. Replacing or removing a snapshot
+route now invalidates its old source lease, while active physical I/O retains
+its reservation until the last owner exits. This lets membership completion
+settle without treating an obsolete source as unfinished work.
+
+Disaster recovery and fleet import now arbitrate through the same namespace
+inventory CAS. A managed or frozen namespace refuses disaster admission before
+infrastructure fencing. A disaster namespace permanently refuses fleet import.
+The required exclusion bit remains format 1: use matching binaries and fresh
+experimental catalogs, with no legacy reader or migration. The retained v12
+deployment requires its matching old image.
+
+The complete serial enrollment suite passes **288 tests**, using default native
+stacks. The earlier broad run passed 282 and failed six; those failures are
+retained separately. Three legacy movement fixtures now reserve real boot-bound
+capacity and keep unresolved debt rooted. The remaining corrections wait for
+the actual checkpoint owner, retry only explicitly overloaded inspection within
+the original deadline, and use the current authenticated ingress protocol.
+No lifecycle timeout or proof requirement was relaxed. The final run includes
+retained dynamic startup, generated moves, isolated recovery, terminal removal,
+and complete materialized/extent maintenance cycles.
+
+Focused checks also pass: 29 inspection unit tests, the obsolete-source lease
+regression, eight disaster cases, two log-reclamation cases, two native host
+inspection cases and eleven deployment-binary tests. Host library/tests/binary
+Clippy, formatting and layout pass; layout covers 1,741 Rust files. The plan's
+ten validator tests, documentation checks and native dependency rules pass.
+Logs and frozen source manifests remain outside runtime/build directories and
+the PR.
+
+Source `35008a81` subsequently merges `main` through `a0d0a748`, including
+extent read-proof reuse and filesystem lease fixes. Against this combined
+source, ten extent fleet cases, eight retained-state cases and seven automatic
+recovery cases pass. All 40 selected LTX storage/workspace tests pass; two
+child-only entry points are ignored by the outer runner and exercised by their
+parent tests. The 29 inspection and 47 local-store unit tests pass, along with
+64 deployment/recovery Python tests. Host library/tests/binary and LTX Clippy,
+formatting and layout across 1,748 Rust files, documentation, native dependency
+rules and ten plan-validator tests pass. The 120 reviewed source anchors match
+this revision. Four native executables and their hashes are retained outside
+the checkout and target directory. The full 288-case run above precedes this
+last storage merge; it is not reported as another full run on this source.
+
+These checks establish native integration, not a new deployed result or a
+throughput gain. The next feature remains managed container maintenance:
+explicit prepare/stop grants, a new process/container over retained storage,
+fresh paused-boot resource evidence, and separately granted resume under writes.
+Second-failure policy, workload-aware leadership, desired capacity/resize and
+larger deployment/performance/soak qualification remain open. Package statuses
+are unchanged; the earlier v12 result below covers its recorded source only.
+
 ## Deployed single-node recovery restores RF3 under writes
 
 Source `5b939c1c3e17128dba57dbe80e837d034a28ca77`, including the inspection
