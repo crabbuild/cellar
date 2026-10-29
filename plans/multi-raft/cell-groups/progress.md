@@ -120,3 +120,13 @@ launched by its parent persistence tests.
 Incremental apply preparation, durable root/pin reclamation, root-specific process
 kill cuts and full extent-mode recovery tests remain CG-02 work. The production
 shared-group host, topology and final release gates remain pending.
+
+
+The engine-root checkpoint passes all-target Clippy, formatting and module layout,
+24 directly selected native tests, dependency isolation and docs checks. The
+reviewed source baseline is `4387fedd`. All 37 plan-validator tests pass. Updating
+the baseline exposed a verifier bug: historical evidence was compared backward
+against the moving review baseline. Evidence now covers every runtime change
+since the frozen plan starting revision. A regression test ensures later baseline
+reviews neither invalidate historical inputs nor waive earlier changed files.
+This correction does not make CG-02 DONE or relax the final release-source gate.

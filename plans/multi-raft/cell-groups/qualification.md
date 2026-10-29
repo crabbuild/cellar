@@ -141,7 +141,9 @@ A task record uses this shape (example values are placeholders, not evidence):
 
 `source_inputs` must include the task's pinned source anchor paths and its test
 target; the validator verifies each hash against the named Git revision. Include
-the remaining changed sources in the record as well. Test inventory and exact
+all runtime sources changed since the frozen `tasks.json` planned-at revision in
+the record as well. Later source-baseline reviews do not rewrite this evidence
+boundary or waive earlier implementation inputs. Test inventory and exact
 one-test outputs must be hashed and retained. Every command in `plan.py show`
 verification must appear with exit zero. Earlier failed runs stay in the run
 directory and are described in the final report; do not aggregate passes across

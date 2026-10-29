@@ -342,8 +342,11 @@ def check_evidence(task, record, manifest, baseline, profiles, profile_digest, r
         content = git_bytes(root, revision, path)
         require(hashlib.sha256(content).hexdigest() == item.get("sha256"), f"Source hash mismatch: {path}")
     require(required_paths <= paths, f"Evidence omits source inputs: {sorted(required_paths - paths)}")
+    # Evidence belongs to its tested revision. A later reviewed source baseline
+    # must not make historical evidence depend on future edits, or stop requiring
+    # earlier implementation inputs. Compare every record to the frozen plan base.
     changed = subprocess.check_output(["git", "diff", "--name-only", "--diff-filter=ACMRT", "-z",
-                                       baseline["source_revision"], revision, "--", *RUNTIME_PATHS], cwd=root).decode().split("\0")
+                                       manifest["planned_at"], revision, "--", *RUNTIME_PATHS], cwd=root).decode().split("\0")
     require(set(changed) - {""} <= paths, "Evidence omits changed runtime inputs")
     outputs = {}
     for run in record.get("commands", []):

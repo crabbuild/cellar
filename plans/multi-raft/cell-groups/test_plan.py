@@ -121,6 +121,20 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(stats["invariants"], 14)
         self.assertEqual((plan.PACKAGE / "implementation-plan.md").read_text(), plan.index_text(self.actual_manifest))
 
+    def test_evidence_coverage_keeps_frozen_base_after_baseline_advances(self):
+        record = self.evidence()
+        self.baseline["source_revision"] = "f" * 40
+        with patch.object(plan, "git_bytes", side_effect=lambda root, rev, path: path.encode()), \
+                patch.object(plan.subprocess, "check_output", return_value=b"") as diff:
+            plan.check_evidence(self.manifest["tasks"][0], record, self.manifest,
+                                self.baseline, self.profiles, self.profile_digest, self.root)
+            argv = diff.call_args.args[0]
+            self.assertEqual(argv[5:7], [self.manifest["planned_at"], self.revision])
+        # Earlier implementation inputs stay required even when a later review
+        # baseline already includes them. Advancing the baseline cannot waive them.
+        with self.assertRaisesRegex(plan.PlanError, "omits changed runtime inputs"):
+            self.verify_evidence(record, b"crates/cellar/earlier-input.rs\0")
+
     def test_dependency_order_covers_effects_and_harness(self):
         order = plan.ordered(self.manifest["tasks"])
         self.assertLess(order.index("CG-08"), order.index("CG-07"))
