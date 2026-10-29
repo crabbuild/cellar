@@ -35,3 +35,56 @@ recovery, erased-disk replacement, 10 GB performance or the complete fault matri
 
 See [the recovery runner](../perf/recovery-README.md) for physical peer and
 RustFS campaigns, retained evidence and qualification requirements.
+
+## Empty-process recovery after SIGKILL
+
+The large-image target also contains explicit `process_recovery` fixtures for
+272 MiB and page-rounded decimal 10 GB. Three separate native worker processes
+start from the same independently verified baseline. After an acknowledged
+command, the controller kills the command-ready owner with SIGKILL, waits for
+its exit status, and erases its entire worker directory. Only then does it start
+the replacement process, with an absent data directory and `JoiningFromS3`.
+
+The replacement must read at least the image size through the object-store
+adapter and receive zero peer-recovery bytes. It then serves a local read,
+becomes leader, acknowledges a quorum-durable write, serves a version-bound
+read, reconciles both old and new receipts, and passes the payload oracle.
+Surviving workers independently serve the new committed value. Every surviving
+process must join its owners and exit successfully; failed workers and raw
+evidence remain available. Real TLS sockets carry Raft traffic; controller files
+carry only test commands, addresses and results, outside each worker's data.
+
+Use the source-pinned runner after providing AWS credentials and
+`CELLAR_LARGE_IMAGE_ENDPOINT` / `CELLAR_LARGE_IMAGE_BUCKET` in the environment:
+
+```sh
+python3 tools/perf/process_recovery.py --profile 272mib \
+  --work-directory /absolute/disposable-workers \
+  --store-data-directory /absolute/rustfs-data --output /absolute/new-evidence
+```
+
+For the full-size case use `--profile 10gb --fixture /absolute/readonly/source.sqlite`.
+To create that immutable input with the same native generator, first create an
+empty directory with 10 GB free and run:
+
+```sh
+CELLAR_PROCESS_RECOVERY_FIXTURE_DIR=/absolute/empty-fixture-directory \
+  cargo test --locked --release -p cellar-recovery-tests --test native_raft_large_images \
+  process_recovery::prepare_decimal_ten_gb_fixture -- --exact --ignored --nocapture
+```
+
+The resulting `source.sqlite` is synced and made read-only. Keep fixtures,
+RustFS data and active worker directories outside build-cleanup directories.
+The runner checks disk admission, exact test selection, source/executable
+identity, the process/phase ledger and data-source counters. A fixture must have
+9,999,998,976 bytes; build and source preparation are outside the recovery timer.
+Run the small case first on the same source. Keep builds separate from physical
+measurements. This is single-owner loss with a surviving Raft quorum, not recovery
+after losing all replicas, a cold OS-cache benchmark or a production percentile.
+
+The harness explicitly selects the existing full-capacity fixture's one-hour
+`snapshot_timeout_ms` transfer budget and records the effective configuration.
+This is a capacity/correctness profile, not a one-hour recovery objective. The
+image-limit builder alone selects a five-minute minimum; slower storage can
+exhaust that budget before the image is installed. Read deadlines remain 60
+seconds, and all image, authorization, receipt and durability checks still apply.

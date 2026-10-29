@@ -15,7 +15,7 @@ pub use image::{ImageRootUpdate, PreparedImageRoot, RootApplyWork, SealedImageRo
 pub use workspace::{NodeWorkspace, WorkspaceBounds};
 
 use super::{
-    file::ExtentDownload,
+    file::{ExtentDownload, VerifiedBlocks},
     image::{CacheLimits, ExtentImage, ExtentSource},
     tree::{ExtentId, ExtentManifest, ImageRoot, RootError, MAX_MANIFEST_BYTES},
 };
@@ -33,6 +33,8 @@ use std::{
 #[derive(Clone, Copy, Debug)]
 pub struct NodeExtentLimits {
     pub max_bytes: u64,
+    /// Also bounds retained read proofs: at most 2 KiB of block hashes per
+    /// object, shared with readers. Reader root pins prevent object reclamation.
     pub max_objects: usize,
     pub max_roots: usize,
     /// Total extent slots described by retained root files, not SQLite pages.
@@ -145,6 +147,7 @@ impl ExtentRootReference {
 struct ObjectEntry {
     bytes: u64,
     verified: bool,
+    read_proof: Option<Arc<VerifiedBlocks>>,
 }
 
 struct RootData {

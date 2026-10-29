@@ -199,6 +199,126 @@ fn reopen_uses_metadata_only_inventory_then_verifies_sqlite_extents_on_demand() 
 }
 
 #[test]
+fn verified_local_queries_reuse_block_proofs_after_descriptor_eviction() {
+    let f = Fixture::new(9 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    f.files.metrics.read_bytes.store(0, Ordering::Release);
+    // Each call opens and closes a fresh SQLite reader and descriptor cache.
+    // Recovery already independently verified and synced the local closure.
+    for _ in 0..3 {
+        assert_eq!(f.query(sealed.view()), 7);
+    }
+    assert!(
+        // All three SQL opens together must read less than one whole extent.
+        f.files.metrics.read_bytes.load(Ordering::Acquire) < EXTENT_BYTES as usize,
+        "hot metadata reads used {} bytes",
+        f.files.metrics.read_bytes.load(Ordering::Acquire)
+    );
+}
+
+#[test]
+fn block_proofs_are_forgotten_on_restart_and_rebuilt_from_local_bytes() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let reference = sealed.view().reference();
+    drop(sealed);
+    drop(store);
+    let store = f.store();
+    let view = store.open_root(reference).unwrap();
+    f.files.metrics.read_bytes.store(0, Ordering::Release);
+    assert_eq!(f.query(&view), 7);
+    assert!(f.files.metrics.read_bytes.load(Ordering::Acquire) >= EXTENT_BYTES as usize);
+    f.files.metrics.read_bytes.store(0, Ordering::Release);
+    assert_eq!(f.query(&view), 7);
+    assert!(f.files.metrics.read_bytes.load(Ordering::Acquire) < EXTENT_BYTES as usize);
+}
+
+#[test]
+fn reused_proofs_refuse_corruption_in_a_later_block_after_descriptor_close() {
+    let f = Fixture::new(5 * 1024 * 1024);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    assert_eq!(f.query(sealed.view()), 7);
+    let id = f.objects[0].0;
+    let mut digest = String::new();
+    for byte in id.bytes() {
+        use std::fmt::Write as _;
+        write!(&mut digest, "{byte:02x}").unwrap();
+    }
+    let path = f
+        .root
+        .path()
+        .join("store")
+        .join(format!("e-{:08x}-{digest}", id.length(),));
+    let offset = 2 * 65536 + 7;
+    let mut file = DirectFileSystem.open_read_write(&path).unwrap();
+    let mut bytes = file.read_exact_at(offset, 1).unwrap();
+    bytes[0] ^= 1;
+    file.write_all_at(offset, &bytes).unwrap();
+    drop(file);
+    let scratch = f.scratch();
+    let image = sealed
+        .view()
+        .image(
+            f.root.path().join("cache"),
+            scratch.clone(),
+            CacheLimits::default(),
+        )
+        .unwrap();
+    assert!(
+        image.read_exact_at(offset, 100).is_err(),
+        "corrupt block escaped its retained proof"
+    );
+    drop(image);
+    assert_eq!(scratch.usage().unwrap(), ScratchUsage::default());
+    assert!(
+        matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ),
+        "a corrupt query block retained whole-extent admission"
+    );
+    assert!(store.verify_extent(id).is_err());
+    assert!(matches!(
+        store.seal_root(f.manifest.clone()),
+        Err(StoreError::Unverified)
+    ));
+}
+
+#[test]
+fn a_reused_query_proof_cannot_override_a_concurrent_verification_failure() {
+    let f = Fixture::new(0);
+    let store = f.store();
+    f.fill(&store);
+    let sealed = store.seal_root(f.manifest.clone()).unwrap();
+    let worker = store.clone();
+    let metrics = f.files.metrics.clone();
+    let id = f.objects[0].0;
+    // Interleave the full verification after the reader captures a valid
+    // cached proof but before it finishes opening its independent descriptor.
+    *f.files.metrics.before_file_len.lock().unwrap() = Some(Box::new(move || {
+        metrics.short_read.store(true, Ordering::Release);
+        assert!(worker.verify_extent(id).is_err());
+    }));
+    assert_eq!(f.query(sealed.view()), 7);
+    assert!(f.files.metrics.before_file_len.lock().unwrap().is_none());
+    assert!(
+        matches!(
+            store.seal_root(f.manifest.clone()),
+            Err(StoreError::Unverified)
+        ),
+        "a block-only query promoted a failed full verification"
+    );
+    store.verify_extent(id).unwrap();
+    store.seal_root(f.manifest.clone()).unwrap();
+}
+
+#[test]
 fn local_sqlite_reads_do_not_copy_durable_extents_into_scratch_files() {
     let f = Fixture::new(5 * 1024 * 1024);
     let store = f.store();

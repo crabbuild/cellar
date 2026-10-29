@@ -324,6 +324,12 @@ impl ExtentImage {
         Ok(())
     }
 
+    /// A writable workspace requires a complete source check before copying
+    /// its first block. Query reads only need proofs for the bytes they return.
+    pub(crate) fn verify_extent(&self, index: u32) -> Result<(), Error> {
+        self.extent(index)?.verify()
+    }
+
     pub fn read_exact_at(&self, offset: u64, length: usize) -> Result<Vec<u8>, Error> {
         if length == 0
             || length > 65536

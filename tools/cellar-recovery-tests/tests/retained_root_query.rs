@@ -48,6 +48,8 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
 #[ignore = "requires an offline qualification worker via CELLAR_RETAINED_QUERY_WORKER"]
 async fn retained_marker_payload_query() -> Result<()> {
     let source = std::path::PathBuf::from(std::env::var("CELLAR_RETAINED_QUERY_WORKER")?);
+    let cell = std::env::var("CELLAR_RETAINED_QUERY_CELL")
+        .unwrap_or_else(|_| "Counter:full-capacity".into());
     ensure!(source.is_absolute(), "retained worker must be absolute");
     let parent = source.parent().context("worker parent")?.to_owned();
     let copies = tokio::task::spawn_blocking(move || -> Result<_> {
@@ -85,7 +87,7 @@ async fn retained_marker_payload_query() -> Result<()> {
         let scope = GroupScope {
             cluster: ClusterId::new([81; 16])?,
             namespace: NamespaceId::new([82; 16])?,
-            cell: "Counter:full-capacity".into(),
+            cell,
             group: GroupId::new([83; 16])?,
             incarnation: IncarnationId::new([84; 16])?,
         };
