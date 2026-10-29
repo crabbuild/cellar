@@ -2,10 +2,40 @@
 
 # Cell-group implementation progress
 
-The full end-to-end implementation goal is active following the plan handoff.
-CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
+The latest requested deliverable is the executable design and implementation
+plan; see the [executor handoff](handoff.md). CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
 CG-05 through CG-16 remain TODO. Intermediate contracts do not qualify a shared
 runtime. No production legacy/shared mode flag is being added.
+
+## Plan delivery and working-state audit — 2026-10-29
+
+The package has 16 tasks, 86 required cases, 14 invariants and nine qualification
+profiles. Its contract/evidence validation and CG-04 brief generation pass.
+Freshly fetched `origin/main` is `1be27d234d4674d4d014785c60cecbfe394bdab9`,
+already an ancestor of the delivery branch. The supplied TiKV checkout still
+matches the investigation pin. Neither excluded MR-13/MR-14 progress JSON file
+appears in the branch diff.
+
+There is additional uncommitted CG-04 owner work in this checkout. It is not
+part of the reviewed baseline or completed evidence. The new execution test
+target currently fails compilation: `GroupRoute` is ambiguous through glob
+imports and the fixture calls the private `ImageCommitment::sha256` method.
+The global preflight and its unit test refuse the changed `cache.rs`; the other
+36 validator tests pass. Preserve this refusal until the implementation is
+reviewed and a successor baseline is recorded. Do not reset those edits or
+silently update hashes to make the handoff appear qualified.
+
+In a separate checkout of `fde3e6f9` with this plan update and the three retained
+DONE evidence directories, source preflight and all 37 validator tests pass.
+The release command exits nonzero with `implementation tasks/evidence incomplete`,
+as required. Repository docs validation passes with 869 local references. These
+checks qualify the committed plan handoff; they do not qualify the dirty runtime
+prototype. An initial export-based validation attempt had incorrect Git isolation;
+its temporary local metadata changes were restored before this independent rerun.
+
+The [handoff](handoff.md) separates this working state from the committed
+starting point and lists the remaining CG-04 acceptance cases. No runtime task
+is advanced by this plan delivery.
 
 ## CG-04 durable enrollment checkpoint
 

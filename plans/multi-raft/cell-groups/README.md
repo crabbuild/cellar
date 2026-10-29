@@ -9,9 +9,11 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The plan handoff is complete. The active end-to-end implementation goal resumes
-from that handoff and requires the complete shared-group runtime and hard cutover.
-Plan delivery or an intermediate task gate does not qualify that runtime.
+The current requested deliverable is the executable design and implementation
+plan. See the [executor handoff](handoff.md) for the starting revision, existing
+work, commands and completion boundary. The implementation described here still
+requires the complete shared-group runtime and hard cutover; plan delivery or an
+intermediate task gate does not qualify that runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -69,9 +71,9 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The active goal requires end-to-end runtime implementation. Continue from the
-existing code and retained evidence; earlier plan-only handoffs do not satisfy
-the resumed implementation objective.
+The implementation executor should continue from the existing code and retained
+evidence. This plan delivery leaves task status unchanged and does not certify
+uncommitted runtime work. Review the working diff before starting CG-04.
 
 Continue CG-04 after reading
 [progress](progress.md) and inspecting the working diff.
