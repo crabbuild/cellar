@@ -3,8 +3,31 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. Implementation is active and follows the full dependency order. Intermediate contracts do not qualify a shared
-runtime. No production legacy/shared mode flag is being added.
+hard cutover. The user's clarified deliverable is the executable plan; the
+implementation checkpoints below describe existing work for a future executor.
+Intermediate contracts do not qualify a shared runtime. No production
+legacy/shared mode flag is being added.
+
+## Plan handoff — 2026-10-29
+
+The package validator passes: 16 tasks, 83 required cases, 14 invariants and nine
+profiles. Task briefs include source excerpts, file scope, dependencies, exact
+commands and evidence requirements. The TiKV investigation pin still matches the
+supplied checkout. The branch includes freshly fetched `origin/main` at
+`1be27d234d4674d4d014785c60cecbfe394bdab9`.
+
+Uncommitted CG-03 directory work remains in this checkout: immutable range pages,
+root publication and mutation journals, with native catalog tests. The observed
+native run passes seven tests. This is not a complete CG-03 qualification and is
+not included in a DONE record. Preserve the working diff for its next executor.
+
+The source preflight correctly refuses the draft `catalog.rs` module exports
+against the recorded baseline. Consequently the current-checkout validator suite
+passes 36 of 37 tests; its actual-source preflight test refuses that drift. Do not
+blindly refresh the baseline or mark CG-03 complete. Review and qualify the draft,
+commit its source, then record a successor baseline with updated excerpt lines.
+Birth/disk-claim integration and bounded redirects remain outstanding. The final
+release gate remains closed.
 
 ## CG-01 — complete at the contract boundary
 

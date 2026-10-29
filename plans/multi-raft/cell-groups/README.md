@@ -9,9 +9,9 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The design package is delivered; implementation now proceeds toward the complete
-shared-group runtime and hard cutover. Implementation checkpoints are recorded
-separately; delivering this package does not mark the remaining tasks complete.
+The requested deliverable is the executable design and implementation plan.
+Implementation checkpoints are recorded separately; delivering this package does
+not mark the remaining tasks complete or qualify the shared-group runtime.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -67,6 +67,10 @@ executor briefs are explicitly run by the implementation agent. Destructive
 qualification belongs only to the harness's recorded, owned disposable resources.
 
 ### Current executor handoff
+
+The user's clarified scope for this handoff is the plan. Future implementation
+follows the task briefs below; completion of this handoff does not instruct the
+current executor to continue through the runtime cutover.
 
 Resume CG-03 after reading [progress](progress.md) and inspecting the working diff.
 CG-01 and CG-02 are DONE only at their named contract/storage boundaries; the
