@@ -230,7 +230,7 @@ async fn disaster_refuses_managed_namespace_before_fencing() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn disaster_wrong_representation_refuses_before_intent_or_fence() -> Result<()> {
+async fn disaster_foreign_namespace_refuses_before_intent_or_fence() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let cut = fixture.commit(7, vec![]).await?;
     let reference = fixture.publish(cut).await?.reference();
@@ -247,7 +247,8 @@ async fn disaster_wrong_representation_refuses_before_intent_or_fence() -> Resul
         })
         .await?;
     // Copy the materialized archive itself, without the incompatible catalog.
-    // The refusal must be representation validation, not a missing object.
+    // Root validation now precedes nonempty representation validation. Require
+    // the foreign namespace binding to fail, not merely a missing object.
     for object in fixture
         .store
         .inner
@@ -280,7 +281,7 @@ async fn disaster_wrong_representation_refuses_before_intent_or_fence() -> Resul
             )
             .await,
         Err(CatalogError::Archive(ArchiveError::Corrupt(
-            "archive image representation"
+            "archive history/schema binding"
         )))
     ));
     ensure!(fence.calls.load(Ordering::SeqCst) == 0);
