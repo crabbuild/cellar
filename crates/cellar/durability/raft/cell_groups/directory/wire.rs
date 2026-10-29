@@ -8,6 +8,7 @@ pub(super) const HEAD: u8 = 82;
 pub(super) const JOURNAL: u8 = 83;
 pub(super) const PIN: u8 = 84;
 pub(super) const REQUEST: u8 = 85;
+
 // Fleet maintenance already uses 86 in the shared catalog envelope.
 pub(super) const GROUP_BIRTH: u8 = 186;
 pub(super) const LIMIT: usize = 64 * 1024;
