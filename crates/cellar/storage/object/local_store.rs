@@ -45,6 +45,11 @@ const STORE: &str = "cellar development store";
 const READ_CHUNK_BYTES: usize = 128 << 10;
 const LIST_PAGE_OBJECTS: usize = 128;
 
+#[path = "local_store_bodies.rs"]
+mod bodies;
+#[cfg(test)]
+#[path = "local_store_bodies_tests.rs"]
+mod bodies_tests;
 #[path = "local_store_timing.rs"]
 mod timing;
 
@@ -76,6 +81,8 @@ pub(crate) struct LocalStore {
     list_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     put_gate: Option<(String, Arc<read_tests::ReadGate>)>,
+    #[cfg(test)]
+    body_gate: Option<(String, Arc<read_tests::ReadGate>)>,
 }
 
 #[derive(Debug)]
@@ -107,6 +114,20 @@ impl LocalStore {
         multipart_policy.validate()?;
         let database = database.as_ref().to_path_buf();
         let connection = Connection::open(&database).map_err(db_error)?;
+        let has_objects: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE name = '__sys_local_objects')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(db_error)?;
+        if has_objects {
+            connection
+                .prepare("SELECT body_id, body_size FROM __sys_local_objects LIMIT 0")
+                .map_err(|_| {
+                    message_error("incompatible local object schema; use a fresh development store")
+                })?;
+        }
         // Internal format hard cutover: refuse old upload records rather than
         // guessing deadlines, migrating state or discarding application data.
         let has_uploads: bool = connection
@@ -134,8 +155,26 @@ impl LocalStore {
                    etag INTEGER NOT NULL,
                    modified_ms INTEGER NOT NULL,
                    attributes TEXT NOT NULL,
-                   body BLOB NOT NULL
+                   body_id INTEGER,
+                   body_size INTEGER,
+                   body BLOB NOT NULL,
+                   CHECK ((body_id IS NULL AND body_size IS NULL) OR
+                     (body_id IS NOT NULL AND body_size > 0 AND length(body) = 0))
                  );
+                 CREATE UNIQUE INDEX IF NOT EXISTS __sys_local_object_body ON __sys_local_objects(body_id);
+                 CREATE TABLE IF NOT EXISTS __sys_local_bodies (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   expires_ms INTEGER,
+                   retired INTEGER NOT NULL CHECK (retired IN (0, 1))
+                 );
+                 CREATE INDEX IF NOT EXISTS __sys_local_body_expiry ON __sys_local_bodies(expires_ms, id);
+                 CREATE INDEX IF NOT EXISTS __sys_local_body_retired ON __sys_local_bodies(retired, id);
+                 CREATE TABLE IF NOT EXISTS __sys_local_body_chunks (
+                   body_id INTEGER NOT NULL,
+                   part_index INTEGER NOT NULL,
+                   body BLOB NOT NULL,
+                   PRIMARY KEY (body_id, part_index)
+                 ) WITHOUT ROWID;
                  CREATE TABLE IF NOT EXISTS __sys_local_sequence (
                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
                    next_etag INTEGER NOT NULL
@@ -175,6 +214,8 @@ impl LocalStore {
             list_gate: None,
             #[cfg(test)]
             put_gate: None,
+            #[cfg(test)]
+            body_gate: None,
         })
     }
 
@@ -220,25 +261,21 @@ impl LocalStore {
     }
 
     fn read(&self, key: &str) -> object_store::Result<StoredObject> {
-        self.connect_reader()?
-            .query_row(
-                "SELECT key, body, etag, modified_ms, attributes, length(body)
-                 FROM __sys_local_objects WHERE key = ?1",
-                [key],
-                |row| {
-                    Ok(StoredObject {
-                        key: row.get(0)?,
-                        body: row.get(1)?,
-                        size: row.get(5)?,
-                        etag: row.get(2)?,
-                        modified_ms: row.get(3)?,
-                        attributes: row.get(4)?,
-                    })
-                },
-            )
-            .optional()
-            .map_err(db_error)?
-            .ok_or_else(|| not_found(key))
+        let mut object = self.read_metadata(key, true)?;
+        if object.size > READ_CHUNK_BYTES as u64 {
+            let size = usize::try_from(object.size).map_err(db_error)?;
+            object.body.reserve(size);
+            for offset in (0..size).step_by(READ_CHUNK_BYTES) {
+                object.body.extend_from_slice(&self.read_chunk(
+                    key,
+                    object.etag,
+                    object.size,
+                    offset as u64,
+                    (size - offset).min(READ_CHUNK_BYTES),
+                )?);
+            }
+        }
+        Ok(object)
     }
 
     fn read_metadata(
@@ -248,8 +285,8 @@ impl LocalStore {
     ) -> object_store::Result<StoredObject> {
         self.connect_reader()?
             .query_row(
-                "SELECT key, etag, modified_ms, attributes, length(body),
-                        CASE WHEN ?2 AND length(body) <= ?3 THEN body ELSE NULL END
+                "SELECT key, etag, modified_ms, attributes, COALESCE(body_size, length(body)),
+                        CASE WHEN ?2 AND COALESCE(body_size, length(body)) <= ?3 THEN body ELSE NULL END
                  FROM __sys_local_objects WHERE key = ?1",
                 params![key, include_small_body, READ_CHUNK_BYTES as i64],
                 |row| {
@@ -286,18 +323,24 @@ impl LocalStore {
     ) -> object_store::Result<Bytes> {
         let mut connection = self.connect_reader()?;
         let transaction = connection.transaction().map_err(db_error)?;
-        let rowid = transaction
+        let (rowid, body_id) = transaction
             .query_row(
-                "SELECT rowid FROM __sys_local_objects
-                 WHERE key = ?1 AND etag = ?2 AND length(body) = ?3",
+                "SELECT rowid, body_id FROM __sys_local_objects
+                 WHERE key = ?1 AND etag = ?2 AND COALESCE(body_size, length(body)) = ?3",
                 params![key, etag, size],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
             )
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| precondition(key))?;
         let mut bytes = vec![0; length];
-        {
+        #[cfg(test)]
+        if let Some(gate) = &self.read_gate {
+            gate.wait();
+        }
+        if let Some(id) = body_id {
+            Self::read_body_range(&transaction, id, offset, &mut bytes)?;
+        } else {
             // SQL BLOB extraction can materialize the whole value inside
             // SQLite even when the Rust caller only retains a small slice.
             // Incremental I/O pins this row/version in the read transaction.
@@ -310,10 +353,6 @@ impl LocalStore {
                     true,
                 )
                 .map_err(db_error)?;
-            #[cfg(test)]
-            if let Some(gate) = &self.read_gate {
-                gate.wait();
-            }
             blob.read_at_exact(&mut bytes, usize::try_from(offset).map_err(db_error)?)
                 .map_err(db_error)?;
         }
@@ -345,7 +384,7 @@ impl LocalStore {
         let lower = after.unwrap_or(prefix);
         let comparison = if after.is_some() { ">" } else { ">=" };
         let sql = format!(
-            "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, length(body)
+            "SELECT key, CAST(X'' AS BLOB), etag, modified_ms, attributes, COALESCE(body_size, length(body))
              FROM __sys_local_objects WHERE key {comparison} ?1 {} ORDER BY key LIMIT ?{}",
             if upper.is_some() { "AND key < ?2" } else { "" },
             if upper.is_some() { 3 } else { 2 },
@@ -389,9 +428,6 @@ impl LocalStore {
     ) -> object_store::Result<PutResult> {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
-        // On a pre-commit failure, close/rollback before returning admission.
-        // The success path hands serialization to SQLite before COMMIT below.
-        let writer;
         let mut connection = self.connect()?;
         timing.mark("connected");
         // The fixture observes a real entered SQLite connection without
@@ -402,84 +438,119 @@ impl LocalStore {
                 gate.wait();
             }
         }
-        writer = self.writer.lock();
-        timing.mark("writer_admitted");
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        timing.mark("transaction_started");
-        let current = transaction
-            .query_row(
-                "SELECT etag FROM __sys_local_objects WHERE key = ?1",
-                [&key],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(db_error)?;
-        match options.mode {
-            PutMode::Overwrite => {}
-            PutMode::Create if current.is_some() => return Err(already_exists(&key)),
-            PutMode::Create => {}
-            PutMode::Update(version) => {
-                let current = current.map(|etag| etag.to_string());
-                if current.as_deref().is_none() || version.e_tag.as_deref() != current.as_deref() {
-                    return Err(precondition(&key));
+        let staged = if body.len() > READ_CHUNK_BYTES {
+            timing.mark("body_staging");
+            let id = self.stage_body(&mut connection, &key, &body)?;
+            timing.mark("body_staged");
+            Some(id)
+        } else {
+            None
+        };
+        let published = (|| {
+            let writer = self.writer.lock();
+            timing.mark("writer_admitted");
+            let transaction = connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(db_error)?;
+            timing.mark("transaction_started");
+            let current = transaction
+                .query_row(
+                    "SELECT etag FROM __sys_local_objects WHERE key = ?1",
+                    [&key],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            match options.mode {
+                PutMode::Overwrite => {}
+                PutMode::Create if current.is_some() => return Err(already_exists(&key)),
+                PutMode::Create => {}
+                PutMode::Update(version) => {
+                    let current = current.map(|etag| etag.to_string());
+                    if current.as_deref().is_none()
+                        || version.e_tag.as_deref() != current.as_deref()
+                    {
+                        return Err(precondition(&key));
+                    }
                 }
             }
-        }
-        let etag = transaction
-            .query_row(
-                "UPDATE __sys_local_sequence SET next_etag = next_etag + 1
+            let retired = Self::retire_body_for_key(&transaction, &key)?;
+            if let Some(id) = staged {
+                Self::publish_body(&transaction, id)?;
+            }
+            let etag = transaction
+                .query_row(
+                    "UPDATE __sys_local_sequence SET next_etag = next_etag + 1
                  WHERE singleton = 1 RETURNING next_etag - 1",
-                [],
-                |row| row.get::<_, i64>(0),
-            )
-            .map_err(db_error)?;
-        // Reserve the body without binding a full-size copy. Incremental
-        // writes share the transaction with the ETag check and metadata.
-        let rowid = transaction
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .map_err(db_error)?;
+            // Reserve the body without binding a full-size copy. Incremental
+            // writes share the transaction with the ETag check and metadata.
+            let rowid = transaction
             .query_row(
-                "INSERT INTO __sys_local_objects(key, body, etag, modified_ms, attributes)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO __sys_local_objects(key, body, etag, modified_ms, attributes, body_id, body_size)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(key) DO UPDATE SET
                    body = excluded.body,
                    etag = excluded.etag,
                    modified_ms = excluded.modified_ms,
-                   attributes = excluded.attributes
+                   attributes = excluded.attributes,
+                   body_id = excluded.body_id,
+                   body_size = excluded.body_size
                  RETURNING rowid",
                 params![
                     key,
-                    rusqlite::blob::ZeroBlob(i32::try_from(body.len()).map_err(db_error)?),
+                    rusqlite::blob::ZeroBlob(if staged.is_some() { 0 } else { i32::try_from(body.len()).map_err(db_error)? }),
                     etag,
                     modified_ms,
-                    attributes
+                    attributes,
+                    staged,
+                    staged.map(|_| body.len())
                 ],
                 |row| row.get::<_, i64>(0),
             )
             .map_err(db_error)?;
-        {
-            let mut blob = transaction
-                .blob_open(
-                    rusqlite::MAIN_DB,
-                    "__sys_local_objects",
-                    "body",
-                    rowid,
-                    false,
-                )
-                .map_err(db_error)?;
-            blob.write_all_at(&body, 0).map_err(db_error)?;
+            if staged.is_none() {
+                let mut blob = transaction
+                    .blob_open(
+                        rusqlite::MAIN_DB,
+                        "__sys_local_objects",
+                        "body",
+                        rowid,
+                        false,
+                    )
+                    .map_err(db_error)?;
+                blob.write_all_at(&body, 0).map_err(db_error)?;
+            }
+            // SQLite still owns the write lock, so the CAS remains atomic. Release
+            // only our admission guard: COMMIT's post-transaction checkpoint can
+            // stall on main-file I/O after SQLite has already allowed new writers.
+            drop(writer);
+            timing.mark("commit_started");
+            transaction.commit().map_err(db_error)?;
+            timing.mark("committed");
+            Ok::<_, object_store::Error>((
+                PutResult {
+                    e_tag: Some(etag.to_string()),
+                    version: None,
+                },
+                retired,
+            ))
+        })();
+        if published.is_err() {
+            if let Some(id) = staged {
+                self.retire_staged_body(&mut connection, id)?;
+                self.drain_body(&mut connection, id)?;
+            }
         }
-        // SQLite still owns the write lock, so the CAS remains atomic. Release
-        // only our admission guard: COMMIT's post-transaction checkpoint can
-        // stall on main-file I/O after SQLite has already allowed new writers.
-        drop(writer);
-        timing.mark("commit_started");
-        transaction.commit().map_err(db_error)?;
-        timing.mark("committed");
-        Ok(PutResult {
-            e_tag: Some(etag.to_string()),
-            version: None,
-        })
+        let (result, retired) = published?;
+        if let Some(id) = retired {
+            self.drain_body(&mut connection, id)?;
+        }
+        self.maintain_bodies(&mut connection)?;
+        Ok(result)
     }
 
     fn copy_sync(&self, from: &str, to: &str, create: bool) -> object_store::Result<()> {
@@ -675,6 +746,7 @@ impl ObjectStore for LocalStore {
             let transaction = connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(db_error)?;
+            let retired = Self::retire_body_for_key(&transaction, &key)?;
             transaction
                 .execute("DELETE FROM __sys_local_objects WHERE key = ?1", [key])
                 .map_err(db_error)?;
@@ -682,6 +754,10 @@ impl ObjectStore for LocalStore {
             // automatic checkpoint must leave writer admission available.
             drop(writer);
             transaction.commit().map_err(db_error)?;
+            if let Some(id) = retired {
+                store.drain_body(&mut connection, id)?;
+            }
+            store.maintain_bodies(&mut connection)?;
             Ok(())
         })
         .await
@@ -1232,6 +1308,8 @@ mod schema_tests {
         assert_eq!(
             names,
             [
+                "__sys_local_bodies",
+                "__sys_local_body_chunks",
                 "__sys_local_objects",
                 "__sys_local_parts",
                 "__sys_local_sequence",

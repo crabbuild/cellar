@@ -13,7 +13,7 @@ async fn listing_decodes_only_the_requested_page_before_later_corruption() -> Re
             store.put_sync(format!("queue/{index:04}"), Bytes::new(), PutOptions::default())?;
         }
         store.connect()?.execute(
-            "INSERT INTO __sys_local_objects VALUES ('queue/9999', 'invalid-etag', 0, '[]', X'')", [],
+            "INSERT INTO __sys_local_objects(key, etag, modified_ms, attributes, body) VALUES ('queue/9999', 'invalid-etag', 0, '[]', X'')", [],
         )?;
         let mut listed = store.list(Some(&Path::from("queue")));
         for index in 0..128 {
@@ -23,6 +23,48 @@ async fn listing_decodes_only_the_requested_page_before_later_corruption() -> Re
         assert!(listed.try_collect::<Vec<_>>().await.is_err());
         Ok(())
     }).await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test]
+async fn paged_listing_preserves_staged_body_sizes() -> Result<()> {
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let directory = tempfile::tempdir()?;
+            let store = LocalStore::open(directory.path().join("objects.sqlite"))?;
+            for index in 0..=LIST_PAGE_OBJECTS {
+                let size = if index % LIST_PAGE_OBJECTS == 0 {
+                    READ_CHUNK_BYTES + 17
+                } else {
+                    0
+                };
+                store.put_sync(
+                    format!("selected/{index:04}"),
+                    Bytes::from(vec![0x5a; size]),
+                    PutOptions::default(),
+                )?;
+            }
+            let objects = store
+                .list(Some(&Path::from("selected")))
+                .try_collect::<Vec<_>>()
+                .await?;
+            assert_eq!(objects.len(), LIST_PAGE_OBJECTS + 1);
+            for (index, object) in objects.iter().enumerate() {
+                assert_eq!(object.location.as_ref(), format!("selected/{index:04}"));
+                assert_eq!(
+                    object.size,
+                    if index % LIST_PAGE_OBJECTS == 0 {
+                        (READ_CHUNK_BYTES + 17) as u64
+                    } else {
+                        0
+                    }
+                );
+            }
+            Ok(())
+        })
+        .await;
     domain.shutdown().await;
     result?
 }
@@ -79,7 +121,7 @@ async fn prefix_listing_does_not_decode_unrelated_metadata() -> Result<()> {
             // A damaged row outside the requested prefix must not be read/decoded by
             // that listing. The unscoped listing still reports its corruption.
             store.connect()?.execute(
-        "INSERT INTO __sys_local_objects VALUES ('unrelated/broken', 'invalid-etag', 0, '[]', X'')",
+        "INSERT INTO __sys_local_objects(key, etag, modified_ms, attributes, body) VALUES ('unrelated/broken', 'invalid-etag', 0, '[]', X'')",
         [],
     )?;
             let prefix = Path::from("selected");

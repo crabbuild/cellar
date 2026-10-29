@@ -25,12 +25,38 @@ and storage, and an otherwise idle host. A passed run records the executable
 SHA-256, compiled fixture/backend source hashes and `debug_assertions` alongside
 its measurements. Preserve the command, toolchain and raw log with that report.
 The SDK workflow is configured to run the 10 MiB case in each Python ABI job
-and upload only its structured JSON report. That configuration is separate from
+and upload its structured JSON report and raw log, including lease-store phases
+on failure. That configuration is separate from
 evidence of a completed remote CI run.
 For a failing warm/cold phase, set `CELLAR_FS_CAPACITY_KEEP_FAILED=1` to retain
 its private temporary directory after shutdown; the error names that directory.
 It contains generated payloads and a development bucket, and is never uploaded
 by CI. Successful profiles always remove their temporary data.
+
+For a lease-expiry investigation, retain native queue, SQLite and result-delivery
+phases without changing the fixture's lease or attempt budgets:
+
+```sh
+RUST_LOG='warn,cellar::actor::effects=info,store[node_lease_store]=debug' \
+CELLAR_FS_CAPACITY_MIB=100 CELLAR_FS_CAPACITY_KEEP_FAILED=1 \
+cargo test --locked -p cellar --test native_node \
+  filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
+```
+
+The machine-local development bucket stages ordinary object bodies larger than
+128 KiB as immutable SQLite chunks. Each chunk uses a separate FULL transaction;
+the ETag and complete-body reference publish atomically after staging. This lets
+lease CAS operations enter between chunks when a filesystem recovery snapshot is
+large. Replacement and deletion retire the previous body in the publication
+transaction, then reclaim it through bounded transactions. Unpublished bodies
+expire after 60 seconds without staging progress. Subsequent writes/deletes
+reclaim at most four abandoned chunks per maintenance pass. A process crash can
+therefore leave reclaimable staging data; a read never treats it as an object.
+These are development-bucket mechanics, separate from the per-cell filesystem's
+64 KiB content chunks and its existing replication protocol. Cloud object-store
+formats and cell SQLite formats are unchanged. Older development object-table
+layouts are refused without migration under the repository's format-1 hard-cutover
+policy; use a fresh development bucket for this source revision.
 
 ## Workload and correctness checks
 

@@ -51,6 +51,82 @@ pub(crate) async fn preflight_authority(
     );
     refused(storage.fs().err().unwrap(), "filesystem.acquire");
     refused(previous.sync().await.unwrap_err(), "filesystem.sync");
+    // Every path/view entry point must retain its own operation and known
+    // no-effect classification when the view belongs to a different cell or
+    // a replaced activation. Descriptor and *at affinity have separate cases.
+    for (error, operation) in [
+        (previous.capabilities().unwrap_err(), "capabilities"),
+        (
+            previous
+                .open("/scope-refused", OpenOptions::read_write().create(true))
+                .err()
+                .unwrap(),
+            "open",
+        ),
+        (
+            previous.creat("/scope-refused", 0o600).err().unwrap(),
+            "creat",
+        ),
+        (previous.lstat("/").unwrap_err(), "lstat"),
+        (
+            previous.truncate("/scope-refused", 0).unwrap_err(),
+            "truncate",
+        ),
+        (previous.rmdir("/scope-refused").unwrap_err(), "rmdir"),
+        (previous.unlink("/scope-refused").unwrap_err(), "unlink"),
+        (
+            previous.rename("/scope-refused", "/late").unwrap_err(),
+            "rename",
+        ),
+        (
+            previous
+                .utimens(
+                    "/",
+                    Times {
+                        atime: Time::Omit,
+                        mtime: Time::Now,
+                    },
+                )
+                .unwrap_err(),
+            "utimens",
+        ),
+        (previous.opendir("/").err().unwrap(), "opendir"),
+        (previous.statvfs().unwrap_err(), "statvfs"),
+        (
+            previous.read_file("/scope-refused").unwrap_err(),
+            "read_file",
+        ),
+        (
+            previous.read_file_bounded("/scope-refused", 1).unwrap_err(),
+            "read_file_bounded",
+        ),
+        (
+            previous.replace_file("/scope-refused", b"bad").unwrap_err(),
+            "replace_file",
+        ),
+        (
+            previous
+                .edit_file(
+                    "/scope-refused",
+                    FileVersion {
+                        inode: 1,
+                        version: 1,
+                    },
+                    &Edit {
+                        offset: 0,
+                        delete_bytes: 0,
+                        insert: b"bad".to_vec(),
+                    },
+                )
+                .unwrap_err(),
+            "edit_file",
+        ),
+        (previous.read_dir("/", 1, None).unwrap_err(), "read_dir"),
+        (previous.collect_garbage().unwrap_err(), "collect_garbage"),
+    ] {
+        refused(error, &format!("filesystem.{operation}"));
+        assert_eq!((current.statvfs()?, current.stat("/")?), before);
+    }
     assert_eq!(
         current.stat("/scope-refused").unwrap_err().errno,
         Errno::ENOENT
@@ -355,6 +431,20 @@ pub(crate) fn directory_mutation(fs: &Filesystem) -> Result<()> {
     let first = fs.read_dir("/enumerate", 1, None)?;
     assert_eq!(first.entries[0].name, b"a");
     let directory = fs.opendir("/enumerate")?;
+    let initial_cookie = directory.telldir()?;
+    for (error, name) in [
+        (directory.read_page(0).unwrap_err(), "filesystem.read_page"),
+        (
+            fs.read_dir("/enumerate", 0, None).unwrap_err(),
+            "filesystem.read_dir",
+        ),
+    ] {
+        assert_eq!(error.errno, Errno::EINVAL);
+        assert_eq!(error.operation, name);
+        assert_eq!(error.outcome, Outcome::NotApplied);
+        assert_eq!(error.completed_bytes, 0);
+    }
+    assert_eq!(directory.telldir()?, initial_cookie);
     assert_eq!(directory.readdir()?.unwrap().name, b".");
     assert_eq!(directory.readdir()?.unwrap().name, b"..");
     assert_eq!(directory.readdir()?.unwrap().name, b"a");

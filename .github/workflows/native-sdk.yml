@@ -357,15 +357,19 @@ jobs:
         env:
           CELLAR_FS_CAPACITY_MIB: "10"
           CELLAR_FS_CAPACITY_REPORT: ${{ runner.temp }}/filesystem-dense-capacity.json
+          RUST_LOG: 'warn,cellar::actor::effects=info,store[node_lease_store]=debug'
         run: |
           cargo test --locked -p cellar --all-features --test native_node \
-            filesystem_dense_capacity_cold_recovery -- --ignored --nocapture
+            filesystem_dense_capacity_cold_recovery -- --ignored --nocapture \
+            2>&1 | tee "$RUNNER_TEMP/filesystem-dense-capacity.log"
       - name: Preserve dense filesystem observations
         uses: actions/upload-artifact@v6
         if: always()
         with:
           name: dense-filesystem-${{ matrix.python }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/filesystem-dense-capacity.json
+          path: |
+            ${{ runner.temp }}/filesystem-dense-capacity.json
+            ${{ runner.temp }}/filesystem-dense-capacity.log
           if-no-files-found: ignore
       - name: Test Axum feature modes and generated contract
         run: |

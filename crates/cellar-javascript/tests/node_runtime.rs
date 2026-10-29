@@ -13,6 +13,14 @@ use native::start;
 // Observe bootstrap and joined shutdown outside the node's execution domain.
 #[allow(clippy::disallowed_methods)]
 fn node_npm_native_addon_components_routing_and_restart() -> Result<()> {
+    if std::env::var_os("RUST_LOG").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env()?)
+            .with_ansi(false)
+            .with_test_writer()
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("Node delivery tracing: {error}"))?;
+    }
     let source = Source::module().events([EventKind::Fetch]).cell("Counter");
     let entry = std::env::var_os("CELLAR_TEST_NODE_ENTRY")
         .map(std::path::PathBuf::from)

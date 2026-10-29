@@ -2,12 +2,12 @@
 
 # Filesystem operation conformance audit
 
-Status: partial audit, 2026-10-28. This inventory follows the
-[public API contract](per-cell-filesystem-api.md). Each row names behavioral
-assertions inspected in the current fixtures; it does not establish complete
-POSIX conformance or completion of the corresponding requirement group.
-Executed suites and qualification limits belong in the
-[status ledger](per-cell-filesystem-implementation-status.md).
+Status: initial-profile source audit, 2026-10-28. This inventory follows the
+[public API contract](per-cell-filesystem-api.md). It maps requirement groups and
+public operations to inspected behavioral assertions. Release acceptance also
+requires the executed suites and supported-target CI recorded in the
+[status ledger](per-cell-filesystem-implementation-status.md); source coverage
+alone does not establish a passing release or universal POSIX conformance.
 
 ## Fixture boundaries
 
@@ -28,6 +28,37 @@ Executed suites and qualification limits belong in the
 Rust uses snake_case names. The JavaScript facade uses camelCase where the SDK
 declares it; Python uses snake_case. Guest transaction composition is the checked
 `storage.apply` batch, rather than a callback transaction held across bridge calls.
+
+## Initial-profile requirement map
+
+This maps the implementation plan's requirement groups to their owning
+assertions. The O01–O52 catalog below checks the public wrappers, while backend
+and runtime fixtures check shared storage and authority invariants. Execution
+status is recorded separately: a source mapping is not a passing test result.
+
+| Requirement IDs | Owning assertions and boundary |
+| --- | --- |
+| N01–N06 | Native `namespace` and shared reserved-path cases cover root confinement, byte names, path/depth limits, trailing slashes and exclusive create. Backend exhaustion checks compare the entire persistent state before and after rejected inode/cookie/revision allocation. |
+| N07–N12 | Native `namespace` / `directory_mutation`, guest namespace profiles and backend replacement cases cover rename victims, nonempty/type/cycle refusals, pinned unlink/rename identity and enumeration during mutation. |
+| D01–D08 | Native `/exercise` and `/contracts`, guest normal/budget/concurrency profiles and backend `range_edits_sparse_growth_and_truncate_gc_preserve_new_content` cover chunk boundaries, zero transfers, sparse growth, append, tail zeroing and rewrite/extension before reclamation. The dense fleet profile checks actual 10/100/1024 MiB payloads and cold readback. |
+| Q01–Q06 | Backend quota, aggregate-integer-limit and pinned-orphan cases compare bytes, logical/allocated accounting and pending garbage through refusal. Native `transactions` checks that rolled-back savepoints do not refund root work admission. Native admission and guest budget fixtures check handle/transfer/result limits before effects. |
+| T01–T07 | Native `transactions`, guest wire/batch and durable-tool profiles check atomic file/state/receipt changes, later rollback, version conflicts, exact savepoint lifetime and codec prevalidation. The local `Storage` transaction API and `storage.apply` schema contain only current-cell state; named KV/SQL/queue RPCs have no participant field or shared transaction handle. This last item is an API-boundary audit, not a distributed transaction claim. |
+| A01–A07 | Native stateless/denied/facet, foreign-view, replaced-activation and background-lifetime cases check acquisition and retained authority. Node/V8 and both Python ABIs exercise all retained filesystem methods after deadline/fence and predecessor shutdown. Backend protected-SQL checks prevent application access to filesystem tables. Rust cleanup-only close/drop retains its documented exception. |
+| H01–H06 | Native descriptors/admission, backend directory pins, guest live/expired/wrong-kind tokens and fleet pending-reclamation recovery check pins, dup/last-close, stale tokens, orphan cleanup, cookie identity and cleanup of provisional handles. Wrong-kind close preserves the original occupied slot. |
+| S01–S04 | Native foreign views/directories and guest isolation/*at profiles reject other-cell and guessed tokens while preserving state; both rename parents are checked independently. Paths resolve from the cell root in SQLite, including absolute *at paths; there is no host-file fallback. |
+| C01–C06 | Native/guest budget and nested-transaction cases check admission, concurrency profiles check mutable offsets and serialized append, and the five-cell pressure fixture checks progress with bounded GC. Node lost replies and Python task cancellation preserve confirmed prefixes and uncertainty. Proof/recovery reports require joined native and interpreter shutdown. |
+| G01–G06 | Guest tool profiles and the session agent's [process cuts](../examples/filesystem-agent/test/process.mjs) check saved decisions, atomic receipts, saved reads after edits, bounded journals, follow-up files and serialized turn ownership. Installed session/Vercel/Python packages verify restored runtime assets and cold file/receipt recovery. |
+| F01–F06 | Native filesystem fleet faults check acknowledged and unpublished file/state/receipt ledgers through owner loss, failed restore and proven successor writes. S3 supplied-client, TCP-cut and TCP-stall variants exercise distinct publication/recovery failures. Guest proof gates cover peer/bucket proof interruption. Backend SQLite FULL checks rollback and later recovery; the runtime SQLite-busy fixture checks timer progress. These are explicit software fault boundaries, not a claim about arbitrary device failure or power loss. |
+| P01–P08 | Native descriptors/metadata/directory-relative and guest normal profiles check acquisition, independent/shared offsets, positional I/O, seek/truncate semantics, short/zero transfers, modes/mask, *at identity and duplicate closure. |
+| P09–P16 | Native transactions and guest wire/lifetime profiles check transaction expiry, ordinary/child/savepoint affinity, proof refusal inside a transaction, token/integer/name validation, delete_all protection and positional writes on append-open files. |
+| B01–B04 | Dependency isolation, SDK types, the three-language API harnesses and native/installed-agent examples exercise the primitive with normal SDK invocations. SDK acquisition and configuration contain no mount or command-execution API; the optional FUSE proposal has no role in these builds or recovery tests. |
+
+The release matrix is the declared regular-file/directory profile and its
+documented error classes. It does not advertise all POSIX facilities or every
+Cartesian combination of malformed arguments and simultaneous failures.
+Contract-specific error precedence, descriptor kind, authority, admission,
+rollback and uncertainty each have owning assertions; new public operations or
+newly discovered combinations require regressions at the affected boundary.
 
 ## Access and file descriptors
 
@@ -91,7 +122,7 @@ declares it; Python uses snake_case. Guest transaction composition is the checke
 | O46 | `fs.read_dir()` | Contracts checks continuation across namespace mutations and rejects another directory's cursor; Native/Guests check bounded pages without synthetic dot entries |
 | O47 | `file.read_exact()` | Native/Budget check consumed prefix and offset on UnexpectedEof; Native/Guests check closed empty-helper refusal; Guests check preflight operation/zero progress; Lost replies checks a confirmed prefix with a second processed but undelivered transfer |
 | O48 | `file.write_all()` | Native/Budget check confirmed committed prefixes; Python Budget verifies a saved prefix after restart; Guests check preflight operation/zero progress; Lost replies recovers more committed bytes than the caller can confirm |
-| O49 | `dir.read_page()` | Contracts checks mutation/seek continuation and linked dot entries; removed-directory profiles check empty pages after rewind |
+| O49 | `dir.read_page()` | Contracts checks mutation/seek continuation and linked dot entries; removed-directory profiles check empty pages after rewind; Native/Guests reject a zero page limit without cursor advancement |
 | O50 | `fs.collect_garbage()` | Backend checks pins, discarded revisions and quota retention; native/guest hosts check automatic maintenance/restart; Read-only refuses explicit application GC |
 | O51 | Guest `storage.apply` file checks/effects | Native batch validation checks identity/version; Guests check conflict and rollback after a preceding file mutation; file effects/receipts/checkpoints commit together |
 | O52 | Durable-agent read/write/edit/list/search/rename/delete | Guest tool profiles check results, saved reads, conflicts, stable IDs, request snapshots and receipt caps. Directory-edit refusals replay after namespace deletion and host restart; process crash evidence remains separately scoped in the ledger |
@@ -253,7 +284,7 @@ groups so each retains the fixture's normal handler budget:
 | --- | --- | --- |
 | Unsigned | 81 | Nine descriptor/path/edit fields reject eight malformed decimal forms and one u64 overflow; EINVAL versus EOVERFLOW |
 | Signed | 30 | Current/end seeks and timestamps reject eight malformed forms and both i64 overflow boundaries |
-| Options | 26 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN |
+| Options | 28 | Open/access/seek enums, flag and mode types, counts, page argument types, malformed cookies/cursors and helper bound validation; includes a client serialization refusal for NaN and zero-limit read_page/read_dir refusals |
 | Batch | 21 | Strict unsigned checks/edits/truncation, base64/path decoding and inconsistent checks refuse before any file or business put |
 
 Unsigned cases run as three groups of 27. Every one of the original 81
@@ -274,6 +305,27 @@ marker does not establish the effect outcome of an enclosing cell fetch.
 
 These selected cases do not complete every option/precedence combination or
 post-dispatch result, cancellation, domain and fault profile.
+
+## Guest handle-kind profile
+
+The shared [handle cases](../crates/cellar/tests/support/filesystem_handle_cases.json)
+drive the `wire-handles` route through Node, embedded V8 and both Python ABIs.
+These are valid wire requests with live tokens of the wrong descriptor kind,
+distinct from malformed arguments and closed or foreign handles.
+
+| Token supplied | Operations that must refuse with EBADF |
+| --- | --- |
+| Directory | `close`, `fdatasync`, `read`, `pread`, `write`, `pwrite`, `lseek`, `ftruncate`, `fchmod`, `dup` |
+| File | `closedir`, `readdir`, `read_page`, `telldir`, `seekdir`, `rewinddir` |
+
+All 16 refusals must retain the outer operation, `not_committed` and zero
+confirmed bytes. Each assertion compares file bytes, file/directory metadata,
+usage, both file offsets and both directory cookies. The four-slot host limit
+must remain exhausted after every refusal, so an invalid close cannot silently
+release a handle. Positive controls then require file `fdatasync`, directory
+`fsync` and each correctly typed close to succeed. Rust's separate `File` and
+`Directory` types make these wrong-kind calls unavailable in its public API.
+Execution evidence belongs in the status ledger.
 
 ## Guest reply-validation profile
 
@@ -358,14 +410,14 @@ commits a four-chunk file, business generation and SHA-256 receipt in one
 acknowledged. Peer append acknowledgements and bucket publications are held
 before the next batch; the client must remain pending after local commit.
 
-Eight modes select `file.fsync`, `file.fdatasync`, `fs.sync`, or final output
-proof (O16, O17, O36 and the cell output boundary), followed by either the
+Ten modes select `file.fsync`, `file.fdatasync`, `dir.fsync`, `fs.sync`, or final output
+proof (O16, O17, O34, O36 and the cell output boundary), followed by either the
 original handler deadline or an observed native node-lease mismatch fence.
 Release of the actual transports after authority retirement cannot turn the
 failed client response into success. The interrupted generation may survive or
 be absent; the test does not infer rollback from a lost acknowledgement.
 
-The original task resumes only to check 31 retained file/duplicate/directory/view
+The original task resumes only to check 50 retained file/duplicate/directory/view
 refusals and one raw filesystem submission refusal. SDK refusals require
 ContextExpired, the public operation, not_committed and zero confirmed bytes.
 Two existing storage/raw-storage authority assertions also remain in the
@@ -389,9 +441,20 @@ cancellation, retained-wrapper handoff shutdown, closed domains generally, or th
 corresponding Node/V8 proof profiles. Executed ABIs and frozen executable/source
 identities belong in the implementation status ledger.
 
+### Directory proof parity
+
+The Python bridge also registers `dirsync` in both the proof and handoff modes,
+with deadline and owner-fencing interruption. This adds four cases per ABI to
+the existing 17-case filesystem proof suite. It invokes the retained directory's
+public `fsync`; errors must identify `filesystem.fsync`, with the same admitted
+unknown outcome and zero byte progress as the file barrier. The original
+file/state/receipt, stale-wrapper, host-slot, cold-recovery and joined-cleanup
+assertions remain enabled. These cases run in the ordinary Python bridge suite;
+executed results and artifact identities belong in the status ledger.
+
 ## Python handoff and closed-domain profile
 
-Eight `--runtime-filesystem-handoff-{barrier}-{deadline|fence}` modes extend
+Ten `--runtime-filesystem-handoff-{barrier}-{deadline|fence}` modes extend
 the Python in-flight proof profile. Three successors start with new local
 directories and reach readiness before any predecessor begins Handoff. After
 proof interruption and warm coherent readback, each remaining predecessor must
@@ -402,8 +465,8 @@ not attempt to hand the final cell to an empty fleet.
 
 The old file, duplicate, directory and filesystem-view wrappers remain retained
 through predecessor domain shutdown. A live successor invocation repeats the
-31 SDK refusals and one raw submission refusal, taking the profile's cumulative
-count from 32 to 64. Each SDK call must retain ContextExpired, its public
+50 SDK refusals and one raw submission refusal, taking the profile's cumulative
+count from 51 to 102. Each SDK call must retain ContextExpired, its public
 operation, not_committed and zero confirmed bytes. After every refusal, fresh
 root/file metadata, usage, file/duplicate offsets, directory cookie and a
 positional byte prefix must remain identical. Full file/state/receipt checks
@@ -447,11 +510,11 @@ An HTTP timeout alone is insufficient; the native observer waits for the
 original cell future to drop.
 
 The original JavaScript continuation resumes after a separate application
-promise is released and checks 31 retained SDK calls plus one raw filesystem
+promise is released and checks 50 retained SDK calls plus one raw filesystem
 submission. Those calls require ContextExpired/not_committed and zero progress.
 After all predecessor domains close, a live successor repeats the refusals with
 ContextMismatch/not_committed; it must not lend the stale wrappers its own
-invocation authority. The cumulative count is 64 per case. Every successor-side
+invocation authority. The cumulative count is 102 per case. Every successor-side
 refusal preserves full metadata/usage, file and dup offsets, directory cookie
 and positional bytes. Four fresh descriptors remain allocated and a fifth open
 returns ENFILE after stale close attempts.
@@ -479,6 +542,28 @@ Executed artifacts and remaining limits belong in the status ledger.
 These are development-bucket/loopback-peer cases. Byte-I/O cancellation,
 remaining operation/domain/overload combinations, external faults, sustained
 load and final package/target qualification remain separate gates.
+
+### Complete retained filesystem method profile
+
+The current Node/V8 and Python proof fixtures cover every public method on a
+retained filesystem view, file and directory. The additional 19 calls exercise
+open/create, lstat, truncate, mkdir/rmdir, rename, chmod, utimens, opendir,
+statvfs, all five directory-relative methods, replace/edit and stateless listing.
+They use valid arguments and retained identities so local argument conversion
+cannot substitute for authority refusal. SDK calls retain exact operation,
+outcome and progress fields. Successor-state and descriptor-capacity assertions
+run after these calls as well as after the original descriptor cases.
+
+The native `preflight_authority` profile also checks every path/view method
+(including Rust's `read_file_bounded`) under wrong-cell and replaced-activation
+authority. Directory-relative identity and descriptor lifetimes remain covered
+by their distinct native profiles. Native close/drop deliberately permits
+resource cleanup after retirement; it does not admit a stale storage operation.
+Guest wrappers instead refuse submissions after their context expires.
+
+This is a finite authority profile, not every permutation of arguments and
+failure timing. Its execution status is recorded separately from its source
+coverage in the status ledger.
 
 ## Node lost byte-reply profile
 
@@ -542,11 +627,25 @@ container, creates the bucket and retains the structured fault report.
 The test proves a first file/state/receipt transaction, blocks replica publication
 before a second local commit, independently refuses owner-store operations and
 requires actual lease-expiry fencing without acknowledging the second effect.
+The second handler signals admission and waits before writing. The controller
+cuts publication and releases that handler, then observes its local commit and
+failed publication before isolating the lease. This ordering preserves the
+durable retirement check during routing: an outage before admission correctly
+refuses the request and cannot exercise an in-flight unproven write.
 It removes old local state, refuses unreadable replica admission without calling
 the application factory, restores the first acknowledged transaction under a new
 owner, rejects stale capabilities and proves a third transaction. A second
 empty-local-state restore must match that new receipt. The same deadlines and
 shutdown assertions apply to both backends.
+
+The recovery client keeps real retirement-record reads and scans on its healthy
+connection to the same bucket, while replica reads use the faulted connection.
+The [test adapter](../crates/cellar/tests/support/filesystem_recovery_store.rs)
+records both paths. This isolates failed replica restoration from retirement
+authority failure; it neither invents an absent retirement record nor returns a
+successful replica response. Both read counters must advance, and no application
+constructor may run. A fault covering the retirement namespace as well is a
+different admission/shutdown profile.
 
 The S3 case adds real provider conditional writes, object publication and cold
 replica reads beneath the supplied-client fault gates. Those gates do not simulate
@@ -626,41 +725,42 @@ held local-commit cut, observes settlement, then forces the actual lease mismatc
 It preserves the original deadlines, recovery, stale-wrapper and complete cleanup
 assertions. It does not require one side of that reply/cancellation race to win.
 
-## Open audit work
+## Audit disposition and release gates
 
-Every row records selected positive or negative behavior. The following work
-remains before this inventory can support a complete conformance claim:
+The initial-profile requirement map and O01–O52 inventory define this audit's
+scope. Error coverage is organized by the shared validation/storage boundary
+and the public wrappers that carry operation, outcome and progress metadata.
+It is not an exhaustive cross-product of every invalid argument, authority
+failure and transport interruption. The zero-page and wrong-kind-close
+regressions demonstrate why a new mismatch still needs a test at its public
+boundary even when shared backend validation already exists.
 
-1. Enumerate applicable type, access, option, size/overflow and namespace errors
-   for each operation, including precedence only where the contract specifies it.
-   Shared backend coverage alone does not prove every public wrapper's operation
-   name, effect outcome or guest serialization. The looping-helper preflight
-   and progress profiles above cover their specified SDK error paths; remaining
-   operation/option combinations still need their own assertions. The argument
-   profiles cover selected facade conversions. The wire profiles map the
-   selected syntax/range, shape and option refusals above; remaining combinations
-   and precedence still need their own assertions. The reply-validation profile
-   adds controlled post-dispatch faults and helper-prefix evidence. The Node
-   byte-reply profile adds selected real transport losses; remaining lost-reply
-   families and production fault outcomes retain their separate gates.
-2. Complete transaction, cancellation and closed-domain cases for each
-   handle-bearing family. Extend the selected live cross-cell cases where
-   additional operation families require distinct authority assertions. The
-   native foreign-directory and guest live/expired/closed/wrong-kind profiles
-   above cover both `renameat` parents, with their distinct scopes. The deadline
-   cleanup profile adds retained-wrapper refusal, slot/pin release and committed
-   batch recovery. The Python in-flight proof profile above adds the selected
-   barrier/deadline/fence combinations. The Node/V8 profile adds five barriers,
-   both interruption modes and Preserve/Handoff with stale-context checks.
-   The Node byte-reply profile adds six byte APIs through real reply loss and
-   native cancellation. Other byte-cancellation/runtime combinations and
-   remaining domain families stay open. The
-   Python handoff profile adds selected retained-wrapper refusals after predecessor domain
-   shutdown and coherent successor writes; it does not complete every lifetime
-   family.
-3. Keep transfer/page/transaction admission, cleanup and ambiguity tests linked
-   to actual source and executable evidence. Invocation-bound descriptors and
-   activation-bound filesystem views have distinct lifetime contracts.
-4. Finish fleet fault, sustained load, captured-package, target/ABI and capacity
-   qualification from the implementation plan. This operation inventory does
-   not replace those gates or include the separate optional FUSE proposal.
+Retained filesystem views, files and directories have complete public-method
+coverage in the Node/V8 and Python proof profiles. Native tests separately
+cover cached views in another cell/replaced activation, exact transaction
+identity, descriptor cleanup and both *at parents. Read-only, admission, wire,
+reply-shape, helper-prefix and namespace profiles cover the declared refusal
+classes. Invocation-bound descriptors and activation-bound views retain distinct
+lifetimes; cleanup-only native close/drop is not a stale-authority mutation.
+
+Cancellation evidence follows each transport. Node withholds real successful
+IPC byte replies; Python cancels coroutine waits at defined native/bridge
+boundaries. Node, V8 and both Python ABIs interrupt the five proof/output
+boundaries under deadline/fence and Preserve/Handoff. These mechanisms preserve
+uncertainty until a receipt/readback reconciles it. In-process V8/Python bridge
+cancellation is not described as a physical Node IPC failure.
+
+Release still requires passing executions on the final source and supported
+runtime/target matrix. The [status ledger](per-cell-filesystem-implementation-status.md)
+records local results, binary/source identities and CI disposition. A prior
+successful run cannot erase a later failure; investigate a failing assertion
+without increasing its lease or handler budget or retrying it into a pass.
+Captured-package delivery, native release targets and both Python ABIs remain
+required CI gates alongside the primitive's API, recovery and resource suites.
+
+The bounded five-cell stress, dense-file and S3 fault profiles establish their
+stated framework contracts. Larger populations, application throughput/SLOs,
+provider credential rotation, device/power failure and network-kernel fault
+campaigns use the deployment qualification process. Links, locks, wider
+metadata, cold object-backed file content and FUSE remain separately designed
+capability/adaptor work; this audit makes no claims for them.

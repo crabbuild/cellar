@@ -240,6 +240,8 @@ jobs:
             --backend rust --backend node-js --backend node-ts --backend v8
       - name: Node runtime delivery
         if: matrix.profile == 'packages'
+        env:
+          RUST_LOG: timing=debug,cellar::runtime=debug,store=debug
         run: |
           cargo build --locked -p cellar-javascript --no-default-features --features node --bin cellar-node-example
           mkdir -p .cellar
@@ -250,7 +252,14 @@ jobs:
           JS
           node tools/javascript/node-package.mjs .cellar/node-delivery.json .cellar/node-delivery
           .cellar/node-delivery/launch.sh --help
-          CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js" CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node" cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
+          export CELLAR_TEST_NODE_ENTRY="$PWD/.cellar/node-delivery/app/dist/app.js"
+          export CELLAR_TEST_NODE_EXECUTABLE="$PWD/.cellar/node-delivery/bin/node"
+          # Fresh stores and Node processes in every case. Stop at the first
+          # failure; these repetitions never retry a failed request or test.
+          for iteration in {1..20}; do
+            echo "Node delivery case $iteration/20"
+            cargo test --locked -p cellar-javascript --no-default-features --features node --test node_runtime
+          done
       - name: Node fleet publish, restore and process recovery
         if: matrix.profile == 'packages'
         run: |

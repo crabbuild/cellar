@@ -439,6 +439,25 @@ impl Session {
         }
     }
 
+    fn close(&self, token: &str, directory: bool) -> Result<()> {
+        let removed = {
+            let mut handles = self.handles.lock().unwrap();
+            let handle = handles.get(token).ok_or_else(bad_descriptor)?;
+            // Validate and remove under the same registry lock. A wrong-kind
+            // close must leave the live token, descriptor slot and pin intact.
+            ensure!(
+                matches!(
+                    (handle, directory),
+                    (Handle::File(_), false) | (Handle::Directory(_), true)
+                ),
+                bad_descriptor()
+            );
+            handles.remove(token)
+        };
+        drop(removed);
+        Ok(())
+    }
+
     pub async fn execute(
         &self,
         context: &Context,
@@ -504,8 +523,10 @@ impl Session {
             Ftruncate {handle,size}=>{self.file(&handle)?.ftruncate(integer(&size)?)?;Ok(Value::Null)},
             Fchmod {handle,mode}=>{self.file(&handle)?.fchmod(mode)?;Ok(Value::Null)},
             Dup {handle}=>self.insert(Handle::File(Arc::new(self.file(&handle)?.dup()?))),
-            Close {handle}|Closedir {handle}=>{self.handles.lock().unwrap().remove(&handle).ok_or_else(bad_descriptor)?;Ok(Value::Null)},
-            Fsync {handle}|Fdatasync {handle}=>{match self.get(&handle)? {Handle::File(file)=>file.fsync().await?,Handle::Directory(dir)=>dir.fsync().await?};Ok(Value::Null)},
+            Close {handle}=>{self.close(&handle,false)?;Ok(Value::Null)},
+            Closedir {handle}=>{self.close(&handle,true)?;Ok(Value::Null)},
+            Fsync {handle}=>{match self.get(&handle)? {Handle::File(file)=>file.fsync().await?,Handle::Directory(dir)=>dir.fsync().await?};Ok(Value::Null)},
+            Fdatasync {handle}=>{self.file(&handle)?.fdatasync().await?;Ok(Value::Null)},
             Stat {path}|Lstat {path}=>Ok(stat(filesystem.stat(path.decode()?)?)),
             Truncate {path,size}=>{let size=integer(&size)?;filesystem.truncate(path.decode()?,size)?;Ok(Value::Null)},
             Mkdir {path,mode}=>{filesystem.mkdir(path.decode()?,mode)?;Ok(Value::Null)},

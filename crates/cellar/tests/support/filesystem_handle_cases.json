@@ -1,0 +1,49 @@
+{
+  "copyright": "Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.",
+  "cases": [
+    { "kind": "file", "operation": "closedir", "arguments": {} },
+    { "kind": "directory", "operation": "close", "arguments": {} },
+    { "kind": "directory", "operation": "fdatasync", "arguments": {} },
+    { "kind": "directory", "operation": "read", "arguments": { "count": 1 } },
+    {
+      "kind": "directory",
+      "operation": "pread",
+      "arguments": { "count": 1, "offset": "0" }
+    },
+    {
+      "kind": "directory",
+      "operation": "write",
+      "arguments": { "data_base64": "eA==" }
+    },
+    {
+      "kind": "directory",
+      "operation": "pwrite",
+      "arguments": { "data_base64": "eA==", "offset": "0" }
+    },
+    {
+      "kind": "directory",
+      "operation": "lseek",
+      "arguments": { "whence": "start", "offset": "0" }
+    },
+    {
+      "kind": "directory",
+      "operation": "ftruncate",
+      "arguments": { "size": "0" }
+    },
+    {
+      "kind": "directory",
+      "operation": "fchmod",
+      "arguments": { "mode": 256 }
+    },
+    { "kind": "directory", "operation": "dup", "arguments": {} },
+    { "kind": "file", "operation": "readdir", "arguments": {} },
+    { "kind": "file", "operation": "read_page", "arguments": { "limit": 1 } },
+    { "kind": "file", "operation": "telldir", "arguments": {} },
+    {
+      "kind": "file",
+      "operation": "seekdir",
+      "arguments": { "cookie": "AAAAAAAAAAAAAAAAAAAAAA==" }
+    },
+    { "kind": "file", "operation": "rewinddir", "arguments": {} }
+  ]
+}
