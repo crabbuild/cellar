@@ -3,11 +3,63 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The latest user clarification selects the plan as this handoff
-deliverable. Intermediate contracts do not qualify a shared runtime.
+hard cutover. The full implementation goal is active following the plan handoff
+below. Intermediate contracts do not qualify a shared runtime.
 No production legacy/shared mode flag is being added.
 
-## Current plan handoff — 2026-10-29
+
+## CG-03 physical bootstrap and inventory checkpoint
+
+Source: `5d0d8e5ede3b4efedc211c40122a1a26b43968b4`. CG-03 remains IN_PROGRESS.
+
+Physical handles now carry `GroupHistory` independently of application cells.
+Real-engine genesis atomically syncs the mapping, initial membership and complete
+empty group root. The same persistence worker owns both typed storage paths,
+quotas, sync and cache publication. Required mapping application domains refuse
+old untagged records; an engine cannot mix legacy and cell-group application
+families. Existing single-cell consumers remain staged until the final cutover.
+
+The initial unmanaged-member bootstrap API verifies the current selected birth,
+permanent node-storage pin and exact member claim after actual genesis sync.
+Claims bind group history, birth, member, node, disk and engine instance. Unknown
+confirmation grants no permit; same-identity restart reconciles it. Tests remove
+one owned group's records while retaining the original engine identity, then
+verify that the permanent claim refuses fresh genesis. A separate blank-engine
+fixture exercises the node pin. Foreign nodes/catalog owners and retired routes
+also refuse; managed admission still requires its later rooted fleet integration.
+
+Physical inventory now captures every shared history, including unattached or
+retained members, and an optional initializing slot. A domain-separated digest
+binds all four physical IDs without a cell name. The bounded existing wire checks
+the complete occupied count; an already durable pending slot counts once. Legacy
+cell-scoped lookup cannot match a group-native row. Real-engine tests verify
+inventory across restart and while genesis sync is held, including wire refusal
+when the node count omits a slot.
+
+All 216 distinct Rust cases pass across selected genesis, physical inventory,
+membership, core, directory, catalog, manifest, host, snapshot and storage suites.
+The shared manifest recovery fixtures now use actual cell-group genesis for both
+image representations and process-kill cuts. The RustFS-specific snapshot case
+remains explicitly ignored; child fixtures are invoked by their parent tests.
+These results do not qualify a live shared-group host or independent failure
+resilience. Source preflight, all 37 plan-validator tests, formatting, layout,
+dependency isolation and repository docs checks pass. The dependency script's
+initial missing-PATH failure is retained separately from its successful rerun.
+
+All-target Clippy for `cellar` and `cellar-logic` also passes with warnings denied.
+The partial evidence record is retained at
+`.cellar/cell-groups-evidence/CG-03-bootstrap/checkpoint.json`, binding 76 source
+inputs, 14 successful command logs and eight executables to the source revision.
+This is a checkpoint, not a CG-03 DONE record.
+
+A catalog bootstrap permit is not complete image recovery or serving authority.
+The runtime still must verify the selected image/manifest closure, revalidate its
+startup permit and obtain current-term quorum. Authenticated bounded redirects,
+the shared runtime, managed fleet integration and CG-04 through CG-16 remain
+required. No RustFS disaster drill, load result, performance improvement or full
+CG-03/release qualification is claimed by this checkpoint.
+
+## Plan handoff at 98aff95a — 2026-10-29
 
 The package supplies the target architecture, protocol state machines, dependency
 ordered executor briefs, exact test commands and source-bound acceptance gates.
@@ -132,9 +184,10 @@ CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
 CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline is `d72ea068a527d2027e806ca78ab390256e8634fa`.
-The physical-registry change leaves all existing source anchor hashes and excerpts
-unchanged. A new executor must receive both ignored DONE-task evidence folders
+The reviewed source baseline is `5d0d8e5ede3b4efedc211c40122a1a26b43968b4`.
+The physical bootstrap change updates the identity, manifest, catalog and birth
+source anchors. Their excerpts are unchanged; the manifest excerpt moves after
+the typed storage handles. A new executor must receive both ignored DONE-task evidence folders
 before validating those historical checkpoints.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured

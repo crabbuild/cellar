@@ -9,9 +9,9 @@ The production host has not yet cut over to shared groups.
 See [implementation progress](progress.md) and the generated task index.
 Package validation is not implementation, benchmark or release qualification.
 
-The current requested deliverable is the executable design and implementation
-plan. The complete shared-group runtime and hard cutover remain the implementation
-target; delivering this package does not mark those tasks complete.
+The design package is delivered. The active implementation goal remains the
+complete shared-group runtime and hard cutover. Delivering the plan or an
+intermediate checkpoint does not mark that goal complete.
 
 This package implements the direction selected in the
 [density decision](../density-decision.md). The target is TiKV-style partitioned
@@ -68,9 +68,8 @@ qualification belongs only to the harness's recorded, owned disposable resources
 
 ### Current executor handoff
 
-The latest user clarification selects an executable design and implementation
-plan. This handoff preserves existing implementation work and its evidence; it
-does not qualify or publish the unfinished runtime changes in this checkout.
+The end-to-end implementation goal is active. Continue from the existing code
+and retained evidence; the historical plan handoffs do not replace that scope.
 
 Continue CG-03 after reading
 [progress](progress.md) and inspecting the working diff.
@@ -80,15 +79,14 @@ an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
 to DONE. Continue in the generated dependency order afterward.
 
-The next concrete boundary is physical group bootstrap. Uncommitted changes
-already introduce physical replica handles, genesis and member claims, with
-associated tests. Inspect and qualify that work before extending it. The reviewed
-source baseline remains `d72ea068a527d2027e806ca78ab390256e8634fa`; current source
-preflight refuses drift in the unfinished implementation. Do not refresh hashes
-to bypass this refusal. Complete node inventory, startup authority and bounded
-redirects before CG-04 connects enrollment to the shared runtime. A birth metadata
-observation alone cannot authorize voter startup; a fabricated cell name cannot
-substitute for a group identity.
+Physical group genesis, typed replica handles, permanent initial-member claims
+and complete group inventory are implemented at `5d0d8e5e`; see the latest
+[checkpoint](progress.md) for evidence and limits. Complete authenticated redirects
+with the original invocation deadline and hop budget before closing CG-03. CG-04
+then connects enrollment and the catalog startup permit to the shared runtime,
+verifies the complete selected manifest/image closure and acquires current-term
+quorum authority. Managed fleet integration remains required by CG-07. A birth
+metadata observation alone cannot authorize voter startup.
 
 The implementation executor should deliver code, updated component contracts and
 the required retained evidence for each task on the active PR. The final handoff

@@ -1,13 +1,13 @@
 {
   "format": 1,
-  "source_revision": "d72ea068a527d2027e806ca78ab390256e8634fa",
+  "source_revision": "5d0d8e5ede3b4efedc211c40122a1a26b43968b4",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed the physical engine-registry cutover at d72ea068a527d2027e806ca78ab390256e8634fa. The registry now keys by GroupHistory; durable mappings store an explicit group-mapping domain and physical history separately from temporary single-cell adapter metadata. Old mapping shapes refuse. Existing adapter calls reject cell aliases at lookup, creation, pending occupancy and inventory boundaries. Anchored source hashes and excerpts are unchanged from the previous reviewed birth checkpoint. GroupBootstrap, replica handles and permanent claims still need the cell-independent cutover; this source does not expose shared-group voter startup. CG-03 remains IN_PROGRESS and the full hard-cutover goal is active.",
+  "review_note": "2026-10-29: reviewed physical cell-group bootstrap at 5d0d8e5ede3b4efedc211c40122a1a26b43968b4. ReplicaIdentity and GroupLog now carry GroupHistory without a fabricated cell. The existing GroupScope excerpt remains for staged host consumers. CachedGroup fields are unchanged but their excerpt moves after typed storage handles; mapping/cache validation now binds membership and mandatory group roots on both persistence and recovery. Catalog/birth excerpts are unchanged; catalog.rs adds the typed bootstrap permit export. The new path syncs empty group genesis, checks permanent node and member claims, refuses missing claimed state and exposes bounded physical inventory. Shared manifest recovery fixtures use real physical handles. No managed fleet permit, shared runtime serving authority, authenticated redirect integration or final hard cutover is implied. CG-03 remains IN_PROGRESS.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
       "path": "crates/cellar-logic/consensus.rs",
-      "sha256": "4003a743cae358bc29d1b4f5f527d7685e9c468c5cfaaa8d9fcded18b5194912",
+      "sha256": "624ccbc21e7c83a8039444fa243d9e9a9eca12da8e32bf14e46893f8a44a83a8",
       "line": 83,
       "excerpt": "pub struct GroupScope {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub cell: String,\n    pub group: GroupId,\n    pub incarnation: IncarnationId,\n}\n\nimpl GroupScope {"
     },
@@ -19,8 +19,8 @@
     },
     "manifest": {
       "path": "crates/cellar/durability/raft/cache.rs",
-      "sha256": "6e3a022cd16636f7587dd28be3edf86bd6ee0f13778d771ff8af0f6e4cf39edc",
-      "line": 377,
+      "sha256": "f68c46b39524dc8f960c4760513e4ed470919a5bc93aa952bc7b4ca93b5f9ab6",
+      "line": 416,
       "excerpt": "pub(crate) struct CachedGroup {\n    pub hard_state: HardState,\n    pub conf_state: ConfState,\n    pub membership: GroupMembership,\n    pub snapshot: Snapshot,\n    pub entries: BTreeMap<u64, Entry>,\n    pub applied: DurableApply,\n    pub group_manifest: Option<GroupManifest>,\n    pub manifest_pins: Option<ManifestPins>,\n}\n"
     },
     "apply": {
@@ -61,13 +61,13 @@
     },
     "catalog": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "d925a1f3902fd9288d51ab8b252680f062a829e36ad537667d922be34f7cf8fc",
+      "sha256": "3eba1f95021bdc27e94a34dab3f9a01b127b4f58ca5930abab6fba7b89226f65",
       "line": 111,
       "excerpt": "pub struct NamespaceConfig {\n    pub cluster: ClusterId,\n    pub namespace: NamespaceId,\n    pub mode: NamespaceMode,\n    pub schema_digest: [u8; 32],\n    pub minimum_durability: Durability,\n    pub voters: VoterPolicy,\n    /// Immutable birth-admission owner. Managed namespaces refuse the ordinary\n    /// creation API; each birth needs an inventoried fleet reservation."
     },
     "birth": {
       "path": "crates/cellar/durability/raft/catalog.rs",
-      "sha256": "d925a1f3902fd9288d51ab8b252680f062a829e36ad537667d922be34f7cf8fc",
+      "sha256": "3eba1f95021bdc27e94a34dab3f9a01b127b4f58ca5930abab6fba7b89226f65",
       "line": 180,
       "excerpt": "pub struct BirthProposal {\n    pub scope: GroupScope,\n    pub voters: Vec<InitialMember>,\n    pub learners: Vec<InitialMember>,\n}\n\n/// Constructed only after a canonical immutable record and its reservation have\n/// been read back from the selected namespace. Its placement never overrides\n/// committed Raft configuration once a member has initialized."
     },
