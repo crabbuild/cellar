@@ -3,13 +3,11 @@
 # Cell-group implementation progress
 
 The delivered design and implementation plan covers CG-01 through CG-16 and a
-hard cutover. The latest user clarification requests the executable plan as the
-current deliverable. Earlier implementation checkpoints below remain historical
-evidence; they do not authorize continuing runtime changes in this handoff.
-Intermediate contracts do not qualify a shared runtime.
+hard cutover. The user has resumed the full implementation goal following the
+plan handoff below. Intermediate contracts do not qualify a shared runtime.
 No production legacy/shared mode flag is being added.
 
-## Current plan handoff — 2026-10-29
+## Plan handoff at 462aa2eb — 2026-10-29
 
 The package describes the complete replacement architecture, ordered implementation
 briefs and source-bound qualification gates. CG-01 and CG-02 retain their existing
@@ -101,10 +99,10 @@ CG-01 and CG-02 have passed their complete task gates. CG-03 is IN_PROGRESS;
 CG-04 through CG-16 remain TODO. The latest storage qualification is recorded below; the earlier sections
 retain the intermediate checkpoints and their limitations.
 
-The reviewed source baseline is `40c3c0b143f72496f0345be890413ed855c241ae`.
-The catalog anchor adds directory and birth exports; its unchanged namespace
-and birth excerpts move by seven lines. Other source anchors remain unchanged. A new
-executor must receive both ignored DONE-task evidence folders before validation.
+The reviewed source baseline is `d72ea068a527d2027e806ca78ab390256e8634fa`.
+The physical-registry change leaves all existing source anchor hashes and excerpts
+unchanged. A new executor must receive both ignored DONE-task evidence folders
+before validating those historical checkpoints.
 
 No shared runtime, split/merge, hibernation latency, real RustFS recovery, measured
 density or final hard cutover is qualified. The release gate remains closed until
@@ -401,3 +399,50 @@ with warnings denied, formatting/layout, native dependency isolation, docs, sour
 preflight and all 37 plan-validator tests pass. The failed declaration-spacing
 check is retained with its source revision and corrected result. This is not a
 CG-03 DONE record or proof of shared-group disk-loss recovery.
+
+
+### CG-03 physical engine registry checkpoint
+
+Source: `d72ea068a527d2027e806ca78ab390256e8634fa`.
+
+The engine catalog now keys histories by `GroupHistory`, excluding the application
+cell name. Synced mapping records use the explicit `cellar-group-mapping-1` domain
+and four physical identity fields. The old bare `scope` mapping shape refuses on
+recovery; no compatibility decoder or disk migration is introduced.
+
+The staged single-cell host retains its real cell binding separately as application
+metadata. Lookup, create retries, seeded attachment, pending-slot accounting and
+physical inventory reject a different cell binding for an existing physical
+history. These checks prevent an adapter caller from turning another cell name
+into a second handle or phantom slot. The inventory wire still uses its existing
+cell-scoped digest until its consumers undergo the later cutover.
+
+This is a storage prerequisite, not the full physical bootstrap conversion.
+`GroupBootstrap`, replica handles, node pins and permanent member claims still
+need the cell-independent path before the new birth API may start a voter.
+The required claimed-blank-disk integration case remains absent. CG-03 stays
+IN_PROGRESS; CG-04 through CG-16 and the final release gate remain pending.
+
+
+Validation at this source passes 19 pure-core cases, 27 selected library cases,
+all four genesis cases, 14 native manifest cases, 19 native storage cases,
+16 node-directory cases, 10 cell-group catalog cases, 33 host cases and
+54 snapshot cases. The new engine tests inspect the stored physical mapping,
+restart the actual engine, reject cell aliases at lookup, creation, pending-slot
+and inventory boundaries, and rewrite both catalog and group records to prove old-domain, unknown-domain,
+zero-history and invalid-cell refusal. Existing managed genesis sync-barrier and
+bootstrap claim tests still pass. The snapshot suite includes seeded restart,
+lost-claim confirmation and selected-payload refusal; its explicitly ignored
+RustFS case was not run. Parent-launched process fixtures remain intentionally
+ignored by direct suite execution.
+
+All-target Clippy with warnings denied, formatting/layout, native dependency
+isolation, docs, source preflight and all 37 plan-validator tests pass. The partial
+record is retained under
+`.cellar/cell-groups-evidence/CG-03-physical-identity/checkpoint.json` with source,
+executable and command-output hashes: 72 source inputs, 13 successful command logs,
+eight executables and 194 distinct Rust cases. An interrupted build using the machine's
+older default compiler and a command naming a nonexistent test target are retained
+as non-qualifying attempts. Final checks use Rust 1.98.1 and actual test targets.
+These results do not qualify the shared host, new group member claims, RustFS
+recovery, hibernation, performance or the final hard cutover.

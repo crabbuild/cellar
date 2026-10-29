@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "source_revision": "40c3c0b143f72496f0345be890413ed855c241ae",
+  "source_revision": "d72ea068a527d2027e806ca78ab390256e8634fa",
   "runtime_revision": "1be27d234d4674d4d014785c60cecbfe394bdab9",
-  "review_note": "2026-10-29: reviewed cell-independent birth source at 9db4ba8fc91e6d67de244c1a684001393bcc9e56. The only catalog.rs change exports the new birth types; existing namespace and birth excerpts are unchanged and move by one line. New birth requests bind group history, range/epoch, creation identity, canonical members and namespace policy with distinct catalog kind 186. Global identity reservations must match before directory publication; materialization verifies current selection and exact immutable bytes. These are metadata observations, never voter-start permits. Existing physical bootstrap, node pins and disk claims are unchanged and still require cell-independent engine integration. CG-03 remains IN_PROGRESS; full hard cutover is active. Formatting successor 40c3c0b143f72496f0345be890413ed855c241ae adds only the required declaration separator; anchored source hashes and excerpts are unchanged.",
+  "review_note": "2026-10-29: reviewed the physical engine-registry cutover at d72ea068a527d2027e806ca78ab390256e8634fa. The registry now keys by GroupHistory; durable mappings store an explicit group-mapping domain and physical history separately from temporary single-cell adapter metadata. Old mapping shapes refuse. Existing adapter calls reject cell aliases at lookup, creation, pending occupancy and inventory boundaries. Anchored source hashes and excerpts are unchanged from the previous reviewed birth checkpoint. GroupBootstrap, replica handles and permanent claims still need the cell-independent cutover; this source does not expose shared-group voter startup. CG-03 remains IN_PROGRESS and the full hard-cutover goal is active.",
   "tikv_revision": "b3995dab28308f09cbb7c125bf32f789dbc203fe",
   "anchors": {
     "identity": {
