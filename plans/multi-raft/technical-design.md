@@ -6,6 +6,12 @@ Status: proposed implementation contract. Baseline and source hashes are in
 [baseline.json](baseline.json); execution order is in
 [implementation-plan.md](implementation-plan.md).
 
+The [shared cell group decision](density-decision.md) supersedes the one-cell-per-
+group target below. This document retains the implemented baseline's contracts;
+the replacement separates cell identity from group consensus and requires new
+group manifests, snapshots, archives and recovery qualification before cutover.
+Shared groups are not implemented by this documentation change.
+
 ## 1 Scope and architectural decision
 
 Introduce an opt-in Raft namespace. Every cell in that namespace has an independent

@@ -5,6 +5,13 @@
 Status: MR-01 through MR-12 are complete at their recorded native boundaries.
 MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [shared cell group decision](density-decision.md) selects multiple independent
+SQLite cells per Raft group as the replacement architecture, based on inspection
+of TiKV's Region implementation and Cellar's idle-group costs. A dedicated cell
+uses the same group machinery with one cell. The runtime conversion,
+complete group recovery manifests and qualification remain pending; current
+evidence below still describes the one-cell-per-group implementation.
+
 The [fleet balancing and maintenance delivery package](fleet-operations/README.md)
 defines the next CAS-coordinated fleet design, executable task plan and operator
 workflows for automatic repair, redistribution, scale-out, scale-in and node
