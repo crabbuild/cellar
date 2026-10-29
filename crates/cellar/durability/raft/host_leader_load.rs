@@ -39,6 +39,8 @@ fn accumulate(total: &mut RaftGroupResources, value: RaftGroupResources) -> Opti
         (&mut total.incoming_seeds, value.incoming_seeds),
         (&mut total.applying, value.applying),
         (&mut total.archive_pending, value.archive_pending),
+        (&mut total.archive_current, value.archive_current),
+        (&mut total.archive_unconfirmed, value.archive_unconfirmed),
     ] {
         *sum = sum.checked_add(value)?;
     }
@@ -410,6 +412,8 @@ impl Driver {
                                 || cell.apply_inflight,
                         ),
                         archive_pending: usize::from(archive_lag > 0),
+                        archive_current: usize::from(cell.archived.get() > 0 && archive_lag == 0),
+                        archive_unconfirmed: usize::from(cell.archived.get() == 0),
                         apply_lag_entries: apply_lag,
                         max_apply_lag_entries: apply_lag,
                         archive_lag_entries: archive_lag,

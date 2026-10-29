@@ -17,6 +17,8 @@ use std::{
 
 #[cfg(unix)]
 mod controller;
+#[cfg(unix)]
+mod disaster;
 mod worker;
 
 const CHILD_TEST: &str = "process_recovery::worker_process";
@@ -46,6 +48,9 @@ impl Peer {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
+    disaster: bool,
+    retained: bool,
+    generation: u8,
     index: usize,
     quota: u64,
     prefix: String,
@@ -56,6 +61,37 @@ struct Config {
     payload_bytes: u64,
     sample_ids: [u64; 3],
     sample_hashes: [[u8; 32]; 3],
+}
+
+impl Config {
+    fn native(&self, index: usize) -> Result<RaftPeerNode> {
+        let mut peer = self.peers[index].native(index)?;
+        if self.disaster {
+            peer.node = NodeId::new([index as u8 + 21; 16])?;
+            peer.disk = DiskLineage::new([index as u8 + 31; 16])?;
+            peer.process = ProcessGeneration::new([index as u8 + 101 + self.generation * 4; 16])?;
+            peer.label = format!("disaster-recovery-{index}");
+        }
+        Ok(peer)
+    }
+
+    fn registration(&self, schema: [u8; 32]) -> Result<RaftCellRegistration> {
+        let mut value = registration(schema)?;
+        if self.disaster {
+            value.birth = replacement(&value.birth)?;
+        }
+        Ok(value)
+    }
+}
+
+fn replacement(source: &BirthProposal) -> Result<BirthProposal> {
+    let mut target = source.clone();
+    target.scope.group = GroupId::new([91; 16])?;
+    target.scope.incarnation = IncarnationId::new([92; 16])?;
+    for (index, member) in target.voters.iter_mut().enumerate() {
+        member.node = NodeId::new([index as u8 + 21; 16])?;
+    }
+    Ok(target)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -191,4 +227,18 @@ async fn rustfs_272_mib_after_sigkill_restores_empty_process() -> Result<()> {
 #[ignore = "requires the retained 10 GB fixture, RustFS and admitted worker/store capacity"]
 async fn rustfs_decimal_ten_gb_after_sigkill_restores_empty_process() -> Result<()> {
     controller::run(10_000_000_000).await
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires disposable RustFS and admitted worker/store capacity"]
+async fn rustfs_272_mib_after_full_quorum_loss() -> Result<()> {
+    disaster::run(272 * 1024 * 1024).await
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires immutable 10 GB fixture, RustFS and admitted worker/store capacity"]
+async fn rustfs_decimal_ten_gb_after_full_quorum_loss() -> Result<()> {
+    disaster::run(10_000_000_000).await
 }

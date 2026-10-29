@@ -341,6 +341,22 @@ impl CellArchive {
             .await
     }
 
+    /// Check the exact history-bound closure without hydrating a node inventory.
+    /// This is a preflight, not an admission proof: each new member independently
+    /// downloads and seals the same pinned cut before it can serve requests.
+    pub(crate) async fn verify_recovery_at(
+        &self,
+        reference: &ArchiveReference,
+    ) -> Result<(), ArchiveError> {
+        match self.load_metadata(&reference.0).await?.inner {
+            Metadata::Materialized(metadata) => {
+                self.load_material(*metadata).await?;
+                Ok(())
+            }
+            Metadata::Rooted(metadata) => self.verify_root_material(&metadata).await,
+        }
+    }
+
     pub(super) async fn load_head_metadata(
         &self,
     ) -> Result<Option<(ArchiveMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {

@@ -217,6 +217,19 @@ impl CellArchive {
         })
     }
 
+    pub(super) async fn verify_root_material(
+        &self,
+        metadata: &RootMetadata,
+    ) -> Result<(), ArchiveError> {
+        self.verify_root_extents(&metadata.snapshot).await?;
+        // Dependency metadata is already bounded and authenticated by the head.
+        // Read one body at a time; no complete image or dependency set is held.
+        for object in &metadata.head.dependencies {
+            self.get_object(object).await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn load_root_material(
         &self,
         metadata: RootMetadata,

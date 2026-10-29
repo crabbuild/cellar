@@ -198,6 +198,7 @@ impl Cell {
             archive,
             archived: LogIndex::new(0),
             archive_retained: super::admission::Retained::default(),
+            archive_observation: Default::default(),
             archive_retry_at: 0,
             group,
             schema_digest,

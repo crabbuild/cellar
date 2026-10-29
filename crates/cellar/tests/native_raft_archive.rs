@@ -1641,6 +1641,9 @@ impl Native {
         );
         namespace.voters = VoterPolicy::SingleVoterDevelopment;
         namespace.minimum_durability = minimum;
+        if options.extents.is_some() {
+            namespace.image_storage = RaftImageStorage::Extents;
+        }
         let registration = RaftCellRegistration {
             placement: RaftCellPlacement::Replica,
             namespace,
@@ -1949,15 +1952,23 @@ async fn s3_ack_complete_restore_set() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn archive_progress_metrics_distinguish_failed_publication_from_coverage() -> Result<()> {
+    archive_outage_observations(RaftHostOptions::default()).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn extent_quorum_writes_continue_during_archive_outage_and_report_readiness() -> Result<()> {
+    archive_outage_observations(RaftHostOptions {
+        extents: Some(RaftExtentOptions::default()),
+        ..Default::default()
+    })
+    .await
+}
+
+async fn archive_outage_observations(options: RaftHostOptions) -> Result<()> {
     use std::time::Duration;
     let store = Arc::new(faults::Store::default());
     store.archive_unavailable.store(true, Ordering::Release);
-    let native = Native::start(
-        store.clone(),
-        RaftHostOptions::default(),
-        Durability::Quorum,
-    )
-    .await?;
+    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
     let result = async {
         let receipt = native.retry(1, Durability::Quorum).await?;
         let count = |name: &str| -> Result<u64> {
@@ -1979,10 +1990,24 @@ async fn archive_progress_metrics_distinguish_failed_publication_from_coverage()
         .await??;
         ensure!(count("archive_coverage_advanced")? == 0);
         ensure!(count("archive_coverage_index_advance")? == 0);
+        let status = native.cell()?.status().await?;
+        ensure!(status.archive.readiness == ArchiveReadiness::Unconfirmed);
+        ensure!(status.archive.lag_entries == status.committed.get());
+        ensure!(status.archive.retained_bytes > 0 && status.archive.consecutive_failures > 0);
+        ensure!(status.archive.last_failure == Some(ArchiveFailure::Storage));
+        ensure!(status.archive.last_success_age_ms.is_none());
+        ensure!(status.archive.observed_lag_ms.is_some());
+        // A failed archive has not changed the quorum acknowledgement policy.
+        ensure!(receipt.durability == Durability::Quorum);
         store.archive_unavailable.store(false, Ordering::Release);
         let duplicate = native.retry(1, Durability::S3).await?;
         ensure!(duplicate.result == receipt.result);
         ensure!(native.calls.load(Ordering::SeqCst) == 1);
+        let status = native.cell()?.status().await?;
+        ensure!(status.archive.readiness == ArchiveReadiness::Current);
+        ensure!(status.archive.lag_entries == 0 && status.archive.observed_lag_ms.is_none());
+        ensure!(status.archive.consecutive_failures == 0 && status.archive.last_failure.is_none());
+        ensure!(status.archive.last_success_age_ms.is_some());
         ensure!(count("archive_publication_cut_succeeded")? > 0);
         ensure!(count("archive_coverage_advanced")? > 0);
         ensure!(count("archive_coverage_index_advance")? >= receipt.version.position.index.get());

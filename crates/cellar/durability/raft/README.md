@@ -1354,8 +1354,9 @@ calls an explicit `DisasterFenceAuthority` before publishing a replacement birth
 The request preserves the logical cell, namespace and schema while selecting
 fresh group, incarnation and node identities. There is no permissive authority
 implementation or force flag. An S3 intent alone cannot stop a running quorum.
-This path supports `RaftImageStorage::Materialized`; extent-backed namespaces
-refuse before intent publication or infrastructure fencing.
+This path supports materialized and extent-backed images. Before intent or
+fencing, extent preflight verifies the exact remote closure using bounded reads
+without requiring a local full-image inventory.
 
 The authority must permanently stop the entire old deployment, including members
 absent from the selected archive, routers and effect workers, and revoke restart
@@ -1367,8 +1368,10 @@ responses. Incompatible retries refuse; completed retries reverify the evidence.
 
 Start the returned birth as ordinary `RaftCellPlacement::Replica` on fresh nodes
 and disks. Before attachment, the host downloads the exact old archive set,
-replays its snapshot/LTX tail on the SQL owner, and installs a materialized
-checkpoint at new index 2, term 1, vote 0 with the new initial configuration.
+replays its snapshot/LTX tail or hydrates and seals its extent root, and installs
+a checkpoint at new index 2, term 1, vote 0 with the new initial configuration.
+For extents, only the manifest's history binding changes; the complete local
+closure is verified before attachment, without flattening the database.
 The original application image, receipts, client floors and Blob bytes remain
 unchanged. No command callback is replayed. The new quorum elects its own leader;
 old incarnation tokens and stale old-birth startup refuse. Initial-member claims
@@ -1378,7 +1381,11 @@ Pending old-origin outbox rows refuse admission. This path neither rewrites them
 nor provides an outbox reconciliation command. Ordinary retained-disk restart
 does not download or reseed from the old archive. Quorum acknowledgements beyond
 the selected archive cut can be lost; per-cell cuts do not assert a globally
-consistent fleet snapshot. See the [protocol and qualification](../../../../plans/multi-raft/disaster-recovery.md).
+consistent fleet snapshot. Quorum writes still acknowledge independently of
+background publication. `CellStatus.archive` exposes local coverage readiness,
+entry lag, observed backlog duration, retained bytes and publication failures;
+these advisory observations reset on process restart and do not change admission.
+See the [protocol and qualification](../../../../plans/multi-raft/disaster-recovery.md).
 
 
 ## Committed repair plans

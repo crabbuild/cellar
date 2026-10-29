@@ -66,7 +66,7 @@ fn request(source: &GroupBirth, archive: ArchiveReference) -> Result<DisasterRec
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn disaster_extent_storage_refuses_before_intent_or_fence() -> Result<()> {
+async fn disaster_wrong_representation_refuses_before_intent_or_fence() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let cut = fixture.commit(7, vec![]).await?;
     let reference = fixture.publish(cut).await?.reference();
@@ -82,15 +82,30 @@ async fn disaster_extent_storage_refuses_before_intent_or_fence() -> Result<()> 
             learners: vec![],
         })
         .await?;
+    // Copy the materialized archive itself, without the incompatible catalog.
+    // The refusal must be representation validation, not a missing object.
+    for object in fixture
+        .store
+        .inner
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?
+    {
+        if object.location.as_ref().contains("/archives/") {
+            let bytes = fixture
+                .store
+                .inner
+                .get(&object.location)
+                .await?
+                .bytes()
+                .await?;
+            store.inner.put(&object.location, bytes.into()).await?;
+        }
+    }
     let before = store.inner.list(None).try_collect::<Vec<_>>().await?;
     let fence = Fence::new(true);
     let request = request(&birth, reference)?;
-    ensure!(matches!(
-        namespace.disaster_fence_request(request.clone()).await,
-        Err(CatalogError::Invalid(
-            "disaster recovery requires materialized image storage"
-        ))
-    ));
+    namespace.disaster_fence_request(request.clone()).await?;
     ensure!(matches!(
         namespace
             .recover_from_disaster(
@@ -100,9 +115,9 @@ async fn disaster_extent_storage_refuses_before_intent_or_fence() -> Result<()> 
                 ArchiveLimits::default()
             )
             .await,
-        Err(CatalogError::Invalid(
-            "disaster recovery requires materialized image storage"
-        ))
+        Err(CatalogError::Archive(ArchiveError::Corrupt(
+            "archive image representation"
+        )))
     ));
     ensure!(fence.calls.load(Ordering::SeqCst) == 0);
     ensure!(store.inner.list(None).try_collect::<Vec<_>>().await? == before);
@@ -374,9 +389,37 @@ async fn fresh_cells(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn disaster_restores_exact_older_cut_after_disk_loss_and_preserves_receipts() -> Result<()> {
+    restore_exact_cut(RaftHostOptions::default(), false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disaster_extent_restores_exact_cut_receipts_and_restart() -> Result<()> {
+    restore_exact_cut(
+        RaftHostOptions {
+            extents: Some(RaftExtentOptions::default()),
+            ..Default::default()
+        },
+        false,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disaster_extent_archive_lag_loses_only_the_unarchived_suffix() -> Result<()> {
+    restore_exact_cut(
+        RaftHostOptions {
+            extents: Some(RaftExtentOptions::default()),
+            ..Default::default()
+        },
+        true,
+    )
+    .await
+}
+
+async fn restore_exact_cut(options: RaftHostOptions, unarchived_suffix: bool) -> Result<()> {
     let native = Native::start(
         Arc::new(faults::Store::default()),
-        RaftHostOptions::default(),
+        options,
         Durability::Quorum,
     )
     .await?;
@@ -388,20 +431,36 @@ async fn disaster_restores_exact_older_cut_after_disk_loss_and_preserves_receipt
         .await?
         .context("selected cut")?
         .reference();
-    native.retry(3, Durability::S3).await?;
-    ensure!(
-        archive
-            .recovery_metadata()
-            .await?
-            .context("newer head")?
-            .reference()
-            != selected
-    );
+    if unarchived_suffix {
+        native
+            .store
+            .archive_unavailable
+            .store(true, Ordering::Release);
+        let newer = native.retry(3, Durability::Quorum).await?;
+        ensure!(newer.durability == Durability::Quorum);
+        let status = native.cell()?.status().await?;
+        ensure!(status.archive.readiness == ArchiveReadiness::Lagging);
+        ensure!(status.archive.lag_entries > 0);
+    } else {
+        native.retry(3, Durability::S3).await?;
+        ensure!(
+            archive
+                .recovery_metadata()
+                .await?
+                .context("newer head")?
+                .reference()
+                != selected
+        );
+    }
     native.service.close().await?;
     native
         .node
         .shutdown(cellar::sdk::ShutdownMode::Preserve)
         .await?;
+    native
+        .store
+        .archive_unavailable
+        .store(false, Ordering::Release);
     // Only this test's voter directory is removed, after all owners have joined.
     std::fs::remove_dir_all(native.root.path().join("raft"))?;
     std::fs::remove_dir_all(native.root.path().join("raft-cells"))?;
@@ -550,5 +609,109 @@ async fn disaster_restores_exact_older_cut_after_disk_loss_and_preserves_receipt
         "new incarnation cannot reset a claimed lost disk"
     );
     node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn disaster_extent_missing_and_corrupt_objects_refuse_before_fence() -> Result<()> {
+    for corrupt in [false, true] {
+        let native = Native::start(
+            Arc::new(faults::Store::default()),
+            RaftHostOptions {
+                extents: Some(RaftExtentOptions::default()),
+                ..Default::default()
+            },
+            Durability::Quorum,
+        )
+        .await?;
+        native.retry(1, Durability::S3).await?;
+        let reference = native
+            .archive()
+            .await?
+            .recovery_metadata()
+            .await?
+            .context("selected cut")?
+            .reference();
+        native.service.close().await?;
+        native
+            .node
+            .shutdown(cellar::sdk::ShutdownMode::Preserve)
+            .await?;
+        let namespace = Catalog::new(
+            native.store.clone(),
+            CatalogOptions {
+                prefix: "host/test".into(),
+                ..Default::default()
+            },
+        )?
+        .existing_namespace(native.registration.namespace.clone())
+        .await?;
+        let birth = namespace
+            .birth(&native.registration.birth.scope.cell)
+            .await?
+            .context("birth")?;
+        let objects = native
+            .store
+            .inner
+            .list(None)
+            .try_collect::<Vec<_>>()
+            .await?;
+        let object = objects
+            .iter()
+            .find(|object| object.location.as_ref().contains("/root-extents/"))
+            .context("extent object")?;
+        if corrupt {
+            let mut bytes = native
+                .store
+                .inner
+                .get(&object.location)
+                .await?
+                .bytes()
+                .await?
+                .to_vec();
+            bytes[0] ^= 1;
+            native
+                .store
+                .inner
+                .put(&object.location, bytes.into())
+                .await?;
+        } else {
+            native.store.inner.delete(&object.location).await?;
+        }
+        let fence = Fence::new(true);
+        let before = native
+            .store
+            .inner
+            .list(None)
+            .try_collect::<Vec<_>>()
+            .await?;
+        ensure!(namespace
+            .recover_from_disaster(
+                request(&birth, reference)?,
+                &fence,
+                LtxHost::default(),
+                ArchiveLimits::default()
+            )
+            .await
+            .is_err());
+        ensure!(fence.calls.load(Ordering::SeqCst) == 0);
+        ensure!(
+            native
+                .store
+                .inner
+                .list(None)
+                .try_collect::<Vec<_>>()
+                .await?
+                == before
+        );
+        ensure!(
+            namespace
+                .birth(&birth.scope().cell)
+                .await?
+                .context("old birth")?
+                .digest()
+                == birth.digest()
+        );
+    }
     Ok(())
 }

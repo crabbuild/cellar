@@ -4,12 +4,13 @@ use super::*;
 
 pub(super) async fn run(config: Config) -> Result<()> {
     ensure!(
-        config.index < 4 && config.peers.len() == 4,
+        config.index < config.peers.len()
+            && config.peers.len() == if config.disaster { 3 } else { 4 },
         "invalid worker identity"
     );
     ensure!(
-        !config.directory.exists(),
-        "worker must start with an absent data directory"
+        config.directory.exists() == config.retained,
+        "worker directory does not match cold/retained startup"
     );
     let _ = tracing_subscriber::fmt()
         .with_env_filter("cellar::raft::archive=info,cellar::raft::host=debug")
@@ -18,7 +19,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
         .try_init();
     let calls = Arc::new(AtomicUsize::new(0));
     let (definition, verify) = fixture::recovery_definition(calls.clone())?;
-    let peer = config.peers[config.index].native(config.index)?;
+    let peer = config.native(config.index)?;
     let node = public_node::node_named(
         &config.directory,
         definition.application.clone(),
@@ -31,14 +32,14 @@ pub(super) async fn run(config: Config) -> Result<()> {
         query: tokio::net::TcpListener::bind(peer.query_address).await?,
     };
     ensure!(
-        !node.info().data_dir.join("raft").exists(),
-        "fresh process has Raft state"
+        node.info().data_dir.join("raft").exists() == config.retained,
+        "worker Raft state does not match cold/retained startup"
     );
     atomic_json(
         &config.control.join("ready.json"),
         &json!({
             "pid": std::process::id(), "data_dir": node.info().data_dir,
-            "initially_empty": true, "member": config.index + 1,
+            "initially_empty": !config.retained, "member": config.index + 1,
         }),
     )?;
     let deadline = Instant::now() + START_TIMEOUT;
@@ -49,7 +50,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
         );
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    let mut registration = registration(definition.schema)?;
+    let mut registration = config.registration(definition.schema)?;
     if let Some(source) = config.source {
         ensure!(config.index == 3 && source < 3, "invalid cold source");
         ensure!(
@@ -77,7 +78,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
                 peer.node,
                 peer.disk,
                 peer.process,
-                if config.source.is_some() {
+                if config.source.is_some() || config.disaster && !config.retained {
                     LogOpenMode::Create
                 } else {
                     LogOpenMode::Resume
@@ -104,7 +105,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
             .peers
             .iter()
             .enumerate()
-            .map(|(i, peer)| peer.native(i))
+            .map(|(i, _)| config.native(i))
             .collect::<Result<_>>()?,
         host,
     };
@@ -125,7 +126,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
     atomic_json(
         &config.control.join("started.json"),
         &json!({
-            "pid": std::process::id(), "from_s3": config.source.is_some(),
+            "pid": std::process::id(), "from_s3": config.source.is_some() || config.disaster && !config.retained,
             "snapshot_timeout_ms": snapshot_timeout_ms, "performance": service.performance(),
         }),
     )?;
@@ -169,6 +170,7 @@ pub(super) async fn run(config: Config) -> Result<()> {
         let response = match result {
             Ok(value) => json!({"sequence": last, "ok": true, "value": value}),
             Err(error) => json!({"sequence": last, "ok": false, "error": format!("{error:#}"),
+                "wrong_incarnation": error.downcast_ref::<CommandFailure>() == Some(&CommandFailure::WrongIncarnation),
                 "overloaded": error.downcast_ref::<CommandFailure>() == Some(&CommandFailure::Overloaded)}),
         };
         atomic_json(&config.control.join("response.json"), &response)?;
@@ -212,6 +214,7 @@ async fn execute(
             Ok(
                 json!({"ready": status.command_ready, "leader": status.leader.map(MemberId::get),
                 "term": status.term.get(), "revision": status.membership_revision.get(),
+                "committed": status.committed.get(), "archived": status.archived.get(), "archive": status.archive,
                 "callbacks": calls.load(Ordering::SeqCst)}),
             )
         }

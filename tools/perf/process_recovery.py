@@ -15,6 +15,7 @@ import shutil
 import sys
 
 import recovery
+import full_quorum_recovery
 
 
 def validate(evidence, image_bytes):
@@ -77,12 +78,13 @@ def run(args):
     for name in ['CELLAR_LARGE_IMAGE_ENDPOINT', 'CELLAR_LARGE_IMAGE_BUCKET', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']:
         recovery.require(os.environ.get(name), f'missing {name}')
     workers, store = args.work_directory.resolve(), args.store_data_directory.resolve()
-    required_workers = 4 * image_bytes + 8 * 1024**3
-    required_store = required_workers if workers.stat().st_dev == store.stat().st_dev else image_bytes + 8 * 1024**3
+    quorum_loss = args.scenario == "quorum-loss"
+    required_workers = (6 if quorum_loss else 4) * image_bytes + 8 * 1024**3
+    required_store = required_workers if workers.stat().st_dev == store.stat().st_dev else (2 if quorum_loss else 1) * image_bytes + 8 * 1024**3
     admission = {'worker_free_bytes': shutil.disk_usage(workers).free, 'worker_required_bytes': required_workers,
                  'store_free_bytes': shutil.disk_usage(store).free, 'store_required_bytes': required_store}
     report = {'format': 1, 'source': source, 'binary_sha256': recovery.sha256(binary), 'image_bytes': image_bytes,
-              'quota': quota, 'admission': admission, 'complete': False, 'production_qualified': False}
+              'quota': quota, 'scenario': args.scenario, 'admission': admission, 'complete': False, 'production_qualified': False}
     path = args.output / 'result.json'
     def save():
         path.write_text(json.dumps(report, indent=2) + '\n')
@@ -96,7 +98,7 @@ def run(args):
         recovery.require(args.fixture.stat().st_size == image_bytes and args.fixture.stat().st_mode & 0o222 == 0, 'fixture size/permissions differ')
         env['CELLAR_LARGE_IMAGE_FIXTURE'] = str(args.fixture.resolve())
         report['fixture_sha256'] = recovery.sha256(args.fixture)
-    test = 'process_recovery::rustfs_' + ('decimal_ten_gb' if args.profile == '10gb' else '272_mib') + '_after_sigkill_restores_empty_process'
+    test = 'process_recovery::rustfs_' + ('decimal_ten_gb' if args.profile == '10gb' else '272_mib') + ('_after_full_quorum_loss' if quorum_loss else '_after_sigkill_restores_empty_process')
     code, timed = recovery.run_process([str(binary), '--exact', test, '--list'], args.output / 'selection.log', timeout=30, env=env)
     recovery.require(code == 0 and not timed and (args.output / 'selection.log').read_text().splitlines().count(test + ': test') == 1, 'exact test absent')
     command = [str(binary), '--exact', test, '--ignored', '--nocapture', '--test-threads=1']
@@ -116,7 +118,7 @@ def run(args):
             report.update(evidence=json.loads(evidence_path.read_text()), worker_directory=str(directory), object_prefix=roots[0][1])
     save()
     recovery.require(code == 0 and not timed and selected == passed == 1 and report['source_unchanged'], 'native process qualification failed; inspect retained evidence')
-    report['measurements'] = validate(report['evidence'], image_bytes)
+    report['measurements'] = (full_quorum_recovery.validate if quorum_loss else validate)(report['evidence'], image_bytes)
     if args.fixture is not None:
         recovery.require(recovery.sha256(args.fixture) == report['fixture_sha256'], 'golden fixture changed')
     report['complete'] = True
@@ -127,6 +129,7 @@ def run(args):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--scenario', choices=['owner-loss', 'quorum-loss'], default='owner-loss')
     parser.add_argument('--profile', choices=['272mib', '10gb'], required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--work-directory', type=Path, required=True)

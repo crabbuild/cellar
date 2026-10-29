@@ -88,3 +88,36 @@ This is a capacity/correctness profile, not a one-hour recovery objective. The
 image-limit builder alone selects a five-minute minimum; slower storage can
 exhaust that budget before the image is installed. Read deadlines remain 60
 seconds, and all image, authorization, receipt and durability checks still apply.
+
+
+## Full-quorum loss with asynchronous archiving
+
+Add `--scenario quorum-loss` to the same runner. This selects a separate test
+and evidence contract; the default single-owner-loss scenario remains unchanged.
+Run the 272 MiB profile first, then the 10 GB profile with the immutable fixture.
+
+The controller issues a **quorum** write and observes asynchronous archive
+coverage before loss. It pins the exact archive reference, sends SIGKILL to all
+three original processes, joins each observed signal-9 exit, and erases every
+original worker directory. Its fencing adapter owns those joined child handles
+and verifies disk absence; it is a controlled local fixture, not a production
+infrastructure-authority implementation.
+
+Only after that fence does the public disaster API publish a fresh birth. Three
+new processes with absent directories and new node/disk/history identities each
+fetch and verify the complete extent image from RustFS, with zero peer-image
+recovery bytes. All three must serve restored reads. Old version tokens refuse;
+old receipts return without callbacks. The recovered quorum acknowledges a new
+quorum write, all three replicas verify payload lengths and SHA-256 samples,
+and asynchronous archiving catches up under the new history. Finally all three
+processes close and restart from retained new disks; reads and receipt retries
+must still succeed without repeating callbacks.
+
+The source-pinned validator requires the exact phase sequence, distinct process
+identities, all three erased disks, complete object-store reads, and joined
+shutdowns. Its recovery interval includes erasure, operator verification/fencing,
+all fresh process startup, restoration and the first verified quorum write.
+Initial fixture preparation/archive catch-up is outside this interval and
+recorded separately. All workers and RustFS still share one physical host;
+this does not qualify independent failure domains, cold OS caches, production
+fencing, or a recovery-time percentile.

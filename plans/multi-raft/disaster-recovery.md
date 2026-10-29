@@ -6,9 +6,10 @@ The operator API restores a cell from a selected S3 recovery set into a new Raft
 history after permanent loss of its voters. It is distinct from learner seeding,
 which still requires a fresh ReadIndex from a surviving quorum.
 
-This recovery path supports `RaftImageStorage::Materialized`. Extent-backed
-namespaces refuse before intent publication or infrastructure fencing; their
-disaster seeding path is not implemented.
+This recovery path supports `RaftImageStorage::Materialized` and
+`RaftImageStorage::Extents`. Extent recovery verifies the selected remote closure
+with bounded reads, then independently hydrates and seals every destination
+inventory. The operator needs no full-image scratch file or local extent store.
 
 ## Authority and durable decisions
 
@@ -56,11 +57,14 @@ the pinned reference. Missing or corrupt selected objects fail startup even if a
 newer head exists. Archive reads and replay use the existing bounded snapshot
 receive budget, scratch ownership, generation limits and blocking SQL pool.
 
-The engine atomically installs a materialized checkpoint at index 2, term 1,
+The engine atomically installs a checkpoint at index 2, term 1,
 vote 0 with the new initial configuration. Index 1 remains reserved for empty
 genesis. Old terms, votes, membership changes and leadership do not transfer.
-The snapshot/LTX replay preserves application bytes, receipts, client sequence
-floors and Blob values without executing callbacks. The initial member claim is
+Materialized snapshot/LTX replay preserves application bytes, receipts, client
+sequence floors and Blob values without executing callbacks. Extent recovery
+preserves the selected payload objects and SQLite geometry/position, changes
+only the root manifest's history binding, and seals that root under the new
+birth. It creates no flat-image encoding or full-image in-memory buffer. The initial member claim is
 confirmed before runtime attachment; the fresh quorum must elect a leader before
 command admission. Incarnation-bound old version tokens refuse.
 
@@ -85,6 +89,41 @@ selected archived cut may be lost after all voter disks are lost. S3-durable
 acknowledgements are protected only by a complete, retained recovery set covering
 them; deliberately selecting an older cut deliberately rolls back later state.
 Per-cell latest heads are not a globally consistent fleet snapshot.
+
+## Asynchronous publication and observations
+
+`CommandOptions::new` and `NamespaceConfig::new` continue to select
+`Durability::Quorum`. The background archive owner publishes committed images
+independently of client acknowledgements; surviving replicas continue publication
+after an election. `Durability::S3` remains an explicit stronger acknowledgement
+policy. During store outages, quorum writes can continue within the configured
+unarchived-history and disk budgets. Those limits still prevent unbounded local
+retention.
+
+`CellStatus.archive` reports `Unconfirmed`, `Lagging` or `Current`, committed-minus-
+confirmed `lag_entries`, `observed_lag_ms`, conservative `retained_bytes`, whether
+publication is in flight, the age of the last accepted successful publication,
+and consecutive publication failures with a bounded failure category. A failed
+PUT or successful upload without an accepted coverage proof cannot promote
+readiness. The new fields do not participate in `command_ready` or strengthen
+quorum receipts.
+
+These are **local, process-lifetime observations**. `Unconfirmed` does not prove
+an empty bucket; another replica may have published further. `Current` describes
+the sampled commit position, not future writes or current bucket availability.
+`observed_lag_ms` measures an uninterrupted observed backlog, not the oldest
+unarchived write's timestamp or a wall-clock RPO. Clocks reset on restart.
+`retained_bytes` is a conservative image/log retention measure, not incremental
+upload bytes. Node metrics expose `cellar_raft_groups_archive_current` and
+`cellar_raft_groups_archive_unconfirmed` alongside existing archive-lag gauges;
+per-cell status is also included in the perf node's JSON status endpoint.
+
+For a planned all-quorum shutdown, wait for local coverage of the intended
+committed cut, inspect and retain its exact archive reference, then perform the
+infrastructure fence. For an unexpected complete replica loss, restore only a
+verified retained cut and account for any acknowledged suffix beyond it. The
+new small regression deliberately loses an acknowledged, unarchived suffix to
+verify this boundary.
 
 ## Reproduction
 
