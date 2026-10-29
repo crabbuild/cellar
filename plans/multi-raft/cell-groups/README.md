@@ -39,7 +39,7 @@ The plan runner requires Python 3.11 or newer and Git; it has no Python package 
    repeats the full capability matrix at one release revision.
 
 This checkout retains evidence under the ignored
-`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/` and
+`.cellar/cell-groups-evidence/CG-01-ee7f4a8d2dec/`,
 `.cellar/cell-groups-evidence/CG-02-ec9d277e5041/` and
 `.cellar/cell-groups-evidence/CG-03-routing-final/` directories. A fresh checkout must
 receive all three retained directories at the same relative paths before validating
@@ -75,8 +75,8 @@ the resumed implementation objective.
 
 Continue CG-04 after reading
 [progress](progress.md) and inspecting the working diff.
-CG-01 through CG-03 are DONE only at their named contract/storage/admission boundaries; the
-remaining tasks still require implementation. `ready` lists eligible TODO tasks;
+CG-01 through CG-03 are DONE only at their named contract/storage/admission
+boundaries; the remaining tasks still require implementation. `ready` lists eligible TODO tasks;
 an IN_PROGRESS task is resumed from its existing brief and working state. Each
 task's complete source-bound evidence gate must pass before changing its status
 to DONE. Continue in the generated dependency order afterward.
@@ -88,10 +88,10 @@ evidence and limits. CG-03 has been audited at its preparation boundary. Its
 record is at
 `.cellar/cell-groups-evidence/CG-03-routing-final/record.json`; transfer that entire
 directory along with the earlier DONE-task evidence to the implementation
-executor. CG-04 is now implementing atomic creation retention and ordered
-enrollment application. It must connect the catalog startup permit to the shared
-runtime, verify the complete selected manifest/image closure and acquire current-term
-quorum authority. Managed fleet integration remains required by CG-07. A birth
+executor. CG-04 now retains creation identity with the selected image and
+prepares ordered enrollment and exact retries. It must connect the catalog startup permit to the shared
+runtime, verify the complete selected manifest/image closure and acquire
+current-term quorum authority. Managed fleet integration remains required by CG-07. A birth
 metadata observation alone cannot authorize voter startup.
 
 The implementation executor should deliver code, updated component contracts and

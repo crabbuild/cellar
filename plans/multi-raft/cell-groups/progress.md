@@ -7,6 +7,57 @@ CG-01 through CG-03 have passed their scoped gates; CG-04 is IN_PROGRESS and
 CG-05 through CG-16 remain TODO. Intermediate contracts do not qualify a shared
 runtime. No production legacy/shared mode flag is being added.
 
+## CG-04 durable enrollment checkpoint
+
+Source: `c187c47773fd22d4658de1d912b6096f92a8e26d` (successor to `9f937f22`).
+CG-04 remains IN_PROGRESS.
+
+Each authenticated cell leaf now requires the original creation operation,
+logical cell history, schema and initial image commitment. Publication includes
+that record in the same complete root as the current image. Mutations refuse a
+changed record; sequence one must match the initial image and later versions
+advance its LTX position. Page decoding rejects missing/foreign creation records
+at marker 1. No old-layout reader or inferred enrollment is introduced. The
+physical pin-tree budget includes the record's additional cell identity.
+
+Ordered enrollment preparation checks the route, preceding complete root,
+contiguous apply position and committed lifecycle phase before invoking a physical
+image producer. Exact retries keep the latest image, receipts and cell version
+and advance only the group prefix. This unchanged-root path reuses image/page
+pins without page I/O and refuses quarantined stores. Engine publication still
+requires the exact preceding branch and committed position.
+
+Native recovery exercises actual SQLite/LTX and Raft Engine in materialized and
+extent modes. It mutates a cell, restarts, reclaims the original image, then
+replays enrollment without invoking the image producer. The latest values and
+receipts survive another restart, while the neighboring cell remains unchanged.
+Sealed/retired ranges, competing creations and invalid apply positions refuse.
+Existing process-kill cases also verify creation identity after recovery.
+
+The new page-wire tests preserve canonical JSON ordering when corrupting identity
+fields, so format ordering cannot mask a missing identity check. A quarantine
+fixture fails the actual manifest directory-sync barrier and checks fault
+consumption. Its initial run selected an image-file-only fault and failed because
+no page I/O was interrupted; that failed run is retained separately.
+
+All 32 selected Rust cases pass at this source: 15 catalog cases, 15 active
+storage cases and two page-wire unit cases. The ignored process fixture is run
+by its parent crash test. All-target Clippy for `cellar`/`cellar-logic` with warnings
+denied, formatting (1,781 Rust files), layout, dependency isolation, repository
+docs, source preflight and all 37 plan-validator tests pass. The retained partial
+record is `.cellar/cell-groups-evidence/CG-04-enrollment/checkpoint.json`, binding
+79 source inputs, nine successful command logs and three executables.
+The failed fault-injection run remains under
+`.cellar/cell-groups-evidence/CG-04-enrollment-failed-9f937f22/`.
+
+This is an ordered preparation/storage checkpoint. The existing `Replica` and
+shared worker still consume the staged single-cell log/apply types. The next
+implementation must connect physical `GroupHistory` and complete-root application
+to that real consensus owner, then wire independent SQLite execution, fair
+admission, receipts and reads. The six CG-04 real-Raft acceptance cases remain
+required. No live shared owner, RustFS, load or hard-cutover qualification is
+claimed by this checkpoint.
+
 ## CG-03 completion audit and CG-04 continuation
 
 The audit checks the four CG-03 steps against retained evidence at
@@ -242,7 +293,7 @@ CG-01 through CG-03 have passed their scoped task gates. CG-04 is IN_PROGRESS;
 CG-05 through CG-16 remain TODO. Historical entries below retain the intermediate
 checkpoints and their limitations.
 
-The reviewed source baseline is `0df009a24d88408a8efc40e356f794ca35513a95`.
+The reviewed source baseline is the CG-04 enrollment checkpoint at `c187c477`.
 A new executor must receive all three ignored DONE-task evidence directories
 before validating those historical checkpoints. Current CG-04 source changes
 remain subject to their own verification and recorded review.
