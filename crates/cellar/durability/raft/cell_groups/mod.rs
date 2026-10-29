@@ -6,6 +6,7 @@ mod image_pin;
 mod manifest;
 mod page_store;
 mod page_wire;
+mod pins;
 mod root;
 
 pub use manifest::{
@@ -15,4 +16,5 @@ pub use manifest::{
 pub use page_store::{ManifestPageStore, ManifestStoreUsage};
 
 pub use image_pin::{cell_image_history_digest, CellImagePin};
+pub(crate) use pins::ManifestPins;
 pub use root::{GroupManifest, PreparedGroupManifest};

@@ -41,8 +41,25 @@ checkpoint preparation. Every leaf must match a real materialized generation
 pin, sealed extent image, or canonical empty image. Extent roots bind the stable
 logical cell-history digest and schema. The method verifies and syncs all pages,
 retains physical image pins and binds the preparation to the exact engine owner.
-This full scan is not the ordinary-write path; incremental preparation remains
-required before host cutover.
+This full scan establishes the capability used by ordinary writes.
+
+`prepare_update` compares the prior cell version, requires the next group index,
+verifies the changed image seal and synchronizes the changed manifest path. A
+persistent in-memory AVL pin tree mirrors the manifest. Unchanged subtrees are
+shared across prepared/published roots; changed paths and rotations reuse the
+unchanged cell image pins. Preparation performs O(log cells) page work and node
+allocation, with O(log² cells) bounded in-memory comparisons. Cloning a root is
+constant-time. `pin_cell` selects a coherent leaf/image pair from that root; read
+authority still belongs to the caller. Memory admission conservatively charges
+each owner for its entire tree, including cell IDs and pin-node allocations.
+
+Incremental capabilities bind the exact previous manifest and page-store owner.
+The engine refuses a staged successor of a different branch at the same index;
+an identical already-selected result remains retryable. Reopening the page store
+requires full preparation again. A live old root or individual image reader
+prevents generation reclamation after a newer root publishes. Stores still need
+authoritative retention reconciliation before retiring inventory, especially
+after an uncertain engine outcome; a disposable request pin alone is insufficient.
 
 The engine persists group root, applied position, membership and log/hard state
 in one synced batch. It requires contiguous apply, matching group/birth/range,
@@ -59,8 +76,8 @@ automatic migration. The staged image variant supports existing code while the
 remaining production consumers are converted, and is removed at hard cutover.
 Existing disks and archives must be retained, not reset by this component.
 
-Further integration must add incremental preparation and authoritative physical
-root retention/reclamation. Reader, apply,
+Further integration must add authoritative physical root retention/reclamation,
+including page reclamation and uncertain publication reconciliation. Reader, apply,
 snapshot and transfer pins must protect dependencies before deletion. Native
 engine crash cuts and both physical image modes remain required before CG-02
 can be marked DONE.

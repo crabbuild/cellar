@@ -22,6 +22,7 @@ pub struct ManifestStoreUsage {
 }
 
 pub struct ManifestPageStore {
+    pub(super) owner: Arc<()>,
     directory: PathBuf,
     filesystem: Arc<dyn FileSystem>,
     inventory: BTreeMap<[u8; 32], u64>,
@@ -49,6 +50,7 @@ impl ManifestPageStore {
         cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), directory)?;
         let lock = filesystem.lock_file(&directory.join("LOCK"))?;
         let mut store = Self {
+            owner: Arc::new(()),
             directory: directory.to_owned(),
             filesystem,
             inventory: BTreeMap::new(),

@@ -4,8 +4,8 @@
 //! nor physical image seals establish current-term quorum/serving authority.
 
 use super::{
-    CellImagePin, CellManifestLeaf, ManifestError, ManifestLimits, ManifestPageStore, ManifestRoot,
-    ManifestTree,
+    CellImagePin, CellManifestLeaf, ManifestError, ManifestLimits, ManifestPageStore, ManifestPins,
+    ManifestRoot, ManifestTree,
 };
 use crate::application::consensus::cell_routing_key;
 use cellar_logic::{cell_group::*, consensus::*};
@@ -76,8 +76,10 @@ impl GroupManifest {
 pub struct PreparedGroupManifest {
     pub(crate) marker: GroupManifest,
     // The pins are deliberately inaccessible to mutation/publication callers.
-    pub(crate) images: Arc<[CellImagePin]>,
+    pub(crate) images: ManifestPins,
     pub(crate) engine_owner: Arc<()>,
+    pub(crate) base: Option<GroupManifest>,
+    page_owner: Arc<()>,
 }
 
 impl PreparedGroupManifest {
@@ -88,11 +90,22 @@ impl PreparedGroupManifest {
     pub fn pinned_images(&self) -> usize {
         self.images.len()
     }
+
+    /// Pin the exact image/version selected by this coherent root. This is a
+    /// physical read view; the caller still needs the requested read authority.
+    pub fn pin_cell(&self, cell: &CellId) -> Option<(&CellManifestLeaf, CellImagePin)> {
+        self.images
+            .get(&cell_routing_key(self.marker.route.history.namespace, cell))
+    }
+
+    pub(crate) fn reserved_bytes(&self) -> usize {
+        self.images.reserved_bytes()
+    }
 }
 
 impl ManifestTree {
     /// Full closure verification for bootstrap, recovery and checkpoint install.
-    /// Ordinary apply needs the incremental preparation path before host cutover.
+    /// Ordinary cell mutations use `prepare_update` instead.
     /// The callback returns actual sealed images, never merely accepted markers.
     pub fn prepare_complete(
         &self,
@@ -116,34 +129,58 @@ impl ManifestTree {
         if !marker.matches_group(&group.identity().scope, group.birth_digest) {
             return Err(ManifestError::Invalid("root/engine identity"));
         }
-        let mut pins = Vec::new();
-        self.verify(store, root, position, |leaf| {
-            let pin = image(leaf)?;
-            pin.check(leaf, self.route.schema_digest)?;
-            pins.push(pin);
-            Ok(())
-        })?;
-        self.sync_pages(store, root.0)?;
+        self.verify(store, root, position, |_| Ok(()))?;
+        let pins = ManifestPins::complete(self, store, root, &mut image)?;
         store.sync_directory()?;
         Ok(PreparedGroupManifest {
             marker,
-            images: pins.into(),
+            images: pins,
             engine_owner: group.owner.clone(),
+            base: None,
+            page_owner: store.owner.clone(),
         })
     }
 
-    fn sync_pages(
+    /// Prepare one cell mutation/enrollment at the next contiguous group index.
+    /// The previous complete capability supplies unchanged physical image pins;
+    /// only the changed image and O(log cells) page path need preparation. It
+    /// may be chained for staging, but engine publication still checks order.
+    pub fn prepare_update(
         &self,
         store: &mut ManifestPageStore,
-        reference: Option<super::page_wire::PageRef>,
-    ) -> Result<(), ManifestError> {
-        let Some(reference) = reference else {
-            return Ok(());
+        previous: &PreparedGroupManifest,
+        leaf: CellManifestLeaf,
+        expected: Option<&CellVersion>,
+        image: CellImagePin,
+    ) -> Result<PreparedGroupManifest, ManifestError> {
+        if previous.marker.route != self.route || !Arc::ptr_eq(&previous.page_owner, &store.owner) {
+            return Err(ManifestError::Invalid("root/page owner"));
+        }
+        if previous.marker.position.index.get().checked_add(1)
+            != Some(leaf.last_mutation.index.get())
+            || leaf.last_mutation.term < previous.marker.position.term
+        {
+            return Err(ManifestError::Invalid("noncontiguous mutation"));
+        }
+        image.check(&leaf, self.route.schema_digest)?;
+        let root = self.update(store, previous.marker.root, leaf.clone(), expected)?;
+        // update synchronizes every newly referenced page before returning. All
+        // reused subtrees belong to a complete preparation on this store owner.
+        let pins = previous.images.updated(self, store, root, &leaf, &image)?;
+        let marker = GroupManifest {
+            route: self.route.clone(),
+            position: leaf.last_mutation,
+            membership_revision: previous.marker.membership_revision,
+            root,
         };
-        let page = self.read(store, reference)?;
-        self.sync_pages(store, page.left)?;
-        self.sync_pages(store, page.right)?;
-        store.sync_page(reference.digest)
+        marker.check()?;
+        Ok(PreparedGroupManifest {
+            marker,
+            images: pins,
+            engine_owner: previous.engine_owner.clone(),
+            base: Some(previous.marker.clone()),
+            page_owner: store.owner.clone(),
+        })
     }
 }
 

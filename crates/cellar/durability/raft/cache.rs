@@ -2,7 +2,7 @@
 
 //! Durable storage views. Raft reads these bounded caches without disk I/O.
 
-use super::cell_groups::{CellImagePin, GroupManifest, PreparedGroupManifest};
+use super::cell_groups::{GroupManifest, ManifestPins, PreparedGroupManifest};
 use super::member_state::GroupMembership;
 use super::storage::LogError;
 use crate::application::consensus::ImageCommitment;
@@ -156,9 +156,7 @@ impl GroupWrite {
         }
         if let Some(manifest) = &self.group_manifest {
             bytes = bytes
-                .checked_add(
-                    16 * 1024 + manifest.pinned_images() * std::mem::size_of::<CellImagePin>(),
-                )
+                .checked_add(16 * 1024 + manifest.reserved_bytes())
                 .ok_or(LogError::Overloaded)?;
         }
         Ok(bytes)
@@ -384,7 +382,7 @@ pub(crate) struct CachedGroup {
     pub entries: BTreeMap<u64, Entry>,
     pub applied: DurableApply,
     pub group_manifest: Option<GroupManifest>,
-    pub manifest_pins: Option<Arc<[CellImagePin]>>,
+    pub manifest_pins: Option<ManifestPins>,
 }
 
 impl CachedGroup {
@@ -424,7 +422,11 @@ impl CachedGroup {
 
     pub fn bytes(&self) -> usize {
         1024 + self.group_manifest.as_ref().map_or(0, |m| {
-            16 * 1024 + m.root().cells() as usize * std::mem::size_of::<CellImagePin>()
+            16 * 1024
+                + self.manifest_pins.as_ref().map_or(
+                    ManifestPins::maximum_bytes(m.root().cells()),
+                    ManifestPins::reserved_bytes,
+                )
         }) + self.membership.reserved_bytes()
             + self.snapshot.compute_size() as usize
             + self.conf_state.compute_size() as usize
@@ -484,7 +486,7 @@ impl CachedGroup {
                 || self
                     .manifest_pins
                     .as_ref()
-                    .is_some_and(|pins| pins.len() != manifest.root().cells() as usize)
+                    .is_some_and(|pins| pins.root() != manifest.root())
             {
                 return Err(LogError::Corrupt("incoherent cell-group root".into()));
             }
@@ -603,6 +605,20 @@ impl CachedGroup {
         }
         if let Some(prepared) = &write.group_manifest {
             let marker = prepared.marker();
+            if let Some(base) = &prepared.base {
+                let fresh = self.group_manifest.is_none()
+                    && base.root().cells() == 0
+                    && base.position() == self.applied.position
+                    && self.applied.position.index.get() == 1;
+                if self.group_manifest.as_ref() != Some(marker)
+                    && self.group_manifest.as_ref() != Some(base)
+                    && !fresh
+                {
+                    return Err(LogError::Invalid(
+                        "cell-group preparation base changed".into(),
+                    ));
+                }
+            }
             marker
                 .check()
                 .map_err(|e| LogError::Invalid(e.to_string()))?;

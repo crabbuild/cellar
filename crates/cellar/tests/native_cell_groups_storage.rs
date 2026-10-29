@@ -1,7 +1,7 @@
 // Copyright 2026 Cellar Project Authors. Licensed under Apache-2.0.
 
-//! Manifest-page contracts on independently sealed SQLite images. Engine marker
-//! publication and complete recovery qualification are added at the next boundary.
+//! Manifest and engine publication contracts on independently sealed SQLite images.
+//! Full crash-cut and both-image-mode qualification remain separate gates.
 #![allow(clippy::disallowed_methods)]
 
 #[path = "support/raft_ltx_fixture.rs"]
@@ -573,6 +573,283 @@ async fn group_manifest_recovery_requires_every_image() -> Result<()> {
         )
         .is_err());
     assert!(group.applied().is_err());
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn incremental_manifest_preserves_images_and_rejects_forks() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    use cellar_logic::consensus::OperationId;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits {
+            max_generations: 128,
+            ..Default::default()
+        },
+    )?;
+    let page_path = temp.path().join("pages");
+    let trace = faults::Faults::new(page_path.clone(), None);
+    let page_fs = Arc::new(faults::FaultFileSystem {
+        faults: trace.clone(),
+    });
+    let mut pages = ManifestPageStore::open(&page_path, page_fs.clone(), 4096, 64 * 1024 * 1024)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let mut pins = BTreeMap::new();
+    let mut root = ManifestRoot::default();
+    // All cells are part of this fixture's first complete checkpoint at index 2.
+    for id in 1..=64 {
+        let bytes = images::image(
+            None,
+            &format!("CREATE TABLE value(n); INSERT INTO value VALUES ({id});"),
+        )?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        let pin = generations.prepare(images::id(id), None, &cut.update())?;
+        let value = leaf(id, &pin, 1, 2);
+        root = tree.update(&mut pages, root, value.clone(), None)?;
+        pins.insert(value.version.history.cell, pin);
+    }
+    let original = tree.prepare_complete(&group, &mut pages, root, position(2), 1, |cell| {
+        Ok(CellImagePin::Materialized(
+            pins[&cell.version.history.cell].clone(),
+        ))
+    })?;
+    log.persist(
+        OperationId::new(1),
+        vec![root_write(&group, original.clone())?],
+    )
+    .await?;
+    drop(pins);
+    let target = CellId::new("cell-32")?;
+    let (old_leaf, CellImagePin::Materialized(reader)) = original.pin_cell(&target).unwrap() else {
+        panic!("materialized fixture");
+    };
+    let before = images::read(&reader)?;
+    let after = images::image(Some(&before), "UPDATE value SET n = 999;")?;
+    let cut = images::Cut::new(&before, &after, 1, true, false);
+    let changed = generations.prepare(images::id(100), Some(&reader), &cut.update())?;
+    let next_leaf = leaf(32, &changed, 2, 3);
+    let written = pages.usage().written_pages;
+    let reads = trace.reads.load(std::sync::atomic::Ordering::Acquire);
+    trace.synced_paths.lock().unwrap().clear();
+    assert!(tree
+        .prepare_update(
+            &mut pages,
+            &original,
+            next_leaf.clone(),
+            Some(&old_leaf.version),
+            CellImagePin::Empty
+        )
+        .is_err());
+    assert_eq!(pages.usage().written_pages, written);
+    let next = tree.prepare_update(
+        &mut pages,
+        &original,
+        next_leaf.clone(),
+        Some(&old_leaf.version),
+        CellImagePin::Materialized(changed.clone()),
+    )?;
+    assert_eq!(next.pinned_images(), 64);
+    assert!(pages.usage().written_pages - written <= u64::from(root.depth()));
+    let read_count = trace.reads.load(std::sync::atomic::Ordering::Acquire) - reads;
+    assert!(read_count <= 4 * usize::from(root.depth()) + 2);
+    assert!(
+        trace.synced_paths.lock().unwrap().len() <= usize::from(root.depth()) * 2,
+        "mutation must not sync the complete closure"
+    );
+    assert_eq!(original.pin_cell(&target).unwrap().0, old_leaf);
+    assert_eq!(next.pin_cell(&target).unwrap().0, &next_leaf);
+    tree.verify(&pages, next.marker().root(), position(3), |cell| {
+        assert_eq!(next.pin_cell(&cell.version.history.cell).unwrap().0, cell);
+        if cell.version.history.cell != target {
+            assert_eq!(
+                original.pin_cell(&cell.version.history.cell).unwrap().0,
+                cell
+            );
+        }
+        Ok(())
+    })?;
+    // Stage a different branch at 3 and its successor at 4. Matching the next
+    // index alone must never allow it to replace the selected branch at 3.
+    let mut branch = original.clone();
+    for id in 65..=66 {
+        let bytes = images::image(
+            None,
+            &format!("CREATE TABLE value(n); INSERT INTO value VALUES ({id});"),
+        )?;
+        let cut = images::Cut::new(&[], &bytes, 0, true, false);
+        let pin = generations.prepare(images::id(id), None, &cut.update())?;
+        branch = tree.prepare_update(
+            &mut pages,
+            &branch,
+            leaf(id, &pin, 1, u64::from(id) - 62),
+            None,
+            CellImagePin::Materialized(pin),
+        )?;
+    }
+    log.persist(OperationId::new(2), vec![root_write(&group, next.clone())?])
+        .await?;
+    assert!(log
+        .persist(OperationId::new(3), vec![root_write(&group, branch)?])
+        .await
+        .is_err());
+    assert_eq!(group.group_manifest()?.as_ref(), Some(next.marker()));
+    let mut retry = cellar::application::consensus::verification::GroupWrite::new(&group);
+    retry.group_manifest = Some(next.clone());
+    log.persist(OperationId::new(4), vec![retry]).await?;
+    // Explicitly retire fixture inventory after authoritative roots are pinned.
+    // Only the two abandoned branch images may disappear at this point.
+    generations.retain_only(&[])?;
+    assert_eq!(generations.reclaim(128)?.files, 2);
+    drop(original);
+    assert_eq!(
+        generations.reclaim(128)?.files,
+        0,
+        "old reader still pins cell-32"
+    );
+    assert_eq!(images::read(&reader)?, before);
+    drop(reader);
+    assert_eq!(
+        generations.reclaim(128)?.files,
+        1,
+        "only the superseded cell image is now reclaimable"
+    );
+    drop(changed);
+    assert_eq!(generations.reclaim(128)?.files, 0);
+    // A previous owner cannot certify a reopened page store, even on the same
+    // directory. Full closure recovery must establish a fresh capability.
+    drop(pages);
+    let mut pages = ManifestPageStore::open(&page_path, page_fs, 4096, 64 * 1024 * 1024)?;
+    let mut candidate = next_leaf.clone();
+    candidate.last_mutation = position(4);
+    assert!(matches!(
+        tree.prepare_update(
+            &mut pages,
+            &next,
+            candidate,
+            Some(&next_leaf.version),
+            next.pin_cell(&target).unwrap().1
+        ),
+        Err(ManifestError::Invalid("root/page owner"))
+    ));
+    drop(next);
+    assert_eq!(
+        generations.reclaim(128)?.files,
+        0,
+        "engine owns the selected root's images"
+    );
+    log.close().await?;
+    drop(group);
+    drop(log);
+    assert_eq!(generations.reclaim(128)?.files, 64);
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn incremental_enrollment_preserves_rotated_subtrees() -> Result<()> {
+    use cellar::application::consensus::verification::{LogOpenMode, ReplicaLog};
+    use cellar::sdk::ExecutionDomain;
+    let temp = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fs = Arc::new(DirectFileSystem);
+    let log = domain
+        .run(ReplicaLog::open(
+            engine_options(&temp.path().join("node"), LogOpenMode::Create, 1),
+            fs.clone(),
+        ))
+        .await??;
+    let group = log.create_group(engine_bootstrap()).await?;
+    let generations = GenerationStore::open(
+        temp.path().join("images"),
+        fs.clone(),
+        GenerationLimits::default(),
+    )?;
+    // Identical initial bytes may be physically shared; logical cell identity
+    // and independently ordered enrollment still remain distinct.
+    let bytes = images::image(None, "CREATE TABLE value(n); INSERT INTO value VALUES (1);")?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, false);
+    let pin = generations.prepare(images::id(1), None, &cut.update())?;
+    let mut pages =
+        ManifestPageStore::open(&temp.path().join("pages"), fs, 4096, 64 * 1024 * 1024)?;
+    let tree = ManifestTree::new(route(), ManifestLimits::default())?;
+    let mut current = tree.prepare_complete(
+        &group,
+        &mut pages,
+        ManifestRoot::default(),
+        position(1),
+        1,
+        |_| panic!("empty closure"),
+    )?;
+    let empty = current.clone();
+    let mut historical = None;
+    for id in 1..=96 {
+        let before = pages.usage().written_pages;
+        let depth = current.marker().root().depth();
+        current = tree.prepare_update(
+            &mut pages,
+            &current,
+            leaf(id, &pin, 1, u64::from(id) + 1),
+            None,
+            CellImagePin::Materialized(pin.clone()),
+        )?;
+        assert_eq!(current.pinned_images(), usize::from(id));
+        assert!(pages.usage().written_pages - before <= 3 * u64::from(depth) + 3);
+        tree.verify(
+            &pages,
+            current.marker().root(),
+            current.marker().position(),
+            |cell| {
+                assert_eq!(
+                    current.pin_cell(&cell.version.history.cell).unwrap().0,
+                    cell
+                );
+                Ok(())
+            },
+        )?;
+        if id == 32 {
+            historical = Some(current.clone());
+        }
+    }
+    assert_eq!(empty.pinned_images(), 0);
+    let historical = historical.unwrap();
+    assert_eq!(historical.pinned_images(), 32);
+    assert!(historical.pin_cell(&CellId::new("cell-33")?).is_none());
+    tree.verify(
+        &pages,
+        historical.marker().root(),
+        historical.marker().position(),
+        |cell| {
+            assert_eq!(
+                historical.pin_cell(&cell.version.history.cell).unwrap().0,
+                cell
+            );
+            Ok(())
+        },
+    )?;
+    let full = tree.prepare_complete(
+        &group,
+        &mut pages,
+        current.marker().root(),
+        current.marker().position(),
+        1,
+        |_| Ok(CellImagePin::Materialized(pin.clone())),
+    )?;
+    assert_eq!(full.marker(), current.marker());
+    assert_eq!(full.pinned_images(), current.pinned_images());
     log.close().await?;
     domain.shutdown().await;
     Ok(())
